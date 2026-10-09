@@ -52,21 +52,24 @@ const SEED_LOAN_REFERENCE = "LN-SEED-0001"
  */
 async function upsertStaff(tenantId: string, email: string, name: string, role: "ADMIN" | "CREDIT_OFFICER", passwordEnv: string) {
   const existing = await prisma.user.findUnique({ where: { email }, select: { tenantId: true, totpSecret: true } })
-  // email is globally unique: on a shared database the upsert below would
+  // email is globally unique: on a shared database the write below would
   // otherwise rewrite another tenant's user (password, tenantId).
   if (existing && existing.tenantId !== tenantId) {
     throw new Error(`Seed refused: user ${email} belongs to another tenant (${existing.tenantId ?? "none"}). The demo seed never rewrites another tenant's row.`)
   }
   const totpSecret = existing?.totpSecret ?? generateTotpSecret()
-  const password = envPassword(passwordEnv) ?? (existing ? undefined : generatePassword())
-  const hash = password ? await bcrypt.hash(password, 12) : undefined
-  if (!existing && !hash) throw new Error(`Seed refused: no password for new user ${email}.`)
-  const user = await prisma.user.upsert({
-    where: { email },
-    update: { tenantId, ...(hash ? { password: hash } : {}), active: true, totpSecret, totpEnabled: true },
-    create: { tenantId, email, name, role, password: hash!, active: true, totpSecret, totpEnabled: true },
-  })
-  return { user, password: password ?? kept(passwordEnv), totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
+  const password = envPassword(passwordEnv)
+  const fields = { tenantId, active: true, totpSecret, totpEnabled: true }
+  if (existing) {
+    const user = await prisma.user.update({
+      where: { email },
+      data: { ...fields, ...(password ? { password: await bcrypt.hash(password, 12) } : {}) },
+    })
+    return { user, password: password ?? kept(passwordEnv), totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
+  }
+  const created = password ?? generatePassword()
+  const user = await prisma.user.create({ data: { ...fields, email, name, role, password: await bcrypt.hash(created, 12) } })
+  return { user, password: created, totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
 }
 
 // ⚠️ EVERY client email MUST stay on a `.invalid` domain. The inherited demo
