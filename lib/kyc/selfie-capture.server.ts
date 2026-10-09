@@ -99,7 +99,7 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     }
 
     // A selfie needs an ID document on file, but must not depend on AI extraction.
-    // Production can run with VLM disabled and staff can review/verify the ID manually.
+    // A deployment can run with VLM disabled and staff can review/verify the ID manually.
     const idDoc = await prisma.clientDocument.findFirst({
       where: { tenantId, clientId, docType: "ID_COPY" as DocType, deletedAt: null },
       orderBy: { createdAt: "desc" },

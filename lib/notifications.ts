@@ -172,7 +172,7 @@ function disbursedHtml(identity: LenderIdentity, name: string, ref: string): str
 function overdueHtml(identity: LenderIdentity, name: string, days: number, ref: string): string {
   const daysText = days ? ` by <strong>${days} days</strong>` : ""
   // Quote the loan reference so a client paying by EFT/deposit puts it on the
-  // payment and the bank-sync reconciler makes an EXACT match (#424).
+  // payment and the bank-sync reconciler makes an EXACT match.
   const refLine = ref
     ? `<p style="margin:0 0 16px;color:#444;line-height:1.6;">Please quote your loan reference <strong>${ref}</strong> on your payment so we can allocate it to your account.</p>`
     : ""
@@ -327,7 +327,7 @@ async function buildTemplate(
       text: `Dear ${fullName}, your loan payment is overdue${days ? ` by ${days} days` : ""}. Please make payment immediately${reference ? `, quoting reference ${reference}` : ""}.`,
       // "amount overdue" isn't computed by this branch — it comes from
       // opts.data.amount, which both callers set to Loan.arrearsAmount (CENTS;
-      // lib/collections/reminders.ts and escalation.ts, since #380).
+      // lib/collections/reminders.ts and escalation.ts).
       // `outstanding` isn't included here: payment_overdue_1d/7d don't
       // interpolate it (only payment_received does).
       waVars: { ...EMPTY_WA_VARS, reference, amount: Number(d.amount ?? 0), days },

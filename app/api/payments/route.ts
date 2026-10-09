@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       // The read-modify-write on the loan's balances (over-payment guard,
       // allocation, recompute) runs inside applyManualReceipt under a per-loan
       // FOR UPDATE lock, so concurrent receipts serialise instead of losing
-      // updates (issue #422).
+      // updates.
       let result
       try {
         result = await applyManualReceipt(prisma, {

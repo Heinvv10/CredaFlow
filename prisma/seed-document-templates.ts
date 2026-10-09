@@ -5,7 +5,6 @@ import type { Prisma } from "@prisma/client"
 type SeedRow = Omit<Prisma.DocumentTemplateCreateInput, "tenant">
 
 // SYSTEM rows: code-generated NCA / compliance docs, view/download only.
-// Mapping per design spec §4 (2026-07-10-document-template-system-design.md).
 const SYSTEM_ROWS: SeedRow[] = [
   {
     key: "credit_agreement",

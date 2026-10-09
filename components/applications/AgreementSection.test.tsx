@@ -227,8 +227,8 @@ describe("AgreementSection provider countersign state", () => {
 // The agreement route runs the STRICT composite-KYC gate; approval runs the
 // lenient one. An approved application can therefore sit one click away from
 // minting a quotation that no agreement can ever follow — which is exactly
-// how two live consumers came to sign a PASQ believing it was their credit
-// agreement (2026-08-04, two applications).
+// a consumer can end up signing a PASQ believing it is their credit
+// agreement.
 describe("AgreementSection signing-grade KYC gate", () => {
   it("refuses to mint a quotation when payout-grade KYC is not met", async () => {
     const fetchMock = vi.fn()

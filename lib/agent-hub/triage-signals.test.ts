@@ -82,7 +82,7 @@ describe("detectSignals", () => {
   // left the whole suite green. Without that clause any agent with two or more
   // CONVERTED referrals fires "Referred N× by this agent" on EVERY row they
   // touch — routing an innocent first-time borrower into a pre-filled
-  // "Duplicate referral" Block. One production agent has 5 referrals today.
+  // "Duplicate referral" Block.
   it("does not fire for the same agent's repeat with a DIFFERENT borrower", () => {
     expect(detectSignals({ ...base, repeatPairs: [{ agentId: "a1", clientId: "c-other", count: 5 }] })).toEqual([])
   })

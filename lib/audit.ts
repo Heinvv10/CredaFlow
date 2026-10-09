@@ -292,7 +292,7 @@ export const AuditAction = {
   // only. With the flag off, app/api/insurers/**, app/api/products/insurance/**,
   // app/api/portal/insurance/**/ppr-acknowledge and app/api/cron/insurance-renewal
   // all still serve — deliberately, because live credit life reads insurer and
-  // insurance-product records and gating them would break production.
+  // insurance-product records and gating them would break credit life.
   // Recorded because it opens and closes the gated surface plus the Insurance
   // and Compliance staff sections.
   IMS_MODULE_ENABLED:                "IMS_MODULE_ENABLED",

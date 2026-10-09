@@ -780,11 +780,11 @@ describe("agreement signature evidence binding", () => {
     expect((await response.json()).error).toMatch(/no longer current/i)
   })
 
-  // The whole point of the 2026-08-07 scoping. An EFT loan has no debit mandate
+  // The whole point of scoping the same-day rule to the repayment method. An EFT loan has no debit mandate
   // fixing collection dates in advance, so the ceremony no longer has to finish
   // on the day the agreement was established — s92(3) is the only bound. This is
-  // the case that produced two ledger exceptions: signed on paper on the
-  // established day, scanned back the next morning.
+  // the case of a packet signed on paper on the
+  // established day and scanned back the next morning.
   //
   // Its twin above (no repaymentMethod on the fixture) still refuses, which is
   // what proves the scoping is doing the work rather than the clamp simply

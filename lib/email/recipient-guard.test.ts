@@ -15,10 +15,10 @@ import {
 } from "./recipient-guard"
 
 /**
- * The public consumer domains staging actually delivered Section 129 statutory
- * demands to on 2026-08-02. Every one must be refused by default.
+ * Public consumer domains a non-production environment must never deliver
+ * Section 129 statutory demands to. Every one must be refused by default.
  *
- * SYNTHETIC LOCAL PARTS ON PURPOSE. The real recipient addresses are not
+ * SYNTHETIC LOCAL PARTS ON PURPOSE. Real recipient addresses must not be
  * committed: they identify individuals, and pinning them in a repository — next
  * to a comment saying they received a debt-collection demand — would publish
  * that association to everyone with repository or history access, permanently.
@@ -49,9 +49,9 @@ describe("delivery mode", () => {
   })
 
   it("NODE_ENV=production does NOT open delivery — staging sets it too", () => {
-    // Verified on both containers 2026-08-03: staging and prod run the same
-    // image and both set NODE_ENV=production. A guard keyed on it would be
-    // absent exactly where it is needed.
+    // Staging and production run the same image and both set
+    // NODE_ENV=production. A guard keyed on it would be absent exactly where
+    // it is needed.
     expect(deliveryMode(env({ NODE_ENV: "production" }))).toBe("allowlist")
   })
 })

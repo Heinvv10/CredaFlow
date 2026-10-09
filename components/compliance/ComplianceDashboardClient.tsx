@@ -67,10 +67,9 @@ const GROUP_TABS: { key: ComplianceGroup | null; label: string; hint: string }[]
 
 /**
  * The NCR card. Three states, deliberately: the absence of a record is NOT
- * evidence of submission. The previous version had two branches and treated
- * "no PENDING row" as SUBMITTED, so on production — where nothing has ever
- * created an NCR_QUARTERLY_RETURN record — it asserted a filed statutory
- * return backed by nothing.
+ * evidence of submission. Treating "no PENDING row" as SUBMITTED would assert
+ * a filed statutory return backed by nothing wherever no NCR_QUARTERLY_RETURN
+ * record has ever been created.
  */
 export function NcrCard({ ncr }: { ncr: NcrReturnStatus }) {
   const filed = ncr.status === "SUBMITTED" || ncr.status === "COMPLETED"

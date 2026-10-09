@@ -577,7 +577,7 @@ describe("versioned PASQ artifact route", () => {
   // demands the strict "payout" grade. Without this gate on the mint route, an
   // approved application issues a real s.92 quotation that no agreement can
   // follow, and the consumer signs the quotation believing it is the credit
-  // agreement (prod, 2026-08-04). The document must never be written.
+  // agreement. The document must never be written.
   it("refuses to issue a quotation when composite KYC is not payout-grade", async () => {
     readCompositeKycStateMock.mockResolvedValue({
       ok: false,

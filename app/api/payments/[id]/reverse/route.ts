@@ -53,7 +53,7 @@ export async function PATCH(
       try {
         await prisma.$transaction(async (tx) => {
           // Serialise against concurrent receipts on this loan before touching its
-          // balances (issue #422) — otherwise a payment landing mid-reversal is
+          // balances — otherwise a payment landing mid-reversal is
           // lost from the re-derived totals.
           await lockLoanForUpdate(tx, payment.loanId)
 

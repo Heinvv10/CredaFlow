@@ -181,7 +181,7 @@ export async function decryptPdfIfEncrypted(
 }
 
 /**
- * Every password-protected document observed in production opened with the
+ * Password-protected client documents are expected to open with the
  * client's 13-digit SA ID number — the convention SA banks use for emailed
  * statements. Deliberately not widened to speculative variants: each extra
  * candidate is another decrypt attempt against a real client's document.

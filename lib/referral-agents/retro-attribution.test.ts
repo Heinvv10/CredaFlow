@@ -128,7 +128,7 @@ describe("planRetroAttribution", () => {
 
   // An UNMARKED reversal is a collections clawback
   // (reverseReferralCommissionForLoan, via app/api/cron/dpd-update). Every row
-  // already on prod is unmarked, so this is also the migration-safe default.
+  // that predates the marker is unmarked, so this is also the migration-safe default.
   it("refuses to resurrect commission on a loan that was clawed back", () => {
     const plan = planRetroAttribution({
       candidates: [candidate()],
@@ -259,12 +259,11 @@ describe("planRetroAttribution", () => {
     },
   )
 
-  // FIX-1 (Hein, round 3): a commission row's status is a decision about the
+  // A commission row's status is a decision about the
   // LOAN, not about the attribution, so a re-attribution moves only LIVE MONEY.
   //
-  // ⚠️ THIS ASSERTION IS INVERTED from the previous round. It used to assert
-  // that BLOCKED / NOT_ELIGIBLE / unknown rows were ALL reversed and that the
-  // incoming agent then accrued. That let a LOAN_ADMIN's block for fraud,
+  // BLOCKED / NOT_ELIGIBLE / unknown rows must NOT be reversed, and the
+  // incoming agent must not accrue on them. Reversing them would let a LOAN_ADMIN's block for fraud,
   // duplicate or low quality be undone by re-pointing the client, with the money
   // reappearing payable to someone else — no second actor needed.
   it.each(["PENDING", "PAYABLE"])(
@@ -406,10 +405,10 @@ describe("planRetroAttribution", () => {
     expect(plan.skipped[0]).toMatchObject({ loanId: "L1", reason: "NO_CLAWBACK_PATH" })
   })
 
-  // FIX-A. A regression FIX-4 introduced: `blockers` read the same
-  // untouchable-filtered rows the reversal set does, so a PAID row on a
-  // RESTRUCTURED loan stopped raising PAID_ROW_EXISTS and the operation
-  // proceeded. A refusal must never be narrowed as a side effect of a filter
+  // `blockers` must not read the same untouchable-filtered rows the reversal
+  // set does: otherwise a PAID row on a
+  // RESTRUCTURED loan would stop raising PAID_ROW_EXISTS and the operation
+  // would proceed. A refusal must never be narrowed as a side effect of a filter
   // added for an unrelated reason.
   it("still refuses when the outgoing agent was PAID on an untouchable loan", () => {
     const plan = planRetroAttribution({
@@ -449,8 +448,8 @@ describe("planRetroAttribution", () => {
     expect(plan.accrue).toEqual([])
   })
 
-  // FIX-4. The reversal set had no loan-status filter, so the outgoing agent's
-  // row on a RESTRUCTURED loan WAS reversed while NO_CLAWBACK_PATH forbade
+  // The reversal set needs a loan-status filter: without one the outgoing agent's
+  // row on a RESTRUCTURED loan is reversed while NO_CLAWBACK_PATH forbids
   // crediting anyone. Net effect: the payable was destroyed and nobody could
   // ever receive it. A loan this move cannot credit must not be debited either.
   it("leaves a RESTRUCTURED loan wholly untouched rather than debiting it to nobody", () => {

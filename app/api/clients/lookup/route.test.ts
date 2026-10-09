@@ -28,7 +28,7 @@ import { GET } from "./route"
 import { _resetRateLimitStore } from "@/lib/rate-limit"
 
 // Genuinely Luhn-valid SA ID numbers — verified against isValidSaIdNumber,
-// not eyeballed. Staging seed data is NOT a safe source for these: the seeded
+// not eyeballed. Seed data is NOT a safe source for these: the seeded
 // client 9307225000083 fails the checksum, so using it as a "valid" fixture
 // asserts a 422 while looking like it asserts a 200.
 const VALID_ID = "9307225000082"

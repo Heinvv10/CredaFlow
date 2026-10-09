@@ -72,12 +72,11 @@ async function upsertStaff(tenantId: string, email: string, name: string, role: 
   return { user, password: created, totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
 }
 
-// ⚠️ EVERY client email MUST stay on a `.invalid` domain. The inherited demo
-// data once used plausible public addresses, and a staging box carrying a live
-// SMTP sender emailed members of the public as if they were borrowers —
-// payment reminders on cron, and two full NCA Section 129 statutory demands
-// for debts that did not exist. A synthetic loan reference does not make the
-// recipient synthetic. `.invalid` is reserved by RFC 2606 and can never
+// ⚠️ EVERY client email MUST stay on a `.invalid` domain. Demo data with
+// plausible public addresses, on a box carrying a live SMTP sender, would email
+// members of the public as if they were borrowers — payment reminders on cron,
+// and full NCA Section 129 statutory demands for debts that do not exist. A
+// synthetic loan reference does not make the recipient synthetic. `.invalid` is reserved by RFC 2606 and can never
 // resolve, so it fails closed at DNS.
 //
 // KYC stays PENDING: the seed never claims a biometric or document

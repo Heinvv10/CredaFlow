@@ -180,7 +180,7 @@ it("claims a SUBMITTED application into UNDER_REVIEW (happy path)", async () => 
 })
 
 it("starts review with no selfie captured yet — biometrics gate payout, not origination", async () => {
-  // Policy 2026-07-27: a selfie is not compulsory to review or approve an
+  // Policy: a selfie is not compulsory to review or approve an
   // application, only to disburse. An absent capture is a missing step, not an
   // adverse result, so origination proceeds. A FAILED capture still blocks —
   // see the biometric-failure cases below, which are unaffected.

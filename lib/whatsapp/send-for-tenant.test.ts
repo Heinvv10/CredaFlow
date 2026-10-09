@@ -17,9 +17,9 @@ beforeEach(() => {
 })
 
 describe("sendWhatsAppForTenant", () => {
-  // The defect: two live callers (the payment-reminders cron and the
-  // section129_sent courtesy notification) called the Baileys bridge directly,
-  // with no reference to CommsSettings.waProvider. After the WA_CLOUD cutover
+  // Two callers (the payment-reminders cron and the
+  // section129_sent courtesy notification) must not call the Baileys bridge directly,
+  // with no reference to CommsSettings.waProvider. Under WA_CLOUD
   // that is a transport nothing routes through — the bridge has no numbers
   // paired — so those sends fail regardless of how many Meta templates are
   // approved. Registering templates cannot fix a caller that never asks Meta.
@@ -70,11 +70,11 @@ describe("sendWhatsAppForTenant", () => {
     expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
   })
 
-  // The env kill-switch used to come free from inside sendWhatsAppMessage.
+  // The env kill-switch comes free from inside sendWhatsAppMessage.
   // sendWhatsAppCloudMessage has no equivalent, so without this check routing
   // to Cloud silently bypasses WA_ENABLED — on every non-client container,
-  // staging included. A prod-restored staging DB would then send real
-  // WhatsApp messages to real borrowers.
+  // non-production ones included. A non-production DB restored from a production
+  // backup would then send real WhatsApp messages to real borrowers.
   it("honours the WA_ENABLED kill-switch on BOTH providers", async () => {
     vi.mocked(isWaEnabled).mockReturnValue(false)
 

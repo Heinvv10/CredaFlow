@@ -10,8 +10,8 @@ import type { Prisma } from "@prisma/client"
  * `Loan.totalPaid` / `RepaymentSchedule.totalPaid` with absolute values; under
  * Postgres' default Read-Committed isolation two concurrent receipts both read
  * the pre-payment balance and the second write clobbers the first — one payment
- * silently vanishes from the balance while both `Payment` rows persist (issue
- * #422). The lock makes the second transaction block until the first commits,
+ * silently vanishes from the balance while both `Payment` rows persist (lost
+ * update). The lock makes the second transaction block until the first commits,
  * so it reads the already-updated balance.
  *
  * Locking is by primary key; tenant ownership is validated by the subsequent

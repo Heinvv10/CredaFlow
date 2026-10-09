@@ -50,9 +50,8 @@ const PAGE_SIZE = 200
 /** Hard bound on paging, so a pathological backlog cannot spin forever.
  *  MAX_PAGES × PAGE_SIZE = 4000 candidate rows scanned per run: beyond that the
  *  tail of the window is not reached until earlier tasks age past the lookback.
- *  Stated rather than discovered — the previous single `take: 200` had the same
- *  class of bound at 20× the tightness and said nothing, which is how it went
- *  unnoticed. The truncation warning fires when it bites. */
+ *  The bound is stated here so it is not discovered by surprise; the
+ *  truncation warning fires when it bites. */
 const MAX_PAGES = 20
 
 /** Thrown inside the claim transaction to roll it back without logging an

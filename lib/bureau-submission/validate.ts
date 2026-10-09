@@ -10,7 +10,7 @@ import {
 } from "./layout"
 import { SETTLED_STATUSES } from "./map-loan"
 
-// Two tiers (Hein, 2026-10-01). A RECORD rule holds that one loan back and the
+// Two tiers. A RECORD rule holds that one loan back and the
 // rest of the file goes. A FILE rule means the file itself is malformed and
 // nothing is generated at all.
 

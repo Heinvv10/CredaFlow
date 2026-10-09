@@ -1,5 +1,5 @@
 /**
- * Real-Postgres test of the one-way kill switch (Hein, review round 4): after
+ * Real-Postgres test of the one-way kill switch: after
  * --disable nothing is derived for the tenant again. Charges clients already
  * paid stay paid, unpaid charges are not collected, readers show none, and
  * --apply refuses to re-enable. Replaces the off-window repros R4-2/3/5.

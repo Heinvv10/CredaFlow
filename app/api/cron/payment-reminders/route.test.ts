@@ -48,7 +48,7 @@ vi.mock("@/lib/whatsapp-cloud", () => ({
 }))
 vi.mock("@/lib/whatsapp", () => ({
   isWaEnabled: () => true,
-  // Deliberately NOT wired to h.sendWhatsApp: prod is WA_CLOUD, so reaching
+  // Deliberately NOT wired to h.sendWhatsApp: WA_CLOUD is the provider, so reaching
   // the bridge sender from this cron is a defect the suite must catch.
   sendWhatsAppMessage: (...a: any[]) => h.sendWhatsAppBridge(...a),
   WA_TEMPLATES: { payment_due_3d: (...a: any[]) => h.waDue3d(...a) },
@@ -133,9 +133,9 @@ describe("payment-reminders — one send per instalment", () => {
     expect(h.sendEmail).not.toHaveBeenCalled()
   })
 
-  // THE ORIGINAL BUG. The old code mailed everything due within 3 days on every
-  // run, so one instalment produced four reminders on consecutive days across
-  // both channels. Simulated here as four daily runs over the same instalment,
+  // Once per instalment. Mailing everything due within 3 days on every run
+  // would give one instalment four reminders on consecutive days across both
+  // channels. Simulated here as four daily runs over the same instalment,
   // with the marker persisting between them the way the database would.
   it("four daily runs over the same instalment produce ONE send, not four", async () => {
     let marker: unknown = null
@@ -217,7 +217,7 @@ describe("payment-reminders — a failed send is retried, not lost", () => {
 
 // An AMBIGUOUS outcome means the provider MAY already have dispatched — a
 // timeout after Graph accepted, or a WA 2xx carrying no message id. Replaying
-// that recreates the exact duplicate this route was fixed to prevent, so
+// that recreates the exact duplicate this route must not send, so
 // ambiguity must BLOCK the retry even though nothing is confirmed delivered.
 describe("payment-reminders — an ambiguous outcome blocks replay", () => {
   it("marks (does not retry) when email is AMBIGUOUS", async () => {
@@ -359,9 +359,9 @@ describe("payment-reminders — consent", () => {
   })
 })
 
-// Prod runs WA_CLOUD. Reverting this cron to the bridge sender previously
-// passed the entire suite, because the settings stub carried no waProvider so
-// the helper fell through to the bridge branch and landed on the same mock.
+// WA_CLOUD is the provider. Reverting this cron to the bridge sender would
+// pass the entire suite if the settings stub carried no waProvider, because
+// the helper would fall through to the bridge branch and land on the same mock.
 it("sends via the tenant's Cloud provider, with the contact so the 24h window can be read", async () => {
   h.findMany.mockResolvedValue([scheduleDueIn(3)])
   const res = await run()
@@ -438,8 +438,8 @@ describe("payment-reminders — WABA template path (MESSAGING_NEW_SEND_PAYMENT_R
   // cron kept reporting "failed, will retry".
   it("varies the reservation key per day, so a failed day is genuinely re-attempted", async () => {
     // Fake timers, not a Date.now spy: the route reads `new Date()`, which a
-    // Date.now stub does not affect — the first version of this test passed a
-    // fixed key through unnoticed.
+    // Date.now stub does not affect, so a stub would let a fixed
+    // key through unnoticed.
     vi.useFakeTimers()
     try {
       vi.setSystemTime(new Date("2026-08-18T07:00:00Z"))
@@ -464,10 +464,10 @@ describe("payment-reminders — WABA template path (MESSAGING_NEW_SEND_PAYMENT_R
   })
 
   it("keys the reservation on the SAST day, so a 00:30 send is not repeated at 08:00", async () => {
-    // The reservation key was built from LOCAL date parts, and the container
-    // runs UTC — so the "one send per day" window rolled over at 02:00 SAST.
-    // A reminder dispatched at 00:30 was filed under YESTERDAY, and the same
-    // morning's run got a different key and dispatched again: the borrower
+    // A reservation key built from LOCAL date parts would, in a UTC container,
+    // roll the "one send per day" window over at 02:00 SAST. A reminder
+    // dispatched at 00:30 would be filed under YESTERDAY, and the same
+    // morning's run would get a different key and dispatch again: the borrower
     // receives the same notice twice before breakfast.
     //
     // Note this shape is invisible to scripts/check-date-boundaries.ts — the

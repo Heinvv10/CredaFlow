@@ -92,8 +92,8 @@ export async function sendWaBridgeAlert(tenantId: string, decision: WaBridgeAler
   // A narrowing filter that matches NOBODY is a misconfiguration, not an
   // instruction to page nobody. One mistyped character otherwise silences the
   // outage alert on a channel carrying NCA notices — the exact silent failure
-  // this monitor exists to catch, and reproduced during review: 4 active
-  // admins, one wrong character, zero alerts delivered, the only trace an
+  // this monitor exists to catch: with several active admins and one
+  // wrong character, zero alerts are delivered and the only trace is an
   // unwatched audit row.
   //
   // The fallback is to the ADMIN LIST, never to the unmatched address, so the

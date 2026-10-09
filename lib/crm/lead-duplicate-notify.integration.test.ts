@@ -192,7 +192,7 @@ suite("duplicate notice throttle (real database)", () => {
   })
 
   it("does not match a different person on the same phone", async () => {
-    // The prod row that forbids a phone-only key.
+    // A shared phone forbids a phone-only key.
     const sent: string[] = []
     const out = await notifyPriorLeadDuplicates(
       { id: `${newLeadId}_other`, firstName: "Marie", lastName: "Mocktest", phone: `+27${PHONE.slice(1)}` },

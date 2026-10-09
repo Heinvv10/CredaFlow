@@ -51,10 +51,9 @@ describe("POST /api/settings/whatsapp/test", () => {
     expect(requireApiRoleMock).toHaveBeenCalledWith("ADMIN")
   })
 
-  // The defect this route was rewritten for: it called the Baileys bridge
-  // unconditionally, so on a WA_CLOUD tenant it reported "bridge not connected
-  // to WhatsApp" — a false outage produced by probing a transport the tenant
-  // no longer uses.
+  // Calling the Baileys bridge unconditionally would, on a WA_CLOUD tenant,
+  // report "bridge not connected to WhatsApp" — a false outage produced by
+  // probing a transport the tenant no longer uses.
   it("tests the tenant's configured provider, not the bridge", async () => {
     const res = await POST(req({ phone: "27821234567" }))
     expect(res.status).toBe(200)

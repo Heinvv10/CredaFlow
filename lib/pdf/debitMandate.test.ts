@@ -125,7 +125,7 @@ describe("generateDebitMandatePdf", () => {
   it("names each account type exactly, never defaulting to the other", async () => {
     // The label was once a two-way ternary, so anything not CHEQUE printed as
     // "Savings" — a false statement about the consumer's account on the
-    // mandate their bank acts on. TRANSMISSION was retired 2026-08-05, so the
+    // mandate their bank acts on. TRANSMISSION is retired, so the
     // two remaining types must still each print their own name.
     const cheque = extractPdfContent(await generateDebitMandatePdf({
       ...fixture, client: { ...fixture.client, accountType: "CHEQUE" as const },

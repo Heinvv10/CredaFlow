@@ -5,8 +5,8 @@
  * spelling: the staff form wrote codes ("FNB"), the portal debit-mandate form
  * wrote display names ("FNB (First National Bank)"), and
  * `app/api/clients/[id]/apply-extraction` writes whatever the VLM read off the
- * statement ("First National Bank", "Capitec Bank Limited"). On production that
- * left 6 of 31 clients holding a value no <Select> option could match, and a
+ * statement ("First National Bank", "Capitec Bank Limited"). That
+ * left clients holding a value no <Select> option could match, and a
  * Radix Select given an unmatched `defaultValue` renders its FIRST option — so
  * opening a client and saving, without touching the bank field, silently
  * rewrote their payout bank to ABSA.
@@ -49,7 +49,7 @@ export function canonicalBankName(value: string): string {
   // printed under the registered name ("FIRSTRAND BANK LIMITED t/a FNB") rather
   // than the brand. Without this a genuine FNB consumer canonicalises to
   // "firstrandbanklimitedtafnb", matches nothing, and is refused at payout —
-  // and FNB is the most common bank in the book (19 of 45 statements).
+  // and FNB is a very common bank among statements.
   //
   // FirstRand also trades as RMB and WesBank. Mapping those to fnb too is
   // deliberate and safe: bankName is one of FOUR fields the payout tuple must

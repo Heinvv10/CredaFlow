@@ -472,7 +472,7 @@ export async function POST(req: NextRequest) {
             ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
             : {}),
         }).catch(() => {
-          // Preserve the non-retryable result even during a DB incident.
+          // Preserve the non-retryable result even during a DB failure.
         })
         results.push({ loanId: loan.id, reference: loan.reference, outcome: "RECONCILIATION_REQUIRED", issuanceId: reservation.issuanceId, error: "Provider accepted notice but finalisation failed" })
         continue

@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     // Logged, like every write handler in this file. A 500 on a read that
     // leaves no trace means an operator reports a broken screen and there is
-    // nothing in production to diagnose it with.
+    // nothing to diagnose it with.
     console.error("Failed to fetch quotes:", error)
     return NextResponse.json({ error: "Failed to fetch quotes" }, { status: 500 })
   }
@@ -171,15 +171,15 @@ export async function POST(req: NextRequest) {
 
       // EXPIRY IS PROVISIONED, NOT VOLUNTEERED.
       //
-      // This used to default to null, and BOTH guards that enforce it — at
-      // disclosure and at bind — are written `expiresAt !== null && ...`. So
-      // omitting one field armed nothing: the quote stayed disclosable and
+      // A null default would leave BOTH guards that enforce it — at
+      // disclosure and at bind — written `expiresAt !== null && ...`. So
+      // omitting one field would arm nothing: the quote stayed disclosable and
       // bindable for ever, at a price its rate card produced on the day it was
       // written. The bind deliberately does not re-rate, so a card retired
       // eighteen months ago would still have sold at its old premium.
       //
-      // Fixing the enforcement and leaving the provisioning open is not a fix —
-      // it arms the guard only for quotes whose author volunteered the field.
+      // Enforcing without provisioning is not enough —
+      // it arms the guard only for quotes whose author volunteers the field.
       //
       // A bare date here is an END boundary, so it means the last day the quote
       // is valid — `parseInsuranceExpiryInput`, NOT the sibling helper used for

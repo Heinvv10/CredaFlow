@@ -37,7 +37,7 @@ describe("the DISBURSED bank-tuple guard stays in step with the TS gate", () => 
   })
 
   it("does not compare the statement's branch code against the record", () => {
-    // Removed on 2026-08-13 and asserted absent here: SA banks run one
+    // Removed and asserted absent here: SA banks run one
     // universal code and mostly do not print it, so this leg blocked honest
     // clients while checking the bank a second time. `bankBranchCode IS NOT
     // NULL` is the only mention that may remain — a payout still needs a code

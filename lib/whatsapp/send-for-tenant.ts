@@ -7,10 +7,10 @@ import { sendWhatsAppCloudMessage } from "@/lib/whatsapp-cloud"
  * configured for.
  *
  * `lib/messaging/providers.ts` already forks on `CommsSettings.waProvider`,
- * but two live callers predate it and called the Baileys bridge directly:
+ * but two callers predate it and call the Baileys bridge directly:
  * the payment-reminders cron and the `section129_sent` courtesy notification
  * (which is absent from `NEW_SEND_FLAGS`, so it never took the flag-gated
- * cutover the other six events did). After the 2026-08-11 WA_CLOUD cutover
+ * cutover the other six events did). Under WA_CLOUD
  * that is a transport nothing routes through — the bridge has no numbers
  * paired — so those two sends fail no matter how many Meta templates are
  * approved. A caller that never asks Meta cannot be fixed by registering
@@ -42,12 +42,12 @@ export async function sendWhatsAppForTenant(opts: {
   contactId?: string
   signal?: AbortSignal
 }): Promise<WaResult> {
-  // The env kill-switch used to come free from inside sendWhatsAppMessage.
-  // sendWhatsAppCloudMessage has no equivalent, so routing to it would have
-  // silently bypassed WA_ENABLED — and this cron runs on EVERY non-client
-  // container, staging included. With a prod-restored staging DB
-  // (whatsappEnabled=true, waProvider=WA_CLOUD, sealed creds) that means real
-  // WhatsApp messages to real borrowers from staging.
+  // The env kill-switch comes free from inside sendWhatsAppMessage.
+  // sendWhatsAppCloudMessage has no equivalent, so routing to it would
+  // silently bypass WA_ENABLED — and this cron runs on EVERY non-client
+  // container, non-production ones included. With a non-production DB restored
+  // from a production backup (whatsappEnabled=true, waProvider=WA_CLOUD, sealed
+  // creds) that means real WhatsApp messages to real borrowers.
   if (!isWaEnabled()) {
     return { ok: false, error: "WhatsApp disabled", providerOutcome: "DEFINITELY_REJECTED" }
   }

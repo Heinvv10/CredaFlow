@@ -108,7 +108,7 @@ describe("sendEmail — Reply-To precedence", () => {
   })
 
   it("does NOT apply the config default to Section 129 statutory notices (they must stay no-Reply-To)", async () => {
-    // S129 deliberately sends with no Reply-To (2026-05-22 anti-spam decision) —
+    // S129 deliberately sends with no Reply-To (anti-spam decision) —
     // it must not inherit the tenant default even when one is configured.
     findUniqueMock.mockResolvedValue({ ...baseConfig, replyToAddress: "support@lender.example" })
     await send({ category: "section129" })

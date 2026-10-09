@@ -64,8 +64,8 @@ export function leadOutreachDeliveryOutcome(status: MsgStatus): Exclude<
  * Upsert the MessageTemplate backing one outreach button.
  *
  * Created on demand rather than seeded: no MessageTemplate CRUD UI exists and
- * prod has none of these rows, so a seed would have to be re-run per
- * environment. `update` re-syncs the body so editing the copy in
+ * a fresh environment has none of these rows, so a seed would have to be
+ * re-run per environment. `update` re-syncs the body so editing the copy in
  * lead-outreach-templates.ts is what ships it — the DB row is a projection of
  * the code, never the source of truth.
  *

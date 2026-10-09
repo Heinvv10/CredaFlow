@@ -73,7 +73,7 @@ import { extractPlaceholders } from "@/lib/whatsapp/template-components"
 
 // Every payment-reminder message must quote the loan reference so the client
 // puts it on their EFT deposit and the bank-sync reconciler makes an EXACT
-// match (#424). The "due TODAY" (reminder_0d) message historically omitted it.
+// match. The "due TODAY" (reminder_0d) message historically omitted it.
 describe("TRIGGERS — payment reference in reminder copy", () => {
   const ctx = {
     firstName: "Thabo",
@@ -669,7 +669,7 @@ describe("processPaymentReminders", () => {
     })
   })
 
-  // Prod runs BULKSMS_DRY_RUN=true — SMS is off. Every SMS leg here used to
+  // With BULKSMS_DRY_RUN=true SMS is off. Every SMS leg here used to
   // dispatch anyway, land a SIMULATED Message row, and write a LoanNote
   // reading "Automated reminder simulated (not sent) via sms: ..." — a loan
   // record that looks like the borrower was contacted when nothing was sent.

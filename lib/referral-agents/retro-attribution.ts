@@ -12,8 +12,7 @@ import {
 // Commission accrues at exactly one moment today — inside the disbursement
 // transaction — so attaching an agent to a client whose loan already paid out
 // credits them nothing, silently and permanently. Manual attribution is the
-// NORMAL path on this system (22 of 23 attributed prod clients on 2026-08-17),
-// so the losing path is the normal path.
+// NORMAL path on this system, so the losing path is the normal path.
 //
 // Pure — no I/O — so the money arithmetic and every exclusion are testable
 // without a database. The gates that decide whether an already-disbursed loan
@@ -100,7 +99,7 @@ const ACCRUED_COMMISSION_STATUSES = new Set(["PENDING", "PAYABLE", PAID_COMMISSI
  * Stamped into a reversed row's metadata by THIS feature, so a later move can
  * tell its own reversal from a collections clawback.
  *
- * Rows already on production carry no marker and are therefore read as
+ * Rows written before the marker existed carry none and are therefore read as
  * clawbacks — the safe default, and the reason the marker is opt-in rather than
  * inferred. `reverseReferralCommissionForLoan` (the default/DPD path) is
  * deliberately left alone and keeps writing unmarked reversals.

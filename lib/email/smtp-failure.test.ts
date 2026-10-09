@@ -64,7 +64,7 @@ describe("smtpFailedBeforeConnection — nothing was submitted", () => {
   })
 
   // Not reproducible locally (a loopback connect never hangs); this is the
-  // exact error nodemailer raises from its connection timer, as seen in prod.
+  // exact error nodemailer raises from its connection timer.
   it("nodemailer's connection timeout", () => {
     expect(smtpFailedBeforeConnection(Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT", command: "CONN" }))).toBe(true)
   })

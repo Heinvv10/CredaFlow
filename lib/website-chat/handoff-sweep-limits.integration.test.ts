@@ -108,7 +108,7 @@ suite("sweepHandoffs: limits", () => {
   it("a hand-off from two days ago that the sweep only now times out is never emailed", async () => {
     const t = await tenant()
     const now = plus(open, 2 * 24 * 60 * MIN)
-    // In hours, so it waits; nothing ran since (a cron outage), so this run times it out.
+    // In hours, so it waits; nothing ran since (the cron was down), so this run times it out.
     const old = await handedOff(t, plus(open, 0))
     const fresh = await handedOff(t, plus(now, -10 * MIN))
     expect(await sweep(t, now)).toEqual({ expired: 2, emailed: 1, failed: 0, released: 0 })

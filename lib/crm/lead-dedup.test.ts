@@ -34,7 +34,7 @@ describe("leadDedupKeys", () => {
   })
 
   it("yields NO phone key for a number outside the SA dialling plan", () => {
-    // Real staging rows: too short, and too long. Different people.
+    // Too short, and too long. Different people.
     expect(leadDedupKeys({ phone: "+2780001", email: null }).phone).toBeNull()
     expect(leadDedupKeys({ phone: "+278200000910", email: null }).phone).toBeNull()
   })
@@ -80,14 +80,14 @@ describe("leadDedupKeys", () => {
   })
 
   it("still yields a phone key for a real number containing runs of zeros", () => {
-    // Real staging row. The placeholder guard must not eat it.
+    // The placeholder guard must not eat a number with runs of zeros.
     expect(leadDedupKeys({ phone: "+27000001230", email: null }).phone).toBe("27000001230")
   })
 })
 
 describe("duplicateReasons", () => {
   it("matches two differently-typed spellings of one phone number", () => {
-    // The pair that exists on staging under two different names.
+    // One number written two ways, on leads under two different names.
     const a = leadDedupKeys({ phone: "+27821234567", email: "e2e@example.com" })
     const b = leadDedupKeys({ phone: "0821234567", email: "lost@example.com" })
     expect(a.phone).toBe("27821234567")
@@ -251,7 +251,7 @@ describe("countDuplicatesByPhone", () => {
   })
 
   it("matches two spellings of one number", () => {
-    // Staging holds exactly this pair under two different names.
+    // One number written two ways, on leads under two different names.
     const counts = countDuplicatesByPhone([
       lead("a", "+27821234567"),
       lead("b", "0821234567"),

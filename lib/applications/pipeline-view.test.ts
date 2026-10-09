@@ -50,9 +50,8 @@ function app(overrides: Partial<PipelineApplication> = {}): PipelineApplication 
 }
 
 describe("payout block", () => {
-  // The production case this exists for: application clxtestpayoutrefused00001
-  // was refused at payout FIVE times across 2026-08-17 and 18 — four of them by
-  // Officer One — and the board drew a clean Approved card the whole time.
+  // The case this exists for: an application refused at payout FIVE times
+  // across two days, while the board drew a clean Approved card the whole time.
   const refused = app({
     payoutRefusal: {
       reason: "verified_banking",
@@ -416,8 +415,7 @@ describe("collapsing refusal audit rows", () => {
   })
 
   it("takes the latest reason and counts every attempt", () => {
-    // Production shape: clxtestpayoutrefused00001, five refusals across two
-    // days. A board showing only the newest reason reads the fifth attempt the
+    // Shape: five refusals across two days. A board showing only the newest reason reads the fifth attempt the
     // same as the first, which is the signal staff need.
     const rows = [
       row("app-1", "2026-08-18T18:17:35.246Z", "verified_banking"),
@@ -456,7 +454,7 @@ describe("collapsing refusal audit rows", () => {
 
 describe("controls cannot claim a state they are not in", () => {
   // A <select> whose value matches no option displays the FIRST one, silently.
-  // This class has reached production twice in this codebase.
+  // This class of bug is easy to reintroduce.
   const options = [
     { value: "all", label: "All products" },
     { value: "30-Day Loan", label: "30-Day Loan" },

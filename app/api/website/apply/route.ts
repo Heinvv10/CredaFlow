@@ -1389,7 +1389,7 @@ export async function POST(req: NextRequest) {
     // run before the applicant's own confirmation.
     //
     // Nothing about the outcome reaches the response below — the applicant must
-    // not be able to learn that we recognise them (enumeration safety, PR #412).
+    // not be able to learn that we recognise them (enumeration safety).
     // NOT reached by the two early idempotent-replay returns above (the
     // already-converted replay, and the pre-application submissionKey replay).
     // That is correct, not an oversight: a replay is the SAME submission
@@ -1400,9 +1400,9 @@ export async function POST(req: NextRequest) {
     // Runs AFTER the response is sent. Not a detail: on a match this does a
     // throttle write, a Notification insert and a real SMTP send, and three of
     // these five routes send no email at all when there is no match. Awaiting
-    // it made a recognised submission measurably slower than an unrecognised
-    // one — a timing oracle for the exact fact this route must never reveal
-    // (enumeration safety, PR #412). Response timing is now identical either
+    // it would make a recognised submission measurably slower than an
+    // unrecognised one — a timing oracle for the exact fact this route must
+    // never reveal (enumeration safety). Response timing is identical either
     // way.
     //
     // deferAfterResponse (Next's after()) rather than a bare floating

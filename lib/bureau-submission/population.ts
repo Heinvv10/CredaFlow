@@ -9,7 +9,7 @@ import type { HoldReason } from "./validate"
 
 type Db = Pick<typeof prisma, "loan" | "bureauSubmissionRecord">
 
-/** PO funding is not reported (Hein, 2026-10-01). */
+/** PO funding is not reported (product rule). */
 export const REPORTED_PRODUCT_TYPES = ["MICRO", "PERSONAL"] as const
 
 export interface LedgerHistory {

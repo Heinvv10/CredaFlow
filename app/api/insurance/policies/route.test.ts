@@ -452,7 +452,7 @@ describe("POST /api/insurance/policies — premium schedule falls on the SAST 1s
       expect(sastDay, `premium due on the ${sastDay}, not the 1st`).toBe(1)
     }
     // Start month is August in SAST, so the first premium is due 1 September
-    // — SAST midnight, i.e. 22:00Z on 31 August. Local arithmetic produced
+    // — SAST midnight, i.e. 22:00Z on 31 August. Local arithmetic would produce
     // 2026-09-01T22:30Z, which reads as the 2nd in Johannesburg.
     expect(rows[0].dueDate.toISOString()).toBe("2026-08-31T22:00:00.000Z")
   })

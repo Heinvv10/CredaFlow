@@ -10,7 +10,7 @@
  * non-production environments. Without this flag, TURNSTILE_SECRET_KEY is
  * required at all times — a missing secret fails closed in production and
  * returns an error in other environments. This prevents a misconfigured
- * staging container (NODE_ENV=development but publicly reachable) from
+ * pre-production container (NODE_ENV=development but publicly reachable) from
  * silently accepting unchallenged traffic.
  */
 

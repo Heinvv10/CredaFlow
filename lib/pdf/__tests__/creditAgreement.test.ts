@@ -150,7 +150,7 @@ describe("generateCreditAgreementPdf — statutory variant split", () => {
   // It belongs to the credit agreement (s.93) and must NEVER reach the Form 20
   // quotation (s.92): that render is pinned byte for byte because acknowledged
   // PASQ digests depend on it, and a term added there would silently invalidate
-  // the 2026-07-31 legal sign-off. Both halves are asserted.
+  // the legal sign-off. Both halves are asserted.
   it("agreement variant states that payment dates run from the payout date", async () => {
     const buf = await generateCreditAgreementPdf({ ...baseInput, variant: "agreement" })
     const content = extractPdfContent(buf)
@@ -193,8 +193,7 @@ describe("generateCreditAgreementPdf — statutory variant split", () => {
 
   // A quotation is an OFFER. Rendering it with a consumer signature line and a
   // contract-acceptance checkbox invites the consumer to conclude the loan by
-  // signing the offer — which two live consumers did on 2026-08-04, returning
-  // signed quotations as their credit agreements.
+  // signing the offer and returning it as their credit agreement.
   it("pasq variant carries NO signature block and no contract-acceptance checkbox", async () => {
     const buf = await generateCreditAgreementPdf({ ...baseInput, variant: "pasq" })
     const content = extractPdfContent(buf)
@@ -532,8 +531,8 @@ describe("disclosure rows fit the value column", () => {
 
     // Measure the strings the PRODUCTION CODE actually drew, recovered from the
     // rendered PDF. Rebuilding the templates here would let creditAgreement.ts
-    // drift while this guard kept passing against a stale copy — verified: a
-    // longer template restored in the source went undetected that way.
+    // drift while this guard kept passing against a stale copy — a longer
+    // template restored in the source would go undetected that way.
     const pdf = await generateCreditAgreementPdf({
       ...baseInput,
       application: { ...baseInput.application, appliedTermDays: c.days },
@@ -568,13 +567,12 @@ describe("disclosure rows fit the value column", () => {
   })
 })
 
-// ── Legal sign-off pin (charter §6 P0.2) ─────────────────────────────────────
+// ── Legal sign-off pin ───────────────────────────────────────────────────────
 //
-// Hein confirmed on 2026-07-31 that legal signed the Form 20 / PASQ off AS IT
-// RENDERS. That approval attaches to a specific rendering, not to the idea of
-// one, so it decays silently on the next refactor unless it is pinned. This is
-// the characterisation test the charter asks for: it does not judge the
-// document, it detects that the document moved.
+// Legal signs the Form 20 / PASQ off AS IT RENDERS. That approval attaches to a
+// specific rendering, not to the idea of one, so it decays silently on the next
+// refactor unless it is pinned. This is a characterisation test: it does not
+// judge the document, it detects that the document moved.
 //
 // WHAT IS HASHED. Every RENDERING stream: the page content streams -- all text
 // AND all graphics operators, so rules, table and checkbox geometry and colours
@@ -601,27 +599,19 @@ describe("disclosure rows fit the value column", () => {
 // bug, but the legal approval no longer covers the output and must be
 // re-obtained before the change ships. Do NOT re-pin the hash to go green.
 describe("PASQ / Form 20 — approved-render pin", () => {
-  // RE-PINNED 2026-08-03 on Hein's explicit approval, given twice.
+  // The pinned render includes the Regulation 29(c) bordered "Quotation" box,
+  // the consumer's physical address and contact number, and the Regulation
+  // 29(d)(ii) distribution of the principal debt. The 'Distribution of
+  // Principal Debt' row states where the initiation fee goes; it must not claim
+  // the fee is capitalised into the principal debt under s.102(1)(b), because
+  // lib/loan-calculator.ts never folds the fee into the interest-bearing
+  // principal in either mode. The border is drawn outside the existing text
+  // positions, so no previously approved wording moved.
   //
-  // First approval covered a render whose 'Distribution of Principal Debt' row
-  // claimed the initiation fee was capitalised into the principal debt under
-  // s.102(1)(b). Blind review showed that FALSE: loan-calculator.ts:206 never
-  // folds the fee into the interest-bearing principal in either mode. The line
-  // was corrected to state where the money goes, and approval was RE-OBTAINED
-  // on the corrected document rather than the pin being quietly updated.
+  // The fixture deliberately carries NO phone, so this pin is the render
+  // without one. The populated case is proved by a separate test.
   //
-  // Reviewed as pasq-review/pasq-AFTER.pdf against the previously approved
-  // render. The change adds the Regulation 29(c) bordered "Quotation" box, the
-  // consumer's physical address and contact number, and the Regulation
-  // 29(d)(ii) distribution of the principal debt. No previously approved
-  // wording was altered or moved - the border is drawn outside the existing
-  // text positions.
-  //
-  // The fixture deliberately carries NO phone, so this pin is the render Hein
-  // saw. The populated case is proved by a separate test.
-  // RE-PINNED 2026-08-04 — management approved the legal wording (relayed by
-  // Hein in-session). Approval covers the quotation redesign on page 4: the
-  // heading becomes CONSUMER ACKNOWLEDGEMENT OF RECEIPT, the document states
+  // Page 4 of the quotation: the heading is CONSUMER ACKNOWLEDGEMENT OF RECEIPT, the document states
   // "THIS IS A QUOTATION - NOT A CREDIT AGREEMENT. DO NOT SIGN IT." with a
   // plain-language explanation, the contract-acceptance checkbox and the whole
   // signature block are removed, and the footer reads "This quotation is
@@ -635,22 +625,17 @@ describe("PASQ / Form 20 — approved-render pin", () => {
   // Quotation", replacing "...on page 1 of this agreement") is INVISIBLE to
   // this hash. That change is covered by the two dedicated wording tests
   // above, one of which proves the page-1 reference is factually true.
-  // RE-PINNED 2026-08-05 — legal approved the per-page ceremony marker.
-  // Rendered WITH the marker, matching production: page substitution in a
+  // The pin covers the per-page ceremony marker legal approved.
+  // Rendered WITH the marker, matching real output: page substitution in a
   // PRINTED packet is what per-page initialling guards against, and the sha256
   // binding cannot help once paper is involved (POST /signing-packet checks
   // page COUNT only). The marker binds every page to one ceremony instead.
-  // Everything the 2026-08-04 sign-off covered is unchanged; this adds a footer
-  // reference and nothing else.
-  // RE-PINNED in white-label phase 3 (was b305bb2e…): the fixture is the Acme
-  // demo lender with no logo (no caller passes one), and the lender address
-  // line only this fixture ever passed is gone. Rendered text vs the old pin's
-  // fixture differs in identity values only; the PASQ/agreement wording is
-  // unchanged. Production renders the same layout, so the
-  // client's legal team re-approves this render before go-live.
-  // RE-PINNED in white-label phase 6 (was 977f619f…): neutral palette, accent
-  // and ink colour operands only, proven by an object-by-object comparison of
-  // the old and new renders (see lib/pdf/charges-off-identity.test.ts).
+  // The marker adds a footer reference and nothing else.
+  // The fixture is the Acme demo lender with no logo (no caller passes one).
+  // A real deployment renders the same layout, so each client's legal team
+  // re-approves its own render before go-live.
+  // The palette is neutral: accent and ink colour operands only (see
+  // lib/pdf/charges-off-identity.test.ts).
   const PINNED_RENDER_SHA256 =
     "6888707054a37b87e9fde0517244180bfa221c736d60c343bf1175cced9fe98d"
 
@@ -730,7 +715,7 @@ describe("PASQ / Form 20 — approved-render pin", () => {
     expect(renderHash(altered)).not.toBe(PINNED_RENDER_SHA256)
   })
 
-  // Rendered WITH a ceremony marker, because that is what production now emits.
+  // Rendered WITH a ceremony marker, because that is what real output carries.
   // Pinning a markerless render would pin a document nobody ships — the exact
   // scope-of-pin trap this file has been bitten by before.
   const PINNED_CEREMONY_MARKER = "4af7707c7ba1"
@@ -751,8 +736,8 @@ describe("PASQ / Form 20 — approved-render pin", () => {
 
 describe("Regulation 28/29 pre-agreement disclosure fields", () => {
   // Reg 29(d) enumerates what the quotation must disclose; Reg 29(c) requires it
-  // to sit in a bordered text box headed "Quotation". These were added
-  // 2026-08-03 after the fields were checked against GG 28864 (31 May 2006).
+  // to sit in a bordered text box headed "Quotation". The fields were
+  // checked against GG 28864 (31 May 2006).
 
   it("heads the quotation block with the word Regulation 29(c) requires", async () => {
     const content = extractPdfContent(await generateCreditAgreementPdf(baseInput))
@@ -1023,7 +1008,7 @@ describe("detail table survives an unrealistically long address", () => {
 
 // The `execution` render variant that used to live here was REMOVED: it was a
 // second, divergent way to place signatures on this NCA document (its own
-// coordinates, its own fallbacks) with no production caller. Countersignature
+// coordinates, its own fallbacks) with no caller. Countersignature
 // stamps the STORED document instead — see lib/pdf/executed-agreement.ts and
 // its tests. Two mechanisms for signing one statutory document is the drift
 // risk lib/pdf/.claude.md exists to prevent.
@@ -1054,7 +1039,7 @@ describe("unsigned agreement — the signature block the stamper targets", () =>
 // sha256 binding already beats it. On the PRINTED path it does not help at all:
 // the returned scan is a different document, and POST /signing-packet checks
 // page COUNT only — a swapped page passes. This marker binds every page to one
-// ceremony instead. Legal approved 2026-08-05.
+// ceremony instead.
 describe("per-page ceremony marker", () => {
   const MARKER = "4af7707c7ba1"
 

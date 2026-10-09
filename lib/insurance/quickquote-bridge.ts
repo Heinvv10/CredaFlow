@@ -37,7 +37,7 @@ export const FIELD_NAMES = {
   lastClaim: "LastClaim",
   licenceYear: "DriversLicenceObtainedYear",
   licenceType: "DriversLicenceTypeId",
-  // Home contents. MEASURED on quote-staging 2026-08-09.
+  // Home contents. Observed on FSP's test site.
   contentsValue: "homecontentsvalue",
   // Their name says "content year"; their LABEL and their binding both say
   // otherwise — "When did you move into this home?", binding $data.MovedInYear.
@@ -100,7 +100,7 @@ export const FIELD_KINDS: Record<QuickQuoteField, FieldKind> = {
  * Whether `value` is one FSP can actually quote for this field.
  *
  * Their `min`/`max` reach the DOM as validation attributes, which assignment
- * does not consult — measured on quote-staging: writing 50 into a field whose
+ * does not consult — observed on FSP's test site: writing 50 into a field whose
  * min is 100 000 succeeds, and their knockout model takes it. So this is the
  * only place the bound is enforced.
  *
@@ -220,7 +220,7 @@ export function missingFields(
 /**
  * The controls FSP's own `saveVehicle` validates before it will add a car.
  *
- * MEASURED, not inferred (quote-staging, 2026-08-08): `#tVehicles` is
+ * Observed, not inferred (FSP's test site): `#tVehicles` is
  * `data-bind="with: $root.activeVehicle"` and `saveVehicle` iterates EVERY
  * select inside it, then `if (!valid) return;`. So a tick with any of these
  * unanswered does nothing whatsoever — no error, no message, no state change.
@@ -530,7 +530,7 @@ export const MAX_VEHICLES = 3
 /**
  * Asked once per CAR.
  *
- * Measured after `addVehicle()` on quote-staging: `#tVehicles` held exactly
+ * Observed after `addVehicle()` on FSP's test site: `#tVehicles` held exactly
  * these five and nothing else. Everything else our wizard asks belongs to the
  * policy and is asked once.
  *
@@ -856,9 +856,9 @@ export function furthestReachableStep(
  * Lives here rather than inline in the component because it decides when a
  * SUPERLATIVE about a financial product is asserted, a node-environment suite
  * cannot render a component to check it, and the inline version had no test
- * standing between it and the incident it was written for: revealing at 16.4s
- * while their signal still read false badged R897.71 as "Best price" with the
- * real cheapest, R729.60, still in flight.
+ * standing between it and the failure it guards against: revealing while their
+ * signal still read false would badge a dearer quote as "Best price" with the
+ * real cheapest still in flight.
  */
 export function settleDelay(
   panelDone: boolean,
@@ -934,7 +934,7 @@ export function arrivalPlan(
  * When FSP signal the panel is done, arm() settles after PAINT_MS (400ms) and
  * the results screen replaces the arrival. The re-sort transition is 900ms, so
  * the arrival was being unmounted a third of the way through the one piece of
- * choreography it exists for: measured on staging, the list handed over with
+ * choreography it exists for: observed on FSP's test site, the list handed over with
  * five rows still in FSP's return order and no badge, and the visitor simply
  * saw a finished sorted list appear.
  *

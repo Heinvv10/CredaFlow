@@ -2,9 +2,9 @@
 /**
  * Does the LIVE database still enforce what the migrations declare?
  *
- * Triggers dropped by hand to clear an outage and never restored are invisible
+ * Triggers dropped by hand during an outage and never restored are invisible
  * to every other check: not a test, not a deploy, not a walkthrough — and a
- * staging database missing the same objects makes every green run green
+ * non-production database missing the same objects makes every green run green
  * against a weakened database.
  *
  * A mocked Prisma cannot execute a trigger, and a UI walkthrough cannot see one
@@ -19,26 +19,26 @@
  *
  *   Keying CHECK constraints by relation, as triggers are. Implemented, then
  *   REVERTED: it lost 4 tracked constraints (24 -> 20 expected) to fix a
- *   hypothetical -- prod has ZERO duplicate CHECK names across relations.
+ *   hypothetical -- a deployed database has ZERO duplicate CHECK names across relations.
  *   Trading real coverage for a theoretical false green is the wrong trade.
  *
  *   Verifying each trigger's function still exists. Structurally near
  *   impossible in Postgres: dropping a function a trigger depends on requires
- *   CASCADE, which drops the trigger with it. Measured 0 orphans on prod.
+ *   CASCADE, which drops the trigger with it. Measured 0 orphans on a deployed database.
  *
  * Both were raised by blind review and both are defensible; they are declined
  * on evidence, not overlooked.
  *
  * FUNCTION EXISTING IS NOT FUNCTION CORRECT
  *
- * The trigger-existence check above has a gap the credit-life outage of
- * 2026-08-02 fell straight through: CREATE OR REPLACE FUNCTION changes a
+ * The trigger-existence check above has a gap a credit-life outage
+ * can fall straight through: CREATE OR REPLACE FUNCTION changes a
  * function's BODY without touching the TRIGGER object at all, so a trigger
  * this gate reports as present can still be silently running the wrong
- * logic. guardLoanApplicationCreditLifeOffer() regressed to an earlier
+ * logic. guardLoanApplicationCreditLifeOffer() can regress to an earlier
  * body -- dropping the "no offer was disclosed" bypass
- * branch -- while its trigger stayed exactly where migrations expected it,
- * so this gate would have read green through the entire ~30-hour outage.
+ * branch -- while its trigger stays exactly where migrations expect it,
+ * so this gate would read green through the entire outage.
  * FUNCTION_BODY_MARKERS below closes that one gap surgically (substring
  * presence in pg_get_functiondef, not a full diff) rather than generalizing
  * to every function in the schema.
@@ -144,11 +144,10 @@ function queryRaw(sql) {
 // body diff.
 const FUNCTION_BODY_MARKERS = {
   guardLoanApplicationCreditLifeOffer: ["credit-life-no-offer-v1"],
-  // Found 2026-08-04: staging alone was silently running the body from
-  // before the PASQ-at-signing-ceremony change, which unconditionally
-  // requires a PASQ document at approval. No migration in the repo produces
-  // that body -- prod had the correct one the whole time -- so this was
-  // undocumented drift, not a captured incident like the credit-life one.
+  // A database can silently run the body from before the
+  // PASQ-at-signing-ceremony change, which unconditionally requires a PASQ
+  // document at approval. No migration in the repo produces that body, so it
+  // is undocumented drift.
   // `ceremony_open` only exists in the post-ceremony-refactor version.
   guardLoanApplicationPasqApproval: ["ceremony_open"],
   // Both agreement guards key on the BINDING column. Gutting either body to a

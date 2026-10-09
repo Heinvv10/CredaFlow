@@ -57,7 +57,7 @@ export default async function AgentHubPage({ searchParams }: { searchParams: Pro
   // Statements tab: reuses the page's one period rather than parsing a second one.
   const statementSelection = parseAgentSelection(sp.agentId)
 
-  // OWNER RULING (2026-08-06): the queue must show ALL unapproved items
+  // Owner rule: the queue must show ALL unapproved items
   // regardless of date — an approval queue must not hide outstanding work by
   // calendar default. Only decided-history below is period-bound; see the
   // caption in CommissionTab.tsx for the user-facing scope statement.
@@ -153,7 +153,7 @@ export default async function AgentHubPage({ searchParams }: { searchParams: Pro
       commissionCents: event.commissionCents,
     })),
   )
-  // needsCommissionAttention() excludes APPROVED and (OWNER RULING 2026-08-06)
+  // needsCommissionAttention() excludes APPROVED and (by owner rule)
   // BLOCKED as resolved staff decisions, REVERSED as stale, and UNMATCHED_CODE
   // because it already gets its own attention row above.
   //

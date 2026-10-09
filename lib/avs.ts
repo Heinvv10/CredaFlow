@@ -29,7 +29,7 @@ import { Prisma, type BankAccountType } from "@prisma/client"
  * WHAT THIS COSTS, stated plainly: for an OTHER client the AVS result does NOT
  * verify the account type.
  *
- * What it DOES verify is narrower than an earlier draft of this comment claimed.
+ * What it DOES verify is narrow.
  * `netcash-avs-wire.ts` computes `passed = accountActive && acceptsDebits &&
  * idNumberMatch`. `lastNameMatch` is returned but is advisory and does not
  * affect `passed`, so AVS binds the account to an ID NUMBER — not to a name.
@@ -46,7 +46,7 @@ import { Prisma, type BankAccountType } from "@prisma/client"
  * third enum value. That was harmless while the enum had two members and became
  * a live silent fallback the moment OTHER was added. A named function with a
  * total switch means the next enum value is a COMPILE error here, not a quiet
- * coercion discovered in production.
+ * coercion discovered at runtime.
  */
 export function avsWireAccountType(
   accountType: BankAccountType,
@@ -60,8 +60,7 @@ export function avsWireAccountType(
       // Not verifiable on this wire. See the note above.
       return "CHEQUE"
     case "TRANSMISSION":
-      // Retired 2026-08-05 and removed from every picker — but NOT unreachable,
-      // which an earlier draft of this comment wrongly claimed. `PUT
+      // Retired and removed from every picker — but NOT unreachable. `PUT
       // /api/clients/[id]` writes `accountType: data.accountType` straight
       // through with no allow-list (unlike POST /api/clients, which runs
       // ACCOUNT_TYPE_VALUES), so a CREDIT_OFFICER can still set it, and the

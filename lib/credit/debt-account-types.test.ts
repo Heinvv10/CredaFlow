@@ -10,8 +10,8 @@ import {
 
 describe("normaliseDebtAccountType", () => {
   // Three vocabularies were live in this one free-text column at once
-  // (2026-08-12 prod: 38 "other", 18 "personal_loan", 12 "OTHER", plus
-  // "credit_card", "store_card", "CREDIT_CARD"), and a fourth — the Title Case
+  // ("other", "personal_loan", "OTHER", "credit_card", "store_card",
+  // "CREDIT_CARD"), and a fourth — the Title Case
   // set — was written into the application's debt snapshot by the affordability
   // panel. Every one of them has to fold to the same canonical value or the
   // selects keep disagreeing about what the consumer declared.

@@ -36,11 +36,11 @@ const MS_PER_DAY = 86_400_000
 // Day-aligned to SAST midnight, so DPD and arrears are time-of-day independent
 // and identical whether computed by a wall-clock payment or the DPD cron.
 //
-// The zone is load-bearing, not incidental. This was `setHours(0, 0, 0, 0)` —
-// LOCAL midnight — and the container runs UTC, so between 00:00 and 02:00 SAST
-// "today" was still yesterday. A payment captured at 00:30 on the due date was
-// judged against the previous day and the instalment read as one day further
-// into arrears than it was. DPD drives collections escalation and the s.129
+// The zone is load-bearing, not incidental. `setHours(0, 0, 0, 0)` is LOCAL
+// midnight and the container runs UTC, so between 00:00 and 02:00 SAST "today"
+// would still be yesterday: a payment captured at 00:30 on the due date would
+// be judged against the previous day and the instalment would read as one day
+// further into arrears than it is. DPD drives collections escalation and the s.129
 // clock, so that hour band is not cosmetic.
 function startOfDay(d: Date): number {
   return sastStartOfDay(d).getTime()

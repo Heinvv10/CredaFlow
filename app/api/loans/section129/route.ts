@@ -269,8 +269,8 @@ export async function POST(req: NextRequest) {
         }
       }
     } else {
-      // Legacy path: direct sendEmail(). Kept until prod has soaked on
-      // the new path with legal sign-off.
+      // Legacy path: direct sendEmail(). Kept until the new path
+      // has legal sign-off.
       const emailData = {
         clientName,
         loanReference: loan.reference,
@@ -459,7 +459,7 @@ export async function POST(req: NextRequest) {
           : {}),
       }).catch(() => {
         // Keep the response non-retryable even if the reconciliation-state
-        // write is part of the same database incident as finalisation.
+        // write is part of the same database failure as finalisation.
       })
       return NextResponse.json(
         {

@@ -230,7 +230,7 @@ model TenantConfig {
   bureauMinScore     Int     @default(450)
   bureauBlockAdverse Boolean @default(false)
 
-  // Phase 7 — collection engine (spec 2026-07-10). Dark by default.
+  // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
   collectionProvider       String?
   avsProvider              String? // null = use collectionProvider's AVS
@@ -469,10 +469,10 @@ enum BankAccountType {
   ///
   /// A statement prints the PRODUCT a client holds, not the account type the
   /// payout tuple is recorded under. Discovery prints "Transaction Account",
-  /// FNB prints "EASY ACCOUNT". Each unlisted product used to mean a blocked
-  /// disbursement waiting on a code change, a paired migration and a prod
+  /// FNB prints "EASY ACCOUNT". Each unlisted product would otherwise mean a blocked
+  /// disbursement waiting on a code change, a paired migration and a
   /// deploy — `transactional` and the two FNB product prefixes were each added
-  /// that way, and the treadmill never ended because banks keep naming things.
+  /// that way, and the treadmill never ends because banks keep naming things.
   ///
   /// OTHER means "the account-type leg of the statement match is not asserted
   /// for this client". It does NOT weaken the payout tuple: the account
@@ -505,20 +505,20 @@ enum BankAccountType {
   /// mandate and the mandate route refuses it. EFT payout only.
   OTHER
 
-  /// RETIRED 2026-08-05 — no longer selectable anywhere, do not reintroduce.
+  /// RETIRED — no longer selectable anywhere, do not reintroduce.
   ///
-  /// Added 2026-07-28 and wired through every TypeScript layer, but the DB
+  /// It was wired through every TypeScript layer, but the DB
   /// guards were never widened: `guardLoanApplicationDebitMandateBankTupleRepair`
   /// allow-lists ('CHEQUE','SAVINGS') and `canonicalAccountType` has no
   /// transmission branch, so it returns ''. A consumer could select it, sign
   /// the mandate, clear every precondition, and then have payout fail with a
-  /// bare 500 and no staff-side remedy. Zero clients ever chose it (0 of 102
-  /// across prod and staging; zero mandates ever signed with it), so it was
-  /// removed from the application rather than the guards being widened.
+  /// bare 500 and no staff-side remedy. No client ever chose it and no mandate was
+  /// ever signed with it, so it was removed from the application rather than
+  /// the guards being widened.
   ///
   /// The VALUE stays in the enum on purpose: dropping a Postgres enum value
   /// requires recreating the type, and this column carries live triggers. That
-  /// is real outage risk on a live lender for a value no row uses. It is inert
+  /// is real outage risk for a value no row uses. It is inert
   /// — nothing can produce it and the guards reject it.
   TRANSMISSION
 }
@@ -1241,7 +1241,7 @@ model CreditBureauCheck {
   @@index([applicationId, reviewGeneration])
 }
 
-// Phase 7 — collection engine (spec 2026-07-10). Bank-account verification
+// Phase 7 — collection engine. Bank-account verification
 // result, persisted for audit; gated behind TenantConfig.collectionsEngineEnabled.
 model AvsCheck {
   id            String   @id @default(cuid())
@@ -2905,7 +2905,7 @@ enum ConsentPurpose {
   MARKETING_GLOBAL_OBJECTION // POPIA s.69(3)(c)(ii) master "stop all" toggle
   DATA_SHARING_THIRD_PARTY // POPIA s.11 — share PI with named third parties
   AUTOMATED_DECISIONING // POPIA s.71 — automated decisioning
-  CREDIT_BUREAU_ENQUIRY // POPIA s.11 + NCA s.81 (PR #160 gate)
+  CREDIT_BUREAU_ENQUIRY // POPIA s.11 + NCA s.81 (gate)
   AFFORDABILITY_CHECK // NCA s.81 affordability data processing
   CHATBOT_TRANSCRIPT_RETAIN // chatbot session transcript retention
 }
@@ -3199,7 +3199,7 @@ model Conversation {
   // GREATEST(lastInboundAt, lastOutboundAt) materialised as a column, because
   // the inbox queue must rank a thread by ANY traffic on it. Ordering by
   // lastInboundAt alone buried every outbound-only conversation below the
-  // first page (39% of PROD threads on 2026-08-20). A SQL GREATEST() in
+  // first page. A SQL GREATEST() in
   // ORDER BY cannot use a B-tree index and Prisma cannot express it, so the
   // value is maintained by every writer that touches the two fields above.
   lastActivityAt DateTime?

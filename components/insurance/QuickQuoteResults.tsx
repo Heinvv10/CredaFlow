@@ -42,7 +42,7 @@ type Props = {
    *
    * The LIST is safe to show as soon as arrivals settle — it self-corrects as
    * rows land. A SUPERLATIVE is not: "Best price" and the savings headline
-   * name one row, and in every staggered panel measured the late arrival was
+   * name one row, and in staggered panels the late arrival is typically
    * the cheapest, so the tail is exactly what decides them. Withholding only
    * the claims makes a wrong one impossible rather than unlikely, instead of
    * betting the whole reveal on a timeout being longer than the worst gap.
@@ -92,8 +92,8 @@ export function extractQuotes(host: HTMLElement | null): ParsedQuote[] {
       const excessLabel = detail.split(/\bwith\b/i).slice(1).join("with").trim()
       return {
         // Row position. Their OfferingId is not guaranteed unique across a
-        // panel, and a duplicate made find() return the wrong row — clicking
-        // one insurer's card would have sent the lead for another's quote,
+        // panel, and a duplicate makes find() return the wrong row — clicking
+        // one insurer's card would send the lead for another's quote,
         // with two "Best price" badges on screen and, in a production bundle,
         // no duplicate-key warning to hint at it.
         index,

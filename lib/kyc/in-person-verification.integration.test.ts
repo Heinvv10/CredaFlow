@@ -3,14 +3,14 @@
  *
  * The database enforces its own composite-KYC floor via a BEFORE UPDATE trigger
  * on Client, independently of the application. Unit tests cannot see it: they
- * exercise pure functions and never open a connection. The first cut of this
- * feature passed tsc, lint, a full unit suite and a production build while its
- * only write was rejected by that trigger on every call. This test reproduces
+ * exercise pure functions and never open a connection. A feature can pass
+ * tsc, lint, a full unit suite and a production build while its only write is
+ * rejected by that trigger on every call. This test covers
  * that defect and proves the two layers agree, which matters because a
  * divergence means one accepts what the other rejects.
  *
- * It is env-gated and NOT part of `npm test`, so it would not have caught the
- * original defect unattended — it only catches it when someone runs it. Wiring
+ * It is env-gated and NOT part of `npm test`, so it only catches such a
+ * defect when someone runs it. Wiring
  * a CI job for the RUN_*_IT suites is the open follow-up.
  *
  * Run against a throwaway fully migrated PostgreSQL database:
@@ -144,7 +144,7 @@ suite("in-person KYC verification across the app and database layers", () => {
   })
 
   it("SURVIVES a failed selfie attempt, in both layers", async () => {
-    // Regression (report §3 F): any selfie row — even a failed attempt —
+    // Regression: any selfie row — even a failed attempt —
     // permanently closed the in-person route in both enforcement layers.
     const selfieId = `d_selfie_failed_${token}`
     await db.clientDocument.create({

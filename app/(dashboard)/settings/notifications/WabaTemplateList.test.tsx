@@ -77,8 +77,8 @@ describe("WabaTemplateList", () => {
  * bg-[#faf8f6] slips past it and stays light — while the text beside it, being
  * a remapped class, goes light too. Light on light: unreadable.
  *
- * That is precisely what shipped: the selected row's label was invisible on
- * prod. A screenshot caught it; no test did, because rendering to a string
+ * That is precisely the failure: the selected row's label was invisible. A
+ * screenshot shows it; rendering to a string
  * cannot see computed colour. Asserting the CLASS VOCABULARY is what a unit
  * test can check, so that is what this does.
  */

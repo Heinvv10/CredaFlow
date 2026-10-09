@@ -10,7 +10,7 @@ import { TAB_VALUES, resolveWhatsAppTab } from "./WhatsAppSettingsClient"
 // bridge outage alert email points admins at Settings -> WhatsApp -> Bridge
 // as plain text (no link), but staff bookmark or type ?tab=bridge from it —
 // a tab renamed without updating the list would silently land on Status
-// instead during an outage.
+// instead when the bridge is down.
 describe("WhatsAppSettingsClient tab deep-linking", () => {
   const source = fs.readFileSync(path.join(__dirname, "WhatsAppSettingsClient.tsx"), "utf8")
   const rendered = [...source.matchAll(/<TabsTrigger value="([^"]+)"/g)].map((m) => m[1])

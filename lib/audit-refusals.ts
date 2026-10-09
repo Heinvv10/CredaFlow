@@ -3,13 +3,11 @@ import { logAudit, AuditAction } from "@/lib/audit"
 /**
  * Record that a state-changing action was REFUSED.
  *
- * This system logged what it PERMITTED and never what it refused. Two
- * walkthroughs found the same shape independently on 2026-08-01: of 33 refusal
- * paths in the disbursement route, zero wrote an audit row (its only two
- * logAudit calls concern the insurance PPR), and eleven denied document
- * accesses wrote zero DocumentAccessLog and zero AuditLog rows.
+ * Logging only what a system PERMITS leaves refusals invisible: a refusal path
+ * in the disbursement route, or a denied document access, would otherwise write
+ * no AuditLog or DocumentAccessLog row at all.
  *
- * The controls HELD in both cases — nothing leaked, no money moved. The gap is
+ * The controls hold either way — nothing leaks, no money moves. The gap is
  * DETECTIVE, not preventive: an auditor asking "did anyone attempt to pay out
  * against unverified identity, or enumerate documents across a tenant
  * boundary?" gets silence. For a regulated lender the refused attempts are
@@ -129,8 +127,8 @@ export async function auditDocumentAccessRefusal(params: {
   if (!tenantId && params.req) {
     try {
       // The REQUEST's tenant, resolved the same way withTenantContext resolves
-      // it (host -> custom domain -> slug). An earlier version fell back to
-      // getDefaultTenantId(), which is worse than a null: on a cross-tenant
+      // it (host -> custom domain -> slug). Falling back to
+      // getDefaultTenantId() is worse than a null: on a cross-tenant
       // probe it files the refusal against the DEFAULT tenant, so the row is
       // not merely missing from the right register, it is planted in the wrong
       // one. A refusal attributed to the wrong tenant is a false record.

@@ -15,7 +15,7 @@ import type { Channel, Contact, MessageTemplate } from "@prisma/client"
 export type RouteDeliveryOutcome = {
   ok: boolean
   // TRUE when the send was locally simulated rather than handed to a real
-  // provider (BULKSMS_DRY_RUN, and it is `true` on prod today). A caller that
+  // provider (BULKSMS_DRY_RUN, which a deployment may set to `true`). A caller that
   // omits this and audits an unconditional "sent" writes a FALSE COMPLIANCE
   // RECORD — the legacy sendSms/sendWhatsApp helpers returned this field and
   // their callers read it, so dropping it here silently degraded to `false`.
@@ -79,8 +79,8 @@ export async function resolveMessagingTarget(opts: {
  * SUPPRESSED_BY_CONSENT, EXPIRED, BOUNCED, or a still-QUEUED row — is NOT a
  * send, and sendMessage RETURNS those rather than throwing when it owns the
  * retry. Guarding on the status is explicit; relying on every caller passing
- * `automaticRetry: false` is the incidental protection this codebase has been
- * bitten by before.
+ * `automaticRetry: false` is an implicit protection that breaks silently when a
+ * caller changes.
  */
 const DELIVERED_STATUSES = ["SENT", "DELIVERED", "READ", "SIMULATED"]
 

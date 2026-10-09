@@ -18,7 +18,7 @@ export function buildReferralLink(code: string, origin: string = websiteOrigin()
   // An unattributed link is worse than no link — it earns the agent nothing and
   // nobody notices until commission is queried.
   if (!trimmed) throw new Error("Referral code is required to build a link")
-  // Strip a trailing slash so a caller-supplied origin (e.g. a staging override)
+  // Strip a trailing slash so a caller-supplied origin (e.g. an environment override)
   // can't double up into `//site/apply`, which Next.js 404s rather than failing loudly.
   return `${origin.replace(/\/$/, "")}/site/apply?ref=${encodeURIComponent(trimmed)}`
 }

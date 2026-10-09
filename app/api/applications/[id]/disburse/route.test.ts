@@ -223,8 +223,7 @@ vi.mock("@/lib/prisma", () => ({
     insuranceProduct: { findFirst: findFirstInsuranceProduct },
     insurancePolicy: { findUnique: findUniqueInsurancePolicy, update: updateInsurancePolicy },
     // NCA s.81 bureau-required gate (route:74) — return a current check so the
-    // gate passes and the test reaches the bundle. (PR #160 added this gate
-    // but never updated this mock, which is why the suite was red.)
+    // gate passes and the test reaches the bundle.
     creditBureauCheck: { findFirst: creditBureauCheckFindFirst },
     client: { findUnique: vi.fn().mockResolvedValue(null) }, // skips WA notification
     tenantConfig: { findUnique: tenantConfigFindUnique },
@@ -993,9 +992,9 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
 
   // The payout guards run TWICE: as preflight preconditions in TypeScript, and
   // again as BEFORE-trigger RAISE ... 23514 on the DISBURSED write. The second
-  // layer surfaced as the SAME bare 500 an outage gives, discarding the guard's
-  // own sentence naming the missing evidence. An operator could not tell a
-  // refused payout from a broken system.
+  // layer must not surface as the SAME bare 500 a system failure gives, which
+  // would discard the guard's own sentence naming the missing evidence and leave
+  // an operator unable to tell a refused payout from a broken system.
   it("answers a database guard refusal with its reason, not a bare 500", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
@@ -1047,7 +1046,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
-    // An outage must NOT be relabelled as a refusal — that would tell an
+    // A system failure must NOT be relabelled as a refusal — that would tell an
     // operator to go fix evidence that is perfectly fine.
     expect(response.status).toBe(500)
   })
@@ -1921,10 +1920,9 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
   // A single frozen clock cannot detect this, so the clock is advanced across
   // the SAST midnight boundary by a mock the route calls after the evidence
   // check but before the booking.
-  // Until the same-day rule was scoped to the repayment method (2026-08-07) this
-  // could not be reached: the gate forced payout onto the establishment day, so
-  // payoutShiftDays was provably always 0 and shiftToPayout was inert. For EFT
-  // it is now live, and it is what holds the NCA s103 rate cap — without it a
+  // The same-day rule is scoped to the repayment method. For a debit order the
+  // gate forces payout onto the establishment day, so payoutShiftDays is always 0
+  // and shiftToPayout is inert. For EFT it is live, and it is what holds the NCA s103 rate cap — without it a
   // two-day-late payout gives the consumer 28 days of credit at 30 days of
   // interest, which is 5.36% a month against a 5% cap.
   const laggedPayout = async (repaymentMethod: "EFT" | "DEBIT_ORDER") => {

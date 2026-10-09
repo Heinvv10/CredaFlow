@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react"
 // Portal-scoped 404. Rendered inside the portal shell (via app/(portal)/layout.tsx)
 // for signed-in clients, so a mistyped /portal/* URL no longer falls through to
 // the marketing 404 with "Login / Apply Now". Triggered by notFound() from the
-// /portal/* catch-all route. See portal audit F-14 (2026-06-12).
+// /portal/* catch-all route.
 export default function PortalNotFound() {
   return (
     <div className="mx-auto max-w-2xl px-6 py-24 text-center">

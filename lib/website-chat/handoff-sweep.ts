@@ -13,7 +13,7 @@ const MAX_ALERT_ATTEMPTS = 12
 const ALERT_RETRY_AFTER_MS = 5 * 60 * 1000
 /**
  * A hand-off handed off or timed out longer ago than this is never emailed: an address set today
- * must not mail weeks of old chats, nor a run after a cron outage the waits it only now times out.
+ * must not mail weeks of old chats, nor a run after the cron was down the waits it only now times out.
  */
 const ALERT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 /**

@@ -52,7 +52,7 @@ type Step3 = {
 
 const LAST_ENQUIRY_KEY = "lms:last-enquiry-reference:v1"
 
-// Static fail-open fallback for the apply sliders (prod: MICRO30 R500–R10,000,
+// Static fail-open fallback for the apply sliders (MICRO30 R500–R10,000,
 // PERSONAL R2,000–R100,000, POFUND R10,000–R500,000). The component overlays the
 // LIVE LoanProduct ranges (see liveProductLimits) so an admin range change moves
 // the sliders with no code deploy; these figures are used only until the live
@@ -65,8 +65,8 @@ const productLimits: Record<string, [number, number]> = {
 
 // Static catalogue for the pre-fetch product routing done in readInitialApplyState
 // (a useState initialiser runs before the live fetch resolves). productForAmount
-// fails open to exactly these figures, and on prod the static short-term/personal
-// maxima equal the live ones, so the initial route matches; the live slider bounds
+// fails open to exactly these figures, and the static short-term/personal
+// maxima must equal the live ones, so the initial route matches; the live slider bounds
 // + validation then govern. Internal apply links + the qualify result already pass
 // an explicit `product`, so this amount-only routing is a fallback path.
 const STATIC_APPLY_PRODUCTS = applyLivePricing({})

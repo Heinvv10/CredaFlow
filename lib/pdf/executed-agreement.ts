@@ -432,8 +432,8 @@ async function appendExecutionPage(
   // rules cannot be located (agreements generated before anchors were recorded,
   // and returned paper packets).
   //
-  // APPROVED 2026-08-05 by legal, relayed by Hein in-session. The approval
-  // covers BOTH executed variants as rendered on that date: signatures stamped
+  // APPROVED by legal. The approval
+  // covers BOTH executed variants as rendered: signatures stamped
   // onto the original rules, and this appended execution page carrying the
   // credit provider's registered name and NCR number, the consumer's name and
   // ID number, and the agreement reference. Re-render with

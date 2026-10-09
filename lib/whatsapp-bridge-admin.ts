@@ -19,10 +19,10 @@ export interface WaBridgeAddNumberResult {
 }
 
 // Unlike lib/whatsapp.ts's send path, this admin client throws rather than
-// defaulting when WA_SENDER_URL is unset. The two files used to fall back to
-// DIFFERENT hosts, so wherever the var wasn't set (staging is the likely
-// case) the cron polled a different endpoint than sends actually use --
-// silently inverting the alert's meaning (CRITICAL on a healthy channel, or
+// defaulting when WA_SENDER_URL is unset. The two files must not fall back to
+// DIFFERENT hosts, or wherever the var isn't set (a non-production
+// environment is the likely case) the cron would poll a different endpoint
+// than sends actually use -- silently inverting the alert's meaning (CRITICAL on a healthy channel, or
 // silence on a dead one). Guessing a default here is worse than refusing to
 // start, the same reasoning getAdminSecret() already applies to the secret.
 function getBridgeUrl(): string {
@@ -84,8 +84,8 @@ export async function listWaBridgeNumbers(opts?: { timeoutMs?: number }): Promis
   return body.numbers
 }
 
-// The bridge's own ADD_SLOT_PAIRING_TIMEOUT_MS (services/whatsapp-bridge/src/
-// index.js) is 30s. This bound must sit comfortably above that: if it fired
+// The bridge's own ADD_SLOT_PAIRING_TIMEOUT_MS (set in the separate
+// bridge service) is 30s. This bound must sit comfortably above that: if it fired
 // first, the app would report a 502 "add failed" while the bridge was still
 // pairing, and the abort doesn't cancel bridge-side work -- so a pairing
 // that then succeeded would leave a live slot nobody saw the pairing code

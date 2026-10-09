@@ -133,8 +133,8 @@ export function RateBandGridView({
                 expressions across several lines. The JSX transform drops the
                 whitespace at a line break between a text node and its
                 neighbour, and that is how "does notmake anything sellable"
-                reached staging — invisible in source, invisible to every test
-                in this repo, visible only in a browser.
+                can happen — invisible in source, invisible to tests that
+                render the element tree, visible only in a browser.
               */}
               {section.gaps.map((gap) => (
                 <li key={`${gap.sumAssured}-${gap.minAge}`}>
@@ -168,9 +168,8 @@ export function RateBandGridView({
             <p className="text-sm text-amber-900">
               {/*
                 The indefinite article agrees with the label. Hardcoding "a"
-                shipped "prices a extended family" to staging, and the test
-                asserted that string — so the suite pinned the defect rather
-                than catching it. Only a browser showed it.
+                renders "prices a extended family", and a test asserting that
+                string would pin the defect rather than catch it.
               */}
               {`No band on this card prices ${indefiniteArticle(LIFE_TYPE_LABELS[lifeType])} ${LIFE_TYPE_LABELS[lifeType].toLowerCase()}, at any age or cover amount. A quote covering one cannot be priced at all.`}
             </p>

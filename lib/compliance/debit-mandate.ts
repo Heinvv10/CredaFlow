@@ -501,7 +501,7 @@ export const CHEQUE_ACCOUNT_LABELS = [
   // header. The list already knew "transactional" and "transactionalaccount"
   // and matches EXACTLY, so the singular form fell through to null and refused
   // a payout that was correct in every other respect. Added against a real
-  // statement (2026-08-13).
+  // statement.
   "transaction",
   "transactionaccount",
   "chequeaccount",
@@ -661,10 +661,9 @@ function scalarFieldValue(container: unknown, key: string): string | null {
  * the payout, and the trigger sees SAVINGS, disagrees with the record and
  * raises 23514 mid-transaction with both signatures already recorded.
  *
- * No document on production carried that shape when this was written (0 of 239
- * extractions; the 40 with a `fields` wrapper are OTHER/PROOF_OF_PAYMENT and
- * carry no payout key at either level), so this closes a latent gap rather than
- * changing any current decision.
+ * No known extraction carries that shape (those with a `fields` wrapper are
+ * OTHER/PROOF_OF_PAYMENT and carry no payout key at either level), so this
+ * closes a latent gap rather than changing any current decision.
  *
  * One narrower divergence is deliberately left: for a non-scalar `value` (e.g.
  * `{accountType: {value: {…}}}`) Postgres's `->>` stringifies the JSON and this
@@ -688,7 +687,7 @@ function extractedFieldValue(
  * in prisma/schema.prisma. It is the authorised, audited escape hatch for a
  * bank product name the allow-lists have not learned, and it exists so that a
  * novel product name costs a staff decision rather than a code change, a paired
- * migration and a production deploy.
+ * migration and a deploy.
  *
  * The DB twin of this rule lives in `canonicalAccountType` and the
  * DISBURSED guards. They must agree: a value accepted here and refused there is
@@ -720,13 +719,12 @@ function recordedAccountTypeIsSatisfied(
   if (bankDetails.accountType === "OTHER") return true
   // A statement that names no account type cannot disagree with one.
   //
-  // The real case, from production on 2026-08-18: a Capitec statement for
-  // a client, R1 500 approved, both signatures recorded,
-  // refused at payout. The page is headed "Main Account Statement" and names no
+  // The real case: a Capitec statement for an approved application, both
+  // signatures recorded, refused at payout. The page is headed "Main Account Statement" and names no
   // product anywhere, so the extractor correctly answered OTHER -- and this
   // function compared that non-answer against a SAVINGS record and called it a
-  // mismatch. Twelve of the forty-seven verified statements on file that day
-  // carried no determinable account type; every one of them was undisbursable.
+  // mismatch. Every statement carrying no determinable account type was
+  // undisbursable.
   //
   // Passing costs no control. The account NUMBER is what binds the payout to
   // this account, and it still has to match exactly, as do the bank name and
@@ -806,18 +804,15 @@ function payoutTupleMismatchField(
  * legacy physical code would start failing a gate they pass today, on live data,
  * for no gain.
  *
- * WHAT DROPPING THE LEG COSTS — stated accurately, because the first version of
- * this comment did not.
+ * WHAT DROPPING THE LEG COSTS, stated accurately.
  *
  * The argument for removal was "the branch code is functionally determined by
  * the bank, so asserting bank AND branch asserts the bank twice". That is true
  * of South African banking. It is NOT an invariant this system enforces:
  * nothing validates `bankBranchCode` against `bankName` anywhere — the wizard
  * accepts any six digits (lib/validation/client-wizard.ts), and there is no
- * bank→code table. An earlier draft of this comment cited a `universalBranchCode`
- * helper in lib/banks.ts as the thing that made new records right by
- * construction. No such function exists; it was planned and never built, and
- * the comment asserted it as fact.
+ * bank→code table. No `universalBranchCode` helper exists in lib/banks.ts to make
+ * new records right by construction.
  *
  * So be clear about the state this leaves: after this change NOTHING binds the
  * payout branch code to any evidence — not this function, and not the DISBURSED
@@ -847,8 +842,7 @@ function payoutTupleMismatchField(
  *      is silence rather than contradiction and waives it too. An unrecognised
  *      PRODUCT name is not silence and still fails closed.
  *
- * The ACCOUNT HOLDER NAME is NOT enforced here. An earlier draft of this comment
- * claimed it was, which was wrong in the one place it most needed to be right.
+ * The ACCOUNT HOLDER NAME is NOT enforced here. Do not describe it as enforced.
  * It is not compared in this function, and it is not reached indirectly through
  * `validationMismatch` either: `validateBankStatement` records a holder-name
  * mismatch at severity 'warning' (lib/ocr/documentValidationService.ts), and

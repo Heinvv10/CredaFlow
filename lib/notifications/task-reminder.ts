@@ -22,10 +22,9 @@ export type ReminderChannel = "WHATSAPP" | "EMAIL" | "NONE"
 /**
  * Which channel a staff reminder goes out on.
  *
- * Phone → WhatsApp, otherwise email. The fallback is not decoration: 0 of the
- * 5 active staff on staging have `User.phone` set (all have emails), so a
- * WhatsApp-only reminder would ship inert and every reminder would silently go
- * nowhere. The stale-leads-alert cron already emails agents — same precedent.
+ * Phone → WhatsApp, otherwise email. The fallback is not decoration: staff may have no
+ * `User.phone` set (all have emails), so a WhatsApp-only reminder would ship
+ * inert and silently go nowhere. The stale-leads-alert cron already emails agents — same precedent.
  *
  * `waEnabled` is the tenant's CommsSettings.whatsappEnabled. When WhatsApp is
  * off tenant-wide we fall through to email rather than to NONE: the point is

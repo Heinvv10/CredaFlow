@@ -21,14 +21,13 @@ import {
 } from "../public-loan-products"
 import type { LivePricing, PublicLoanProduct } from "../public-loan-products"
 
-// Regression guard for the 2026-07-02 website E2E audit money-accuracy cluster
-// (W-1, W-2, W-13, W-16, W-17). The public marketing calculators once carried a
-// private, hardcoded fee table (15% init / R1,207.50 cap / R69 service) that had
-// drifted from the live LoanProduct rows and UNDER-quoted some loans — telling a
-// borrower a lower cost of credit than they would actually be charged.
+// Regression guard for public-quote money accuracy (W-1, W-2, W-13, W-16,
+// W-17). A private, hardcoded marketing fee table (15% init / R1,207.50 cap /
+// R69 service) drifts from the LoanProduct rows and UNDER-quotes some loans —
+// telling a borrower a lower cost of credit than they would actually be charged.
 //
 // These tests pin PRODUCT_PRICING (now the single source of truth) to what the
-// production products CURRENTLY charge, and assert that the end-to-end public
+// products CURRENTLY charge, and assert that the end-to-end public
 // quote reproduces the real product's fee. If anyone silently reverts a fee/rate
 // back toward the stale table, or the marketing quote drifts from the product
 // again, this fails loudly.
@@ -99,7 +98,7 @@ describe("public marketing quote == the loan the customer is actually charged (W
 
   it("PO funding R500,000 / 4mo (120d): initiation R10,000 (2%, uncapped), NOT the old ~R8,792 under-quote", () => {
     // W-2: the stale 15%-cap-R1,207.50 table under-quoted initiation. PO is now
-    // month-unit (#327): 4 months = 120 days → interest R50,000 + init R10,000.
+    // month-unit: 4 months = 120 days → interest R50,000 + init R10,000.
     const quote = calculatePublicLoanQuote(getPublicLoanProduct("purchase-order"), 50000000, 4)
     expect(quote.initiationFee).toBe(1000000) // R10,000 (2%, uncapped) — the W-2 point
     expect(quote.totalRepayable).toBe(61000000) // R610,000 (R500k + R100k interest @5%/mo over 4mo + R10k init)
@@ -127,13 +126,13 @@ describe("personal calculator surfaces the term, not an understated APR (W-1)", 
 
 describe("public amount ranges + terms mirror the prod LoanProduct config", () => {
   // "Marketing must conform to how the product is set up": the public ranges are
-  // pinned to the active prod LoanProduct rows so the site never advertises an
+  // pinned to the active LoanProduct rows so the site never advertises an
   // amount/term the product can't originate. If a product's range changes in the
   // admin UI, update the catalogue AND these expectations together.
   it("personal loan: R2,000–R100,000 (cents), matching the prod PERSONAL LoanProduct", () => {
     const p = getPublicLoanProduct("personal")
     expect(p.minAmount).toBe(200000) // R2,000
-    expect(p.maxAmount).toBe(10000000) // R100,000 (prod source of truth)
+    expect(p.maxAmount).toBe(10000000) // R100,000 (source of truth)
   })
 
   it("short-term loan: R500–R2,000, fixed 30-day term (= MICRO30), not R500–R8,000 / 7–90d", () => {
@@ -350,7 +349,7 @@ describe("productForAmount — the ONE shared amount→product tiering rule (Pha
   })
 
   it("tracks live boundaries: short-term max R2,000 → R5,000 is PERSONAL (staging config)", () => {
-    // The exact staging config: short-term maxed at R2,000, personal min R5,000.
+    // A config where short-term is maxed at R2,000, personal min R5,000.
     const p = applyLivePricing({
       "short-term": fee({ minAmount: 50000, maxAmount: 200000 }), // R500–R2,000
       personal: fee({
@@ -365,7 +364,7 @@ describe("productForAmount — the ONE shared amount→product tiering rule (Pha
   })
 
   it("GAP zone + clamp guardrail: an amount below the routed product's min is clamped up, never dead-banded", () => {
-    // Staging opens a gap R2,001–R4,999 (above short-term max R2,000, below personal
+    // This config opens a gap R2,001–R4,999 (above short-term max R2,000, below personal
     // min R5,000). productForAmount routes it to PERSONAL; the caller clamps it into
     // PERSONAL's [min,max] so it lands at R5,000 rather than being rejected.
     const p = applyLivePricing({
@@ -420,7 +419,7 @@ describe("applyProductLimitsRands — apply slider bounds from live products (Ph
 })
 
 describe("qualifyApplyHref — the apply handoff classifies the amount it carries (Phase 2 review fix)", () => {
-  // Staging-like config: short-term R500–R2,000, personal R5,000–R100,000.
+  // Config: short-term R500–R2,000, personal R5,000–R100,000.
   const staging = () =>
     applyLivePricing({
       "short-term": {

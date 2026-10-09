@@ -33,9 +33,7 @@ export function ContactChannelIcons(props: ContactChannelIconsProps) {
   // file nests this inside a <p> (page.tsx:308-317). A <div> there is
   // invalid HTML — the browser's parser implicitly closes the <p> right
   // before it, producing a DOM shape that no longer matches what React
-  // expects to hydrate onto, which is exactly React error #418 (confirmed
-  // by curling the raw SSR output: the byte stream showed
-  // `<p ...><span>...</span><div class="inline-flex ...">` verbatim). A
+  // expects to hydrate onto, which is exactly React error #418. A
   // <span> with the same flex utilities renders identically and is valid
   // inside <p>.
   return (

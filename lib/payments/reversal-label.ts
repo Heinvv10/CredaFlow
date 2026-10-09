@@ -4,9 +4,8 @@
  * (no `pdf-lib`) so importing it into a React server component doesn't pull the
  * PDF library into that page's bundle.
  *
- * Fixes #421 minors: a reversed row used to replace the method column with just
- * "Reversed" (losing the original method), and never surfaced reversedAt /
- * reversalReason.
+ * A reversed row keeps the original method in the method column (rather than
+ * just "Reversed") and surfaces reversedAt / reversalReason.
  */
 
 /**

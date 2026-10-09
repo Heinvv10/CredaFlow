@@ -41,11 +41,11 @@ export function isDeployedBuild(): boolean {
  * a lending decision or asserts that money moved.
  *
  * BulkSMS is deliberately absent. Its simulation is a supported operating mode
- * (prod runs `BULKSMS_DRY_RUN=true` today) and it is modelled honestly
+ * (a deployment may run `BULKSMS_DRY_RUN=true`) and it is modelled honestly
  * end-to-end: status `SIMULATED` not `SENT`, dispatch state `SIMULATED` not
  * `ACCEPTED`, audit action `MESSAGE_SIMULATED`, and an amber "Simulated — not
  * sent" in the UI. Nothing is fabricated, so there is nothing to forbid —
- * gating it would break prod messaging for no safety gain.
+ * gating it would break messaging for no safety gain.
  */
 const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
   experian: {

@@ -20,12 +20,11 @@ export async function generateMetadata(): Promise<Metadata> {
 // destination that summarises the terms framework and points to the binding
 // documents. It intentionally does NOT restate the binding, NCA-mandated loan
 // terms — those live in the pre-agreement statement and credit agreement the
-// client receives and signs. Audit M8 (2026-07-04→05, Hein-approved): the notice
-// was reworded from an "under legal review / being finalised" banner to a
-// framing that keeps the website terms binding, points each product's binding
+// client receives and signs. The notice
+// keeps the website terms binding, points each product's binding
 // terms to the right signed document (credit agreement / insurer policy), and
-// states signed docs take precedence; a governing-law + updates section (8) was
-// added. Legal should still confirm the wording. A consolidated, legally-approved public
+// states signed docs take precedence; a governing-law + updates section (8)
+// is included. Legal should still confirm the wording. A consolidated, legally-approved public
 // T&C can still replace/extend the body below when the legal team produces it.
 //
 // White-label (decision D-W2): the wording is unchanged; only the lender's

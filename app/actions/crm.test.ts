@@ -30,7 +30,7 @@ import { updateLeadStatus, reassignLead, resetStrandedConvertedLead } from "./cr
 // production builds — updateLeadStatus must return validation failures as
 // { ok: false, error } instead of throwing, so LeadDetailClient's error
 // state (and the kanban drag handler) can show the real reason instead of
-// a raw digest. See lib/PR-J hotfix defect 2.
+// a raw digest.
 describe("updateLeadStatus — typed result for validation failures", () => {
   beforeEach(() => {
     vi.clearAllMocks()

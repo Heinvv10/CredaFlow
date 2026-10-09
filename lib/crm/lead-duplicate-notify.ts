@@ -10,7 +10,7 @@
 // caller is not expected to handle errors because there are none to handle.
 //
 // It also must not change the applicant-visible response in any way. The apply
-// route deliberately hides whether we recognise someone (PR #412 enumeration
+// route deliberately hides whether we recognise someone (enumeration
 // safety) — a branch here that altered timing-visible behaviour or response
 // shape would leak the same fact by another route.
 
@@ -115,7 +115,7 @@ export async function notifyPriorLeadDuplicates(
     // Claim BEFORE sending. The unique constraint on
     // (tenantId, channelKey, windowStart) means exactly one concurrent request
     // wins the insert; the losers get P2002 and skip. A findFirst-then-send
-    // would be the check-then-act race PR #414 removed.
+    // would be a check-then-act race.
     try {
       await deps.throttle.create({ data: { tenantId, channelKey, windowStart } })
     } catch (err) {

@@ -63,7 +63,7 @@ interface RuleForm {
 
 // Both selects start on a real enum member. A `<select>` whose value matches no
 // option renders option[0] while the form holds something else — a defect that
-// has reached production in this repo twice.
+// has recurred in this repo.
 const BLANK: RuleForm = {
   ruleType: "MIN_ENTRY_AGE",
   lifeScope: "ALL_LIVES",

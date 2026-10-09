@@ -534,8 +534,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     // quotation without the strict check issues a real, binding s.92(3)
     // quotation that no agreement can ever follow — and a PASQ carries a
     // consumer signature block, so what the client signs and returns is a
-    // quotation they believe is their credit agreement. That happened twice on
-    // 2026-08-04. Refuse at the grade the very next step demands.
+    // quotation they believe is their credit agreement. Refuse at the grade the very next step demands.
     const kycSubject = await prisma.client.findFirst({
       where: { id: application.clientId, tenantId: tenant.id },
       select: {

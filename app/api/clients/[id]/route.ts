@@ -539,16 +539,16 @@ export async function PUT(
 
         // The everyday Edit Client form writes the same income fields the
         // document-extraction route does, so guarding only that route leaves the
-        // wider door open: on 2026-08-05 an income overwrite on an APPROVED
-        // application broke the immutable affordability snapshot and the payout
-        // could not be repaired except by a fresh approval — a new PASQ and a
+        // wider door open: an income overwrite on an APPROVED
+        // application breaks the immutable affordability snapshot and the payout
+        // cannot be repaired except by a fresh approval — a new PASQ and a
         // new consumer signature.
         //
         // This blocks BREAKING an intact approval, not editing per se. If the
         // record already disagrees with the snapshot the approval is void
         // regardless, and staff must be able to correct the record — that is
-        // exactly how the 2026-08-05 incident was resolved. A blanket block on
-        // approved clients would have made it unrecoverable.
+        // the only way to recover such a payout. A blanket block on
+        // approved clients would make it unrecoverable.
         //
         // Scope is income AND declared expenses — the two the decision
         // fingerprint is computed from with no lighter remedy. The bank tuple

@@ -510,10 +510,9 @@ describe("POST /api/insurance/quotes — a rate card activated TODAY is quotable
   })
 
   it("prices a quote dated today as a bare calendar date", async () => {
-    // THE BUG. `"2026-08-17"` parsed to midnight UTC — 02:00 SAST, hours before
-    // the card came into force — so the quote could not resolve a rate table
-    // and came back unpriced. Proved on staging: identical payloads, midnight
-    // refused, midday priced.
+    // A bare date such as `"2026-08-17"` parses to midnight UTC — 02:00 SAST,
+    // hours before the card comes into force — so the quote could not resolve
+    // a rate table and would come back unpriced.
     const res = await POST(postReq({ ...VALID_BODY, effectiveDate: todayInSast() }))
 
     expect(res.status).toBe(201)
@@ -545,8 +544,8 @@ describe("POST /api/insurance/quotes — a rate card activated TODAY is quotable
   })
 
   it("refuses a calendar-invalid effective date instead of rolling it over", async () => {
-    // `new Date("2026-02-30")` is 2 March, not NaN — the old check accepted it
-    // and priced against a day the caller never named.
+    // `new Date("2026-02-30")` is 2 March, not NaN — a naive check would accept it
+    // and price against a day the caller never named.
     const res = await POST(postReq({ ...VALID_BODY, effectiveDate: "2026-02-30" }))
 
     expect(res.status).toBe(422)

@@ -21,7 +21,7 @@ const NIWS_AVS_SOAP_ACTION = "http://tempuri.org/INIWS_NIF/AVSRealtimeQuery"
 /**
  * WSDL enum MandateOptions.BankAccountType: "Current" | "Savings" |
  * "Transmission". Only the first two have a source value: TRANSMISSION was
- * removed as a selectable Client.accountType on 2026-08-05 (it was never
+ * not a selectable Client.accountType (it was never
  * chosen by any client, and the database guards never accepted it).
  */
 const ACCOUNT_TYPE_MAP: Record<AvsRequest["accountType"], string> = {

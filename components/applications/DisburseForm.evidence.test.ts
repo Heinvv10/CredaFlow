@@ -60,7 +60,7 @@ describe("DisburseForm evidence hints cover what the gate actually emits", () =>
     expect(EVIDENCE_HINTS[reason]).toBeTruthy()
   })
 
-  // This is the production failure: extraction never ran, so no fields exist
+  // This covers the case where extraction never ran, so no fields exist
   // to match the payout account against.
   it("covers a statement that could not be machine-read", () => {
     const failure = failureFrom({

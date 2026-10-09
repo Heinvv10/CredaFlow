@@ -216,7 +216,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       .filter(Boolean).join(" ")
     let delivery: { ok: boolean; simulated?: boolean; error?: string; providerOutcome?: string }
     // The WhatsApp leg deliberately stays on the legacy BulkSMS path. Routing
-    // it through sendMessage() resolves WA_CLOUD on prod, and an out-of-window
+    // it through sendMessage() resolves WA_CLOUD, and an out-of-window
     // send there needs an APPROVED WABA template — which pasq_link_whatsapp
     // does not have. A new applicant who has never messaged in is always
     // out-of-window, i.e. the normal PASQ case, so cutting it over would fail

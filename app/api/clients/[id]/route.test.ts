@@ -233,9 +233,9 @@ describe("GET /api/clients/[id] response security", () => {
 })
 
 // The client edit form writes the same income fields the extraction route does,
-// so guarding only that route leaves the wider door open. 2026-08-05: an income
-// overwrite on an APPROVED application broke the immutable affordability
-// snapshot and the payout could not be repaired except by a fresh approval.
+// so guarding only that route leaves the wider door open: an income
+// overwrite on an APPROVED application breaks the immutable affordability
+// snapshot and the payout cannot be repaired except by a fresh approval.
 describe("PUT /api/clients/[id] approval evidence guard", () => {
   // previousClient carries monthlyIncome/grossMonthlyIncome = 1_500_000, so an
   // approval recorded at that figure is INTACT.
@@ -273,8 +273,8 @@ describe("PUT /api/clients/[id] approval evidence guard", () => {
 
   // THE REPAIR PATH. When the record already disagrees with the snapshot the
   // approval is void anyway, and staff must be able to put the value back —
-  // that is exactly how the 2026-08-05 incident was resolved. A blanket block
-  // on approved clients would have made that payout unrecoverable.
+  // that is the only way to recover such a payout. A blanket block
+  // on approved clients would make it unrecoverable.
   it("allows restoring income the snapshot expects when the record already diverged", async () => {
     clientFindUniqueMock.mockResolvedValue(baseClient({ monthlyIncome: 1_500_099 }))
     approvedApplicationFindManyMock.mockResolvedValue([intactApproval])
@@ -313,7 +313,7 @@ describe("PUT /api/clients/[id] approval evidence guard", () => {
   // (statedMonthlyExpensesCents plus every breakdown category), and like income
   // they have no lighter remedy — no document to re-verify, no biometric to
   // revoke. Guarding income while leaving expenses open reproduces the same
-  // incident one field over on the identical route.
+  // failure one field over on the identical route.
   const approvalWithExpenses = {
     ...intactApproval,
     affordabilityResult: {
@@ -1560,10 +1560,9 @@ describe("PUT /api/clients/[id] — referral-agent attribution", () => {
 })
 
 // ── Retroactive accrual on re-attribution ────────────────────────────────────
-// Attaching an agent used to set the column and stop, so a client whose loan had
-// already disbursed accrued nothing, silently and permanently. Manual
-// attribution is the NORMAL path here (22 of 23 attributed prod clients on
-// 2026-08-17), so the losing path was the normal path. The decisions live in
+// Attaching an agent must not just set the column and stop, or a client whose loan
+// had already disbursed accrues nothing, silently and permanently. Manual
+// attribution is the NORMAL path, so the losing path would be the normal path. The decisions live in
 // lib/referral-agents/retro-attribution*; these assert the ROUTE wiring.
 describe("PUT /api/clients/[id] — retroactive referral accrual", () => {
   beforeEach(() => {

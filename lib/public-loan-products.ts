@@ -64,7 +64,7 @@ export type PublicLoanQuote = {
   schedule: LoanCalcResult["schedule"]
 }
 
-// Amount ranges + terms below MIRROR the active production LoanProduct rows so
+// Amount ranges + terms below MIRROR the active LoanProduct rows so
 // the marketing calculators/apply form never advertise an amount or term the
 // product can't originate (extends the W-2 single-source principle to ranges):
 //   Short-term/MICRO30 R500–R10,000    · 30-day fixed

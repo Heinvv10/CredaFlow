@@ -103,7 +103,7 @@ const LOAN_REASON: Record<string, string> = {
 }
 
 /**
- * Whole 30-day blocks of days in arrears (Hein, 2026-10-01): 0-29 -> 0,
+ * Whole 30-day blocks of days in arrears (product rule): 0-29 -> 0,
  * 30-59 -> 1. Never more than the months the account has been open, never
  * above the two digits the field holds, and 0 when nothing is overdue.
  */

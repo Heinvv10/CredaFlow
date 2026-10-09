@@ -73,8 +73,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // The portal apply pages resolve their product by these exact codes
       // (app/(portal)/portal/apply/[product]/page.tsx PRODUCT_KEY_TO_CODE).
       // Renaming one silently 404s that portal journey with no diagnostic —
-      // the same hardcoded-value-vs-editable-DB failure shape as past
-      // incidents. All three are stable codes.
+      // a hardcoded value coupled to an editable DB value. All three are
+      // stable codes.
       const beforeCode = before.code.trim().toUpperCase()
       if (PORTAL_STABLE_PRODUCT_CODES.has(beforeCode)) {
         if (String(data.code).trim().toUpperCase() !== beforeCode) {

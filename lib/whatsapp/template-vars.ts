@@ -5,8 +5,8 @@
  * `body = "{{body}}"` — an envelope holding one pre-rendered blob composed in
  * `WA_TEMPLATES` — and `lib/notifications.ts` supplied exactly `vars: { body }`.
  * That works for a free-text send inside Meta's 24h window and is unusable as a
- * Meta template, because Meta rejects a body that is only a parameter. Proven
- * against the live API on 2026-08-12 with a body of exactly `{{body}}`:
+ * Meta template, because Meta rejects a body that is only a parameter. The
+ * live API rejects a body of exactly `{{body}}`:
  *
  *   error_subcode 2388047 — "The message body can't have more than two
  *   consecutive newline characters, only have parameters, or have more than

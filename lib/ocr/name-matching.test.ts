@@ -25,8 +25,8 @@ describe("areNamesSimilar — initials as printed on a bank statement", () => {
     // second initial is unverifiable, and accepting it is indistinguishable
     // from accepting "AL AMIN" for Ahmed Amin — two different first names
     // sharing a letter. A blind reviewer proved that false accept; this is the
-    // same shape, so it refuses too. No pair in the production corpus needs it:
-    // every real repair matches the initials exactly.
+    // same shape, so it refuses too. No real repair needs it: genuine
+    // repairs match the initials exactly.
     expect(areNamesSimilar("MS Radebe", "Mbali Radebe")).toBe(false)
     expect(areNamesSimilar("AL AMIN", "Ahmed Amin")).toBe(false)
   })
@@ -87,14 +87,12 @@ describe("areNamesSimilar — initials as printed on a bank statement", () => {
   })
 })
 
-// Shapes taken from 99 real extracted `accountHolder` values on production
-// (2026-08-17), with the names substituted — the STRUCTURE is the evidence, the
-// clients are not. A first attempt at this fix assumed the surname was the last
-// token; measured against that corpus it repaired 5 false warnings and created
-// 13 new ones, all of them these shapes.
+// Shapes the extractor produces for `accountHolder`, with synthetic names — the
+// STRUCTURE is the evidence. A rule that assumes the surname is the last token
+// creates more false warnings than it repairs, all of them these shapes.
 describe("areNamesSimilar — shapes the extractor actually produces", () => {
   it("finds a surname buried mid-string", () => {
-    // The commonest failing shape on production: given, initial, SURNAME, given.
+    // The commonest failing shape: given, initial, SURNAME, given.
     expect(areNamesSimilar("MNR THABO M NKOSI MANDLA", "Thabo Mandla Nkosi")).toBe(true)
     expect(areNamesSimilar("MR SIPHO R DLAMINI ROLAND", "SIPHO ROLAND DLAMINI")).toBe(true)
   })
@@ -165,9 +163,8 @@ describe("areNamesSimilar — a spelled-out given name is evidence, not noise", 
   })
 
   it("refuses a misspelled given name rather than guessing", () => {
-    // Real production pair (names substituted) whose two records differ by one
-    // letter. An earlier draft matched it with an edit-distance-1 rule; a blind
-    // reviewer showed that same rule accepts Ayanda for Amanda, Asanda for
+    // A pair whose two records differ by one letter. An edit-distance-1 rule
+    // would match it, but that same rule accepts Ayanda for Amanda, Asanda for
     // Amanda, Noma for Nomsa and Bonani for Bongani — common, distinct SA names
     // one edit apart. Buying one typo at the price of four wrong people is a
     // bad trade at a payout gate, so the rule is gone and this pair goes back
@@ -179,9 +176,9 @@ describe("areNamesSimilar — a spelled-out given name is evidence, not noise", 
 })
 
 describe("areNamesSimilar — surnames carrying a particle", () => {
-  // FOUND BY PROBING, not by the production corpus — the one particled surname in it
-  // happened to be the right person, so measurement alone would have shipped
-  // this. `lastName` is "Van Mocktest", so treating only the final token as the
+  // Found by probing, not by sample data: a sample's particled surname can
+  // happen to be the right person, so measurement alone would miss this.
+  // `lastName` is "Van Mocktest", so treating only the final token as the
   // surname left "van" among the given names, where it matched the "van" on any
   // other Van Mocktest's statement and carried the comparison single-handed.
   it("refuses a different person sharing a particled surname", () => {

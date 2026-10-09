@@ -1,6 +1,6 @@
 // SINGLE SOURCE OF TRUTH for public-facing loan pricing.
 //
-// These figures MUST mirror the active LoanProduct rows in the production DB —
+// These figures MUST mirror the active LoanProduct rows in the database —
 // the same config read by app/api/applications/[id]/affordability — so the
 // marketing quote equals the loan the customer is actually charged.
 //
@@ -39,7 +39,7 @@ export type ProductPricing = {
 }
 
 // Keyed by public product code. Each entry mirrors the corresponding
-// production LoanProduct row.
+// LoanProduct row.
 export const PRODUCT_PRICING: Record<PublicPricingCode, ProductPricing> = {
   // "30-Day Micro Loan" (MICRO30) — 15% init capped at R1,000, R69 service
   // (R60 + VAT, the NCA-prescribed max), 5%/month. The service fee is charged

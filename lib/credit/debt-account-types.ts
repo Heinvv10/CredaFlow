@@ -5,8 +5,8 @@
  * different vocabularies into it: the affordability panel wrote Title Case
  * ("Home Loan", "Microfinance"), the client wizard wrote UPPER_SNAKE, the
  * client detail section wrote lower_snake, and the wizard validator mirrored a
- * fifth hand-copied list. By 2026-08-12 prod held three at once in the same
- * column.
+ * fifth hand-copied list. Three of them could end up in the same column at
+ * once.
  *
  * The visible failure: re-submitting an application rebuilds its debt snapshot
  * from the client's rows, so a lower_snake value landed in a `<select>` whose

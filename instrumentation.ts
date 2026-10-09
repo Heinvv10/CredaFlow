@@ -1,5 +1,5 @@
 export async function register() {
-  // Only run scheduler in Node.js runtime (not edge), and only in production/server context
+  // Only run scheduler in Node.js runtime (not edge), and only in a server context
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { assertSmileIdentityRuntimeSafety } = await import("@/lib/integrations/smileidentity")
     assertSmileIdentityRuntimeSafety()
@@ -20,16 +20,10 @@ export async function register() {
 
     // EVERY schedule below is pinned to SAST.
     //
-    // The container sets no TZ (verified on staging and prod 2026-08-01: `date`
-    // reports UTC), so an unpinned expression is read in UTC and every job
-    // fired TWO HOURS LATER than the comment beside it claimed — payment
-    // reminders at 09:00 SAST, not 07:00. The comments were not documentation
-    // of intent, they were wrong about behaviour.
-    //
-    // Pinning moves these jobs earlier by two hours on the next deploy. That is
-    // a real change to when live borrower comms go out; it is the change that
-    // makes behaviour match the stated intent, and it needs an owner's
-    // acknowledgement before promotion to production.
+    // The container sets no TZ (`date` reports UTC), so an unpinned
+    // expression is read in UTC and fires TWO HOURS LATER than the comment
+    // beside it claims — payment reminders at 09:00 SAST, not 07:00. A
+    // schedule comment must describe the behaviour, so the timezone is explicit.
     const SAST = "Africa/Johannesburg"
 
     const BASE_URL = process.env.NEXTAUTH_URL ?? `http://localhost:${process.env.PORT ?? 3300}`
@@ -61,7 +55,7 @@ export async function register() {
     // by systemd timers on the deploy host (dpd-update, reminders and escalations timers).
     // Do NOT re-add cron.schedule() calls for these routes here: registering
     // them in-process too means they fire twice nightly (systemd owns them
-    // for both prod and staging already), which risks duplicate
+    // in every environment), which risks duplicate
     // NCA-mandated borrower comms (Section 129 notices, payment reminders).
 
     // Nightly at 07:00 — send payment reminder emails (3-day-before)
@@ -95,8 +89,7 @@ export async function register() {
     })
 
     // Daily at 05:15 SAST — FAIS Fit & Proper adviser licence expiry (60-day
-    // warning). Neither scheduler invoked this route before 2026-07-31, so the
-    // 60-day warnings had never fired in any environment; it is scheduled here
+    // warning). It is scheduled here
     // rather than as a systemd timer because no unit owns it (the ownership
     // rule above covers only dpd-update, reminders and escalations), so there
     // is nothing for an in-process schedule to double-fire against.
@@ -104,22 +97,18 @@ export async function register() {
     // The timezone is explicit because the container sets no TZ, so node-cron
     // would otherwise read this expression in the image's UTC and fire at
     // 07:15 SAST — making the comment above a false statement about when the
-    // job runs. NOTE: the six schedules above also omit `timezone` and are
-    // therefore on UTC today; correcting them moves when live jobs fire, which
-    // is a behaviour change outside this ticket and is left for a decision
-    // rather than folded in here.
+    // job runs.
     cron.schedule("15 5 * * *", () => callCron("/api/cron/licence-expiry"), {
       timezone: SAST,
     })
 
-    // Every 5 minutes — poll the WhatsApp bridge and alert on an outage.
+    // Every 5 minutes — poll the WhatsApp bridge and alert when it is down.
     // In-process rather than a systemd timer (unlike the OWNERSHIP RULE
     // block above) is deliberate: it wires itself on every deploy, which is
-    // the entire point of a monitor. The identical poll-wa-templates timer
-    // sat unwired on this host for months; a route with no scheduler is not
-    // a smaller version of that gap, it's the same one. The route itself
-    // no-ops safely in any environment without WA_SENDER_URL configured
-    // (staging included) rather than firing a false alert.
+    // the entire point of a monitor. A route with no scheduler
+    // never runs, so a timer that is not wired on the host is the same gap.
+    // The route itself no-ops safely in any environment without WA_SENDER_URL
+    // configured rather than firing a false alert.
     cron.schedule("*/5 * * * *", () => callCron("/api/cron/check-wa-bridge-status"), {
       timezone: SAST,
     })
@@ -137,12 +126,9 @@ export async function register() {
     // system-initiated WhatsApp fails WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE while
     // the dashboard shows "Approved".
     //
-    // This is a PREREQUISITE, not a fix for a live outage: nothing has been
-    // submitted yet, so the route no-ops today (it early-returns on its first
-    // query when nothing is PENDING). It is wired ahead of the submissions so
-    // they cannot land into a gap. It was unwired until 2026-08-12 because the
-    // account had no templates to poll — true when written, false since the
-    // WABA went live on 2026-08-11.
+    // The route early-returns on its first query when nothing is PENDING, so
+    // it is cheap to keep wired ahead of any submission; submissions then
+    // cannot land into a gap.
     //
     // NOTE: this re-polls PENDING rows only, so Meta's later
     // APPROVED -> PAUSED / DISABLED transitions cannot land through it. Those

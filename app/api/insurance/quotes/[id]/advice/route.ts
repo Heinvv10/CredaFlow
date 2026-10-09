@@ -51,8 +51,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     })
   } catch (error) {
     // Logged, matching the POST handler below. See the note in
-    // app/api/insurance/quotes/route.ts — a silent 500 on a read is a
-    // production incident with no evidence attached.
+    // app/api/insurance/quotes/route.ts — a silent 500 on a read
+    // leaves no evidence to diagnose it with.
     console.error("Failed to fetch record of advice:", error)
     return NextResponse.json({ error: "Failed to fetch record of advice" }, { status: 500 })
   }

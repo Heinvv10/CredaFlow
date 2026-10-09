@@ -18,7 +18,7 @@ import { findDuplicateLeads, applyCandidateCap, type LeadDuplicate } from "@/lib
  * duplicates, which is the one failure a dedup feature must not have.
  *
  * The bound is what keeps that scan honest on a table nobody is watching grow.
- * Production holds tens of leads today; the cap is not expected to bind, and
+ * The cap is not expected to bind at current volumes, and
  * `truncated` says so out loud rather than letting an undercount read as
  * "no duplicates".
  */

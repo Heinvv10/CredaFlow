@@ -230,8 +230,8 @@ async function createCountersignedApplication(
       appliedTermDays: 30,
       status: "APPROVED",
       // Required from APPROVED onward by LoanApplication_repayment_method_lifecycle
-      // EFT because this suite exercises no debit mandate, and
-      // every loan on production is EFT. The DISBURSED updates below inherit it.
+      // EFT because this suite exercises no debit mandate. The DISBURSED updates
+      // below inherit it.
       repaymentMethod: "EFT",
       approvedAt: countersignedAt,
       approvedById: officerId,

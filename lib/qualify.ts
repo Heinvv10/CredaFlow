@@ -53,7 +53,7 @@ export function computeQualification(
   const maxInstalment = Math.max(0, Math.floor(ndi * 0.70))
 
   // Personal Loan: 3% pm reducing balance, 60 months. Ceiling R100,000 (matches
-  // the prod PERSONAL LoanProduct maxAmount, the source of truth).
+  // the PERSONAL LoanProduct maxAmount, the source of truth).
   const personalMax = maxQualifyingPrincipal(
     200000, 10000000, 100000,
     (p) => calculateLoan({

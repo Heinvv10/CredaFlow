@@ -186,7 +186,7 @@ export interface ReadinessKycRows {
  * pins both against `readCompositeKycState`.
  *
  * The linear scan per card is O(cards x documents). Accepted: the board holds
- * 63 applications on production and four core documents apiece. If it ever
+ * a few dozen applications and four core documents apiece. If it ever
  * grows, group the rows by clientId once instead of filtering per card.
  */
 export function inMemoryKycReader(

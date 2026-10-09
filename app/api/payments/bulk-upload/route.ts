@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       })
 
       // ONE transaction per loan, each taking a FOR UPDATE lock on that single
-      // loan before reading its balance (issue #422). One loan per tx means each
+      // loan before reading its balance. One loan per tx means each
       // tx only ever holds one loan lock, so there is no lock-ordering deadlock
       // against concurrent bulk uploads or the single-loan payment paths.
       for (const [reference, parsedRows] of byRef) {

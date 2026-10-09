@@ -204,7 +204,7 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
   y -= 28
 
   // Payment reference — the loan reference is what a client must quote on any
-  // EFT/deposit so the bank-sync reconciler makes an EXACT match (#424). Placed
+  // EFT/deposit so the bank-sync reconciler makes an EXACT match. Placed
   // on page 1 (fixed, bounded layout) rather than the variable-height page-3
   // footer, so it can never collide with the page-number line.
   drawText(p1, `PAYMENT REFERENCE: ${loan.reference}`, MARGIN + 4, y, bold, 10, ACCENT)
@@ -338,7 +338,7 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
 
   // Reversed-payment footnotes — a reversed row shows "<method> / Reversed" and is
   // excluded from the total/running balance; list when it was reversed and why so
-  // the statement stays transparent about the voided entry (#421).
+  // the statement stays transparent about the voided entry.
   const reversedPayments = sortedPayments.filter((p) => p.reversed)
   if (reversedPayments.length > 0) {
     y -= 24

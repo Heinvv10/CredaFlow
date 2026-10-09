@@ -398,13 +398,13 @@ describe("POST /api/portal/applications", () => {
   })
 
   it("accepts the REAL no-offer client payload: election is an empty string", async () => {
-    // The apply screen's election state initialises to "" and used to be
-    // posted verbatim when no offer block rendered. `?? "DECLINED"` does not
-    // catch "", so every no-offer portal submission 400'd server-side even
-    // after the client-side gate fix — production is in the no-offer state.
+    // The apply screen's election state initialises to "" and is posted
+    // verbatim when no offer block rendered. `?? "DECLINED"` does not catch
+    // "", so a no-offer portal submission must still be accepted server-side
+    // even if the client-side gate lets the blank through.
     findFirstInsuranceProduct.mockResolvedValue(null) // no offer configured
     // EXACTLY what PortalApplyProductClient posts when no offer rendered:
-    // election state "" posted verbatim (pre-fix), acknowledgement false,
+    // election state "" posted verbatim, acknowledgement false,
     // and every offer-identity field absent (undefined is dropped by JSON).
     const { creditLifeProductId: _p, creditLifeProductName: _n, creditLifeInsurerId: _i,
       creditLifeInsurerName: _in, creditLifeMonthlyPremiumCents: _m, ...noOfferBody } = validBody as Record<string, unknown>

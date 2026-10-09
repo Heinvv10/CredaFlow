@@ -3,7 +3,7 @@ type FlaggedEvent = { commissionStatus: string; qualityFlag: string | null }
 // Whether a flagged commission event still needs a human decision, for the
 // Overview tab's "flagged events" attention count.
 //
-// OWNER RULING (2026-08-06): BLOCKED is excluded alongside APPROVED — both
+// Product rule: BLOCKED is excluded alongside APPROVED — both
 // are a resolved staff decision, not an outstanding one. Leaving BLOCKED in
 // would make the attention list nag forever about something already decided,
 // defeating its purpose ("genuinely undecided"). REVERSED is excluded because

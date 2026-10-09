@@ -182,7 +182,7 @@ describe("InsuranceDashboardClient filters", () => {
   // only exists on POL-BBB (CREDIT LIFE). Selecting it, then switching to a
   // tab with no LAPSED rows, must not silently fall back to option[0]
   // ("All statuses") while `status` state keeps filtering by LAPSED — the
-  // <select> fallback bug this codebase has shipped to prod more than once.
+  // <select> fallback bug that has recurred in this codebase.
   it("keeps the selected status bound after switching to a tab with no matching rows", () => {
     setInput("Filter by status", "LAPSED")
     clickTab("FUNERAL")

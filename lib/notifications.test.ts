@@ -1185,9 +1185,9 @@ describe("triggerNotification — per-event flag isolation", () => {
   })
 })
 
-// Prod runs BULKSMS_DRY_RUN=true — SMS is off. Both dispatch paths used to
-// send anyway and record a `simulated` NotificationLog row (plus, on the
-// new-send path, a SIMULATED Message row) for a message nobody received.
+// With BULKSMS_DRY_RUN=true SMS is off. Neither dispatch path may send anyway
+// and record a `simulated` NotificationLog row (plus, on the new-send path, a
+// SIMULATED Message row) for a message nobody received.
 describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () => {
   beforeEach(() => {
     vi.clearAllMocks()

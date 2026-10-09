@@ -7,8 +7,8 @@
 //
 // THIS MODULE NEVER MUTATES A LEAD. The apply route still creates its new lead
 // exactly as before; this only observes and tells someone. That is deliberate:
-// matching is on phone + name (see lib/crm/lead-identity.ts) and prod holds one
-// phone number carrying three identities, so the matcher WILL be wrong
+// matching is on phone + name (see lib/crm/lead-identity.ts) and one phone
+// number can carry several identities, so the matcher WILL be wrong
 // occasionally. Detect-only makes the cost of a wrong match a spurious
 // notification rather than one person's loan application landing on another
 // person's lead.
@@ -35,7 +35,7 @@ export function duplicateNoticeChannelKey(priorLeadId: string): string {
  * Fixed bucket rather than a sliding window because the claim must be ONE
  * atomic unique insert on (tenantId, channelKey, windowStart) — a sliding
  * window cannot be expressed as a unique constraint, which would put us back at
- * the check-then-act race PR #414 removed. Cost is up to ~2 notices across a
+ * the check-then-act race the atomic claim exists to avoid. Cost is up to ~2 notices across a
  * bucket boundary; that is the accepted anti-spam bound.
  */
 export function throttleWindowStart(atMs: number): Date {

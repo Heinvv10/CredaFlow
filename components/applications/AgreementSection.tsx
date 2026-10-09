@@ -106,8 +106,8 @@ export function AgreementSection({
   const [recordingReturnedPacket, setRecordingReturnedPacket] = useState(false)
   const [feePayment, setFeePayment] = useState<"DEFERRED" | "UPFRONT">(initiationFeePayment)
   // Survives the toast. Set when the agreement call fails after the quotation
-  // has already been issued — the state that put a signed PASQ in front of two
-  // live consumers on 2026-08-04.
+  // has already been issued — the state that can put a signed PASQ in front of a
+  // consumer who believes it is their credit agreement.
   const [prepFailure, setPrepFailure] = useState<{
     // Whether a quotation actually reached the client record before the failure.
     // The banner states this as fact about a legal document, so it is tracked

@@ -21,7 +21,7 @@ const ROW: LoanProductRow = {
 describe("toApplicationProduct", () => {
   // The headline invariant. DB stores {min,max}Amount as cents; the wizard
   // contract is rand. If anyone re-removes the /100, this test fails before
-  // staging does.
+  // it reaches a deployment.
   it("divides minAmount and maxAmount by 100 (cents → rand)", () => {
     const out = toApplicationProduct(ROW)
     expect(out.minAmount).toBe(500)

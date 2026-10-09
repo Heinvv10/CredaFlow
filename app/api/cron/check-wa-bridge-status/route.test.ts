@@ -52,9 +52,8 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     vi.unstubAllEnvs()
   })
 
-  // FINAL-REVIEW PROBLEM 2b: the in-process scheduler now runs this cron in
-  // EVERY environment (staging included), and the IMPORTANT-4 fix makes
-  // listWaBridgeNumbers() throw when WA_SENDER_URL is unset. Without this
+  // The in-process scheduler runs this cron in EVERY environment, and
+  // listWaBridgeNumbers() throws when WA_SENDER_URL is unset. Without this
   // early check, any environment that simply hasn't been given a bridge yet
   // would fall into the "bridge unreachable" catch below and email ADMINs a
   // false CRITICAL. An environment with WhatsApp switched OFF must be silent
@@ -92,13 +91,12 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeAlarm.upsert).not.toHaveBeenCalled()
   })
 
-  // The exact prod shape this fix exists for. On 2026-08-12 prod was on
-  // WA_CLOUD with WA_BRIDGE_ADMIN_SECRET unset in the app container, so
-  // listWaBridgeNumbers() threw before making any network call and the catch
-  // below reported "bridge unreachable" -- a CRITICAL every 6h to all four
-  // admins (29 delivered per EmailLog) about a bridge that was Up and healthy
-  // and that nothing sends through. Reproduce both conditions together, not
-  // just the provider, because the throw is what reaches the alert path.
+  // A deployment on WA_CLOUD with WA_BRIDGE_ADMIN_SECRET unset in the app
+  // container: listWaBridgeNumbers() throws before making any network call
+  // and the catch below would report "bridge unreachable" -- a CRITICAL every
+  // 6h to every admin about a bridge that nothing sends through. Reproduce
+  // both conditions together, not just the provider, because the throw is
+  // what reaches the alert path.
   it("[CLOUD-SKIP] does not alert when the bridge is unreadable AND the tenant is on Cloud API", async () => {
     vi.mocked(prisma.commsSettings.findUnique).mockResolvedValue({ waProvider: "WA_CLOUD" } as never)
     vi.mocked(listWaBridgeNumbers).mockRejectedValue(new Error("WA_BRIDGE_ADMIN_SECRET is not configured"))
@@ -140,7 +138,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(sendWaBridgeAlert).toHaveBeenCalledTimes(1)
   })
 
-  // ADVERSARIAL REVIEW (PR #640): WhatsApp ENABLED with no bridge URL is not
+  // WhatsApp ENABLED with no bridge URL is not
   // the benign "not provisioned" case. lib/whatsapp.ts's getWaSenderUrl()
   // falls back to a hardcoded third-party host, so customer messages --
   // including NCA Section 129 notices -- could be flowing through a bridge
@@ -162,8 +160,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeNumber.upsert).not.toHaveBeenCalled()
   })
 
-  // ADVERSARIAL REVIEW: email is the ONLY alerting channel (the dashboard
-  // banner was descoped). If every ADMIN is undeliverable -- none exists, none
+  // Email is the ONLY alerting channel (there is no dashboard banner). If every ADMIN is undeliverable -- none exists, none
   // has an email, EmailConfig is inactive, or the allowlist blocks every
   // address -- sendWaBridgeAlert returns 0, the alarm correctly does NOT latch,
   // and the cron retries forever with nobody ever told. Not latching is right;
@@ -203,9 +200,8 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     )
   })
 
-  // The upserts only ever ADD, so retired slots lingered in the mirror forever
-  // (staging held 3 rows while the bridge reported 1). `previous` feeds
-  // decideWaBridgeAlert, so a stale CONNECTED row would eventually manufacture
+  // The upserts only ever ADD, so retired slots would linger in the mirror
+  // forever. `previous` feeds decideWaBridgeAlert, so a stale CONNECTED row would eventually manufacture
   // a phantom disconnect for a number that no longer exists.
   it("[MIRROR] deletes rows for slots the bridge no longer reports", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([
@@ -270,9 +266,9 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeNumber.upsert).not.toHaveBeenCalled()
   })
 
-  // --- FIX ROUND 1: the bridge container itself being unreachable (crashed,
+  // --- The bridge container itself being unreachable (crashed,
   // network-partitioned, bad WA_SENDER_URL) is a silent outage of its own --
-  // every poll 502s and, before this fix, nobody was ever alerted. Gated by
+  // every poll 502s and nobody would be alerted. Gated by
   // the SAME WaBridgeAlarm flag as the "logged out" case so it can't storm.
 
   it("[BRIDGE-UNREACHABLE 1] fires CRITICAL once when the bridge itself is unreachable and no alarm is active, still 502s", async () => {
@@ -323,15 +319,15 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeNumber.upsert).not.toHaveBeenCalled()
   })
 
-  // --- Minor gaps closed alongside the fix ---
+  // --- Edge cases ---
 
-  // FINAL-REVIEW CRITICAL 2: an empty slot pool is reachable through the
+  // An empty slot pool is reachable through the
   // feature's own UI (Retire on the last remaining number) and is a total
   // outbound outage, not a "nothing to report" state. `current.length > 0 &&`
-  // used to suppress this on the theory it was only a cold-start window, but
+  // would suppress this on the theory it was only a cold-start window, but
   // that window is microseconds (registerSlot is synchronous inside boot's
-  // loop) versus a 5-minute poll -- the trade was backwards. This test
-  // REPLACES the old "does not fire" pin: the old behaviour was the bug.
+  // loop) versus a 5-minute poll -- the trade would be backwards. The empty
+  // pool must fire.
   it("[CRITICAL-2] fires the allDown fallback when the bridge reports zero slots (empty pool is an outage, not silence)", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([])
     vi.mocked(decideWaBridgeAlert).mockReturnValue(null)
@@ -365,9 +361,8 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(body.alert).toBeNull()
   })
 
-  // ADVERSARIAL REVIEW (PR #640): two independent reviewers found that the
-  // alarm latch reproduces the six-day silent outage it was built to prevent.
-  // The alarm latches on the FIRST poll of an outage; from then on
+  // The alarm latch must not reproduce the long silent outage it was built to
+  // prevent. The alarm latches on the FIRST poll of an outage; from then on
   // `transition` is null (the mirror was updated), the all-down fallback is
   // gated on the alarm, and the clear branch needs a CONNECTED slot that by
   // definition does not exist while the channel is down. One email, ever.
@@ -450,13 +445,12 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeAlarm.upsert).not.toHaveBeenCalled()
   })
 
-  // FINAL-REVIEW CRITICAL 1: fireCriticalAlarm's own comment used to claim a
-  // throw was the only failure mode, but sendWaBridgeAlert swallows
+  // A throw is not the only failure mode: sendWaBridgeAlert swallows
   // per-recipient failures and returns a COUNT -- it can resolve 0 without
   // throwing (EmailConfig missing/inactive, or every recipient blocked by the
   // allowlist guard; see lib/email/service.ts). If the alarm latched on a
   // 0-delivery run, `!alarm?.active` would suppress every later poll forever
-  // with nobody ever notified -- the exact 6-day silent-outage shape this
+  // with nobody ever notified -- the silent-outage shape this
   // branch exists to prevent. These tests prove BOTH call sites (the normal
   // path and the bridge-unreachable 502 path share fireCriticalAlarm).
 
@@ -544,11 +538,11 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeAlarm.upsert).not.toHaveBeenCalled()
   })
 
-  // --- Mandatory cold-start / stuck-down alarm tests (blocking requirement) ---
+  // --- Cold-start / stuck-down alarm tests ---
   // decideWaBridgeAlert is a two-snapshot diff and cannot see a system that
   // was ALREADY broken when polling started. These three tests prove the
-  // independent WaBridgeAlarm singleton closes that hole: the 2026-07-28
-  // incident (bridge down 6 days, zero alerts) must be impossible to repeat.
+  // independent WaBridgeAlarm singleton closes that hole: a bridge that is
+  // down for days must not go without an alert.
 
   it("[MANDATORY 1] cold start: bridge already down, no alarm row yet -> fires CRITICAL", async () => {
     // previous is empty (first poll ever / after deploy) and every current

@@ -258,7 +258,7 @@ describe("no-offer credit-life disclosure", () => {
 
 describe("verifyAppliedCreditLifeDisclosure — no-offer applications", () => {
   it("does not report a no-offer election as missing", () => {
-    // The blockers rail (#536) renders "Credit-life election missing" from this
+    // The blockers rail renders "Credit-life election missing" from this
     // result. A no-offer application HAS a complete election, so the rail must
     // stay silent — otherwise it tells staff to recapture something that is
     // already correctly recorded, and offers a return-to-draft they don't need.

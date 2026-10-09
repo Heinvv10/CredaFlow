@@ -1656,10 +1656,10 @@ export function assessmentSnapshotMatches(
  * Editing a `LoanProduct` afterwards is ordinary maintenance that must apply to
  * FUTURE applications only — re-deriving a live price for an already-approved
  * loan silently reprices it, and then every downstream gate refuses it for no
- * longer matching its own approval. (Prod 2026-07-30: flipping the Personal Loan
- * product REDUCING_BALANCE -> FLAT repriced an approved R10,000 loan from three
- * instalments totalling R11,892.91 to a single R12,187.00 payment, and blocked
- * its credit agreement from being generated at all.)
+ * longer matching its own approval. (Flipping a product from REDUCING_BALANCE
+ * to FLAT would otherwise turn a three-instalment approved loan into a single
+ * payment of a different total, and block its credit agreement from being
+ * generated at all.)
  *
  * Reading terms back out of the snapshot is only sound because the snapshot
  * carries its own integrity fingerprint, which is verified here before any value

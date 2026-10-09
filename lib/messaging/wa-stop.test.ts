@@ -136,11 +136,11 @@ describe("handleWaStopInbound", () => {
     })
   })
 
-  // Regression (prod, 2026-08-11): this path updated Conversation.lastInboundAt
-  // but never Contact.lastInboundAtByChannel, which is the ONLY field the
-  // WhatsApp Cloud sender reads for Meta's 24h service window. Every known
-  // contact therefore read a null window and free-text replies failed closed
-  // with WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE minutes after the customer wrote.
+  // This path must update Contact.lastInboundAtByChannel, not only
+  // Conversation.lastInboundAt: it is the ONLY field the WhatsApp Cloud sender
+  // reads for Meta's 24h service window. Otherwise every known contact reads a
+  // null window and free-text replies fail closed with
+  // WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE minutes after the customer wrote.
   it("refreshes Contact.lastInboundAtByChannel.WHATSAPP so the 24h send window opens", async () => {
     const tx = fakeTx()
     await handleWaStopInbound(tx as unknown as Parameters<typeof handleWaStopInbound>[0], {
@@ -171,8 +171,8 @@ describe("handleWaStopInbound", () => {
   // DELIVERED. Whether we already knew the contact decided the status.
   // Harmless to the retry sweep, which selects RETRYING and documents that
   // QUEUED is not selected, but it puts received messages in every "waiting to
-  // send" count: 3 of the 43 rows reported as a stuck outbound backlog on prod
-  // were actually inbound.
+  // send" count: received messages would be reported as a stuck outbound
+  // backlog.
   it("stores inbound as DELIVERED, not the QUEUED send-default", async () => {
     const tx = fakeTx()
     await handleWaStopInbound(tx as unknown as Parameters<typeof handleWaStopInbound>[0], {

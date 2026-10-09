@@ -10,7 +10,7 @@
 // `(dashboard)/compliance` redirect. It does NOT gate `app/api/insurers/**`,
 // `app/api/products/insurance/**`, `(dashboard)/settings/insurers` or
 // `(dashboard)/settings/products/insurance` — live credit life reads insurer
-// and insurance-product records, so gating those would break production.
+// and insurance-product records, so gating those would break credit life.
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ImsModuleToggle } from "./ImsModuleToggle"

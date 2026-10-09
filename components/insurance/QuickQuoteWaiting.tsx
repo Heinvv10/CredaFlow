@@ -80,8 +80,8 @@ export function QuickQuoteWaiting({
   const ceiling = quoteCount > 0 ? 0.97 : 0.85
   const progress = Math.min(ceiling, 1 - Math.exp(-elapsed / (expectedMs * 0.55)))
 
-  /* "Usually 10 to 20 seconds", not 10. Measured end-to-end on staging
-     2026-08-08: first row at 9.6s, last at 14.4s, results at 15.6s. The old
+  /* "Usually 10 to 20 seconds", not 10. End to end, the first row lands
+     around 9.6s, the last around 14.4s, results around 15.6s. Older
      copy stated a number the journey did not hit, and the "taking longer than
      usual" threshold fired at 20s — inside the normal range, so it called a
      healthy run abnormal. UI copy is a factual claim; both numbers now match

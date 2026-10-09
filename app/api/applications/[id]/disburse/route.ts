@@ -1910,10 +1910,10 @@ export async function POST(
     // The payout guards are enforced TWICE: as preflight preconditions here in
     // TypeScript, and again as BEFORE-trigger RAISE ... ERRCODE 23514 on the
     // DISBURSED status write. The second layer is deliberate defence in depth,
-    // but it arrives as a raw database error, so this route answered a REFUSED
-    // payout with the same bare 500 it gives an outage. An operator could not
+    // but it arrives as a raw database error, which would answer a REFUSED
+    // payout with the same bare 500 a system failure gives. An operator could not
     // tell "evidence is missing" from "the system is broken", and the guard's
-    // own sentence — which names the missing evidence — was discarded.
+    // own sentence — which names the missing evidence — would be discarded.
     //
     // Matched on the guards' message text rather than on a Prisma error class:
     // Prisma wraps a trigger-raised error in different classes depending on how

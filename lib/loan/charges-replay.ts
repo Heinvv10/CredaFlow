@@ -41,9 +41,9 @@ const sastMidday = (day: number) => new Date(day * MS_PER_DAY + 10 * 3_600_000)
 const NEVER = new Date(Date.UTC(9999, 0, 1))
 
 /**
- * First day a loan may be charged, given the tenant's go-live instant (product
- * decision 2026-09-26). Replays the LEGACY allocation — schedule only, no
- * charges — over receipts valued on or before go-live day:
+ * First day a loan may be charged, given the tenant's go-live instant. Replays
+ * the LEGACY allocation — schedule only, no charges — over receipts valued on
+ * or before go-live day:
  *  - nothing overdue at go-live (paid up or current, including settled on
  *    go-live day itself): go-live day, so the loan is never back-charged;
  *  - overdue at go-live: the day after the earliest instalment still overdue,

@@ -10,9 +10,8 @@ type Body = { kind?: unknown; channel?: unknown; operationId?: unknown }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   // READONLY floor mirrors the free-text sibling (messages/route.ts): any staff
-  // who can view the record may message it — Decision 1 of #334, reaffirmed by
-  // Hein 2026-07-13. Consent/blocked/audit gates live in sendMessage. Do not
-  // tighten without a new product decision.
+  // who can view the record may message it. Consent/blocked/audit gates live
+  // in sendMessage. Do not tighten without a new product decision.
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
 

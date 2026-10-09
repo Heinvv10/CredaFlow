@@ -160,12 +160,11 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     applicationFindFirstMock.mockResolvedValue(null)
   })
 
-  // 2026-08-05: a PAYSLIP apply overwrote monthlyIncome and grossMonthlyIncome
-  // on a client whose application was already APPROVED and whose agreement the
-  // consumer had signed an hour earlier. The immutable approval snapshot is
-  // fingerprinted on those inputs, so the disbursement gate refused the payout
-  // as `unchanged_affordability` and nothing but a fresh approval could repair
-  // it. Extraction must not be able to invalidate an approval it cannot rebuild.
+  // A PAYSLIP apply that overwrites monthlyIncome and grossMonthlyIncome
+  // on a client whose application is already APPROVED and signed breaks the
+  // approval: the immutable approval snapshot is fingerprinted on those inputs,
+  // so the disbursement gate refuses the payout as `unchanged_affordability`
+  // and nothing but a fresh approval can repair it. Extraction must not be able to invalidate an approval it cannot rebuild.
   const applyBankStatement = () => POST(new NextRequest(
     "https://staging.acme-lending.example/api/clients/client-1/apply-extraction",
     {
@@ -188,7 +187,7 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     expect(documentUpdateManyMock).not.toHaveBeenCalled()
   })
 
-  // The incident itself: a PAYSLIP apply, not a bank statement. Income is what
+  // The income case: a PAYSLIP apply, not a bank statement. Income is what
   // the affordability snapshot is fingerprinted on.
   it("refuses a payslip apply that would change income while an application is APPROVED", async () => {
     applicationFindFirstMock.mockResolvedValue({ id: "app-1", reference: "APP-0001" })
@@ -519,9 +518,9 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     }))
   })
 
-  // In production a client verified in person at 13:16 had that verification
-  // and two passing selfies destroyed at 13:30 by an ID_COPY apply. Nothing
-  // warned the officer; the only route back was to re-verify the person.
+  // An ID_COPY apply can destroy an in-person verification and passing
+  // selfies. Nothing warns the officer, and the only route back is to
+  // re-verify the person.
   describe("identity revocation is a decision, not a side effect", () => {
     const verifiedClient = {
       id: "client-1",
@@ -825,11 +824,10 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     })
   })
 
-  // Production, 2026-08-27/28: a bank statement for one client was verified and
-  // then invalidated five times, and a disbursement was blocked, because every
-  // re-apply of the same document wrote two values back that were not new. The
-  // VLM guessed CHEQUE where the statement prints no product name and a staff
-  // member had set SAVINGS by hand; and it wrote the bank as printed
+  // Re-applying the same verified bank statement must not invalidate it, or a
+  // disbursement is blocked: the apply must not write back values that are not
+  // new. The VLM can guess CHEQUE where the statement prints no product name and a staff
+  // member has set SAVINGS by hand; and it writes the bank as printed
   // ("STANDARD BANK") where the staff edit form stores the SA_BANKS code
   // ("STANDARD_BANK"). Both read as a bank-detail change, and this route's
   // (correct) response to a bank-detail change is to un-verify the statement.
@@ -938,13 +936,12 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
       }))
     })
 
-    // Staging, client clxtest000000000000000001: bankName is stored as the
-    // LABEL "First National Bank", extraction read the same words off the
-    // statement, and the apply was refused 409 "decision evidence is bound to
-    // bankName" — because only the extracted side was canonicalised, and "FNB"
-    // never equals "First National Bank". Production stores the same spread:
+    // bankName can be stored as the LABEL "First National Bank" while
+    // extraction reads the same words off the statement. The apply must not be
+    // refused 409 "decision evidence is bound to bankName" because only the
+    // extracted side was canonicalised, and "FNB" never equals "First National Bank". Records hold the same spread:
     // CAPITEC and Capitec and Capitec Bank Limited and capitec, Standard Bank,
-    // Discovery Bank, African Bank — many on clients with verified statements.
+    // Discovery Bank, African Bank.
     it.each([
       ["First National Bank", "First National Bank"],
       ["Capitec", "CAPITEC BANK LIMITED"],
@@ -952,7 +949,7 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
       record, extracted,
     ) => {
       onFile(record)
-      // The staging client had an APPROVED application, which is what turned a
+      // An APPROVED application is what turns a
       // phantom bank change into a hard refusal rather than a silent re-verify.
       applicationFindFirstMock.mockResolvedValue({ id: "app-1", reference: "APP-0001" })
 

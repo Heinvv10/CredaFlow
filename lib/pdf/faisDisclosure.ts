@@ -55,7 +55,7 @@ export interface FaisInput {
 }
 
 // LEGAL_WORDING_BEGIN — G1 FAIS disclosure wording. Compliance-officer
-// sign-off obtained 2026-06-13 (owner-confirmed). Do NOT edit this block
+// sign-off covers this wording. Do NOT edit this block
 // without a fresh compliance review — each clause is annotated with its
 // regulatory citation so legal can re-verify against source text.
 //

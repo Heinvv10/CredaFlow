@@ -1695,7 +1695,7 @@ describe("sendMessage — redactStoredBody templates", () => {
     // Without the signed unsubscribe token in the canonical payload, every
     // term of the fingerprint is knowable and a 6-digit OTP falls in 10^6
     // hashes — so the redacted row leaks its own secret. UNSUB_TOKEN_SECRET is
-    // unset on staging, which is where walkthroughs happen.
+    // unset in non-production environments, which is where walkthroughs happen.
     delete process.env.UNSUB_TOKEN_SECRET
     const tx = buildTx()
     vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(tx))

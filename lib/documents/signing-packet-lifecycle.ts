@@ -7,8 +7,8 @@
  * far the application has travelled. This module answers that question from a
  * LoanApplication row, so the folder can render one card that changes as the
  * consumer and then the credit provider sign, rather than making staff work out which of
- * several similar-looking PDFs is the real one. Staff picked wrong twice on
- * 2026-08-04/05 and it cost two round trips on live disbursements.
+ * several similar-looking PDFs is the real one; picking the wrong one costs a round trip on a
+ * disbursement.
  *
  * Deliberately a pure function over a row: the states it distinguishes are
  * compliance states, and they need tests that do not depend on a database.

@@ -23,9 +23,8 @@ describe("SA bank vocabulary", () => {
     expect(SA_BANKS.map((b) => b.code)).toContain("INVESTEC")
   })
 
-  // These are the REAL values found in the production Client table on
-  // 2026-08-08, not invented ones. Each previously matched no <Select> option,
-  // so the form rendered its first option and a save rewrote the client's
+  // Spellings that have been stored on Client.bankName. Each previously
+  // matched no <Select> option, so the form rendered its first option and a save rewrote the client's
   // payout bank to ABSA.
   it.each([
     ["Capitec Bank Limited", "CAPITEC"],
@@ -38,11 +37,10 @@ describe("SA bank vocabulary", () => {
     expect(toBankCode(stored)).not.toBe("ABSA")
   })
 
-  // Every DISTINCT bankName the VLM has actually extracted from a bank
-  // statement on production, read from ClientDocument.extractionResult on
-  // 2026-08-08 (45 documents, 8 distinct spellings). This is the set the
-  // disbursement gate must canonicalise for real consumers — invented spellings
-  // would prove nothing about it. "GoTyme Bank" is the interesting one: it
+  // The distinct bankName spellings the VLM extracts from bank statements
+  // (ClientDocument.extractionResult). This is the set the disbursement gate
+  // must canonicalise for real consumers — invented spellings would prove
+  // nothing about it. "GoTyme Bank" is the interesting one: it
   // matches only because canonicalBankName uses substring containment.
   it.each([
     ["FNB", "FNB"],

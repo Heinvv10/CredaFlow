@@ -8,12 +8,10 @@ import { READY_LABELS, type ApplicationReadiness } from "@/lib/applications/read
  * The statuses the Kanban board renders as lanes, in pipeline order.
  *
  * DECLINED and CANCELLED are deliberately absent. They are terminal — a
- * cancelled application is a record, not work — and on 2026-08-19 they were 29
- * of the 63 applications on production, which would have made the board two
- * lanes wider and every card narrower for rows nobody acts on. They are reached
- * through the table view instead, which is why the board shows a closed count
- * that links there: before this, those 29 were not reachable from this page at
- * all.
+ * cancelled application is a record, not work — and they can outnumber the open
+ * ones, which would make the board two lanes wider and every card narrower for
+ * rows nobody acts on. They are reached through the table view instead, which
+ * is why the board shows a closed count that links there.
  */
 export const PIPELINE_COLUMNS = [
   { key: "DRAFT", label: "Draft" },
@@ -101,9 +99,8 @@ export interface PayoutBlock {
  * after the refusal drops the badge, because the evidence it refused on may
  * have changed. Refusals themselves cannot trigger that suppression — the
  * disburse route's only write to the application is inside the transaction that
- * succeeds, so a refused attempt leaves `updatedAt` alone. Verified against
- * production: four applications carried 4, 5, 6 and 13 refusals apiece and each
- * `updatedAt` moved only when the payout finally went through.
+ * succeeds, so a refused attempt leaves `updatedAt` alone: it moves only when
+ * the payout finally goes through.
  */
 export function payoutBlock(app: PipelineApplication): PayoutBlock | null {
   const refusal = app.payoutRefusal
@@ -454,10 +451,9 @@ function refusalReason(newValue: unknown): string {
  * Collapse the refusal audit rows into one entry per application: the LATEST
  * reason, and how many times the payout has been refused in total.
  *
- * The count is the part staff cannot get anywhere else. Production carried
- * applications refused 4, 5, 6 and 13 times before they went through, and a
- * board that shows only the most recent reason reads a thirteenth attempt the
- * same as a first.
+ * The count is the part staff cannot get anywhere else: an application can be
+ * refused many times before it goes through, and a board that shows only the
+ * most recent reason reads a thirteenth attempt the same as a first.
  *
  * Rows must arrive NEWEST FIRST; the first row seen for an application wins.
  */

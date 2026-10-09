@@ -59,10 +59,10 @@ export async function applyBankTransaction(args: {
   const receivedAt = txn.valueDate ?? txn.postedDate
   const capturedBy = args.userId ? `absa-sync:${args.userId}` : "absa-sync"
   const paymentId = await prisma.$transaction(async (tx) => {
-    // Serialise every writer on this loan (issue #422) and read its balance
+    // Serialise every writer on this loan and read its balance
     // UNDER the lock, so a receipt landing between our read and write can't be
-    // lost. The read was previously outside the transaction — a concurrent
-    // manual/portal payment could commit in that gap and get clobbered.
+    // lost. A read outside the transaction would let a concurrent manual/portal
+    // payment commit in that gap and get clobbered.
     await lockLoanForUpdate(tx, args.loanId)
 
     const loan = await tx.loan.findFirst({

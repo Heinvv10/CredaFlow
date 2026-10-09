@@ -67,13 +67,12 @@ function offeredRow(election: "ACCEPTED" | "DECLINED" = "ACCEPTED"): StoredCredi
 }
 
 describe("creditLifeEvidenceSurvivesReturnToReview", () => {
-  // APP-TEST-0001, 2026-08-12: an officer un-approved a loan to correct a
-  // credit obligation. return_to_review cleared the credit-life election
-  // unconditionally, so the rail demanded a recapture that only the wizard can
-  // do — and reaching the wizard also discards the bureau enquiry. The election
-  // was a no-offer disclosure whose hash covers only version, election,
+  // Un-approving a loan to correct a credit obligation must not clear a
+  // credit-life election that is still valid: the rail would demand a recapture
+  // that only the wizard can do, and reaching the wizard also discards the
+  // bureau enquiry. A no-offer disclosure's hash covers only version, election,
   // principal and term, none of which the un-approval touches. Nothing about it
-  // had gone stale, so the whole round trip bought a fresh bureau enquiry on the
+  // has gone stale, so clearing it would buy a fresh bureau enquiry on the
   // consumer's record in exchange for re-recording identical evidence.
   it("retains a no-offer election when there is still no credit-life offer", () => {
     expect(creditLifeEvidenceSurvivesReturnToReview(noOfferRow(), TERMS, null))

@@ -70,7 +70,7 @@ interface AgreementOpts {
 }
 
 // LEGAL_WORDING_BEGIN — G2 Credit Life Insurance Regulations, 2017 disclosure.
-// Compliance-officer sign-off obtained 2026-06-13 (owner-confirmed). Do NOT
+// Compliance-officer sign-off covers this wording. Do NOT
 // edit without a fresh compliance review. Each entry is wrapped by wrapText()
 // at render time (entries here are full paragraphs, NOT pre-wrapped lines).
 const CL_DISCLOSURE_LINES = [
@@ -96,12 +96,11 @@ const CL_DISCLOSURE_LINES = [
   "",
   // s92 NCA — premium disclosure in PASQ
   "Premium disclosure (section 92 of the National Credit Act).",
-  // Factual-reference correction only (2026-08-04, Hein's instruction), riding
-  // the same legal gate as the rest of the quotation redesign. The old text
-  // read "...in the Pre-Agreement Statement and Quotation on page 1 of this
-  // agreement" — on the PASQ variant that calls the quotation an agreement,
-  // which is the exact confusion that led two consumers to sign it as one.
-  // VERIFIED before writing: with real election evidence the premium rows
+  // Factual-reference correction only, riding the same legal gate as the rest
+  // of the quotation. Wording such as "...in the Pre-Agreement Statement and
+  // Quotation on page 1 of this agreement" would, on the PASQ variant, call the
+  // quotation an agreement — the confusion that leads consumers to sign it as
+  // one. Verified: with real election evidence the premium rows
   // ("Offered Credit Life Premium", "Credit Life Premiums Charged", "Premium
   // Collection") do render on PAGE 1 of the PASQ, so the page reference is
   // true. The substantive Regulation 3/4/7 wording above is untouched.
@@ -552,8 +551,8 @@ export async function generateCreditAgreementPdfWithAnchors(
   for (const item of schedule) {
     if (y < MARGIN + 40) {
       // Schedule overflow: silently truncates installments past row ~33.
-      // Pre-existing data-loss bug — tracked as #106. Acceptable today
-      // because production loans are 1–12 installments; will bite for
+      // Known data-loss limit. Acceptable while loans are
+      // 1–12 installments; will bite for
       // long-term (mortgage / affordable housing) once those launch.
       break
     }
@@ -619,8 +618,8 @@ export async function generateCreditAgreementPdfWithAnchors(
   // signature block and says so in terms. A consumer handed a document headed
   // "CONSUMER DECLARATION", carrying "I accept the terms and conditions of
   // this credit agreement" over a "Consumer Signature" line, reasonably
-  // believes signing it concludes their loan — two live consumers did exactly
-  // that on 2026-08-04 and returned signed quotations as their agreements.
+  // believes signing it concludes their loan and returns the signed quotation
+  // as their agreement.
   // Acceptance is an act of contracting and belongs only on the agreement
   // variant.
   const isPasq = opts.variant === "pasq"

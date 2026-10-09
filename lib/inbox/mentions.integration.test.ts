@@ -216,7 +216,7 @@ suite("MessageMention DB constraints and the cross-conversation note guard", () 
 
   // ── 4. Cross-conversation rejection, against a real DB ────────────────────
   // Both helpers are called inside runWithTenant because that is how they run
-  // in production: the route handlers establish the tenant frame, and the
+  // at runtime: the route handlers establish the tenant frame, and the
   // updateMany inside editInternalNote carries no tenantId of its own.
   it("refuses to edit or delete a note through another conversation's id", async () => {
     const viaB = await runWithTenant(tenantId, () =>

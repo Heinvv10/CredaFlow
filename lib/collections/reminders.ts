@@ -252,9 +252,9 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
   // dispatched and then came back FAILED / FAILED_PERMANENT /
   // SUPPRESSED_BY_CONSENT, or threw SendBlockedError, does not count here:
   // something was attempted, and that outcome is carried by `result.errors`
-  // and the "Failed ..." / "Not sent ..." detail lines. Measured on prod, the
-  // 3-day-overdue WhatsApp leg has so far produced only FAILED_PERMANENT
-  // (its WABA template is not approved yet), so a zero here could be read as
+  // and the "Failed ..." / "Not sent ..." detail lines. A WhatsApp leg
+  // whose WABA template is not yet approved produces only FAILED_PERMANENT,
+  // so a zero here could be read as
   // "everyone was reached" when in fact nobody was. Hence the name, and the
   // wording of the line it prints.
   const noWaNumberByTrigger = new Map<string, number>()
@@ -534,7 +534,7 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
           }
         } else {
           // Legacy path: direct sendSms / sendWhatsApp via BulkSMS gateway.
-          // Kept until the new path has soaked with the flag on in prod.
+          // Kept until the new path has soaked with the flag on.
           // `loan.client.whatsapp` is non-null here: the shared gate above
           // skipped the leg otherwise. It used to read `?? loan.client.phone`.
           const sendFn = channel === "whatsapp" ? sendWhatsApp : sendSms
@@ -614,8 +614,8 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
       // fault (no Contact row, unusable template). Faults are separately
       // counted in `result.errors`, but a leg that never left the building
       // never left the building either way, so the count must not exclude
-      // them — an earlier draft ANDed in a "was any leg skipped by policy"
-      // clause and under-reported exactly that case.
+      // them — ANDing in a "was any leg skipped by policy" clause would
+      // under-report exactly that case.
       if (!dispatched) {
         noLegDispatchedByTrigger.set(
           trigger.noteType,

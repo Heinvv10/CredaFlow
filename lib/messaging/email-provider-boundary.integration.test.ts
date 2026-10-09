@@ -28,7 +28,8 @@ import { dispatch } from "./providers"
 // This suite dispatches to a non-company address, which the recipient allowlist
 // correctly refuses by default (lib/email/recipient-guard.ts). Opt out
 // EXPLICITLY rather than widening the allowlist for a fixture — the guard
-// exists because staging once mailed real members of the public.
+// exists so a non-production environment can never mail real members of the
+// public.
 beforeEach(() => {
   process.env.EMAIL_DELIVERY_MODE = "unrestricted"
 })

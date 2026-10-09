@@ -58,7 +58,7 @@ describe("buildAvsRequestBody", () => {
     expect(savings).toContain("<BankAccountType>Savings</BankAccountType>")
 
     // Transmission remains a real WSDL member but has no source value: it was
-    // retired as a selectable Client.accountType on 2026-08-05, so nothing can
+    // no longer a selectable Client.accountType, so nothing can
     // produce it. AvsRequest["accountType"] no longer admits it — the compiler
     // is the guard here, and these two are the only bodies that can be built.
   })

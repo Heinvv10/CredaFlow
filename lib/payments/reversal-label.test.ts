@@ -11,7 +11,7 @@ describe("methodLabelWithReversal", () => {
   })
 
   it("keeps the original method and appends the reversal marker for a reversed payment", () => {
-    // The bug (#421) replaced the method with just "Reversed", losing the method.
+    // Replacing the method with just "Reversed" would lose the method.
     expect(methodLabelWithReversal("EFT", true)).toBe("EFT / Reversed")
     expect(methodLabelWithReversal("DEBIT ORDER", true)).toBe("DEBIT ORDER / Reversed")
   })

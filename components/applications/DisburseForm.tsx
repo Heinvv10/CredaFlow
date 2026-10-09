@@ -50,7 +50,7 @@ export const EVIDENCE_HINTS: Record<string, string> = {
  * `bankingEvidenceField`. The reason code alone said "could not be machine-read,
  * OR does not match" for every cause at once, so staff were sent to re-upload an
  * unlocked PDF when the real problem was one wrong digit on the client record —
- * and, on 2026-08-18, when there was no problem at all.
+ * or when there was no problem at all.
  */
 export const EVIDENCE_FIELD_HINTS: Record<string, string> = {
   extraction_empty:

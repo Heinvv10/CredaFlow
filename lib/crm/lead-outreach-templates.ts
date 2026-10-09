@@ -1,7 +1,7 @@
 // The three one-click CRM outreach messages, and their POPIA classification.
 //
-// ── Compliance note (approved by Hein 2026-07-17; revisit with legal before
-//    changing the copy or the category) ────────────────────────────────────
+// ── Compliance note (revisit with legal before changing the copy or the
+//    category) ──────────────────────────────────────────────────────────────
 // All three are TemplateCategory.SERVICE. The basis is that each one services
 // an enquiry the lead *themselves* opened — they asked us for a loan and these
 // messages progress or close that request. SERVICE clears the eligibility

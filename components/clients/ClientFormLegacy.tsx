@@ -361,7 +361,7 @@ export function ClientForm({ initialData, canEditReferralAgent = false }: Client
             ("First National Bank", "Capitec Bank Limited") and portal labels,
             none of which match a SelectItem value. Radix renders its FIRST
             option for an unmatched defaultValue, so passing the raw value made
-            this field read "ABSA" for 6 of 31 production clients — and saving
+            this field read "ABSA" for those clients — and saving
             the form, without touching the bank, persisted that. Resolving to a
             code shows their real bank; a bank outside the vocabulary resolves
             to null and MUST reach the Select as undefined, so it shows the

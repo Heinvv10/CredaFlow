@@ -37,7 +37,7 @@ const reviewableFailure = {
 }
 
 /**
- * What an inherited data repair left behind for a pre-#550 stub attempt: `verified`
+ * What an inherited data repair left behind for a stub attempt that predates the gate: `verified`
  * cleared, but `biometricVerifiedAt` and `extractionStatus: "done"` untouched.
  * The gate refuses it; the tab used to render no fallback at all for it.
  */
@@ -115,7 +115,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
   })
 
   it("offers the human fallback for a quarantined attempt the gate refuses", () => {
-    // The reported dead end: a pre-#550 stub attempt keeps extractionStatus
+    // The dead end: a stub attempt that predates the gate keeps extractionStatus
     // "done", so the tab's old `extractionStatus === "failed"` test rendered
     // NEITHER fallback — while the API would have accepted an in-person
     // verification all along. Staff saw no admin options at all.
@@ -173,7 +173,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
   })
 
   it("never shows a green biometric tick over evidence the gate refuses", () => {
-    // biometricVerifiedAt survived the 2026-07-23 quarantine, so the tab kept
+    // biometricVerifiedAt survives the data-repair quarantine, so the tab keeps
     // rendering "Biometrically verified" for an attempt that cannot pass.
     const refused = renderToStaticMarkup(
       <SelfieKycTab

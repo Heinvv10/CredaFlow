@@ -17,7 +17,7 @@ export type ReferralCommissionParseResult =
  *
  * 0 is accepted and means "commission off". That is a legitimate setting, but a
  * silent one: agents with no per-agent override inherit it and earn nothing,
- * which is how the ledger sat empty from 2026-07-11 to 2026-08-06. The route's
+ * so the ledger stays empty. The route's
  * UI copy — not this parser — is responsible for saying so out loud.
  */
 export function parseReferralCommissionInput(body: unknown): ReferralCommissionParseResult {

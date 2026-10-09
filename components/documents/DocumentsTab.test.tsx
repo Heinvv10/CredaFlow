@@ -95,9 +95,9 @@ describe("DocumentsTab generic document actions", () => {
   })
 
   // The PASQ and the credit agreement are halves of one packet. Listing them as
-  // ordinary downloadable cards is what led staff to email a 4-page half for
-  // signature (2026-08-05) — the consumer signed it and the
-  // upload was correctly refused for having 4 pages instead of 8.
+  // ordinary downloadable cards invites staff to email a 4-page half for
+  // signature; the signed copy is then correctly refused on upload for having
+  // 4 pages instead of 8.
   it("keeps the packet halves out of the main document list", async () => {
     stubFetch([baseDocument])
 

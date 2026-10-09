@@ -34,7 +34,7 @@ export function readOptions(el: HTMLElement | null): Option[] {
  *
  * Their markup is `data-bind="checked: $data.Burglary"`, so the observable's
  * name is on the element and the object it lives on is what `ko.dataFor`
- * returns for that node — both MEASURED on quote-staging, where the three
+ * returns for that node — both observed on FSP's test site, where the three
  * boxes bind to `Burglary`, `Alarm` and `GeyserCover` on the HomeContent and
  * Buildings objects.
  *
@@ -100,7 +100,7 @@ export function checkedBindingProperty(binding: string | null): string | null {
   // AMBIGUITY IS A REFUSAL. The comma split below counts delimiters and knows
   // nothing about string literals, so a quoted `)` or `}` inside a nested
   // object drops the depth to zero early and promotes that object's own
-  // `checked:` to a top-level part — measured:
+  // `checked:` to a top-level part, for example:
   //   attr: { title: 'a)', checked: isDefault }, checked: $data.Alarm
   // resolved `isDefault`, and a truthy `isDefault` would then confirm a write
   // `$data.Alarm` never received. Rather than write a full knockout parser for
@@ -149,7 +149,7 @@ export function checkedBindingProperty(binding: string | null): string | null {
  *  - checkbox — `el.value` is "on" whatever the state is, so re-reading it
  *               proves nothing at all; `el.checked` is the answer. `click` is
  *               dispatched as well as `change` because their binding is
- *               `checked: $data.X` — measured on quote-staging, Burglary,
+ *               `checked: $data.X` — observed on FSP's test site, Burglary,
  *               Alarm and GeyserCover all flip on this pair.
  *  - number   — the DOM accepts ANY numeric string. FSP's `min`/`max` arrive
  *               as validation attributes that assignment never consults, so

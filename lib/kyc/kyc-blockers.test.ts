@@ -68,7 +68,7 @@ describe("deriveKycBlockers", () => {
       okForOrigination: false,
     },
     {
-      // Never captured: payout blocked, origination allowed (policy 2026-07-27).
+      // Never captured: payout blocked, origination allowed.
       name: "no selfie captured yet",
       gate: gate({ ok: false, okForOrigination: true, biometricEvidence: "biometric_evidence_missing" }),
       ok: false,

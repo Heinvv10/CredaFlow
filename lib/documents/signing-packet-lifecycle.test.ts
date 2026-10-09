@@ -84,9 +84,8 @@ describe("signingPacketLifecycle", () => {
 
   describe("supersession", () => {
     // Regenerating the agreement mints a new digest and orphans the packet
-    // already returned. Live case 2026-08-05: two correct 8-page packets
-    // uploaded, agreement regenerated twelve seconds later, both refused
-    // with nothing actionable.
+    // already returned. Two correct packets uploaded before a regeneration
+    // must both be flagged with something actionable, not refused silently.
     it("flags a packet bound to a superseded AGREEMENT", () => {
       const result = signingPacketLifecycle(
         application({

@@ -147,7 +147,7 @@ describe("POST /api/applications/[id]/pasq/send-link", () => {
     }))
   })
 
-  // Prod runs BULKSMS_DRY_RUN=true. Without this guard the route dispatched,
+  // A deployment with BULKSMS_DRY_RUN=true sends nothing. Without this guard the route dispatched,
   // got a `simulated` result, and wrote a PASQ_LINK_SENT audit row for a link
   // the consumer never received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {
@@ -467,7 +467,7 @@ describe("POST /api/applications/[id]/pasq/send-link — MESSAGING_NEW_SEND_PASQ
   })
 
   it("leaves the WhatsApp leg on the legacy path even with the flag on", async () => {
-    // Routing WA through sendMessage() resolves WA_CLOUD on prod, where an
+    // Routing WA through sendMessage() resolves WA_CLOUD, where an
     // out-of-window send needs an APPROVED WABA template. pasq_link_whatsapp
     // has none, and a new applicant who has never messaged in is ALWAYS
     // out-of-window — i.e. the normal PASQ case. Cutting it over would fail

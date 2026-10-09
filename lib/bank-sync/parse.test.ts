@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { parseStatementCsv } from "./parse"
 
-// ABSA "Transaction History" layout (the layout was confirmed against a live
-// export 2026-07-14; every value below is invented): 4 columns `Date,Description,Amount,Balance`, dates as YYYYMMDD,
+// ABSA "Transaction History" layout (every value below is invented): 4 columns `Date,Description,Amount,Balance`, dates as YYYYMMDD,
 // a single signed period-decimal Amount, and the reference embedded in the
 // free-text Description (quoted when it contains commas).
 const CSV = [

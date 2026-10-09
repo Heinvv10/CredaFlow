@@ -1,7 +1,7 @@
 /**
  * Promise-to-Pay tracking — compares promises to actual payments.
  *
- * ⚠️ NO PRODUCTION CALLERS as at 2026-07-31. The promise status staff actually
+ * ⚠️ NO PRODUCTION CALLERS. The promise status staff actually
  * see is rendered by `PromiseToPayTab` in
  * `components/collections/CollectionDetailTabs.tsx`, which does its own
  * filtering over already-loaded payments. Changing THIS file changes nothing a

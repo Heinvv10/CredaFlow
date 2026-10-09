@@ -26,8 +26,8 @@ describe("CommsSettingsClient tab deep-linking", () => {
 // The alert email itself is plain text with no link — this redirect instead
 // protects bookmarks and typed URLs still pointing at
 // /settings/comms?tab=wa-bridge. That tab is gone; without this redirect one
-// of those lands on Channel with no bridge in sight, during the exact
-// incident it was saved for.
+// of those lands on Channel with no bridge in sight, exactly when an admin
+// is trying to fix the bridge.
 describe("legacy wa-bridge deep link", () => {
   it("sends the old bridge link to the WhatsApp bridge tab", () => {
     expect(legacyTabRedirect("wa-bridge")).toBe("/settings/whatsapp?tab=bridge")
