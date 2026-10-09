@@ -36,15 +36,18 @@ cp .env.example .env
 #   NEXT_PUBLIC_TENANT_SLUG=acme
 
 npx prisma migrate reset --force       # baseline migrations + demo seed
-SEED_PRINT_CREDENTIALS=1 npx tsx prisma/seed.ts   # prints the demo logins (idempotent)
+SEED_PRINT_CREDENTIALS=1 npx tsx prisma/seed.ts   # prints logins it creates (idempotent)
 npm run dev                            # http://localhost:3000
 ```
 
 The seed creates one neutral demo lender, **Acme**, with an ADMIN and a
 CREDIT_OFFICER (each with a TOTP secret — add it to an authenticator app),
-demo clients with a portal password, and one active loan. Credentials print
-only with `SEED_PRINT_CREDENTIALS=1`, so they stay out of CI logs. The seed
-refuses to run with `NODE_ENV=production`.
+demo clients with a portal password, and one active loan. No password is in
+source: each is generated when its row is first created and kept on reruns,
+or set by `SEED_ADMIN_PASSWORD`, `SEED_OFFICER_PASSWORD` and
+`SEED_PORTAL_PASSWORD`. Credentials print only with `SEED_PRINT_CREDENTIALS=1`,
+so they stay out of CI logs; print them on the run that creates the rows. The
+seed refuses to run with `NODE_ENV=production`.
 
 Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
 

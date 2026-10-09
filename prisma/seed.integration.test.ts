@@ -13,6 +13,7 @@
 import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
+import bcrypt from "bcryptjs"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 import { LENDER_IDENTITY_SELECT, parseLenderIdentity } from "@/lib/config/identity-schema"
@@ -202,7 +203,7 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(loan.maturityDate.getTime()).toBe(rows.at(-1)!.dueDate.getTime())
   })
 
-  it("reruns idempotently and keeps each staff user's TOTP secret", async () => {
+  it("reruns idempotently and keeps each staff user's TOTP secret and every password", async () => {
     const prisma = freshDb()
 
     const snapshot = async () => ({
@@ -220,11 +221,64 @@ suite("base demo seed on a fresh migrated database", () => {
         prisma.auditLog.count(),
       ]),
       secrets: (await prisma.user.findMany({ orderBy: { email: "asc" }, select: { totpSecret: true } })).map((u) => u.totpSecret),
+      passwords: (await prisma.user.findMany({ orderBy: { email: "asc" }, select: { password: true } })).map((u) => u.password),
+      portal: (await prisma.client.findMany({ orderBy: { idNumber: "asc" }, select: { portalPassword: true } })).map((c) => c.portalPassword),
     })
 
     const before = await snapshot()
-    runSeed(fresh!.url)
+    expect(runSeed(fresh!.url, { SEED_PRINT_CREDENTIALS: "1" })).not.toMatch(/password[^:]*: Demo-/)
     expect(await snapshot()).toEqual(before)
+  }, 120_000)
+})
+
+// No demo password is in source: each is generated when its row is first
+// created (or taken from SEED_*_PASSWORD) and printed only on request.
+suite("demo seed passwords", () => {
+  const admin = RUN ? new PrismaClient() : null
+  const created: string[] = []
+  let db: ThrowawayDb | undefined
+  let firstRunOutput = ""
+  const STAFF = [ADMIN_EMAIL, "credit.officer@acme-lending.example"]
+
+  beforeAll(async () => {
+    if (!admin) throw new Error("RUN_SEED_DB_IT=1 is required")
+    db = await createThrowawayDb(admin, created)
+    firstRunOutput = runSeed(db.url, { SEED_PRINT_CREDENTIALS: "1" })
+  }, 120_000)
+
+  afterAll(async () => {
+    await dropThrowawayDbs(admin, created, [db])
+  })
+
+  const passwords = async () => ({
+    staff: (await db!.prisma.user.findMany({ orderBy: { email: "asc" }, select: { password: true } })).map((u) => u.password),
+    portal: (await db!.prisma.client.findMany({ orderBy: { idNumber: "asc" }, select: { portalPassword: true } })).map((c) => c.portalPassword ?? ""),
+  })
+
+  it("generates them on the first run and prints the ones it stored", async () => {
+    const printed = (label: RegExp) => label.exec(firstRunOutput)?.[1] ?? "(not printed)"
+    for (const email of STAFF) {
+      const password = printed(new RegExp(`${email.replace(/\./g, "\\.")}\\n\\s+password: (Demo-\\S+)`))
+      const { password: hash } = await db!.prisma.user.findUniqueOrThrow({ where: { email }, select: { password: true } })
+      expect(await bcrypt.compare(password, hash)).toBe(true)
+    }
+    const portal = printed(/Client portal password[^:]*: (Demo-\S+)/)
+    const { portal: hashes } = await passwords()
+    expect(hashes).toHaveLength(5)
+    for (const hash of hashes) expect(await bcrypt.compare(portal, hash)).toBe(true)
+  })
+
+  it("keeps every password on a rerun and prints none", async () => {
+    const before = await passwords()
+    expect(runSeed(db!.url, { SEED_PRINT_CREDENTIALS: "1" })).not.toMatch(/: Demo-/)
+    expect(await passwords()).toEqual(before)
+  }, 120_000)
+
+  it("sets the passwords SEED_*_PASSWORD names", async () => {
+    runSeed(db!.url, { SEED_ADMIN_PASSWORD: "synthetic-admin-pass-1", SEED_PORTAL_PASSWORD: "synthetic-portal-pass-1" })
+    const { password } = await db!.prisma.user.findUniqueOrThrow({ where: { email: ADMIN_EMAIL }, select: { password: true } })
+    expect(await bcrypt.compare("synthetic-admin-pass-1", password)).toBe(true)
+    for (const hash of (await passwords()).portal) expect(await bcrypt.compare("synthetic-portal-pass-1", hash)).toBe(true)
   }, 120_000)
 })
 
