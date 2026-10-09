@@ -28,7 +28,8 @@
 #     a July incident. A PR once shipped fixing only two of them because
 #     nothing could catch it. Three of its four tests died in arrange on a
 #     fixed-id collision: the fixtures cannot randomise the application ids
-#     because the guards hardcode the production ones.
+#     because the guards hardcode the production ones. Deleted 2026-10-09
+#     together with the outage exception it tested.
 #   lib/compliance/pasq-approval-guard-migration (PR #719) — guards the
 #     approval transition on a live NCA lender. All four of its broken tests
 #     died on LoanApplication_repayment_method_lifecycle, added by

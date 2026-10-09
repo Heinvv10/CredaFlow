@@ -254,9 +254,9 @@ describe("applyBackfillAccrual", () => {
   // sharing a bps produce the same commissionCents, so a row belonging to a
   // DIFFERENT agent satisfied the check — and this guard exists precisely to
   // refuse writing a figure the ledger does not contain. The `updatedAt` CAS on
-  // the client edit cannot help: lib/disbursement/outage-reconciliation.ts
-  // accrues on already-disbursed loans and never touches Client, so the CAS
-  // cannot see it.
+  // the client edit cannot help: the disburse route accrues through
+  // recordDisbursementCommission and never touches Client, so the CAS cannot
+  // see it.
   it("scopes the verification to the agent the accrual was planned for", async () => {
     const tx = makeTx({ id: "evt-1", commissionCents: 1_000 })
     await applyBackfillAccrual(tx as never, planned, "ops@example.invalid", vi.fn())

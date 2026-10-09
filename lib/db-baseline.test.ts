@@ -2,7 +2,13 @@ import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { expectNoOtherLender } from "@/lib/website/__fixtures__/other-lender"
-import { BASELINE_MIGRATION_DIR, readBaselineSql } from "./db-baseline.test-helpers"
+import {
+  BASELINE_MIGRATION_DIR,
+  baselineConstraintSql,
+  baselineFunctionSql,
+  baselineTriggerSql,
+  readBaselineSql,
+} from "./db-baseline.test-helpers"
 
 /**
  * Prisma applies migrations in lexicographic order of their directory names.
@@ -42,5 +48,23 @@ describe("the squashed baseline migration", () => {
     const topLevel = readBaselineSql().replace(/^CREATE OR REPLACE FUNCTION[\s\S]*?^\$function\$;$/gm, "")
     const writes = topLevel.match(/^\s*(INSERT INTO|UPDATE|DELETE FROM)\s+"?\w+"?/gim) ?? []
     expect(writes.map((w) => w.trim())).toEqual(['INSERT INTO "SaProclaimedPublicHoliday"'])
+  })
+})
+
+describe("the static SQL readers", () => {
+  const removal = "20261009150000_remove_outage_disbursement_exception"
+
+  it("read the definition a later migration replaces, not the baseline's", () => {
+    expect(readBaselineSql()).toContain('"validOutageDisbursementException"(NEW."tenantId"')
+    const countersign = baselineFunctionSql("guardLoanApplicationProviderCountersign")
+    expect(countersign).toContain(`IF NEW."status"::TEXT = 'DISBURSED' AND (`)
+    expect(countersign).not.toContain("Outage")
+    expect(baselineConstraintSql("LoanApplication_approved_status_requires_pasq")).not.toContain("Outage")
+  })
+
+  it("refuse an object a later migration drops", () => {
+    expect(() => baselineFunctionSql("validOutageDisbursementException")).toThrow(`dropped by ${removal}`)
+    expect(() => baselineTriggerSql("LoanApplication_guard_outage_exception_binding")).toThrow(`dropped by ${removal}`)
+    expect(() => baselineConstraintSql("LoanApplication_tenantId_disbursementExceptionId_fkey")).toThrow(`dropped by ${removal}`)
   })
 })
