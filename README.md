@@ -35,8 +35,7 @@ cp .env.example .env
 #   NEXTAUTH_URL=http://localhost:3000
 #   NEXT_PUBLIC_TENANT_SLUG=acme
 
-npx prisma migrate reset --force       # baseline migrations + demo seed
-SEED_PRINT_CREDENTIALS=1 npx tsx prisma/seed.ts   # prints logins it creates (idempotent)
+SEED_PRINT_CREDENTIALS=1 npx prisma migrate reset --force   # migrations + demo seed; prints the logins
 npm run dev                            # http://localhost:3000
 ```
 
@@ -46,7 +45,9 @@ demo clients with a portal password, and one active loan. No password is in
 source: each is generated when its row is first created and kept on reruns,
 or set by `SEED_ADMIN_PASSWORD`, `SEED_OFFICER_PASSWORD` and
 `SEED_PORTAL_PASSWORD`. Credentials print only with `SEED_PRINT_CREDENTIALS=1`,
-so they stay out of CI logs; print them on the run that creates the rows. The
+so they stay out of CI logs; print them on the run that creates the rows. A
+database seeded before the passwords left the source still accepts the old
+published ones: rerun the seed once with all three `SEED_*_PASSWORD` set. The
 seed refuses to run with `NODE_ENV=production`.
 
 Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.

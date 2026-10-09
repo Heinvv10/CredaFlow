@@ -18,7 +18,7 @@ describe("--cf-* tokens", () => {
 
   it("skips uses with a fallback and reads definitions, not uses", () => {
     expect(usedTokens("a { color: var(--cf-x); b: var(--cf-y, red); c: var( --cf-z ) }")).toEqual(["--cf-x", "--cf-z"])
-    expect([...definedTokens(":root { --cf-a: 1px; color: var(--cf-b); }")]).toEqual(["--cf-a"])
+    expect([...definedTokens(":root { --cf-a: 1px; color: var(--cf-b); /* --cf-c: 2px; */ }")]).toEqual(["--cf-a"])
   })
 
   it("no rule repeats a selector line", () => {

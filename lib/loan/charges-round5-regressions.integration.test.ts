@@ -50,9 +50,19 @@ const capture = (ids: Ids, amount: number) =>
 
 /** A rendered document's text lines. */
 async function pdfLines(res: Response): Promise<string[]> {
+  // A refusal (e.g. 409 LENDER_IDENTITY_NOT_CONFIGURED) must fail as itself,
+  // not as pdftotext choking on a JSON body.
+  if (res.status !== 200 || res.headers.get("content-type") !== "application/pdf") {
+    throw new Error(`expected a PDF, got ${res.status} ${res.headers.get("content-type")}: ${await res.text()}`)
+  }
   const path = join(mkdtempSync(join(tmpdir(), "r5-")), "doc.pdf")
   writeFileSync(path, Buffer.from(await res.arrayBuffer()))
-  return execFileSync("pdftotext", ["-layout", path, "-"]).toString().split("\n")
+  try {
+    return execFileSync("pdftotext", ["-layout", path, "-"]).toString().split("\n")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("pdftotext is not installed (poppler-utils); this suite reads the rendered PDFs with it")
+    throw error
+  }
 }
 const cents = (text: string) => Math.round(Number(text.replaceAll(",", "")) * 100)
 const docParams = (ids: Ids) => ({ params: Promise.resolve({ id: ids.loanId }) })

@@ -275,9 +275,15 @@ suite("demo seed passwords", () => {
   }, 120_000)
 
   it("sets the passwords SEED_*_PASSWORD names", async () => {
-    runSeed(db!.url, { SEED_ADMIN_PASSWORD: "synthetic-admin-pass-1", SEED_PORTAL_PASSWORD: "synthetic-portal-pass-1" })
-    const { password } = await db!.prisma.user.findUniqueOrThrow({ where: { email: ADMIN_EMAIL }, select: { password: true } })
-    expect(await bcrypt.compare("synthetic-admin-pass-1", password)).toBe(true)
+    runSeed(db!.url, {
+      SEED_ADMIN_PASSWORD: "synthetic-admin-pass-1",
+      SEED_OFFICER_PASSWORD: "synthetic-officer-pass-1",
+      SEED_PORTAL_PASSWORD: "synthetic-portal-pass-1",
+    })
+    for (const [email, expected] of [[STAFF[0], "synthetic-admin-pass-1"], [STAFF[1], "synthetic-officer-pass-1"]]) {
+      const { password } = await db!.prisma.user.findUniqueOrThrow({ where: { email }, select: { password: true } })
+      expect(await bcrypt.compare(expected, password)).toBe(true)
+    }
     for (const hash of (await passwords()).portal) expect(await bcrypt.compare("synthetic-portal-pass-1", hash)).toBe(true)
   }, 120_000)
 })

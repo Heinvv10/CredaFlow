@@ -591,9 +591,15 @@ export default async function ReportsPage() {
                   <td className="font-medium text-[#262a33]">{report.name}</td>
                   <td className="text-[#4b5060]">{report.period}</td>
                   <td>
-                    <Link href={report.href} className="btn-outline-gold inline-block text-center">
-                      {report.href.startsWith("/api") ? "Export" : "View"}
-                    </Link>
+                    {report.href.startsWith("/api") ? (
+                      <a href={report.href} download className="btn-outline-gold inline-block text-center">
+                        Export
+                      </a>
+                    ) : (
+                      <Link href={report.href} className="btn-outline-gold inline-block text-center">
+                        View
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}

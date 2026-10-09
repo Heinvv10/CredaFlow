@@ -306,6 +306,7 @@ export function PaymentsClient({
         {tab === "recent" && (
           <a
             href={`/api/reports/export?type=payments&${periodQuery}`}
+            download
             className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
           >
             <Download className="h-3.5 w-3.5" />

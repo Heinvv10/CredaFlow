@@ -59,11 +59,12 @@ async function upsertStaff(tenantId: string, email: string, name: string, role: 
   }
   const totpSecret = existing?.totpSecret ?? generateTotpSecret()
   const password = envPassword(passwordEnv) ?? (existing ? undefined : generatePassword())
-  const hash = password && (await bcrypt.hash(password, 12))
+  const hash = password ? await bcrypt.hash(password, 12) : undefined
+  if (!existing && !hash) throw new Error(`Seed refused: no password for new user ${email}.`)
   const user = await prisma.user.upsert({
     where: { email },
     update: { tenantId, ...(hash ? { password: hash } : {}), active: true, totpSecret, totpEnabled: true },
-    create: { tenantId, email, name, role, password: hash || "", active: true, totpSecret, totpEnabled: true },
+    create: { tenantId, email, name, role, password: hash!, active: true, totpSecret, totpEnabled: true },
   })
   return { user, password: password ?? kept(passwordEnv), totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
 }
@@ -196,7 +197,7 @@ async function main() {
 
   console.log(`\nSeed complete: tenant "acme" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {
-    console.log("Credentials not printed; rerun with SEED_PRINT_CREDENTIALS=1 on a local terminal.")
+    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD and SEED_PORTAL_PASSWORD to choose or reset them.")
     return
   }
   for (const s of [admin, officer]) {

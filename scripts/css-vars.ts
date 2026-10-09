@@ -17,8 +17,10 @@ const SOURCE_DIRS = ["app", "components", "lib"]
 const SOURCE_EXT = /\.(tsx?|css)$/
 const SKIP_DIRS = new Set(["node_modules", ".next", "__fixtures__"])
 
+const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "")
+
 export function definedTokens(css: string): Set<string> {
-  return new Set([...css.matchAll(/(--cf-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))
+  return new Set([...stripComments(css).matchAll(/(--cf-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))
 }
 
 /** `var(--cf-x)` uses without a fallback; `var(--cf-x, …)` is skipped. */
@@ -38,7 +40,7 @@ function* walk(dir: string): Generator<string> {
 /** Selector lines a rule's prelude repeats — dead weight that hides real edits. */
 export function duplicateSelectorLines(css: string): string[] {
   const out: string[] = []
-  for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?:^|[{}])([^{}]+)\{/g)) {
+  for (const m of stripComments(css).matchAll(/(?:^|[{}])([^{}]+)\{/g)) {
     let seen = new Set<string>()
     for (const line of m[1].split("\n").map((l) => l.trim().replace(/,$/, "")).filter(Boolean)) {
       // `:is(` opens and `)` closes a group; items only repeat within one.
