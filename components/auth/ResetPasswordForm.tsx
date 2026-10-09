@@ -85,7 +85,7 @@ function ResetForm({ brandName }: { brandName: string }) {
               </div>
               <h2 className="text-lg font-bold text-gray-900 mb-2">Link expired or invalid</h2>
               <p className="text-sm text-gray-500 mb-6">This reset link has expired or has already been used. Please request a new one.</p>
-              <Link href="/forgot-password" className="inline-block px-5 py-2 bg-[#4338CA] text-white rounded-lg text-sm font-semibold hover:bg-[#4F46E5]">
+              <Link href="/forgot-password" className="inline-block px-5 py-2 bg-[var(--cf-brand)] text-[var(--cf-on-brand)] rounded-lg text-sm font-semibold hover:bg-[var(--cf-brand-alt)]">
                 Request New Link
               </Link>
             </div>
@@ -151,7 +151,7 @@ function ResetForm({ brandName }: { brandName: string }) {
                 <Button
                   type="submit"
                   disabled={loading || !password || !confirm || password !== confirm}
-                  className="w-full bg-[#4338CA] hover:bg-[#4F46E5] text-white font-semibold py-2.5"
+                  className="w-full bg-[var(--cf-brand)] hover:bg-[var(--cf-brand-alt)] text-[var(--cf-on-brand)] font-semibold py-2.5"
                 >
                   {loading ? "Saving…" : "Set New Password"}
                 </Button>
@@ -166,7 +166,7 @@ function ResetForm({ brandName }: { brandName: string }) {
               </div>
               <h2 className="text-lg font-bold text-gray-900 mb-2">Password updated!</h2>
               <p className="text-sm text-gray-500 mb-4">Your password has been changed. Redirecting you to login…</p>
-              <Link href="/login" className="text-sm text-[#4338CA] font-semibold hover:underline">Go to login now →</Link>
+              <Link href="/login" className="text-sm text-[var(--cf-brand-alt)] font-semibold hover:underline">Go to login now →</Link>
             </div>
           )}
         </div>
