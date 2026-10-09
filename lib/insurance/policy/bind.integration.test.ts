@@ -30,6 +30,9 @@ const suite = RUN ? describe : describe.skip
 const token = randomUUID().replaceAll("-", "").slice(0, 12)
 
 const START = new Date("2026-09-01T00:00:00Z")
+// The bind refuses a backdated start (B4), so a fixed START needs a fixed
+// clock to stay in the future; pinned rather than left to the wall clock.
+const NOW = new Date("2026-08-20T00:00:00Z")
 
 // Variance cast for the $extends client, as elsewhere in this module: the
 // generic delegate signatures of an extended client are not assignable to the
@@ -220,6 +223,7 @@ suite("bindQuote against real Postgres", () => {
       quoteId: fixture.quoteId,
       draftToken: tokenFor(fixture),
       startDate: START,
+      now: NOW,
     })
 
     expect(result.ok).toBe(true)
@@ -287,7 +291,7 @@ suite("bindQuote against real Postgres", () => {
     const first = await seedBindableQuote("replay_a")
     const shared = tokenFor(first)
     const bound = await bindQuote(store, {
-      tenantId: first.tenantId, quoteId: first.quoteId, draftToken: shared, startDate: START,
+      tenantId: first.tenantId, quoteId: first.quoteId, draftToken: shared, startDate: START, now: NOW,
     })
     expect(bound.ok).toBe(true)
 
@@ -300,7 +304,7 @@ suite("bindQuote against real Postgres", () => {
     // may be reordered.
     const sibling = await seedSiblingQuote(first, "replay_b")
     const crossQuote = await bindQuote(store, {
-      tenantId: first.tenantId, quoteId: sibling, draftToken: shared, startDate: START,
+      tenantId: first.tenantId, quoteId: sibling, draftToken: shared, startDate: START, now: NOW,
     })
     expect(crossQuote).toMatchObject({ ok: false, reason: "TOKEN_MISMATCH" })
 
@@ -330,7 +334,7 @@ suite("bindQuote against real Postgres", () => {
   it("refuses to bind the same quote twice", async () => {
     const fixture = await seedBindableQuote("twice")
     const first = await bindQuote(store, {
-      tenantId: fixture.tenantId, quoteId: fixture.quoteId, draftToken: tokenFor(fixture), startDate: START,
+      tenantId: fixture.tenantId, quoteId: fixture.quoteId, draftToken: tokenFor(fixture), startDate: START, now: NOW,
     })
     expect(first.ok).toBe(true)
 
@@ -344,6 +348,7 @@ suite("bindQuote against real Postgres", () => {
         type: "FUNERAL_COVER", sumAssured: 20000, premiumAmount: 83, productId: fixture.productId,
       }),
       startDate: START,
+      now: NOW,
     })
     expect(second).toMatchObject({ ok: false, reason: "ALREADY_CONVERTED" })
 

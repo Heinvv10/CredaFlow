@@ -91,10 +91,14 @@ suite("MessageMention DB constraints and the cross-conversation note guard", () 
 
     // Two conversations on ONE contact: the cross-conversation hijack this
     // guards against was a staffer reaching their own note through a
-    // different thread's URL, which is a same-tenant attack.
+    // different thread's URL, which is a same-tenant attack. B is closed:
+    // Conversation_one_open_per_contact allows one open thread per contact,
+    // and the note helpers do not look at thread status.
     const cvA = await db.conversation.create({ data: { tenantId, contactId, channel: "EMAIL" } })
     conversationAId = cvA.id
-    const cvB = await db.conversation.create({ data: { tenantId, contactId, channel: "SMS" } })
+    const cvB = await db.conversation.create({
+      data: { tenantId, contactId, channel: "SMS", status: "CLOSED", closedAt: new Date() },
+    })
     conversationBId = cvB.id
 
     const author = await db.user.create({
