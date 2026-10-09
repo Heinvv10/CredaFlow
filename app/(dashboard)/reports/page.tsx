@@ -328,11 +328,11 @@ export default async function ReportsPage() {
             Default Charges
           </Link>
           <div className="flex flex-wrap items-center gap-1.5">
-            <a href="/api/reports/export?type=loans"
+            <a href="/api/reports/export?type=loans" download
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e6b3f] text-white rounded-lg text-xs font-semibold hover:bg-[#155030] transition-colors">
               <Download className="h-3.5 w-3.5" />Loans Excel
             </a>
-            <a href="/api/reports/export?type=par"
+            <a href="/api/reports/export?type=par" download
               className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50 transition-colors">
               <Download className="h-3.5 w-3.5" />PAR Excel
             </a>

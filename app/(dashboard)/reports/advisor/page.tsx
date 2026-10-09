@@ -92,6 +92,7 @@ export default async function AdvisorReportPage() {
         </div>
         <a
           href="/api/reports/export?type=loans"
+          download
           className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--cf-success)] text-[#0b0d12] rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
         >
           Export Excel
