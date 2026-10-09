@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -7,6 +8,7 @@ import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
 import type { Session } from "next-auth"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
+import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
 
 function isAuthorized(req: NextRequest, session: Session | null): boolean {
   if (session?.user?.role !== "SUPER_ADMIN") return false
@@ -50,7 +52,10 @@ export async function PATCH(
 
   const { tenantId } = await params
 
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } })
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    include: { config: { select: { primaryColor: true, secondaryColor: true, darkColor: true } } },
+  })
   if (!tenant) {
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
   }
@@ -87,6 +92,18 @@ export async function PATCH(
     featureBureauSubmission, bureauSupplierNumber, bureauTradingName, bureauReportingStartDate,
     ..._ // discard unknown fields
   } = body as Record<string, string | boolean | null | undefined>
+
+  // Colours are checked as the set the tenant will have after this write: a
+  // value that is not #rrggbb, or any text/surface pair below WCAG AA in light
+  // or dark mode, refuses the whole request (lib/theme/tenant-colours.ts).
+  const colourKeys = (Object.keys(TENANT_COLOUR_VARS) as TenantColourField[]).filter((key) => body[key] !== undefined)
+  if (colourKeys.length > 0) {
+    const next = { ...DEFAULT_TENANT_COLOURS, ...tenant.config, ...Object.fromEntries(colourKeys.map((key) => [key, body[key]])) } as TenantColours
+    const colourErrors = tenantColourErrors(next)
+    if (Object.keys(colourErrors).length > 0) {
+      return NextResponse.json({ error: "Tenant colours fail validation", fields: colourErrors }, { status: 422 })
+    }
+  }
 
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
@@ -154,16 +171,29 @@ export async function PATCH(
       },
     }),
   }
-  if (bureauKeys.length === 0) {
+  if (bureauKeys.length === 0 && colourKeys.length === 0) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
     return NextResponse.json(updated)
   }
 
-  // The change and its audit row commit together, or neither does.
+  // The change and its audit rows commit together, or neither does.
   const day = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : value)
   const updated = await prisma.$transaction(async (tx) => {
     const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
     const result = await tx.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
+    if (colourKeys.length > 0) {
+      await logAuditStrict({
+        tenantId,
+        userId: session?.user?.id,
+        userEmail: session?.user?.email ?? undefined,
+        action: AuditAction.TENANT_COLOURS_UPDATED,
+        entity: "TenantConfig",
+        entityId: tenantId,
+        oldValue: Object.fromEntries(colourKeys.map((key) => [key, before?.[key] ?? null])),
+        newValue: Object.fromEntries(colourKeys.map((key) => [key, configUpdate[key]])),
+      }, tx)
+    }
+    if (bureauKeys.length === 0) return result
     await logAuditStrict({
       tenantId,
       userId: session?.user?.id,
@@ -176,6 +206,16 @@ export async function PATCH(
     }, tx)
     return result
   })
+
+  if (colourKeys.length > 0) {
+    // The colours are committed; a failed invalidation only leaves the old
+    // palette cached for getTenantConfig's 300 s, so it must not fail the write.
+    try {
+      revalidateTag(`tenant-config-${tenantId}`, "max")
+    } catch (e) {
+      console.error("Tenant colours saved but tenant-config cache was not invalidated:", e)
+    }
+  }
 
   return NextResponse.json(updated)
 }

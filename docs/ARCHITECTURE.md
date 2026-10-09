@@ -76,10 +76,11 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   lighter mix that stays readable whatever primary a tenant picks. Components
   use the `--cf-*` tokens. `scripts/palette-contrast.ts` checks WCAG AA for
   every text/surface pair in both modes, for the default colours and the demo
-  tenant's. A tenant's own light-mode brand and dark background are used as
-  given: nothing validates their contrast when they are saved yet.
-  The website's `--cf-*` tokens follow the tenant too; its hardcoded accent
-  classes, the sign-in pages, the NCA PDFs and the emails use the default
+  tenant's. Saving a tenant's colours (`app/api/admin/tenants`) runs the
+  same check with those colours applied (`lib/theme/tenant-colours.ts`) and
+  refuses a set that fails it, with a reason per field. The website's and the
+  sign-in pages' `--cf-*` tokens follow the tenant too; the website's
+  hardcoded accent classes, the NCA PDFs and the emails use the default
   palette.
 - **Feature flags.** `TenantConfig.feature*` switch modules (CRM, insurance,
   bureau submission, portal, …) per tenant (`resolveFeatureFlags`).

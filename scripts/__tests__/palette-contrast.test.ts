@@ -21,8 +21,8 @@ describe("CredaFlow palette", () => {
   })
 
   // Light-mode brand and the dark page background are the tenant's own
-  // colours, used as given; nothing validates them on write yet. The demo
-  // tenant at least must pass everywhere.
+  // colours; lib/theme/tenant-colours.ts refuses a saved set that fails.
+  // The seeded demo tenant must pass everywhere too.
   it("the seeded demo tenant's colours clear WCAG AA on every surface", () => {
     const seed = readFileSync(join(process.cwd(), "prisma", "seed.ts"), "utf8")
     const colour = (k: string) => new RegExp(`${k}: "(#[0-9A-Fa-f]{6})"`).exec(seed)![1]

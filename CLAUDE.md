@@ -173,8 +173,10 @@ brand tokens derive from `--cf-tenant-primary/secondary/dark`, which
 `components/TenantThemeProvider.tsx` sets from the tenant's `TenantConfig`
 colours. Use the tokens, not hex values. `scripts/palette-contrast.ts` (run by
 `scripts/__tests__/palette-contrast.test.ts`) checks every text/surface pair
-for WCAG AA in both modes, for the default and the demo tenant's colours; a
-tenant's own light-mode brand and dark background are not validated on save.
+for WCAG AA in both modes, for the default and the demo tenant's colours. The
+tenant admin API refuses colours that break it (`lib/theme/tenant-colours.ts`,
+422 per field); `lib/theme/palette-tokens.ts` is the runtime copy of the
+tokens, tested against `app/globals.css`.
 
 ## Routes Layout
 
