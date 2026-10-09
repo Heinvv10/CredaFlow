@@ -457,7 +457,7 @@ export function AgreementSection({
                 id="provider-signature"
                 value={providerSignature}
                 onChange={(event) => setProviderSignature(event.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--cf-border)] cf-signature-pad px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-[var(--cf-border-subtle)] cf-signature-pad px-3 py-2 text-sm"
                 autoComplete="name"
               />
             </div>
@@ -527,7 +527,7 @@ export function AgreementSection({
             {signing ? "Recording signature..." : "Record Witnessed Branch Signature"}
           </Button>
         </div>
-        <div className="mt-4 space-y-3 rounded-lg border border-[var(--cf-border)] p-4">
+        <div className="mt-4 space-y-3 rounded-lg border border-[var(--cf-border-subtle)] p-4">
           <div>
             <p className="text-sm font-semibold text-[var(--cf-text)]">
               Returned signed PDF
@@ -552,7 +552,7 @@ export function AgreementSection({
               value={returnedPacketSignedOn}
               max={southAfricanCalendarDate(new Date())}
               onChange={(event) => setReturnedPacketSignedOn(event.target.value)}
-              className="mt-1 block rounded border border-[var(--cf-border)] bg-transparent px-2 py-1 text-sm text-[var(--cf-text)]"
+              className="mt-1 block rounded border border-[var(--cf-border-subtle)] bg-transparent px-2 py-1 text-sm text-[var(--cf-text)]"
             />
             <span className="mt-1 block text-xs text-[var(--cf-muted)]">
               The date on the paper, not today&apos;s date — they can differ when a
@@ -764,7 +764,7 @@ function BranchSignatureCapture({
         ref={canvasRef}
         width={720}
         height={180}
-        className="h-36 w-full touch-none rounded-md border border-[var(--cf-border)] bg-white"
+        className="h-36 w-full touch-none rounded-md border border-[var(--cf-border-subtle)] bg-white"
         aria-label="Consumer branch signature pad"
         onPointerDown={start}
         onPointerMove={move}
@@ -797,7 +797,7 @@ function FeeElection({
   disabled?: boolean
 }) {
   return (
-    <div className="mt-4 rounded-lg border border-[var(--cf-border)] p-4">
+    <div className="mt-4 rounded-lg border border-[var(--cf-border-subtle)] p-4">
       <p className="text-sm font-semibold text-[var(--cf-text)]">Initiation fee ({formatZAR(initiationFee)}) — consumer election</p>
       <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
         The initiation fee is interest-free either way (NCR Circular 15 of 2016).
