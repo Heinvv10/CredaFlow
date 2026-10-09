@@ -210,8 +210,10 @@ export async function PATCH(
   if (colourKeys.length > 0) {
     // The colours are committed; a failed invalidation only leaves the old
     // palette cached for getTenantConfig's 300 s, so it must not fail the write.
+    // expire: 0, not "max": the next page load must draw the new palette,
+    // not serve the stale one while revalidating.
     try {
-      revalidateTag(`tenant-config-${tenantId}`, "max")
+      revalidateTag(`tenant-config-${tenantId}`, { expire: 0 })
     } catch (e) {
       console.error("Tenant colours saved but tenant-config cache was not invalidated:", e)
     }

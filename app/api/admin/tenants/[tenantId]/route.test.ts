@@ -152,7 +152,22 @@ describe("PATCH /api/admin/tenants/[tenantId] — tenant colours", () => {
       oldValue: { primaryColor: "#1F4E79", darkColor: "#0F1115" },
       newValue: { primaryColor: "#7A3E1D", darkColor: "#101418" },
     }), expect.objectContaining({ isTx: true }))
-    expect(revalidateTag).toHaveBeenCalledWith("tenant-config-t1", "max")
+    expect(revalidateTag).toHaveBeenCalledWith("tenant-config-t1", { expire: 0 })
+  })
+
+  it("still reports the committed save when the cache cannot be invalidated", async () => {
+    revalidateTag.mockImplementation(() => { throw new Error("no cache store") })
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    expect((await patch({ primaryColor: "#7A3E1D" })).status).toBe(200)
+    expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("not invalidated"), expect.any(Error))
+    errorLog.mockRestore()
+  })
+
+  it("measures a tenant with no config row against the default colours", async () => {
+    findUnique.mockResolvedValue({ id: "t1", config: null })
+    expect((await patch({ darkColor: "#101418" })).status).toBe(200)
+    findUnique.mockResolvedValue({ id: "t1", config: null })
+    expect(Object.keys((await (await patch({ darkColor: "#C0C0C0" })).json()).fields)).toEqual(["darkColor"])
   })
 
   it.each([
