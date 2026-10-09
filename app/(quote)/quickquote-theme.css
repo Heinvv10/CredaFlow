@@ -1,0 +1,1410 @@
+/*
+ * Theme for the FSP Solutions QuickQuote widget.
+ *
+ * FSP renders the markup; we only get to style it. Their integration guide
+ * documents the selectors below as the supported customisation surface, and
+ * also warns that "any new products or features added by us will automatically
+ * update to your site" — their DOM changes without notice. So this styles
+ * broadly (colour, type, spacing, controls) and avoids positional selectors
+ * like :nth-child that would silently break on their next release.
+ *
+ * Everything is scoped under #fspqq so nothing leaks onto the rest of the page.
+ */
+
+/* The quote host must not depend on an ambient reset. Without border-box the
+   arrow padding on a select is added OUTSIDE its width:100%, which pushed our
+   own controls 32px past a 320px viewport (measured: 332px select in a 280px
+   column) and broke WCAG 1.4.10 reflow. Tailwind's preflight supplies this on
+   the real route; the isolated harness has no such luxury, and neither should
+   this stylesheet assume it. */
+#fspqq,
+#fspqq *,
+.cf-wiz,
+.cf-wiz *,
+.cf-wait,
+.cf-wait * {
+  box-sizing: border-box;
+}
+
+:root {
+  --cf-bg: #11141b;
+  --cf-surface: rgba(255, 255, 255, 0.04);
+  --cf-line: rgba(255, 255, 255, 0.12);
+  --cf-line-strong: rgba(255, 255, 255, 0.28);
+  /* Control boundaries only. WCAG 1.4.11 wants 3:1 for a border that is the
+     sole means of identifying a control; --cf-line measured 1.40:1 and
+     --cf-line-strong 2.50:1 against the page background, so unfocused fields
+     were near-invisible. 42% white clears 3:1 with margin. */
+  --cf-control-border: rgba(255, 255, 255, 0.42);
+  --cf-placeholder: rgba(255, 255, 255, 0.58);
+  --cf-text: #ffffff;
+  --cf-muted: rgba(255, 255, 255, 0.72);
+  --cf-faint: rgba(255, 255, 255, 0.48);
+  --cf-brand-alt: #a5b4fc;
+  --cf-brand-hi: #c7d2fe;
+
+  /* How far the boot skeleton's wordless placeholders sit back.
+     ONE token because it is consumed twice — by the static rule and by the
+     settle keyframes' final state — and those two must agree or the elements
+     jump when the animation ends. See the note on @keyframes cf-skel-settle
+     for why the keyframe copy is the one that actually applies. */
+  --cf-skel-recede: 0.45;
+
+  /* Fallback only. The live value is published inline by
+     components/insurance/QuickQuoteArrival.tsx, which owns the pitch because
+     it also positions rows with it — editing this line alone changes nothing,
+     which is deliberate: it cannot desync from the positioning. */
+  --cf-arrival-pitch: 3.25rem;
+}
+
+#fspqq {
+  color: var(--cf-muted);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+/* ---------- section headings ---------- */
+
+#fspqq h2 {
+  margin: 2.25rem 0 0.25rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--cf-line);
+  color: var(--cf-text);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+#fspqq .fieldinstructions {
+  margin-bottom: 1.25rem;
+  color: var(--cf-faint);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+/* ---------- form rows ---------- */
+
+#fspqq .dataRow {
+  padding-top: 1rem;
+}
+
+#fspqq .dataRow .label,
+#fspqq .dataRow .data {
+  margin: 0;
+}
+
+#fspqq .dataRow .label {
+  margin-bottom: 0.4rem;
+  color: var(--cf-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+#fspqq .dataRow.half {
+  margin-right: 1.5rem;
+}
+
+/* ---------- controls ---------- */
+
+#fspqq input[type="text"],
+#fspqq input[type="email"],
+#fspqq input[type="tel"],
+#fspqq select {
+  width: 100%;
+  max-width: 26rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--cf-control-border);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--cf-text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#fspqq select {
+  /* Native arrow is invisible on a dark field in most engines. */
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--cf-brand-alt) 50%),
+    linear-gradient(135deg, var(--cf-brand-alt) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2.25rem;
+}
+
+#fspqq input:focus,
+#fspqq select:focus {
+  outline: none;
+  border-color: var(--cf-brand-alt);
+  box-shadow: 0 0 0 2px rgba(165, 180, 252, 0.15);
+}
+
+#fspqq option {
+  background: var(--cf-bg);
+  color: var(--cf-text);
+}
+
+#fspqq input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cf-brand-alt);
+  vertical-align: -2px;
+}
+
+#fspqq .option label,
+#fspqq label {
+  color: var(--cf-muted);
+}
+
+/* ---------- buttons ---------- */
+
+#fspqq button {
+  padding: 0.75rem 1.5rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--cf-brand-alt);
+  color: var(--cf-bg);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+#fspqq button:hover {
+  background: var(--cf-brand-hi);
+}
+
+/* ---------- validation ---------- */
+
+#fspqq .label .error,
+#fspqq .rightCol.error {
+  color: #fca5a5;
+}
+
+#fspqq .data.error {
+  padding: 0;
+  background: none;
+  outline: none;
+}
+
+#fspqq .data .error input,
+#fspqq .data .error select,
+#fspqq input.error,
+#fspqq select.error {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+}
+
+/* ---------- terms + FSP disclosure ---------- */
+
+#fspqq .terms {
+  margin-top: 1.5rem;
+}
+
+#fspqq .terms .wording {
+  color: var(--cf-faint);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+#fspqq a {
+  color: var(--cf-brand-alt);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#fspqq a:hover {
+  color: var(--cf-brand-hi);
+}
+
+#fspqq ul {
+  margin-top: 1.75rem;
+  padding: 1rem 1.25rem;
+  border-left: 2px solid var(--cf-line);
+  list-style: none;
+}
+
+#fspqq ul li {
+  margin-bottom: 0.6rem;
+  color: var(--cf-faint);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+/* ---------- waiting state ---------- */
+
+/*
+ * FSP leave the "searching insurer databases" banner in the DOM after results
+ * arrive, so it renders above the quotes. Observed on a real run: the banner
+ * and the results were on screen together. :has() lets us retire it once the
+ * quotes list exists, without touching their markup.
+ */
+#fspqq:has(.quotes) #quotesLoadingModal {
+  display: none;
+}
+
+/* When our wizard has taken over, our own wait screen replaces theirs for the
+   whole duration — otherwise both render and the visitor sees two competing
+   progress states. Caught in a real run: ours above, theirs below. */
+#fspqq[data-cf-takeover="true"] #quotesLoadingModal {
+  display: none;
+}
+
+/* ---------- quotes list ---------- */
+
+#fspqq .quotes {
+  margin-top: 1.5rem;
+}
+
+#fspqq .quotes .dataRow {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--cf-line);
+  background: var(--cf-surface);
+  transition: border-color 0.15s ease;
+}
+
+#fspqq .quotes .dataRow:hover {
+  border-color: var(--cf-line-strong);
+}
+
+/* Insurer logos ship at wildly different intrinsic sizes — normalise them.
+   White plate because most are dark-on-transparent and vanish on our bg. */
+#fspqq .quotes .dataRow .label {
+  flex: 0 0 9.5rem;
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 2px;
+  background: #ffffff;
+}
+
+#fspqq .quotes .dataRow .label img {
+  display: block;
+  width: 100%;
+  max-height: 3.25rem;
+  object-fit: contain;
+}
+
+#fspqq .quotes .data.excess {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--cf-muted);
+  font-size: 0.9rem;
+}
+
+/* This anchor selects between an insurer's offerings — it is a control, not a
+   navigation link, so it must not read as one. Underlined gold made it the
+   loudest thing in the row and duplicated the premium beside it. */
+#fspqq .quotes .excess-details a {
+  color: var(--cf-faint);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+#fspqq .quotes .excess-details a:hover {
+  color: var(--cf-muted);
+}
+
+#fspqq .quotes .quoted-premium {
+  color: var(--cf-muted);
+}
+
+#fspqq .quotes .offering.selected .excess-details a {
+  color: var(--cf-muted);
+}
+
+/* Right-hand column carries the headline number and the CTA. */
+#fspqq .rightCol .quotetext .text {
+  color: var(--cf-faint);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+#fspqq .rightCol .quotetext .premium {
+  color: var(--cf-text);
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+#fspqq .quotes .offering.selected {
+  color: var(--cf-text);
+}
+
+#fspqq .rightCol {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+#fspqq .rightCol button {
+  margin-top: 0.5rem;
+}
+
+/* ---------- contact / "I'm interested" step ---------- */
+
+#fspqq #interestedForm .dataRow,
+#fspqq form#quotationDetails .dataRow {
+  max-width: 40rem;
+}
+
+/* ---------- mobile ---------- */
+
+@media (max-width: 640px) {
+  #fspqq .dataRow.half {
+    float: none;
+    margin-right: 0;
+  }
+
+  #fspqq input[type="text"],
+  #fspqq select {
+    max-width: 100%;
+  }
+
+  #fspqq .quotes .dataRow {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  #fspqq .quotes .dataRow .label {
+    flex: 0 0 6.5rem;
+  }
+
+  #fspqq .rightCol {
+    flex: 1 0 100%;
+    text-align: left;
+  }
+
+  #fspqq button {
+    width: 100%;
+  }
+}
+
+/* ==========================================================================
+   Wizard takeover
+   ==========================================================================
+   Our stepped journey presents the same questions as FSP's single long form.
+   Their form stays in the DOM and stays authoritative — we write into it — so
+   it is moved off-screen rather than display:none. jQuery UI's suburb
+   autocomplete measures its input to position the suggestion list, and a
+   display:none input measures zero.
+
+   The attribute is set by QuickQuoteWizard only when every field it depends on
+   is present. If FSP change their markup, the attribute is never set, this
+   rule never applies, and their own form is simply visible. Failure mode is
+   "looks like FSP's widget", not "blank page".
+   ========================================================================== */
+
+#fspqq[data-cf-takeover="true"] form#quotationDetails {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.cf-wiz-boot {
+  padding: 3rem 0;
+  color: var(--cf-faint);
+  font-size: 0.9rem;
+}
+
+.cf-wiz {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+/* Grid items are min-width:auto by default, so the widest <option> text set the
+   panel's floor and overflowed at 320px (measured 352px against a 320
+   viewport). This lets the column actually shrink. */
+.cf-wiz-panel,
+.cf-wiz-field,
+.cf-suburb {
+  min-width: 0;
+}
+
+.cf-wiz-field select,
+.cf-wiz-field input,
+.cf-suburb input {
+  /* A select's intrinsic min-content width is its longest option's text, which
+     overflowed a 320px viewport by 32px. Both properties are needed: min-width
+     to defeat the intrinsic floor, max-width to cap it at the column. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ---------- progress rail ---------- */
+
+.cf-wiz-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+}
+
+.cf-wiz-steps li {
+  position: relative;
+  padding: 0 0 1.75rem 1.75rem;
+  color: var(--cf-faint);
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+/* Connector between dots, not drawn past the last one. */
+.cf-wiz-steps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 0.3rem;
+  top: 1rem;
+  bottom: 0.15rem;
+  width: 1px;
+  background: var(--cf-line);
+}
+
+.cf-wiz-dot {
+  position: absolute;
+  left: 0;
+  top: 0.28rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border: 1px solid var(--cf-control-border);
+  border-radius: 50%;
+  background: var(--cf-bg);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.cf-wiz-steps li.is-done { color: var(--cf-muted); }
+.cf-wiz-steps li.is-done .cf-wiz-dot {
+  border-color: var(--cf-brand-alt);
+  background: var(--cf-brand-alt);
+}
+
+.cf-wiz-steps li.is-current { color: var(--cf-text); font-weight: 600; }
+.cf-wiz-steps li.is-current .cf-wiz-dot {
+  border-color: var(--cf-brand-alt);
+  box-shadow: 0 0 0 3px rgba(165, 180, 252, 0.18);
+}
+
+/* ---------- panel ---------- */
+
+.cf-wiz-panel {
+  min-height: 22rem;
+}
+
+.cf-wiz-count {
+  margin: 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.cf-wiz-heading {
+  margin: 0.6rem 0 1.75rem;
+  color: var(--cf-text);
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Focus is moved here on step change; the ring would otherwise be noise. */
+.cf-wiz-heading:focus { outline: none; }
+.cf-wiz-heading:focus-visible {
+  outline: 2px solid var(--cf-brand-alt);
+  outline-offset: 4px;
+}
+
+.cf-wiz-field {
+  margin-bottom: 1.25rem;
+  max-width: 26rem;
+}
+
+.cf-wiz-field label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--cf-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.cf-wiz-field label span {
+  color: var(--cf-faint);
+  font-weight: 400;
+}
+
+.cf-wiz-field input,
+.cf-wiz-field select {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--cf-control-border);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--cf-text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cf-wiz-field select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--cf-brand-alt) 50%),
+    linear-gradient(135deg, var(--cf-brand-alt) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2.25rem;
+}
+
+.cf-wiz-field input:focus,
+.cf-wiz-field select:focus {
+  outline: none;
+  border-color: var(--cf-brand-alt);
+  box-shadow: 0 0 0 2px rgba(165, 180, 252, 0.15);
+}
+
+.cf-wiz-field select:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* ---------- yes/no questions ---------- */
+
+/* The affirmative label wraps the box AND its text, so the whole line is one
+   hit target rather than a 13px square. It is a <label> nested inside
+   .cf-wiz-field, so it has to undo the block-level question styling above
+   before it can sit as a row. */
+.cf-wiz-field .cf-wiz-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0;
+  color: var(--cf-text);
+  font-size: 0.95rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+/* Without this the checkbox inherits `width: 100%` and a 0.7rem padding from
+   the shared input rule and renders as a full-width box. */
+.cf-wiz-field .cf-wiz-check input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+  flex: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  accent-color: var(--cf-brand-alt);
+  cursor: pointer;
+}
+
+.cf-wiz-field .cf-wiz-check span {
+  color: inherit;
+  font-weight: inherit;
+}
+
+/* An amount outside FSP's range, or an answer their form refused. The hint
+   text does not change — the rule the visitor has broken is the sentence
+   already there — so only its weight and colour move. Swapping the copy would
+   push the Continue button around mid-type. */
+.cf-wiz-field .cf-wiz-hint-error {
+  color: var(--cf-danger, #e5837a);
+  font-weight: 500;
+}
+
+.cf-wiz-field input[aria-invalid="true"] {
+  border-color: var(--cf-danger, #e5837a);
+}
+
+.cf-wiz-field option { background: var(--cf-bg); color: var(--cf-text); }
+
+/* The option colours above keep the text readable, but the popup's own frame
+   and scrollbar are still painted from the inherited scheme. Same reason as
+   .cf-res-sort select — see the note there. */
+.cf-wiz-field select { color-scheme: dark; }
+
+/* The ID shortcut now sits BELOW the two questions it fills, so the divider
+   moved to the top and the whole block is de-emphasised — it is an offer, not
+   a question. Reading as a peer of the required fields is what made a national
+   ID number feel like something the form was demanding. */
+.cf-wiz-id {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--cf-line);
+}
+
+.cf-wiz-id label { color: var(--cf-muted); font-weight: 500; }
+.cf-wiz-id label span { display: block; margin-top: 0.15rem; color: var(--cf-faint); font-weight: 400; }
+
+/* The privacy line is a statement of fact, not a status message — gold is
+   reserved for the live feedback below it, so this stays quiet. */
+.cf-wiz-id #cf-id-privacy { color: var(--cf-faint); }
+
+.cf-wiz-note {
+  margin: 0.5rem 0 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.8rem;
+}
+
+/* ---------- actions ---------- */
+
+.cf-wiz-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 2rem;
+}
+
+.cf-wiz-next {
+  padding: 0.8rem 1.75rem;
+  border: 0;
+  background: var(--cf-brand-alt);
+  color: var(--cf-bg);
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+/* Keyed on aria-disabled, not :disabled. The forward button stopped using the
+   `disabled` attribute so it would stay in the tab order, which silently broke
+   both of these: :not(:disabled) always matched, so a blocked button still lit
+   up on hover, and the dimming below never applied at all. */
+.cf-wiz-next:hover:not([aria-disabled="true"]) { background: var(--cf-brand-hi); }
+
+.cf-wiz-next[aria-disabled="true"] {
+  /* Was 0.35 while it was a true :disabled control, which WCAG 1.4.3 exempts.
+     It is now focusable and does something when pressed, so it is no longer an
+     inactive component and has to stay legible. */
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cf-wiz-back {
+  padding: 0.8rem 1.25rem;
+  border: 1px solid var(--cf-control-border);
+  background: none;
+  color: var(--cf-muted);
+  font-family: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.cf-wiz-back:hover { border-color: var(--cf-line-strong); color: var(--cf-text); }
+
+/* ---------- mobile ---------- */
+
+@media (max-width: 720px) {
+  .cf-wiz { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+
+  /* Rail turns horizontal: dots only, labels would wrap badly at this width. */
+  .cf-wiz-steps { display: flex; gap: 0.5rem; }
+  .cf-wiz-steps li { flex: 1; padding: 0.75rem 0 0; }
+  .cf-wiz-steps li:not(:last-child)::before { display: none; }
+  .cf-wiz-dot { position: static; display: block; width: 100%; height: 3px; border-radius: 0; }
+  .cf-wiz-steplabel { display: none; }
+
+  .cf-wiz-field { max-width: 100%; }
+  .cf-wiz-actions { flex-direction: row-reverse; justify-content: flex-end; }
+  .cf-wiz-next { flex: 1; }
+}
+
+#fspqq input::placeholder,
+.cf-wiz-field input::placeholder,
+.cf-suburb input::placeholder {
+  color: var(--cf-placeholder);
+  opacity: 1;
+}
+
+/* ---------- visually hidden (live-region announcements) ---------- */
+
+.cf-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- suburb autocomplete ---------- */
+
+/* FSP's own suggestion list is driven but never shown — ours replaces it. */
+#fspqq[data-cf-takeover="true"] ~ * .ui-autocomplete,
+body > .ui-autocomplete {
+  position: absolute !important;
+  left: -10000px !important;
+}
+
+.cf-suburb { position: relative; }
+
+.cf-suburb-list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--cf-line-strong);
+  background: #171a22;
+  max-height: 16rem;
+  overflow-y: auto;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.cf-suburb-list li {
+  padding: 0.6rem 0.85rem;
+  color: var(--cf-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.cf-suburb-list li:hover,
+.cf-suburb-list li.is-active {
+  background: rgba(165, 180, 252, 0.14);
+  color: var(--cf-text);
+}
+
+.cf-suburb-status {
+  margin: 0.4rem 0 0;
+  color: var(--cf-faint);
+  font-size: 0.8rem;
+}
+
+.cf-suburb-ok {
+  margin: 0.4rem 0 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.8rem;
+}
+
+/* Not an error — the visitor did nothing wrong, we could not carry the suburb
+   across. --cf-brand-alt reads as guidance where a red would read as a mistake,
+   and it is the same token the ✓ uses, so the field's two states match. */
+.cf-suburb-repick {
+  margin: 0.4rem 0 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.8rem;
+}
+
+/* ---------- waiting state ---------- */
+
+.cf-wait { padding: 2rem 0 3rem; max-width: 34rem; }
+
+.cf-wait-eyebrow {
+  margin: 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.cf-wait-heading {
+  margin: 0.6rem 0 1.5rem;
+  color: var(--cf-text);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cf-wait-track {
+  height: 4px;
+  background: var(--cf-line);
+  overflow: hidden;
+}
+
+.cf-wait-fill {
+  display: block;
+  height: 100%;
+  background: var(--cf-brand-alt);
+  /* Eased rather than linear: a bar that decelerates at the end reads as
+     broken, so the fill is driven by an accelerating curve in the component
+     and only smoothed here. */
+  transition: width 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.cf-wait-meta {
+  margin: 0.85rem 0 0;
+  color: var(--cf-muted);
+  font-size: 0.9rem;
+}
+
+.cf-wait-meta strong { color: var(--cf-brand-alt); font-size: 1.05rem; }
+
+.cf-wait-reassure {
+  margin: 2rem 0 0;
+  padding: 1rem 1.25rem;
+  border-left: 2px solid var(--cf-line);
+  list-style: none;
+}
+
+.cf-wait-reassure li {
+  margin-bottom: 0.5rem;
+  color: var(--cf-faint);
+  font-size: 0.82rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-wait-fill { transition: none; }
+  /* The re-sort becomes an instant reorder. The list is still correctly
+     ordered and still badged — only the travel is removed, so nobody loses
+     information by preferring less motion. */
+  /* Both, not just the transition: `animation` and `transition` are
+     independent properties, and leaving the entry keyframes on meant the fade
+     and lift still played for someone who asked for less motion. */
+  .cf-arrival-row { transition: none; animation: none; }
+}
+
+.cf-wiz-error {
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem;
+  border-left: 2px solid #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  color: #fca5a5;
+  font-size: 0.88rem;
+}
+
+/* Not an error: they have not done anything wrong, they just have a question
+   left. Gold rather than the red of .cf-wiz-error, matching the suburb
+   re-pick hint — telling someone off for not having finished yet is how a
+   form starts feeling adversarial. */
+.cf-wiz-blocked {
+  margin: 1rem 0 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.85rem;
+}
+
+.cf-wait-retry { margin-top: 1.5rem; }
+.cf-wait a { color: var(--cf-brand-alt); }
+
+/* ==========================================================================
+   Results — ours, rendered from their rows
+   ========================================================================== */
+
+/* Hidden only once ours is confirmed on screen. QuickQuoteResults returns null
+   when it can parse nothing, and the attribute is set by the same code path
+   that mounts it — so a parsing failure leaves FSP's own results visible
+   rather than blanking the screen. */
+#fspqq[data-cf-arrival="true"] .quotes,
+#fspqq[data-cf-arrival="true"] .quotecount,
+#fspqq[data-cf-results="true"] .quotes,
+#fspqq[data-cf-results="true"] .quotecount,
+#fspqq[data-cf-results="true"] .dataRow.ref {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.cf-res-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--cf-line);
+}
+
+.cf-res-eyebrow {
+  margin: 0;
+  color: var(--cf-brand-alt);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.cf-res-heading {
+  margin: 0.55rem 0 0;
+  color: var(--cf-text);
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.cf-res-heading strong { color: var(--cf-brand-alt); font-weight: 600; }
+
+.cf-res-sub { margin: 0.5rem 0 0; color: var(--cf-faint); font-size: 0.85rem; }
+
+.cf-res-sort { display: flex; align-items: center; gap: 0.6rem; }
+.cf-res-sort span { color: var(--cf-muted); font-size: 0.82rem; }
+.cf-res-sort select {
+  padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  border: 1px solid var(--cf-control-border);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--cf-text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--cf-brand-alt) 50%),
+    linear-gradient(135deg, var(--cf-brand-alt) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  /* The open popup is drawn by the browser, not by the rules above. This host
+     is unconditionally dark, but color-scheme is owned by the marketing site's
+     theme toggle (globals.css, html[data-theme]) which this tree does not
+     honour — so a visitor who chose light there, or the isolated harness where
+     nothing sets it at all, gets a WHITE system popup behind the white text
+     this select inherits. Measured unstyled: option background rgba(0,0,0,0),
+     option colour rgb(255,255,255) — invisible. Declaring the scheme on the
+     control sidesteps the html[data-theme="light"] specificity fight. */
+  color-scheme: dark;
+}
+
+/* Belt and braces: some platforms paint the popup from the OS theme and ignore
+   color-scheme. Matches .cf-wiz-field option, which had this from the start —
+   only the sort control was missed. */
+.cf-res-sort select option { background: var(--cf-bg); color: var(--cf-text); }
+
+/* Provider disclosure. Quiet but not decorative: --cf-faint composites to
+   #868584 on --cf-bg for 4.98:1, clearing WCAG 1.4.3 at this size (AA wants
+   4.5:1; it does not reach AAA's 7:1). Legal text nobody can read is the same
+   as legal text nobody was shown. */
+.cf-res-legal {
+  margin: 2rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--cf-line);
+  color: var(--cf-faint);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  max-width: 46rem;
+}
+
+.cf-res-list { margin: 1.5rem 0 0; padding: 0; list-style: none; }
+
+.cf-res-list li {
+  position: relative;
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--cf-line);
+  background: var(--cf-surface);
+}
+
+.cf-res-list li.is-best { border-color: var(--cf-brand-alt); }
+
+.cf-res-badge {
+  position: absolute;
+  top: -0.65rem;
+  left: 1.5rem;
+  margin: 0;
+  padding: 0.15rem 0.6rem;
+  background: var(--cf-brand-alt);
+  color: var(--cf-bg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cf-res-logo {
+  flex: 0 0 9rem;
+  padding: 0.7rem;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.cf-res-logo img { display: block; width: 100%; max-height: 3rem; object-fit: contain; }
+
+.cf-res-detail { flex: 1 1 auto; min-width: 0; }
+.cf-res-insurer { margin: 0; color: var(--cf-text); font-size: 1rem; font-weight: 600; }
+.cf-res-excess { margin: 0.25rem 0 0; color: var(--cf-faint); font-size: 0.82rem; }
+
+.cf-res-price { flex: 0 0 auto; text-align: right; }
+.cf-res-premium {
+  margin: 0;
+  color: var(--cf-text);
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.cf-res-premium span {
+  display: block;
+  color: var(--cf-faint);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cf-res-price button {
+  margin-top: 0.6rem;
+  padding: 0.6rem 1.15rem;
+  border: 0;
+  background: var(--cf-brand-alt);
+  color: var(--cf-bg);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cf-res-price button:hover { background: var(--cf-brand-hi); }
+
+.cf-res-summary { margin-top: 2rem; padding: 1.25rem 1.5rem; border: 1px solid var(--cf-line); }
+.cf-res-summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.cf-res-summary-head h4 { margin: 0; color: var(--cf-text); font-size: 0.95rem; font-weight: 600; }
+.cf-res-summary-head button {
+  border: 0; background: none; color: var(--cf-brand-alt);
+  font-family: inherit; font-size: 0.85rem; text-decoration: underline;
+  text-underline-offset: 3px; cursor: pointer; padding: 0;
+}
+.cf-res-summary dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem 1.5rem; margin: 1rem 0 0;
+}
+.cf-res-summary dt { color: var(--cf-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; }
+.cf-res-summary dd { margin: 0.15rem 0 0; color: var(--cf-muted); font-size: 0.88rem; }
+
+@media (max-width: 720px) {
+  .cf-res-list li { flex-wrap: wrap; gap: 1rem; }
+  .cf-res-logo { flex: 0 0 7rem; }
+  .cf-res-price { flex: 1 0 100%; display: flex; align-items: center; justify-content: space-between; text-align: left; }
+  .cf-res-price button { margin-top: 0; min-height: 44px; }
+  .cf-res-head { align-items: flex-start; }
+}
+
+.cf-wiz-hint {
+  margin: 0.4rem 0 0;
+  color: var(--cf-faint);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  /* 44px minimum touch target — options were 38px, and a mis-tap here is the
+     exact input to a wrong-suburb quote. */
+  .cf-suburb-list li {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--cf-line);
+  }
+  .cf-suburb-list li:last-child { border-bottom: 0; }
+  /* Keep the list within reach above the keyboard rather than running off. */
+  .cf-suburb-list { max-height: 40vh; }
+}
+
+.cf-res-ref {
+  margin: 1.5rem 0 0;
+  color: var(--cf-faint);
+  font-size: 0.82rem;
+}
+.cf-res-ref strong { color: var(--cf-muted); }
+
+/* WCAG 2.5.8 — this is the results screen's only navigation control and it
+   measured 106×19 at 390px. */
+.cf-res-summary-head button {
+  min-height: 24px;
+  padding: 0.25rem 0;
+}
+
+
+/* ---------------------------------------------------------------------------
+   The arrival — quotes landing, then re-sorting into price order.
+
+   Rows are absolutely positioned and moved with translateY, not reordered in
+   the DOM: a DOM reorder would remount each row, killing the transition and
+   re-triggering the image load on every arrival. Their vertical position comes
+   from arrivalPlan(), which is mutation-tested; nothing here decides ordering.
+
+   The easing is deliberately long and unhurried. Fast, springy motion reads as
+   consumer app; slow easing reads as considered, which is the whole brief.
+--------------------------------------------------------------------------- */
+.cf-arrival {
+  position: relative;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cf-arrival-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  height: var(--cf-arrival-pitch);
+  padding: 0 0.85rem;
+  border-bottom: 1px solid var(--cf-line);
+  border-radius: 0.55rem;
+  transition: transform 900ms cubic-bezier(0.16, 0.84, 0.24, 1),
+    background-color 600ms ease, box-shadow 600ms ease, border-color 600ms ease;
+  /* Each row fades and lifts in on mount — the "landing" beat. */
+  animation: cf-arrival-land 520ms cubic-bezier(0.16, 0.84, 0.24, 1) both;
+}
+
+@keyframes cf-arrival-land {
+  from { opacity: 0; transform: translateY(var(--cf-land-from, 0)) translateX(0.4rem); }
+}
+
+.cf-arrival-logo {
+  flex: 0 0 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/* Their logos ship at wildly different intrinsic sizes — same normalisation
+   the results list already applies, kept in step with .cf-res-logo img. */
+.cf-arrival-logo img {
+  display: block;
+  max-width: 100%;
+  max-height: 1.5rem;
+  object-fit: contain;
+}
+
+.cf-arrival-name {
+  color: var(--cf-muted);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.cf-arrival-premium {
+  margin-left: auto;
+  color: var(--cf-brand-hi);
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.cf-arrival-badge {
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.25rem;
+  background: linear-gradient(90deg, var(--cf-brand-alt), var(--cf-brand-hi));
+  color: #0e1117;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The cheapest, once the panel is complete. arrivalPlan refuses to set this
+   before then, so the ring cannot appear over a provisional winner. */
+.cf-arrival-row.is-best {
+  background: linear-gradient(180deg, rgba(165, 180, 252, 0.1), rgba(165, 180, 252, 0.02));
+  border: 1px solid rgba(165, 180, 252, 0.45);
+  box-shadow: 0 0 26px -8px rgba(165, 180, 252, 0.4);
+}
+
+/* Sits above the page background. */
+.cf-quote-shell { position: relative; z-index: 1; }
+
+/* FSP's own "more cars" control, moved into our panel by QuickQuoteWizard.
+   Their markup, our surface — so it needs the checkbox treatment that
+   `#fspqq input[type="checkbox"]` gives inside their subtree and cannot give
+   here. Kept to the box and its spacing: the label already inherits our type.
+   --cf-hairline does not exist in this file — --cf-line is the token this
+   file already uses for the same "quiet 1px divider" role, e.g. .cf-wiz-id
+   above. */
+.cf-wiz-morecars {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--cf-line);
+}
+
+.cf-wiz-morecars .dataRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.cf-wiz-morecars input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--cf-brand-alt);
+  cursor: pointer;
+}
+
+.cf-wiz-morecars label {
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Boot skeleton — see components/insurance/QuickQuoteBootSkeleton.tsx
+   ------------------------------------------------------------------------ */
+
+/* FSP render their own "Loading..." into #fspqq before their form exists, so
+   during boot the visitor saw TWO loading messages stacked, ours and theirs,
+   neither confident. Ours is the only one that knows what is coming. Safe to
+   hide unconditionally: by the time takeover is decided this element is gone
+   either way — their form has replaced it, or their widget never came up and
+   the wizard renders its own error. */
+#fspqq .initLoading {
+  display: none;
+}
+
+/* The skeleton IS the wizard grid, so it reserves the real layout rather than
+   approximating it. Only the controls differ. */
+/* NO GROUP OPACITY HERE, and it is not an oversight.
+ *
+ * This used to carry `opacity: 0.55` to recede the skeleton, with a companion
+ * rule lifting the three text classes back to 0.72. Nested opacity MULTIPLIES —
+ * a child cannot be less transparent than the group it is drawn into — so that
+ * companion rule did the opposite of what its comment claimed, taking those
+ * words to 0.55 x 0.72 = 0.396 when leaving them alone would have given 0.55.
+ *
+ * Measured on the rendered page, three of the four real strings were under
+ * their WCAG floor: "Step 1 of 4" 2.28:1 and "Year of birth" 2.39:1 against a
+ * 4.5:1 floor, "About you" 3.87:1 against the same. Only the 28px heading
+ * cleared, and only because large text is allowed 3:1.
+ *
+ * A single group opacity cannot fix that, which is worth stating so nobody
+ * spends an afternoon tuning one: the gold step-count needs an effective alpha
+ * of 0.707 to clear 4.5:1, and the labels, being white at 0.48, need a group of
+ * 0.94 to get there. Any value that recedes anything fails something.
+ *
+ * So the recession moved to the parts with no words in them — the input and
+ * button placeholders below. That is also the truer signal: what says "not yet"
+ * is an empty outline where a control belongs, not dimmed prose. The words now
+ * render exactly as the real form renders them, which is what the old comment
+ * said it wanted.
+ */
+
+.cf-wiz-skeleton .cf-skel-input,
+.cf-wiz-skeleton .cf-skel-button,
+.cf-wiz-skeleton .cf-skel-label-sm,
+.cf-wiz-skeleton .cf-skel-label-xs,
+.cf-wiz-skeleton .cf-skel-note,
+.cf-wiz-skeleton .cf-wiz-dot {
+  opacity: var(--cf-skel-recede);
+}
+
+.cf-skel-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--cf-faint);
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+
+/* The ID-shortcut row shows no real copy (see the component for why), so its
+   lines are bars. Widths differ so it reads as a heading, a sub-line and a
+   note rather than three identical blocks. */
+.cf-skel-label-sm,
+.cf-skel-label-xs,
+.cf-skel-note {
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.cf-skel-label-sm {
+  width: 11rem;
+  height: 0.78rem;
+  margin-bottom: 0.4rem;
+}
+
+.cf-skel-label-xs {
+  display: block;
+  width: 15rem;
+  height: 0.66rem;
+  margin-bottom: 0.75rem;
+}
+
+.cf-skel-note {
+  display: block;
+  width: 21rem;
+  max-width: 100%;
+  height: 0.66rem;
+  margin-top: 0.75rem;
+}
+
+/* MEASURED: the real .cf-wiz-id block renders at 169px against a 74px
+   ordinary field row. The bars above come to ~112px on their own, so this
+   reserves the remainder. It is a hard number because it is a measurement of
+   another element, not a design value — if .cf-wiz-id gains or loses a line,
+   re-measure it rather than nudging this until it looks close. */
+.cf-skel-shortcut {
+  min-height: 169px;
+}
+
+.cf-skel-input,
+.cf-skel-button {
+  display: block;
+  border: 1px solid var(--cf-line);
+  background: rgba(255, 255, 255, 0.03);
+  animation: cf-skel-settle 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.cf-skel-input {
+  width: 100%;
+  height: 3rem;
+}
+
+.cf-skel-button {
+  width: 7.5rem;
+  height: 3rem;
+  border-color: rgba(165, 180, 252, 0.35);
+  background: rgba(165, 180, 252, 0.12);
+}
+
+/* Rows settle downward into place rather than fading in flat — the same
+   language the arrival list uses when quotes land. No shimmer: a travelling
+   highlight would be the one piece of decoration on this surface that means
+   nothing about what is happening. */
+/* Settles TO the recessed value, not to 1, and that is load-bearing rather
+   than tidy. `both` includes forwards, so the last keyframe keeps applying
+   after the 520ms is up — and an animation-origin declaration outranks a
+   normal author one, so a plain `opacity: <recede>` rule on these selectors is
+   simply ignored from the moment the animation ends. The first attempt at
+   receding these placeholders did exactly that and rendered them at full
+   strength; getComputedStyle read back 1. The static rule above still earns its
+   place: prefers-reduced-motion sets `animation: none`, and then it is the only
+   thing dimming them. Both read the same token so they cannot drift. */
+@keyframes cf-skel-settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: var(--cf-skel-recede);
+    transform: none;
+  }
+}
+
+/* The real form arrives over the skeleton rather than replacing it abruptly.
+   Paired with the skeleton reserving the correct height, the swap becomes a
+   cross-fade in place with no reflow at all. */
+.cf-wiz:not(.cf-wiz-skeleton) {
+  animation: cf-wiz-arrive 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes cf-wiz-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-skel-input,
+  .cf-skel-button,
+  .cf-wiz:not(.cf-wiz-skeleton) {
+    animation: none;
+  }
+}

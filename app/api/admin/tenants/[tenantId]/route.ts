@@ -1,0 +1,181 @@
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { cleanAddressLine } from "@/lib/bureau-submission/clean"
+import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
+import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
+import type { Session } from "next-auth"
+import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
+
+function isAuthorized(req: NextRequest, session: Session | null): boolean {
+  if (session?.user?.role !== "SUPER_ADMIN") return false
+  const adminSecret = req.headers.get("x-admin-secret")
+  const envSecret = process.env.ADMIN_SECRET
+  if (!envSecret) return false
+  return adminSecret === envSecret
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ tenantId: string }> }
+) {
+  const session = await auth()
+  if (!isAuthorized(req, session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const { tenantId } = await params
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    include: { config: true },
+  })
+
+  if (!tenant) {
+    return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
+  }
+
+  return NextResponse.json(tenant)
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ tenantId: string }> }
+) {
+  const session = await auth()
+  if (!isAuthorized(req, session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const { tenantId } = await params
+
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } })
+  if (!tenant) {
+    return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  // Lender identity (brandName, ncrNumber, fscaNumber, companyRegNumber and
+  // the other identity columns) is NOT writable here: it goes only through
+  // PUT /api/settings/identity (lib/config/identity-write.ts), which
+  // validates, demands statutory numbers twice and audits. Sent here, those
+  // keys are refused rather than silently dropped.
+  // logoUrl too: the letterhead logo is uploaded, validated and audited only
+  // through /api/settings/identity/logo (lib/config/lender-logo.ts).
+  const identityKeys = [...LENDER_IDENTITY_FIELDS, "logoUrl"].filter((key) => key in body)
+  if (identityKeys.length > 0) {
+    return NextResponse.json(
+      { error: `Lender identity fields are edited in Settings → Lender identity, not here: ${identityKeys.join(", ")}` },
+      { status: 400 },
+    )
+  }
+
+  // Split top-level tenant fields vs config fields
+  const {
+    name, domain, status,
+    primaryColor, secondaryColor, darkColor,
+    faviconUrl,
+    featureLms, featureCrm, featureIms, featureMarketing, featurePortal, featureReports,
+    netcashKey, bulkSmsKey, transunionKey,
+    featureBureauSubmission, bureauSupplierNumber, bureauTradingName, bureauReportingStartDate,
+    ..._ // discard unknown fields
+  } = body as Record<string, string | boolean | null | undefined>
+
+  const tenantUpdate: Record<string, unknown> = {}
+  if (name !== undefined) tenantUpdate.name = name
+  if (domain !== undefined) tenantUpdate.domain = domain
+  if (status !== undefined) tenantUpdate.status = status
+
+  const configUpdate: Record<string, unknown> = {}
+  if (primaryColor !== undefined) configUpdate.primaryColor = primaryColor
+  if (secondaryColor !== undefined) configUpdate.secondaryColor = secondaryColor
+  if (darkColor !== undefined) configUpdate.darkColor = darkColor
+  if (faviconUrl !== undefined) configUpdate.faviconUrl = faviconUrl
+  if (featureLms !== undefined) configUpdate.featureLms = featureLms
+  if (featureCrm !== undefined) configUpdate.featureCrm = featureCrm
+  if (featureIms !== undefined) configUpdate.featureIms = featureIms
+  if (featureMarketing !== undefined) configUpdate.featureMarketing = featureMarketing
+  if (featurePortal !== undefined) configUpdate.featurePortal = featurePortal
+  if (featureReports !== undefined) configUpdate.featureReports = featureReports
+  if (netcashKey !== undefined) configUpdate.netcashKey = netcashKey
+  if (bulkSmsKey !== undefined) configUpdate.bulkSmsKey = bulkSmsKey
+  if (transunionKey !== undefined) configUpdate.transunionKey = transunionKey
+
+  // Bureau data submission (lib/bureau-submission). These decide whether real
+  // people's loans are reported to a credit bureau and under whose name, so
+  // unlike the fields above they are validated and their change is audited.
+  const bureauUpdate: Record<string, unknown> = {}
+  if (featureBureauSubmission !== undefined) {
+    if (typeof featureBureauSubmission !== "boolean") {
+      return NextResponse.json({ error: "featureBureauSubmission must be a boolean" }, { status: 400 })
+    }
+    bureauUpdate.featureBureauSubmission = featureBureauSubmission
+  }
+  if (bureauSupplierNumber !== undefined) {
+    const supplier = typeof bureauSupplierNumber === "string" ? bureauSupplierNumber.trim().toUpperCase() : bureauSupplierNumber
+    if (supplier !== null && (typeof supplier !== "string" || !SUPPLIER_NUMBER.test(supplier))) {
+      return NextResponse.json({ error: "bureauSupplierNumber must be 1-10 letters and digits, or null" }, { status: 400 })
+    }
+    bureauUpdate.bureauSupplierNumber = supplier
+  }
+  if (bureauTradingName !== undefined) {
+    // Stored as typed; the generator cleans it into the header. Refused here
+    // only when nothing printable would be left, or it could not fit.
+    const name = typeof bureauTradingName === "string" ? bureauTradingName.trim() : bureauTradingName
+    if (name !== null && (typeof name !== "string" || name.length > 60 || /[\x00-\x1F\x7F]/.test(name) || !cleanAddressLine(name))) {
+      return NextResponse.json({ error: "bureauTradingName must be 1-60 printable characters, or null" }, { status: 400 })
+    }
+    bureauUpdate.bureauTradingName = name
+  }
+  if (bureauReportingStartDate !== undefined) {
+    if (bureauReportingStartDate !== null && (typeof bureauReportingStartDate !== "string" || !isDay(bureauReportingStartDate))) {
+      return NextResponse.json({ error: "bureauReportingStartDate must be YYYY-MM-DD, or null" }, { status: 400 })
+    }
+    bureauUpdate.bureauReportingStartDate = typeof bureauReportingStartDate === "string" ? dayToDbDate(bureauReportingStartDate) : null
+  }
+  Object.assign(configUpdate, bureauUpdate)
+
+  const bureauKeys = Object.keys(bureauUpdate)
+  const tenantData = {
+    ...tenantUpdate,
+    ...(Object.keys(configUpdate).length > 0 && {
+      config: {
+        upsert: {
+          create: configUpdate,
+          update: configUpdate,
+        },
+      },
+    }),
+  }
+  if (bureauKeys.length === 0) {
+    const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
+    return NextResponse.json(updated)
+  }
+
+  // The change and its audit row commit together, or neither does.
+  const day = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : value)
+  const updated = await prisma.$transaction(async (tx) => {
+    const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
+    const result = await tx.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
+    await logAuditStrict({
+      tenantId,
+      userId: session?.user?.id,
+      userEmail: session?.user?.email ?? undefined,
+      action: AuditAction.BUREAU_CONFIG_UPDATED,
+      entity: "TenantConfig",
+      entityId: tenantId,
+      oldValue: Object.fromEntries(bureauKeys.map((key) => [key, day((before as Record<string, unknown> | null)?.[key] ?? null)])),
+      newValue: Object.fromEntries(bureauKeys.map((key) => [key, day(bureauUpdate[key])])),
+    }, tx)
+    return result
+  })
+
+  return NextResponse.json(updated)
+}

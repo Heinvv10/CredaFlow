@@ -1,0 +1,420 @@
+import { describe, expect, it } from "vitest"
+import {
+  assembleReadiness,
+  inMemoryKycReader,
+  type ReadinessBureauRow,
+  type ReadinessCoreDocumentRow,
+  type ReadinessExceptionRow,
+  type ReadinessKycRows,
+  type ReadinessSelfieRow,
+} from "@/lib/applications/readiness-data"
+import {
+  CORE_KYC_DOCUMENT_TYPES,
+  readCompositeKycState,
+  type CompositeKycReader,
+} from "@/lib/kyc/document-state"
+import { disbursementApplicationFixture } from "@/lib/affordability/__fixtures__/approval-evidence"
+
+const TENANT_ID = "tenant-1"
+const CLIENT_ID = "client-1"
+const OTHER_CLIENT_ID = "client-2"
+const NOW = new Date("2026-07-20T09:15:00.000Z")
+
+function coreDocument(
+  overrides: Partial<ReadinessCoreDocumentRow> & { docType: string },
+): ReadinessCoreDocumentRow {
+  return {
+    clientId: CLIENT_ID,
+    verified: true,
+    verificationNote: null,
+    verificationRejectedById: null,
+    id: `doc-${overrides.docType}-${overrides.clientId ?? CLIENT_ID}`,
+    contentSha256: "a".repeat(64),
+    createdAt: new Date("2026-07-19T08:00:00.000Z"),
+    ...overrides,
+  } as ReadinessCoreDocumentRow
+}
+
+function allCoreDocuments(clientId = CLIENT_ID): ReadinessCoreDocumentRow[] {
+  return CORE_KYC_DOCUMENT_TYPES.map((docType) => coreDocument({ docType, clientId }))
+}
+
+function selfie(overrides: Partial<ReadinessSelfieRow> = {}): ReadinessSelfieRow {
+  return {
+    clientId: CLIENT_ID,
+    id: "selfie-1",
+    contentSha256: "b".repeat(64),
+    deletedAt: null,
+    verified: true,
+    extractionStatus: "completed",
+    extractionResult: null,
+    extractionError: null,
+    validationMismatch: false,
+    validationScore: null,
+    biometricMatchScore: 0.99,
+    biometricLiveness: 0.99,
+    biometricVerifiedAt: new Date("2026-07-19T09:00:00.000Z"),
+    biometricResult: null,
+    ...overrides,
+  } as ReadinessSelfieRow
+}
+
+function rows(overrides: Partial<ReadinessKycRows> = {}): ReadinessKycRows {
+  return {
+    coreDocuments: allCoreDocuments(),
+    selfies: [],
+    exceptions: [],
+    ...overrides,
+  }
+}
+
+/**
+ * The reader the real code hands `readCompositeKycState`: Prisma itself. Rebuilt
+ * here over the same in-memory rows, but honouring the `where` clauses rather
+ * than the argument shapes, so the two implementations are independent.
+ */
+function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKycReader {
+  const reader = {
+    clientDocument: {
+      findMany: async (args: { where: { docType: { in: string[] } } }) =>
+        data.coreDocuments.filter(
+          (row) => row.clientId === clientId && args.where.docType.in.includes(row.docType),
+        ),
+      findFirst: async (args: { where: Record<string, unknown>; orderBy?: unknown }) => {
+        const mine = data.selfies.filter((row) => row.clientId === clientId)
+        if (args.orderBy) return mine[0] ?? null
+        return (
+          mine.find(
+            (row) =>
+              row.deletedAt === null
+              && (row.extractionStatus === "processing"
+                || (row.verified && row.biometricVerifiedAt !== null)),
+          ) ?? null
+        )
+      },
+    },
+    complianceRecord: {
+      findFirst: async () =>
+        data.exceptions.find((record) => record.referenceId === clientId) ?? null,
+    },
+  }
+  return reader as unknown as CompositeKycReader
+}
+
+const subject = {
+  id: CLIENT_ID,
+  idNumber: "9001015800086",
+  firstName: "Jane",
+  lastName: "Doe",
+  dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
+}
+
+const existing = {
+  kycStatus: "PENDING" as const,
+  kycVerifiedAt: null,
+  kycVerifiedById: null,
+  kycVerificationMethod: null,
+}
+
+function readWith(reader: CompositeKycReader) {
+  return readCompositeKycState(reader, {
+    tenantId: TENANT_ID,
+    clientId: CLIENT_ID,
+    subject,
+    existing,
+    preserveVerifiedProvenance: true,
+  })
+}
+
+describe("inMemoryKycReader", () => {
+  // The reader hand-mirrors predicates the real reader sends to Postgres. Each
+  // case below is one way that mirror can be wrong while still returning
+  // something plausible — which is how it would reach production unnoticed.
+  const cases: { name: string; data: ReadinessKycRows }[] = [
+    { name: "every core document verified, no selfie", data: rows() },
+    {
+      name: "a core document belonging to a DIFFERENT client",
+      // The whole point of the batch: one client's documents must never
+      // satisfy another's gate.
+      data: rows({
+        coreDocuments: [
+          ...allCoreDocuments().slice(0, 3),
+          coreDocument({ docType: "PAYSLIP", clientId: OTHER_CLIENT_ID }),
+        ],
+      }),
+    },
+    {
+      name: "a passing selfie",
+      data: rows({ selfies: [selfie()] }),
+    },
+    {
+      name: "a soft-deleted selfie, which does not block the in-person route",
+      data: rows({ selfies: [selfie({ deletedAt: new Date("2026-07-19T10:00:00.000Z") })] }),
+    },
+    {
+      name: "a selfie still processing, which does block it",
+      data: rows({
+        selfies: [selfie({ extractionStatus: "processing", biometricVerifiedAt: null })],
+      }),
+    },
+    {
+      name: "an unverified selfie with a biometric timestamp",
+      data: rows({ selfies: [selfie({ verified: false })] }),
+    },
+    {
+      name: "a verified selfie with no biometric timestamp",
+      data: rows({ selfies: [selfie({ biometricVerifiedAt: null })] }),
+    },
+    {
+      name: "a rejected core document",
+      data: rows({
+        coreDocuments: [
+          ...allCoreDocuments().slice(0, 3),
+          coreDocument({
+            docType: "PAYSLIP",
+            verified: false,
+            verificationRejectedById: "officer-1",
+          }),
+        ],
+      }),
+    },
+    {
+      name: "a flagged core document",
+      data: rows({
+        coreDocuments: [
+          ...allCoreDocuments().slice(0, 3),
+          coreDocument({
+            docType: "PAYSLIP",
+            verified: false,
+            verificationNote: "Name does not match",
+          }),
+        ],
+      }),
+    },
+  ]
+
+  it.each(cases)(
+    "reaches the same composite verdict as a where-honouring reader: $name",
+    async ({ data }) => {
+      const mine = await readWith(inMemoryKycReader(CLIENT_ID, data))
+      const reference = await readWith(referenceReader(CLIENT_ID, data))
+      expect({
+        ok: mine.ok,
+        okForOrigination: mine.okForOrigination,
+        missingCoreDocuments: mine.missingCoreDocuments,
+        coreDocumentGaps: mine.coreDocumentGaps,
+        biometricEvidence: mine.biometricEvidence,
+        biometricAttemptFailed: mine.biometricAttemptFailed,
+      }).toEqual({
+        ok: reference.ok,
+        okForOrigination: reference.okForOrigination,
+        missingCoreDocuments: reference.missingCoreDocuments,
+        coreDocumentGaps: reference.coreDocumentGaps,
+        biometricEvidence: reference.biometricEvidence,
+        biometricAttemptFailed: reference.biometricAttemptFailed,
+      })
+    },
+  )
+
+  it("serves the LATEST selfie, trusting the caller's ordering", async () => {
+    // The rows arrive pre-sorted by `latestSelfieOrder()`. First-match-wins is
+    // what makes that ordering load-bearing, so a reader that picked any other
+    // row would silently judge an old attempt.
+    const latest = selfie({ id: "selfie-latest" })
+    const older = selfie({ id: "selfie-older", verified: false })
+    const reader = inMemoryKycReader(CLIENT_ID, rows({ selfies: [latest, older] }))
+    const result = await readWith(reader)
+    expect(result.latestSelfieId).toBe("selfie-latest")
+  })
+
+  it("ignores selfies belonging to another client", async () => {
+    const reader = inMemoryKycReader(
+      CLIENT_ID,
+      rows({ selfies: [selfie({ clientId: OTHER_CLIENT_ID, id: "selfie-theirs" })] }),
+    )
+    const result = await readWith(reader)
+    expect(result.latestSelfieId).toBeNull()
+  })
+
+  it("ignores a KYC exception recorded against another client", async () => {
+    const exception: ReadinessExceptionRow = {
+      id: "exception-1",
+      referenceId: OTHER_CLIENT_ID,
+      completedAt: new Date("2026-07-19T11:00:00.000Z"),
+      data: {},
+    } as ReadinessExceptionRow
+    const data = rows({
+      coreDocuments: allCoreDocuments().slice(0, 3),
+      exceptions: [exception],
+    })
+    const result = await readWith(inMemoryKycReader(CLIENT_ID, data))
+    expect(result.manualExceptionActive).toBe(false)
+  })
+})
+
+describe("assembleReadiness", () => {
+  const application = {
+    ...disbursementApplicationFixture(),
+    status: "APPROVED",
+    bankName: null,
+  }
+
+  function loaded(overrides: Record<string, unknown> = {}) {
+    return {
+      ...application,
+      client: {
+        ...application.client,
+        bankName: "Capitec",
+        bankBranchCode: "470010",
+        bankAccountNumber: "1234567890",
+        accountType: "SAVINGS",
+      },
+      agreementSignedAt: null,
+      agreementDocumentId: null,
+      agreementDocumentSha256: null,
+      agreementCountersignedAt: null,
+      agreementCountersignedById: null,
+      agreementCountersignedByName: null,
+      agreementCountersignedByEmail: null,
+      agreementCountersignatureData: null,
+      agreementCountersignatureSha256: null,
+      agreementCountersignatureEnvelopeSha256: null,
+      agreementCountersignedDocumentSha256: null,
+      agreementSignatureData: null,
+      agreementSignedMethod: null,
+      agreementSignedByUserId: null,
+      debitMandatePreparedAt: null,
+      debitMandateReference: null,
+      debitMandateDraftSha256: null,
+      debitMandateEvidence: null,
+      debitMandateEvidenceSha256: null,
+      debitMandateSignedAt: null,
+      debitMandateSignedMethod: null,
+      debitMandateSignatureData: null,
+      debitMandateSignatureSha256: null,
+      debitMandateDocumentId: null,
+      debitMandateDocumentSha256: null,
+      ...overrides,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+  }
+
+  const bureauRow = {
+    id: "bureau-1",
+    clientId: CLIENT_ID,
+    applicationId: "application-1",
+    reviewGeneration: "review-generation-1",
+    provider: "experian",
+    createdAt: new Date("2026-07-20T09:00:00.000Z"),
+    subjectFingerprint: null,
+    riskGrade: "LOW",
+    obligations: { totalMonthly: 25_000 },
+    score: 612,
+    unscoreable: false,
+    hasAdverse: false,
+    deceased: false,
+    underDebtReview: false,
+    hasJudgement: false,
+    hasNotice: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any as ReadinessBureauRow
+
+  const base = {
+    tenantId: TENANT_ID,
+    kycRows: rows(),
+    bureauChecks: [bureauRow],
+    tenantConfig: { bureauMinScore: 600, bureauBlockAdverse: false, ndiBufferPct: 110 },
+    mismatches: [] as { clientId: string; _count: { _all: number } }[],
+    now: NOW,
+  }
+
+  it("keys the result by application id and skips statuses with no chip", async () => {
+    const result = await assembleReadiness({
+      ...base,
+      applications: [
+        loaded({ id: "application-1" }),
+        loaded({ id: "application-2", status: "DRAFT" }),
+        loaded({ id: "application-3", status: "DISBURSED" }),
+      ],
+    })
+    expect([...result.keys()]).toEqual(["application-1"])
+  })
+
+  it("joins each client's mismatch count to that client's applications only", async () => {
+    const result = await assembleReadiness({
+      ...base,
+      applications: [
+        loaded({ id: "application-1", status: "SUBMITTED" }),
+        loaded({
+          id: "application-2",
+          status: "SUBMITTED",
+          clientId: OTHER_CLIENT_ID,
+          client: { ...loaded().client, id: OTHER_CLIENT_ID },
+        }),
+      ],
+      kycRows: rows({
+        coreDocuments: [...allCoreDocuments(), ...allCoreDocuments(OTHER_CLIENT_ID)],
+      }),
+      mismatches: [{ clientId: CLIENT_ID, _count: { _all: 2 } }],
+    })
+    expect(result.get("application-1")?.blockers).toContain("2 document mismatches")
+    expect(result.get("application-2")?.blockers ?? []).not.toContain(
+      "2 document mismatches",
+    )
+  })
+
+  it("counts zero mismatches for a client with no groupBy row", async () => {
+    const result = await assembleReadiness({
+      ...base,
+      applications: [loaded({ id: "application-1", status: "SUBMITTED" })],
+      mismatches: [{ clientId: OTHER_CLIENT_ID, _count: { _all: 5 } }],
+    })
+    expect(result.get("application-1")).toEqual({ stage: "READY", blockers: [] })
+  })
+
+  it("binds a bureau check to the application AND the review generation", async () => {
+    const wrongGeneration = await assembleReadiness({
+      ...base,
+      applications: [loaded({ id: "application-1", status: "UNDER_REVIEW" })],
+      bureauChecks: [{ ...bureauRow, reviewGeneration: "review-generation-0" }],
+    })
+    expect(wrongGeneration.get("application-1")?.blockers).toContain(
+      "Bureau check required",
+    )
+
+    const wrongApplication = await assembleReadiness({
+      ...base,
+      applications: [loaded({ id: "application-1", status: "UNDER_REVIEW" })],
+      bureauChecks: [{ ...bureauRow, applicationId: "application-9" }],
+    })
+    expect(wrongApplication.get("application-1")?.blockers).toContain(
+      "Bureau check required",
+    )
+  })
+
+  it("treats a null review generation as no current bureau check", async () => {
+    const result = await assembleReadiness({
+      ...base,
+      applications: [
+        loaded({
+          id: "application-1",
+          status: "UNDER_REVIEW",
+          bureauReviewGeneration: null,
+        }),
+      ],
+    })
+    expect(result.get("application-1")?.blockers).toContain("Bureau check required")
+  })
+
+  it("falls back to the route's own thresholds when a tenant has no config row", async () => {
+    // 450 is below the Sigma floor of 480, so the gate demands calibration —
+    // the same answer /decide gives an unconfigured tenant. A different
+    // fallback here would have the board disagree with the route.
+    const result = await assembleReadiness({
+      ...base,
+      applications: [loaded({ id: "application-1", status: "UNDER_REVIEW" })],
+      tenantConfig: null,
+    })
+    expect(result.get("application-1")?.blockers).toContain("Bureau risk gate")
+  })
+})

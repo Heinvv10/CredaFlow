@@ -1,0 +1,1019 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0b0d12;
+  --foreground: #eceef3;
+
+  /* Tenant colours. Defaults here; a tenant's own TenantConfig colours are
+     published on :root by components/TenantThemeProvider.tsx. primary and
+     secondary are the brand as drawn on light surfaces and under white text;
+     on dark surfaces the brand is a lighter mix of them (below), which keeps
+     it readable whatever colour a tenant picks
+     (scripts/__tests__/palette-contrast.test.ts). */
+  --cf-tenant-primary: #4f46e5;
+  --cf-tenant-secondary: #4338ca;
+  --cf-tenant-dark: #0b0d12;
+  --cf-bg: var(--cf-tenant-dark);
+  --cf-bg-panel: #12151c;
+  --cf-bg-raised: #181c25;
+  --cf-bg-subtle: #1f2430;
+  --cf-border-subtle: rgba(148, 163, 184, 0.12);
+  --cf-border-strong: rgba(148, 163, 184, 0.28);
+  --cf-text: #eceef3;
+  --cf-text-secondary: #b8becb;
+  --cf-text-muted: #8c93a3;
+  --cf-brand: color-mix(in srgb, var(--cf-tenant-primary) 45%, #ffffff);
+  --cf-brand-alt: color-mix(in srgb, var(--cf-tenant-secondary) 40%, #ffffff);
+  --cf-brand-soft: color-mix(in srgb, var(--cf-tenant-primary) 25%, #ffffff);
+  --cf-success: #3fbf7f;
+  --cf-warning: #d99a3a;
+  --cf-danger: #e47768;
+  --cf-info: #6f9fcb;
+  --cf-on-brand: #0b0d12;
+  --cf-on-success: #0b0d12;
+  --cf-shell-bg: rgba(11, 13, 18, 0.96);
+  --cf-surface-soft: rgba(255, 255, 255, 0.025);
+  --cf-surface-hover: rgba(255, 255, 255, 0.05);
+  --cf-surface-strong: rgba(255, 255, 255, 0.08);
+  --cf-overlay-bg: rgba(0, 0, 0, 0.7);
+  --cf-shadow-panel: 0 18px 60px rgba(0, 0, 0, 0.24);
+  --cf-shadow-card: 0 16px 48px rgba(0, 0, 0, 0.18);
+  --cf-logo-filter: brightness(0) invert(1);
+  --cf-app-background:
+    radial-gradient(circle at 0 0, rgba(79, 70, 229, 0.09), transparent 28rem),
+    linear-gradient(180deg, #0b0d12 0%, #0e1118 100%);
+}
+
+html[data-theme="light"] {
+  --background: #f5f6f8;
+  --foreground: #1b1d24;
+
+  --cf-bg: #f5f6f8;
+  --cf-bg-panel: #ffffff;
+  --cf-bg-raised: #fafbfc;
+  --cf-bg-subtle: #eceef2;
+  --cf-border-subtle: rgba(30, 41, 59, 0.16);
+  --cf-border-strong: rgba(30, 41, 59, 0.28);
+  --cf-text: #1b1d24;
+  --cf-text-secondary: #4b5060;
+  --cf-text-muted: #5f6573;
+  --cf-brand: var(--cf-tenant-primary);
+  --cf-brand-alt: var(--cf-tenant-secondary);
+  --cf-brand-soft: color-mix(in srgb, var(--cf-tenant-primary) 70%, #000000);
+  --cf-success: #187347;
+  --cf-warning: #8a5908;
+  --cf-danger: #ad3f34;
+  --cf-info: #2f648f;
+  --cf-on-brand: #ffffff;
+  --cf-on-success: #ffffff;
+  --cf-shell-bg: rgba(250, 251, 252, 0.96);
+  --cf-surface-soft: rgba(30, 41, 59, 0.035);
+  --cf-surface-hover: rgba(30, 41, 59, 0.06);
+  --cf-surface-strong: rgba(30, 41, 59, 0.09);
+  --cf-overlay-bg: rgba(11, 13, 18, 0.52);
+  --cf-shadow-panel: 0 18px 60px rgba(15, 23, 42, 0.12);
+  --cf-shadow-card: 0 12px 36px rgba(15, 23, 42, 0.1);
+  --cf-logo-filter: none;
+  --cf-app-background:
+    radial-gradient(circle at 0 0, rgba(79, 70, 229, 0.1), transparent 28rem),
+    linear-gradient(180deg, #f7f8fa 0%, #f1f3f6 100%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--cf-bg);
+  color: var(--cf-text);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.cf-app-surface {
+  background: var(--cf-app-background);
+}
+
+.cf-app-surface main,
+.cf-app-surface main > div,
+.cf-app-surface main > section {
+  max-width: 100%;
+}
+
+.cf-panel {
+  background: var(--cf-bg-panel);
+  border: 1px solid var(--cf-border-subtle);
+  color: var(--cf-text);
+}
+
+.cf-panel-raised {
+  background: var(--cf-bg-raised);
+  border: 1px solid var(--cf-border-subtle);
+  box-shadow: var(--cf-shadow-panel);
+}
+
+.cf-focus-ring {
+  outline: 2px solid var(--cf-brand);
+  outline-offset: 2px;
+}
+
+/* A signature pad is paper, not a themed surface.
+ *
+ * The dark remap below turns `bg-white` into --cf-bg-panel, and every pad
+ * strokes in near-black (#1a1a1a / #1f2937) because the exported PNG is
+ * stamped onto a WHITE PDF page. In dark mode that put near-black ink on a
+ * near-black pad: the consumer could not see their own signature while
+ * drawing it. The stroke colour cannot change without breaking the document,
+ * so the pad stays white in both themes.
+ *
+ * !important is required: it has to beat the remap rule below, which is
+ * itself !important. */
+.cf-signature-pad {
+  background-color: #ffffff !important;
+}
+
+.cf-app-surface .bg-white,
+.cf-app-surface .bg-gray-50,
+.cf-app-surface .bg-gray-100,
+.cf-app-surface .bg-slate-50,
+.cf-app-surface .bg-slate-100 {
+  background-color: var(--cf-bg-panel) !important;
+}
+
+.cf-app-surface [class*="bg-[#f9fafb]"],
+.cf-app-surface [class*="bg-[#F9FAFB]"],
+.cf-app-surface [class*="bg-[#f9fafb]"],
+.cf-app-surface [class*="bg-[#f8f8f8]"],
+.cf-app-surface [class*="bg-[#F8F8F8]"],
+.cf-app-surface [class*="bg-[#fafafa]"],
+.cf-app-surface [class*="bg-[#ffffff]"],
+.cf-app-surface [class*="bg-[#fff]"] {
+  background-color: transparent !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(248, 248, 248)"],
+.cf-app-surface [style*="background-color: rgb(249, 250, 251)"],
+.cf-app-surface [style*="background-color: rgb(250, 250, 250)"],
+.cf-app-surface [style*="background-color: rgb(243, 244, 246)"],
+.cf-app-surface [style*="background-color:#F8F8F8"],
+.cf-app-surface [style*="background-color: #F8F8F8"],
+.cf-app-surface [style*="background-color: #FAFAFA"],
+.cf-app-surface [style*="background-color: #f3f4f6"],
+.cf-app-surface [style*="background-color: #f5f7ff"],
+.cf-app-surface [style*="background-color: #fff"],
+.cf-app-surface [style*="background-color:#fff"] {
+  background-color: var(--cf-surface-soft) !important;
+}
+
+.cf-app-surface [class~="bg-gray-50/50"],
+.cf-app-surface [class~="bg-gray-100/50"],
+.cf-app-surface [class~="bg-slate-50/50"],
+.cf-app-surface [class~="bg-slate-100/50"] {
+  background-color: var(--cf-bg-panel) !important;
+}
+
+/* Hover variants of the neutral utilities are NOT caught by the static
+   remaps above — the class is literally `hover:bg-gray-50`, not `bg-gray-50`.
+   Without this, hovering a row lets Tailwind's near-white (#f9fafb) win over
+   the dark panel and collide with the light-remapped text (white-on-white).
+   Lift the row with the raised-panel tone instead. Gated on `(hover: hover)`
+   to mirror Tailwind v4's own hover variant, so a tapped row doesn't stick in
+   the highlighted state on touch devices. */
+@media (hover: hover) {
+  .cf-app-surface .hover\:bg-gray-50:hover,
+  .cf-app-surface .hover\:bg-gray-100:hover,
+  .cf-app-surface .hover\:bg-slate-50:hover,
+  .cf-app-surface .hover\:bg-slate-100:hover {
+    background-color: var(--cf-bg-raised) !important;
+  }
+}
+
+.cf-app-surface .bg-red-50 {
+  background-color: rgba(208, 92, 75, 0.12) !important;
+}
+
+.cf-app-surface .bg-red-100,
+.cf-app-surface .bg-red-200,
+.cf-app-surface [class~="bg-red-50/50"],
+.cf-app-surface [class~="bg-[#FEE2E2]"],
+.cf-app-surface [class~="bg-[#fee2e2]"] {
+  background-color: rgba(208, 92, 75, 0.12) !important;
+}
+
+.cf-app-surface .bg-orange-50,
+.cf-app-surface .bg-amber-50,
+.cf-app-surface .bg-yellow-50 {
+  background-color: rgba(217, 154, 58, 0.12) !important;
+}
+
+.cf-app-surface .bg-orange-100,
+.cf-app-surface .bg-amber-100,
+.cf-app-surface .bg-amber-200,
+.cf-app-surface .bg-yellow-100,
+.cf-app-surface [class~="bg-orange-50/50"],
+.cf-app-surface [class~="bg-amber-50/50"],
+.cf-app-surface [class~="bg-yellow-50/50"],
+.cf-app-surface [class~="bg-[#FEF3C7]"],
+.cf-app-surface [class~="bg-[#fef3c7]"],
+.cf-app-surface [class~="bg-[#FEF9C3]"],
+.cf-app-surface [class~="bg-[#fef9c3]"] {
+  background-color: rgba(217, 154, 58, 0.14) !important;
+}
+
+.cf-app-surface .bg-green-50,
+.cf-app-surface .bg-emerald-50 {
+  background-color: rgba(63, 191, 127, 0.12) !important;
+}
+
+.cf-app-surface .bg-green-100,
+.cf-app-surface .bg-green-200,
+.cf-app-surface .bg-emerald-100,
+.cf-app-surface [class~="bg-green-50/50"],
+.cf-app-surface [class~="bg-emerald-50/50"],
+.cf-app-surface [class~="bg-[#D1FAE5]"],
+.cf-app-surface [class~="bg-[#d1fae5]"],
+.cf-app-surface [class~="bg-[#DCFCE7]"],
+.cf-app-surface [class~="bg-[#dcfce7]"] {
+  background-color: rgba(63, 191, 127, 0.12) !important;
+}
+
+.cf-app-surface .bg-blue-50,
+.cf-app-surface .bg-sky-50,
+.cf-app-surface .bg-indigo-50 {
+  background-color: rgba(111, 159, 203, 0.12) !important;
+}
+
+.cf-app-surface .bg-blue-100,
+.cf-app-surface [class~="bg-blue-50/50"],
+.cf-app-surface [class~="bg-sky-50/50"],
+.cf-app-surface [class~="bg-indigo-50/50"],
+.cf-app-surface [class~="bg-[#DBEAFE]"],
+.cf-app-surface [class~="bg-[#dbeafe]"] {
+  background-color: rgba(111, 159, 203, 0.12) !important;
+}
+
+.cf-app-surface .bg-purple-50,
+.cf-app-surface .bg-violet-50 {
+  background-color: rgba(79, 70, 229, 0.14) !important;
+}
+
+.cf-app-surface [class*="text-[#1b1d24]"],
+.cf-app-surface [class*="text-[#262a33]"],
+.cf-app-surface [class*="text-[#1f2937]"] {
+  color: var(--cf-text) !important;
+}
+
+.cf-app-surface [class*="text-[#4b5060]"],
+.cf-app-surface [class*="text-[#5f6573]"],
+.cf-app-surface [class*="text-[#7a8191]"] {
+  color: var(--cf-text-secondary) !important;
+}
+
+.cf-app-surface [class*="text-[#8f95a3]"],
+.cf-app-surface [class*="text-[#a9aeb9]"] {
+  color: var(--cf-text-muted) !important;
+}
+
+.cf-app-surface [class~="text-[#4F46E5]"],
+.cf-app-surface [class~="text-[#4f46e5]"],
+.cf-app-surface [class~="text-[#4338CA]"],
+.cf-app-surface [class~="text-[#4338ca]"],
+.cf-app-surface [class~="text-[#4338CA]"],
+.cf-app-surface [class~="text-[#4338ca]"],
+.cf-app-surface [class~="text-[#4338CA]"],
+.cf-app-surface [class~="text-[#4338ca]"] {
+  color: var(--cf-brand) !important;
+}
+
+.cf-app-surface [class~="bg-[#4F46E5]"],
+.cf-app-surface [class~="bg-[#4f46e5]"],
+.cf-app-surface [class~="bg-[#4338CA]"],
+.cf-app-surface [class~="bg-[#4338ca]"],
+.cf-app-surface [class~="bg-[#4338CA]"],
+.cf-app-surface [class~="bg-[#4338ca]"],
+.cf-app-surface [class~="bg-[#4338CA]"],
+.cf-app-surface [class~="bg-[#4338ca]"] {
+  background-color: var(--cf-brand) !important;
+}
+
+.cf-app-surface [class~="bg-[#4F46E5]"].text-white,
+.cf-app-surface [class~="bg-[#4f46e5]"].text-white,
+.cf-app-surface [class~="bg-[#4338CA]"].text-white,
+.cf-app-surface [class~="bg-[#4338ca]"].text-white,
+.cf-app-surface [class~="bg-[#4338CA]"].text-white,
+.cf-app-surface [class~="bg-[#4338ca]"].text-white,
+.cf-app-surface [class~="bg-[#4338CA]"].text-white,
+.cf-app-surface [class~="bg-[#4338ca]"].text-white {
+  color: var(--cf-on-brand) !important;
+}
+
+.cf-app-surface [style^="color: rgb(79, 70, 229)"],
+.cf-app-surface [style*="; color: rgb(79, 70, 229)"],
+.cf-app-surface [style^="color: rgb(67, 56, 202)"],
+.cf-app-surface [style*="; color: rgb(67, 56, 202)"],
+.cf-app-surface [style^="color: rgb(67, 56, 202)"],
+.cf-app-surface [style*="; color: rgb(67, 56, 202)"],
+.cf-app-surface [style^="color: rgb(67, 56, 202)"],
+.cf-app-surface [style*="; color: rgb(67, 56, 202)"] {
+  color: var(--cf-brand) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(79, 70, 229)"],
+.cf-app-surface [style*="background-color: rgb(67, 56, 202)"],
+.cf-app-surface [style*="background-color: rgb(67, 56, 202)"],
+.cf-app-surface [style*="background-color: rgb(67, 56, 202)"] {
+  background-color: var(--cf-brand) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(79, 70, 229)"].text-white,
+.cf-app-surface [style*="background-color: rgb(67, 56, 202)"].text-white,
+.cf-app-surface [style*="background-color: rgb(67, 56, 202)"].text-white,
+.cf-app-surface [style*="background-color: rgb(67, 56, 202)"].text-white {
+  color: var(--cf-on-brand) !important;
+}
+
+html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
+  color: var(--cf-on-success) !important;
+}
+
+.cf-app-surface [class*="border-[#e2e5ea]"],
+.cf-app-surface [class*="border-[#e5e7eb]"] {
+  border-color: var(--cf-border-subtle) !important;
+}
+
+.cf-app-surface [class*="bg-[#eceef2]"],
+.cf-app-surface [class*="bg-[#f7f8fa]"] {
+  background-color: var(--cf-surface-strong) !important;
+}
+
+.cf-app-surface .text-gray-950,
+.cf-app-surface .text-gray-900,
+.cf-app-surface .text-slate-950,
+.cf-app-surface .text-slate-900,
+.cf-app-surface .text-black {
+  color: var(--cf-text) !important;
+}
+
+.cf-app-surface .text-gray-800,
+.cf-app-surface .text-gray-700,
+.cf-app-surface .text-slate-800,
+.cf-app-surface .text-slate-700 {
+  color: var(--cf-text-secondary) !important;
+}
+
+.cf-app-surface .text-gray-600,
+.cf-app-surface .text-gray-500,
+.cf-app-surface .text-gray-400,
+.cf-app-surface .text-slate-600,
+.cf-app-surface .text-slate-500,
+.cf-app-surface .text-slate-400 {
+  color: var(--cf-text-muted) !important;
+}
+
+.cf-app-surface .text-red-700,
+.cf-app-surface .text-red-600,
+.cf-app-surface .text-red-500,
+.cf-app-surface .text-red-800,
+.cf-app-surface .text-red-900,
+.cf-app-surface [class~="text-[#991B1B]"],
+.cf-app-surface [class~="text-[#991b1b]"],
+.cf-app-surface [class~="text-[#b71c1c]"] {
+  color: var(--cf-danger) !important;
+}
+
+.cf-app-surface .text-orange-700,
+.cf-app-surface .text-orange-600,
+.cf-app-surface .text-orange-800,
+.cf-app-surface .text-orange-900,
+.cf-app-surface .text-amber-700,
+.cf-app-surface .text-amber-600,
+.cf-app-surface .text-amber-500,
+.cf-app-surface .text-amber-800,
+.cf-app-surface .text-amber-900,
+.cf-app-surface .text-yellow-700,
+.cf-app-surface .text-yellow-600,
+.cf-app-surface .text-yellow-800,
+.cf-app-surface .text-yellow-900,
+.cf-app-surface [class~="text-[#92400E]"],
+.cf-app-surface [class~="text-[#92400e]"],
+.cf-app-surface [class~="text-[#e65100]"] {
+  color: var(--cf-warning) !important;
+}
+
+.cf-app-surface .text-green-700,
+.cf-app-surface .text-green-600,
+.cf-app-surface .text-green-500,
+.cf-app-surface .text-green-800,
+.cf-app-surface .text-green-900,
+.cf-app-surface .text-emerald-700,
+.cf-app-surface .text-emerald-600,
+.cf-app-surface .text-emerald-500,
+.cf-app-surface .text-emerald-800,
+.cf-app-surface .text-emerald-900,
+.cf-app-surface [class~="text-[#065F46]"],
+.cf-app-surface [class~="text-[#065f46]"],
+.cf-app-surface [class~="text-[#166534]"],
+.cf-app-surface [class~="text-[#1e6b3f]"] {
+  color: var(--cf-success) !important;
+}
+
+.cf-app-surface [style^="color: rgb(153, 27, 27)"],
+.cf-app-surface [style*="; color: rgb(153, 27, 27)"],
+.cf-app-surface [style^="color: rgb(183, 28, 28)"],
+.cf-app-surface [style*="; color: rgb(183, 28, 28)"] {
+  color: var(--cf-danger) !important;
+}
+
+.cf-app-surface [style^="color: rgb(146, 64, 14)"],
+.cf-app-surface [style*="; color: rgb(146, 64, 14)"],
+.cf-app-surface [style^="color: rgb(230, 81, 0)"],
+.cf-app-surface [style*="; color: rgb(230, 81, 0)"] {
+  color: var(--cf-warning) !important;
+}
+
+.cf-app-surface [style^="color: rgb(6, 95, 70)"],
+.cf-app-surface [style*="; color: rgb(6, 95, 70)"],
+.cf-app-surface [style^="color: rgb(22, 101, 52)"],
+.cf-app-surface [style*="; color: rgb(22, 101, 52)"],
+.cf-app-surface [style^="color: rgb(30, 107, 63)"],
+.cf-app-surface [style*="; color: rgb(30, 107, 63)"] {
+  color: var(--cf-success) !important;
+}
+
+.cf-app-surface [style^="color: rgb(21, 101, 192)"],
+.cf-app-surface [style*="; color: rgb(21, 101, 192)"],
+.cf-app-surface [style^="color: rgb(30, 64, 175)"],
+.cf-app-surface [style*="; color: rgb(30, 64, 175)"] {
+  color: var(--cf-info) !important;
+}
+
+/* React preserves inline hex colours in the style attribute even though
+   getComputedStyle() exposes them as rgb(). Match both serialisations so
+   legacy status cards and chart labels inherit the active theme tokens. */
+.cf-app-surface :is(
+  [style^="color:#4f46e5" i], [style*=";color:#4f46e5" i], [style*="; color:#4f46e5" i],
+  [style^="color:#4338ca" i], [style*=";color:#4338ca" i], [style*="; color:#4338ca" i],
+  [style^="color:#4338ca" i], [style*=";color:#4338ca" i], [style*="; color:#4338ca" i],
+  [style^="color:#4338ca" i], [style*=";color:#4338ca" i], [style*="; color:#4338ca" i]
+) {
+  color: var(--cf-brand) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#4f46e5" i], [style*="background-color: #4f46e5" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style^="background:#4f46e5" i], [style*=";background:#4f46e5" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i]
+) {
+  background-color: var(--cf-brand) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#4f46e5" i], [style*="background-color: #4f46e5" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style^="background:#4f46e5" i], [style*=";background:#4f46e5" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i]
+).text-white {
+  color: var(--cf-on-brand) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#4f46e5" i], [style*="background-color: #4f46e5" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
+  [style^="background:#4f46e5" i], [style*=";background:#4f46e5" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
+  [style^="background:#4338ca" i], [style*=";background:#4338ca" i]
+) .text-white {
+  color: var(--cf-on-brand) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#059669" i], [style*="background-color: #059669" i],
+  [style*="background-color:#10b981" i], [style*="background-color: #10b981" i],
+  [style*="background-color:#16a085" i], [style*="background-color: #16a085" i],
+  [style*="background-color:#22c55e" i], [style*="background-color: #22c55e" i],
+  [style*="background-color:#27ae60" i], [style*="background-color: #27ae60" i]
+).text-white,
+.cf-app-surface :is(
+  [style*="background-color:#059669" i], [style*="background-color: #059669" i],
+  [style*="background-color:#10b981" i], [style*="background-color: #10b981" i],
+  [style*="background-color:#16a085" i], [style*="background-color: #16a085" i],
+  [style*="background-color:#22c55e" i], [style*="background-color: #22c55e" i],
+  [style*="background-color:#27ae60" i], [style*="background-color: #27ae60" i]
+) .text-white {
+  color: #0b0d12 !important;
+}
+
+.cf-app-surface :is(
+  [style^="color:#991b1b" i], [style*=";color:#991b1b" i], [style*="; color:#991b1b" i],
+  [style^="color:#b71c1c" i], [style*=";color:#b71c1c" i], [style*="; color:#b71c1c" i],
+  [style^="color:#e74c3c" i], [style*=";color:#e74c3c" i], [style*="; color:#e74c3c" i],
+  [style^="color:#ef4444" i], [style*=";color:#ef4444" i], [style*="; color:#ef4444" i],
+  [style^="color:#dc2626" i], [style*=";color:#dc2626" i], [style*="; color:#dc2626" i],
+  [style^="color:#7b1010" i], [style*=";color:#7b1010" i], [style*="; color:#7b1010" i]
+) {
+  color: var(--cf-danger) !important;
+}
+
+.cf-app-surface :is(
+  [style^="color:#92400e" i], [style*=";color:#92400e" i], [style*="; color:#92400e" i],
+  [style^="color:#e65100" i], [style*=";color:#e65100" i], [style*="; color:#e65100" i],
+  [style^="color:#f59e0b" i], [style*=";color:#f59e0b" i], [style*="; color:#f59e0b" i],
+  [style^="color:#e67e22" i], [style*=";color:#e67e22" i], [style*="; color:#e67e22" i],
+  [style^="color:#d97706" i], [style*=";color:#d97706" i], [style*="; color:#d97706" i],
+  [style^="color:#78350f" i], [style*=";color:#78350f" i], [style*="; color:#78350f" i],
+  [style^="color:#ea580c" i], [style*=";color:#ea580c" i], [style*="; color:#ea580c" i],
+  [style^="color:#9a3412" i], [style*=";color:#9a3412" i], [style*="; color:#9a3412" i],
+  [style^="color:#713f12" i], [style*=";color:#713f12" i], [style*="; color:#713f12" i]
+) {
+  color: var(--cf-warning) !important;
+}
+
+.cf-app-surface :is(
+  [style^="color:#065f46" i], [style*=";color:#065f46" i], [style*="; color:#065f46" i],
+  [style^="color:#166534" i], [style*=";color:#166534" i], [style*="; color:#166534" i],
+  [style^="color:#1e6b3f" i], [style*=";color:#1e6b3f" i], [style*="; color:#1e6b3f" i],
+  [style^="color:#059669" i], [style*=";color:#059669" i], [style*="; color:#059669" i],
+  [style^="color:#10b981" i], [style*=";color:#10b981" i], [style*="; color:#10b981" i],
+  [style^="color:#27ae60" i], [style*=";color:#27ae60" i], [style*="; color:#27ae60" i],
+  [style^="color:#22c55e" i], [style*=";color:#22c55e" i], [style*="; color:#22c55e" i],
+  [style^="color:#16a085" i], [style*=";color:#16a085" i], [style*="; color:#16a085" i],
+  [style^="color:#15803d" i], [style*=";color:#15803d" i], [style*="; color:#15803d" i]
+) {
+  color: var(--cf-success) !important;
+}
+
+.cf-app-surface :is(
+  [style^="color:#1565c0" i], [style*=";color:#1565c0" i], [style*="; color:#1565c0" i],
+  [style^="color:#1e40af" i], [style*=";color:#1e40af" i], [style*="; color:#1e40af" i],
+  [style^="color:#3b82f6" i], [style*=";color:#3b82f6" i], [style*="; color:#3b82f6" i],
+  [style^="color:#2980b9" i], [style*=";color:#2980b9" i], [style*="; color:#2980b9" i],
+  [style^="color:#5b21b6" i], [style*=";color:#5b21b6" i], [style*="; color:#5b21b6" i],
+  [style^="color:#7c3aed" i], [style*=";color:#7c3aed" i], [style*="; color:#7c3aed" i],
+  [style^="color:#8e44ad" i], [style*=";color:#8e44ad" i], [style*="; color:#8e44ad" i],
+  [style^="color:#8b5cf6" i], [style*=";color:#8b5cf6" i], [style*="; color:#8b5cf6" i],
+  [style^="color:#3730a3" i], [style*=";color:#3730a3" i], [style*="; color:#3730a3" i],
+  [style^="color:#0c4a6e" i], [style*=";color:#0c4a6e" i], [style*="; color:#0c4a6e" i]
+) {
+  color: var(--cf-info) !important;
+}
+
+.cf-app-surface :is(
+  [style^="color:#6b7280" i], [style*=";color:#6b7280" i], [style*="; color:#6b7280" i],
+  [style^="color:#9ca3af" i], [style*=";color:#9ca3af" i], [style*="; color:#9ca3af" i],
+  [style^="color:#666" i], [style*=";color:#666" i], [style*="; color:#666" i]
+) {
+  color: var(--cf-text-muted) !important;
+}
+
+.cf-app-surface :is(
+  [style^="color:#111827" i], [style*=";color:#111827" i], [style*="; color:#111827" i],
+  [style^="color:#1f2937" i], [style*=";color:#1f2937" i], [style*="; color:#1f2937" i],
+  [style^="color:#374151" i], [style*=";color:#374151" i], [style*="; color:#374151" i]
+) {
+  color: var(--cf-text) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(254, 226, 226)"] {
+  background-color: rgba(208, 92, 75, 0.12) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#fee2e2" i], [style*="background-color: #fee2e2" i],
+  [style^="background:#fee2e2" i], [style*=";background:#fee2e2" i]
+) {
+  background-color: rgba(208, 92, 75, 0.12) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(254, 243, 199)"],
+.cf-app-surface [style*="background-color: rgb(254, 249, 195)"] {
+  background-color: rgba(217, 154, 58, 0.12) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#fef3c7" i], [style*="background-color: #fef3c7" i],
+  [style^="background:#fef3c7" i], [style*=";background:#fef3c7" i],
+  [style*="background-color:#fef9c3" i], [style*="background-color: #fef9c3" i],
+  [style^="background:#fef9c3" i], [style*=";background:#fef9c3" i],
+  [style*="background-color:#ffedd5" i], [style*="background-color: #ffedd5" i],
+  [style^="background:#ffedd5" i], [style*=";background:#ffedd5" i],
+  [style*="background-color:#fffbeb" i], [style*="background-color: #fffbeb" i],
+  [style^="background:#fffbeb" i], [style*=";background:#fffbeb" i],
+  [style*="background-color:#fef3e2" i], [style*="background-color: #fef3e2" i],
+  [style^="background:#fef3e2" i], [style*=";background:#fef3e2" i]
+) {
+  background-color: rgba(217, 154, 58, 0.12) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(209, 250, 229)"],
+.cf-app-surface [style*="background-color: rgb(220, 252, 231)"] {
+  background-color: rgba(63, 191, 127, 0.12) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#d1fae5" i], [style*="background-color: #d1fae5" i],
+  [style^="background:#d1fae5" i], [style*=";background:#d1fae5" i],
+  [style*="background-color:#dcfce7" i], [style*="background-color: #dcfce7" i],
+  [style^="background:#dcfce7" i], [style*=";background:#dcfce7" i],
+  [style*="background-color:#f0fdf4" i], [style*="background-color: #f0fdf4" i],
+  [style^="background:#f0fdf4" i], [style*=";background:#f0fdf4" i]
+) {
+  background-color: rgba(63, 191, 127, 0.12) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(219, 234, 254)"] {
+  background-color: rgba(111, 159, 203, 0.12) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#dbeafe" i], [style*="background-color: #dbeafe" i],
+  [style^="background:#dbeafe" i], [style*=";background:#dbeafe" i],
+  [style*="background-color:#e0e7ff" i], [style*="background-color: #e0e7ff" i],
+  [style^="background:#e0e7ff" i], [style*=";background:#e0e7ff" i],
+  [style*="background-color:#ede9fe" i], [style*="background-color: #ede9fe" i],
+  [style^="background:#ede9fe" i], [style*=";background:#ede9fe" i]
+) {
+  background-color: rgba(111, 159, 203, 0.12) !important;
+}
+
+.cf-app-surface [style*="background-color: rgb(243, 244, 246)"] {
+  background-color: var(--cf-surface-soft) !important;
+}
+
+.cf-app-surface :is(
+  [style*="background-color:#f3f4f6" i], [style*="background-color: #f3f4f6" i],
+  [style^="background:#f3f4f6" i], [style*=";background:#f3f4f6" i],
+  [style*="background-color:#f9fafb" i], [style*="background-color: #f9fafb" i],
+  [style^="background:#f9fafb" i], [style*=";background:#f9fafb" i],
+  [style*="background-color:#ffffff" i], [style*="background-color: #ffffff" i],
+  [style^="background:#ffffff" i], [style*=";background:#ffffff" i],
+  [style*="background-color:#fafafa" i], [style*="background-color: #fafafa" i],
+  [style^="background:#fafafa" i], [style*=";background:#fafafa" i]
+) {
+  background-color: var(--cf-surface-soft) !important;
+}
+
+/* Tailwind's 950s are near-black: written for light panels, unreadable once the
+   panel itself is remapped to a dark tint. These carry body copy inside alert
+   surfaces, so they read as primary text rather than as a semantic accent. */
+.cf-app-surface .text-amber-950,
+.cf-app-surface .text-orange-950,
+.cf-app-surface .text-yellow-950,
+.cf-app-surface .text-red-950,
+.cf-app-surface .text-green-950,
+.cf-app-surface .text-emerald-950,
+.cf-app-surface .text-blue-950 {
+  color: var(--cf-text) !important;
+}
+
+.cf-app-surface .text-blue-700,
+.cf-app-surface .text-blue-600,
+.cf-app-surface .text-blue-800,
+.cf-app-surface .text-blue-900,
+.cf-app-surface .text-sky-700,
+.cf-app-surface .text-sky-600,
+.cf-app-surface .text-indigo-700,
+.cf-app-surface .text-indigo-600,
+.cf-app-surface .text-indigo-800,
+.cf-app-surface .text-indigo-900,
+.cf-app-surface [class~="text-[#1565c0]"],
+.cf-app-surface [class~="text-[#1E40AF]"],
+.cf-app-surface [class~="text-[#1e40af]"] {
+  color: var(--cf-info) !important;
+}
+
+.cf-app-surface .border-gray-50,
+.cf-app-surface .border-gray-100,
+.cf-app-surface .border-gray-200,
+.cf-app-surface .border-slate-100,
+.cf-app-surface .border-slate-200 {
+  border-color: var(--cf-border-subtle) !important;
+}
+
+.cf-app-surface .border-red-200,
+.cf-app-surface .border-red-300 {
+  border-color: rgba(208, 92, 75, 0.35) !important;
+}
+
+.cf-app-surface .border-orange-200,
+.cf-app-surface .border-orange-300,
+.cf-app-surface .border-amber-200,
+.cf-app-surface .border-amber-300,
+.cf-app-surface .border-yellow-200,
+.cf-app-surface .border-yellow-300 {
+  border-color: rgba(217, 154, 58, 0.35) !important;
+}
+
+.cf-app-surface .border-green-200,
+.cf-app-surface .border-green-300,
+.cf-app-surface .border-emerald-200,
+.cf-app-surface .border-emerald-300 {
+  border-color: rgba(63, 191, 127, 0.35) !important;
+}
+
+.cf-app-surface .border-blue-200,
+.cf-app-surface .border-sky-200,
+.cf-app-surface .border-indigo-200 {
+  border-color: rgba(111, 159, 203, 0.35) !important;
+}
+
+.cf-app-surface .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.cf-app-surface .divide-gray-200 > :not([hidden]) ~ :not([hidden]),
+.cf-app-surface .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.cf-app-surface .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--cf-border-subtle) !important;
+}
+
+.cf-app-surface table,
+.cf-app-surface thead,
+.cf-app-surface tbody,
+.cf-app-surface tr,
+.cf-app-surface th,
+.cf-app-surface td {
+  background-color: transparent !important;
+}
+
+.cf-app-surface thead tr,
+.cf-app-surface tbody tr:nth-child(even) {
+  background-color: var(--cf-surface-soft) !important;
+}
+
+.cf-app-surface tbody tr:hover {
+  background-color: rgba(79, 70, 229, 0.08) !important;
+}
+
+.cf-app-surface .shadow-sm,
+.cf-app-surface .shadow,
+.cf-app-surface .shadow-md,
+.cf-app-surface .shadow-lg {
+  box-shadow: var(--cf-shadow-panel) !important;
+}
+
+.cf-app-surface .rounded-2xl {
+  border-radius: 8px !important;
+}
+
+.cf-app-surface form,
+.cf-app-surface form > div,
+.cf-app-surface .space-y-8,
+.cf-app-surface .space-y-6 {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.cf-app-surface .lg\:grid-cols-3 {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)) !important;
+}
+
+.cf-app-surface .overflow-x-auto,
+.cf-app-surface .overflow-auto,
+.cf-app-surface .overflow-y-auto {
+  scrollbar-color: rgba(79, 70, 229, 0.45) var(--cf-surface-hover);
+}
+
+@media (max-width: 767px) {
+  .cf-app-surface main {
+    overflow-x: hidden;
+  }
+
+  .cf-app-surface .flex {
+    min-width: 0;
+  }
+
+  .cf-app-surface [class*="w-72"][class*="flex-shrink-0"],
+  .cf-app-surface [class*="min-w-[200px]"],
+  .cf-app-surface [class*="max-w-[260px]"] {
+    width: min(18rem, calc(100vw - 2rem)) !important;
+    min-width: min(18rem, calc(100vw - 2rem)) !important;
+    max-width: calc(100vw - 2rem) !important;
+  }
+
+  .cf-app-surface [class*="w-fit"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto;
+  }
+
+  .cf-app-surface [class*="grid-cols-2"],
+  .cf-app-surface [class*="grid-cols-3"],
+  .cf-app-surface [class*="grid-cols-4"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .cf-app-surface [class*="sm:grid-cols-2"],
+  .cf-app-surface [class*="md:grid-cols-2"],
+  .cf-app-surface [class*="lg:grid-cols-2"],
+  .cf-app-surface [class*="xl:grid-cols-2"],
+  .cf-app-surface [class*="sm:grid-cols-3"],
+  .cf-app-surface [class*="md:grid-cols-3"],
+  .cf-app-surface [class*="lg:grid-cols-3"],
+  .cf-app-surface [class*="xl:grid-cols-3"],
+  .cf-app-surface [class*="sm:grid-cols-4"],
+  .cf-app-surface [class*="md:grid-cols-4"],
+  .cf-app-surface [class*="lg:grid-cols-4"],
+  .cf-app-surface [class*="xl:grid-cols-4"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .cf-app-surface :where(div, section):has(> table) {
+    overflow-x: auto !important;
+  }
+
+  .cf-app-surface table {
+    min-width: max-content !important;
+    width: 100% !important;
+    table-layout: auto;
+  }
+
+  .cf-app-surface th,
+  .cf-app-surface td {
+    padding-left: 0.55rem !important;
+    padding-right: 0.55rem !important;
+    white-space: nowrap !important;
+    overflow-wrap: normal;
+  }
+
+  .cf-app-surface [role="tablist"],
+  .cf-app-surface .inline-flex {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+.cf-app-surface input,
+.cf-app-surface select,
+.cf-app-surface textarea {
+  background-color: var(--cf-bg-raised) !important;
+  border-color: var(--cf-border-strong) !important;
+  color: var(--cf-text) !important;
+}
+
+.cf-app-surface input::placeholder,
+.cf-app-surface textarea::placeholder {
+  color: var(--cf-text-muted) !important;
+}
+
+.cf-app-surface input:focus,
+.cf-app-surface select:focus,
+.cf-app-surface textarea:focus,
+.cf-app-surface button:focus-visible,
+.cf-app-surface a:focus-visible {
+  outline: 2px solid var(--cf-brand) !important;
+  outline-offset: 2px;
+}
+
+.cf-app-surface label {
+  color: var(--cf-text-secondary);
+}
+
+.cf-app-surface a {
+  text-underline-offset: 4px;
+}
+
+.cf-app-surface [role="dialog"],
+.cf-app-surface [data-radix-popper-content-wrapper] > * {
+  background-color: var(--cf-bg-panel) !important;
+  border-color: var(--cf-border-subtle) !important;
+  color: var(--cf-text) !important;
+}
+
+.cf-app-surface hr {
+  border-color: var(--cf-border-subtle);
+}
+
+.cf-app-surface .cf-case-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1280px) {
+  .cf-app-surface .cf-case-grid {
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(220px, 300px);
+  }
+}
+
+.cf-site-surface {
+  --cf-bg: #0b0d12;
+  --cf-bg-panel: #12151c;
+  --cf-bg-raised: #181c25;
+  --cf-bg-subtle: #1f2430;
+  --cf-border-subtle: rgba(148, 163, 184, 0.12);
+  --cf-border-strong: rgba(148, 163, 184, 0.28);
+  --cf-text: #eceef3;
+  --cf-text-secondary: #b8becb;
+  --cf-text-muted: #8c93a3;
+  --cf-brand: color-mix(in srgb, var(--cf-tenant-primary) 45%, #ffffff);
+  --cf-brand-alt: color-mix(in srgb, var(--cf-tenant-secondary) 40%, #ffffff);
+  --cf-brand-soft: color-mix(in srgb, var(--cf-tenant-primary) 25%, #ffffff);
+  --cf-shadow-panel: 0 18px 60px rgba(0, 0, 0, 0.24);
+  background:
+    radial-gradient(circle at 80% 0, rgba(79, 70, 229, 0.14), transparent 30rem),
+    linear-gradient(180deg, #10131a 0%, #0b0d12 100%);
+  color: var(--cf-text);
+}
+
+.cf-site-surface .bg-white,
+.cf-site-surface .bg-gray-50,
+.cf-site-surface .bg-gray-100,
+.cf-site-surface .bg-slate-50,
+.cf-site-surface .bg-slate-100 {
+  background-color: var(--cf-bg-panel) !important;
+}
+
+/* Same hover-variant gap as the app surface — keep hovered rows dark.
+   Gated on `(hover: hover)` to mirror Tailwind v4's hover variant. */
+@media (hover: hover) {
+  .cf-site-surface .hover\:bg-gray-50:hover,
+  .cf-site-surface .hover\:bg-gray-100:hover,
+  .cf-site-surface .hover\:bg-slate-50:hover,
+  .cf-site-surface .hover\:bg-slate-100:hover {
+    background-color: var(--cf-bg-raised) !important;
+  }
+}
+
+.cf-site-surface [class*="bg-[#f9fafb]"],
+.cf-site-surface [class*="bg-[#f8f8f8]"],
+.cf-site-surface [class*="bg-[#f3f4f6]"],
+.cf-site-surface [class*="bg-[#fff]"] {
+  background-color: var(--cf-bg-panel) !important;
+}
+
+.cf-site-surface .text-gray-950,
+.cf-site-surface .text-gray-900,
+.cf-site-surface .text-slate-950,
+.cf-site-surface .text-slate-900,
+.cf-site-surface .text-black {
+  color: var(--cf-text) !important;
+}
+
+.cf-site-surface .text-gray-800,
+.cf-site-surface .text-gray-700,
+.cf-site-surface .text-slate-800,
+.cf-site-surface .text-slate-700 {
+  color: var(--cf-text-secondary) !important;
+}
+
+.cf-site-surface .text-gray-600,
+.cf-site-surface .text-gray-500,
+.cf-site-surface .text-gray-400,
+.cf-site-surface .text-slate-600,
+.cf-site-surface .text-slate-500,
+.cf-site-surface .text-slate-400 {
+  color: var(--cf-text-muted) !important;
+}
+
+.cf-site-surface .border-gray-50,
+.cf-site-surface .border-gray-100,
+.cf-site-surface .border-gray-200,
+.cf-site-surface .border-slate-100,
+.cf-site-surface .border-slate-200 {
+  border-color: var(--cf-border-subtle) !important;
+}
+
+.cf-site-surface .rounded-2xl,
+.cf-site-surface .rounded-xl {
+  border-radius: 8px !important;
+}
+
+.cf-site-surface .shadow-sm,
+.cf-site-surface .shadow,
+.cf-site-surface .shadow-md,
+.cf-site-surface .shadow-lg {
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.24) !important;
+}
+
+.cf-site-surface input,
+.cf-site-surface select,
+.cf-site-surface textarea {
+  background-color: var(--cf-bg-raised) !important;
+  border-color: var(--cf-border-strong) !important;
+  color: var(--cf-text) !important;
+}
+
+.cf-site-surface input::placeholder,
+.cf-site-surface textarea::placeholder {
+  color: var(--cf-text-muted) !important;
+}

@@ -1,0 +1,46 @@
+name: date-boundaries
+
+# A reporting window built from local date parts resolves in the container's
+# zone. This container sets no TZ, so that is UTC — up to two hours inside the
+# previous South African day. The payments screen showed the same receipt in
+# August in its table and July in its totals for exactly that reason.
+#
+# The fix is a helper, and a helper can be applied to fourteen files and missed
+# on the fifteenth, or bypassed by the next feature that needs a month
+# boundary. This job is what makes that a build failure rather than a number
+# nobody can reconcile.
+#
+# The check walks the TypeScript AST with a type checker rather than matching
+# source text. Four text-matching versions were defeated by ordinary code —
+# bracket-notation getters, a marker inside a string literal, a docstring
+# showing the anti-pattern — and the fixtures for every one of those live in
+# the script's header. Building the program costs about three seconds.
+#
+# No paths: filter — the point is to catch a boundary in a file nobody thought
+# of as date-handling code.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - name: No local-zone calendar boundaries
+        run: npm run dates:check
+      # Run the date suite under several zones. The base vitest config pins
+      # workers to TZ=UTC, which is right for the suite but means a plain
+      # `TZ=x npm test` proves nothing about zone independence.
+      - name: Date helpers are timezone-independent
+        run: npm run test:tz

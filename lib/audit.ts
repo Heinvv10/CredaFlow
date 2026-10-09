@@ -1,0 +1,402 @@
+/**
+ * Audit log helper — records all key platform actions to AuditLog table
+ */
+
+import { prisma } from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
+
+interface AuditParams {
+  tenantId?: string
+  userId?: string
+  userEmail?: string
+  action: string
+  entity: string
+  entityId?: string
+  oldValue?: Record<string, unknown> | null
+  newValue?: Record<string, unknown> | null
+  ipAddress?: string
+}
+
+export async function logAudit(params: AuditParams): Promise<void> {
+  try {
+    await logAuditStrict(params)
+  } catch (error) {
+    // Audit log failures must never break the main operation — but they must
+    // not be invisible either. Callers rely on this row as the ONLY record of
+    // money-moving changes (e.g. a referral commission reassignment in
+    // app/api/clients/[id]/route.ts), and a silent no-op means that record is
+    // simply gone with nothing to alert on.
+    console.error(
+      "Failed to write audit log:",
+      { action: params.action, entity: params.entity, entityId: params.entityId },
+      error,
+    )
+  }
+}
+
+/**
+ * Use only where the audited operation must fail closed if evidence cannot be written.
+ * Pass the transaction client to commit the row with the change it records.
+ */
+export async function logAuditStrict(params: AuditParams, db: Pick<typeof prisma, "auditLog"> = prisma): Promise<void> {
+  await db.auditLog.create({
+    data: {
+      tenantId: params.tenantId,
+      userId: params.userId ?? null,
+      userEmail: params.userEmail ?? null,
+      action: params.action,
+      entity: params.entity,
+      entityId: params.entityId ?? null,
+      oldValue: (params.oldValue ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      newValue: (params.newValue ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      ipAddress: params.ipAddress ?? null,
+    },
+  })
+}
+
+// Convenience actions
+export const AuditAction = {
+  // Loan lifecycle
+  LOAN_APPROVED: "LOAN_APPROVED",
+  LOAN_DECLINED: "LOAN_DECLINED",
+  LOAN_CREATED: "LOAN_CREATED",
+  LOAN_DISBURSED: "LOAN_DISBURSED",
+  LOAN_DISBURSEMENT_REFUSED: "LOAN_DISBURSEMENT_REFUSED",
+  OUTAGE_DISBURSEMENT_RECONCILED: "OUTAGE_DISBURSEMENT_RECONCILED",
+  LOAN_CANCELLED: "LOAN_CANCELLED",
+  LOAN_STATUS_CHANGED: "LOAN_STATUS_CHANGED",
+  LOAN_BUREAU_OVERRIDE: "LOAN_BUREAU_OVERRIDE",
+  PRODUCT_PRICING_UPDATED: "PRODUCT_PRICING_UPDATED",
+
+  // Agreement
+  AGREEMENT_GENERATED: "AGREEMENT_GENERATED",
+  AGREEMENT_SIGNED: "AGREEMENT_SIGNED",
+  AGREEMENT_PROVIDER_COUNTERSIGNED: "AGREEMENT_PROVIDER_COUNTERSIGNED",
+  AGREEMENT_INTEGRITY_BACKFILLED: "AGREEMENT_INTEGRITY_BACKFILLED",
+  AGREEMENT_ARTIFACT_STAGED: "AGREEMENT_ARTIFACT_STAGED",
+  AGREEMENT_ARTIFACT_STAGING_RECOVERY_STARTED: "AGREEMENT_ARTIFACT_STAGING_RECOVERY_STARTED",
+  AGREEMENT_ARTIFACT_STAGING_FAILED: "AGREEMENT_ARTIFACT_STAGING_FAILED",
+  AGREEMENT_EMAILED_TO_CLIENT: "AGREEMENT_EMAILED_TO_CLIENT",
+  AGREEMENT_EMAIL_FAILED: "AGREEMENT_EMAIL_FAILED",
+  SIGNING_PACKET_EMAILED: "SIGNING_PACKET_EMAILED",
+  SIGNING_PACKET_EMAIL_FAILED: "SIGNING_PACKET_EMAIL_FAILED",
+  SIGNED_PACKET_UPLOADED: "SIGNED_PACKET_UPLOADED",
+  SIGNED_PACKET_RECORDED: "SIGNED_PACKET_RECORDED",
+  INITIATION_FEE_ELECTION_RECORDED: "INITIATION_FEE_ELECTION_RECORDED",
+  PASQ_ARTIFACT_STAGED: "PASQ_ARTIFACT_STAGED",
+  PASQ_ARTIFACT_STAGING_RECOVERY_STARTED: "PASQ_ARTIFACT_STAGING_RECOVERY_STARTED",
+  PASQ_ARTIFACT_STAGING_FAILED: "PASQ_ARTIFACT_STAGING_FAILED",
+  PASQ_GENERATED: "PASQ_GENERATED",
+  PASQ_ACKNOWLEDGED: "PASQ_ACKNOWLEDGED",
+  PASQ_LINK_SENT: "PASQ_LINK_SENT",
+  PASQ_LINK_SEND_FAILED: "PASQ_LINK_SEND_FAILED",
+  DEBIT_MANDATE_PREPARED: "DEBIT_MANDATE_PREPARED",
+  DEBIT_MANDATE_SIGNED: "DEBIT_MANDATE_SIGNED",
+  DEBIT_MANDATE_ARTIFACT_STAGED: "DEBIT_MANDATE_ARTIFACT_STAGED",
+  DEBIT_MANDATE_ARTIFACT_STAGING_RECOVERY_STARTED: "DEBIT_MANDATE_ARTIFACT_STAGING_RECOVERY_STARTED",
+  DEBIT_MANDATE_ARTIFACT_STAGING_FAILED: "DEBIT_MANDATE_ARTIFACT_STAGING_FAILED",
+
+  // Payments
+  PAYMENT_RECORDED: "PAYMENT_RECORDED",
+  PAYMENT_REVERSED: "PAYMENT_REVERSED",
+  PAYMENT_ALLOCATED: "PAYMENT_ALLOCATED",
+  PAYMENT_LEDGER_RECONCILED: "PAYMENT_LEDGER_RECONCILED",
+  PAYMENT_REFUND_RECORDED: "PAYMENT_REFUND_RECORDED",
+  // Part of a receipt nothing on the loan can absorb, split off as refund-due (lib/loan/refund-excess.ts)
+  PAYMENT_REFUND_DUE_SPLIT: "PAYMENT_REFUND_DUE_SPLIT",
+  // Waived cents no longer needed once charges are removed; a waiver is never refunded
+  PAYMENT_WAIVER_RETIRED: "PAYMENT_WAIVER_RETIRED",
+  // Default interest / post-default charges re-derived (lib/loan/charges-sync.ts)
+  LOAN_CHARGES_SYNCED: "LOAN_CHARGES_SYNCED",
+  // Schedule paidAt left as it was: the receipts do not describe the schedule (lib/loan/schedule-paid-at.ts)
+  SCHEDULE_PAIDAT_RESTAMP_SKIPPED: "SCHEDULE_PAIDAT_RESTAMP_SKIPPED",
+  LOAN_SERVICE_FEE_RECORDED: "LOAN_SERVICE_FEE_RECORDED",
+  DEFAULT_CHARGES_STARTED: "DEFAULT_CHARGES_STARTED",
+  DEFAULT_CHARGES_CHANGE_ACCEPTED: "DEFAULT_CHARGES_CHANGE_ACCEPTED",
+  SECTION_129_CHARGE_STAMPED: "SECTION_129_CHARGE_STAMPED",
+  DEFAULT_CHARGES_DISABLED: "DEFAULT_CHARGES_DISABLED",
+  DEFAULT_CHARGES_EXEMPTION_CHANGED: "DEFAULT_CHARGES_EXEMPTION_CHANGED",
+  // Sub-R1 residue closed by a non-cash WAIVER Payment (lib/loan/small-balance-waiver.ts)
+  SMALL_BALANCE_WAIVED: "SMALL_BALANCE_WAIVED",
+
+  // Bank reconciliation
+  BANK_STATEMENT_IMPORTED: "BANK_STATEMENT_IMPORTED",
+  BANK_TXN_RECONCILED: "BANK_TXN_RECONCILED",
+  BANK_TXN_IGNORED: "BANK_TXN_IGNORED",
+
+  // Client
+  CLIENT_CREATED: "CLIENT_CREATED",
+  CLIENT_UPDATED: "CLIENT_UPDATED",
+  CLIENT_BLACKLISTED: "CLIENT_BLACKLISTED",
+  // Recording a death is a records change, not a credit decision, and the trail
+  // has to tell them apart — an estate is not a declined applicant.
+  CLIENT_DECEASED_RECORDED: "CLIENT_DECEASED_RECORDED",
+
+  // Consent (granular ClientConsent per-purpose changes — see lib/consent.ts)
+  CONSENT_GRANTED: "CONSENT_GRANTED",
+  CONSENT_WITHDRAWN: "CONSENT_WITHDRAWN",
+  CONSENT_PURPOSE_CHANGED: "CONSENT_PURPOSE_CHANGED",
+
+  // User management
+  USER_CREATED: "USER_CREATED",
+  USER_UPDATED: "USER_UPDATED",
+  USER_DEACTIVATED: "USER_DEACTIVATED",
+  USER_DELETED: "USER_DELETED",
+
+  // KYC
+  KYC_APPROVED: "KYC_APPROVED",
+  KYC_REJECTED: "KYC_REJECTED",
+  KYC_STATUS_CHANGED: "KYC_STATUS_CHANGED",
+  // One-time consumer selfie capture links. Distinct sent/failed actions for
+  // the same reason PASQ_LINK_* are distinct: "we sent a credential to a
+  // consumer" and "we minted one and cancelled it undelivered" are different
+  // facts, and an auditor filtering on the first must not silently pick up the
+  // second.
+  SELFIE_LINK_SENT: "SELFIE_LINK_SENT",
+  SELFIE_LINK_SEND_FAILED: "SELFIE_LINK_SEND_FAILED",
+  // Signing links carry no credential — they route through /portal/continue —
+  // so these record delivery of an invitation, not issuance of a token.
+  AGREEMENT_SIGNING_LINK_SENT: "AGREEMENT_SIGNING_LINK_SENT",
+  AGREEMENT_SIGNING_LINK_SEND_FAILED: "AGREEMENT_SIGNING_LINK_SEND_FAILED",
+  BIOMETRIC_VERIFICATION_BLOCKED: "BIOMETRIC_VERIFICATION_BLOCKED",
+  KYC_VERIFICATION_BLOCKED: "KYC_VERIFICATION_BLOCKED",
+  DOCUMENT_ACCESS_REFUSED: "DOCUMENT_ACCESS_REFUSED",
+  KYC_EXCEPTION_GRANTED: "KYC_EXCEPTION_GRANTED",
+  KYC_IN_PERSON_VERIFICATION_GRANTED: "KYC_IN_PERSON_VERIFICATION_GRANTED",
+
+  // Documents
+  DOCUMENT_UPLOADED: "DOCUMENT_UPLOADED",
+  DOCUMENT_VERIFIED: "DOCUMENT_VERIFIED",
+  DOCUMENT_DELETED: "DOCUMENT_DELETED",
+  DOCUMENT_SIGNED: "DOCUMENT_SIGNED",
+  DOCUMENT_SIGNATURE_REQUESTED: "DOCUMENT_SIGNATURE_REQUESTED",
+  DOCUMENT_DECRYPTED_AT_INTAKE: "DOCUMENT_DECRYPTED_AT_INTAKE",
+
+  // Document templates
+  DOCUMENT_TEMPLATE_CREATED: "DOCUMENT_TEMPLATE_CREATED",
+  DOCUMENT_TEMPLATE_UPDATED: "DOCUMENT_TEMPLATE_UPDATED",
+  NOTIFICATION_TEMPLATE_UPDATED: "NOTIFICATION_TEMPLATE_UPDATED",
+  // A refused attempt to edit a migration-managed template. Recorded because
+  // one of those rows is the NCA Section 129 notice, and "someone tried" is
+  // exactly what an auditor asks about.
+  NOTIFICATION_TEMPLATE_UPDATE_REFUSED: "NOTIFICATION_TEMPLATE_UPDATE_REFUSED",
+  DOCUMENT_TEMPLATE_DELETED: "DOCUMENT_TEMPLATE_DELETED",
+
+  // Document template versions (draft → dual-approval → publish)
+  DOCUMENT_TEMPLATE_VERSION_CREATED: "DOCUMENT_TEMPLATE_VERSION_CREATED",
+  DOCUMENT_TEMPLATE_VERSION_APPROVED: "DOCUMENT_TEMPLATE_VERSION_APPROVED",
+  DOCUMENT_TEMPLATE_VERSION_ARCHIVED: "DOCUMENT_TEMPLATE_VERSION_ARCHIVED",
+  DOCUMENT_TEMPLATE_VERSION_PUBLISHED: "DOCUMENT_TEMPLATE_VERSION_PUBLISHED",
+
+  // Applications
+  APPLICATION_SUBMITTED_BY_CLIENT: "APPLICATION_SUBMITTED_BY_CLIENT",
+  APPLICATION_SUBMISSION_BLOCKED:  "APPLICATION_SUBMISSION_BLOCKED",
+  APPLICATION_REVIEW_STARTED: "APPLICATION_REVIEW_STARTED",
+  APPLICATION_BUREAU_REVIEW_RETRIED: "APPLICATION_BUREAU_REVIEW_RETRIED",
+  APPLICATION_RETURNED_TO_DRAFT: "APPLICATION_RETURNED_TO_DRAFT",
+  APPLICATION_RETURNED_TO_REVIEW: "APPLICATION_RETURNED_TO_REVIEW",
+  CREDIT_LIFE_ELECTION_RECORDED: "CREDIT_LIFE_ELECTION_RECORDED",
+
+  // CRM / Leads
+  // Public insurance enquiry captured from the website product page. The row
+  // carries the POPIA contact consent that is the lawful basis for holding the
+  // person's details — the form field itself is gone once the response is sent,
+  // so this is the only evidence the agreement was given.
+  INSURANCE_ENQUIRY_CAPTURED: "INSURANCE_ENQUIRY_CAPTURED",
+  LEAD_CONVERTED: "LEAD_CONVERTED",
+  LEAD_CONVERSION_RECOVERED: "LEAD_CONVERSION_RECOVERED",
+  CONTACT_PROMOTED_LEAD_TO_CLIENT: "CONTACT_PROMOTED_LEAD_TO_CLIENT",
+  CONTACT_REUSED_FOR_LEAD_CONVERSION: "CONTACT_REUSED_FOR_LEAD_CONVERSION",
+  LEAD_STATUS_CHANGED: "LEAD_STATUS_CHANGED",
+  LEAD_ACTIVITY_LOGGED: "LEAD_ACTIVITY_LOGGED",
+  LEAD_ACTIVITY_PIN_TOGGLED: "LEAD_ACTIVITY_PIN_TOGGLED",
+  LEAD_ASSIGNED: "LEAD_ASSIGNED",
+  LEAD_OUTREACH_SENT: "LEAD_OUTREACH_SENT",
+  LEAD_OUTREACH_SIMULATED: "LEAD_OUTREACH_SIMULATED",
+  LEAD_OUTREACH_BLOCKED: "LEAD_OUTREACH_BLOCKED",
+  LEAD_OUTREACH_RECONCILIATION_REQUIRED: "LEAD_OUTREACH_RECONCILIATION_REQUIRED",
+  LEAD_OUTREACH_PENDING: "LEAD_OUTREACH_PENDING",
+  LEAD_OUTREACH_NOT_SENT: "LEAD_OUTREACH_NOT_SENT",
+  MESSAGE_DISPATCH_REARMED: "MESSAGE_DISPATCH_REARMED",
+  MESSAGE_DISPATCH_EVIDENCE_RECOVERED: "MESSAGE_DISPATCH_EVIDENCE_RECOVERED",
+  // An outbound the consumer needed never went out because eligibility
+  // refused it. Enumeration-safe routes cannot tell the consumer, so the
+  // durable record is the only way anyone finds out.
+  MESSAGE_SEND_BLOCKED_BY_ELIGIBILITY: "MESSAGE_SEND_BLOCKED_BY_ELIGIBILITY",
+  // An outbound the consumer needed failed for any other reason on a
+  // fire-and-forget path. Same problem as the row above: nobody is waiting on
+  // the promise, so without this the failure exists only in a console line.
+  MESSAGE_SEND_FAILED_UNDELIVERED: "MESSAGE_SEND_FAILED_UNDELIVERED",
+  REMINDER_DISPATCH_RECORDED: "REMINDER_DISPATCH_RECORDED",
+  AGENT_TASK_CREATED: "AGENT_TASK_CREATED",
+  AGENT_TASK_UPDATED: "AGENT_TASK_UPDATED",
+  LEAD_TASK_REMINDER_SENT: "LEAD_TASK_REMINDER_SENT",
+  LEAD_TASK_REMINDER_SIMULATED: "LEAD_TASK_REMINDER_SIMULATED",
+  LEAD_TASK_REMINDER_PENDING: "LEAD_TASK_REMINDER_PENDING",
+  LEAD_TASK_REMINDER_RECONCILIATION_REQUIRED: "LEAD_TASK_REMINDER_RECONCILIATION_REQUIRED",
+  LEAD_TASK_REMINDER_FAILED: "LEAD_TASK_REMINDER_FAILED",
+  NOTIFICATION_DATA_PURGED: "NOTIFICATION_DATA_PURGED",
+  CROSS_SELL_OPPORTUNITIES_GENERATED: "CROSS_SELL_OPPORTUNITIES_GENERATED",
+
+  // Credit / risk policy configuration
+  CREDIT_POLICY_UPDATED: "CREDIT_POLICY_UPDATED",
+
+  // Product configuration
+  LOAN_PRODUCT_CREATED: "LOAN_PRODUCT_CREATED",
+  LOAN_PRODUCT_UPDATED: "LOAN_PRODUCT_UPDATED",
+  LOAN_PRODUCT_DEACTIVATED: "LOAN_PRODUCT_DEACTIVATED",
+  INSURANCE_PRODUCT_CREATED: "INSURANCE_PRODUCT_CREATED",
+  INSURANCE_PRODUCT_UPDATED: "INSURANCE_PRODUCT_UPDATED",
+  INSURANCE_PRODUCT_DEACTIVATED: "INSURANCE_PRODUCT_DEACTIVATED",
+
+  // IMS Phase 1: the insurer's rate card and acceptance terms. These are the
+  // terms a quote is priced and screened against, so every change to them is
+  // an auditable act — an activation in particular decides what every
+  // subsequent policy is sold at.
+  INSURANCE_RATE_TABLE_CREATED:      "INSURANCE_RATE_TABLE_CREATED",
+  INSURANCE_RATE_TABLE_UPDATED:      "INSURANCE_RATE_TABLE_UPDATED",
+  INSURANCE_RATE_TABLE_ACTIVATED:    "INSURANCE_RATE_TABLE_ACTIVATED",
+  INSURANCE_RATE_TABLE_RETIRED:      "INSURANCE_RATE_TABLE_RETIRED",
+  INSURANCE_RATE_TABLE_DELETED:      "INSURANCE_RATE_TABLE_DELETED",
+  INSURANCE_RATE_BAND_CREATED:       "INSURANCE_RATE_BAND_CREATED",
+  INSURANCE_RATE_BAND_UPDATED:       "INSURANCE_RATE_BAND_UPDATED",
+  INSURANCE_RATE_BAND_DELETED:       "INSURANCE_RATE_BAND_DELETED",
+  INSURANCE_ELIGIBILITY_RULE_CREATED: "INSURANCE_ELIGIBILITY_RULE_CREATED",
+  INSURANCE_ELIGIBILITY_RULE_UPDATED: "INSURANCE_ELIGIBILITY_RULE_UPDATED",
+  INSURANCE_ELIGIBILITY_RULE_DELETED: "INSURANCE_ELIGIBILITY_RULE_DELETED",
+  // IMS Phase 2: quoting and the FAIS record of advice.
+  //
+  // INSURANCE_QUOTE_DRAFTED is not noise beside INSURANCE_QUOTE_CREATED — it
+  // is the row that says a quote could NOT be priced or screened, and the
+  // failures it carries are the evidence of what the insurer's configuration
+  // refused. A quote that silently failed to price and left no trace is how an
+  // operator concludes the product is broken with nothing to show anyone.
+  INSURANCE_QUOTE_CREATED:           "INSURANCE_QUOTE_CREATED",
+  INSURANCE_QUOTE_DRAFTED:           "INSURANCE_QUOTE_DRAFTED",
+  INSURANCE_QUOTE_STATUS_CHANGED:    "INSURANCE_QUOTE_STATUS_CHANGED",
+  INSURANCE_QUOTE_TRANSITION_REFUSED: "INSURANCE_QUOTE_TRANSITION_REFUSED",
+  INSURANCE_ADVICE_RECORDED:         "INSURANCE_ADVICE_RECORDED",
+  INSURANCE_ADVICE_REFUSED:          "INSURANCE_ADVICE_REFUSED",
+  INSURANCE_QUOTE_DISCLOSURE_ISSUED: "INSURANCE_QUOTE_DISCLOSURE_ISSUED",
+  INSURANCE_QUOTE_DISCLOSURE_REFUSED: "INSURANCE_QUOTE_DISCLOSURE_REFUSED",
+  INSURANCE_QUOTE_BOUND:             "INSURANCE_QUOTE_BOUND",
+  INSURANCE_QUOTE_BIND_REFUSED:      "INSURANCE_QUOTE_BIND_REFUSED",
+  // The rating gate on the disclosure-draft path. A refusal here means a
+  // premium was requested that the product's ACTIVE rate card does not
+  // produce — recorded because it is an attempt to put a price in front of a
+  // client that no insurer term supports.
+  INSURANCE_DRAFT_RATING_REJECTED:   "INSURANCE_DRAFT_RATING_REJECTED",
+  // Flipping the IMS module on or off for a tenant.
+  //
+  // It does NOT withdraw "the whole insurance API surface", which is what this
+  // comment used to claim. `requireImsEnabled` gates app/api/insurance/**
+  // only. With the flag off, app/api/insurers/**, app/api/products/insurance/**,
+  // app/api/portal/insurance/**/ppr-acknowledge and app/api/cron/insurance-renewal
+  // all still serve — deliberately, because live credit life reads insurer and
+  // insurance-product records and gating them would break production.
+  // Recorded because it opens and closes the gated surface plus the Insurance
+  // and Compliance staff sections.
+  IMS_MODULE_ENABLED:                "IMS_MODULE_ENABLED",
+  IMS_MODULE_DISABLED:               "IMS_MODULE_DISABLED",
+
+  // Phase 2a: FAIS disclosure
+  INSURANCE_FAIS_DISCLOSURE_RENDERED:     "INSURANCE_FAIS_DISCLOSURE_RENDERED",
+  INSURANCE_FAIS_DISCLOSURE_ACKNOWLEDGED: "INSURANCE_FAIS_DISCLOSURE_ACKNOWLEDGED",
+  INSURANCE_FAIS_GATE_REJECTED:           "INSURANCE_FAIS_GATE_REJECTED",
+  INSURANCE_POLICY_AUTOBUNDLED:           "INSURANCE_POLICY_AUTOBUNDLED",
+  INSURANCE_AUTOBUNDLE_SKIPPED:           "INSURANCE_AUTOBUNDLE_SKIPPED",
+  INSURANCE_PATCH_FAIS_LOCKED:            "INSURANCE_PATCH_FAIS_LOCKED",
+  // F-25: PPR / FAIS disclosure issued for an auto-bundled credit-life policy.
+  INSURANCE_PPR_ISSUED:                   "INSURANCE_PPR_ISSUED",
+  INSURANCE_PPR_ISSUE_FAILED:             "INSURANCE_PPR_ISSUE_FAILED",
+  // Policyholder acknowledging the PPR disclosure themselves in the portal.
+  // Before this, the ONLY writer of pprAcknowledgedAt was the staff route,
+  // which took both the timestamp and the "acknowledged by" name from the
+  // request body — an arbitrary, backdatable value asserted about a client who
+  // may have done nothing. No UI ever called it, so in practice the FSCA
+  // return's acknowledgement count (lib/fsca-return.ts) was zero by
+  // construction — but any row that WAS written that way is indistinguishable
+  // from a genuine acknowledgement and carries no audit row. Do not assume the
+  // column is clean; see the legacy-row audit task before trusting it.
+  INSURANCE_PPR_ACKNOWLEDGED:             "INSURANCE_PPR_ACKNOWLEDGED",
+  // RA-P1-5: insurance claim outcomes (money-committing state changes).
+  INSURANCE_CLAIM_APPROVED:               "INSURANCE_CLAIM_APPROVED",
+  INSURANCE_CLAIM_REJECTED:               "INSURANCE_CLAIM_REJECTED",
+  INSURANCE_CLAIM_UPDATED:                "INSURANCE_CLAIM_UPDATED",
+  // The submission that OPENS the claim. Its outcomes were audited above while
+  // the event starting them was not, which left an approval in the log with no
+  // recorded beginning.
+  INSURANCE_CLAIM_SUBMITTED:              "INSURANCE_CLAIM_SUBMITTED",
+
+  // Advisor commission lifecycle. Every one of these moves money or reverses
+  // it: APPROVED clears a commission for payment, PAID asserts it left the
+  // business, and CLAWED_BACK reverses it on a reason a human typed. The
+  // clawback reason is kept in the audit row because it is the only record of
+  // WHY the reversal was justified.
+  INSURANCE_COMMISSIONS_CALCULATED:       "INSURANCE_COMMISSIONS_CALCULATED",
+  INSURANCE_COMMISSION_APPROVED:          "INSURANCE_COMMISSION_APPROVED",
+  INSURANCE_COMMISSION_PAID:              "INSURANCE_COMMISSION_PAID",
+  INSURANCE_COMMISSION_CLAWED_BACK:       "INSURANCE_COMMISSION_CLAWED_BACK",
+
+  // Who gets paid out on a death claim. The audited value deliberately omits
+  // the beneficiary's idNumber and dateOfBirth: the audit trail exists to prove
+  // who changed what, not to copy POPIA identifiers into a second store with a
+  // different retention.
+  INSURANCE_BENEFICIARY_ADDED:            "INSURANCE_BENEFICIARY_ADDED",
+  INSURANCE_BENEFICIARY_REMOVED:          "INSURANCE_BENEFICIARY_REMOVED",
+
+  // Admin Academy (user manual) — lesson progress
+  MANUAL_LESSON_COMPLETED: "MANUAL_LESSON_COMPLETED",
+  MANUAL_LESSON_REOPENED: "MANUAL_LESSON_REOPENED",
+
+  // WhatsApp bridge pool
+  WA_BRIDGE_NUMBER_ADDED: "WA_BRIDGE_NUMBER_ADDED",
+  WA_BRIDGE_NUMBER_REORDERED: "WA_BRIDGE_NUMBER_REORDERED",
+  WA_BRIDGE_NUMBER_PROMOTED: "WA_BRIDGE_NUMBER_PROMOTED",
+  WA_BRIDGE_NUMBER_RETIRED: "WA_BRIDGE_NUMBER_RETIRED",
+  // Re-pairing a revoked session. Distinct from ADDED: no new number entered
+  // the pool, so an auditor reading ADDED rows sees only genuinely new numbers.
+  WA_BRIDGE_NUMBER_RELINKED: "WA_BRIDGE_NUMBER_RELINKED",
+  // Parked / un-parked. Distinct from RETIRED because the session survives —
+  // an auditor asking "when did this number stop sending" needs to tell a
+  // reversible bench from a destroyed pairing.
+  WA_BRIDGE_NUMBER_PAUSED: "WA_BRIDGE_NUMBER_PAUSED",
+  WA_BRIDGE_NUMBER_RESUMED: "WA_BRIDGE_NUMBER_RESUMED",
+  // A WhatsApp outage was detected and NOT ONE recipient could be reached.
+  // Email is currently the only alerting channel (the dashboard banner was
+  // descoped), so this row is the last remaining trace that the detector
+  // worked and the notification did not — otherwise the failure is a
+  // console.error in an unretained container log, which is indistinguishable
+  // from the six-day silence this whole feature exists to prevent.
+  WA_BRIDGE_ALERT_UNDELIVERABLE: "WA_BRIDGE_ALERT_UNDELIVERABLE",
+
+  // Comms internal notes
+  COMMS_NOTE_ADDED: "COMMS_NOTE_ADDED",
+  COMMS_NOTE_EDITED: "COMMS_NOTE_EDITED",
+  COMMS_NOTE_DELETED: "COMMS_NOTE_DELETED",
+
+  // Comms / inbox
+  CONVERSATION_MERGED: "CONVERSATION_MERGED",
+
+  // Email hub
+  // Mail configuration is a money-and-notice path: the Section 129 statutory
+  // notice goes out over whatever is configured here, so "who changed the
+  // sending mailbox, and when" is an auditor question.
+  EMAIL_CONFIG_UPDATED: "EMAIL_CONFIG_UPDATED",
+  EMAIL_IMAP_TESTED: "EMAIL_IMAP_TESTED",
+  // Backfill of the at-rest encryption for the EmailConfig secret columns.
+  EMAIL_SECRETS_ENCRYPTED: "EMAIL_SECRETS_ENCRYPTED",
+
+  // Bureau data submission (lib/bureau-submission). Counts and identifiers
+  // only: an audit row never carries a line of the file.
+  BUREAU_SUBMISSION_GENERATED: "BUREAU_SUBMISSION_GENERATED",
+  BUREAU_SUBMISSION_DOWNLOADED: "BUREAU_SUBMISSION_DOWNLOADED",
+  BUREAU_ADVERSE_LISTING_CONFIRMED: "BUREAU_ADVERSE_LISTING_CONFIRMED",
+  BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED",
+  // Lender identity (lib/config/identity-write.ts) — legal name, NCR/FSP/
+  // company-reg numbers, registered office and contact details.
+  LENDER_IDENTITY_UPDATED: "LENDER_IDENTITY_UPDATED",
+  // Letterhead logo (lib/config/lender-logo.ts): the file's sha256, never the bytes.
+  LENDER_LOGO_UPDATED: "LENDER_LOGO_UPDATED",
+  LENDER_LOGO_REMOVED: "LENDER_LOGO_REMOVED",
+} as const

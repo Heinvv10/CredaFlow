@@ -1,0 +1,79 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.next-e2e-dev*.log
+.next-guided-ui-start*.log
+.codex-*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# uploads (user-uploaded files)
+/uploads/
+
+# local design/session scratch
+/.superpowers/
+
+# git worktrees (per-task isolated workspaces)
+/.worktrees/
+
+# staging auth/session artifacts
+docs/staging-cookiejar*.txt
+
+# accidental home directory artifacts
+$HOME/
+
+# E2E + UI/UX audit artifacts — machine-generated outputs, never commit
+# Lowercase `docs/e2e-*` only catches the auto-generated dirs/files;
+# intentional human-authored docs use `docs/E2E-*.md` (capital).
+docs/e2e-*
+docs/uiux-*
+
+# Admin Academy capture tooling — throwaway auth state + review montages
+manual-storage-state.json
+/manual-review/
+
+# Payslip accuracy corpus — REAL client documents (POPIA special personal
+# information). Only the runner, the schema and the synthetic sample-corpus are
+# committed; see lib/ocr/accuracy/README.md.
+lib/ocr/accuracy/corpus/
+lib/ocr/accuracy/*.pdf
+lib/ocr/accuracy/*.jpg
+lib/ocr/accuracy/*.jpeg
+lib/ocr/accuracy/*.png
+!.env.example

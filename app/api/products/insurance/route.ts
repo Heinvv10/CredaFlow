@@ -1,0 +1,61 @@
+import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { requireApiRole } from "@/lib/auth-guards"
+import { withTenantContext } from "@/lib/tenant"
+import { logAudit } from "@/lib/audit"
+
+export async function GET(req: NextRequest) {
+  const guard = await requireApiRole("READONLY")
+  if (guard.error) return guard.error
+  return withTenantContext(req, async (tenant) => {
+    const products = await prisma.insuranceProduct.findMany({ where: { tenantId: tenant.id }, orderBy: { name: "asc" } })
+    const serialized = products.map(p => ({ ...p, premiumAmount: Number(p.premiumAmount), sumAssured: Number(p.sumAssured), commissionRate: Number(p.commissionRate) }))
+    return NextResponse.json(serialized)
+  })
+}
+
+export async function POST(req: NextRequest) {
+  const guard = await requireApiRole("ADMIN")
+  if (guard.error) return guard.error
+  return withTenantContext(req, async (tenant) => {
+    const body = await req.json()
+
+    // Validate the underwriter belongs to this tenant before writing the FK —
+    // the DB FK only enforces existence, not tenancy (defence-in-depth IDOR).
+    if (body.insurerId) {
+      const ins = await prisma.insurer.findFirst({ where: { id: body.insurerId, tenantId: tenant.id }, select: { id: true } })
+      if (!ins) return NextResponse.json({ error: "Invalid insurerId" }, { status: 400 })
+    }
+
+    const product = await prisma.insuranceProduct.create({
+      data: {
+        tenantId: tenant.id,
+        code: body.code,
+        name: body.name,
+        type: body.type,
+        premiumAmount: Number(body.premiumAmount),
+        sumAssured: Number(body.sumAssured),
+        commissionRate: Number(body.commissionRate ?? 0.15),
+        active: body.active ?? true,
+        insurerId: body.insurerId || null,
+      },
+    })
+
+    void logAudit({
+      tenantId: tenant.id,
+      userId: guard.user.id,
+      userEmail: guard.user.email,
+      action: "INSURANCE_PRODUCT_CREATED",
+      entity: "InsuranceProduct",
+      entityId: product.id,
+      newValue: {
+        code: product.code, name: product.name, type: product.type,
+        premiumAmount: Number(product.premiumAmount), sumAssured: Number(product.sumAssured),
+        commissionRate: Number(product.commissionRate), active: product.active,
+        insurerId: product.insurerId,
+      },
+    })
+
+    return NextResponse.json({ ...product, premiumAmount: Number(product.premiumAmount), sumAssured: Number(product.sumAssured), commissionRate: Number(product.commissionRate) }, { status: 201 })
+  })
+}

@@ -1,0 +1,27 @@
+version = 1
+project_id = "credaflow"
+allow_project_skill_publish = false
+allow_global_evidence = true
+
+protected_paths = [
+  ".env",
+  ".env.example",
+  "uploads",
+  "e2e-evidence",
+  ".claude/goals",
+  ".claude/handoffs",
+  ".claude/scratchpad",
+  ".claude/sprints",
+]
+
+verify_commands = [
+  "npx tsc --noEmit",
+  "npm run lint",
+  "npm test",
+  "npm run claude-md:check",
+  "npm run agents:check",
+]
+
+[generated_views]
+claude = ".claude/skills/agent-evolution"
+codex = ".agents/skills/agent-evolution"

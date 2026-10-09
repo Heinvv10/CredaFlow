@@ -1,0 +1,38 @@
+name: agent-docs
+
+# The agent-facing docs are load-bearing here: CLAUDE.md and its AGENTS.md
+# mirrors are what tell an agent that NCA document text is exact, that every
+# state change goes through lib/audit.ts, and that the database enforces
+# rules mocked tests cannot see. A
+# stale or missing mirror means an agent driving this repo from Codex works
+# without those rules and does not know it.
+#
+# No paths: filter. Filtering would skip PRs that add source files to an
+# existing module and push it across the mirror threshold — the case most
+# easily missed by eye, since test files count toward it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Neither step uses GITHUB_TOKEN — nothing pushes, comments, or calls the API.
+# Set explicitly rather than inheriting the org default, because this is the
+# repo's first workflow and later ones will be copied from it.
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - name: Documented paths resolve
+        run: npm run claude-md:check
+      - name: AGENTS.md mirrors match CLAUDE.md
+        run: npm run agents:check

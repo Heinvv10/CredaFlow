@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+*.log
+.env
+.env.local
+
+# Stale snapshots, local-only files and dev archives must not enter the build
+# context — they can break `npm run build` with stale TSX or missing fields.
+backups
+docs
+docker-compose.staging.yml
+.claude
+.codex
+*.tgz
+prisma/seed-staging.ts

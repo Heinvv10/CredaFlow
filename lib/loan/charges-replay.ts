@@ -1,0 +1,280 @@
+import type { prisma } from "@/lib/prisma"
+import { allocateReceipts } from "@/lib/loan/balances"
+import { sastCalendarDay } from "@/lib/loan/settlement"
+import {
+  computeDefaultCharges,
+  type DefaultChargeReceipt,
+  type DefaultChargeResult,
+} from "@/lib/loan/default-charges"
+import { bookedServiceFee, letterCharges, type GoLiveInputs } from "@/lib/loan/charges-inputs"
+
+// Loads one loan's default-charges inputs and runs the pure replay
+// (lib/loan/default-charges.ts). ALL money is CENTS. Read-only: persisting the
+// result is lib/loan/charges-sync.ts.
+
+/** Add to a writer's existing loan read so the flag costs no extra query. */
+export const CHARGES_FLAG_INCLUDE = {
+  select: { config: { select: { defaultChargesEnabled: true, defaultChargesStartedAt: true, defaultChargesStoppedAt: true } } },
+} as const
+
+/**
+ * Charges are live only once the flag is on AND go-live has been recorded, and
+ * never again once they were stopped (--disable is one-way).
+ */
+export function chargesEnabled(loan: {
+  tenant?: {
+    config: {
+      defaultChargesEnabled: boolean
+      defaultChargesStartedAt: Date | null
+      defaultChargesStoppedAt?: Date | null
+    } | null
+  } | null
+}): boolean {
+  const config = loan.tenant?.config
+  return config?.defaultChargesEnabled === true && config.defaultChargesStartedAt != null
+    && config.defaultChargesStoppedAt == null
+}
+
+const MS_PER_DAY = 86_400_000
+/** midday SAST on a SAST calendar day, so it cannot straddle a day boundary */
+const sastMidday = (day: number) => new Date(day * MS_PER_DAY + 10 * 3_600_000)
+const NEVER = new Date(Date.UTC(9999, 0, 1))
+
+/**
+ * First day a loan may be charged, given the tenant's go-live instant (product
+ * decision 2026-09-26). Replays the LEGACY allocation — schedule only, no
+ * charges — over receipts valued on or before go-live day:
+ *  - nothing overdue at go-live (paid up or current, including settled on
+ *    go-live day itself): go-live day, so the loan is never back-charged;
+ *  - overdue at go-live: the day after the earliest instalment still overdue,
+ *    so only the default still open at go-live is back-charged, never
+ *    lateness cured before it.
+ */
+export function goLiveAccrueFrom(
+  schedule: Array<{ dueDate: Date; totalDue: number }>,
+  receipts: Array<{ amount: number; receivedAt: Date }>,
+  goLive: Date,
+): Date {
+  const goLiveDay = sastCalendarDay(goLive)
+  const rows = [...schedule].sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+  const pool = receipts
+    .filter((receipt) => sastCalendarDay(receipt.receivedAt) <= goLiveDay)
+    .reduce((sum, receipt) => sum + receipt.amount, 0)
+  const paid = allocateReceipts(rows, pool)
+  const overdueDays = rows
+    .filter((row, i) => sastCalendarDay(row.dueDate) < goLiveDay && paid[i] < row.totalDue)
+    .map((row) => sastCalendarDay(row.dueDate))
+  return sastMidday(overdueDays.length > 0 ? Math.min(...overdueDays) + 1 : goLiveDay)
+}
+
+// The tenant-scope-extended client's transaction, as every writer holds it.
+export type ChargesTx = Pick<
+  Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  "loan" | "payment" | "complianceRecord" | "loanCharge" | "repaymentSchedule" | "auditLog"
+>
+
+/** Whether default charges are live for a tenant (flag on AND go-live recorded). */
+export async function chargesLiveForTenant(
+  db: Pick<typeof prisma, "tenantConfig">,
+  tenantId: string,
+): Promise<boolean> {
+  const config = await db.tenantConfig.findUnique({
+    where: { tenantId },
+    select: { defaultChargesEnabled: true, defaultChargesStartedAt: true, defaultChargesStoppedAt: true },
+  })
+  return chargesEnabled({ tenant: { config } })
+}
+
+export interface LoanRef {
+  tenantId: string
+  loanId: string
+}
+
+
+/**
+ * `preview` is for the back-fill DRY RUN only: replaying with the inputs
+ * --apply would switch the tenant to (goLiveInputs), whatever its flag says.
+ * Nothing that writes may pass it. `decidingStatus` is for the sync, which
+ * decides COMPLETED itself and so must not be bounded by a closing date a
+ * writer stamped.
+ */
+export async function loadChargesReplay(
+  tx: ChargesTx,
+  ref: LoanRef,
+  asOf: Date,
+  { preview, decidingStatus = false }: { preview?: GoLiveInputs; decidingStatus?: boolean } = {},
+) {
+  const loan = await tx.loan.findUnique({
+    where: { id: ref.loanId, tenantId: ref.tenantId },
+    select: {
+      principal: true,
+      interestRatePm: true,
+      maturityDate: true,
+      status: true,
+      closedAt: true,
+      writeOffAt: true,
+      totalPaid: true,
+      outstandingPrincipal: true,
+      arrearsAmount: true,
+      daysInArrears: true,
+      nextPaymentDate: true,
+      chargesAccrued: true,
+      chargesOutstanding: true,
+      defaultChargesExempt: true,
+      defaultChargesExemptReason: true,
+      defaultChargesExemptEndedAt: true,
+      monthlyServiceFee: true,
+      product: { select: { code: true, monthlyServiceFee: true } },
+      application: { select: { affordabilityResult: true } },
+      tenant: {
+        select: {
+          config: {
+            select: {
+              defaultChargesEnabled: true,
+              defaultAdminChargeCents: true,
+              defaultAdminPostageCents: true,
+              defaultChargesStartedAt: true,
+              defaultChargesStoppedAt: true,
+            },
+          },
+        },
+      },
+      repaymentSchedule: { orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] },
+    },
+  })
+  const config = loan?.tenant.config
+  // Once charges were stopped nothing is ever derived again, not even a preview.
+  if (!loan || !config || config.defaultChargesStoppedAt || !(chargesEnabled({ tenant: { config } }) || preview)) return null
+
+  const receipts = await tx.payment.findMany({
+    where: {
+      loanId: ref.loanId,
+      tenantId: ref.tenantId,
+      reversed: false,
+      allocationStatus: "ALLOCATED",
+    },
+    orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      amount: true,
+      receivedAt: true,
+      defaultInterestAllocated: true,
+      chargeFeesAllocated: true,
+    },
+  })
+  // Only notices the provider confirmed, dated when they were issued — the
+  // same predicate the attorney-referral gate and the S129 register use.
+  const letters = await tx.complianceRecord.findMany({
+    where: {
+      tenantId: ref.tenantId,
+      type: "SECTION_129_NOTICE",
+      referenceId: ref.loanId,
+      status: "COMPLETED",
+      completedAt: { not: null },
+      data: { path: ["lifecycle"], equals: "ISSUED" },
+    },
+    orderBy: { completedAt: "asc" },
+    select: { id: true, completedAt: true, data: true },
+  })
+  // The amount frozen on each notice; the dry run previews what --apply stamps.
+  const adminCharges = letterCharges(letters, preview?.letterCents ?? null)
+
+  // The loan's own agreed fee (booked from the approval snapshot), so editing
+  // the product never reprices an existing loan (null: see bookedServiceFee).
+  const monthlyServiceFee = loan.monthlyServiceFee ?? bookedServiceFee(loan)
+  // Nothing accrues after a write-off or cancellation, nor after a closing
+  // unless the caller is itself deciding whether the loan is closed (the sync).
+  // A loan pending write-off is still owed and keeps accruing.
+  const accrueUntil = loan.status === "WRITTEN_OFF"
+    ? loan.writeOffAt ?? undefined
+    : loan.status === "CANCELLED" || (loan.status === "COMPLETED" && !decidingStatus)
+      ? loan.closedAt ?? undefined
+      : undefined
+  const goLive = preview?.startedAt ?? config.defaultChargesStartedAt ?? asOf
+  // An exempt loan is never charged, so its receipts fall straight to the
+  // schedule. After an exemption is lifted, charging resumes from that moment.
+  // Recomputed with any probe receipt: a receipt dated before go-live can
+  // change whether the loan was overdue at go-live, and pricing it without
+  // that understates what the date erases. The dry run previews go-live as
+  // now, which is what --apply records.
+  const accrueFromWith = (extraReceipts: DefaultChargeReceipt[]) => {
+    if (loan.defaultChargesExempt) return NEVER
+    const fromGoLive = goLiveAccrueFrom(loan.repaymentSchedule, [...receipts, ...extraReceipts], goLive)
+    const ended = loan.defaultChargesExemptEndedAt
+    return ended && ended > fromGoLive ? ended : fromGoLive
+  }
+  const accrueFrom = accrueFromWith([])
+
+  /** Re-run the replay, optionally with a receipt not yet written. */
+  const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = []) =>
+    computeDefaultCharges({
+      schedule: loan.repaymentSchedule,
+      receipts: [...receipts, ...extraReceipts],
+      adminCharges,
+      interestRatePm: loan.interestRatePm,
+      monthlyServiceFee,
+      maturityDate: loan.maturityDate,
+      asOf: at,
+      accrueFrom: extraReceipts.length > 0 ? accrueFromWith(extraReceipts) : accrueFrom,
+      accrueUntil,
+    })
+  return {
+    loan,
+    receipts,
+    result: replayAt(asOf),
+    replayAt,
+    monthlyServiceFee,
+    /** set when the fee came from bookedServiceFee; the sync writes it onto the loan */
+    unbookedServiceFee: loan.monthlyServiceFee === null ? monthlyServiceFee : null,
+    /** null only in a dry-run preview before go-live has been recorded */
+    goLive: preview?.startedAt ?? config.defaultChargesStartedAt,
+    /** null for an exempt loan, which is never charged */
+    accrueFrom: loan.defaultChargesExempt ? null : accrueFrom,
+  }
+}
+
+export const chargesOutstandingTotal = (result: DefaultChargeResult) =>
+  result.interestOutstanding + result.feesOutstanding
+
+/**
+ * Default charges owed at `valueDate`, to add to the settlement amount a
+ * receipt dated then is bounded by. 0 while the tenant's flag is off.
+ *
+ * Receipts dated after `valueDate` count as paid on it, so a receipt
+ * back-dated before an existing one is bounded conservatively: it can be
+ * split to refund-due a little early, never over-collect.
+ */
+export async function chargesOutstandingAt(
+  tx: ChargesTx,
+  ref: LoanRef,
+  valueDate: Date,
+): Promise<number> {
+  const replay = await loadChargesReplay(tx, ref, valueDate)
+  return replay ? chargesOutstandingTotal(replay.result) : 0
+}
+
+export type ChargesReplay = NonNullable<Awaited<ReturnType<typeof loadChargesReplay>>>
+
+/**
+ * Default charges a receipt writes off PURELY by its value date: charges
+ * accrued with it dated `asOf` minus with it dated `receivedAt`, on a replay
+ * already loaded for this transaction. The go-live cut-off is recomputed with
+ * the receipt in place, so a receipt dated before go-live is priced for the
+ * back-charges it removes. Checked with backdatingInterestRebate against the
+ * rebate bound (lib/loan/value-date.ts).
+ */
+export function chargesBackdating(
+  replay: ChargesReplay,
+  receipt: { amount: number; receivedAt: Date },
+  asOf: Date,
+): { rebateCents: number; accruedAtCaptureCents: number } {
+  const accrued = (receivedAt: Date) => {
+    const result = replay.replayAt(asOf, [{ id: "backdating-probe", amount: receipt.amount, receivedAt }])
+    return result.interestAccrued + result.feesAccrued
+  }
+  const accruedAtCaptureCents = accrued(asOf)
+  return {
+    rebateCents: Math.max(0, accruedAtCaptureCents - accrued(receipt.receivedAt)),
+    accruedAtCaptureCents,
+  }
+}

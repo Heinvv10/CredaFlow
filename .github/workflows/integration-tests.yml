@@ -1,0 +1,155 @@
+# Real-DB integration suites.
+#
+# Almost every *.integration.test.ts is gated behind its own RUN_*_IT variable
+# and defaults to describe.skip, so `npm test` has never run one of them. A
+# suite could break and stay broken while every signal stayed green. Mocked
+# Prisma cannot execute a trigger or a CHECK constraint; only this job can.
+name: integration-tests
+
+# No paths: filter, for the same reason agent-docs.yml has none. A filter only
+# ever guesses which PRs can break a suite, and the guess is wrong in both
+# directions: a new *.integration.test.ts added under components/ or
+# app/(dashboard)/ would not be gated on the PR that introduced it, and a
+# server action under app/actions/ can break a lib/ suite without touching
+# lib/. Deferring either case to the nightly cron means it is caught after
+# merge, on the trunk, which is the failure mode this whole job exists to
+# close. The job is ~2 minutes; a filter is not worth reopening it.
+on:
+  pull_request:
+  schedule:
+    # 02:30 UTC = 04:30 SAST. Nightly still matters: it re-runs against a base that has moved, catching
+    # a suite that two independently-green PRs break only in combination.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+# Nothing here pushes, comments, or calls the API — matching agent-docs.yml,
+# which set the convention explicitly so later workflows could copy it.
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ituser
+          POSTGRES_PASSWORD: itpass
+          POSTGRES_DB: credaflow_it
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ituser -d credaflow_it"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Disposable service container. The script refuses any URL that looks
+      # like a deployed environment — these suites create and delete real rows.
+      DATABASE_URL: postgresql://ituser:itpass@127.0.0.1:5432/credaflow_it
+      TZ: UTC
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The baseline check below needs the merge base with the target
+          # branch. A shallow clone has no history to find one in. Unconditional
+          # rather than expression-gated on the event: `x == y && 0 || 1` in a
+          # GitHub expression evaluates to 1 in BOTH branches, because 0 is
+          # falsy there. The cron paying for a full clone it does not use is
+          # cheaper than that footgun.
+          fetch-depth: 0
+
+      # THE RATCHET'S OTHER HALF. run-integration-tests.sh catches a baselined
+      # suite that starts passing, which forces the line out. Nothing caught a
+      # line going IN — so a PR could break a gated suite and pacify this job
+      # in the same commit by appending its path to the baseline, and the
+      # end-of-run re-check (which EXPECTS baselined suites to fail) could not
+      # tell that from pre-existing debt. "The list may only shrink" was a
+      # comment, not a control. Now it is a control.
+      - name: Baseline may only shrink
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          BASELINE=scripts/integration-baseline.txt
+
+          # Resolve the base explicitly and fail if it cannot be resolved. A
+          # ratchet that skips itself when the ref is missing is worse than no
+          # ratchet: it reports green. BASE_REF comes through env, never
+          # interpolated into the script body.
+          git fetch --no-tags --quiet origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          MERGE_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
+
+          # Compare against the MERGE BASE, not the base branch tip. On a
+          # pull_request run, HEAD is GitHub's cached test-merge commit, which
+          # can lag the live tip. Diffing the tip attributes changes made by
+          # OTHER merged PRs to this one — and because this file is meant to
+          # shrink over time, the very next suite anyone fixes would fail the
+          # check on every open PR that never touched the baseline. Reproduced
+          # before this was written; the tip form reported "+lib/b" for a PR
+          # whose diff did not include the file at all.
+          if ! git cat-file -e "${MERGE_BASE}:${BASELINE}" 2>/dev/null; then
+            echo ">> no baseline at the merge base — this PR introduces it; nothing to ratchet"
+            exit 0
+          fi
+
+          # A ratchet keyed to one path is bypassed by moving that path. The
+          # register existing at the merge base and being gone at HEAD is
+          # therefore itself a refusal, not a skip.
+          if [[ ! -f "$BASELINE" ]]; then
+            echo "!! ${BASELINE} exists at the merge base and is gone at HEAD." >&2
+            echo "!! Moving or deleting the debt register bypasses this check." >&2
+            exit 1
+          fi
+
+          # Set comparison, not a line diff: a reorder or a reflow is not an
+          # addition, and only a genuinely new ENTRY should fail. Both sides are
+          # normalised by run-integration-tests.sh --print-baseline so this step
+          # and the gate cannot disagree about what an entry is.
+          before=$(mktemp); after=$(mktemp)
+          git show "${MERGE_BASE}:${BASELINE}" > "$before"
+          bash scripts/run-integration-tests.sh --print-baseline "$before" > "${before}.n"
+          bash scripts/run-integration-tests.sh --print-baseline "$BASELINE" > "$after"
+
+          added=$(comm -13 "${before}.n" "$after")
+          if [[ -n "$added" ]]; then
+            echo "!! This PR ADDS suites to the integration baseline:" >&2
+            echo "$added" >&2
+            echo "!! The baseline is a debt register, not a permission slip." >&2
+            echo "!! It may only shrink. Fix the suite instead of exempting it;" >&2
+            echo "!! if an exemption is genuinely right, say so in review and" >&2
+            echo "!! land it in a commit that does nothing else." >&2
+            exit 1
+          fi
+          echo ">> baseline did not grow ($(wc -l < "${before}.n") entries at the merge base, $(wc -l < "$after") now)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --legacy-peer-deps is required: plain `npm ci` fails on the next-auth
+      # beta peer conflict. See CLAUDE.md "Tool Overrides".
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      # migrate deploy, NOT `db push` — the suites assert on triggers and CHECK
+      # constraints that only exist because a migration created them.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Integration gate
+        run: bash scripts/run-integration-tests.sh

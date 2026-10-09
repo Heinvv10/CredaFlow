@@ -1,0 +1,573 @@
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
+
+const lenderIdentityMocks = vi.hoisted(() => ({ get: vi.fn(), find: vi.fn() }))
+// No tenant logo: documents print the text letterhead (lib/config/lender-logo.ts).
+vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: async () => undefined }))
+vi.mock("@/lib/config/identity", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/config/identity")>()
+  const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
+  const identity = actual.parseLenderIdentity(VALID_LENDER_COLUMNS)
+  lenderIdentityMocks.get.mockResolvedValue(identity)
+  lenderIdentityMocks.find.mockResolvedValue(identity)
+  return {
+    ...actual,
+    getLenderIdentity: (...args: unknown[]) => lenderIdentityMocks.get(...args),
+    findLenderIdentity: (...args: unknown[]) => lenderIdentityMocks.find(...args),
+  }
+})
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    documentTemplate: { findMany: vi.fn() },
+    loanProduct: { findUnique: vi.fn() },
+    loanApplication: { findUnique: vi.fn() },
+    repaymentSchedule: { findFirst: vi.fn(), findMany: vi.fn() },
+    payment: { findMany: vi.fn() },
+    insurancePolicy: { findFirst: vi.fn() },
+  },
+}))
+
+vi.mock("@/lib/pdf/creditAgreement", () => ({ generateCreditAgreementPdf: vi.fn() }))
+vi.mock("@/lib/pdf/debitMandate", () => ({ generateDebitMandatePdf: vi.fn() }))
+vi.mock("@/lib/collections/section129-artifact", () => ({ loadIssuedSection129Artifact: vi.fn() }))
+// Default-charge figures are exercised in lib/loan/charges-summary.test.ts and
+// against real Postgres; here they are the no-charges case.
+vi.mock("@/lib/loan/charges-summary", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/loan/charges-summary")>()),
+  loanSettlementFigures: vi.fn(async () => ({
+    live: false, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 0,
+    interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0, paymentsReceived: 0,
+  })),
+}))
+vi.mock("@/lib/pdf/certificateOfBalance", () => ({ generateCertificateOfBalancePdf: vi.fn() }))
+vi.mock("@/lib/pdf/faisDisclosure", () => ({ generateFaisDisclosurePdf: vi.fn() }))
+vi.mock("@/lib/pdf/statement", () => ({ generateStatementPdf: vi.fn() }))
+vi.mock("@/lib/config/debit-mandate", () => ({
+  assertDebitMandateCreditorTenant: vi.fn(),
+  getDebitMandateCreditorBankDetails: () => ({
+    bankName: "Provider Bank",
+    accountNumber: "9999999999",
+    branchCode: "250655",
+  }),
+}))
+vi.mock("@/lib/compliance/sa-business-calendar.server", () => ({
+  quotationValidUntilDateFromDatabase: vi.fn().mockResolvedValue("2026-07-30"),
+}))
+
+import { prisma } from "@/lib/prisma"
+import { generateCreditAgreementPdf } from "@/lib/pdf/creditAgreement"
+import { generateDebitMandatePdf } from "@/lib/pdf/debitMandate"
+import { loadIssuedSection129Artifact } from "@/lib/collections/section129-artifact"
+import { generateCertificateOfBalancePdf } from "@/lib/pdf/certificateOfBalance"
+import { generateFaisDisclosurePdf } from "@/lib/pdf/faisDisclosure"
+import { generateStatementPdf } from "@/lib/pdf/statement"
+import { createDebitMandateTestEvidence } from "@/lib/loan/__fixtures__/debit-mandate"
+import {
+  listTemplates,
+  listGeneratableCustomTemplates,
+  isTemplateEligibleForContext,
+  SYSTEM_GENERATORS,
+  SystemGeneratorUnavailableError,
+  type SystemDocContext,
+} from "./catalogue"
+
+const ORIGINAL_CREDIT_LIFE_AUTO_BUNDLE_ENABLED =
+  process.env.CREDIT_LIFE_AUTO_BUNDLE_ENABLED
+
+beforeEach(() => {
+  delete process.env.CREDIT_LIFE_AUTO_BUNDLE_ENABLED
+  vi.clearAllMocks()
+})
+
+afterEach(() => {
+  if (ORIGINAL_CREDIT_LIFE_AUTO_BUNDLE_ENABLED === undefined) {
+    delete process.env.CREDIT_LIFE_AUTO_BUNDLE_ENABLED
+  } else {
+    process.env.CREDIT_LIFE_AUTO_BUNDLE_ENABLED = ORIGINAL_CREDIT_LIFE_AUTO_BUNDLE_ENABLED
+  }
+})
+
+const tenant = { id: "t1", slug: "acme", name: "Acme Lending" }
+const client = {
+  id: "c1",
+  firstName: "Thabo",
+  lastName: "M",
+  idNumber: "9001015800081",
+  email: "thabo@example.com",
+  phone: "0821234567",
+  addressLine1: "12 Main Street",
+  city: "Pretoria",
+  bankName: "Test Bank",
+  bankBranchCode: "000001",
+  bankAccountNumber: "1234567890",
+  accountType: "CHEQUE",
+}
+
+function ctx(extra: Partial<SystemDocContext> = {}): SystemDocContext {
+  return { tenant, client, ...extra } as unknown as SystemDocContext
+}
+
+describe("listTemplates", () => {
+  it("queries by tenantId, excludes soft-deleted, orders by name", async () => {
+    const rows = [{ id: "d1", name: "Certificate of Balance" }]
+    vi.mocked(prisma.documentTemplate.findMany).mockResolvedValue(rows as never)
+
+    const result = await listTemplates("t1")
+
+    expect(prisma.documentTemplate.findMany).toHaveBeenCalledWith({
+      where: { tenantId: "t1", deletedAt: null },
+      orderBy: { name: "asc" },
+      include: {
+        versions: {
+          where: { status: "ACTIVE" },
+          select: { id: true },
+        },
+      },
+    })
+    expect(result).toBe(rows)
+  })
+})
+
+describe("listGeneratableCustomTemplates", () => {
+  it("returns only a custom template with an ACTIVE current version that fits client context", async () => {
+    vi.mocked(prisma.documentTemplate.findMany).mockResolvedValue([
+      {
+        id: "published",
+        key: "welcome",
+        isActive: true,
+        currentVersionId: "v1",
+        versions: [{ id: "v1", tokensUsed: ["client.fullName", "today"] }],
+      },
+      {
+        id: "dangling",
+        key: "dangling",
+        isActive: true,
+        currentVersionId: "v2",
+        versions: [{ id: "old", tokensUsed: [] }],
+      },
+      {
+        id: "needs-app",
+        key: "application-letter",
+        isActive: true,
+        currentVersionId: "v3",
+        versions: [{ id: "v3", tokensUsed: ["application.reference"] }],
+      },
+    ] as never)
+
+    await expect(listGeneratableCustomTemplates("t1", { client: true })).resolves.toEqual([
+      expect.objectContaining({ id: "published", key: "welcome" }),
+    ])
+
+    expect(prisma.documentTemplate.findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: "t1",
+        kind: "CUSTOM",
+        isActive: true,
+        deletedAt: null,
+        currentVersionId: { not: null },
+      },
+      orderBy: { name: "asc" },
+      include: {
+        versions: {
+          where: { status: "ACTIVE" },
+          select: { id: true, tokensUsed: true },
+        },
+      },
+    })
+  })
+
+  it("requires application and loan context for their token namespaces", () => {
+    expect(isTemplateEligibleForContext(["application.reference"], { client: true })).toBe(false)
+    expect(isTemplateEligibleForContext(["loan.reference"], { client: true, application: true })).toBe(false)
+    expect(isTemplateEligibleForContext({ invalid: "metadata" }, { client: true })).toBe(false)
+    expect(isTemplateEligibleForContext(["application.reference", "loan.reference"], {
+      client: true,
+      application: true,
+      loan: true,
+    })).toBe(true)
+  })
+})
+
+describe("SYSTEM_GENERATORS", () => {
+  it("has all 8 seeded systemGenerator keys", () => {
+    expect(Object.keys(SYSTEM_GENERATORS).sort()).toEqual([
+      "affordabilityAssessment",
+      "certificateOfBalance",
+      "creditAgreement",
+      "debitMandate",
+      "faisDisclosure",
+      "preAgreement",
+      "section129",
+      "statement",
+    ])
+  })
+
+  it("creditAgreement calls the mocked generator and returns its Buffer", async () => {
+    vi.mocked(prisma.loanProduct.findUnique).mockResolvedValue({
+      id: "p1",
+      interestRatePm: 0.05,
+      interestModel: "FLAT",
+      initiationFeePct: 0.1,
+      initiationFeeMax: 0,
+      monthlyServiceFee: 6900,
+    } as never)
+    const pdf = Buffer.from("credit-agreement")
+    vi.mocked(generateCreditAgreementPdf).mockResolvedValue(pdf)
+
+    const application = {
+      productId: "p1",
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      initiationFeePayment: "DEFERRED",
+      reference: "APP-0001",
+      agreementType: null,
+      // The agreement variant recites the consumer acknowledgement — the
+      // adapter refuses to render without the ceremony evidence.
+      pasqAcknowledgedAt: new Date("2026-07-28T10:00:00.000Z"),
+      pasqDocumentSha256: "d".repeat(64),
+      pasqAcknowledgedSha256: "d".repeat(64),
+      pasqEvidence: { calculator: { startDate: "2026-07-28T09:55:00.000Z" } },
+    }
+
+    const result = await SYSTEM_GENERATORS.creditAgreement(ctx({ application: application as never }))
+
+    expect(generateCreditAgreementPdf).toHaveBeenCalledTimes(1)
+    // The presented date must be the acknowledged PASQ's own instant, never "now".
+    expect(generateCreditAgreementPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: "agreement",
+        quotePresentedAt: new Date("2026-07-28T09:55:00.000Z"),
+      }),
+    )
+    expect(generateCreditAgreementPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client: expect.objectContaining({
+          firstName: "Thabo",
+          lastName: "M",
+          idNumber: "9001015800081",
+        }),
+        application: expect.objectContaining({ reference: "APP-0001" }),
+        // calc.principal passes through calculateLoan() unconverted — still
+        // cents, not the raw appliedAmount re-derived some other way.
+        calc: expect.objectContaining({ principal: 500000 }),
+        willAutoBundleCl: false,
+      })
+    )
+    expect(result).toBe(pdf)
+  })
+
+  it("creditAgreement rejects when the context has no application", async () => {
+    await expect(SYSTEM_GENERATORS.creditAgreement(ctx())).rejects.toThrow(/requires an application/)
+  })
+
+  it("debitMandate calls the mocked generator and returns its Buffer", async () => {
+    const evidence = createDebitMandateTestEvidence()
+    vi.mocked(prisma.repaymentSchedule.findMany).mockResolvedValue(evidence.schedule as never)
+    vi.mocked(prisma.loanApplication.findUnique).mockResolvedValue({
+      initiationFeePayment: evidence.initiationFeePayment,
+      affordabilityResult: evidence.affordabilityResult,
+    } as never)
+    const pdf = Buffer.from("debit-mandate")
+    vi.mocked(generateDebitMandatePdf).mockResolvedValue(pdf)
+
+    const loan = {
+      id: "l1",
+      applicationId: "app-1",
+      principal: evidence.calculation.principal,
+      totalInterest: evidence.calculation.totalInterest,
+      initiationFee: evidence.calculation.initiationFee,
+      totalRepayable: evidence.calculation.totalRepayable,
+      reference: "LN-0001",
+      startDate: evidence.startDate,
+      maturityDate: evidence.maturityDate,
+    }
+    const result = await SYSTEM_GENERATORS.debitMandate(ctx({ loan: loan as never }))
+
+    expect(generateDebitMandatePdf).toHaveBeenCalledTimes(1)
+    expect(generateDebitMandatePdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lender: expect.objectContaining({
+          legalName: "Acme Lending (Pty) Ltd",
+          ncrNumber: "NCRCP99999",
+          registeredOfficeLines: ["1 Main Road", "Sandton", "2196"],
+        }),
+        creditorBank: {
+          bankName: "Provider Bank",
+          accountNumber: "9999999999",
+          branchCode: "250655",
+        },
+        client: expect.objectContaining({
+          firstName: "Thabo",
+          lastName: "M",
+          idNumber: "9001015800081",
+          bankName: "Test Bank",
+          branchCode: "000001",
+          accountNumber: "1234567890",
+          accountType: "CHEQUE",
+        }),
+        loan: expect.objectContaining({
+          reference: "LN-0001",
+          paymentFrequency: "MONTHLY",
+          recurringDebitAmount: evidence.calculation.schedule[1].totalDue,
+          firstDebitAmount: evidence.calculation.schedule[0].totalDue,
+          firstDebitInitiationFee: evidence.calculation.initiationFee,
+          firstDebitDate: evidence.calculation.schedule[0].dueDate,
+        }),
+      })
+    )
+    expect(result).toBe(pdf)
+  })
+
+  it("debitMandate rejects when the context has no loan", async () => {
+    await expect(SYSTEM_GENERATORS.debitMandate(ctx())).rejects.toThrow(/requires a loan/)
+  })
+
+  it("section129 returns the immutable artifact from the successful issuance", async () => {
+    const pdf = Buffer.from("section-129")
+    vi.mocked(loadIssuedSection129Artifact).mockResolvedValue({
+      pdf,
+      issuanceId: "issuance-1",
+      pdfSha256: "a".repeat(64),
+      fileName: "Section-129-Notice-LN-0001.pdf",
+    })
+
+    const loan = {
+      id: "loan-1",
+      status: "DEFAULTED",
+      reference: "LN-0001",
+      arrearsAmount: 1000,
+      outstandingPrincipal: 400000,
+      daysInArrears: 90,
+    }
+    const result = await SYSTEM_GENERATORS.section129(ctx({ loan: loan as never }))
+
+    expect(loadIssuedSection129Artifact).toHaveBeenCalledWith({
+      tenantId: "t1",
+      loanId: "loan-1",
+    })
+    expect(result).toBe(pdf)
+  })
+
+  it("section129 keeps a valid historical artifact retrievable after settlement", async () => {
+    const pdf = Buffer.from("historical-section-129")
+    vi.mocked(loadIssuedSection129Artifact).mockResolvedValue({
+      pdf,
+      issuanceId: "issuance-settled",
+      pdfSha256: "b".repeat(64),
+      fileName: "Section-129-Notice-LN-SETTLED.pdf",
+    })
+
+    const result = await SYSTEM_GENERATORS.section129(ctx({
+      loan: {
+        id: "loan-settled",
+        status: "COMPLETED",
+        reference: "LN-SETTLED",
+        arrearsAmount: 0,
+        outstandingPrincipal: 0,
+        daysInArrears: 0,
+      } as never,
+    }))
+
+    expect(result).toBe(pdf)
+    expect(loadIssuedSection129Artifact).toHaveBeenCalledWith({ tenantId: "t1", loanId: "loan-settled" })
+  })
+
+  // F-11: a statutory document is refused, never defaulted, without a
+  // configured lender identity.
+  it("certificateOfBalance refuses and renders nothing when the lender identity is not configured", async () => {
+    const { LenderIdentityError } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
+    lenderIdentityMocks.get.mockRejectedValueOnce(new LenderIdentityError(["ncrNumber"]))
+    vi.mocked(generateCertificateOfBalancePdf).mockClear()
+    const loan = {
+      reference: "LN-0001", startDate: new Date("2026-01-01"), maturityDate: new Date("2026-07-01"),
+      principal: 500000, totalRepayable: 550000, totalPaid: 100000, outstandingPrincipal: 450000,
+      arrearsAmount: 0, daysInArrears: 0, interestRatePm: 0.05, lastPaymentDate: null, lastPaymentAmount: null,
+    }
+    await expect(SYSTEM_GENERATORS.certificateOfBalance(ctx({ loan: loan as never }))).rejects.toBeInstanceOf(LenderIdentityError)
+    expect(generateCertificateOfBalancePdf).not.toHaveBeenCalled()
+  })
+
+  it("certificateOfBalance calls the mocked generator and returns its Buffer", async () => {
+    const pdf = Buffer.from("cert-of-balance")
+    vi.mocked(generateCertificateOfBalancePdf).mockResolvedValue(pdf)
+
+    const loan = {
+      reference: "LN-0001",
+      startDate: new Date("2026-01-01"),
+      maturityDate: new Date("2026-07-01"),
+      principal: 500000,
+      totalRepayable: 550000,
+      totalPaid: 100000,
+      outstandingPrincipal: 450000,
+      arrearsAmount: 0,
+      daysInArrears: 0,
+      interestRatePm: 0.05,
+      lastPaymentDate: null,
+      lastPaymentAmount: null,
+    }
+    const result = await SYSTEM_GENERATORS.certificateOfBalance(ctx({ loan: loan as never }))
+
+    expect(generateCertificateOfBalancePdf).toHaveBeenCalledTimes(1)
+    // Charges off: no settlement block, so the certificate renders as on main.
+    expect(vi.mocked(generateCertificateOfBalancePdf).mock.calls[0][0].settlement).toBeUndefined()
+    expect(generateCertificateOfBalancePdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client: expect.objectContaining({
+          firstName: "Thabo",
+          lastName: "M",
+          idNumber: "9001015800081",
+        }),
+        loan: expect.objectContaining({
+          reference: "LN-0001",
+          // Certificate-of-balance figures — cents, unconverted, must not swap.
+          principal: 500000,
+          totalRepayable: 550000,
+          outstandingPrincipal: 450000,
+        }),
+      })
+    )
+    expect(result).toBe(pdf)
+  })
+
+  it("statement calls the mocked generator and returns its Buffer", async () => {
+    vi.mocked(prisma.loanProduct.findUnique).mockResolvedValue({ name: "Personal Loan" } as never)
+    vi.mocked(prisma.repaymentSchedule.findMany).mockResolvedValue([] as never)
+    const receipt = {
+      createdAt: new Date("2026-02-01"), receivedAt: new Date("2026-02-01"), amount: 100000,
+      paymentMethod: "EFT", reference: "R1", reversed: false, reversedAt: null, reversalReason: null,
+      allocationStatus: "ALLOCATED", reconciliationReason: null,
+      defaultInterestAllocated: 1200, chargeFeesAllocated: 8200,
+    }
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([receipt] as never)
+    const pdf = Buffer.from("statement")
+    vi.mocked(generateStatementPdf).mockResolvedValue(pdf)
+
+    const loan = {
+      id: "l1",
+      productId: "p1",
+      reference: "LN-0001",
+      principal: 500000,
+      totalRepayable: 550000,
+      totalPaid: 100000,
+      outstandingPrincipal: 450000,
+      interestRatePm: 0.05,
+      interestModel: "FLAT",
+      status: "ACTIVE",
+      startDate: new Date("2026-01-01"),
+      maturityDate: new Date("2026-07-01"),
+      daysInArrears: 0,
+      arrearsAmount: 0,
+    }
+    const result = await SYSTEM_GENERATORS.statement(ctx({ loan: loan as never }))
+
+    expect(generateStatementPdf).toHaveBeenCalledTimes(1)
+    expect(generateStatementPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client: expect.objectContaining({
+          firstName: "Thabo",
+          lastName: "M",
+          idNumber: "9001015800081",
+        }),
+        loan: expect.objectContaining({
+          reference: "LN-0001",
+          // Statement balances — cents, unconverted, and must not swap.
+          principal: 500000,
+          totalRepayable: 550000,
+          outstandingPrincipal: 450000,
+        }),
+        // R6-2: the receipt's default-charge split reaches the statement.
+        payments: [expect.objectContaining({ amount: 100000, defaultInterestAllocated: 1200, chargeFeesAllocated: 8200 })],
+      })
+    )
+    expect(result).toBe(pdf)
+  })
+
+  it("faisDisclosure calls the mocked generator and returns its Buffer", async () => {
+    vi.mocked(prisma.insurancePolicy.findFirst).mockResolvedValue({
+      type: "FUNERAL_COVER",
+      insurer: "Legacy Insurer",
+      insurer_rel: null,
+      advisor: { name: "Agent Smith", email: "agent@example.com", faisRepresentativeNumber: "FSP-1" },
+      product: { name: "Family Funeral Plan" },
+      sumAssured: { toNumber: () => 50000 },
+      premiumAmount: { toNumber: () => 150 },
+    } as never)
+    const pdf = Buffer.from("fais-disclosure")
+    vi.mocked(generateFaisDisclosurePdf).mockResolvedValue(pdf)
+
+    const result = await SYSTEM_GENERATORS.faisDisclosure(ctx())
+
+    expect(generateFaisDisclosurePdf).toHaveBeenCalledTimes(1)
+    expect(result).toBe(pdf)
+  })
+
+  it("faisDisclosure rejects when the client has no insurance policy", async () => {
+    vi.mocked(prisma.insurancePolicy.findFirst).mockResolvedValue(null)
+    await expect(SYSTEM_GENERATORS.faisDisclosure(ctx())).rejects.toThrow(/No insurance policy found/)
+  })
+
+  it("preAgreement rejects with SystemGeneratorUnavailableError", async () => {
+    await expect(SYSTEM_GENERATORS.preAgreement(ctx())).rejects.toThrow(SystemGeneratorUnavailableError)
+  })
+
+  it("affordabilityAssessment rejects with SystemGeneratorUnavailableError", async () => {
+    await expect(SYSTEM_GENERATORS.affordabilityAssessment(ctx())).rejects.toThrow(SystemGeneratorUnavailableError)
+  })
+})
+
+describe("creditAgreement adapter — acknowledgement gate", () => {
+  it("refuses to render a credit agreement without the recorded consumer acknowledgement", async () => {
+    vi.mocked(prisma.loanProduct.findUnique).mockResolvedValue({
+      id: "p1",
+      interestRatePm: 0.05,
+      interestModel: "FLAT",
+      initiationFeePct: 0.1,
+      initiationFeeMax: 0,
+      monthlyServiceFee: 6900,
+    } as never)
+    const unacknowledged = {
+      productId: "p1",
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      initiationFeePayment: "DEFERRED",
+      reference: "APP-0002",
+      agreementType: null,
+      pasqAcknowledgedAt: null,
+      pasqDocumentSha256: "d".repeat(64),
+      pasqAcknowledgedSha256: null,
+      pasqEvidence: { calculator: { startDate: "2026-07-28T09:55:00.000Z" } },
+    }
+    await expect(
+      SYSTEM_GENERATORS.creditAgreement(ctx({ application: unacknowledged as never })),
+    ).rejects.toThrow(/acknowledged the current Pre-Agreement/)
+    expect(generateCreditAgreementPdf).not.toHaveBeenCalled()
+  })
+
+  it("refuses when the acknowledged digest does not match the current quotation", async () => {
+    // Own product mock: clearAllMocks preserves implementations, so without
+    // this the test only reaches the digest gate when run after its sibling.
+    vi.mocked(prisma.loanProduct.findUnique).mockResolvedValue({
+      id: "p1",
+      interestRatePm: 0.05,
+      interestModel: "FLAT",
+      initiationFeePct: 0.1,
+      initiationFeeMax: 0,
+      monthlyServiceFee: 6900,
+    } as never)
+    const stale = {
+      productId: "p1",
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      initiationFeePayment: "DEFERRED",
+      reference: "APP-0003",
+      agreementType: null,
+      pasqAcknowledgedAt: new Date("2026-07-28T10:00:00.000Z"),
+      pasqDocumentSha256: "d".repeat(64),
+      pasqAcknowledgedSha256: "e".repeat(64),
+      pasqEvidence: { calculator: { startDate: "2026-07-28T09:55:00.000Z" } },
+    }
+    await expect(
+      SYSTEM_GENERATORS.creditAgreement(ctx({ application: stale as never })),
+    ).rejects.toThrow(/acknowledged the current Pre-Agreement/)
+    expect(generateCreditAgreementPdf).not.toHaveBeenCalled()
+  })
+})

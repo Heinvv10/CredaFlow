@@ -1,0 +1,174 @@
+# CredaFlow architecture
+
+CredaFlow is a loan management system for NCA-registered credit providers.
+This document covers what a contributor needs before changing it: the
+modules, how a lender (tenant) is identified and themed, why the database
+enforces so much, how migrations work from the baseline on, the seeds, and
+the test layers. Day-to-day rules are in `CLAUDE.md`.
+
+## The system
+
+One Next.js (App Router) application on PostgreSQL via Prisma, built as one
+Docker image that serves three audiences:
+
+| Surface | Routes | Who |
+|---|---|---|
+| Staff app | `app/(dashboard)`, `/login` | the lender's staff (TOTP 2FA mandatory) |
+| Client portal | `app/(portal)`, `/portal/*` | borrowers |
+| Public website | `app/(website)`, `/`, `/site/*`, `app/(quote)` | the public |
+
+`APP_MODE` (`staff`, `client` or `all`, read by `proxy.ts`) lets the same image
+run as separate staff and portal services that 404 the other audience's
+routes, each with its own session secret (`docker-compose.yml`).
+
+### Modules (`lib/`)
+
+- **Origination** — `applications/`, `affordability/`, `credit/`, `decision/`,
+  `kyc/`, `ocr/` (document extraction), `qualify.ts`, `loan-calculator.ts`,
+  `pdf/` (the NCA documents), `disbursement/`.
+- **Servicing** — `loan/` (schedules, balances, default charges), `payments/`,
+  `bank-sync/` (statement import and reconciliation), `collections/`
+  (escalation, arrangements, Section 129).
+- **Customer contact** — `messaging/` (the one send pipeline), `email/`,
+  `whatsapp/`, `inbox/`, `notifications/`, `automation/`, `unsubscribe/`.
+- **CRM and growth** — `crm/`, `agent-hub/`, `referral-agents/`, `website/`,
+  `website-chat/`, `seo/`, `analytics/`.
+- **Insurance** — `insurance/` (products, quotes, policies, claims).
+- **Compliance** — `compliance/` (DSAR, complaints, conflicts of interest,
+  breaches, NCR/FSCA returns), `bureau-submission/` (bureau files),
+  `audit.ts`, `document-auth.ts` (logged document access).
+- **Platform** — `tenant.ts`, `tenant-scope.ts`, `config/` (lender identity,
+  deployment URLs), `auth*.ts`, `permissions.ts`, `totp.ts`, `crypto/`,
+  `date/` (SAST calendar and business days), `integrations/` (third-party
+  clients).
+
+Modules with rules of their own carry a `.claude.md` (listed in `CLAUDE.md`).
+
+## Tenancy and identity
+
+Every row that belongs to a lender carries `tenantId`. Each deployment serves
+one or more `Tenant` rows; each tenant has one `TenantConfig`.
+
+- **Resolving the tenant.** A request resolves its tenant by domain, then by
+  the `x-tenant-slug` header (set by `proxy.ts` from the host, never trusted
+  from the caller), then by `NEXT_PUBLIC_TENANT_SLUG` (`lib/tenant.ts`,
+  `getTenantFromRequest` / `getResolvedTenantId`). Staff and portal sessions
+  carry their user's `tenantId`. Background jobs use `getDefaultTenantId()`,
+  which throws rather than guess.
+- **Scoping queries.** `lib/tenant-scope.ts` is a Prisma extension that adds
+  the current tenant (from `AsyncLocalStorage`, set by `runWithTenant`) to
+  queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
+  must pass `where: { tenantId }` by hand.
+- **Lender identity.** Legal name, trading name, NCR, FSP and company
+  registration numbers, office address, contacts and logo are columns of
+  `TenantConfig`. `lib/config/identity.ts` reads them:
+  `getLenderIdentity(tenantId)` returns a validated `LenderIdentity` or throws
+  `LenderIdentityError`; `findLenderIdentity` returns null instead. There are
+  no defaults: an NCA document, a customer message or a website page for a
+  tenant without a valid identity refuses to render (the website shows a
+  not-configured page). `lib/config/identity-write.ts` is the only write path:
+  it validates, requires statutory numbers to be typed twice, and writes a
+  `LENDER_IDENTITY_UPDATED` audit row.
+- **Brand colours.** `TenantConfig.primaryColor`, `secondaryColor` and
+  `darkColor` are published by `components/TenantThemeProvider.tsx` as
+  `--cf-tenant-primary/secondary/dark`. `app/globals.css` builds the brand
+  tokens from them: on light surfaces the primary as given, on dark surfaces a
+  lighter mix that stays readable whatever primary a tenant picks. Components
+  use the `--cf-*` tokens. `scripts/palette-contrast.ts` checks WCAG AA for
+  every text/surface pair in both modes, for the default colours and the demo
+  tenant's. A tenant's own light-mode brand and dark background are used as
+  given: nothing validates their contrast when they are saved yet.
+  The website's `--cf-*` tokens follow the tenant too; its hardcoded accent
+  classes, the sign-in pages, the NCA PDFs and the emails use the default
+  palette.
+- **Feature flags.** `TenantConfig.feature*` switch modules (CRM, insurance,
+  bureau submission, portal, …) per tenant (`resolveFeatureFlags`).
+
+## The database enforces the rules
+
+The application checks compliance rules, and the database enforces the ones
+that must never be broken by any code path: triggers that refuse a
+disbursement without its signed documents (agreement, debit mandate), CHECK
+constraints on money and statuses, partial unique indexes (a bureau status is
+submitted live only once, one open conversation per contact), signed and bound
+documents that cannot be changed, and functions for the statutory calendar
+(public holidays). A bug, a script or a hand-written query
+then fails loudly instead of corrupting a ledger or a legal record.
+
+The consequence for tests: a mocked Prisma cannot execute any of this. A rule
+enforced in the database is only tested by an integration suite against a
+migrated database (below). Before changing a rule, enumerate the live
+enforcement (`pg_trigger`, `pg_constraint`; the queries are in `CLAUDE.md`),
+and `npm run db:drift` compares a live database's objects with what the
+migrations declare.
+
+## Migrations
+
+`prisma/migrations/20261009000000_baseline` is the starting point: one
+migration that creates the whole schema. Its first part is what Prisma
+generates from `schema.prisma`; its second, hand-written part holds every
+trigger, function, CHECK constraint, partial or expression index, special
+default and the statutory reference data (public holidays). The baseline was
+produced by squashing an older migration history and proven equivalent by
+comparing the catalogs of databases built both ways; it names no lender and
+writes no tenant data.
+
+Adding a migration:
+
+- **Schema-only change** — edit `schema.prisma`, run
+  `npx prisma migrate dev --name <change>`, commit the generated SQL.
+  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <url>`
+  must then be empty.
+- **Changing a hand-written object** — Prisma never diffs these, so write the
+  SQL yourself (`CREATE OR REPLACE FUNCTION`, `DROP TRIGGER … ; CREATE
+  TRIGGER …`, `ALTER TABLE … DROP CONSTRAINT … ADD CONSTRAINT …`). Update the
+  static tests that read the SQL through `lib/db-baseline.test-helpers.ts` so
+  they see the latest definition, and add or update an integration test that
+  exercises the rule.
+- **Adding enforcement** (trigger, CHECK, UNIQUE) is not backward compatible:
+  it rejects writes the running code may still make. Ship it in the same
+  release as the code that satisfies it. Additive nullable columns can go
+  first.
+- Never edit a migration once a shared database has applied it.
+
+`prisma/migrations/20261009120000_neutral_tenant_palette` is an example of the
+smallest kind: it only changes column defaults.
+
+## Seeds
+
+`npx prisma migrate reset` runs the migrations and then `prisma.seed`
+(`npm run seed:staging`):
+
+- `prisma/seed.ts` — one neutral demo tenant, **Acme**, with its lender
+  identity, an ADMIN and a CREDIT_OFFICER (TOTP secrets generated per user),
+  products, message and document templates, demo clients and one active loan
+  booked through the real amortiser. Idempotent.
+- `prisma/seed-staging.ts` — more demo records for exercising workflows
+  (branches, insurers, CRM leads, a complaint, a DSAR).
+
+The seeds create nothing the database guards with evidence (approved or
+disbursed applications, sent notices, sold policies): those exist only by
+driving the product flows. Credentials print with `SEED_PRINT_CREDENTIALS=1`;
+the seed refuses `NODE_ENV=production`.
+
+## Test layers
+
+| Layer | Where | Runs | Sees the database? |
+|---|---|---|---|
+| Unit and mocked | `*.test.ts(x)` beside the code | `npm test` | No — Prisma is mocked |
+| Static SQL | `lib/db-baseline*.test.ts` and suites using its helpers | `npm test` | Reads the migration SQL, does not execute it |
+| Integration | `*.integration.test.ts`, gated by `RUN_*_IT` | `scripts/run-integration-tests.sh` against a throwaway Postgres | Yes |
+| Contract / pinned | NCA render hashes, the forked-identity guard, palette contrast | `npm test` | — |
+
+The integration script refuses a database that is not local or a
+docker-compose service named `db` or `postgres`, and any URL whose query sets
+`host=` (`ALLOW_REMOTE_TEST_DB=1` overrides), and
+`scripts/integration-baseline.txt` records known-failing suites; CI fails if
+it grows. Two guards keep the repository clean: the forked-identity guard
+(`lib/website/__fixtures__/other-lender.ts`, used by
+`lib/config/legacy-identity-boundary.test.ts` and the website, document and
+message tests) matches a previous lender's identity by SHA-256 digest. The
+digests are kept outside the repository (`$CREDAFLOW_OTHER_LENDER_DIGESTS`, else
+`~/.config/credaflow/other-lender-digests.json`); without that file the guard
+is off and its tests skip with a notice. And
+`scripts/__tests__/palette-contrast.test.ts` rejects the old brand colours.

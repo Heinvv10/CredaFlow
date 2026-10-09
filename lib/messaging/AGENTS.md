@@ -1,0 +1,55 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: messaging
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+The outbound send pipeline: `sendMessage()` is the single entry point for
+every customer-facing channel (Message row + Conversation thread + consent
+gate + audit trail), with provider routing underneath it.
+
+## Critical Rules
+- **SMS IS OFF BY POLICY. Do not add an SMS leg.** Deployments run
+  `BULKSMS_DRY_RUN=true`, so an SMS send can only ever land as `SIMULATED` —
+  a record that reads like the borrower was contacted when nothing was sent.
+  Reversing the policy is an env change, not a code change.
+- **`isSmsChannelEnabled()` in `lib/messaging/sms-channel.ts` is the ONE wire.**
+  Every surface asks it: `channel-availability.ts` (inbox composer),
+  `lib/collections/reminders.ts`, `lib/notifications.ts`, the manual
+  collections reminder, and the PASQ/agreement/selfie send-link routes.
+  Never re-test `process.env.BULKSMS_DRY_RUN` yourself — two copies of a
+  condition are two things that drift.
+- **It is deliberately NOT `isDryRun()` from `lib/integrations/bulksms.ts`**,
+  which also treats `NODE_ENV=test` as dry-run. Folding that arm in would
+  switch the channel off for the entire test suite and make the guards
+  untestable in the "channel on" direction.
+- **`sendSms()` refuses at the transport when the channel is off.** That is
+  the control; the per-callsite skips exist on top of it so each run reports
+  honest per-leg accounting. Keep both — a documented invariant is not a
+  control, and a callsite added later would bypass the skips.
+- **A skipped leg must be VISIBLE and must not be an error.** Blocked/skipped
+  accounting, never a silent drop, never an aborted cron.
+- **Never write a note or log line claiming a channel carried a message it
+  did not.** If a trigger's only channel was SMS, write no note at all.
+- **A staff UI must not offer a channel the route will refuse.** Client
+  components cannot read the env var — resolve `isSmsChannelEnabled()` on the
+  server page and pass it down (see `components/applications/SelfieLinkSection.tsx`).
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| `lib/messaging/sms-channel.ts` | `isSmsChannelEnabled()` + `SMS_CHANNEL_OFF_REASON` — the single wire |
+| `lib/messaging/send.ts` | `sendMessage()` — the one outbound entry point |
+| `lib/messaging/providers.ts` | Channel → provider dispatch |
+| `lib/messaging/channel-availability.ts` | Per-contact per-channel "can we message here, and why not" |
+| `lib/messaging/retry.ts` | Retry sweep; classifies a channel-off error as PERMANENT |
+
+## Dependencies
+- **External:** BulkSMS, Resend/MS Graph/SMTP, WhatsApp Cloud
+- **Internal:** `@/lib/prisma`, `@/lib/audit`, `@/lib/contact/identity`
+
+---
+<!-- Hand-written 2026-09-23 when the SMS channel was switched off. Refresh via /kb. -->

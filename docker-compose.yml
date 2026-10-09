@@ -1,0 +1,139 @@
+services:
+  # Staff workspace — serves /login, /dashboard, /applications, /loans, etc.
+  # APP_MODE=staff makes the middleware 404 portal-only routes (/portal/**,
+  # /api/portal/**). Marketing (/, /site/*) and shared APIs survive.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+        NEXT_PUBLIC_TENANT_SLUG: ${NEXT_PUBLIC_TENANT_SLUG:?set NEXT_PUBLIC_TENANT_SLUG to the Tenant.slug of this deployment}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        # No default: with neither this nor NEXT_PUBLIC_PORTAL_URL set, portal
+        # links are omitted or refused (lib/config/deployment-urls.ts). Set it
+        # per environment, e.g. https://portal.lender.example/portal/login.
+        NEXT_PUBLIC_PORTAL_LOGIN_URL: ${NEXT_PUBLIC_PORTAL_LOGIN_URL:-}
+        NEXT_PUBLIC_MATOMO_URL: ${NEXT_PUBLIC_MATOMO_URL:-}
+        NEXT_PUBLIC_MATOMO_SITE_ID: ${NEXT_PUBLIC_MATOMO_SITE_ID:-}
+        NEXT_PUBLIC_GTM_ID: ${NEXT_PUBLIC_GTM_ID:-}
+        NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
+    image: credaflow:${APP_IMAGE:-latest}
+    container_name: ${APP_CONTAINER_NAME:-credaflow-app}
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      NODE_ENV: production
+      PORT: 3300
+      HOSTNAME: 0.0.0.0
+      GIT_SHA: ${GIT_SHA:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
+      # "all" serves staff and portal routes from this one service. Once the
+      # portal host is routed to app-portal, set APP_MODE_STAFF=staff in
+      # .env.production to activate the audience gate.
+      APP_MODE: ${APP_MODE_STAFF:-all}
+      # Per-container AUTH_SECRET so staff and client sessions are mutually
+      # unreplayable. Falls back to the shared AUTH_SECRET (or v4
+      # NEXTAUTH_SECRET) from .env.production when STAFF_AUTH_SECRET is unset.
+      # Setting STAFF_AUTH_SECRET invalidates current staff sessions (one-time
+      # re-login). The three-tier fallback prevents an empty-string injection if
+      # the env file uses only the v4 NEXTAUTH_SECRET key.
+      AUTH_SECRET: ${STAFF_AUTH_SECRET:-${AUTH_SECRET:-${NEXTAUTH_SECRET}}}
+      NEXTAUTH_SECRET: ${STAFF_AUTH_SECRET:-${AUTH_SECRET:-${NEXTAUTH_SECRET}}}
+    ports:
+      - "127.0.0.1:3300:3300"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3300/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - uploads:/app/uploads
+
+  # Client portal — serves /portal/login, /portal/**, /api/portal/**.
+  # Same image as `app`; APP_MODE=client makes the middleware 404 staff-only
+  # routes. Shares the database with `app`.
+  #
+  # NOTE on the shared `uploads` volume: both containers mount it read-write.
+  # Code-level mitigations:
+  #   - `lib/storage.ts` uses UUID filenames → no collision on write.
+  #   - The disclosure cleanup cron (/api/cron/*) is staff-only, so only `app`
+  #     deletes; `app-portal` only reads/writes its own uploads. Cleanup TOCTOU
+  #     can briefly produce 404s but no data loss.
+  #
+  # `pull_policy: never` means Compose will NEVER try to pull this image from
+  # a registry — it must already exist locally: `docker compose build app`
+  # produces `credaflow:${APP_IMAGE:-latest}` and app-portal reuses it.
+  #
+  # SINGLE-SOURCE IMAGE PIN: both `app` and `app-portal` resolve their image
+  # from ${APP_IMAGE:-latest}, so the two services cannot run different
+  # builds. Pin a release by setting APP_IMAGE (+ GIT_SHA, BUILD_TIME) in
+  # `.env`, then `docker compose up -d app app-portal`. Unset → `latest`.
+  app-portal:
+    image: credaflow:${APP_IMAGE:-latest}
+    pull_policy: never
+    container_name: ${PORTAL_CONTAINER_NAME:-credaflow-portal-app}
+    depends_on:
+      app:
+        condition: service_started
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      NODE_ENV: production
+      PORT: 3300
+      HOSTNAME: 0.0.0.0
+      GIT_SHA: ${GIT_SHA:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
+      APP_MODE: client
+      # NEXTAUTH_URL / AUTH_URL override per-container so cookies + signOut
+      # callbacks stay on the portal host. Required (no default): compose
+      # refuses to interpolate the file without them, for every command.
+      NEXTAUTH_URL: ${PORTAL_NEXTAUTH_URL:?set PORTAL_NEXTAUTH_URL to the client portal origin}
+      AUTH_URL: ${PORTAL_AUTH_URL:?set PORTAL_AUTH_URL to the client portal origin}
+      # Per-container AUTH_SECRET — see the same comment on `app`.
+      AUTH_SECRET: ${PORTAL_AUTH_SECRET:-${AUTH_SECRET:-${NEXTAUTH_SECRET}}}
+      NEXTAUTH_SECRET: ${PORTAL_AUTH_SECRET:-${AUTH_SECRET:-${NEXTAUTH_SECRET}}}
+    ports:
+      - "127.0.0.1:3302:3300"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3300/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - uploads:/app/uploads
+
+  db:
+    image: postgres:16-alpine
+    container_name: ${DB_CONTAINER_NAME:-credaflow-db}
+    env_file:
+      - path: .env.production
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backups:/backups
+
+volumes:
+  postgres-data:
+  uploads:

@@ -1,0 +1,62 @@
+# Integration suites that were ALREADY FAILING when the integration gate was
+# introduced (2026-08-07, against a fully migrated PostgreSQL 16).
+#
+# Verified SEQUENTIALLY (--no-file-parallelism). Three messaging suites appeared
+# broken on a parallel run and are NOT here: they pass alone and only failed
+# because every suite shares one database.
+#
+# These are excluded from the gate so it can be switched on today. They are NOT
+# acceptable — this is a debt register, not a permission slip. The list may only
+# shrink, and that is enforced in both directions, not merely asserted here:
+#   - a suite listed here that starts passing fails the job
+#     (scripts/run-integration-tests.sh), forcing the line out and the suite in;
+#   - a PR that ADDS a line fails the job (the "Baseline may only shrink" step
+#     in .github/workflows/integration-tests.yml), so a suite this PR broke
+#     cannot be exempted by the same PR. Without that check, appending a path
+#     here was indistinguishable from pre-existing debt: the re-check above
+#     EXPECTS baselined suites to fail, so a freshly-broken one looks correct.
+#
+# Dominant cause, same class in most files: a migration added or tightened a
+# constraint and the suite's fixture was never updated, so the scenario cannot
+# reach the state it exists to test. Observed messages include
+# "new row for relation ... violates check constraint" (11x) and
+# "Approval requires an intact locked application-bound PASQ document" (6x).
+#
+# PAID DOWN SO FAR — both revived 2026-08-13:
+#   lib/disbursement/outage-exception-migration (PR #718) — the only real-DB
+#     test of the outage-exception Postgres functions, four of which hardcode
+#     a July incident. A PR once shipped fixing only two of them because
+#     nothing could catch it. Three of its four tests died in arrange on a
+#     fixed-id collision: the fixtures cannot randomise the application ids
+#     because the guards hardcode the production ones.
+#   lib/compliance/pasq-approval-guard-migration (PR #719) — guards the
+#     approval transition on a live NCA lender. All four of its broken tests
+#     died on LoanApplication_repayment_method_lifecycle, added by
+#     20260729120000, which requires a repaymentMethod from APPROVED onward
+#     while the fixture never set one.
+#
+# THAT CONSTRAINT HAS NOW BROKEN THREE SUITES — it also took out
+# pasq-v3-billing for nine days. Check it FIRST on any entry below whose
+# failure is a check-constraint violation on LoanApplication; several
+# probably are.
+#
+#   lib/compliance/provider-consumer-signature-migration (PR pending) — the
+#     provider/consumer countersignature envelope gate. All 8 of its broken
+#     tests were the SAME lifecycle constraint, fixed by ONE line: the fixture
+#     creates the application already APPROVED, and the six later DISBURSED
+#     updates inherit the column, so only the create needed it.
+#
+# The remaining entries below are still failing and still owed.
+#
+# A NOTE ON WHAT THESE SUITES DO AND DO NOT COVER: mutation testing the three
+# revived so far shows they exercise the `guard_*_update` triggers but NOT the
+# matching `require_*_on_insert` ones — disabling those changes nothing. Do
+# not read a green suite here as proof the whole trigger family is covered.
+#
+# Fix these before adding anything new to the list.
+
+app/api/clients/[id]/apply-extraction/route.integration.test.ts
+app/api/crm/leads/[id]/convert/route.integration.test.ts
+lib/applications/submission-lock.integration.test.ts
+lib/automation/wa-delivery.integration.test.ts
+lib/insurance/credit-life-containment-migration.integration.test.ts

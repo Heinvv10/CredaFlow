@@ -1,0 +1,162 @@
+import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { requireApiRole } from "@/lib/auth-guards"
+import { withTenantContext } from "@/lib/tenant"
+import { callerIp } from "@/lib/rate-limit"
+import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
+
+// Registry keys from lib/integrations/collections/registry.ts, plus null (= off).
+const VALID_COLLECTION_PROVIDERS = [null, "netcash"]
+
+function maskKey(value: string | null): string {
+  if (!value) return ""
+  if (value.length <= 4) return "****"
+  return value.slice(0, 4) + "****"
+}
+
+export async function GET(req: NextRequest) {
+  const guard = await requireApiRole("ADMIN")
+  if (guard.error) return guard.error
+
+  return withTenantContext(req, async (tenant) => {
+    try {
+      const config = await prisma.tenantConfig.findUnique({
+        where: { tenantId: tenant.id },
+        select: {
+          bulkSmsKey: true,
+          netcashKey: true,
+          transunionKey: true,
+          smileIdentityKey: true,
+          collectionsEngineEnabled: true,
+          collectionProvider: true,
+          avsProvider: true,
+          netcashDebitOrderKey: true,
+          netcashRiskReportsKey: true,
+        },
+      })
+
+      // Experian credentials live in .env (EXPERIAN_*), not TenantConfig — a
+      // runtime form cannot write .env, so this is read-only status only.
+      const experianConfigured = !!(process.env.EXPERIAN_USERNAME && process.env.EXPERIAN_PASSWORD)
+      const experianEnv = (process.env.EXPERIAN_ENV ?? "UAT").toUpperCase()
+
+      return NextResponse.json({
+        bulkSmsKey: maskKey(config?.bulkSmsKey ?? null),
+        netcashKey: maskKey(config?.netcashKey ?? null),
+        transunionKey: maskKey(config?.transunionKey ?? null),
+        smileIdentityKey: maskKey(config?.smileIdentityKey ?? null),
+        netcashDebitOrderKey: maskKey(config?.netcashDebitOrderKey ?? null),
+        netcashRiskReportsKey: maskKey(config?.netcashRiskReportsKey ?? null),
+        bulkSmsConfigured: !!config?.bulkSmsKey,
+        netcashConfigured: !!config?.netcashKey,
+        transunionConfigured: !!config?.transunionKey,
+        smileIdentityConfigured: !!config?.smileIdentityKey,
+        netcashDebitOrderConfigured: !!config?.netcashDebitOrderKey,
+        netcashRiskReportsConfigured: !!config?.netcashRiskReportsKey,
+        collectionsEngineEnabled: config?.collectionsEngineEnabled ?? false,
+        collectionProvider: config?.collectionProvider ?? null,
+        avsProvider: config?.avsProvider ?? null,
+        experianConfigured,
+        experianEnv,
+      })
+    } catch (e) {
+      console.error("Failed to load integration config:", e)
+      return NextResponse.json({ error: "Failed to load config" }, { status: 500 })
+    }
+  })
+}
+
+export async function PATCH(req: NextRequest) {
+  const guard = await requireApiRole("ADMIN")
+  if (guard.error) return guard.error
+
+  return withTenantContext(req, async (tenant) => {
+    try {
+      const body = await req.json()
+      const allowed = [
+        "bulkSmsKey",
+        "netcashKey",
+        "transunionKey",
+        "smileIdentityKey",
+        "netcashDebitOrderKey",
+        "netcashRiskReportsKey",
+      ] as const
+      const updates: {
+        bulkSmsKey?: string
+        netcashKey?: string
+        transunionKey?: string
+        smileIdentityKey?: string
+        netcashDebitOrderKey?: string
+        netcashRiskReportsKey?: string
+        collectionsEngineEnabled?: boolean
+        collectionProvider?: string | null
+        avsProvider?: string | null
+      } = {}
+
+      for (const key of allowed) {
+        if (typeof body[key] === "string" && body[key].length > 0) {
+          updates[key] = body[key]
+        }
+      }
+
+      if (!VALID_COLLECTION_PROVIDERS.includes(body.collectionProvider ?? null)) {
+        return NextResponse.json({ error: "Unknown collection provider" }, { status: 400 })
+      }
+      if (!VALID_COLLECTION_PROVIDERS.includes(body.avsProvider ?? null)) {
+        return NextResponse.json({ error: "Unknown AVS provider" }, { status: 400 })
+      }
+
+      if ("collectionsEngineEnabled" in body) {
+        updates.collectionsEngineEnabled = body.collectionsEngineEnabled === true
+      }
+      if ("collectionProvider" in body) {
+        updates.collectionProvider = body.collectionProvider ?? null
+      }
+      if ("avsProvider" in body) {
+        updates.avsProvider = body.avsProvider ?? null
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
+      }
+
+      // Audit which fields changed — never the credential values themselves
+      // (the audit-log viewer is visible to LOAN_ADMIN; keys are ADMIN-only).
+      const { collectionsEngineEnabled, collectionProvider, avsProvider, ...keyUpdates } = updates
+      await prisma.$transaction(async (tx) => {
+        // Disbursement treats a missing TenantConfig row as all lending gates
+        // disabled. Coordinate the first insert as well as later updates so an
+        // admin cannot enable AVS after payout has read the defaults but before
+        // the loan commits.
+        await lockAffordabilityTenantPolicy(tx, { tenantId: tenant.id })
+        await tx.tenantConfig.upsert({
+          where: { tenantId: tenant.id },
+          update: updates,
+          create: { tenantId: tenant.id, ...updates },
+        })
+        await tx.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            action: "INTEGRATION_SETTINGS_UPDATED",
+            entity: "TenantConfig",
+            entityId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            newValue: {
+              updatedKeys: Object.keys(keyUpdates),
+              ...("collectionsEngineEnabled" in updates ? { collectionsEngineEnabled } : {}),
+              ...("collectionProvider" in updates ? { collectionProvider } : {}),
+              ...("avsProvider" in updates ? { avsProvider } : {}),
+            },
+            ipAddress: callerIp(req),
+          },
+        })
+      })
+
+      return NextResponse.json({ ok: true })
+    } catch (e) {
+      console.error("Failed to update integration config:", e)
+      return NextResponse.json({ error: "Failed to update config" }, { status: 500 })
+    }
+  })
+}

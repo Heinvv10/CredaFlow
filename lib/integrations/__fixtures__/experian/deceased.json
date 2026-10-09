@@ -1,0 +1,86 @@
+{
+ "response_status": "Success",
+ "transaction_stats": {
+  "received_time": "2026-07-06T07:55:04",
+  "response_time": "2026-07-06T07:55:05",
+  "system_uuid": "00000000-0000-4000-8000-000000000003"
+ },
+ "return_data": {
+  "enquiry_id": 900000003,
+  "enquiry_date_time": "2026-07-06 07:55:04:952",
+  "return_data_breakdown": {
+   "data_set_counts": {
+    "enquiries": 3,
+    "telephones": 1,
+    "bureau_scores": 2
+   }
+  },
+  "input_search_criteria": {
+   "identity_number": "0000000000000",
+   "identity_type": "SID",
+   "first_name": "TEST",
+   "surname": "PERSON",
+   "country_code": 710,
+   "country_name": "South Africa",
+   "dob": "1990-01-01",
+   "gender": "M",
+   "enquiry_purpose": 11,
+   "client_reference": "calib-Deceased"
+  },
+  "bureau_match": {
+   "identity_number": "0000000000000",
+   "country_code": 710,
+   "country_name": "South Africa",
+   "first_name": "TEST",
+   "surname": "PERSON",
+   "status_code": 3,
+   "status_code_desc": "Deceased",
+   "deceased_date": "2005-04-05"
+  },
+  "enquiries": [
+   {
+    "enquiry_date": "2026-06-30",
+    "branch_name": "OTHER SUBSCRIBER",
+    "contact_person": "REDACTED",
+    "telephone_number": "REDACTED",
+    "category_id": 4,
+    "category_id_desc": "micro lenders"
+   },
+   {
+    "enquiry_date": "2026-06-30",
+    "branch_name": "OTHER SUBSCRIBER",
+    "contact_person": "REDACTED",
+    "telephone_number": "REDACTED",
+    "category_id": 4,
+    "category_id_desc": "micro lenders"
+   },
+   {
+    "enquiry_date": "2026-06-30",
+    "branch_name": "OTHER SUBSCRIBER",
+    "contact_person": "REDACTED",
+    "telephone_number": "REDACTED",
+    "category_id": 4,
+    "category_id_desc": "micro lenders"
+   }
+  ],
+  "telephones": [],
+  "bureau_scores": [
+   {
+    "risk_type": "VERY HIGH RISK",
+    "score": -1,
+    "decline_reason1": "TM62-Customer has no Accounts that have been open for more than 3 months",
+    "thin_file_indicator": "Y",
+    "version": 4.0,
+    "score_type": "SS"
+   },
+   {
+    "risk_type": "VERY HIGH RISK",
+    "score": -1,
+    "decline_reason1": "TM62-Customer has no Accounts that have been open for more than 3 months",
+    "thin_file_indicator": "Y",
+    "version": 4.01,
+    "score_type": "SS"
+   }
+  ]
+ }
+}

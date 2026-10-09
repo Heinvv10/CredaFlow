@@ -1,0 +1,23 @@
+{
+  "comment": "SYNTHETIC payslip — invented employer, invented person, no client data. Committed so the runner is exercisable without access to the real corpus. Real client payslips live outside the repo; see ../README.md. Money is CENTS.",
+  "cases": [
+    {
+      "file": "acme-2026-07.pdf",
+      "source": "Synthetic, modelled on the two-column Current/YTD layout that produced the real misread.",
+      "docType": "PAYSLIP",
+      "expect": {
+        "grossIncome": 2100000,
+        "netIncome": 1770128,
+        "totalDeductions": 329872,
+        "employerName": "Acme Widgets (Pty) Ltd",
+        "employeeName": "Thandi Nkosi",
+        "payDate": "2026-07-25",
+        "payPeriod": "2026-07"
+      },
+      "traps": {
+        "grossIncome": 10320000,
+        "totalDeductions": 1622360
+      }
+    }
+  ]
+}

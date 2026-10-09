@@ -1,0 +1,421 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+
+const biometricSubject = {
+  id: "client-1",
+  idNumber: "9001015000086",
+  firstName: "Synthetic",
+  lastName: "Customer",
+  dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
+}
+
+const passingSelfieDocument = {
+  id: "selfie-current",
+  deletedAt: null,
+  verified: true,
+  extractionStatus: "done",
+  extractionResult: {
+    faceDetected: { value: true },
+    facesCount: { value: 1 },
+    isLive: { value: true },
+    quality: { value: "good" },
+  },
+  extractionError: null,
+  validationMismatch: false,
+  validationScore: 98,
+  biometricMatchScore: 98,
+  biometricLiveness: 97,
+  biometricVerifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+  biometricResult: {
+    ok: true,
+    verified: true,
+    matchScore: 98,
+    livenessScore: 97,
+    subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
+  },
+}
+
+const clientDocumentFindFirstMock = vi.fn()
+const clientDocumentFindManyMock = vi.fn()
+const clientDocumentUpdateManyMock = vi.fn()
+const clientFindUniqueMock = vi.fn()
+const clientUpdateMock = vi.fn()
+const auditCreateMock = vi.fn()
+const queryRawMock = vi.fn()
+const getDocumentCallerMock = vi.fn()
+const deleteFileMock = vi.fn()
+
+const tx = {
+  $queryRaw: (query: unknown) => queryRawMock(query),
+  clientDocument: {
+    findFirst: (args: unknown) => clientDocumentFindFirstMock(args),
+    findMany: (args: unknown) => clientDocumentFindManyMock(args),
+    updateMany: (args: unknown) => clientDocumentUpdateManyMock(args),
+  },
+  client: {
+    findUnique: (args: unknown) => clientFindUniqueMock(args),
+    update: (args: unknown) => clientUpdateMock(args),
+  },
+  auditLog: { create: (args: unknown) => auditCreateMock(args) },
+}
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    clientDocument: {
+      findFirst: (args: unknown) => clientDocumentFindFirstMock(args),
+    },
+    $transaction: (cb: (client: typeof tx) => Promise<unknown>) => cb(tx),
+  },
+}))
+vi.mock("@/lib/storage", () => ({
+  deleteFile: (...args: unknown[]) => deleteFileMock(...args),
+  readFile: vi.fn(),
+}))
+vi.mock("@/lib/document-auth", () => ({
+  getDocumentCaller: () => getDocumentCallerMock(),
+}))
+vi.mock("@/lib/tenant", () => ({
+  withTenantContext: (
+    _req: unknown,
+    cb: (tenant: { id: string }) => Promise<unknown>,
+  ) => cb({ id: "tenant-1" }),
+}))
+
+import * as documentRoute from "./route"
+
+const { DELETE } = documentRoute
+
+const ctx = { params: Promise.resolve({ id: "doc-1" }) }
+const document = {
+  id: "doc-1",
+  tenantId: "tenant-1",
+  clientId: "client-1",
+  deletedAt: null,
+  docType: "BANK_STATEMENT",
+  verified: true,
+  verifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+  verifiedById: "officer-previous",
+  verificationNote: null,
+  storagePath: "tenant-1/client-1/doc-1.pdf",
+}
+
+describe("document evidence mutations", () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    // SUPER_ADMIN because deletion is now restricted to that role. These tests
+    // are about the deletion MECHANICS (evidence lock, KYC recomputation, audit
+    // fail-closed, statutory immutability), so they must run as a caller who
+    // gets past the role gate — otherwise every one of them would pass on a
+    // 403 and prove nothing about the code it names. The role gate itself is
+    // covered in route.test.ts.
+    getDocumentCallerMock.mockResolvedValue({
+      type: "staff",
+      userId: "staff-1",
+      role: "SUPER_ADMIN",
+      email: "staff@example.test",
+    })
+    clientDocumentFindFirstMock
+      .mockResolvedValueOnce(document)
+      .mockResolvedValueOnce(document)
+      .mockResolvedValue(passingSelfieDocument)
+    clientDocumentUpdateManyMock.mockResolvedValue({ count: 1 })
+    clientDocumentFindManyMock.mockResolvedValue([
+      { docType: "ID_COPY", verified: true, verificationNote: null },
+      { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
+      { docType: "PAYSLIP", verified: true, verificationNote: null },
+    ])
+    clientFindUniqueMock.mockResolvedValue({
+      ...biometricSubject,
+      kycStatus: "VERIFIED",
+      kycVerifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+      kycVerifiedById: "officer-previous",
+      kycVerificationMethod: "PHYSICAL",
+    })
+    clientUpdateMock.mockResolvedValue({
+      kycStatus: "PENDING",
+      kycVerifiedAt: null,
+      kycVerifiedById: null,
+      kycVerificationMethod: null,
+    })
+    auditCreateMock.mockResolvedValue({ id: "audit-1" })
+    queryRawMock.mockResolvedValue([{ pg_advisory_xact_lock: null }])
+    deleteFileMock.mockResolvedValue(undefined)
+  })
+
+  it("soft-deletes under the client evidence lock before removing the file", async () => {
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(200)
+    expect(queryRawMock).toHaveBeenCalledWith(expect.objectContaining({
+      values: ["affordability-client:tenant-1:client-1"],
+    }))
+    expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
+      clientDocumentUpdateManyMock.mock.invocationCallOrder[0],
+    )
+    expect(clientDocumentUpdateManyMock.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteFileMock.mock.invocationCallOrder[0],
+    )
+    expect(clientUpdateMock).toHaveBeenCalledWith({
+      where: { id: "client-1", tenantId: "tenant-1" },
+      data: {
+        kycStatus: "PENDING",
+        kycVerifiedAt: null,
+        kycVerifiedById: null,
+        kycVerificationMethod: null,
+      },
+      select: expect.objectContaining({
+        kycStatus: true,
+        kycVerifiedAt: true,
+        kycVerifiedById: true,
+        kycVerificationMethod: true,
+      }),
+    })
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "DOCUMENT_DELETED",
+        entity: "ClientDocument",
+        entityId: "doc-1",
+        oldValue: expect.objectContaining({
+          document: expect.objectContaining({
+            docType: "BANK_STATEMENT",
+            verified: true,
+          }),
+          clientKyc: {
+            kycStatus: "VERIFIED",
+            kycVerifiedAt: "2026-07-20T08:00:00.000Z",
+            kycVerifiedById: "officer-previous",
+            kycVerificationMethod: "PHYSICAL",
+          },
+        }),
+        newValue: expect.objectContaining({
+          document: expect.objectContaining({ deletedAt: expect.any(String) }),
+          clientKyc: {
+            kycStatus: "PENDING",
+            kycVerifiedAt: null,
+            kycVerifiedById: null,
+            kycVerificationMethod: null,
+          },
+        }),
+      }),
+    })
+    expect(auditCreateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteFileMock.mock.invocationCallOrder[0],
+    )
+  })
+
+  it("fails KYC when the newest selfie attempt is deleted instead of reviving older evidence", async () => {
+    const failedSelfie = {
+      ...document,
+      docType: "SELFIE",
+      verified: false,
+      verifiedAt: null,
+      verifiedById: null,
+      verificationNote: "Biometric verification failed",
+      storagePath: "tenant-1/client-1/selfie.jpg",
+    }
+    clientDocumentFindFirstMock.mockReset()
+      .mockResolvedValueOnce(failedSelfie)
+      .mockResolvedValueOnce(failedSelfie)
+      .mockResolvedValueOnce({ id: "doc-1" })
+      .mockResolvedValueOnce({
+        ...failedSelfie,
+        deletedAt: new Date("2026-07-22T12:00:00.000Z"),
+        extractionStatus: "failed",
+        extractionResult: null,
+        extractionError: "Biometric verification failed",
+        validationMismatch: true,
+        validationScore: 0,
+        biometricMatchScore: null,
+        biometricLiveness: null,
+        biometricVerifiedAt: null,
+        biometricResult: null,
+      })
+    clientFindUniqueMock.mockResolvedValueOnce({
+      ...biometricSubject,
+      kycStatus: "VERIFIED",
+      kycVerifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+      kycVerifiedById: "officer-previous",
+      kycVerificationMethod: "SMILE_IDENTITY",
+    })
+    clientUpdateMock.mockResolvedValueOnce({
+      kycStatus: "FAILED",
+      kycVerifiedAt: null,
+      kycVerifiedById: null,
+      kycVerificationMethod: null,
+    })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(200)
+    expect(clientDocumentFindFirstMock.mock.calls[2][0]).toEqual({
+      where: {
+        tenantId: "tenant-1",
+        clientId: "client-1",
+        docType: "SELFIE",
+      },
+      orderBy: [
+        { biometricAttemptSequence: "desc" },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
+      select: { id: true },
+    })
+    expect(clientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: {
+        kycStatus: "FAILED",
+        kycVerifiedAt: null,
+        kycVerifiedById: null,
+        kycVerificationMethod: null,
+      },
+    }))
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        newValue: expect.objectContaining({
+          document: expect.objectContaining({ latestBiometricAttempt: true }),
+          clientKyc: {
+            kycStatus: "FAILED",
+            kycVerifiedAt: null,
+            kycVerifiedById: null,
+            kycVerificationMethod: null,
+          },
+        }),
+      }),
+    })
+  })
+
+  it("preserves Smile provenance when deleting redundant core evidence leaves composite KYC complete", async () => {
+    const smileVerifiedAt = new Date("2026-07-20T08:00:00.000Z")
+    clientDocumentFindManyMock.mockResolvedValueOnce([
+      { docType: "ID_COPY", verified: true, verificationNote: null },
+      { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
+      { docType: "PAYSLIP", verified: true, verificationNote: null },
+      { docType: "BANK_STATEMENT", verified: true, verificationNote: null },
+    ])
+    clientFindUniqueMock.mockResolvedValueOnce({
+      ...biometricSubject,
+      kycStatus: "VERIFIED",
+      kycVerifiedAt: smileVerifiedAt,
+      kycVerifiedById: null,
+      kycVerificationMethod: "SMILE_IDENTITY",
+    })
+    clientUpdateMock.mockResolvedValueOnce({
+      kycStatus: "VERIFIED",
+      kycVerifiedAt: smileVerifiedAt,
+      kycVerifiedById: null,
+      kycVerificationMethod: "SMILE_IDENTITY",
+    })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(200)
+    expect(clientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: {
+        kycStatus: "VERIFIED",
+        kycVerifiedAt: smileVerifiedAt,
+        kycVerifiedById: null,
+        kycVerificationMethod: "SMILE_IDENTITY",
+      },
+    }))
+  })
+
+  it("fails closed when the strict deletion audit cannot be written", async () => {
+    auditCreateMock.mockRejectedValueOnce(new Error("audit unavailable"))
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(500)
+    expect(auditCreateMock).toHaveBeenCalledOnce()
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses to delete a credit agreement for staff and retains its bytes", async () => {
+    clientDocumentFindFirstMock.mockReset().mockResolvedValue({
+      ...document,
+      docType: "CREDIT_AGREEMENT",
+      contentSha256: "a".repeat(64),
+    })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "Credit-agreement and statutory PASQ records are immutable and cannot be deleted",
+    })
+    expect(clientDocumentUpdateManyMock).not.toHaveBeenCalled()
+    expect(auditCreateMock).not.toHaveBeenCalled()
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses to delete a statutory PASQ for staff and retains its bytes", async () => {
+    clientDocumentFindFirstMock.mockReset().mockResolvedValue({
+      ...document,
+      docType: "FORM_20_PRE_AGREEMENT",
+      contentSha256: "a".repeat(64),
+    })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "Credit-agreement and statutory PASQ records are immutable and cannot be deleted",
+    })
+    expect(clientDocumentUpdateManyMock).not.toHaveBeenCalled()
+    expect(auditCreateMock).not.toHaveBeenCalled()
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("rechecks credit-agreement immutability after taking the evidence lock", async () => {
+    clientDocumentFindFirstMock.mockReset()
+      .mockResolvedValueOnce(document)
+      .mockResolvedValueOnce({ ...document, docType: "CREDIT_AGREEMENT" })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", {
+        method: "DELETE",
+      }),
+      ctx,
+    )
+
+    expect(response.status).toBe(409)
+    expect(clientDocumentUpdateManyMock).not.toHaveBeenCalled()
+    expect(auditCreateMock).not.toHaveBeenCalled()
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("does not expose the unaudited generic verification PATCH to any staff role", () => {
+    // Next.js returns 405 when a route module does not export the verb. All
+    // verification now has to use the client-scoped CREDIT_OFFICER+ endpoint,
+    // which also updates KYC and writes the mandatory audit row.
+    expect(documentRoute).not.toHaveProperty("PATCH")
+  })
+})
