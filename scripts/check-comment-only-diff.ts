@@ -8,7 +8,9 @@
  * must be identical. .css/.sql/.prisma files are compared with their comments
  * and all whitespace removed. For .yml/.yaml/.sh files every added or removed
  * line must be blank or a whole-line comment. Any other changed file, an added
- * or deleted file, or a rename is reported. Exits 1 when anything is reported.
+ * or deleted file, or a rename is reported; scripts/integration-baseline.txt
+ * is checked line by line, its `#` lines being comments. Exits 1 when
+ * anything is reported.
  */
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -20,6 +22,10 @@ const STRIP: Record<string, RegExp> = {
   css: /\/\*[\s\S]*?\*\//g,
   sql: /--[^\n]*/g,
   prisma: /\/\/[^\n]*/g,
+}
+/** Files with `#` comment lines whose extension says nothing about it. */
+const LINE_COMMENT_FILES: Record<string, RegExp> = {
+  "integration-baseline.txt": /^\s*(#.*)?$/,
 }
 const LINE_COMMENT: Record<string, RegExp> = {
   yml: /^\s*(#.*)?$/,
@@ -70,7 +76,7 @@ export function strippedDifference(base: string, head: string, fileName: string)
 
 /** The first added/removed line of a `git diff -U0` that is not blank or a whole-line comment. */
 export function nonCommentLine(unifiedDiff: string, fileName: string): string | null {
-  const comment = LINE_COMMENT[fileName.split(".").pop() ?? ""]
+  const comment = LINE_COMMENT_FILES[fileName.split("/").pop() ?? ""] ?? LINE_COMMENT[fileName.split(".").pop() ?? ""]
   if (!comment) return "this checker cannot prove this file type"
   let inHunk = false
   for (const line of unifiedDiff.split("\n")) {

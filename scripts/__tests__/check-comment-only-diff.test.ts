@@ -64,6 +64,11 @@ describe("nonCommentLine", () => {
     expect(nonCommentLine(diff("+#!/bin/sh"), "r.sh")).toMatch(/#!/)
   })
 
+  it("reads the integration baseline's # lines as comments, and its entries as code", () => {
+    expect(nonCommentLine(diff("-# old\n+# new"), "scripts/integration-baseline.txt")).toBeNull()
+    expect(nonCommentLine(diff("+lib/a.integration.test.ts"), "scripts/integration-baseline.txt")).toMatch(/lib\/a/)
+  })
+
   it("refuses a file type it cannot prove", () => {
     expect(nonCommentLine(diff("+x"), "README.md")).toMatch(/cannot prove/)
   })
