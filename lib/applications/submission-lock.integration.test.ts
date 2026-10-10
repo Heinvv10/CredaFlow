@@ -621,7 +621,8 @@ suite("application submission evidence locking", () => {
     const policyId = `policy_rollback_${token}`
     const referralEventId = `referral_event_rollback_${token}`
 
-    await expect(submissionDb.$transaction(async (tx) => {
+    type Tx = Parameters<Parameters<typeof submissionDb.$transaction>[0]>[0]
+    const writeBeforeAudit = async (tx: Tx) => {
       await writePasqV3Disbursement(tx, scenario, { loanId, policyId })
       await tx.referralEvent.create({
         data: {
@@ -635,6 +636,18 @@ suite("application submission evidence locking", () => {
           metadata: { loanId, applicationId: scenario.applicationId },
         },
       })
+    }
+
+    // Precondition: every write before the audit insert succeeds on its own, so
+    // the rejection below can only come from the audit row, not an earlier write.
+    class WritesReachedAudit extends Error {}
+    await expect(submissionDb.$transaction(async (tx) => {
+      await writeBeforeAudit(tx)
+      throw new WritesReachedAudit()
+    })).rejects.toBeInstanceOf(WritesReachedAudit)
+
+    await expect(submissionDb.$transaction(async (tx) => {
+      await writeBeforeAudit(tx)
       await tx.auditLog.create({
         data: {
           tenantId: scenario.tenantId,
