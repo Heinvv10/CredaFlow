@@ -87,10 +87,24 @@ export async function POST(
         : ""
       // Parse amounts to cents. Selecting an existing recovery application
       // needs neither a fresh affordability declaration nor loan inputs.
-      const amountCents = recoveryApplicationId ? 0 : Math.round(data.appliedAmount * 100)
+      const requestedAmount = Number(data.appliedAmount)
+      const amountCents = recoveryApplicationId ? 0 : Math.round(requestedAmount * 100)
       const incomeCents = recoveryApplicationId ? 0 : Math.round((data.monthlyIncome || 0) * 100)
       const expensesCents = recoveryApplicationId ? 0 : Math.round((data.monthlyExpenses || 0) * 100)
       const now = new Date()
+      // A rand amount must be finite, positive and exact to the cent: a
+      // silently cent-rounded amount differs from what staff typed.
+      if (
+        !recoveryApplicationId
+        && (!Number.isFinite(requestedAmount)
+          || requestedAmount <= 0
+          || Math.abs(requestedAmount * 100 - amountCents) > 1e-6)
+      ) {
+        return NextResponse.json(
+          { error: "Enter a valid loan amount (rand, at most 2 decimal places)." },
+          { status: 422 },
+        )
+      }
       if (!recoveryApplicationId) {
         const expenseEvidence = createAffordabilityExpenseEvidence({
           monthlyIncome: incomeCents,
@@ -457,6 +471,14 @@ export async function POST(
             name: product.name,
           }
         }
+        if (amountCents < product.minAmount || amountCents > product.maxAmount) {
+          return {
+            kind: "amount_out_of_range" as const,
+            min: product.minAmount,
+            max: product.maxAmount,
+            name: product.name,
+          }
+        }
 
         // 1. Create client. The CRM intake captures a single scalar
         // `monthlyExpenses` — the per-category breakdown wasn't asked for at
@@ -557,6 +579,9 @@ export async function POST(
         const appliedTermDays = resolveTermDays(data.appliedTermDays, lockedProduct)
         if (appliedTermDays === null) {
           throw new Error("Applied term is outside the selected loan product's bounds")
+        }
+        if (amountCents < lockedProduct.minAmount || amountCents > lockedProduct.maxAmount) {
+          throw new Error("Applied amount is outside the selected loan product's bounds")
         }
 
         const snapshotClient = await tx.client.findUnique({
@@ -778,6 +803,12 @@ export async function POST(
       if (result.kind === "term_out_of_range") {
         return NextResponse.json(
           { error: `Term must be between ${result.min} and ${result.max} days for ${result.name}.` },
+          { status: 422 },
+        )
+      }
+      if (result.kind === "amount_out_of_range") {
+        return NextResponse.json(
+          { error: `Amount must be between R${(result.min / 100).toLocaleString()} and R${(result.max / 100).toLocaleString()} for ${result.name}.` },
           { status: 422 },
         )
       }
