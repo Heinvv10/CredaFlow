@@ -14,6 +14,21 @@ describe("face-match refusal copy", () => {
     )
   })
 
+  // The same reasons also record a side answer the check returned unreadable,
+  // so neither audience may be told what the photo is.
+  it("claims nothing about what the refused photo is", () => {
+    for (const reason of ["id_document_portrait_invalid", "selfie_not_real_photograph"]) {
+      const copy = biometricFailureCopy(reason)
+      for (const text of [copy?.label, copy?.detail, portalSelfieFailureMessage(reason)]) {
+        expect(text).toMatch(/could(n't| not) (verify|be verified|confirm|be confirmed)/)
+        expect(text).not.toMatch(/has no|is not a real|not to be|could not see/i)
+      }
+    }
+    expect(portalSelfieFailureMessage("id_document_portrait_invalid")).toBe(
+      "We couldn't verify the photo on your ID — please upload a new, clear photo of your ID, then retake your selfie.",
+    )
+  })
+
   it("gives the client the remedy that matches the side that was refused", () => {
     expect(portalSelfieFailureMessage("id_document_portrait_invalid")).toContain(
       "upload a new, clear photo of your ID",

@@ -169,17 +169,21 @@ describe("readVlmFaceMatchSideRejection", () => {
     expect(readVlmFaceMatchSideRejection({ ...fullVerdict, samePerson: undefined })).toBeNull()
   })
 
+  const UNREADABLE_ID = "ID document portrait could not be verified: the check's answer about it was unreadable"
+  const UNREADABLE_SELFIE = "Selfie could not be verified as a real photograph: the check's answer about it was unreadable"
+
   it.each([
-    ["a known non-photograph kind", "silhouette_placeholder", "silhouette_placeholder"],
-    ["a kind needing normalisation", " Silhouette_Placeholder ", "silhouette_placeholder"],
-    ["an unknown kind", "grey_avatar", "unrecognised"],
-    ["an unknown kind with spaces", "Silhouette Placeholder", "unrecognised"],
-    ["a non-string kind", 3, "unrecognised"],
-  ])("refuses %s on the kind alone", (_label, kind, recorded) => {
+    ["a known non-photograph kind", "silhouette_placeholder", "silhouette_placeholder", "ID document portrait is not a photograph (silhouette_placeholder)"],
+    ["a kind needing normalisation", " Silhouette_Placeholder ", "silhouette_placeholder", "ID document portrait is not a photograph (silhouette_placeholder)"],
+    ["an unknown kind", "grey_avatar", "unrecognised", UNREADABLE_ID],
+    ["an unknown kind with spaces", "Silhouette Placeholder", "unrecognised", UNREADABLE_ID],
+    ["a non-string kind", 3, "unrecognised", UNREADABLE_ID],
+    ["a nested kind", { value: "photograph" }, "unrecognised", UNREADABLE_ID],
+  ])("refuses %s on the kind alone", (_label, kind, recorded, message) => {
     // Both booleans say "real photograph": only the kind refuses.
     expect(readVlmFaceMatchSideRejection({ ...fullVerdict, idPhotoKind: { value: kind } })).toEqual({
       reason: "id_document_portrait_invalid",
-      message: `ID document portrait is not a photograph (${recorded})`,
+      message,
       judgement: {
         idPhotoKind: recorded,
         idPhotoIsRealPhotograph: true,
@@ -202,12 +206,48 @@ describe("readVlmFaceMatchSideRejection", () => {
     expect(readVlmFaceMatchSideRejection({ ...fullVerdict, ...change })?.reason).toBe(reason)
   })
 
-  it("reads absent, null and non-boolean side fields as no signal", () => {
+  it("reads absent and null side fields as no signal", () => {
     const { idPhotoKind: _kind, ...withoutKind } = fullVerdict
     expect(readVlmFaceMatchSideRejection(withoutKind)).toBeNull()
-    expect(readVlmFaceMatchSideRejection({ ...fullVerdict, idPhotoKind: { value: null } })).toBeNull()
-    expect(readVlmFaceMatchSideRejection({ ...fullVerdict, idPhotoIsRealPhotograph: { value: "false" } })).toBeNull()
+    for (const field of ["idPhotoKind", "idPhotoIsRealPhotograph", "idPhotoFaceDetected", "selfieIsRealPhotograph"]) {
+      expect(readVlmFaceMatchSideRejection({ ...fullVerdict, [field]: { value: null } })).toBeNull()
+      expect(readVlmFaceMatchSideRejection({ ...fullVerdict, [field]: undefined })).toBeNull()
+    }
     expect(readVlmFaceMatchSideRejection(null)).toBeNull()
     expect(readVlmFaceMatchSideRejection({ vlmUnavailable: true })).toBeNull()
+  })
+
+  // REPRO D: a present flag that is not exactly true read as absent, so a
+  // silhouette ID or fake selfie fell through to an exceptionable reason.
+  const { idPhotoKind: _k, idPhotoIsRealPhotograph: _r, idPhotoFaceDetected: _f, ...noIdSide } = fullVerdict
+  it.each([
+    ["idPhotoIsRealPhotograph \"false\", kind omitted", { ...noIdSide, idPhotoIsRealPhotograph: { value: "false" } },
+      "id_document_portrait_invalid", UNREADABLE_ID,
+      { idPhotoKind: null, idPhotoIsRealPhotograph: "unrecognised", idPhotoFaceDetected: null, selfieIsRealPhotograph: true }],
+    ["idPhotoIsRealPhotograph nested false, kind omitted", { ...noIdSide, idPhotoIsRealPhotograph: { value: { value: false } } },
+      "id_document_portrait_invalid", UNREADABLE_ID,
+      { idPhotoKind: null, idPhotoIsRealPhotograph: "unrecognised", idPhotoFaceDetected: null, selfieIsRealPhotograph: true }],
+    ["idPhotoFaceDetected 0, other ID flags omitted", { ...noIdSide, idPhotoFaceDetected: { value: 0 } },
+      "id_document_portrait_invalid", UNREADABLE_ID,
+      { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: "unrecognised", selfieIsRealPhotograph: true }],
+    ["selfieIsRealPhotograph 0", { ...fullVerdict, selfieIsRealPhotograph: { value: 0 } },
+      "selfie_not_real_photograph", UNREADABLE_SELFIE,
+      { idPhotoKind: "photograph", idPhotoIsRealPhotograph: true, idPhotoFaceDetected: true, selfieIsRealPhotograph: "unrecognised" }],
+    ["selfieIsRealPhotograph \"false\"", { ...fullVerdict, selfieIsRealPhotograph: { value: "false" } },
+      "selfie_not_real_photograph", UNREADABLE_SELFIE,
+      { idPhotoKind: "photograph", idPhotoIsRealPhotograph: true, idPhotoFaceDetected: true, selfieIsRealPhotograph: "unrecognised" }],
+    ["selfieIsRealPhotograph \"true\"", { ...fullVerdict, selfieIsRealPhotograph: { value: "true" } },
+      "selfie_not_real_photograph", UNREADABLE_SELFIE,
+      { idPhotoKind: "photograph", idPhotoIsRealPhotograph: true, idPhotoFaceDetected: true, selfieIsRealPhotograph: "unrecognised" }],
+  ])("refuses a present side flag that is not exactly true: %s", (_label, extraction, reason, message, judgement) => {
+    expect(readVlmFaceMatchSideRejection(extraction)).toEqual({ reason, message, judgement })
+  })
+
+  it("names an explicit ID judgement ahead of an unreadable one", () => {
+    expect(readVlmFaceMatchSideRejection({
+      ...fullVerdict,
+      idPhotoKind: { value: "grey_avatar" },
+      idPhotoFaceDetected: { value: false },
+    })?.message).toBe("No face detected in the ID document photograph")
   })
 })

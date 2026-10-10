@@ -101,7 +101,7 @@ describe("PortalDocumentsClient KYC status consistency", () => {
   })
 
   it.each([
-    ["id_document_portrait_invalid", "Please upload a new, clear photo of your ID, then retake your selfie."],
+    ["id_document_portrait_invalid", "please upload a new, clear photo of your ID, then retake your selfie."],
     ["selfie_not_real_photograph", "Your selfie could not be confirmed as a real, live photo of you."],
   ] as const)("tells the client the specific remedy for %s", (reason, remedy) => {
     const failedChecklist = checklist()

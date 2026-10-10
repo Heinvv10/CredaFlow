@@ -78,17 +78,20 @@ export const BIOMETRIC_FAILURE_COPY: Record<
     label: "Test result, not a real check",
     detail: "This result came from a test run rather than a real identity check.",
   },
-  // A real check ran, but one side holds no real face to compare. NOT on the
-  // exception allow-list: the remedy is new evidence, not a senior override.
+  // A real check ran, but one side was not confirmed to hold a real face to
+  // compare. NOT on the exception allow-list: the remedy is new evidence, not a
+  // senior override. The same reason also records a side answer the check
+  // returned unreadable, so this copy must not claim what the photo is; the
+  // specific judgement is in the attempt's verification note.
   id_document_portrait_invalid: {
-    label: "ID document has no usable photograph",
+    label: "ID document photo could not be verified",
     detail:
-      "The photo area of the ID document on file is not a real photograph of a face (for example a silhouette, drawing, blank or covered photo), so the selfie could not be compared. The client must upload a new, clear photo of their ID.",
+      "The check could not confirm that the photo on the ID document on file is a real photograph of a face, so the selfie could not be compared. The client must upload a new, clear photo of their ID.",
   },
   selfie_not_real_photograph: {
-    label: "Selfie is not a real photograph",
+    label: "Selfie could not be verified as a real photograph",
     detail:
-      "The check judged this selfie not to be a camera photograph of a real person, so it could not be compared. The client must retake a real, live selfie.",
+      "The check could not confirm that this selfie is a camera photograph of a real person, so it could not be compared. The client must retake a real, live selfie.",
   },
 
   // --- A real check ran and returned an adverse result. These are the
@@ -154,7 +157,7 @@ export function biometricFailureCopy(reason: string | null | undefined): Biometr
  */
 export function portalSelfieFailureMessage(reason: string | null | undefined): string {
   if (reason === "id_document_portrait_invalid") {
-    return "We could not see a clear photograph of you on your ID document. Please upload a new, clear photo of your ID, then retake your selfie."
+    return "We couldn't verify the photo on your ID — please upload a new, clear photo of your ID, then retake your selfie."
   }
   if (reason === "selfie_not_real_photograph") {
     return "Your selfie could not be confirmed as a real, live photo of you. Please retake it with your camera, facing it directly."

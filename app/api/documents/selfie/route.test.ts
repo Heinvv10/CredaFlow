@@ -1113,16 +1113,18 @@ describe("POST /api/documents/selfie", () => {
   })
 
   it.each([
-    ["a readable verdict", {}, {
+    ["a readable verdict", {}, "ID document portrait is not a photograph (silhouette_placeholder)", {
       idPhotoKind: "silhouette_placeholder", idPhotoIsRealPhotograph: false,
       idPhotoFaceDetected: false, selfieIsRealPhotograph: true,
     }],
-    ["an unreadable verdict", { matchConfidence: undefined, idPhotoKind: { value: "grey_avatar" } }, {
+    // The explicit false names the message ahead of the unrecognised kind.
+    ["an unreadable verdict", { matchConfidence: undefined, idPhotoKind: { value: "grey_avatar" } },
+      "ID document portrait is not a real photograph of a person", {
       idPhotoKind: "unrecognised", idPhotoIsRealPhotograph: false,
       idPhotoFaceDetected: false, selfieIsRealPhotograph: true,
     }],
   ])("audits the side judgements behind a strict refusal with no provider result (%s)", async (
-    _label, change, judgement,
+    _label, change, rejection, judgement,
   ) => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
@@ -1138,9 +1140,55 @@ describe("POST /api/documents/selfie", () => {
     expect(audit.data.action).toBe("KYC_REJECTED")
     expect(audit.data.newValue.document.faceMatchVerdict).toEqual({
       provider: "vlm-face-match-v2",
-      rejection: expect.stringContaining("ID document portrait is not a photograph"),
+      rejection,
       ...judgement,
     })
+  })
+
+  // REPRO D: a side flag present as "false", 0 or a nested object read as
+  // absent, so a silhouette ID or fake selfie behind a liveness failure was
+  // recorded under the exceptionable vlm_liveness_failed. Fail closed, with a
+  // message that claims nothing about the photo.
+  const unreadableId = "ID document portrait could not be verified: the check's answer about it was unreadable"
+  const unreadableSelfie = "Selfie could not be verified as a real photograph: the check's answer about it was unreadable"
+  const goodIdPair = {
+    idPhotoKind: { value: "photograph" },
+    idPhotoIsRealPhotograph: { value: true },
+    idPhotoFaceDetected: { value: true },
+  }
+  it.each([
+    ["silhouette ID, kind omitted, idPhotoIsRealPhotograph \"false\"",
+      { idPhotoIsRealPhotograph: { value: "false" } }, "id_document_portrait_invalid", unreadableId],
+    ["silhouette ID, kind omitted, idPhotoIsRealPhotograph {value:false}",
+      { idPhotoIsRealPhotograph: { value: { value: false } } }, "id_document_portrait_invalid", unreadableId],
+    ["silhouette ID, idPhotoFaceDetected 0, other ID flags omitted",
+      { idPhotoFaceDetected: { value: 0 } }, "id_document_portrait_invalid", unreadableId],
+    ["good ID pair, selfieIsRealPhotograph 0",
+      { ...goodIdPair, selfieIsRealPhotograph: { value: 0 } }, "selfie_not_real_photograph", unreadableSelfie],
+    ["good ID pair, selfieIsRealPhotograph \"false\"",
+      { ...goodIdPair, selfieIsRealPhotograph: { value: "false" } }, "selfie_not_real_photograph", unreadableSelfie],
+  ])("records isLive:false with %s under a non-exceptionable reason", async (_label, sides, reason, message) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: { ...verdictBase, isLive: { value: false }, livenessConfidence: { value: 0.2 }, ...sides },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = txDocumentUpdateManyMock.mock.calls[0][0] as {
+      data: {
+        verified: boolean
+        extractionError: string
+        verificationNote: string
+        biometricResult: { biometricFailureReason: string }
+      }
+    }
+    expect(update.data.verified).toBe(false)
+    expect(update.data.biometricResult.biometricFailureReason).toBe(reason)
+    expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
+    expect(update.data.extractionError).toBe(message)
+    expect(update.data.verificationNote).toBe(message)
   })
 
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {

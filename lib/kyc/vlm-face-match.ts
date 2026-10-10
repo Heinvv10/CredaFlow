@@ -118,22 +118,32 @@ function rejectionFor(
   return null
 }
 
+/**
+ * A side flag as read: "unrecognised" for any present value that is not a
+ * boolean, null if absent.
+ */
+export type VlmFaceMatchSideFlag = boolean | "unrecognised" | null
+
 /** The ID/selfie-side judgements, as far as they are readable. No personal data. */
 export type VlmFaceMatchSideJudgement = {
   /** A known kind, "unrecognised" for any other present value, null if absent. */
   idPhotoKind: IdPhotoKind | "unrecognised" | null
-  idPhotoIsRealPhotograph: boolean | null
-  idPhotoFaceDetected: boolean | null
-  selfieIsRealPhotograph: boolean | null
+  idPhotoIsRealPhotograph: VlmFaceMatchSideFlag
+  idPhotoFaceDetected: VlmFaceMatchSideFlag
+  selfieIsRealPhotograph: VlmFaceMatchSideFlag
 }
 
 /**
  * The ID/selfie-side refusal, read field by field. readVlmFaceMatchVerdict
  * returns null when ANY field is malformed, so an unrelated bad confidence
  * hid a silhouette ID behind an exceptionable selfie-side reason. This reads
- * only the side judgements: a present idPhotoKind other than "photograph"
- * (unknown kinds included), or an explicit false, refuses. Absent or null
- * fields say nothing either way. ID side first, as in rejectionFor.
+ * only the side judgements and fails closed: an absent or null field says
+ * nothing, and any other value refuses unless it is exactly true (or, for
+ * idPhotoKind, "photograph" after normalisation). A "false" string, a 0 or a
+ * value nested inside the one { value } wrapper mapExtractedFields writes is
+ * a refusal, not silence. ID side first, as in rejectionFor; within a side an
+ * explicit judgement names the message ahead of an unreadable one, which gets
+ * a message that claims nothing about the photo.
  */
 export function readVlmFaceMatchSideRejection(
   extractionResult: unknown,
@@ -143,9 +153,10 @@ export function readVlmFaceMatchSideRejection(
   }
   const extraction = extractionResult as Record<string, unknown>
   const rawKind = extractedValue(extraction, "idPhotoKind")
-  const flag = (field: string) => {
+  const flag = (field: string): VlmFaceMatchSideFlag => {
     const value = extractedValue(extraction, field)
-    return typeof value === "boolean" ? value : null
+    if (value === undefined || value === null) return null
+    return typeof value === "boolean" ? value : "unrecognised"
   }
   const judgement: VlmFaceMatchSideJudgement = {
     idPhotoKind: rawKind === undefined || rawKind === null
@@ -156,7 +167,7 @@ export function readVlmFaceMatchSideRejection(
     selfieIsRealPhotograph: flag("selfieIsRealPhotograph"),
   }
   const refuse = (reason: VlmFaceMatchRejectionReason, message: string) => ({ reason, message, judgement })
-  if (judgement.idPhotoKind !== null && judgement.idPhotoKind !== "photograph") {
+  if (judgement.idPhotoKind !== null && judgement.idPhotoKind !== "photograph" && judgement.idPhotoKind !== "unrecognised") {
     return refuse("id_document_portrait_invalid", `ID document portrait is not a photograph (${judgement.idPhotoKind})`)
   }
   if (judgement.idPhotoIsRealPhotograph === false) {
@@ -165,8 +176,18 @@ export function readVlmFaceMatchSideRejection(
   if (judgement.idPhotoFaceDetected === false) {
     return refuse("id_document_portrait_invalid", "No face detected in the ID document photograph")
   }
+  if (
+    judgement.idPhotoKind === "unrecognised"
+    || judgement.idPhotoIsRealPhotograph === "unrecognised"
+    || judgement.idPhotoFaceDetected === "unrecognised"
+  ) {
+    return refuse("id_document_portrait_invalid", "ID document portrait could not be verified: the check's answer about it was unreadable")
+  }
   if (judgement.selfieIsRealPhotograph === false) {
     return refuse("selfie_not_real_photograph", "Selfie is not a real photograph of a live person")
+  }
+  if (judgement.selfieIsRealPhotograph === "unrecognised") {
+    return refuse("selfie_not_real_photograph", "Selfie could not be verified as a real photograph: the check's answer about it was unreadable")
   }
   return null
 }
