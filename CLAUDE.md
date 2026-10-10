@@ -118,9 +118,9 @@ Run these in order. Don't write "should work" or "Done!" without evidence.
 1. `npx tsc --noEmit` — TypeScript passes (`rm -rf .next` first if stale)
 2. `npm run lint` — eslint
 3. `npm test` — scope it while iterating (`npx vitest run lib/collections/`)
-   but run it whole before merging. A few route suites can hit the 5 s load
-   timeout under a full parallel run; re-run them alone before calling a
-   failure real.
+   but run it whole before merging. Import the module under test statically:
+   an `await import("./route")` inside a test loads its whole module graph
+   within that test's 5 s budget, which a full parallel run can exceed.
 4. `npm run claude-md:check && npm run agents:check` — required if you touched
    CLAUDE.md, any `.claude.md`, or a skill
 5. Integration suites for DB-enforced rules (below)
