@@ -184,8 +184,10 @@ export async function PATCH(
     if (colourKeys.length > 0) {
       // Locks the Tenant row, not TenantConfig: the config row may not exist
       // yet. The read below is a new statement, so under READ COMMITTED it
-      // sees whatever the previous lock holder committed.
-      await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR UPDATE`
+      // sees whatever the previous lock holder committed. NO KEY UPDATE
+      // serialises colour changes without blocking the FOR KEY SHARE lock that
+      // every insert referencing this tenant takes.
+      await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR NO KEY UPDATE`
     }
     const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
     if (colourKeys.length > 0) {

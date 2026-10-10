@@ -77,7 +77,7 @@ suite("PATCH /api/admin/tenants/[tenantId] concurrent colour writes", () => {
     let locked!: () => void
     const lockTaken = new Promise<void>((resolve) => { locked = resolve })
     const hold = blocker.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR UPDATE`
+      await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR NO KEY UPDATE`
       locked()
       await released
     }, { timeout: 60_000 })
