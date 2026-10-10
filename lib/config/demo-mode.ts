@@ -26,8 +26,12 @@ export function demoBannerText(brandName: string | null): string {
     : DEMO_BANNER_FALLBACK
 }
 
-/** RFC 2606 reserves `.invalid`: mail to it can never be delivered. */
-const UNDELIVERABLE_DOMAIN_SUFFIX = ".invalid"
+/**
+ * RFC 2606 reserves `.invalid`: mail to it can never be delivered. An
+ * allow-list, not a deny-list: one plain mailbox (no display name, quotes,
+ * angle brackets or lists) whose domain ends in `.invalid`.
+ */
+const UNDELIVERABLE_MAILBOX = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid$/
 
 /**
  * A demo borrower's one-time codes (portal activation, password reset) are
@@ -46,7 +50,5 @@ export function demoCodeReveal(
 ): { demoCode?: string } {
   if (!isDemoMode(env)) return {}
   const email = recipientEmail.trim().toLowerCase()
-  // One mailbox only: a list ("real@gmail.com, x@y.invalid") would also mail the real address.
-  const oneMailbox = email.split("@").length === 2 && !/[,;\s]/.test(email)
-  return oneMailbox && email.endsWith(UNDELIVERABLE_DOMAIN_SUFFIX) ? { demoCode: code } : {}
+  return UNDELIVERABLE_MAILBOX.test(email) ? { demoCode: code } : {}
 }

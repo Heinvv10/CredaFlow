@@ -42,6 +42,9 @@ describe("demoCodeReveal", () => {
   it("normalises the recipient before checking the domain", () => {
     expect(demoCodeReveal("123456", "  Thabo@Acme-Lending.INVALID ", ON)).toEqual({ demoCode: "123456" })
   })
+  it("accepts a plus-tagged dotted local part on a hyphenated .invalid domain", () => {
+    expect(demoCodeReveal("123456", "thandi.m+1@acme-lending.invalid", ON)).toEqual({ demoCode: "123456" })
+  })
   it("accepts a .invalid recipient with trailing whitespace once trimmed", () => {
     expect(demoCodeReveal("123456", "x@y.invalid ", ON)).toEqual({ demoCode: "123456" })
   })
@@ -64,6 +67,8 @@ describe("demoCodeReveal", () => {
     "real@gmail.com,x@y.invalid",
     "a@b@c.invalid",
     "x y@z.invalid",
+    "<real@gmail.com>x.invalid",
+    "\"a b\"@x.invalid",
   ])("returns nothing in demo mode for a deliverable or malformed recipient %j", (email) => {
     expect(demoCodeReveal("123456", email, ON)).toEqual({})
   })

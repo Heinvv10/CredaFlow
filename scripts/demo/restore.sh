@@ -92,7 +92,7 @@ host_port() {
   ip="$(docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostIp}}{{end}}' "$1")"
   port="$(docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostPort}}{{end}}' "$1")"
   [ -n "$port" ] || return 0
-  case "$ip" in "" | 0.0.0.0) ip=127.0.0.1 ;; esac
+  case "$ip" in "" | 0.0.0.0 | "::" | "[::]") ip=127.0.0.1 ;; esac
   echo "$ip:$port"
 }
 staff_addr="$(host_port "$LIVE_APP")" portal_addr="$(host_port "$LIVE_PORTAL")"
@@ -272,11 +272,7 @@ warn() { note "WARNING: $1"; warnings="$warnings; $1"; }
 if $had_live_db; then
   live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi
-stale_olds="$(live_sql postgres "SELECT datname FROM pg_database WHERE left(datname, length('${db}_old_')) = '${db}_old_'")" \
-  || warn "could not list stale ${db}_old_* databases"
-for stale in $stale_olds; do
-  live_sql postgres "DROP DATABASE \"$stale\" WITH (FORCE)" && note "dropped stale $stale"
-done
+# Only this run's old db, like the uploads below: earlier failed runs' leftovers are kept for manual recovery.
 # Only this run's .old dir: earlier ones are not ours to delete.
 uploads_sh 'rm -rf "/u/$OLD"' || warn "could not remove $uploads_volume:/$old_uploads"
 
