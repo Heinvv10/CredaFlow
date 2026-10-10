@@ -113,6 +113,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "amount must be a positive number (in rand)." }, { status: 400 })
   }
   const appliedAmount = Math.round(amountRand * 100)
+  if (appliedAmount < 1) {
+    return NextResponse.json({ error: "amount must be a positive number (in rand)." }, { status: 400 })
+  }
 
   const purpose = typeof body.purpose === "string" ? body.purpose.trim() : ""
   if (purpose.length < 3 || purpose.length > 500) {

@@ -60,6 +60,12 @@ describe("validateStep2LoanParams", () => {
     expect(validateStep2LoanParams({ ...full, productId: "" }, [PRODUCT]).productId).toBeDefined()
   })
 
+  it.each(["0", "0.00"])("flags a zero amount %s even when the product minimum is 0", (amount) => {
+    const zeroMin = { ...PRODUCT, minAmount: 0 }
+    expect(validateStep2LoanParams({ ...full, appliedAmount: amount }, [zeroMin]).appliedAmount)
+      .toBe("Must be greater than zero")
+  })
+
   it("flags amount below product minimum", () => {
     expect(validateStep2LoanParams({ ...full, appliedAmount: "500" }, [PRODUCT]).appliedAmount).toBeDefined()
   })

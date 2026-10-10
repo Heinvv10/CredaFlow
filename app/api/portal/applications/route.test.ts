@@ -237,6 +237,15 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
+  it("rejects an amount that rounds to zero cents with 400 and creates nothing", async () => {
+    findFirstProduct.mockResolvedValue({ ...PRODUCT, minAmount: 0 }) // legacy row: no floor
+    const res = await POST(buildReq({ ...validBody, amount: 0.004 }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/positive number/i)
+    expect(createCapCalls()).toBe(0)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
   it("requires an explicit credit-life election and disclosure acknowledgement", async () => {
     const res = await POST(buildReq({
       ...validBody,

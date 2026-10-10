@@ -9,7 +9,7 @@
  */
 import { spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
 const RUN = process.env.RUN_APPLICATION_AMOUNT_CHECK_IT === "1"
 const databaseUrl = process.env.DATABASE_URL
@@ -21,7 +21,7 @@ function run(value: string): { ok: boolean; output: string } {
   if (!databaseUrl) throw new Error("DATABASE_URL is required for the application amount integration test")
   const result = spawnSync(
     "psql",
-    ["--no-psqlrc", "--dbname", databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-At", "-c", value],
+    ["--no-psqlrc", "--dbname", databaseUrl, "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-At", "-c", value],
     { encoding: "utf8" },
   )
   return { ok: result.status === 0, output: `${result.stdout}${result.stderr}` }
@@ -77,6 +77,15 @@ suite("LoanApplication appliedAmount CHECK", () => {
     `)
   })
 
+  afterAll(() => {
+    sql(`
+      DELETE FROM "LoanApplication" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "LoanProduct" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "Client" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "Tenant" WHERE "id" = '${tenantId}';
+    `)
+  })
+
   // One open application per client and product: free the slot between cases.
   afterEach(() => {
     sql(`DELETE FROM "LoanApplication" WHERE "tenantId" = '${tenantId}'`)
@@ -98,5 +107,11 @@ suite("LoanApplication appliedAmount CHECK", () => {
     sql(insertApplication(`upd_${token}`, 500000))
     expectRejected(`UPDATE "LoanApplication" SET "appliedAmount" = 0 WHERE "id" = 'upd_${token}'`)
     expect(run(`SELECT "appliedAmount" FROM "LoanApplication" WHERE "id" = 'upd_${token}'`).output.trim()).toBe("500000")
+  })
+
+  it("is a validated constraint, so it also covers rows that already existed", () => {
+    expect(
+      run(`SELECT convalidated FROM pg_constraint WHERE conname = '${CONSTRAINT}'`).output.trim(),
+    ).toBe("t")
   })
 })
