@@ -15,7 +15,7 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Seven stacked PRs, none merged.** Merge them in order; each is based on the
+**Eleven stacked PRs, none merged.** Merge them in order; each is based on the
 previous one's branch. Every one has green CI and three blind reviewers'
 SHIP/CLEAN on its final commit.
 
@@ -28,6 +28,10 @@ SHIP/CLEAN on its final commit.
 | #5 | `ci/quality-gate` → #4 | `quality-gate.yml`: tsc, lint, vitest, build, claude-md and agents checks on every PR and push to `main`; read-only, no secrets. It installs poppler-utils and qpdf and gives tsc/build a 4 GB heap. Also fixes a `send.test.ts` test that depended on two sends landing in the same millisecond |
 | #8 | `test/pasq-v3-disbursable-fixture` → #5 | Shared PASQ v3 application fixture (`lib/compliance/pasq-v3-application.integration-fixture.ts`); `submission-lock` revived on it and out of the register (2 → 1) |
 | #9 | `chore/string-history-pass` → #8 | Test titles, runtime messages and a few comments lose review IDs, phase/round labels, names and dates |
+| #10 | `ci/hardening` → #9 | Every workflow `uses:` pinned to a commit SHA with a version comment (guard test); lint 13 warnings → 0 with no rule disabled; 17 suites import the module under test statically, so the first test no longer loads the route graph inside its 5 s budget |
+| #11 | `fix/tenant-colour-patch-race` → #10 | Colour PATCH validates under `FOR NO KEY UPDATE` on the Tenant row, inside the write's transaction; real-PG race suite `RUN_TENANT_COLOUR_RACE_IT` (existing and missing config row) |
+| #12 | `fix/portal-register-theming` → #11 | `/portal/register` renders inside `TenantThemeProvider` like the other sign-in pages; its indigo tints use the brand token |
+| #13 | `test/db-baseline-helper-forms` → #12 | `lib/db-baseline.test-helpers.ts` splits migrations into SQL statements (comments, strings, `$tag$` bodies) and reads multi-line, unqualified and multi-object DDL; identical results on every existing migration |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
@@ -49,18 +53,17 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 `date-boundaries`. Local results, run against a fresh Postgres 16:
 
 - `npx tsc --noEmit` 0
-- `npm run lint`: 0 errors, 13 warnings
-- `npx vitest run`: 10315 passed, 0 failed (a few route suites can hit the 5 s
-  load timeout under a full parallel run; they pass alone)
+- `npm run lint`: 0 errors, 0 warnings
+- `npx vitest run`: 0 failed, three consecutive full runs (with #10)
 - `npm run build` OK
 - `dates:check`, `test:tz`, `claude-md:check` and `agents:check` OK
 - the identity-boundary test passes
-- Integration (`scripts/run-integration-tests.sh`): 86 gated suites pass, 1 in
+- Integration (`scripts/run-integration-tests.sh`): 87 gated suites pass, 1 in
   `scripts/integration-baseline.txt`.
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
@@ -112,14 +115,21 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   comment. Test fixtures use the placeholder phone `+27820000000`, a dialable
   SA number.
 - **Known limits:**
-  - The credit agreement truncates schedules beyond 38 rows (nothing upstream
-    caps instalments).
-  - `lib/db-baseline.test-helpers.ts` only recognises `DROP` /
-    `CREATE OR REPLACE` in the `public."x"` one-line form.
-  - Two concurrent super-admin colour PATCHes are each validated against the
-    set read outside the transaction.
-  - `/portal/register` is not tenant-themed.
-  - Workflow actions are pinned to tags, not commit SHAs.
+  - The credit agreement (and the Form 20 quotation, same renderer) prints at
+    most 38 schedule rows and silently drops the rest, while its TOTAL row sums
+    the full schedule. Nothing caps instalments: the seeded PERSONAL product
+    allows 1,800 days (60 instalments), and the CRM lead-convert route takes
+    `appliedTermDays` with no min/max check. `lib/pdf/statement.ts` has the same
+    ~37-row cut. Options are an upstream cap or a continuation page; an NCA
+    document change needs Hein's and legal sign-off.
+  - `lib/__tests__/webhook-replay.test.ts` runs whenever `DATABASE_URL` is set
+    (not behind a `RUN_*_IT` gate) and its fixture creates an
+    APPROVED application without a PASQ document, which the
+    `lockLoanApplicationPasqDocument` trigger refuses on a migrated database. CI's quality job sets no `DATABASE_URL`, so it skips there.
+  - The page background's indigo radial glow (`app/globals.css`) is not
+    tenant-themed on any page.
+  - The baseline helpers do not tell function overloads apart, nor scope
+    triggers and constraints to their table.
 - **Forked-lender guard in CI:** CI runs it off (no digests). To run it there,
   store the digests JSON as an Actions secret and point
   `CREDAFLOW_OTHER_LENDER_DIGESTS` at it.
