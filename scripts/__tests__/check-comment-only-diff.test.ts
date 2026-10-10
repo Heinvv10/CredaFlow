@@ -32,6 +32,24 @@ describe("codeDifference", () => {
     expect(codeDifference(tsx, tsx.replace("// not a comment", "// still text"), "a.tsx")).toMatch(/JsxText/)
   })
 
+  it("reports a comment edit that changes automatic semicolon insertion", () => {
+    expect(codeDifference("function f() { return /* a\n b */ 1 }\n", "function f() { return /* a b */ 1 }\n", "f.ts")).not.toBeNull()
+    expect(codeDifference("function f() { return // why\n 1 }\n", "function f() { return 1 }\n", "f.ts")).not.toBeNull()
+    expect(codeDifference("a++\nb\n", "a\n++b\n", "f.ts")).not.toBeNull()
+  })
+
+  it("reports any change to a directive comment", () => {
+    expect(codeDifference("// @ts-expect-error old\nx()\n", "// note\nx()\n", "f.ts")).toMatch(/directive/)
+    expect(codeDifference("// @vitest-environment jsdom\nx()\n", "x()\n", "f.test.ts")).toMatch(/directive/)
+    expect(codeDifference("/* eslint-disable no-console */\nx()\n", "/* eslint-disable no-debugger */\nx()\n", "f.ts")).toMatch(/directive/)
+    expect(codeDifference("const a = /*#__PURE__*/ f()\n", "const a = f()\n", "f.ts")).toMatch(/directive/)
+  })
+
+  it("keeps JSX whitespace React renders, drops what it does not", () => {
+    expect(codeDifference("const a = <p><b>x</b> hello</p>\n", "const a = <p><b>x</b>hello</p>\n", "a.tsx")).not.toBeNull()
+    expect(codeDifference("const a = <p>\n  hello\n</p>\n", "const a = <p>\n      hello\n</p>\n", "a.tsx")).toBeNull()
+  })
+
   it("reports a removed token", () => {
     expect(codeDifference("f(1, 2)\n", "f(1)\n", "g.mjs")).not.toBeNull()
   })
@@ -42,6 +60,13 @@ describe("strippedDifference", () => {
     expect(strippedDifference("a { color: red; } /* old */", "/* new\n * more */\na {\n  color: red;\n}", "a.css")).toBeNull()
     expect(strippedDifference("SELECT 1; -- old", "-- new\nSELECT 1;", "m.sql")).toBeNull()
     expect(strippedDifference("model A {\n  id String // old\n}", "/// new\nmodel A {\n  id String\n}", "schema.prisma")).toBeNull()
+  })
+
+  it("leaves string contents alone, even when they look like comments", () => {
+    expect(strippedDifference('model A {\n  u String @default("https://a.example")\n}', 'model A {\n  u String @default("https://b.example")\n}', "schema.prisma")).not.toBeNull()
+    expect(strippedDifference("SELECT '--a', 1;", "SELECT '--b', 2;", "m.sql")).not.toBeNull()
+    expect(strippedDifference('a::before { content: "/*"; color: red } b { content: "*/" }', 'a::before { content: "/*"; color: blue } b { content: "*/" }', "a.css")).not.toBeNull()
+    expect(strippedDifference("SELECT 'a b';", "SELECT 'ab';", "m.sql")).not.toBeNull()
   })
 
   it("reports a code change", () => {
