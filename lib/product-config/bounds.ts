@@ -1,26 +1,35 @@
-// Structural sanity for a loan product's amount (cents) and term (days)
-// bounds. Downstream code (CRM convert, portal apply) trusts these values.
-// Deliberately no upper cap: that is a product decision, not a validity one.
+// Structural sanity for a loan product's amount and term bounds, checked on
+// the RAW request values (amounts in rand, terms in days) before any coercion.
+// Downstream code (CRM convert, portal apply) trusts these values.
+// No policy upper cap: the int4 ceiling is the Postgres Int column's storage
+// limit, not a product limit. Any policy cap is the owner's decision.
 
-const isPositiveInt = (v: unknown): v is number =>
-  typeof v === "number" && Number.isSafeInteger(v) && v > 0
+const INT4_MAX = 2_147_483_647
 
-export function loanProductBoundsIssues(data: {
+function cents(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null
+  const c = Math.round(v * 100)
+  return Number.isInteger(c) && c > 0 && c <= INT4_MAX ? c : null
+}
+
+function days(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v > 0 && v <= INT4_MAX ? v : null
+}
+
+export function loanProductBoundsIssues(raw: {
   minAmount: unknown
   maxAmount: unknown
   minTermDays: unknown
   maxTermDays: unknown
 }): string[] {
   const issues: string[] = []
-  const minAmountOk = isPositiveInt(data.minAmount)
-  if (!minAmountOk) issues.push("minAmount")
-  if (!isPositiveInt(data.maxAmount) || (minAmountOk && data.maxAmount < (data.minAmount as number))) {
-    issues.push("maxAmount")
-  }
-  const minTermOk = isPositiveInt(data.minTermDays)
-  if (!minTermOk) issues.push("minTermDays")
-  if (!isPositiveInt(data.maxTermDays) || (minTermOk && data.maxTermDays < (data.minTermDays as number))) {
-    issues.push("maxTermDays")
-  }
+  const minAmount = cents(raw.minAmount)
+  const maxAmount = cents(raw.maxAmount)
+  if (minAmount === null) issues.push("minAmount")
+  if (maxAmount === null || (minAmount !== null && maxAmount < minAmount)) issues.push("maxAmount")
+  const minTerm = days(raw.minTermDays)
+  const maxTerm = days(raw.maxTermDays)
+  if (minTerm === null) issues.push("minTermDays")
+  if (maxTerm === null || (minTerm !== null && maxTerm < minTerm)) issues.push("maxTermDays")
   return issues
 }

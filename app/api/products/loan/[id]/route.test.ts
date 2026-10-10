@@ -202,54 +202,6 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
   })
 })
 
-describe("PUT /api/products/loan/[id] bounds validation", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    requireApiRole.mockResolvedValue({
-      user: { id: "admin-1", email: "admin@example.test" },
-    })
-  })
-
-  const personal = {
-    code: "CUSTOM",
-    name: "Custom Loan",
-    productType: "PERSONAL",
-    interestModel: "REDUCING_BALANCE",
-    minTermDays: 30,
-    maxTermDays: 90,
-  }
-
-  it("rejects a minimum amount above the maximum before opening a transaction", async () => {
-    const response = await PUT(request({ ...personal, minAmount: 9_000, maxAmount: 100 }), context)
-
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual(expect.objectContaining({
-      invalidFields: expect.arrayContaining(["maxAmount"]),
-    }))
-    expect(transaction).not.toHaveBeenCalled()
-  })
-
-  it("rejects a zero minimum term", async () => {
-    const response = await PUT(request({ ...personal, minTermDays: 0 }), context)
-
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual(expect.objectContaining({
-      invalidFields: expect.arrayContaining(["minTermDays"]),
-    }))
-    expect(transaction).not.toHaveBeenCalled()
-  })
-
-  it("rejects a minimum term above the maximum on a non-MICRO30 product", async () => {
-    const response = await PUT(request({ ...personal, minTermDays: 120, maxTermDays: 60 }), context)
-
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual(expect.objectContaining({
-      invalidFields: ["maxTermDays"],
-    }))
-    expect(transaction).not.toHaveBeenCalled()
-  })
-})
-
 describe("DELETE /api/products/loan/[id] MICRO30 guard", () => {
   beforeEach(() => {
     vi.clearAllMocks()

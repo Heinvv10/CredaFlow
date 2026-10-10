@@ -103,6 +103,38 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it("rejects booleans, arrays and strings in the bound fields", async () => {
+    const response = await POST(request({
+      minAmount: true, maxAmount: [5000], minTermDays: true, maxTermDays: "0x1e",
+    }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      invalidFields: ["minAmount", "maxAmount", "minTermDays", "maxTermDays"],
+    }))
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("rejects an amount beyond the int4 cents column", async () => {
+    const response = await POST(request({ maxAmount: 30_000_000 }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      invalidFields: ["maxAmount"],
+    }))
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("rejects a minimum term above the maximum", async () => {
+    const response = await POST(request({ minTermDays: 120, maxTermDays: 60 }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      invalidFields: ["maxTermDays"],
+    }))
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it("rejects a missing minimum amount", async () => {
     const body = JSON.parse(await request().text())
     delete body.minAmount

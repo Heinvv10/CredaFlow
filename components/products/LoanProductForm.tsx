@@ -210,8 +210,9 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
       })
       if (!res.ok) {
         const text = await res.text()
-        const body = await Promise.resolve(text).then(JSON.parse).catch(() => null)
-        throw new Error(body?.error ?? (text || "Save failed"))
+        let message = text
+        try { message = JSON.parse(text).error || text } catch { message = text }
+        throw new Error(message || "Save failed")
       }
       router.push("/settings/products/loan")
       router.refresh()

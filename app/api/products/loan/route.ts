@@ -23,6 +23,16 @@ export async function POST(req: NextRequest) {
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const body = await req.json()
+    const boundsIssues = loanProductBoundsIssues(body)
+    if (boundsIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
+          invalidFields: boundsIssues,
+        },
+        { status: 422 },
+      )
+    }
     const data = {
       tenantId: tenant.id,
       code: body.code,
@@ -39,16 +49,6 @@ export async function POST(req: NextRequest) {
       initiationFeeMax: Math.round((body.initiationFeeMax ?? 0) * 100),
       monthlyServiceFee: Math.round((body.monthlyServiceFee ?? 0) * 100),
       active: body.active ?? true,
-    }
-    const boundsIssues = loanProductBoundsIssues(data)
-    if (boundsIssues.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
-          invalidFields: boundsIssues,
-        },
-        { status: 422 },
-      )
     }
     const contractIssues = micro30ContractIssues(data)
     if (contractIssues.length > 0) {

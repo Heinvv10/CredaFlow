@@ -31,6 +31,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
     const body = await req.json()
+    const boundsIssues = loanProductBoundsIssues(body)
+    if (boundsIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
+          invalidFields: boundsIssues,
+        },
+        { status: 422 },
+      )
+    }
 
     const data = {
       code: body.code,
@@ -47,16 +57,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       initiationFeeMax: Math.round((body.initiationFeeMax ?? 0) * 100),
       monthlyServiceFee: Math.round((body.monthlyServiceFee ?? 0) * 100),
       active: body.active,
-    }
-    const boundsIssues = loanProductBoundsIssues(data)
-    if (boundsIssues.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
-          invalidFields: boundsIssues,
-        },
-        { status: 422 },
-      )
     }
     const contractIssues = micro30ContractIssues(data)
     if (contractIssues.length > 0) {
