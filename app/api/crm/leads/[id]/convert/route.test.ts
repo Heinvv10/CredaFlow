@@ -112,7 +112,10 @@ function recoveryRequest(overrides: Record<string, unknown> = {}) {
 
 const product = {
   id: "product-1",
+  name: "Staff Product",
   active: true,
+  minTermDays: 30,
+  maxTermDays: 90,
   interestRatePm: 0.03,
   interestModel: "DAILY_ACCRUAL",
   initiationFeePct: 0.15,
@@ -861,5 +864,100 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
     expect(response.status).toBe(422)
     expect((await response.json()).error).toMatch(/blacklisted/i)
     expect(applicationCreateMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/crm/leads/[id]/convert term bounds", () => {
+  function termRequest(appliedTermDays: unknown) {
+    return new NextRequest("http://localhost/api/crm/leads/lead-1/convert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        idNumber: "8001015000086",
+        firstName: "Jane",
+        lastName: "Doe",
+        email: "jane@example.test",
+        phone: "+27821234567",
+        employmentStatus: "EMPLOYED",
+        employerName: "Test Employer",
+        monthlyIncome: 15_000,
+        monthlyExpenses: 8_000,
+        appliedAmount: 5_000,
+        appliedTermDays,
+        productId: "product-1",
+        purpose: "Household costs",
+      }),
+    })
+  }
+
+  function expectNothingWritten() {
+    expect(txClientCreateMock).not.toHaveBeenCalled()
+    expect(applicationCreateMock).not.toHaveBeenCalled()
+    expect(leadUpdateMock).not.toHaveBeenCalled()
+    expect(auditLogCreateMock).not.toHaveBeenCalled()
+    expect(activityCreateMock).not.toHaveBeenCalled()
+  }
+
+  it.each([
+    ["above max", 91],
+    ["below min", 29],
+    ["fractional", 90.5],
+    ["non-numeric", "abc"],
+    ["zero", 0],
+    ["negative", -30],
+    ["missing on a variable-term product", undefined],
+  ])("refuses a term that is %s with 422 and writes nothing", async (_label, term) => {
+    const response = await POST(termRequest(term), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toBe("Term must be between 30 and 90 days for Staff Product.")
+    expectNothingWritten()
+  })
+
+  it("passes an in-range term to the affordability snapshot and the application", async () => {
+    const response = await POST(termRequest(60), context)
+
+    expect(response.status).toBe(200)
+    const data = applicationCreateMock.mock.calls[0][0].data
+    expect(data.appliedTermDays).toBe(60)
+    expect(data.affordabilityResult.submission.inputs.termDays).toBe(60)
+    expect(auditLogCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "APPLICATION_SUBMITTED_BY_STAFF",
+        newValue: expect.objectContaining({ appliedTermDays: 60 }),
+      }),
+    })
+  })
+
+  it("uses the product's term when a fixed-term product gets none", async () => {
+    productFindUniqueMock.mockResolvedValue({ ...product, minTermDays: 45, maxTermDays: 45 })
+
+    const response = await POST(termRequest(undefined), context)
+
+    expect(response.status).toBe(200)
+    const data = applicationCreateMock.mock.calls[0][0].data
+    expect(data.appliedTermDays).toBe(45)
+    expect(data.affordabilityResult.submission.inputs.termDays).toBe(45)
+  })
+
+  it("refuses a term that differs from a fixed-term product's", async () => {
+    productFindUniqueMock.mockResolvedValue({ ...product, minTermDays: 45, maxTermDays: 45 })
+
+    const response = await POST(termRequest(30), context)
+
+    expect(response.status).toBe(422)
+    expectNothingWritten()
+  })
+
+  it("re-checks the term against the authoritative locked product read", async () => {
+    productFindUniqueMock
+      .mockResolvedValueOnce(product)
+      .mockResolvedValueOnce({ ...product, minTermDays: 30, maxTermDays: 60 })
+
+    const response = await POST(termRequest(90), context)
+
+    expect(response.status).toBe(500)
+    expect(applicationCreateMock).not.toHaveBeenCalled()
+    expect(leadUpdateMock).not.toHaveBeenCalled()
   })
 })
