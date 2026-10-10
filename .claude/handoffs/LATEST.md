@@ -120,9 +120,10 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   - The credit agreement (and the Form 20 quotation, same renderer) prints at
     most 38 schedule rows and silently drops the rest, while its TOTAL row sums
     the full schedule. Nothing caps instalments: the seeded PERSONAL product
-    allows 1,800 days (60 instalments). The staff wizard, the portal and the
-    CRM convert form all default the term field to the product's maximum, so
-    an untouched PERSONAL application is 60 instalments. `lib/pdf/statement.ts` has the same
+    allows 1,800 days (60 instalments). The portal and the CRM convert form
+    default the term field to the product's maximum (the staff wizard starts
+    it empty), so an untouched PERSONAL application from either is 60
+    instalments. `lib/pdf/statement.ts` has the same
     ~37-row cut. Options are an upstream cap or a continuation page; an NCA
     document change needs Hein's and legal sign-off.
   - `lib/__tests__/webhook-replay.test.ts` runs whenever `DATABASE_URL` is set
