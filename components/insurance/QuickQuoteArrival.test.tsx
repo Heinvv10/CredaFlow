@@ -22,6 +22,9 @@ describe("QuickQuoteArrival insurer logo", () => {
     expect(html).toMatch(/<img[^>]*src="https:\/\/insurer\.example\/logo\.png"/)
     expect(html).not.toContain("/_next/image")
     expect(html).toMatch(/<img[^>]*alt=""/)
+    // Rows land on screen as they arrive; the logo loads with them, as the
+    // plain <img> it replaced did.
+    expect(html).not.toContain('loading="lazy"')
   })
 
   it("renders no image when the quote has no logo", () => {

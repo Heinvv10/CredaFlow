@@ -87,6 +87,7 @@ export function QuickQuoteArrival({ quotes, panelComplete }: Props) {
                 width={56}
                 height={24}
                 unoptimized
+                loading="eager"
                 style={{ width: "auto", height: "auto" }}
               />
             ) : null}
