@@ -65,6 +65,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The unit suites shell out to pdftoppm/pdfinfo (poppler-utils) and qpdf,
+      # which the production image installs and the runner does not.
+      - name: Install PDF tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
+
       - name: Unit tests
         run: npx vitest run
 
