@@ -142,7 +142,7 @@ describe("certificatePaidToDate", () => {
     payment: { aggregate: vi.fn(async () => ({ _sum: { amount, defaultInterestAllocated: splits, chargeFeesAllocated: 0 } })) },
   })
 
-  it("on a never-live loan settled with a small-balance waiver, is undefined so the certificate shows Loan.totalPaid as main does", async () => {
+  it("on a never-live loan settled with a small-balance waiver, is undefined so the certificate shows Loan.totalPaid", async () => {
     loadChargesReplay.mockResolvedValue(null)
     // R2,168.25 cash + a R0.75 waiver: cash received is below Loan.totalPaid.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

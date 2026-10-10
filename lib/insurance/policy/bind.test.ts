@@ -479,7 +479,7 @@ describe("bindQuote — the bind RE-SCREENS rather than trusting the status", ()
   })
 })
 
-describe("bindQuote — P2: the policy is billable", () => {
+describe("bindQuote — the policy is billable", () => {
   it("creates a 12-month premium schedule, or the renewal cron cannot see the policy", async () => {
     // app/api/cron/insurance-renewal selects on `premiumPayments: { some: ... }`.
     // With no rows the policy is invisible to it: never lapses, never renews,
@@ -520,7 +520,7 @@ describe("bindQuote — P2: the policy is billable", () => {
   })
 })
 
-describe("bindQuote — B4: the start date is bounded", () => {
+describe("bindQuote — the start date is bounded", () => {
   it("refuses cover backdated before the quote existed", async () => {
     // `{"startDate":"2024-01-01"}` gave a waitingPeriodEnds already in the past,
     // defeating the insurer's mandatory waiting period on an ACTIVE policy.
@@ -575,7 +575,7 @@ describe("bindQuote — B4: the start date is bounded", () => {
   })
 })
 
-describe("bindQuote — B5: an expired quote does not bind", () => {
+describe("bindQuote — an expired quote does not bind", () => {
   it("refuses a quote past its expiresAt", async () => {
     // expiresAt was written by the quote path and read by NOTHING, so a quote
     // priced on a long-retired card stayed bindable at that stale premium —

@@ -265,7 +265,7 @@ describe("PATCH collections-stage — settled-account guard", () => {
   // N-03 / SEED-0010: arrears>0 but outstandingPrincipal=0 (settled). The old
   // "not in arrears" copy read wrong for exactly this case — the message
   // must cover every leg of the gate (arrears-cleared, settled, AND current).
-  it("refuses a dunning reminder stage on a fully-repaid loan carrying stale arrears (422), sends no WhatsApp, makes no update (N-03)", async () => {
+  it("refuses a dunning reminder stage on a fully-repaid loan carrying stale arrears (422), sends no WhatsApp, makes no update", async () => {
     loanFindUniqueMock.mockResolvedValue(repaidWithStaleArrears)
     const res = await PATCH(makeReq({ stage: "SOFT_REMINDER" }), ctx)
     const json = await res.json() as { error: string }

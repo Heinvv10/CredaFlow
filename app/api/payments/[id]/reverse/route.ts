@@ -125,7 +125,7 @@ export async function PATCH(
         // (non-reversed) receipts. A reversal is NOT "add the gross amount back
         // to outstandingPrincipal" — that over-restores principal by the
         // interest+fees portion and leaves paid instalments marked PAID while
-        // totalPaid drops (audit N-01). Both payment paths derive schedule state
+        // totalPaid drops. Both payment paths derive schedule state
         // from the same allocation so they can never disagree. Charge splits
         // are excluded (scheduleShareOfReceipts), flag on or off.
         const totalReceipts = await scheduleShareOfReceipts(tx, payment.loanId)

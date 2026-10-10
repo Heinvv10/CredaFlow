@@ -10,7 +10,7 @@ const repair = [
 ].join("\n")
 
 describe("provider countersign forward repair migration", () => {
-  it("reinstalls explicit NULL-safe hashes for previously migrated databases", () => {
+  it("reinstalls the countersign constraint and guard with explicit NULL-safe hash checks", () => {
     expect(repair).toContain(
       `"agreementCountersignatureSha256" IS NOT NULL`,
     )

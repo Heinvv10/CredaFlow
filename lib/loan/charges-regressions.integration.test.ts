@@ -55,12 +55,12 @@ const loanOf = (ids: Ids) => db.loan.findUniqueOrThrow({ where: { id: ids.loanId
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "PATCH", body: JSON.stringify(body) })
 const override = (ids: Ids) => ({ reason: "Deposit genuinely reached the account on that date.", approvedById: ids.userId })
 
-suite.sequential("default charges: round-1 review regressions (real Postgres)", () => {
+suite.sequential("default charges: back-dated receipts, notice freezing, exemption, fee repricing and reversal invariants (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })
 
-  it("REPRO 1: a receipt back-dated to before go-live erases all back-charged default interest with NO override", async () => {
+  it("a receipt back-dated to before go-live is refused without an override or keeps the back-charged default interest, and an override audits the full amount rebated", async () => {
     const ids = await createLoan()
     // Go-live 24 Sep; the loan has been overdue since 1 Sep, so it is back-charged from 2 Sep.
     await db.tenantConfig.update({ where: { tenantId: ids.tenantId }, data: { defaultChargesStartedAt: new Date("2026-09-24T09:00:00+02:00") } })
@@ -80,7 +80,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect(audit.newValue).toMatchObject({ defaultChargesRebateCents: DEFAULT_INTEREST })
   })
 
-  it("REPRO 2: a receipt back-dated before an existing later receipt is refused with an unallocated-cents crash", async () => {
+  it("a receipt back-dated before an existing later receipt is accepted with a value-date override", async () => {
     const ids = await createLoan()
     vi.setSystemTime(new Date("2026-09-20T10:00:00+02:00"))
     await capture(ids, 100_000) // Stitch/EFT on 20 Sep: pays R60 default interest + R940 schedule
@@ -93,7 +93,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect(outcome).toBe("accepted")
   })
 
-  it("REPRO 3: exempting a settled loan whose receipt paid charges books the R80 as refund-due instead of 500ing", async () => {
+  it("exempting a settled loan whose receipt paid charges books the R80 as refund-due and returns 200", async () => {
     const ids = await createLoan()
     await capture(ids, SCHEDULE_TOTAL + DEFAULT_INTEREST)
     expect((await loanOf(ids)).status).toBe("COMPLETED")
@@ -106,7 +106,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect((await loanOf(ids)).defaultChargesExempt).toBe(true)
   })
 
-  it("REPRO 4: changing the tenant admin charge re-prices Section 129 letters already issued", async () => {
+  it("changing the tenant admin charge does not re-price Section 129 letters already issued", async () => {
     const ids = await createLoan()
     // Issued through the real finalise path, which freezes the amount.
     const issuedAt = new Date("2026-09-10T10:00:00+02:00")
@@ -133,7 +133,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect(admin2).toBe(admin1)
   })
 
-  it("REPRO 5: editing the product's monthly fee re-prices the post-maturity service fee of an existing loan", async () => {
+  it("editing the product's monthly fee does not re-price the post-maturity service fee of an existing loan", async () => {
     const ids = await createLoan()
     const OCT_5 = new Date("2026-10-05T10:00:00+02:00")
     await sync(ids, OCT_5)
@@ -144,7 +144,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect(fee2).toBe(fee1)
   })
 
-  it("REPRO 6: a Section 129 confirmation after the client settled re-opens the loan with an R82 charge", async () => {
+  it("a Section 129 confirmation recorded after the client settled leaves the loan COMPLETED with no outstanding charges", async () => {
     const ids = await createLoan()
     const reservedAt = new Date("2026-09-25T09:00:00+02:00")
     const recordData = {
@@ -173,7 +173,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect(loan.chargesOutstanding).toBe(0)
   })
 
-  it("REPRO 7: with the flag switched back off, a reversal writes totalPaid != SUM(amount - splits) and nothing refuses it", async () => {
+  it("with default charges switched off, a reversal keeps totalPaid equal to SUM(amount - splits)", async () => {
     const ids = await createLoan()
     await capture(ids, 50_000) // R80 of this is default interest
     const { payment } = await capture(ids, 10_000)
@@ -186,7 +186,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     expect(loan.totalPaid).toBe(identity)
   })
 
-  it("ITEM 17: a loan whose schedule is paid but charges are owed is in the collections queue only while charges are live", async () => {
+  it("a loan whose schedule is paid but charges are owed is in the collections queue only while charges are live", async () => {
     const tenant = await createChargesTenant(db, true)
     const chargesOnly = await createChargesLoan(db, tenant)
     const overdue = await createChargesLoan(db, tenant)

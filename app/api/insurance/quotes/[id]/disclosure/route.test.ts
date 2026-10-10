@@ -399,7 +399,7 @@ describe("POST quote disclosure — bounded issuance, audited refusals", () => {
     )
   })
 })
-describe("POST quote disclosure — G1: screened against the insurer's CURRENT terms", () => {
+describe("POST quote disclosure — screened against the insurer's CURRENT terms", () => {
   it("refuses lives the terms now reject, even though the quote passed when created", async () => {
     // The Phase 2 config UI exists so an operator can change these terms. The
     // quote's stored eligibilityResult records what was true at creation; it is
@@ -454,7 +454,7 @@ describe("POST quote disclosure — G1: screened against the insurer's CURRENT t
   })
 })
 
-describe("POST quote disclosure — G2: every permitted status is exercised", () => {
+describe("POST quote disclosure — every permitted status is exercised", () => {
   // Negative cases alone let DISCLOSABLE be NARROWED to ["ACCEPTED"] with the
   // whole suite green while the ordinary sales flow became impossible. A
   // list-valued guard needs mutation in both directions, so each permitted
@@ -471,7 +471,7 @@ describe("POST quote disclosure — G2: every permitted status is exercised", ()
   }
 })
 
-describe("POST quote disclosure — G5: the PDF renders an unrated life honestly", () => {
+describe("POST quote disclosure — the PDF renders an unrated life honestly", () => {
   it("passes a null premium through rather than inventing a figure", async () => {
     findFirstQuote.mockResolvedValue({
       ...QUOTE,

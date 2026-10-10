@@ -387,7 +387,7 @@ describe("POST /api/insurance/quotes — a covered life may not carry another te
   })
 })
 
-describe("POST /api/insurance/quotes — B3: a date of birth is evidence, not an assertion", () => {
+describe("POST /api/insurance/quotes — a date of birth is evidence, not an assertion", () => {
   const AS_CLIENT = { ...LIFE, clientId: "client-1" }
 
   it("takes the DOB from the CLIENT ROW, overriding whatever the caller sent", async () => {

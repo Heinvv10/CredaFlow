@@ -218,7 +218,7 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
     expect(writeFile).not.toHaveBeenCalled()
   })
 
-  it("refuses a product with no ACTIVE rate table — canSellProduct is now a GATE", async () => {
+  it("refuses a product with no ACTIVE rate table — canSellProduct is a GATE", async () => {
     findManyRateTable.mockResolvedValue([])
     const { POST } = await import("./route")
     const res = await POST(request(FUNERAL))
@@ -300,7 +300,7 @@ describe("POST /api/insurance/policies/draft — credit life and short-term are 
   })
 })
 
-describe("POST /api/insurance/policies/draft — B1: the gate cannot be bypassed by `type`", () => {
+describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by `type`", () => {
   function request(body: Record<string, unknown>) {
     return new NextRequest("http://localhost/api/insurance/policies/draft", {
       method: "POST",
@@ -355,7 +355,7 @@ describe("POST /api/insurance/policies/draft — B1: the gate cannot be bypassed
     expect(writeFile).not.toHaveBeenCalled()
   })
 
-  it("reaches PRODUCT_REQUIRED for a rated type with no product — previously unreachable", async () => {
+  it("reaches PRODUCT_REQUIRED for a rated type with no product", async () => {
     // The gate's own refusal could never fire, because the gate was skipped
     // before it could be consulted.
     const { POST } = await import("./route")

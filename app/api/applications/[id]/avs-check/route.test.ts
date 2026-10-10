@@ -34,7 +34,7 @@ function makeRequest() {
   return new NextRequest("http://localhost/api/applications/app-1/avs-check", { method: "POST" })
 }
 
-describe("POST /api/applications/[id]/avs-check — Phase 7 flag gate", () => {
+describe("POST /api/applications/[id]/avs-check — collectionsEngineEnabled flag gate", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example" } })

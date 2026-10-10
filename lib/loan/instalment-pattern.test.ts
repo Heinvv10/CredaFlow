@@ -121,7 +121,7 @@ describe("the formatter respects the caller's money channel", () => {
   })
 })
 
-describe("REGRESSION C1 — a 90-day personal loan must not overstate instalment 2", () => {
+describe("a 90-day personal loan must not overstate instalment 2", () => {
   // Reproduced from the real product config: PERSONAL is REDUCING_BALANCE with
   // minTermDays 90 and a DEFERRED fee by default, giving round(90/30) = 3 rows
   // where the last differs by a rounding cent. The agreement printed

@@ -54,7 +54,7 @@ describe("FLAT / DAILY_ACCRUAL — nominal off the DAILY rate the calculator bil
     expect(a.percent).not.toBeCloseTo(60.0, 2)
   })
 
-  it("does NOT report the compounded figure that was previously printed", () => {
+  it("does NOT report the compounded (79.59%) figure for a FLAT loan", () => {
     // The old hardcoded (1.05)^12 - 1 = 79.59% described a facility where unpaid
     // interest rolls into the balance every month. A 30-day FLAT loan has no
     // month-2 balance, so that rate overstated a mandated disclosure by ~19pp.

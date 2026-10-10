@@ -44,7 +44,7 @@ const capture = (ids: Ids, amount: number, over: Record<string, unknown> = {}) =
 const loanOf = (ids: Ids) => db.loan.findUniqueOrThrow({ where: { id: ids.loanId }, include: { charges: true, repaymentSchedule: true } })
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "PATCH", body: JSON.stringify(body) })
 
-suite.sequential("charges waiver exemption, sweep race and settle-amount regressions (real Postgres)", () => {
+suite.sequential("charges waiver exemption, sweep race, S129 issuedAt ordering and settle-amount (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })

@@ -100,7 +100,7 @@ export function recomputeLoanBalances(
  * state implied by a set of receipts, so both derive it from this single pure
  * function. Reversal recomputes from the sum of the loan's NON-reversed receipts;
  * without a full re-derivation a reversal would leave rows marked PAID that the
- * remaining receipts no longer cover (audit N-01).
+ * remaining receipts no longer cover.
  */
 export function allocateReceipts(
   rows: { totalDue: number }[],

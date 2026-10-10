@@ -50,7 +50,7 @@ beforeEach(() => {
   claimUpdateMock.mockResolvedValue({ id: "claim_1", status: "APPROVED" })
 })
 
-describe("PATCH /api/insurance/claims/[id] — audit trail (RA-P1-5)", () => {
+describe("PATCH /api/insurance/claims/[id] — audit trail", () => {
   it("approve: 200 + logAudit INSURANCE_CLAIM_APPROVED with the amount", async () => {
     const res = await PATCH(buildReq({ action: "approve", approvedAmount: 5000 }), ctx)
     expect(res.status).toBe(200)

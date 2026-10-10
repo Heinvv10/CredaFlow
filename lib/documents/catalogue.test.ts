@@ -474,7 +474,7 @@ describe("SYSTEM_GENERATORS", () => {
           totalRepayable: 550000,
           outstandingPrincipal: 450000,
         }),
-        // R6-2: the receipt's default-charge split reaches the statement.
+        // the receipt's default-charge split reaches the statement.
         payments: [expect.objectContaining({ amount: 100000, defaultInterestAllocated: 1200, chargeFeesAllocated: 8200 })],
       })
     )

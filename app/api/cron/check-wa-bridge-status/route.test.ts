@@ -478,7 +478,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(body2.alert).toBe("CRITICAL")
   })
 
-  it("main path: DOES latch the alarm when at least one recipient was alerted (existing behaviour preserved)", async () => {
+  it("main path: DOES latch the alarm when at least one recipient was alerted", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([
       { slotId: "a", number: "1", status: "LOGGED_OUT", priority: 0, connectedAt: null, disconnectedAt: null, lastDisconnectReason: "LOGGED_OUT" },
     ] as never)
@@ -512,7 +512,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(res2.status).toBe(502)
   })
 
-  it("bridge-unreachable path: DOES latch the alarm when at least one recipient was alerted (existing behaviour preserved)", async () => {
+  it("bridge-unreachable path: DOES latch the alarm when at least one recipient was alerted", async () => {
     vi.mocked(listWaBridgeNumbers).mockRejectedValue(new Error("fetch failed"))
     vi.mocked(prisma.waBridgeAlarm.findUnique).mockResolvedValue(null)
     vi.mocked(sendWaBridgeAlert).mockResolvedValue(1)

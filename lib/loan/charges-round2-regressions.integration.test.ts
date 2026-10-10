@@ -47,7 +47,7 @@ const loanOf = (ids: Ids) => db.loan.findUniqueOrThrow({ where: { id: ids.loanId
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "PATCH", body: JSON.stringify(body) })
 const override = (ids: Ids) => ({ reason: "Deposit genuinely reached the account on that date.", approvedById: ids.userId })
 
-suite.sequential("charges sync, notice freezing and exemption regressions (real Postgres)", () => {
+suite.sequential("charges sync, notice freezing, exemption refunds, fallback fee and write-off guard (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })

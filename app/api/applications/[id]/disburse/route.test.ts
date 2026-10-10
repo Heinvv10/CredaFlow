@@ -1,6 +1,6 @@
 // app/api/applications/[id]/disburse/route.test.ts
 //
-// Covers R-09b: credit-life auto-bundle behaviour inside the disburse tx.
+// Covers credit-life auto-bundle behaviour inside the disburse tx.
 // The bundle was previously fire-and-forget (void async IIFE that swallowed
 // errors via console.error). Now it runs inside prisma.$transaction so a
 // bundle failure rolls back the disburse — the FAIS bundled-exemption
@@ -910,7 +910,7 @@ afterEach(() => {
   })
 })
 
-describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () => {
+describe("POST /api/applications/[id]/disburse — pre-payout evidence gates (countersign, PASQ, signed agreement, KYC, biometrics, agreement dates)", () => {
   it("blocks before the money transaction without provider countersign evidence", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
@@ -3498,7 +3498,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
   })
 })
 
-describe("POST /api/applications/[id]/disburse — Phase 7 AVS gate (dark behind collectionsEngineEnabled)", () => {
+describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEngineEnabled", () => {
   it("blocks disbursement when collectionsEngineEnabled and no passing AVS check", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
