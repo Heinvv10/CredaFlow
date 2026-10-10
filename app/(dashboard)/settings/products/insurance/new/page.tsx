@@ -5,7 +5,7 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { getDefaultTenantId } from "@/lib/tenant"
 
 export default async function NewInsuranceProductPage() {
-  // Product create is an ADMIN mutation — gate the form page to match (F-29).
+  // Product create is an ADMIN mutation — gate the form page to match.
   await requireMinRole("ADMIN")
   const tenantId = await getDefaultTenantId()
   const insurers = await prisma.insurer.findMany({

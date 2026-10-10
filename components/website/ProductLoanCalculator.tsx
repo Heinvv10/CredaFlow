@@ -88,10 +88,10 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
   ) as Record<PublicLoanProductCode, number>)
   const [enquiryReference, setEnquiryReference] = useState("")
   // Read the URL/localStorage enquiry reference AFTER mount to avoid a
-  // server/client hydration mismatch (W-27).
+  // server/client hydration mismatch.
   useEffect(() => {
     // Client-only read of the URL/localStorage enquiry reference after mount,
-    // the standard way to avoid a hydration mismatch (W-27).
+    // the standard way to avoid a hydration mismatch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setEnquiryReference(readPersistedEnquiryReference())
   }, [])
@@ -110,8 +110,8 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
   return (
     <div className="space-y-5">
       {/* Mobile: a horizontal scroll-snap chip row (no description, single line)
-          so the product picker doesn't push the inputs ~2 viewports down (audit
-          M9). sm+ restores the original card grid with descriptions. */}
+          so the product picker doesn't push the inputs ~2 viewports down.
+          sm+ restores the original card grid with descriptions. */}
       <div className={isCompact
         ? "grid grid-cols-2 gap-1 border border-white/12 bg-white/[0.04] p-1 text-xs font-semibold sm:grid-cols-3"
         : "flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 sm:grid sm:snap-none sm:overflow-visible sm:gap-3 sm:pb-0 sm:grid-cols-2 lg:grid-cols-4"}
@@ -294,7 +294,7 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
           {/* The compact widget hides the full breakdown below, so the personal
               "Monthly estimate" tile would otherwise understate month 1: the
               once-off initiation fee is folded into the first instalment only.
-              Disclose the higher first payment here too (W-14). */}
+              Disclose the higher first payment here too. */}
           {isCompact && product.code === "personal" && (
             <p className="mt-3 text-xs leading-5 text-white/50">
               Your first payment is{" "}

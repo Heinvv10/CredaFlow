@@ -110,7 +110,7 @@ function calcReducing(principal: number, ratePm: number, termDays: number): Calc
 
 function calcDaily(principal: number, ratePm: number, termDays: number): CalcResult {
   // interestRatePm is a MONTHLY rate; daily accrual spreads it over the term
-  // (rate/30 per day), matching lib/loan-calculator.ts (audit F-18).
+  // (rate/30 per day), matching lib/loan-calculator.ts.
   const r = ratePm / 100
   const totalInterest = principal * (r / 30) * termDays
   const totalRepayable = principal + totalInterest
@@ -153,7 +153,7 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
   const initiationPctOverCap = form.initiationFeePct > 15 // NCA max 15% of principal
 
   // interestRatePm is a monthly rate for every model, including DAILY_ACCRUAL
-  // (which accrues that monthly rate daily — see lib/loan-calculator.ts, F-18).
+  // (which accrues that monthly rate daily — see lib/loan-calculator.ts,.
   const displayRateLabel = "% per month"
 
   // Live repayment preview

@@ -2,7 +2,7 @@
 // ALL money is in CENTS (integers) — the same convention as the rest of the app
 // (client.monthlyIncome/monthlyExpenses, the LoanApplication NDI columns, and the
 // ExistingDebtObligation table are all cents). Mixing rands and cents here flips
-// lending decisions and is NCA s.80-81 reckless-lending evidence (audit F-05), so
+// lending decisions and is NCA s.80-81 reckless-lending evidence, so
 // this is the single source of truth and the server recomputes from it — it never
 // trusts a client-posted NDI.
 

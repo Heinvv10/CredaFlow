@@ -5,13 +5,13 @@ import path from "node:path"
 /**
  * Every `/api/cron/*` route must have an owner.
  *
- * The app has TWO schedulers — systemd timers on the deploy host and the
- * in-process node-cron registry in `instrumentation.ts` — and a route wired to
- * neither is code that reads as delivered in any audit and never runs. That is
- * not hypothetical: `licence-expiry` sat unscheduled in both for its whole
- * life, so the FAIS 60-day adviser-licence warnings it exists to send had
- * never once fired, in any environment. A UAT register scored from code
- * presence alone recorded the feature as built.
+ * The app has TWO schedulers — an external scheduler the deployment provides
+ * (it calls the cron routes with the cron secret) and the in-process node-cron
+ * registry in `instrumentation.ts` — and a route wired to neither is code that
+ * reads as delivered in any audit and never runs: an unscheduled
+ * `licence-expiry`, for example, never sends the FAIS 60-day adviser-licence
+ * warnings it exists for, while a register scored from code presence alone
+ * records the feature as built.
  *
  * This test is the guard. Adding a route under `app/api/cron/` now fails the
  * suite until someone states, in one of the three lists below, who runs it.
@@ -26,14 +26,10 @@ const CRON_DIR = path.join(__dirname, "app", "api", "cron")
 const INSTRUMENTATION = path.join(__dirname, "instrumentation.ts")
 
 /**
- * Endpoints invoked by systemd timers on the VPS
- * (`/etc/systemd/system/<app>-{prod,staging}-<name>.timer`, which call
- * `/usr/local/bin/<app>-cron.sh <dir> <port> <name>`).
- *
- * These units are box state, not repo state, so this list is a written claim
- * that cannot be verified from here. Re-confirm it against
- * `systemctl list-timers --all | grep <app>` when it matters — it was
- * re-confirmed on 2026-07-31 and matched exactly.
+ * Endpoints the deployment's external scheduler must invoke (e.g. timers that
+ * call the route with the cron secret). Nothing in this repository schedules
+ * them, so this list is a written claim about the deployment, not something
+ * this test can verify: confirm it against the deployment's scheduler.
  *
  * Routes here MUST NOT also be registered in instrumentation.ts: both
  * schedulers firing means duplicate NCA-mandated borrower comms.
@@ -72,12 +68,10 @@ const INTENTIONALLY_UNWIRED = new Map([
     "OPEN GAP (2026-10-01): the monthly bureau file (lib/bureau-submission). Built but not scheduled, as " +
       "bureau-daily. When it is, run it early on the 1st: a loan paid or reversed after month end is held.",
   ],
-  // NOT `payment-reminders`. It is a duplicate of the systemd-owned
-  // `reminders` endpoint and retiring it is tracked separately — but it IS
-  // registered in instrumentation.ts and does run nightly. Listing it here
-  // made this census assert that an active borrower-reminder job is inactive,
-  // which is the same false-negative that once marked six live rows as "does
-  // not run in production".
+  // NOT `payment-reminders`. It duplicates the externally scheduled
+  // `reminders` endpoint, but it IS registered in instrumentation.ts and runs
+  // nightly. Listing it here would make this census assert that an active
+  // borrower-reminder job is inactive.
   // NOT `poll-wa-templates`. It was listed here as "blocked on Meta WABA
   // review — an account that has none", which was true when written and
   // stopped being true when the WABA went live on 2026-08-11. It is now
@@ -121,8 +115,8 @@ describe("cron route census", () => {
   it("has no allow-list entry for a route that no longer exists", () => {
     // The census as first written only looked for routes missing an owner, so
     // it was blind in the other direction: rename or delete a route and its
-    // stale allow-list entry keeps the suite green while systemd carries on
-    // calling a 404 every night. Both lists must stay subsets of what is on
+    // stale allow-list entry keeps the suite green while the external
+    // scheduler carries on calling a 404 every night. Both lists must stay subsets of what is on
     // disk.
     const routes = new Set(cronRoutes())
     const staleSystemd = [...SYSTEMD_OWNED].filter((r) => !routes.has(r)).sort()
@@ -142,11 +136,8 @@ describe("cron route census", () => {
 
   it("never calls a route 'unwired' while it is scheduled in-process", () => {
     // The census is only worth having if it cannot itself assert something
-    // false. `payment-reminders` sat in INTENTIONALLY_UNWIRED while being
-    // registered in instrumentation.ts, so this file claimed a live nightly
-    // borrower-reminder job does not run — the same false negative that once
-    // put six working features in a client report as "does not run in
-    // production".
+    // false: a route in INTENTIONALLY_UNWIRED that instrumentation.ts registers
+    // would claim a live nightly job does not run.
     const contradictory = [...inProcessScheduled()].filter((r) => INTENTIONALLY_UNWIRED.has(r)).sort()
     expect(
       contradictory,
@@ -244,8 +235,7 @@ describe("scheduler cadence", () => {
 
 describe("scheduler timezone", () => {
   it("pins EVERY schedule to an explicit timezone", () => {
-    // The container sets no TZ (verified on staging and prod: `date` reports
-    // UTC), so an expression with no `timezone` is read in UTC and the job
+    // The container sets no TZ (`date` reports UTC), so an expression with no `timezone` is read in UTC and the job
     // fires two hours later than the comment beside it claims. An unpinned
     // schedule is not a style problem — it is a job that runs at a different
     // time than the file says it does.

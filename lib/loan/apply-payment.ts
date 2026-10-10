@@ -274,7 +274,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
       }
 
       // Recompute principal + arrears + DPD from the post-payment schedule
-      // (audit F-14/F-15). Arrears describe TODAY, so this stays on `asOf` even
+      //. Arrears describe TODAY, so this stays on `asOf` even
       // when the receipt is back-dated.
       const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
       closedAt = isCompleted ? await closingValueDate(tx, input.loanId, receivedAt) : loan.closedAt

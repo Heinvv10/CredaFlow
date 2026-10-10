@@ -1,5 +1,5 @@
 /**
- * Real-Postgres test of the sync's structural guard (review round 3, S1): in
+ * Real-Postgres test of the sync's structural guard: in
  * normal mode no caller may lower Loan.totalPaid (move money already booked
  * to the instalments onto charges) or re-open a settled loan. Each caller
  * class refuses — writes nothing, 409 from routes, a per-loan failure from

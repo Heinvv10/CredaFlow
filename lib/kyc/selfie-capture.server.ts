@@ -84,7 +84,7 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     }
 
     // Verify the real content matches the declared MIME (defence vs. a spoofed
-    // Content-Type). Selfies are JPEG/PNG only (audit F-5).
+    // Content-Type). Selfies are JPEG/PNG only.
     const head = new Uint8Array(await image.slice(0, MAGIC_BYTE_PREFIX).arrayBuffer())
     if (!matchesMagic(head, image.type)) {
       return { ok: false, status: 400, error: "File content does not match its type" }

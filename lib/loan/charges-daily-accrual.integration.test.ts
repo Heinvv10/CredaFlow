@@ -2,7 +2,7 @@
  * Real-Postgres test: a DAILY_ACCRUAL bullet (MICRO30's shape) through every
  * receipt writer while default charges are live. A partial receipt before
  * maturity must stay a partial — no s125 early-settlement reprice — and a
- * full one must still get the lawful reprice (review round 2, N1).
+ * full one must still get the lawful reprice.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-daily-accrual.integration.test.ts

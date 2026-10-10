@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     // Every notice prints the tenant's own NCR registration; refuse the whole
-    // batch before any work when it is missing or invalid (audit F-11).
+    // batch before any work when it is missing or invalid.
     const lender = await lenderIdentityOrRefusal(tenant.id)
     if (lender.refusal) return lender.refusal
     const logo = await getLenderLogo(tenant.id)

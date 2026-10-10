@@ -21,7 +21,7 @@ export function formatZAR(cents: number): string {
  * Abbreviated rand from CENTS for compact KPI cards (Rx.xm / Rxk), full
  * formatZAR below R1,000. Converts cents → rands BEFORE abbreviating — the
  * reports overview previously divided cents by 1e6 directly, overstating Book /
- * Disbursements / trend 100× (audit F-26).
+ * Disbursements / trend 100×.
  */
 export function formatZARCompact(cents: number): string {
   const rands = cents / 100

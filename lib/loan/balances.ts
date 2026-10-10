@@ -5,7 +5,7 @@ import { sastStartOfDay } from "@/lib/date/sast"
 // by the Certificate of Balance and Statement (legal/court documents), so they
 // must be derived from the schedule, not incrementally guessed.
 //
-// Audit F-14/F-15: the payment route previously subtracted the GROSS receipt from
+// The payment route previously subtracted the GROSS receipt from
 // outstandingPrincipal (over-reducing it by the interest+fees portion) and hard-
 // reset arrears/DPD to 0 on every payment. Both are fixed by recomputing here.
 
@@ -144,9 +144,9 @@ export function contractualRunningBalances(
 /**
  * The dueDate of the earliest not-fully-paid instalment, or null if all paid.
  * Persist this to Loan.nextPaymentDate after a payment so the "next payment"
- * display and the DPD basis stay in sync with the schedule (audit F-15 — the
- * DPD cron previously derived DPD from a nextPaymentDate the payment paths never
- * updated, which could clobber the recomputed arrears).
+ * display and the DPD basis stay in sync with the schedule (a DPD cron that derived
+ * DPD from a nextPaymentDate the payment paths never updated could clobber the
+ * recomputed arrears).
  */
 export function nextPaymentDueDate(schedule: ScheduleRowLike[]): Date | null {
   let earliest: Date | null = null

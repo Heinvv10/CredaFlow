@@ -570,9 +570,8 @@ describe("render resolution", () => {
   })
 
   it("stays at or above the resolution where column reads stopped failing", () => {
-    // Measured on a sample of payslips: at 200dpi three were read from
-    // the year-to-date column instead of the current month, scoring 5/8 against
-    // ground truth. At 300 and 400 that became 8/8 with no YTD reads. Below 300
+    // At low resolution the model reads the year-to-date column instead of
+    // the current month. At 300 and above it does not. Below 300
     // the model can see the digits perfectly and still cannot tell which column
     // they sit under, which is a silent wrong answer about someone's income.
     expect(RENDER_DPI).toBeGreaterThanOrEqual(300)

@@ -41,7 +41,7 @@ export function refFor(loanId: string, loans: LoanOption[]): string {
 
 export function ManualPaymentForm({ loans }: Props) {
   const [loanId, setLoanId] = useState(loans[0]?.id ?? "")
-  // M5: default to the selected loan's next instalment so the borrower
+  // default to the selected loan's next instalment so the borrower
   // doesn't retype the most common amount. handleLoanChange keeps the
   // field in sync if they switch loans before submitting.
   const [amountStr, setAmountStr] = useState(() => nextDueAsRandsStr(loans[0]?.id ?? "", loans))

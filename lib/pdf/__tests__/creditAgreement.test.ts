@@ -569,9 +569,9 @@ describe("disclosure rows fit the value column", () => {
 
 // ── Legal sign-off pin ───────────────────────────────────────────────────────
 //
-// Legal signs the Form 20 / PASQ off AS IT RENDERS. That approval attaches to a
-// specific rendering, not to the idea of one, so it decays silently on the next
-// refactor unless it is pinned. This is a characterisation test: it does not
+// The lender's legal team signs the Form 20 / PASQ off AS IT RENDERS. That
+// sign-off attaches to a specific rendering, not to the idea of one, so it
+// decays silently on the next refactor unless it is pinned. This is a characterisation test: it does not
 // judge the document, it detects that the document moved.
 //
 // WHAT IS HASHED. Every RENDERING stream: the page content streams -- all text
@@ -586,7 +586,7 @@ describe("disclosure rows fit the value column", () => {
 //     staying the same length;
 //   - only the `Tm`/`Tj` text runs: stable, but it would let a changed rule,
 //     checkbox, colour or logo pass silently while the approved VISUAL document
-//     had moved. Caught in review;
+//     had moved;
 //   - all streams with date literals redacted: still intermittently red, and the
 //     reason is worth keeping. The XREF stream encodes FILE BYTE OFFSETS, which
 //     shift whenever the object stream's deflate output changes length with the
@@ -596,46 +596,52 @@ describe("disclosure rows fit the value column", () => {
 // Stability was then measured over eight consecutive runs, not assumed.
 //
 // If this fails, the rendered document changed. That is not automatically a
-// bug, but the legal approval no longer covers the output and must be
-// re-obtained before the change ships. Do NOT re-pin the hash to go green.
+// bug, but a legal sign-off on the old render no longer covers the output and
+// must be re-obtained before the change ships. Do NOT re-pin the hash to go
+// green.
 describe("PASQ / Form 20 — approved-render pin", () => {
-  // The pinned render includes the Regulation 29(c) bordered "Quotation" box,
-  // the consumer's physical address and contact number, and the Regulation
-  // 29(d)(ii) distribution of the principal debt. The 'Distribution of
-  // Principal Debt' row states where the initiation fee goes; it must not claim
-  // the fee is capitalised into the principal debt under s.102(1)(b), because
-  // lib/loan-calculator.ts never folds the fee into the interest-bearing
-  // principal in either mode. The border is drawn outside the existing text
-  // positions, so no previously approved wording moved.
+  // Re-pin record. Each re-pin states what changed in the render — a re-pin
+  // carries that proof or it does not happen. The hash proves only that the
+  // render has not moved, not that it is legally approved: each lender's legal
+  // team signs off its own render before go-live.
   //
-  // The fixture deliberately carries NO phone, so this pin is the render
-  // without one. The populated case is proved by a separate test.
-  //
-  // Page 4 of the quotation: the heading is CONSUMER ACKNOWLEDGEMENT OF RECEIPT, the document states
-  // "THIS IS A QUOTATION - NOT A CREDIT AGREEMENT. DO NOT SIGN IT." with a
-  // plain-language explanation, the contract-acceptance checkbox and the whole
-  // signature block are removed, and the footer reads "This quotation is
-  // governed by...". The AGREEMENT variant is unchanged — its rendered text is
-  // byte-identical before and after, proved by diffing pdftotext output and
-  // pinned by "agreement variant keeps its full signature block".
-  //
-  // SCOPE LIMIT, stated so it is not mistaken for wider cover: this fixture
-  // carries NO credit life, so the credit-life premium-reference change made
-  // in the same commit ("...on page 1 of this Pre-Agreement Statement and
-  // Quotation", replacing "...on page 1 of this agreement") is INVISIBLE to
-  // this hash. That change is covered by the two dedicated wording tests
-  // above, one of which proves the page-1 reference is factually true.
-  // The pin covers the per-page ceremony marker legal approved.
-  // Rendered WITH the marker, matching real output: page substitution in a
-  // PRINTED packet is what per-page initialling guards against, and the sha256
-  // binding cannot help once paper is involved (POST /signing-packet checks
-  // page COUNT only). The marker binds every page to one ceremony instead.
-  // The marker adds a footer reference and nothing else.
-  // The fixture is the Acme demo lender with no logo (no caller passes one).
-  // A real deployment renders the same layout, so each client's legal team
-  // re-approves its own render before go-live.
-  // The palette is neutral: accent and ink colour operands only (see
-  // lib/pdf/charges-off-identity.test.ts).
+  // 1. Added the Regulation 29(c) bordered "Quotation" box, the consumer's
+  //    physical address and contact number, and the Regulation 29(d)(ii)
+  //    distribution of the principal debt. The 'Distribution of Principal
+  //    Debt' row states where the initiation fee goes; it must not claim the
+  //    fee is capitalised into the principal debt under s.102(1)(b), because
+  //    lib/loan-calculator.ts never folds the fee into the interest-bearing
+  //    principal in either mode. No existing wording was altered or moved -
+  //    the border is drawn outside the existing text positions.
+  //    The fixture deliberately carries NO phone, so this pin is the render
+  //    without one. The populated case is proved by a separate test.
+  // 2. Quotation redesign on page 4: the heading becomes CONSUMER
+  //    ACKNOWLEDGEMENT OF RECEIPT, the document states
+  //    "THIS IS A QUOTATION - NOT A CREDIT AGREEMENT. DO NOT SIGN IT." with a
+  //    plain-language explanation, the contract-acceptance checkbox and the
+  //    whole signature block are removed, and the footer reads "This quotation
+  //    is governed by...". The AGREEMENT variant is unchanged — its rendered
+  //    text is byte-identical before and after, proved by diffing pdftotext
+  //    output and pinned by "agreement variant keeps its full signature block".
+  //    SCOPE LIMIT, stated so it is not mistaken for wider cover: this fixture
+  //    carries NO credit life, so the credit-life premium-reference wording
+  //    ("...on page 1 of this Pre-Agreement Statement and Quotation", not
+  //    "...on page 1 of this agreement") is INVISIBLE to this hash. That
+  //    wording is covered by the two dedicated wording tests above, one of
+  //    which proves the page-1 reference is factually true.
+  // 3. Added the per-page ceremony marker. Rendered WITH the marker, matching
+  //    real output: page substitution in a PRINTED packet is what per-page
+  //    initialling guards against, and the sha256 binding cannot help once
+  //    paper is involved (POST /signing-packet checks page COUNT only). The
+  //    marker binds every page to one ceremony instead. Everything re-pin 2
+  //    covered is unchanged; this adds a footer reference and nothing else.
+  // 4. b305bb2e… -> 977f619f…: the fixture became the Acme demo lender with no
+  //    logo (no caller passes one), and the lender address line only this
+  //    fixture ever passed is gone. Rendered text differs from the old pin's
+  //    in identity values only; the PASQ/agreement wording is unchanged.
+  // 5. 977f619f… -> 68887070…: neutral palette. Only the accent and ink colour
+  //    operands differ, proven by an object-by-object comparison of the old
+  //    and new renders (see lib/pdf/charges-off-identity.test.ts).
   const PINNED_RENDER_SHA256 =
     "6888707054a37b87e9fde0517244180bfa221c736d60c343bf1175cced9fe98d"
 
@@ -700,7 +706,7 @@ describe("PASQ / Form 20 — approved-render pin", () => {
   it("is sensitive to the money — the pin is not vacuous", async () => {
     // Mutate the SCHEDULE, not calc.totalRepayable. The renderer deliberately
     // derives every total by summing the schedule rows (creditAgreement.ts:394-397)
-    // and calc.totalRepayable is never drawn -- see the F-13 comment at :302,
+    // and calc.totalRepayable is never drawn,
     // because it excludes the initiation fee in the UPFRONT case. Perturbing
     // calc.totalRepayable alone therefore changes nothing on the page AND
     // violates the type's own invariant that it equals sum(schedule.totalDue).
@@ -827,8 +833,8 @@ describe("consumer contact number reaches the document", () => {
 describe("every caller threads the consumer contact number", () => {
   // The field was wired for the PASQ route and NOT for the two other callers of
   // the shared generator, so credit agreements would have rendered an em-dash
-  // for a consumer whose phone we hold. Caught in review, not by me: I fixed the
-  // named path and did not grep the siblings. A source-level assertion because
+  // for a consumer whose phone we hold. Fixing only the named path misses
+  // the siblings, hence a source-level assertion because
   // the alternative is three near-identical PDF fixtures.
   it("selects and passes client.phone in all three call sites", async () => {
     const fs = await import("node:fs")

@@ -176,7 +176,7 @@ export async function sendLeadOutreach(input: {
   if (!eligible.ok) return { ok: false, reason: eligible.reason, detail: eligible.detail }
 
   if (!lead.contact) {
-    // Pre-F-23 leads predate the Contact directory; the backfill reconciles
+    // Older leads predate the Contact directory; the backfill reconciles
     // them. Nothing to send to until then.
     return { ok: false, reason: "NO_CONTACT", detail: "this lead has no contact record yet" }
   }

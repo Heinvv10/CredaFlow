@@ -33,9 +33,9 @@ describe("normalizePhone (idempotent over raw phone OR fully-qualified JID)", ()
   })
 
   it("is idempotent over an already-normalised JID — does NOT double-suffix", () => {
-    // This is the bug PR-9 patched: callers that pass `27821234567@s.whatsapp.net`
-    // were re-normalised + re-suffixed → `27821234567@s.whatsapp.net@s.whatsapp.net`,
-    // and posts never delivered. The fix strips the JID suffix first.
+    // This guards against callers that pass `27821234567@s.whatsapp.net`
+    // being re-normalised + re-suffixed → `27821234567@s.whatsapp.net@s.whatsapp.net`,
+    // so posts never delivered. The fix strips the JID suffix first.
     expect(normalizePhone("27821234567@s.whatsapp.net")).toBe("27821234567")
   })
 

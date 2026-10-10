@@ -433,7 +433,7 @@ describe("buildQuoteFrameSrc", () => {
   })
 })
 
-/* Decision D-W4: no quote host is baked in. Unset means OFF, in every
+/* Decision: no quote host is baked in. Unset means OFF, in every
    environment, including development. */
 describe("quote host and frame-ancestors come from env only", () => {
   const UNSET_ENVS = [

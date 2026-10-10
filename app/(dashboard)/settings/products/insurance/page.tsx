@@ -11,7 +11,7 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export default async function InsuranceProductsPage() {
-  // Mirror the loan-products gate: product mutations are ADMIN (F-29).
+  // Mirror the loan-products gate: product mutations are ADMIN.
   await requireMinRole("ADMIN")
   // Same resolver as the [id] edit page and the API: a third local
   // header-reading variant (no status check, silent tenant-slug default) could

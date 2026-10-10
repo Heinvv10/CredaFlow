@@ -15,9 +15,9 @@ describe("isPublicOperationalRoute", () => {
   })
 
   it("allows inbound provider webhook routes under /api/webhooks/* (handlers enforce HMAC)", () => {
-    // The only route shipping with this PR is /api/webhooks/whatsapp (PR-4).
-    // The remaining names are hypothetical — they exercise the prefix matcher
-    // against the path shapes PR-3's verifier suite will eventually need.
+    // /api/webhooks/whatsapp is a real route. The remaining names are
+    // hypothetical — they exercise the prefix matcher against the path shapes
+    // other provider webhooks would use.
     expect(isPublicOperationalRoute("/api/webhooks/whatsapp")).toBe(true)
     expect(isPublicOperationalRoute("/api/webhooks/example-provider")).toBe(true)
     expect(isPublicOperationalRoute("/api/webhooks/some-future-route")).toBe(true)

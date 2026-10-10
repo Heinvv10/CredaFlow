@@ -175,7 +175,7 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
                 <input id={`${variant}-remember-me`} name="remember" type="checkbox" className="rounded border-[var(--cf-border-strong)] bg-[var(--cf-bg-raised)]" />
                 Remember me
               </label>
-              {/* Self-service password reset for both audiences (W-5). Staff use
+              {/* Self-service password reset for both audiences. Staff use
                   /forgot-password (User table, token link); clients use
                   /portal/forgot-password (Client OTP flow backed by
                   /api/portal/{forgot,reset}-password). Replaces the previous dead

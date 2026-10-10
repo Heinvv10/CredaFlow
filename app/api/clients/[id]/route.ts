@@ -1174,7 +1174,7 @@ const MIN_MANUAL_KYC_REASON_LENGTH = 10
 /**
  * Manual KYC status override (Approve / Reject KYC). The SelfieKycTab buttons
  * previously PATCHed this route, which only had GET+PUT → 405 swallowed
- * silently (audit F-09/F-10). This handler sets kycStatus directly, stamps the
+ * silently. This handler sets kycStatus directly, stamps the
  * verification timestamp/method, and writes the audit trail.
  */
 export async function PATCH(

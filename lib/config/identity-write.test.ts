@@ -93,7 +93,7 @@ describe("updateLenderIdentity", () => {
     },
   )
 
-  // F-11 was a transposed digit, which every format check accepts. A change
+  // The original defect was a transposed digit, which every format check accepts. A change
   // to a statutory number must be typed twice.
   it("rejects a statutory number change whose confirmation differs (transposed digit)", async () => {
     const { db, state } = memoryDb(VALID_LENDER_COLUMNS)

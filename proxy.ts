@@ -34,7 +34,7 @@ export default auth((req) => {
   // Smart email-CTA entry: checks account state and 302s to login or register.
   // Public like the login/register pages it routes to (it holds no session).
   const isPortalContinuePage = req.nextUrl.pathname === "/portal/continue"
-  // Client-facing self-service reset page (W-5). Must be public like
+  // Client-facing self-service reset page. Must be public like
   // /portal/login and /portal/register — the page's own auth() redirects a
   // logged-in user, so no separate logged-in guard entry is needed.
   const isPortalForgotPasswordPage = req.nextUrl.pathname === "/portal/forgot-password"

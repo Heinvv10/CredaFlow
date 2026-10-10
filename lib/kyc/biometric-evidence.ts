@@ -3,12 +3,10 @@ import { Buffer } from "node:buffer"
 
 // Minimum face-match and liveness scores (0–100) for payout-grade biometric
 // KYC. The provider is the VLM comparing the live selfie against the printed
-// ID photograph in one multimodal request (Qwen3-VL-30B spike on real ID
-// images): a genuine same-person pair scored 95; a cross-person
-// pair scored 10; a borderline same-person pair (years-old ID photo, facial
-// hair grown since) scored 10 — i.e. uncertainty fails CLOSED toward the
-// in-person verification route, never open. 70 keeps a wide margin above
-// every observed impostor/uncertain score while accepting confident matches;
+// ID photograph in one multimodal request: a genuine same-person pair scores high; a
+// cross-person pair and a borderline pair (years-old ID photo) score low — i.e.
+// uncertainty fails CLOSED toward the in-person verification route, never open. 70 keeps a wide
+// margin above impostor/uncertain scores while accepting confident matches;
 // a client the VLM cannot confidently match retains the human fallback.
 export const BIOMETRIC_MATCH_THRESHOLD = 70
 export const BIOMETRIC_LIVENESS_THRESHOLD = 70

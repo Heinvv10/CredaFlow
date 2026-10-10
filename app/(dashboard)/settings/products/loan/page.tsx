@@ -12,7 +12,7 @@ export default async function LoanProductsPage() {
   // Match the product-mutation API (ADMIN): the page exposes "+ New Product" /
   // "Edit" controls whose backing routes require ADMIN. Without this gate a
   // low-privilege role (e.g. COLLECTIONS_AGENT) sees interest-rate edit buttons
-  // it can't action and product config it shouldn't (F-29).
+  // it can't action and product config it shouldn't.
   await requireMinRole("ADMIN")
   const tenantId = await getDefaultTenantId()
   const products = await prisma.loanProduct.findMany({ where: { tenantId }, orderBy: { name: "asc" } })

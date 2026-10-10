@@ -305,7 +305,7 @@ export const AuditAction = {
   INSURANCE_POLICY_AUTOBUNDLED:           "INSURANCE_POLICY_AUTOBUNDLED",
   INSURANCE_AUTOBUNDLE_SKIPPED:           "INSURANCE_AUTOBUNDLE_SKIPPED",
   INSURANCE_PATCH_FAIS_LOCKED:            "INSURANCE_PATCH_FAIS_LOCKED",
-  // F-25: PPR / FAIS disclosure issued for an auto-bundled credit-life policy.
+  // PPR / FAIS disclosure issued for an auto-bundled credit-life policy.
   INSURANCE_PPR_ISSUED:                   "INSURANCE_PPR_ISSUED",
   INSURANCE_PPR_ISSUE_FAILED:             "INSURANCE_PPR_ISSUE_FAILED",
   // Policyholder acknowledging the PPR disclosure themselves in the portal.

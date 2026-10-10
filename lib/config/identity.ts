@@ -8,7 +8,7 @@
  * so a statutory document or customer message refuses to render instead of
  * printing someone else's registration.
  *
- * History (audit F-11): the inherited code printed a hardcoded NCR number
+ * History: the inherited code printed a hardcoded NCR number
  * whatever the DB said, because a transposed digit once shipped from the DB.
  * The DB value now IS the printed value, so the guarantee moved to the write
  * side: lib/config/identity-write.ts validates with the schema below, demands

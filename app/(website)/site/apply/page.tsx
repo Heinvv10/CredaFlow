@@ -65,9 +65,10 @@ const productLimits: Record<string, [number, number]> = {
 
 // Static catalogue for the pre-fetch product routing done in readInitialApplyState
 // (a useState initialiser runs before the live fetch resolves). productForAmount
-// fails open to exactly these figures, and the static short-term/personal
-// maxima must equal the live ones, so the initial route matches; the live slider bounds
-// + validation then govern. Internal apply links + the qualify result already pass
+// fails open to exactly these figures. The static short-term/personal maxima
+// are a fallback and may differ from a tenant's live LoanProduct ranges, so an
+// amount near a boundary can route differently from the live catalogue; the
+// live slider bounds + validation then govern. Internal apply links + the qualify result already pass
 // an explicit `product`, so this amount-only routing is a fallback path.
 const STATIC_APPLY_PRODUCTS = applyLivePricing({})
 
@@ -118,7 +119,7 @@ function productFromAmount(amountRands: number): string {
 }
 
 // Maps a calculator applyProduct code (or a legacy uppercase product type) to
-// the apply form's product type (W-12). `capital` (PO funding) previously fell
+// the apply form's product type. `capital` (PO funding) previously fell
 // through to amount-derived routing and mis-routed PO enquiries into a personal
 // loan. `short-term` now shares the MICRO product's R500-R10,000 / 30-day range
 // (it mirrors the 30-Day Micro Loan), so it maps straight to MICRO — closing the
@@ -147,7 +148,7 @@ function normaliseAmountParam(value: string | null, unit?: string | null): strin
   if (!value) return ""
   const raw = Number(value)
   if (!Number.isFinite(raw) || raw <= 0) return ""
-  // Prefer an explicit unit marker (W-28); fall back to the legacy magnitude
+  // Prefer an explicit unit marker; fall back to the legacy magnitude
   // heuristic for older links (internal links emitted amounts >= 50000 in cents).
   if (unit === "cents") return String(Math.round(raw / 100))
   if (unit === "rands") return String(Math.round(raw))
@@ -307,7 +308,7 @@ export default function ApplyPage() {
   // with populated values, a guaranteed React #418 mismatch. `hydrated`
   // gates the persistence effect below so it can't clobber a real draft with
   // the blank defaults before this restore runs — same idiom already used in
-  // ./qualify/page.tsx (W-27).
+  // ./qualify/page.tsx.
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => {
     const initial = readInitialApplyState()
@@ -521,7 +522,7 @@ export default function ApplyPage() {
   if (reference) {
     // Portal URLs come from lib/portal-urls.ts, which honours the same
     // NEXT_PUBLIC_PORTAL_LOGIN_URL override NavBar + the homepage login CTA use
-    // (W-18) — one source of truth for the on-page links and the email CTA.
+    // — one source of truth for the on-page links and the email CTA.
     // Null when no portal URL is configured: the buttons are left out rather
     // than crashing the success screen after the application was created.
     const portalRegisterHref = portalUrlOrNull(() => portalRegisterUrl(step1.email, reference))
@@ -529,8 +530,8 @@ export default function ApplyPage() {
     // Portal CTA gating: only offer "Create portal account" when a client row
     // exists without a password yet (activation_required). When the status is
     // "unavailable" (identity conflict / no client row) /portal/register 404s,
-    // so offer neither register nor login (W-11). "Track your application" copy
-    // only shows when an application was actually created (W-7).
+    // so offer neither register nor login. "Track your application" copy
+    // only shows when an application was actually created.
     const canRegister = portalAccountStatus === "activation_required"
     const canLogin = portalAccountStatus === "ready"
     const hasPortalAccount = canRegister || canLogin

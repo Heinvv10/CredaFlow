@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
         salaryPaymentDay: data.salaryPaymentDay != null ? String(data.salaryPaymentDay) : "",
         monthlyIncome: data.monthlyIncome != null ? String(data.monthlyIncome) : "",
         grossMonthlyIncome: data.grossMonthlyIncome != null ? String(data.grossMonthlyIncome) : "",
-        // Cached scalar — kept on Client for the 6+ downstream readers (M7 NDI
+        // Cached scalar — kept on Client for the 6+ downstream readers (NDI
         // calc, portal display, qualify pre-check, reports). The wizard
         // doesn't surface this field; it's derived from `expenseBreakdown`.
         monthlyExpenses: String(monthlyExpensesCents / 100),

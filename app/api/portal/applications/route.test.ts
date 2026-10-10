@@ -88,7 +88,7 @@ vi.mock("@/lib/referral-agents/referrals", () => ({
 import { POST } from "./route"
 
 // Two distinct rate-limit keys: an up-front request throttle and the late
-// create cap. Tests distinguish them so we can assert the F-1 property (only
+// create cap. Tests distinguish them so we can assert the property (only
 // genuine creates consume the CREATE budget) independently of the coarse
 // request throttle.
 const REQ_KEY = "portal:apply:req:c1"

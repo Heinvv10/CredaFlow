@@ -7,7 +7,7 @@ import { getResolvedTenantId } from "@/lib/tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 export default async function EditInsuranceProductPage({ params }: { params: Promise<{ id: string }> }) {
-  // Product edit is an ADMIN mutation — gate the form page to match (F-29).
+  // Product edit is an ADMIN mutation — gate the form page to match.
   await requireMinRole("ADMIN")
   const { id } = await params
   const tenantId = await getResolvedTenantId()

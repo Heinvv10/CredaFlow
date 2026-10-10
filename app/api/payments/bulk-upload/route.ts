@@ -246,8 +246,7 @@ export async function POST(req: NextRequest) {
                 })
               }
 
-              // Recompute balances from the full post-payment schedule (audit
-              // F-14/F-15): reduce principal only by the principal portion paid,
+              // Recompute balances from the full post-payment schedule: reduce principal only by the principal portion paid,
               // and never zero genuine arrears.
               const balances = recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf)
               const newTotalPaid = projection.newTotalPaid

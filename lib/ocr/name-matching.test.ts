@@ -302,7 +302,7 @@ describe("areNamesSimilar — the particle floor keeps one given name", () => {
 })
 
 describe("areNamesSimilar — a name shortens from the front, not the middle", () => {
-  // Proven by an adversarial reviewer. The containment test
+  // The containment test
   // (`s.includes(firstGiven) || firstGiven.includes(s)`) accepted any given
   // name that merely CONTAINED the other, so two different people sharing a
   // surname matched — the exact shape of the fraud this comparison exists to

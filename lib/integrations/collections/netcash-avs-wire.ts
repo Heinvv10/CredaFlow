@@ -20,17 +20,17 @@ const NIWS_AVS_SOAP_ACTION = "http://tempuri.org/INIWS_NIF/AVSRealtimeQuery"
 
 /**
  * WSDL enum MandateOptions.BankAccountType: "Current" | "Savings" |
- * "Transmission". Only the first two have a source value: TRANSMISSION was
- * not a selectable Client.accountType (it was never
- * chosen by any client, and the database guards never accepted it).
+ * "Transmission". Only the first two have a source value: TRANSMISSION is no
+ * longer a selectable Client.accountType, and the database guards accept only
+ * CHEQUE and SAVINGS.
  */
 const ACCOUNT_TYPE_MAP: Record<AvsRequest["accountType"], string> = {
   CHEQUE: "Current",
   SAVINGS: "Savings",
 }
 
-// Copied from lib/integrations/netcash.ts:52-59 (legacy payout client) —
-// kept local per Task 4 instructions rather than importing across modules.
+// Copied from lib/integrations/netcash.ts escapeXml (legacy payout client) —
+// kept local rather than importing across modules.
 function escapeXml(str: string): string {
   return str
     .replace(/&/g, "&amp;")

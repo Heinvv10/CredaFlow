@@ -6,7 +6,7 @@ import { integrationTestResultMessage } from "@/lib/integrations/simulation-pres
  * Exercises the REAL route. An earlier version of this file asserted against a
  * test-local copy of the AVS projection, which meant the route could drop
  * `simulated` and every test would still pass — coverage that could not fail
- * for the reason it claimed to protect against. Caught in review.
+ * for the reason it claimed to protect against.
  *
  * The AVS branch does not return the adapter's object; it rebuilds the response
  * field by field. That hand-rebuild is the hazard: the adapter labels a dry-run

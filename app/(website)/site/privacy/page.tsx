@@ -19,7 +19,7 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { toCrumbs } from "@/lib/nav/breadcrumbs"
 import { getWebsiteIdentity } from "@/lib/website/identity"
 
-// Legal copy (decision D-W2): the wording is unchanged from the inherited
+// Legal copy: the wording is unchanged from the inherited
 // policy; only the lender's identity values are substituted from its own
 // LenderIdentity. Client legal must sign this page off before go-live.
 

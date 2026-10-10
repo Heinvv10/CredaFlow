@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { computeDefaultCharges, type DefaultChargeInput } from "@/lib/loan/default-charges"
 import { d, input, row } from "./default-charges.test-helpers"
 
-// Regressions from the adversarial reviews of the engine.
+// Regressions for the engine.
 
 describe("computeDefaultCharges — review round 1", () => {
   // R100 principal, 5% pm, bullet due 1 Jan 2026, R5 interest, no fee.

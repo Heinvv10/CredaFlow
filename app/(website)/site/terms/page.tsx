@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
   })
 }
 
-// NOTE (audit W-10): this page gives the footer "Terms & Conditions" link a real
+// NOTE: this page gives the footer "Terms & Conditions" link a real
 // destination that summarises the terms framework and points to the binding
 // documents. It intentionally does NOT restate the binding, NCA-mandated loan
 // terms — those live in the pre-agreement statement and credit agreement the
@@ -27,7 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
 // is included. Legal should still confirm the wording. A consolidated, legally-approved public
 // T&C can still replace/extend the body below when the legal team produces it.
 //
-// White-label (decision D-W2): the wording is unchanged; only the lender's
+// White-label: the wording is unchanged; only the lender's
 // identity values are substituted from its own LenderIdentity. Section 3's
 // pricing link points at the calculators, because the pricing page is gone.
 

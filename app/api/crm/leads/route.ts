@@ -94,7 +94,7 @@ export async function POST(req: Request) {
         },
       })
 
-      // Provision the lead's unified Contact + ContactIdentity rows (F-23) so
+      // Provision the lead's unified Contact + ContactIdentity rows so
       // it enters the Phase-9 directory and the channel-keyed messaging
       // eligibility lookup (canSend). Done best-effort AFTER the lead commits:
       // a lead must never fail to create because of directory provisioning. In

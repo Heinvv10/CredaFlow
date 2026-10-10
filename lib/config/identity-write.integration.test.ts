@@ -92,7 +92,7 @@ suite("lender identity write path (real DB)", () => {
     expect(rows[1].newValue).toEqual({ ncrNumber: "NCRCP11111" })
   })
 
-  // D-W5: the regulatory details are optional, not typed twice, audited, and
+  // the regulatory details are optional, not typed twice, audited, and
   // stored as DATE columns that read back as the same calendar day.
   const REGULATORY = { ncrRegistrationDate: "2025-10-07", fscaAuthorisationDate: "2026-02-27", ncrStatus: "Registered", headOfficeCity: "Sandton" }
   const CURRENT = { ...VALID_LENDER_COLUMNS, ncrNumber: "NCRCP11111" }

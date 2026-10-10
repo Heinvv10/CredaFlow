@@ -67,7 +67,7 @@ describe("PATCH/DELETE /api/settings/whatsapp-bridge/numbers/[slotId]", () => {
     )
   })
 
-  // COMPLIANCE (adversarial review): the bridge's mutations are non-atomic, so
+  // COMPLIANCE: the bridge's mutations are non-atomic, so
   // a thrown error does NOT mean nothing happened. retireSlot logs the number
   // out of WhatsApp, closes the socket and drops the slot from the pool BEFORE
   // its final step; an HTTP timeout can also land after the bridge committed.

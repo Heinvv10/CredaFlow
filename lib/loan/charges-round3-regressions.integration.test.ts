@@ -1,6 +1,6 @@
 /**
- * Regressions from the round-3 adversarial review of default charges (each
- * failed at 67f7ac68d against real Postgres, or probes a guarantee that held).
+ * Further regressions for default charges, run against real Postgres (each
+ * pins a defect that was fixed, or probes a guarantee that holds).
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-round3-regressions.integration.test.ts

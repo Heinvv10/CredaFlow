@@ -152,7 +152,7 @@ afterEach(() => {
 })
 
 describe("POST /api/loans/section129/bulk", () => {
-  // F-11: no configured, valid lender identity ⇒ no notice in the batch.
+  // no configured, valid lender identity ⇒ no notice in the batch.
   it("refuses with 409 before reading loans when the lender identity is not configured", async () => {
     lenderIdentityMock.mockResolvedValue({
       refusal: NextResponse.json({ code: "LENDER_IDENTITY_NOT_CONFIGURED" }, { status: 409 }),

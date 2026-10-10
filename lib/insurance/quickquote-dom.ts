@@ -6,9 +6,8 @@
  * jsdom environment on its own — see quickquote-dom.test.ts, which declares
  * `@vitest-environment jsdom` per-file rather than flipping the suite default.
  *
- * That split was not tidiness. Two independent review rounds found defects in
- * this code and in no other part of the change; the parts that lived in the
- * pure bridge module were caught by tests or were right first time. These
+ * That split is deliberate: the parts in the pure bridge module are covered by
+ * plain tests, while this DOM code could not be executed by them. These
  * functions decide whether an answer FSP actually took gets recorded — the
  * invariant the whole wizard rests on — and until now nothing could exercise
  * them at all.

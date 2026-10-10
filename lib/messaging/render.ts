@@ -46,7 +46,7 @@ export function renderTemplate(
   const text = substitute(template.body, vars)
   // HTML body lives in bodyTemplate (WABA + new email templates) or is derived
   // from text. v1 email path was text+simple-HTML; bodyTemplate is the
-  // long-form path. For PR-2 we keep html=null unless bodyTemplate is set.
+  // long-form path. html stays null unless bodyTemplate is set.
   const html = template.bodyTemplate ? substitute(template.bodyTemplate, vars) : null
   return { subject, html, text }
 }

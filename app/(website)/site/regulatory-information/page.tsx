@@ -9,9 +9,9 @@ import { getWebsiteIdentity } from "@/lib/website/identity"
 import { regulatoryFaqs } from "./faqs"
 import { REGULATORY_BREADCRUMB } from "./breadcrumb"
 
-// Legal copy (decision D-W2): the wording is unchanged from the inherited
+// Legal copy: the wording is unchanged from the inherited
 // page; only the lender's identity values are substituted from its own
-// LenderIdentity. The optional regulatory details (decision D-W5) are left off
+// LenderIdentity. The optional regulatory details are left off
 // the page when the tenant has not set them, never filled with a default.
 // Client legal must sign this page off before go-live.
 

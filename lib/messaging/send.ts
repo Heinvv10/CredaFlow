@@ -662,7 +662,7 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
   }
 
   // Dispatch after commit. Failure must not roll back the Message row —
-  // we need it in FAILED state for the audit trail and the (PR-2.5) retry path.
+  // we need it in FAILED state for the audit trail and the retry path.
   let dispatchResult: Awaited<ReturnType<typeof dispatchWithinTimeout>>
   try {
     dispatchResult = await dispatchWithinTimeout(opts.channel, provider, dispatchPayload, {

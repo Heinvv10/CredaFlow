@@ -523,7 +523,7 @@ export async function POST(_req: NextRequest, { params }: RouteCtx) {
   return withTenantContext(_req, async (tenant) => {
     const { id } = await params
 
-    // The consumer's NCA s.101 initiation-fee choice (F-13) is captured before
+    // The consumer's NCA s.101 initiation-fee choice is captured before
     // approval. The optional body is only a consistency echo from the UI; it
     // must never change the frozen election while generating the agreement.
     let feeChoice: "DEFERRED" | "UPFRONT" | null = null

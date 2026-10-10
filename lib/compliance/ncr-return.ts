@@ -368,7 +368,7 @@ export async function getNcrReturnData(
     periodEnd: new Date(end.getTime() - 1),
     quarterOpen,
     // Throws LenderIdentityError when unset or invalid: a regulator return
-    // must carry the tenant's own registration, never a default (F-11).
+    // must carry the tenant's own registration, never a default.
     ncrNumber: parseNcrNumber(tenantConfig?.ncrNumber),
     collectibleBook: { count: book._count, value: bookValue },
     lines,

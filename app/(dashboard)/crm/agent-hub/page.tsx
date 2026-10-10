@@ -107,7 +107,7 @@ export default async function AgentHubPage({ searchParams }: { searchParams: Pro
       select: { commissionStatus: true, qualityFlag: true },
     }),
     // True total for the queue (tab badge; addendum item 2) AND needed to clamp
-    // the page below before it's used for `skip` (fix round 1: an unclamped
+    // the page below before it's used for `skip` (an unclamped
     // stale/hand-edited `?page=` could skip past every row) — must resolve
     // before the paginated fetch, so it can't join that query in one round trip.
     prisma.referralEvent.count({ where: queueWhere }),

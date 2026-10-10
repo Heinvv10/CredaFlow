@@ -371,7 +371,7 @@ describe("SYSTEM_GENERATORS", () => {
     expect(loadIssuedSection129Artifact).toHaveBeenCalledWith({ tenantId: "t1", loanId: "loan-settled" })
   })
 
-  // F-11: a statutory document is refused, never defaulted, without a
+  // a statutory document is refused, never defaulted, without a
   // configured lender identity.
   it("certificateOfBalance refuses and renders nothing when the lender identity is not configured", async () => {
     const { LenderIdentityError } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")

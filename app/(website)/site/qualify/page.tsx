@@ -67,13 +67,13 @@ export default function QualifyPage() {
   const [stepOne, setStepOne] = useState(DEFAULT_STEP_ONE)
   const [stepTwo, setStepTwo] = useState(DEFAULT_STEP_TWO)
   // Restore any saved draft AFTER mount to avoid a server/client hydration
-  // mismatch (W-27). `hydrated` gates the persistence effect below so it can't
+  // mismatch. `hydrated` gates the persistence effect below so it can't
   // clobber a saved draft with the defaults before the restore runs.
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => {
     const draft = readQualifyDraft()
     // One-time client-only draft restore after mount — the standard way to read
-    // localStorage without a server/client hydration mismatch (W-27).
+    // localStorage without a server/client hydration mismatch.
     /* eslint-disable react-hooks/set-state-in-effect */
     setStepOne(draft.stepOne)
     setStepTwo(draft.stepTwo)

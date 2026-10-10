@@ -130,7 +130,7 @@ describe("backfillOutcome", () => {
   })
 })
 
-// FIX-7. The backfill sweeps every tenant, so the prior-row ids it hands the
+// The backfill sweeps every tenant, so the prior-row ids it hands the
 // verification have to be scoped per tenant: the accrual they guard is already
 // tenant-scoped, so another tenant's ids add nothing but bind parameters — and
 // they go into a `notIn` on EVERY loop iteration. Correct either way today,
@@ -186,7 +186,7 @@ describe("applyBackfillAccrual", () => {
     expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 
-  // FIX-C. The bespoke helper rendered R105000.00 with no thousands separator.
+  // The bespoke helper rendered R105000.00 with no thousands separator.
   // This message reaches SERVER LOGS and the operator CLI, never a rendered
   // page — the route turns a generic throw into a 500 with a generic body — so
   // it uses the PLAIN-SPACE formatter from lib/utils, not the non-breaking-space

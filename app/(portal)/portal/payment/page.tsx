@@ -70,7 +70,7 @@ async function getLoansForClient(email: string): Promise<LoanOption[]> {
 // STITCH_ACCOUNT_TYPE are configured. The account name comes from the same env
 // block Stitch pays into (lib/stitch.ts), so the panel cannot name a different
 // account holder. We deliberately do NOT fall back to a placeholder — a client
-// could otherwise transcribe and pay a non-payable account number (audit F-2).
+// could otherwise transcribe and pay a non-payable account number.
 // When any is unset, the whole EFT panel is hidden.
 function eftBankRows() {
   const accountName = process.env.STITCH_BENEFICIARY_NAME?.trim()
@@ -138,7 +138,7 @@ export default async function PaymentPage() {
         </div>
       </div>
 
-      {/* EFT bank transfer alternative — only when every bank detail is configured (F-2) */}
+      {/* EFT bank transfer alternative — only when every bank detail is configured */}
       {bankRows.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-4">

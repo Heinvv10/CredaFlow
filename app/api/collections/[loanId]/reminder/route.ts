@@ -56,7 +56,7 @@ export async function POST(
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
 
     // Collections/dunning reminders are for accounts with arrears to collect —
-    // never dun a settled R0 account (audit F-20). Also gate on
+    // never dun a settled R0 account. Also gate on
     // outstandingPrincipal so a fully-repaid loan carrying stale arrears isn't
     // chased (audit N-03/N-05). The error copy must stay byte-identical across
     // all three dunning-gate routes (see

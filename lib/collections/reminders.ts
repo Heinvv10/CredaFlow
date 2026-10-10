@@ -1,7 +1,7 @@
 /**
  * Payment Reminder Cron — checks active loans and sends reminders based on due dates.
  *
- * Phase 9 S2 PR-9: flag-gated cutover. When MESSAGING_NEW_SEND_COLLECTIONS=true,
+ * Flag-gated cutover. When MESSAGING_NEW_SEND_COLLECTIONS=true,
  * sends route through lib/messaging/sendMessage() (channel-aware provider routing
  * + Message row + Conversation thread + audit trail). When the flag is unset
  * or "false", the legacy direct sendSms/sendWhatsApp path runs unchanged.

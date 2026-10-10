@@ -193,7 +193,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         )
       }
 
-      // F3 — issuance is bounded. Re-issuing is legitimate, issuing without
+      // Issuance is bounded. Re-issuing is legitimate, issuing without
       // limit is not: each call writes another PDF that nothing deletes.
       if (quote.disclosuresIssued >= MAX_DISCLOSURES_PER_QUOTE) {
         return await refuse(

@@ -1,5 +1,5 @@
 /**
- * Real-Postgres proof of the logo path (decision D-W3): an upload writes the
+ * Real-Postgres proof of the logo path: an upload writes the
  * file, sets logoUrl and one audit row together; the S129 notice the route
  * builds then embeds the image; removing the logo returns it to the text
  * letterhead.

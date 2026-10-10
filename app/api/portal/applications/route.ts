@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
     // Mirror the client-side apply gate (PortalApplyProductClient disables Submit
     // when monthlyIncome <= 0). A direct API caller must not create an application
     // with no declared income: staff affordability review + the NDI snapshot are
-    // the real gate, but the UI and API must agree (audit F-4).
+    // the real gate, but the UI and API must agree.
     if (client.monthlyIncome <= 0) {
       return NextResponse.json(
         { error: "Please add your monthly income to your profile before you can apply." },

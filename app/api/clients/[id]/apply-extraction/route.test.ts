@@ -1099,8 +1099,8 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
 
   // A payslip whose gross - deductions does not equal net has had a year-to-date
   // column read in place of the current month (lib/vlm-extract.ts flags this by
-  // setting validated:false). Real case: an Northvale payslip extracted a YTD gross
-  // of R160,000.00 against a true monthly R40,000.00. Applying that writes a 4x
+  // setting validated:false). Example: a payslip whose extracted YTD gross is R160,000.00
+  // against a true monthly R40,000.00. Applying that writes a 4x
   // income into grossMonthlyIncome, which is the number affordability is decided
   // on — the flag has to block the write, not merely colour the UI orange.
   const applyFlaggedPayslip = (validated: boolean) => {

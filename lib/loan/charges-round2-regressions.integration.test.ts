@@ -1,6 +1,6 @@
 /**
- * Regressions from the round-2 adversarial review of default charges (each
- * failed at 08deac76e against real Postgres), with the review's decisions.
+ * Further regressions for default charges, run against real Postgres, with the
+ * decisions they pin.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-round2-regressions.integration.test.ts

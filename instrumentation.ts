@@ -51,12 +51,15 @@ export async function register() {
       }
     }
 
-    // OWNERSHIP RULE: dpd-update, reminders, and escalations are scheduled
-    // by systemd timers on the deploy host (dpd-update, reminders and escalations timers).
-    // Do NOT re-add cron.schedule() calls for these routes here: registering
-    // them in-process too means they fire twice nightly (systemd owns them
-    // in every environment), which risks duplicate
-    // NCA-mandated borrower comms (Section 129 notices, payment reminders).
+    // OWNERSHIP RULE: dpd-update, reminders, and escalations are NOT
+    // scheduled here. The deployment must schedule them (an external scheduler
+    // calling /api/cron/dpd-update, /api/cron/reminders and
+    // /api/cron/escalations with the cron secret); nothing in this repo does,
+    // so a deployment without that scheduler never runs them.
+    // Do NOT re-add cron.schedule() calls for these routes here: with an
+    // external scheduler in place they would fire twice nightly, which risks
+    // duplicate NCA-mandated borrower comms (Section 129 notices, payment
+    // reminders).
 
     // Nightly at 07:00 — send payment reminder emails (3-day-before)
     cron.schedule("0 7 * * *", () => callCron("/api/cron/payment-reminders"), {

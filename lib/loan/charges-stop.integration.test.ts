@@ -2,7 +2,7 @@
  * Real-Postgres test of the one-way kill switch: after
  * --disable nothing is derived for the tenant again. Charges clients already
  * paid stay paid, unpaid charges are not collected, readers show none, and
- * --apply refuses to re-enable. Replaces the off-window repros R4-2/3/5.
+ * --apply refuses to re-enable.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-stop.integration.test.ts

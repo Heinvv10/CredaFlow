@@ -234,7 +234,7 @@ afterEach(() => {
 })
 
 describe("processPaymentReminders", () => {
-  // F-11 / white-label: no reminder is signed with a default name or phone.
+  // White-label: no reminder is signed with a default name or phone.
   it("sends nothing when the lender identity is not configured", async () => {
     const { LenderIdentityError } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     getLenderIdentityMock.mockRejectedValue(new LenderIdentityError(["collectionsPhone"]))

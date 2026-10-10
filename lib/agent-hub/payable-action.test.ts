@@ -17,7 +17,7 @@ describe("payableActionFor", () => {
   // DecisionPanel accepted (it is a member of REASONS.PAYABLE), so Confirm was
   // enabled on mount and two clicks wrote "Checked — agent relationship is
   // legitimate" — a claim that a human performed a check — that nobody chose.
-  // It survived one full review round. toEqual is exact: any preset added back
+  // toEqual is exact: any preset added back
   // to the panel branch fails here.
   it("opens the panel carrying NO preset reason when the row raised a signal", () => {
     expect(payableActionFor("evt_1", [signal])).toEqual({ kind: "panel", decision: { eventId: "evt_1", action: "PAYABLE" } })

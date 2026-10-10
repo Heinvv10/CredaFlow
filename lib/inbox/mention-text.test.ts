@@ -174,7 +174,7 @@ describe("filterMentionable", () => {
     expect(filterMentionable([bo, dee], "dee")).toEqual([dee])
   })
 
-  // Finding 2: lib/inbox/notes.ts drops the author from the resolved list, so an
+  // lib/inbox/notes.ts drops the author from the resolved list, so an
   // offered self-row inserts "@Me" and notifies nobody, with no feedback.
   it("excludes the note's own author", () => {
     expect(filterMentionable([bo, cy], "", "u2")).toEqual([cy])

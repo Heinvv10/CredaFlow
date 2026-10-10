@@ -72,7 +72,7 @@ describe("assertSimulationAllowed", () => {
   })
 
   // --- regression: the refactor must not WIDEN an existing boundary ---------
-  // Caught in review. The generic allow-list originally applied to every
+  // The generic allow-list originally applied to every
   // provider, so `SIMULATED_INTEGRATIONS=smileidentity` bypassed Smile's
   // sandbox-only rule — which previously threw unconditionally whenever
   // SMILE_IDENTITY_ENV was not "test". A refactor billed as behaviour-preserving

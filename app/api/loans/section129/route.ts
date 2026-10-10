@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     // The notice prints the tenant's own NCR registration; refuse before any
-    // work when it is missing or invalid (audit F-11).
+    // work when it is missing or invalid.
     const lender = await lenderIdentityOrRefusal(tenant.id)
     if (lender.refusal) return lender.refusal
     const logo = await getLenderLogo(tenant.id)

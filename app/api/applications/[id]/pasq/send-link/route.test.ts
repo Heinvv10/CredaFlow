@@ -467,7 +467,8 @@ describe("POST /api/applications/[id]/pasq/send-link — MESSAGING_NEW_SEND_PASQ
   })
 
   it("leaves the WhatsApp leg on the legacy path even with the flag on", async () => {
-    // Routing WA through sendMessage() resolves WA_CLOUD, where an
+    // Routed through sendMessage(), WA resolves to WA_CLOUD for a tenant whose
+    // waProvider is WA_CLOUD (the default is WA_UNOFFICIAL), and there an
     // out-of-window send needs an APPROVED WABA template. pasq_link_whatsapp
     // has none, and a new applicant who has never messaged in is ALWAYS
     // out-of-window — i.e. the normal PASQ case. Cutting it over would fail

@@ -1315,7 +1315,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // W-4: send a real confirmation email so the success page's promise is
+    // send a real confirmation email so the success page's promise is
     // true, but ONLY when an application was actually created (applicationId) —
     // never on an identity conflict, a blacklisted client, or a lead-only
     // submission, so we don't send an official "application received / Status:
@@ -1330,7 +1330,7 @@ export async function POST(req: NextRequest) {
               : productTypeNormalised === "MICRO" ? "Short-term Loan"
                 : "Loan enquiry"
         // Route at CLICK time via /portal/continue rather than baking the
-        // login-vs-register choice here (finding W-11): it re-checks account
+        // login-vs-register choice here: it re-checks account
         // state when the customer clicks — so a customer who registers between
         // this email going out and clicking it still lands on login, not a stale
         // register link — and matches email+reference to avoid enumeration.

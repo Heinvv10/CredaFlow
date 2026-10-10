@@ -21,8 +21,7 @@ import {
 } from "../public-loan-products"
 import type { LivePricing, PublicLoanProduct } from "../public-loan-products"
 
-// Regression guard for public-quote money accuracy (W-1, W-2, W-13, W-16,
-// W-17). A private, hardcoded marketing fee table (15% init / R1,207.50 cap /
+// Regression guard for public-quote money accuracy. A private, hardcoded marketing fee table (15% init / R1,207.50 cap /
 // R69 service) drifts from the LoanProduct rows and UNDER-quotes some loans —
 // telling a borrower a lower cost of credit than they would actually be charged.
 //
@@ -33,7 +32,7 @@ import type { LivePricing, PublicLoanProduct } from "../public-loan-products"
 // again, this fails loudly.
 //
 // NCA note: the personal-loan initiation fee (16.5%) is under separate legal
-// review (audit W-8). These tests assert what the product charges TODAY so the
+// review. These tests assert what the product charges TODAY so the
 // marketing quote matches origination; when legal changes the LoanProduct config,
 // update PRODUCT_PRICING and these expectations together (see product-pricing.ts).
 
@@ -76,7 +75,7 @@ describe("PRODUCT_PRICING mirrors the live LoanProduct config (W-2)", () => {
 })
 
 describe("public marketing quote == the loan the customer is actually charged (W-2)", () => {
-  // W-2's point is that the marketing quote equals what the customer is charged.
+  // The point is that the marketing quote equals what the customer is charged.
   // The FIGURES moved when the NCA Reg 42 initiation-fee ceiling was enforced in
   // calculateLoan (lib/loan/nca-fee-cap.ts): personal is consumer credit, so the
   // configured 16.5% is now clamped to the statutory maximum. The invariant is
@@ -97,10 +96,10 @@ describe("public marketing quote == the loan the customer is actually charged (W
   })
 
   it("PO funding R500,000 / 4mo (120d): initiation R10,000 (2%, uncapped), NOT the old ~R8,792 under-quote", () => {
-    // W-2: the stale 15%-cap-R1,207.50 table under-quoted initiation. PO is now
+    // the stale 15%-cap-R1,207.50 table under-quoted initiation. PO is now
     // month-unit: 4 months = 120 days → interest R50,000 + init R10,000.
     const quote = calculatePublicLoanQuote(getPublicLoanProduct("purchase-order"), 50000000, 4)
-    expect(quote.initiationFee).toBe(1000000) // R10,000 (2%, uncapped) — the W-2 point
+    expect(quote.initiationFee).toBe(1000000) // R10,000 (2%, uncapped) — the point
     expect(quote.totalRepayable).toBe(61000000) // R610,000 (R500k + R100k interest @5%/mo over 4mo + R10k init)
   })
 
@@ -116,7 +115,7 @@ describe("public marketing quote == the loan the customer is actually charged (W
 describe("personal calculator surfaces the term, not an understated APR (W-1)", () => {
   it("the tertiary metric is the loan term, and no APR figure is derived", () => {
     const quote = calculatePublicLoanQuote(getPublicLoanProduct("personal"), 1000000, 12)
-    // W-1: the old (totalInterest / principal) * (365 / termDays) 'Est. APR'
+    // the old (totalInterest / principal) * (365 / termDays) 'Est. APR'
     // understated the reducing-balance rate ~2x and was removed. The tertiary
     // metric is now simply the term.
     expect(quote.tertiaryMetric).toBe(quote.term)

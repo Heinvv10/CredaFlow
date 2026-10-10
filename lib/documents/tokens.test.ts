@@ -89,7 +89,7 @@ describe("resolveToken", () => {
     expect(resolveToken("tenant.legalName", ctx)).toBe("Acme Lending (Pty) Ltd")
   })
 
-  // F-11: with no configured identity the tokens are missing, so the
+  // with no configured identity the tokens are missing, so the
   // empty-token guard blocks the document instead of printing a default.
   it("leaves every tenant identity token missing when the identity is not configured", () => {
     const ctx = { ...baseCtx, lender: null } as unknown as TokenContext

@@ -63,15 +63,15 @@ interface AgreementOpts {
     /** Exact premium-inclusive schedule accepted in the versioned PASQ. */
     billing?: PasqBillingEvidence
   }
-  /** The consumer's NCA s.101 initiation-fee payment option (F-13). Drives the
+  /** The consumer's NCA s.101 initiation-fee payment option. Drives the
    *  "Amount Advanced" / "Initiation Fee Payment" disclosure rows. */
   initiationFeePayment?: "DEFERRED" | "UPFRONT"
   ceremonyMarker?: string
 }
 
 // LEGAL_WORDING_BEGIN — G2 Credit Life Insurance Regulations, 2017 disclosure.
-// Compliance-officer sign-off covers this wording. Do NOT
-// edit without a fresh compliance review. Each entry is wrapped by wrapText()
+// Legally reviewed text: do NOT paraphrase it. A change needs the lender's
+// legal sign-off before merge. Each entry is wrapped by wrapText()
 // at render time (entries here are full paragraphs, NOT pre-wrapped lines).
 const CL_DISCLOSURE_LINES = [
   // Heading + governing-regulation citation
@@ -250,8 +250,8 @@ export async function generateCreditAgreementPdfWithAnchors(
       // Regulation 29(c): "the quotation must be in a bordered text box and
       // headed \"Quotation\"". Both halves were missing. The border is drawn
       // AFTER the content, outside the existing text positions, so not one
-      // character of the legally-approved wording moves - this adds a heading
-      // and a rule, it does not re-lay-out the approved document.
+      // character of the legally reviewed wording moves - this adds a heading
+      // and a rule, it does not re-lay-out the reviewed document.
       const quoteBoxTop = y + 12
       drawText(p1, "Quotation", MARGIN, y, bold, 11, DARK)
       y -= 15
@@ -393,7 +393,7 @@ export async function generateCreditAgreementPdfWithAnchors(
     ["Initiation Fee", formatZarPdf(calc.initiationFee)],
     // NCR Circular 15 of 2016: the initiation fee on an unsecured / short-term
     // loan is reflected separately and bears no interest. Disclose how it is
-    // paid and the resulting cash advanced to the consumer (F-13).
+    // paid and the resulting cash advanced to the consumer.
     ["Initiation Fee Payment", opts.initiationFeePayment === "UPFRONT"
       ? "Deducted from amount advanced (interest-free)"
       : "Added to repayment schedule (interest-free)"],
@@ -439,7 +439,7 @@ export async function generateCreditAgreementPdfWithAnchors(
     // NCA s.1 "total cost of credit" includes every fee + charge — the
     // initiation fee always counts, even in UPFRONT mode where it is settled by
     // deduction from the advance rather than collected through the schedule. So
-    // this is NOT calc.totalRepayable (which excludes the fee in UPFRONT). F-13.
+    // this is NOT calc.totalRepayable (which excludes the fee in UPFRONT).
     ["Total Cost of Credit", formatZarPdf(
       calc.principal
       + calc.totalInterest
@@ -550,10 +550,10 @@ export async function generateCreditAgreementPdfWithAnchors(
 
   for (const item of schedule) {
     if (y < MARGIN + 40) {
-      // Schedule overflow: silently truncates installments past row ~33.
-      // Known data-loss limit. Acceptable while loans are
-      // 1–12 installments; will bite for
-      // long-term (mortgage / affordable housing) once those launch.
+      // Known limitation: schedules longer than 38 rows are silently
+      // truncated here (no continuation page), and nothing upstream caps the
+      // instalment count — a product's maxTermDays does not keep a loan within
+      // the rows this page renders.
       break
     }
     const bg = item.installmentNo % 2 === 0 ? undefined : { ...WHITE }
@@ -572,7 +572,7 @@ export async function generateCreditAgreementPdfWithAnchors(
   // Total row — sum the actual schedule columns so the TOTAL always foots to
   // the printed instalment rows. The Fees column includes the deferred
   // interest-free initiation fee (DEFERRED mode), so it must NOT be hard-wired
-  // to calc.serviceFees — that mismatch was the F-13 "columns don't add up to
+  // to calc.serviceFees — that mismatch was the "columns don't add up to
   // the stated Total" defect on the statutory schedule.
   const totPrincipal = schedule.reduce((a, r) => a + r.principalDue, 0)
   const totInterest = schedule.reduce((a, r) => a + r.interestDue, 0)
@@ -700,8 +700,8 @@ export async function generateCreditAgreementPdfWithAnchors(
     // Each CL_DISCLOSURE_LINES entry is a full paragraph wrapped by wrapText()
     // into several rendered lines, so count ACTUAL wrapped lines (empty entries
     // are paragraph separators = 1 blank line each). Using entry COUNT here
-    // (the old `.length * 13`) badly under-estimates the height of the approved
-    // G2 wording and would clip the block off the bottom of page 4.
+    // (`.length * 13`) badly under-estimates the height of the reviewed G2
+    // wording and would clip the block off the bottom of page 4.
     const wrappedLineCount = clDisclosureLines.reduce(
       (acc, line) => acc + (line === "" ? 1 : wrapText(line, regular, 9, CONTENT_WIDTH - 8).length),
       0,
@@ -751,7 +751,7 @@ export async function generateCreditAgreementPdfWithAnchors(
     // Measure the rules as they are DRAWN, so countersignature can later stamp
     // the real signatures onto this exact document without re-rendering it.
     // Deliberately derived from the same literals rather than from a
-    // restructured copy: the rendered bytes are pinned to a legal sign-off
+    // restructured copy: the rendered bytes are pinned by hash
     // (see __tests__/creditAgreement.test.ts), so this must add measurement
     // only and change no drawn glyph.
     const ruleAnchor = (line: string, baselineY: number): AgreementRuleAnchor | null => {

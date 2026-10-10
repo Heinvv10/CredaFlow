@@ -28,7 +28,7 @@ interface Props {
   agreementCountersignedByName: string | null
   canCountersign: boolean
   providerSignerName: string
-  /** Persisted NCA s.101 initiation-fee election (F-13). */
+  /** Persisted NCA s.101 initiation-fee election. */
   initiationFeePayment: "DEFERRED" | "UPFRONT"
   /** Initiation fee in cents — shown so the consumer's election is informed. */
   initiationFee: number
@@ -670,7 +670,7 @@ export function AgreementSection({
       {/* NCA s.101 initiation-fee election. The consumer must be given the
           option to pay the (interest-free) initiation fee upfront or to have it
           collected through the schedule. The choice is baked into the agreement
-          the consumer signs (F-13). */}
+          the consumer signs. */}
       <FeeElection
         feePayment={feePayment}
         initiationFee={initiationFee}

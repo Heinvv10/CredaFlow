@@ -552,24 +552,17 @@ const MAX_RENDER_MEMORY_KB = 1024 * 1024
 /**
  * Resolution the page is rendered at for the model, in dots per inch.
  *
- * Measured on a sample of payslips against ground truth derived from
- * each document's own text:
- *
- *   200 dpi   5/8 correct, THREE read from the year-to-date column, 32/40 reconcile
- *   300 dpi   8/8 correct, none from YTD, 36/40 reconcile
- *   400 dpi   8/8 correct, none from YTD, 36-37/40 reconcile (three runs)
- *
- * The failure at 200 was never about reading digits — the model returned the
- * YTD figures exactly, so it saw them perfectly. It could not resolve WHICH
- * COLUMN a figure sat under, and column position is the only thing separating
+ * Too low a resolution makes the model read the year-to-date column instead of
+ * the current month. The failure is not about reading digits — the model sees
+ * the YTD figures perfectly. It cannot always resolve WHICH
+ * COLUMN a figure sits under, and column position is the only thing separating
  * this month's pay from the tax year's. Resolution alone does not fix it
- * either: with the older prompt, 200, 300 and 400 all failed. It took the
- * current prompt, which names the column to read, AND enough resolution to
+ * either: with a prompt that does not name the column, no resolution
+ * suffices. It takes a prompt that names the column to read, AND enough resolution to
  * tell the columns apart.
  *
- * 400 rather than 300 for margin above a failure point that lies somewhere
- * between 200 and 300 — a misread here is silent, and 300 sits at the edge of
- * what was tested. Both scored the same, so drop to 300 if the payload matters:
+ * 400 rather than 300 for margin above a failure point that lies below 300 —
+ * a misread here is silent. Drop to 300 if the payload matters:
  * a page is ~355KB at 200, ~650KB at 300 and ~975KB at 400.
  */
 export const RENDER_DPI = 400

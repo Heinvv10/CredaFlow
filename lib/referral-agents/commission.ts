@@ -96,8 +96,8 @@ export async function reverseReferralCommissionForLoan(
   client: ReverseClient,
   opts: { tenantId: string; loanId: string },
 ): Promise<void> {
-  // Only unpaid accruals are clawed back. (PAID handling arrives with the PR2
-  // payout module; nothing sets PAID in this PR, so there is nothing to guard.)
+  // Only unpaid accruals are clawed back. (PAID handling arrives with the
+  // payout module; nothing sets PAID yet, so there is nothing to guard.)
   await client.referralEvent.updateMany({
     where: {
       tenantId: opts.tenantId,

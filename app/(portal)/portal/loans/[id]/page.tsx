@@ -55,7 +55,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   const paidPct = cashPaidPercent(cashPaid, loan.totalRepayable)
 
   // Use the RECURRING instalment (schedule[1] for multi-instalment loans),
-  // not the fee-loaded first instalment, so this matches the Apply quote (F-3).
+  // not the fee-loaded first instalment, so this matches the Apply quote.
   const monthlyInstalment = recurringInstalmentDue(loan.repaymentSchedule)
 
   const statusColor: Record<string, { bg: string; text: string }> = {

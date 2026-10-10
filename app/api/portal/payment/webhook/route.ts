@@ -183,7 +183,7 @@ export async function POST(req: Request) {
         }
 
         // Recompute outstanding principal + arrears + DPD from the full
-        // post-payment schedule (audit F-14/F-15).
+        // post-payment schedule.
         const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
         const newTotalPaid = projection.newTotalPaid
         const isCompleted = projection.isCompleted

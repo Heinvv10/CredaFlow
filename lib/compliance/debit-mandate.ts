@@ -719,12 +719,11 @@ function recordedAccountTypeIsSatisfied(
   if (bankDetails.accountType === "OTHER") return true
   // A statement that names no account type cannot disagree with one.
   //
-  // The real case: a Capitec statement for an approved application, both
-  // signatures recorded, refused at payout. The page is headed "Main Account Statement" and names no
-  // product anywhere, so the extractor correctly answered OTHER -- and this
-  // function compared that non-answer against a SAVINGS record and called it a
-  // mismatch. Every statement carrying no determinable account type was
-  // undisbursable.
+  // A statement page headed only "Main Account Statement" names no product
+  // anywhere, so the extractor correctly answers OTHER. Treating that
+  // non-answer as a mismatch against a SAVINGS record would refuse payout on
+  // an approved application with both signatures recorded, and make every
+  // statement carrying no determinable account type undisbursable.
   //
   // Passing costs no control. The account NUMBER is what binds the payout to
   // this account, and it still has to match exactly, as do the bank name and
@@ -801,8 +800,7 @@ function payoutTupleMismatchField(
  * Deriving the code from the bank and asserting it against the client record was
  * the obvious repair and is WRONG — it swaps one blocker for another. Banks
  * issued per-branch codes for years and still honour them, so a client holding a
- * legacy physical code would start failing a gate they pass today, on live data,
- * for no gain.
+ * legacy physical code would start failing a gate they pass today, for no gain.
  *
  * WHAT DROPPING THE LEG COSTS, stated accurately.
  *

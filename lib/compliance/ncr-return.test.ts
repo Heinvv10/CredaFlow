@@ -157,7 +157,7 @@ describe("getNcrReturnData", () => {
     expect((await getNcrReturnData(TENANT, QUARTER, NOW)).ncrNumber).toBe("NCRCP99999")
   })
 
-  // F-11: a regulator return never carries a default registration number.
+  // a regulator return never carries a default registration number.
   it.each([null, "", "NCR99999"])("refuses when the configured NCR number is %j", async (ncrNumber) => {
     tenantConfigFindUnique.mockResolvedValue({ ncrNumber })
     await expect(getNcrReturnData(TENANT, QUARTER, NOW)).rejects.toMatchObject({ name: "LenderIdentityError" })

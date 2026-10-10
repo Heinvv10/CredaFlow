@@ -1681,7 +1681,7 @@ describe("PUT /api/clients/[id] — retroactive referral accrual", () => {
       }), context)
 
       expect(res.status).toBe(409)
-      // FIX-6: the same formatter the preview uses, non-breaking space and all,
+      // The same formatter the preview uses, non-breaking space and all,
       // so the two figures on one screen are not in two formats.
       expect(await res.json()).toMatchObject({
         error: expect.stringContaining("R\u00A025.00"),
@@ -1754,7 +1754,7 @@ describe("PUT /api/clients/[id] — retroactive referral accrual", () => {
       })
     })
 
-    // FIX-2. The totals are enforced only when the caller sends them, and the
+    // The totals are enforced only when the caller sends them, and the
     // form omits them whenever the preview fetch failed. Fail-open is right — an
     // API caller that never previewed must still work — but an unbound money
     // write has to be distinguishable after the fact.
@@ -1788,7 +1788,7 @@ describe("PUT /api/clients/[id] — retroactive referral accrual", () => {
     })
   })
 
-  // FIX-5. The self-referral heuristic compares the client against the agent,
+  // The self-referral heuristic compares the client against the agent,
   // so a request that renames the client AND assigns that agent must be checked
   // against the new name, not the stored one.
   it("plans against the identity fields this request will write", async () => {

@@ -1519,12 +1519,12 @@ export async function POST(
             // may not exceed R4.50 per R1 000 of the deferred amount per month
             // (= 0.0045 of the principal). Cap the premium at that ceiling so it
             // is lawful AND the agreement's Reg 3(1) disclosure ("does not
-            // exceed the maximum prescribed") is true (F-25). The previous flat
+            // exceed the maximum prescribed") is true. The previous flat
             // 1% (R10/R1 000) was over the cap by ~2.2x.
             const premiumAmount =
               lockedCreditLife.evidence.monthlyPremiumCents / 100
             // Record the underwriter + commission so the bundled policy is a
-            // complete record (audit F-25): a Credit Life policy with no insurer
+            // complete record: a Credit Life policy with no insurer
             // or commission fails the Credit Life Regulations 2017 / FAIS
             // expectations. The underwriter is the one configured on the Credit
             // Life product; commission is the product's rate on the (monthly)
@@ -1688,7 +1688,7 @@ export async function POST(
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
       if (bundle.kind === "bundled") {
-        // F-25: issue + track the FAIS / PPR product disclosure for the
+        // issue + track the FAIS / PPR product disclosure for the
         // auto-bundled credit-life policy. The substantive Credit Life
         // Insurance Regulations 2017 disclosure (G2) is already in the signed
         // credit agreement; here we additionally generate the FAIS intermediary
@@ -1794,7 +1794,7 @@ export async function POST(
       // Trigger loan_disbursed notification (fire-and-forget). `amount` is
       // the amount the consumer actually receives — equals principal in
       // DEFERRED mode, or principal minus the initiation fee in UPFRONT
-      // (F-13); loan.principal would overstate what an UPFRONT consumer got.
+      //; loan.principal would overstate what an UPFRONT consumer got.
       // Passed via `data` because lib/notifications.ts's loan_disbursed
       // branch has no DB-backed source for amount/dueDate (unlike
       // reference, which it fetches directly) — this is that source,

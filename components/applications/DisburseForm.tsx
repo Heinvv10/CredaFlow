@@ -11,7 +11,7 @@ interface Props {
   repaymentMethod: "EFT" | "DEBIT_ORDER" | null
   principalCents: number
   /** Cash actually advanced — equals principal in DEFERRED mode, or principal
-   *  minus the initiation fee in UPFRONT mode (F-13). This is what staff must
+   *  minus the initiation fee in UPFRONT mode. This is what staff must
    *  transfer to the consumer. */
   disbursementCents: number
   clientName: string

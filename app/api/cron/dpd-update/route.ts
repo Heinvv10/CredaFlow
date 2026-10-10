@@ -11,7 +11,7 @@ import { sastStartOfDay } from "@/lib/date/sast"
  * DPD Update Cron — nightly reconcile of daysInArrears + arrearsAmount for all
  * active/defaulted loans, derived from the repayment schedule via the SAME
  * recomputeLoanBalances helper the payment paths use. This keeps exactly one
- * definition of DPD/arrears across the system (audit F-15): DPD = days since the
+ * definition of DPD/arrears across the system: DPD = days since the
  * earliest overdue unpaid instalment's due date; arrears = sum of overdue unpaid
  * instalment balances. Auto-promotes to DEFAULTED at 90+ DPD.
  */

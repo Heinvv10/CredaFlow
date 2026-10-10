@@ -97,8 +97,8 @@ function explicitlyAllowed(integration: GuardedIntegration): boolean {
   // A provider carrying its own vendor-sandbox rule is NOT opt-in-able. Smile is
   // the KYC source of truth and its prior guard threw unconditionally whenever
   // SMILE_IDENTITY_ENV was not "test"; letting the generic list satisfy it would
-  // widen that boundary rather than preserve it — a regression introduced by
-  // this very refactor and caught in review. For those providers the vendor
+  // widen that boundary rather than preserve it — a regression the
+  // refactor must not introduce. For those providers the vendor
   // signal is the ONLY route to simulation.
   if (SIMULATION_FORBIDDEN_ON_DEPLOYED[integration].sandboxEnvVar) return false
 

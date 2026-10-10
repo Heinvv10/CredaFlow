@@ -100,7 +100,7 @@ beforeEach(() => {
 })
 
 describe("certificate of balance", () => {
-  // F-11: the certificate prints the tenant's own NCR number, and is not
+  // the certificate prints the tenant's own NCR number, and is not
   // issued at all without a configured, valid one.
   it("prints the tenant's configured legal name and NCR number", async () => {
     await GET(new NextRequest("http://localhost/api/loans/loan-1/certificate-of-balance"), context)

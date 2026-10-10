@@ -58,7 +58,7 @@ export interface LoanCalcResult {
   totalInterest: number
   initiationFee: number
   serviceFees: number
-  totalRepayable: number // === sum(schedule.totalDue) in every model/mode (F-13)
+  totalRepayable: number // === sum(schedule.totalDue) in every model/mode
   disbursementAmount: number // cash actually advanced (principal, less the fee if UPFRONT)
   monthlyInstalment: number // 0 for micro loans
   schedule: ScheduleItem[]
@@ -162,7 +162,7 @@ export function calculateLoan(
     // and what the product catalog, the seed appRates, and the statutory credit
     // agreement all use). Interest accrues daily by spreading that monthly rate
     // over the days in the term. Applying the monthly rate PER DAY over-charged
-    // ~30x — a gross NCA s.100-105 usury breach (audit F-18).
+    // ~30x — a gross NCA s.100-105 usury breach.
     const dailyRate = interestRatePm / 30
     totalInterest = Math.round(principal * dailyRate * termDays)
     const dueDate = new Date(startDate)
@@ -186,7 +186,7 @@ export function calculateLoan(
   // The NCA-prescribed maximum monthly service fee (currently R60 + VAT = R69) is
   // charged per month of the agreement, so a 30-day micro loan spans one month →
   // one fee. Folded into the single instalment so the schedule still foots to
-  // totalRepayable (F-13).
+  // totalRepayable.
   //
   // NOTE (multi-month bullets): every fee-bearing single-payment product today is
   // a FIXED 30-day term (round(30/30) = 1 fee), so the month count is unambiguous.
@@ -204,7 +204,7 @@ export function calculateLoan(
 
   // Apply the initiation-fee payment mode (NCA s.101 / NCR Circular 15 of 2016).
   // The fee is INTEREST-FREE in both modes and never folded into the
-  // interest-bearing principal. The schedule must foot to totalRepayable (F-13).
+  // interest-bearing principal. The schedule must foot to totalRepayable.
   let disbursementAmount = principal
   let scheduledInitiationFee = 0
   if (initiationFeePayment === "UPFRONT") {

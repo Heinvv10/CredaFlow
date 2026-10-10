@@ -88,7 +88,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   // All money is in CENTS — DebtEntry instalments/balances, the income/expense
   // props, and the proposed instalment. This preview mirrors the server recompute
   // (lib/affordability/ndi) exactly, so the staff view and the persisted, audited
-  // NDI agree (audit F-05 — the old code treated cents debts as rands → 100x off).
+  // NDI agree (the old code treated cents debts as rands → 100x off).
   const applicationDebtTotal = debts.reduce(
     (sum, debt) => sum + Math.max(0, Math.round(debt.monthlyInstalment || 0)),
     0,

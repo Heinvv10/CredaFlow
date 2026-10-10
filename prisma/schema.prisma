@@ -512,9 +512,8 @@ enum BankAccountType {
   /// allow-lists ('CHEQUE','SAVINGS') and `canonicalAccountType` has no
   /// transmission branch, so it returns ''. A consumer could select it, sign
   /// the mandate, clear every precondition, and then have payout fail with a
-  /// bare 500 and no staff-side remedy. No client ever chose it and no mandate was
-  /// ever signed with it, so it was removed from the application rather than
-  /// the guards being widened.
+  /// bare 500 and no staff-side remedy. It was removed from the application rather
+  /// than the guards being widened.
   ///
   /// The VALUE stays in the enum on purpose: dropping a Postgres enum value
   /// requires recreating the type, and this column carries live triggers. That
@@ -847,7 +846,7 @@ model LoanApplication {
   agreementType                 AgreementType?
   // Consumer's NCA s.101 initiation-fee payment option, captured at agreement
   // generation. DEFERRED (default) = full advance, fee interest-free in the
-  // schedule; UPFRONT = fee deducted from the advance (F-13).
+  // schedule; UPFRONT = fee deducted from the advance.
   initiationFeePayment          InitiationFeePayment @default(DEFERRED)
   creditLifeElection                    CreditLifeElection?
   creditLifeProductId                   String?
@@ -1901,7 +1900,7 @@ model InsuranceProduct {
   policies       InsurancePolicy[]
   applications   LoanApplication[]   @relation("ApplicationCreditLifeProduct")
   // Underwriter for this product. Drives the insurer + commission set on an
-  // auto-bundled Credit Life policy at disbursement (audit F-25). Nullable —
+  // auto-bundled Credit Life policy at disbursement. Nullable —
   // legacy products and products without a configured underwriter stay valid.
   insurerId      String?
   insurer        Insurer?            @relation(fields: [insurerId], references: [id])
@@ -2979,7 +2978,7 @@ enum MsgStatus {
   DELIVERED
   READ
   FAILED
-  // ── Phase 9 S2 PR-2.5 (retry cron) ────────────────────────────────────────
+  // ── Retry cron ────────────────────────────────────────────────────────────
   // Dispatch raised a transient error; the cron sweep will re-attempt
   // according to backoff(retryCount). Terminal once retryCount hits 5 or
   // an EXPIRED / SUPPRESSED_BY_CONSENT transition takes over.
@@ -3325,7 +3324,7 @@ model Message {
   readAt       DateTime?
   repliedAt    DateTime?
 
-  // ── Phase 9 S2 PR-2.5 retry bookkeeping ────────────────────────────────
+  // ── Retry bookkeeping ──────────────────────────────────────────────────
   // Number of dispatch attempts so far (0 = never tried, 1 = one failure
   // already retried, ..., 5 = exhausted → status transitions to
   // FAILED_PERMANENT).

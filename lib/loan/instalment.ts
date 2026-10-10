@@ -8,7 +8,7 @@
  * for a single-instalment loan (e.g. a micro loan) it is the sole instalment.
  *
  * This mirrors loan-calculator's own `monthlyInstalment` selection so the
- * loan-detail page shows the same figure the Apply page quoted (audit F-3).
+ * loan-detail page shows the same figure the Apply page quoted.
  */
 export function recurringInstalmentDue(schedule: { totalDue: number }[]): number {
   if (schedule.length === 0) return 0

@@ -1,6 +1,5 @@
 /**
- * Regressions from the round-1 adversarial review of default charges: each
- * case failed on 59e8e1612 against real Postgres.
+ * Regressions for default charges, run against real Postgres.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-regressions.integration.test.ts
@@ -98,7 +97,7 @@ suite.sequential("default charges: round-1 review regressions (real Postgres)", 
     const ids = await createLoan()
     await capture(ids, SCHEDULE_TOTAL + DEFAULT_INTEREST)
     expect((await loanOf(ids)).status).toBe("COMPLETED")
-    // Decision (review round 2, R2-C; replaces round 1's 409): the route
+    // Decision: the route
     // itself splits the charge money off as refund-due. Detail in
     // charges-round2-regressions.integration.test.ts.
     const res = await setExemption(req({ exempt: true, reason: "Complaint upheld: charges applied in error." }), { params: Promise.resolve({ id: ids.loanId }) })

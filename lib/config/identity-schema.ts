@@ -2,7 +2,7 @@
  * Lender identity — the schema, types and pure validation, with no database
  * import, so NCA document generators and scripts can validate the identity
  * they print without loading Prisma. lib/config/identity.ts re-exports all of
- * this and adds the readers; see it for the history (audit F-11).
+ * this and adds the readers; see it for the history.
  */
 import { z } from "zod"
 
@@ -40,7 +40,7 @@ export type LenderIdentityColumns = {
   headOfficeCity: string | null
 }
 
-/** The four optional regulatory details shown on the public regulatory page (decision D-W5). */
+/** The four optional regulatory details shown on the public regulatory page. */
 export const REGULATORY_DETAIL_FIELDS = ["ncrRegistrationDate", "fscaAuthorisationDate", "ncrStatus", "headOfficeCity"] as const
 
 /** The columns stored as a Postgres DATE; Prisma reads and writes them as a `Date` at UTC midnight. */

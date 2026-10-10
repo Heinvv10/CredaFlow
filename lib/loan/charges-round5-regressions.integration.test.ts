@@ -1,5 +1,5 @@
 /**
- * Regressions from the round-5 adversarial review of default charges.
+ * Further regressions for default charges, run against real Postgres.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-round5-regressions.integration.test.ts

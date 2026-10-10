@@ -118,7 +118,7 @@ it("clamps an activeIndex past the end of the filtered list", () => {
   expect(selectedLabel(r)).toBe("Cy Dlamini")
 })
 
-// Finding 2: lib/inbox/notes.ts discards the author's own mention, so offering
+// lib/inbox/notes.ts discards the author's own mention, so offering
 // the row inserts "@Me" and pings nobody with no feedback at all.
 it("leaves out the row for the excluded author", () => {
   const r = render({ staff, query: "", excludeUserId: "u2", onPick: vi.fn() })

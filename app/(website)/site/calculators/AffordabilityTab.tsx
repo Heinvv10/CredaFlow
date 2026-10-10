@@ -5,7 +5,7 @@ import { formatZAR } from "@/lib/loan-calculator"
 import { computeQualification } from "@/lib/qualify"
 
 export default function AffordabilityTab() {
-  // Seeded with sensible defaults (audit M5) so the tab opens with a live
+  // Seeded with sensible defaults so the tab opens with a live
   // result panel, matching its sibling calculator tabs.
   const [income, setIncome] = useState("15000")
   const [expenses, setExpenses] = useState("6000")
@@ -16,7 +16,7 @@ export default function AffordabilityTab() {
     const expensesCents = Math.round(Number(expenses) * 100)
     const debtCents = Math.round(Number(debt) * 100)
 
-    // Single affordability engine (audit W-15): the same computeQualification
+    // Single affordability engine: the same computeQualification
     // the portal uses, with the real per-product fee config.
     const q = computeQualification(incomeCents, expensesCents, debtCents)
     // PO funding is an interest-only business product whose "max" ignores the

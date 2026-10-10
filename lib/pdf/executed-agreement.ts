@@ -432,15 +432,15 @@ async function appendExecutionPage(
   // rules cannot be located (agreements generated before anchors were recorded,
   // and returned paper packets).
   //
-  // APPROVED by legal. The approval
-  // covers BOTH executed variants as rendered: signatures stamped
+  // Legally reviewed text: do NOT paraphrase it. Legal review covers BOTH
+  // executed variants as rendered: signatures stamped
   // onto the original rules, and this appended execution page carrying the
   // credit provider's registered name and NCR number, the consumer's name and
   // ID number, and the agreement reference. Re-render with
   // scripts/ops/render-executed-agreement-review.ts before changing any of it.
   //
-  // Do NOT edit this wording without a FRESH review — the approval attaches to
-  // the rendered document, not to the idea of one.
+  // A change needs the lender's legal sign-off on the re-rendered document —
+  // sign-off attaches to the rendered document, not to the idea of one.
   const EXECUTION_PAGE_TITLE = "EXECUTION PAGE"
   const EXECUTION_PAGE_STATEMENT =
     "This page forms part of the credit agreement to which it is attached and records its signature."

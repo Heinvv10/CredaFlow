@@ -3,7 +3,7 @@ import { verifyCronSecret } from "@/lib/cron-auth"
 import { processRetryBatch } from "@/lib/messaging/retry"
 
 /**
- * Phase 9 S2 PR-2.5 — retry sweep cron.
+ * Retry sweep cron.
  *
  * Schedule: every 60 seconds. Driven by an external scheduler (the
  * existing cron infrastructure that hits /api/cron/* endpoints with

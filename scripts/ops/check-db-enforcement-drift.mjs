@@ -19,12 +19,12 @@
  *
  *   Keying CHECK constraints by relation, as triggers are. Implemented, then
  *   REVERTED: it lost 4 tracked constraints (24 -> 20 expected) to fix a
- *   hypothetical -- a deployed database has ZERO duplicate CHECK names across relations.
+ *   hypothetical -- duplicate CHECK names across relations do not occur.
  *   Trading real coverage for a theoretical false green is the wrong trade.
  *
  *   Verifying each trigger's function still exists. Structurally near
  *   impossible in Postgres: dropping a function a trigger depends on requires
- *   CASCADE, which drops the trigger with it. Measured 0 orphans on a deployed database.
+ *   CASCADE, which drops the trigger with it.
  *
  * Both were raised by blind review and both are defensible; they are declined
  * on evidence, not overlooked.

@@ -169,7 +169,7 @@ describe("Composer internal notes on a non-reply channel (SMS)", () => {
   beforeEach(() => { actEnvironment.IS_REACT_ACT_ENVIRONMENT = true })
   afterEach(() => { delete actEnvironment.IS_REACT_ACT_ENVIRONMENT })
 
-  // Finding 1: on SMS/voice, replyEnabled is false, so the composer forces
+  // On SMS/voice, replyEnabled is false, so the composer forces
   // note mode. The fallback banner used to be gated on `replyEnabled`, which
   // meant a failed note here was completely silent — the staffer had no way
   // to tell their note wasn't recorded.
@@ -189,7 +189,7 @@ describe("Composer internal notes on a non-reply channel (SMS)", () => {
     act(() => renderer.unmount())
   })
 
-  // Finding 4: the generic "reach the customer on another channel" suffix is
+  // The generic "reach the customer on another channel" suffix is
   // right for a failed send, but wrong for a failed internal note — the note
   // was never meant to reach the customer.
   it("omits the reach-the-customer suffix on a NOTE_FAILED banner", () => {
@@ -219,7 +219,7 @@ describe("Composer internal notes on a non-reply channel (SMS)", () => {
     act(() => renderer.unmount())
   })
 
-  // Finding 2: submit() used to call onNote fire-and-forget, then clear the
+  // submit() used to call onNote fire-and-forget, then clear the
   // draft unconditionally on the next line — a failed note lost the typed
   // text with no way to retry it.
   it("passes an empty mention list for a note nobody was tagged in", async () => {
@@ -519,7 +519,7 @@ describe("Composer mention autocomplete", () => {
     await act(async () => renderer.unmount())
   })
 
-  // Finding 2 (final review): the roster includes the author, and
+  // The roster includes the author, and
   // lib/inbox/notes.ts then drops the author from the resolved list — so picking
   // your own row inserts "@Me" and notifies nobody, silently.
   it("never offers the note's own author as a row", async () => {
@@ -940,7 +940,7 @@ describe("Composer channel picker", () => {
     expect(JSON.stringify(renderer.toJSON())).toContain("WhatsApp: free reply until 16:30")
   })
 
-  // Fix round 1: the picker already marks WhatsApp blocked outside the window,
+  // The picker already marks WhatsApp blocked outside the window,
   // but when it's the ONLY available channel the Send button was still live —
   // the server rejects with OUTSIDE_WINDOW, but the UI should never let the
   // agent attempt a send it already knows will fail.

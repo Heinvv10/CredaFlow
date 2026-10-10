@@ -160,7 +160,7 @@ const {
   currentVerifiedBankDetails: vi.fn(),
   findVerifiedBankStatementForMandate: vi.fn(),
   verifyCurrentStoredDebitMandate: vi.fn(),
-  // Post-commit FAIS/PPR issuance (F-25): the bundled policy is refetched with
+  // Post-commit FAIS/PPR issuance: the bundled policy is refetched with
   // its product/insurer/client, a disclosure PDF is generated + stored, then
   // the policy is stamped faisDisclosureAt/faisDisclosurePdfUrl/pprIssuedAt.
   findUniqueInsurancePolicy: vi.fn().mockResolvedValue({
@@ -2111,7 +2111,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     expect(createCall.data.faisDisclosureAt).toBeNull()
     expect(createCall.data.linkedLoanId).toBe("loan-1")
 
-    // F-25: the bundle records the underwriter + commission, with the premium
+    // the bundle records the underwriter + commission, with the premium
     // capped at the Credit Life Regs 2017 Reg 3(1) ceiling of R4.50 per R1 000
     // of the deferred amount per month. R5,000 principal → premium R22.50;
     // commission = 22.50 × 0.15 = R3.38 (rounded). insurerId flows from the

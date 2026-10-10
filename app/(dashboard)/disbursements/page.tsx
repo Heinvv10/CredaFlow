@@ -97,7 +97,7 @@ function formatCompactZAR(cents: number): string {
 export default async function DisbursementsPage() {
   // Disbursement is a LOAN_ADMIN action (PERMISSIONS.disburse_loan); the API
   // returns 403 below that. Gate the page to match so lower roles don't see
-  // disbursement controls they can't action (F-29).
+  // disbursement controls they can't action.
   await requireMinRole("LOAN_ADMIN")
   const data = await getDisbursementsData()
 

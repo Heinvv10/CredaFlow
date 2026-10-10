@@ -942,7 +942,7 @@ describe("processRetryBatch", () => {
   })
 })
 
-// ── PR-2.5 hardening trio (advisory lock, EXPIRED_SWEEP audit, tighter catch) ──
+// ── Retry hardening trio (advisory lock, EXPIRED_SWEEP audit, tighter catch) ──
 //
 // The sweep wraps its body in `prisma.$transaction(async (tx) => ...)` so
 // every query goes through `tx` (= `txMock`). The lock-acquire query is
