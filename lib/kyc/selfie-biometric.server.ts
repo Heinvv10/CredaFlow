@@ -16,9 +16,13 @@ import {
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
   biometricSubjectFingerprint,
-  readVlmFaceMatchVerdict,
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
+import {
+  readVlmFaceMatchVerdict,
+  type IdPhotoKind,
+  type SamePersonVerdict,
+} from "@/lib/kyc/vlm-face-match"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -40,6 +44,11 @@ type VlmFaceMatchProviderResult = {
   livenessScore: number
   faceMatch: boolean
   idPhotoFaceDetected: boolean
+  /** What the VLM saw in the ID portrait area; only "photograph" can verify. */
+  idPhotoKind: IdPhotoKind
+  idPhotoIsRealPhotograph: boolean
+  selfieIsRealPhotograph: boolean
+  samePerson: SamePersonVerdict
   /** Which stored ID document the selfie was compared against. */
   idDocumentId: string
   idDocumentSha256: string | null
@@ -138,17 +147,21 @@ export async function runBiometricVerification(
     if (vlmAssessment.ok && matchVerdict && client?.idNumber) {
       biometricResult = {
         ok: true,
-        verified: matchVerdict.faceMatch && matchVerdict.idPhotoFaceDetected,
+        // Every gate in readVlmFaceMatchVerdict must hold — faceMatch alone
+        // once verified a selfie against a silhouette placeholder.
+        verified: matchVerdict.rejection === null,
         provider: "vlm-face-match-v1",
         matchScore: matchVerdict.matchScore,
         livenessScore: matchVerdict.livenessScore,
         faceMatch: matchVerdict.faceMatch,
         idPhotoFaceDetected: matchVerdict.idPhotoFaceDetected,
+        idPhotoKind: matchVerdict.idPhotoKind,
+        idPhotoIsRealPhotograph: matchVerdict.idPhotoIsRealPhotograph,
+        selfieIsRealPhotograph: matchVerdict.selfieIsRealPhotograph,
+        samePerson: matchVerdict.samePerson,
         idDocumentId: idDocument.id,
         idDocumentSha256: idDocument.contentSha256,
-        ...(matchVerdict.faceMatch
-          ? {}
-          : { error: "VLM face match did not confirm the selfie against the ID photograph" }),
+        ...(matchVerdict.rejection === null ? {} : { error: matchVerdict.rejection }),
       }
     }
 

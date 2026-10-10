@@ -185,7 +185,11 @@ describe("POST /api/documents/selfie", () => {
         isLive: { value: true },
         quality: { value: "good" },
         livenessConfidence: { value: 0.97 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
         idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "same" },
         faceMatch: { value: true },
         matchConfidence: { value: 0.95 },
       },
@@ -821,7 +825,11 @@ describe("POST /api/documents/selfie", () => {
         isLive: { value: true },
         quality: { value: "good" },
         livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
         idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
         faceMatch: { value: false },
         matchConfidence: { value: 0.1 },
       },
@@ -843,6 +851,56 @@ describe("POST /api/documents/selfie", () => {
           verified: false,
           faceMatch: false,
           biometricFailureReason: "match_score_below_threshold",
+        }),
+      }),
+    }))
+    expect(txClientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+    expect(auditCreateMock.mock.calls[1][0]).toEqual({
+      data: expect.objectContaining({ action: "KYC_REJECTED" }),
+    })
+  })
+
+  // 2026-10-10: the VLM said faceMatch=true at 0.85 against an ID card whose
+  // portrait box held only a grey silhouette. The model's own optimistic
+  // booleans must not carry the match once it classifies the portrait as a
+  // placeholder.
+  it("rejects a confident match against a silhouette placeholder ID portrait", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: true },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "silhouette_placeholder" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "same" },
+        faceMatch: { value: true },
+        matchConfidence: { value: 0.85 },
+      },
+    })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        extractionStatus: "failed",
+        verified: false,
+        validationMismatch: true,
+        biometricVerifiedAt: null,
+        biometricResult: expect.objectContaining({
+          provider: "vlm-face-match-v1",
+          verified: false,
+          idPhotoKind: "silhouette_placeholder",
+          error: "ID document portrait is not a photograph (silhouette_placeholder)",
+          biometricFailureReason: "provider_verification_failed",
         }),
       }),
     }))

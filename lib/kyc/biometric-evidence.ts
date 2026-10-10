@@ -142,46 +142,6 @@ export function assessVlmBiometricExtraction(
   return { ok: true }
 }
 
-export type VlmFaceMatchVerdict = {
-  faceMatch: boolean
-  idPhotoFaceDetected: boolean
-  /** 0–100, from the VLM's matchConfidence (0–1). */
-  matchScore: number
-  /** 0–100, from the VLM's livenessConfidence (0–1). */
-  livenessScore: number
-}
-
-/**
- * Read the two-image face-match verdict out of a SELFIE extraction result.
- * Returns null — never a partial verdict — unless every field is present and
- * well-formed, so a single-image (legacy) extraction or a malformed VLM
- * response yields no provider evidence and the attempt fails closed.
- */
-export function readVlmFaceMatchVerdict(extractionResult: unknown): VlmFaceMatchVerdict | null {
-  const extraction = jsonRecord(extractionResult)
-  if (!extraction) return null
-  const faceMatch = extractedValue(extraction, "faceMatch")
-  const idPhotoFaceDetected = extractedValue(extraction, "idPhotoFaceDetected")
-  const matchConfidence = extractedValue(extraction, "matchConfidence")
-  const livenessConfidence = extractedValue(extraction, "livenessConfidence")
-  const isConfidence = (value: unknown): value is number =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
-  if (
-    typeof faceMatch !== "boolean"
-    || typeof idPhotoFaceDetected !== "boolean"
-    || !isConfidence(matchConfidence)
-    || !isConfidence(livenessConfidence)
-  ) {
-    return null
-  }
-  return {
-    faceMatch,
-    idPhotoFaceDetected,
-    matchScore: Math.round(matchConfidence * 100),
-    livenessScore: Math.round(livenessConfidence * 100),
-  }
-}
-
 function fingerprintField(value: string): string {
   return Buffer.from(String(value ?? ""), "utf8").toString("hex")
 }

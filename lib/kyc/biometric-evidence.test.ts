@@ -4,7 +4,6 @@ import {
   assessVlmBiometricExtraction,
   biometricSubjectFingerprint,
   parseBiometricEvidenceFailureReason,
-  readVlmFaceMatchVerdict,
   type BiometricDocumentEvidence,
 } from "./biometric-evidence"
 
@@ -254,49 +253,5 @@ describe("assessVlmBiometricExtraction", () => {
       ...passingExtractionResult,
       facesCount: { value: "1" },
     })).toEqual({ ok: false, reason: "face_count_invalid" })
-  })
-})
-
-describe("readVlmFaceMatchVerdict", () => {
-  const fullVerdict = {
-    ...passingExtractionResult,
-    livenessConfidence: { value: 0.97 },
-    idPhotoFaceDetected: { value: true },
-    faceMatch: { value: true },
-    matchConfidence: { value: 0.95 },
-  }
-
-  it("reads a complete verdict and scales confidences to 0–100 scores", () => {
-    expect(readVlmFaceMatchVerdict(fullVerdict)).toEqual({
-      faceMatch: true,
-      idPhotoFaceDetected: true,
-      matchScore: 95,
-      livenessScore: 97,
-    })
-  })
-
-  it("returns null — never a partial verdict — when any field is missing or malformed", () => {
-    expect(readVlmFaceMatchVerdict(passingExtractionResult)).toBeNull()
-    expect(readVlmFaceMatchVerdict(null)).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, faceMatch: { value: "yes" } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: "0.95" } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: 1.5 } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: -0.1 } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: Number.NaN } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, livenessConfidence: {} })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, idPhotoFaceDetected: { value: 1 } })).toBeNull()
-  })
-
-  it("keeps a truthful no-match verdict readable", () => {
-    expect(readVlmFaceMatchVerdict({
-      ...fullVerdict,
-      faceMatch: { value: false },
-      matchConfidence: { value: 0.1 },
-    })).toEqual({
-      faceMatch: false,
-      idPhotoFaceDetected: true,
-      matchScore: 10,
-      livenessScore: 97,
-    })
   })
 })
