@@ -1,0 +1,30 @@
+# Demo simulator app image: a demo product build plus libfaketime, so the app
+# can run under the shared fake clock (docker-compose.demo-sim.yml).
+#
+# BASE_IMAGE is the product image the live demo runs (scripts/demo/bake.sh
+# passes it; scripts/demo/build-image.sh builds it), so a snapshot is baked by
+# the same code it is restored into. No default: a blank FROM fails the build.
+#
+# The demo build bakes NEXT_PUBLIC_TENANT_SLUG=acme and a portal login URL of
+# https://demo.credaflow.com/portal/login. Neither blocks API use on
+# localhost: tenant resolution on localhost reads the baked slug, and the
+# portal URL only appears in generated links, which are meant to name the
+# demo host the baked snapshot is restored into.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libfaketime && \
+    rm -rf /var/lib/apt/lists/*
+
+# Prisma 5 dlopens its query engine with RTLD_DEEPBIND, which binds the
+# engine's clock_gettime straight to libc and past LD_PRELOAD. Without this
+# patch every @default(now()) / @updatedAt the engine fills in carries the
+# REAL date while Date.now() and Postgres now() carry the faked one. Sim image
+# only; the build fails if the expected flag is not there to remove.
+ARG PRISMA_RUNTIME=/app/node_modules/@prisma/client/runtime/library.js
+RUN grep -q '|so.default.constants.dlopen.RTLD_DEEPBIND' "$PRISMA_RUNTIME" && \
+    sed -i 's/|so.default.constants.dlopen.RTLD_DEEPBIND//' "$PRISMA_RUNTIME" && \
+    ! grep -q 'RTLD_DEEPBIND' "$PRISMA_RUNTIME"
+USER nextjs

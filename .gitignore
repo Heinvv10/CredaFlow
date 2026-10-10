@@ -80,3 +80,7 @@ lib/ocr/accuracy/*.png
 
 # face-comparison model weights (npm run face-models:fetch)
 /face-models/
+# demo simulator: faked-clock dir and captured seed credentials (scripts/demo/sim)
+/scripts/demo/.sim-*
+/scripts/demo/.out/
+/scripts/demo/.private/

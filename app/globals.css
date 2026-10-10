@@ -982,3 +982,18 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
 .cf-site-surface textarea::placeholder {
   color: var(--cf-text-muted) !important;
 }
+
+/* DEMO_MODE banner (components/demo/DemoBanner.tsx) is sticky at the top and
+   its height is fixed (3rem on small screens, 2rem from sm). Shift the shells'
+   top-anchored fixed/sticky chrome below it; without it the topbar and sidebar
+   would cover the banner. Inert unless the root layout sets data-demo-mode. */
+html[data-demo-mode] { --cf-demo-banner-h: 3rem; }
+@media (min-width: 640px) {
+  html[data-demo-mode] { --cf-demo-banner-h: 2rem; }
+}
+html[data-demo-mode] .fixed.top-0,
+html[data-demo-mode] .fixed.inset-y-0,
+html[data-demo-mode] .sticky.top-0:not([data-demo-banner]) { top: var(--cf-demo-banner-h); }
+html[data-demo-mode] .fixed.top-3 { top: calc(0.75rem + var(--cf-demo-banner-h)); }
+html[data-demo-mode] .fixed.top-4 { top: calc(1rem + var(--cf-demo-banner-h)); }
+html[data-demo-mode] .fixed.top-14 { top: calc(3.5rem + var(--cf-demo-banner-h)); }

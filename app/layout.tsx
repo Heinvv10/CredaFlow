@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { DeploymentConfigError, requireAppBaseUrl } from "@/lib/config/deployment-urls";
+import { DemoBanner } from "@/components/demo/DemoBanner";
+import { isDemoMode } from "@/lib/config/demo-mode";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -27,11 +29,17 @@ function deploymentOrigin(): URL | undefined {
 }
 const metadataBase = deploymentOrigin();
 
-export const metadata: Metadata = {
+const metadata: Metadata = {
   ...(metadataBase ? { metadataBase } : {}),
   title: "Client and staff workspace",
   description: "Loan management workspace",
 };
+
+// Read per request: DEMO_MODE is runtime env, and the same image runs with and
+// without it. Unset, this adds nothing to the metadata.
+export function generateMetadata(): Metadata {
+  return isDemoMode() ? { ...metadata, robots: { index: false, follow: false } } : metadata;
+}
 
 export default function RootLayout({
   children,
@@ -39,14 +47,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
+    <html
+      lang="en"
+      className="dark"
+      data-theme="dark"
+      {...(isDemoMode() ? { "data-demo-mode": "true" } : {})}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <DemoBanner />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

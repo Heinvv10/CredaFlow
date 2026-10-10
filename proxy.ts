@@ -1,8 +1,10 @@
 import { auth } from "@/lib/auth-edge"
+import type { NextAuthRequest } from "next-auth"
 import { NextResponse } from "next/server"
 import { isPublicOperationalRoute } from "@/lib/public-routes"
 import { isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
 import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
+import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
 import {
   buildTenantHeaders,
@@ -21,7 +23,11 @@ const APP_MODE: AppMode =
     ? process.env.APP_MODE
     : "all"
 
-export default auth((req) => {
+// Every response (redirects and 404s included) goes through applyDemoHeaders so
+// a demo deployment is never indexable; with DEMO_MODE unset it is a no-op.
+export default auth((req) => applyDemoHeaders(route(req)))
+
+function route(req: NextAuthRequest): Response {
   const path = req.nextUrl.pathname
   const hostname = req.headers.get("host") ?? ""
   const baseHostname = hostname.split(":")[0].toLowerCase().replace(/\.$/, "")
@@ -293,7 +299,7 @@ export default auth((req) => {
   }
 
   return NextResponse.next({ request: { headers: requestHeaders } })
-})
+}
 
 export const config = {
   matcher: [

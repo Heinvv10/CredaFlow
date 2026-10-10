@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next"
+import { isDemoMode } from "@/lib/config/demo-mode"
 import { siteUrl } from "@/lib/seo/metadata"
 import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
 
@@ -8,6 +9,7 @@ import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
 // Genuine non-public pages under /site/ must be added to the disallow list
 // explicitly.
 export default function robots(): MetadataRoute.Robots {
+  if (isDemoMode()) return { rules: [{ userAgent: "*", disallow: "/" }] }
   const base = siteUrl()
   return {
     rules: [

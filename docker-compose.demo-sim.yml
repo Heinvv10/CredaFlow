@@ -1,0 +1,119 @@
+# Demo SIMULATOR stack — app and database under one controllable fake clock.
+#
+# Not the live demo (docker-compose.demo.yml in the demo checkout). No tunnel,
+# no public ingress: both ports bind to 127.0.0.1 only. Data is produced by
+# driving the HTTP API (scripts/demo/sim), then snapshotted.
+#
+# Clock: scripts/demo/sim/clock.ts writes scripts/demo/.sim-clock/faketime.rc
+# ("@YYYY-MM-DD HH:MM:SS", UTC). Both containers preload libfaketime and
+# re-read the file on every time call, so rewriting it moves the app's
+# Date.now() and Postgres' now() together. The directory (not the file) is
+# mounted so the atomic rename in clock.ts is visible inside the containers.
+#
+#   npx tsx scripts/demo/sim/clock.ts set 2026-04-01T09:00:00Z   # first, once
+#   docker compose -f docker-compose.demo-sim.yml up -d --build
+#
+# Env: .env.demo-sim + $DEMO_DATA_DIR/secrets.env (untracked; see
+# scripts/demo/sim/README.md).
+name: credaflow-demo-sim
+
+x-faketime: &faketime
+  FAKETIME_TIMESTAMP_FILE: /sim-clock/faketime.rc
+  FAKETIME_NO_CACHE: "1"
+  FAKETIME_DONT_FAKE_MONOTONIC: "1"
+  # The clock file's timestamp is parsed in the process's local zone; pin it.
+  TZ: UTC
+
+services:
+  db:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM postgres:16-alpine
+        RUN apk add --no-cache libfaketime
+    image: credaflow-demo-sim-db:local
+    container_name: credaflow-demo-sim-db
+    env_file:
+      - path: .env.demo-sim
+        required: true
+    environment:
+      <<: *faketime
+      FAKETIME_LIB: /usr/lib/faketime/libfaketime.so.1
+    entrypoint: ["sh", "/sim/faketime-entrypoint.sh", "docker-entrypoint.sh"]
+    command: ["postgres"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: "no"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/demo/.sim-clock:/sim-clock:ro
+      - ./scripts/demo/sim/faketime-entrypoint.sh:/sim/faketime-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:5456:5432"
+
+  # One service, APP_MODE=all: staff and portal routes on one origin, so a
+  # single cookie jar per actor reaches both. In-process node-cron jobs
+  # (instrumentation.ts) call NEXTAUTH_URL, which is the HOST port and is not
+  # reachable inside the container — they fail closed and the simulator runs
+  # every cron explicitly (scripts/demo/sim/cron.ts).
+  app:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # VLM on the host (:8100)
+    build:
+      context: .
+      dockerfile: Dockerfile.demo-sim
+      args:
+        # The product image the sim layers faketime onto — the image the live
+        # demo runs, so the bake and the restore target share one build.
+        # scripts/demo/bake.sh sets it; unset, the build fails (blank FROM).
+        BASE_IMAGE: ${SIM_BASE_IMAGE:-}
+    image: credaflow:demo-sim
+    pull_policy: never
+    container_name: credaflow-demo-sim-app
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env.demo-sim
+        required: true
+      # Secrets the snapshot shares with the live demo (scripts/demo/lib.sh).
+      - path: ${DEMO_DATA_DIR:-${HOME}/credaflow-demo-data}/secrets.env
+        required: true
+    environment:
+      <<: *faketime
+      FAKETIME_LIB: /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1
+      NODE_ENV: production
+      PORT: 3300
+      HOSTNAME: 0.0.0.0
+      APP_MODE: all
+    entrypoint: ["sh", "/sim/faketime-entrypoint.sh", "docker-entrypoint.sh"]
+    command: ["node", "server.js"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3300/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    restart: "no"
+    volumes:
+      - uploads:/app/uploads
+      - ./scripts/demo/.sim-clock:/sim-clock:ro
+      - ./scripts/demo/sim/faketime-entrypoint.sh:/sim/faketime-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:3320:3300"
+
+volumes:
+  postgres-data:
+  uploads:
+
+# Pinned inside 172.16.0.0/12: the host firewall (ufw) admits Docker traffic
+# to host ports — the VLM on :8100 — only from that range (plus two named VFA
+# subnets). An auto-assigned 192.168.x.0/20 network times out reaching the VLM.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.16.120.0/24
