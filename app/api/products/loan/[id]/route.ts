@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
+import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
 import {
   micro30ContractIssues,
   micro30DecisionTermsChanged,
@@ -46,6 +47,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       initiationFeeMax: Math.round((body.initiationFeeMax ?? 0) * 100),
       monthlyServiceFee: Math.round((body.monthlyServiceFee ?? 0) * 100),
       active: body.active,
+    }
+    const boundsIssues = loanProductBoundsIssues(data)
+    if (boundsIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
+          invalidFields: boundsIssues,
+        },
+        { status: 422 },
+      )
     }
     const contractIssues = micro30ContractIssues(data)
     if (contractIssues.length > 0) {
