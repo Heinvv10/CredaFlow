@@ -76,10 +76,10 @@ the previous one's branch):
 - **Strings still carry history** the comment pass could not touch (string
   literals were out of scope): test names with review IDs or a person's name
   (e.g. `lib/referral-agents/commission-backfill.test.ts`), the recipient-guard
-  error text, `[CRITICAL-n]`/`[IMPORTANT-n]` test titles, "OPEN GAP (date)"
-  entries in the cron census, and a dated comment in
-  `lib/email/templates/section129.ts` is now neutral but the template folder
-  itself was not reviewed for history.
+  error text, `[CRITICAL-n]`/`[IMPORTANT-n]` test titles, and "OPEN GAP (date)"
+  entries in the cron census. `lib/email/templates/` was outside the comment
+  pass apart from one comment in `section129.ts` that named a real business;
+  the rest of that folder has not been reviewed for history.
 - **Known limits:** the credit agreement truncates schedules beyond 38 rows
   (nothing upstream caps instalments); `lib/db-baseline.test-helpers.ts` only
   recognises `DROP` / `CREATE OR REPLACE` in the `public."x"` one-line form;
