@@ -111,6 +111,10 @@ function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
 function extractedValue(result: Record<string, unknown>, field: string): unknown {
   const entry = jsonRecord(result[field])
   return entry?.value
@@ -265,29 +269,32 @@ export function assessBiometricEvidence(
   ) {
     return { ok: false, reason: "provider_verification_failed" }
   }
-  // When the VLM ran, it IS the provider, so its evidence must be the v2
-  // verdict. Only the legacy external-provider path (persisted VLM-unavailable
-  // marker) is judged on the generic fields above alone.
-  const vlmProvided = jsonRecord(evidence.extractionResult)?.vlmUnavailable !== true
-  if (vlmProvided && providerResult.provider !== VLM_FACE_MATCH_PROVIDER) {
+  // The VLM is the only provider, so passing evidence is always the v2
+  // verdict. There is no VLM-unavailable exemption: with the VLM unavailable
+  // the producer writes no provider result at all.
+  if (providerResult.provider !== VLM_FACE_MATCH_PROVIDER) {
     // No v2 check stands behind these scores (v1, untagged or unknown).
     return { ok: false, reason: "provider_verification_missing" }
   }
-  if (vlmProvided && (
+  if (
     providerResult.idPhotoKind !== "photograph" ||
     providerResult.idPhotoIsRealPhotograph !== true ||
     providerResult.idPhotoFaceDetected !== true ||
     providerResult.selfieIsRealPhotograph !== true ||
     providerResult.samePerson !== "same" ||
-    providerResult.faceMatch !== true
-  )) {
+    providerResult.faceMatch !== true ||
+    !isFiniteNumber(providerResult.matchConfidence) ||
+    !isFiniteNumber(providerResult.livenessConfidence)
+  ) {
     // `verified: true` alongside a judgement that refuses is not a pass.
     return { ok: false, reason: "provider_verification_failed" }
   }
-  if (providerResult.matchScore < BIOMETRIC_MATCH_THRESHOLD) {
+  // Rounded score AND raw confidence: 0.695 rounds to a passing 70.
+  const { matchScore, matchConfidence, livenessScore, livenessConfidence } = providerResult
+  if (matchScore < BIOMETRIC_MATCH_THRESHOLD || matchConfidence < BIOMETRIC_MATCH_THRESHOLD / 100) {
     return { ok: false, reason: "match_score_below_threshold" }
   }
-  if (providerResult.livenessScore < BIOMETRIC_LIVENESS_THRESHOLD) {
+  if (livenessScore < BIOMETRIC_LIVENESS_THRESHOLD || livenessConfidence < BIOMETRIC_LIVENESS_THRESHOLD / 100) {
     return { ok: false, reason: "liveness_score_below_threshold" }
   }
   if (options.requireDocumentVerified !== false && !evidence.verified) {

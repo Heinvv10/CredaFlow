@@ -24,6 +24,7 @@ import {
   type IdPhotoKind,
   type SamePersonVerdict,
 } from "@/lib/kyc/vlm-face-match"
+import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -144,9 +145,11 @@ export async function runBiometricVerification(
       ? { vlmUnavailable: true }
       : vlmResult.data ?? null
     const vlmAssessment = assessVlmBiometricExtraction(extractionResult)
-    const matchVerdict = vlmAssessment.ok && !extractionUnavailable
-      ? readVlmFaceMatchVerdict(extractionResult)
-      : null
+    // Read the verdict even when the selfie side already failed: the ID-side
+    // judgement must still be able to name a reason no human may except.
+    const matchVerdict = extractionUnavailable
+      ? null
+      : readVlmFaceMatchVerdict(extractionResult)
     let biometricResult: VlmFaceMatchProviderResult | null = null
     if (vlmAssessment.ok && matchVerdict && client?.idNumber) {
       biometricResult = {
@@ -170,11 +173,19 @@ export async function runBiometricVerification(
         ...(matchVerdict.rejection === null ? {} : { error: matchVerdict.rejection.message }),
       }
     }
+    // A refusal that can never be excepted (ID portrait or selfie not a real
+    // photograph). It outranks every other failure, whichever side failed
+    // first: a liveness or face-count failure is exceptionable, and recording
+    // it instead let a senior except a match against a silhouette ID.
+    const strictRejection = matchVerdict?.rejection &&
+      !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
+      ? matchVerdict.rejection
+      : null
     // A completed check that refused carries its own message; only an attempt
     // with no provider result falls back to the VLM/transport error.
     const extractionError = biometricResult
       ? biometricResult.error ?? null
-      : vlmResult.error ?? "Biometric verification did not run"
+      : strictRejection?.message ?? vlmResult.error ?? "Biometric verification did not run"
 
     const biometricCompleted = biometricResult?.ok === true
     const extractionStatus = biometricCompleted ? "done" as const : "failed" as const
@@ -201,13 +212,17 @@ export async function runBiometricVerification(
         })
       : { ok: false as const, reason: "subject_fingerprint_missing" as const }
     const biometricPassed = prospectiveAssessment.ok
-    // The verdict's own refusal is the reason recorded. Without this override
-    // an ID with no photograph surfaced as the generic, exceptionable
-    // provider_verification_failed (or match_score_below_threshold), letting a
-    // senior grant an exception over a match against nobody.
-    const biometricFailureReason = biometricResult && matchVerdict?.rejection
-      ? matchVerdict.rejection.reason
-      : prospectiveAssessment.ok ? null : prospectiveAssessment.reason
+    const assessedReason = prospectiveAssessment.ok ? null : prospectiveAssessment.reason
+    // The strictest reason is the one recorded: a non-exceptionable refusal
+    // from either source wins. Otherwise a completed check names its own
+    // refusal (not the generic provider_verification_failed or score gate),
+    // and an attempt stopped on the selfie side keeps that gate's reason.
+    const biometricFailureReason = strictRejection?.reason
+      ?? (assessedReason && !isManualKycExceptionableFailureReason(assessedReason)
+        ? assessedReason
+        : null)
+      ?? (biometricResult ? matchVerdict?.rejection?.reason : null)
+      ?? assessedReason
 
     await persistBiometricOutcome({
       docId,

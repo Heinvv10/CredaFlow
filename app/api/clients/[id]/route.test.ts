@@ -212,6 +212,8 @@ beforeEach(() => {
       selfieIsRealPhotograph: true,
       samePerson: "same",
       faceMatch: true,
+      matchConfidence: 0.98,
+      livenessConfidence: 0.97,
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
     },
   })
@@ -1217,6 +1219,8 @@ describe("PATCH /api/clients/[id] KYC serialization", () => {
         selfieIsRealPhotograph: true,
         samePerson: "same",
         faceMatch: true,
+        matchConfidence: 0.98,
+        livenessConfidence: 0.97,
         subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       },
     })

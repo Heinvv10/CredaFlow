@@ -952,6 +952,93 @@ describe("POST /api/documents/selfie", () => {
     }))
   })
 
+  // A selfie-side failure (liveness, face count) used to stop the pipeline
+  // before the ID-side verdict was read, so a silhouette ID was recorded under
+  // an exceptionable selfie reason. The strictest reason must win.
+  it.each([
+    ["liveness failed", "id_document_portrait_invalid", { isLive: { value: false } },
+      { idPhotoKind: { value: "silhouette_placeholder" }, idPhotoIsRealPhotograph: { value: false }, idPhotoFaceDetected: { value: false } },
+      "ID document portrait is not a photograph (silhouette_placeholder)"],
+    ["two faces", "id_document_portrait_invalid", { facesCount: { value: 2 } },
+      { idPhotoKind: { value: "silhouette_placeholder" }, idPhotoIsRealPhotograph: { value: false }, idPhotoFaceDetected: { value: false } },
+      "ID document portrait is not a photograph (silhouette_placeholder)"],
+    ["liveness failed", "selfie_not_real_photograph", { isLive: { value: false } },
+      { selfieIsRealPhotograph: { value: false } },
+      "Selfie is not a real photograph of a live person"],
+    ["two faces", "selfie_not_real_photograph", { facesCount: { value: 2 } },
+      { selfieIsRealPhotograph: { value: false } },
+      "Selfie is not a real photograph of a live person"],
+  ])("records %s against a refused portrait as the non-exceptionable %s", async (
+    _label, reason, selfieSide, verdictSide, message,
+  ) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: true },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
+        faceMatch: { value: false },
+        matchConfidence: { value: 0.1 },
+        ...selfieSide,
+        ...verdictSide,
+      },
+    })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = txDocumentUpdateManyMock.mock.calls[0][0] as {
+      data: {
+        extractionStatus: string
+        extractionError: string
+        verified: boolean
+        biometricResult: { biometricFailureReason: string }
+      }
+    }
+    expect(update.data.extractionStatus).toBe("failed")
+    expect(update.data.extractionError).toBe(message)
+    expect(update.data.verified).toBe(false)
+    expect(update.data.biometricResult.biometricFailureReason).toBe(reason)
+    expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
+  })
+
+  it("keeps the selfie-side reason when the verdict refusal is itself exceptionable", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: false },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.2 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
+        faceMatch: { value: false },
+        matchConfidence: { value: 0.1 },
+      },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        biometricResult: expect.objectContaining({ biometricFailureReason: "vlm_liveness_failed" }),
+      }),
+    }))
+  })
+
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {
     // A legacy single-image response (liveness only). Without a complete
     // verdict there is no provider evidence at all — never a partial pass.

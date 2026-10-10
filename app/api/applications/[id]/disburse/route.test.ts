@@ -478,6 +478,8 @@ const PASSING_BIOMETRIC_DOCUMENT = {
     selfieIsRealPhotograph: true,
     samePerson: "same",
     faceMatch: true,
+    matchConfidence: 0.98,
+    livenessConfidence: 0.97,
     subjectFingerprint: biometricSubjectFingerprint(BIOMETRIC_TEST_SUBJECT),
   },
 }

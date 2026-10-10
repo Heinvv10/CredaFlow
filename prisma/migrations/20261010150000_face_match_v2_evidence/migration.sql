@@ -5,17 +5,25 @@
 -- ahead of that code, every new biometric pass is refused, because the old
 -- writer still stamps "vlm-face-match-v1".
 --
--- 1. subject_has_composite_kyc: VLM-produced biometric evidence counts only
---    when it is the v2 verdict with every judgement consistent with a pass.
---    The legacy VLM-unavailable (external provider) branch is unchanged.
+-- 1. subject_has_composite_kyc: biometric evidence counts only when it is the
+--    v2 verdict with every judgement consistent with a pass and both raw
+--    confidences at or above 0.7. The VLM-unavailable marker no longer
+--    exempts evidence from that verdict (no writer produces a pass on it).
 --    Mirrors assessBiometricEvidence in lib/kyc/biometric-evidence.ts.
 -- 2. subject_has_manual_kyc_exception: recognise the two new failure reasons
 --    (id_document_portrait_invalid, selfie_not_real_photograph) and keep them
 --    OFF the exceptionable list, mirroring
 --    MANUAL_KYC_EXCEPTIONABLE_FAILURE_REASONS in
 --    lib/kyc/manual-exception-policy.ts.
+-- 3. Demote every client still VERIFIED on evidence the new rule refuses
+--    (v1/untagged selfie evidence). Client_enforce_composite_kyc re-checks
+--    subject_has_composite_kyc on every Client write, so such a row would
+--    otherwise reject every later update. Mirrors revoke_client_composite_kyc:
+--    PENDING, provenance cleared, one KYC_STATUS_CHANGED audit row each.
 --
--- Both bodies are the baseline definitions with only the marked lines added.
+-- Both function bodies are the baseline definitions with only the marked
+-- lines added. Order matters: the functions are replaced before step 3 reads
+-- them, all within this migration's single transaction.
 
 CREATE OR REPLACE FUNCTION public.subject_has_composite_kyc(p_tenant_id text, p_client_id text, p_id_number text, p_first_name text, p_last_name text, p_date_of_birth timestamp without time zone)
  RETURNS boolean
@@ -72,24 +80,33 @@ AS $function$
           AND jsonb_typeof(selfie."biometricResult") = 'object'
           AND selfie."biometricResult" ->> 'ok' = 'true'
           AND selfie."biometricResult" ->> 'verified' = 'true'
-          -- When the VLM ran it is the provider, so its evidence verifies
-          -- only as the v2 verdict with every separate judgement agreeing
-          -- with the pass (assessBiometricEvidence mirrors this). v1 carried
-          -- one faceMatch boolean that once passed a selfie against a
-          -- silhouette placeholder; its evidence no longer counts. Booleans
-          -- compare as jsonb so the string "true" does not pass.
-          AND (
-            selfie."extractionResult" ->> 'vlmUnavailable' = 'true'
-            OR (
-              selfie."biometricResult" ->> 'provider' = 'vlm-face-match-v2'
-              AND selfie."biometricResult" ->> 'idPhotoKind' = 'photograph'
-              AND selfie."biometricResult" -> 'idPhotoIsRealPhotograph' = 'true'::jsonb
-              AND selfie."biometricResult" -> 'idPhotoFaceDetected' = 'true'::jsonb
-              AND selfie."biometricResult" -> 'selfieIsRealPhotograph' = 'true'::jsonb
-              AND selfie."biometricResult" ->> 'samePerson' = 'same'
-              AND selfie."biometricResult" -> 'faceMatch' = 'true'::jsonb
-            )
-          )
+          -- The VLM is the only provider, so evidence verifies only as the
+          -- v2 verdict with every separate judgement agreeing with the pass
+          -- (assessBiometricEvidence mirrors this). v1 carried one faceMatch
+          -- boolean that once passed a selfie against a silhouette
+          -- placeholder; its evidence no longer counts, and the
+          -- VLM-unavailable marker exempts nothing. Booleans compare as
+          -- jsonb so the string "true" does not pass.
+          AND selfie."biometricResult" ->> 'provider' = 'vlm-face-match-v2'
+          AND selfie."biometricResult" ->> 'idPhotoKind' = 'photograph'
+          AND selfie."biometricResult" -> 'idPhotoIsRealPhotograph' = 'true'::jsonb
+          AND selfie."biometricResult" -> 'idPhotoFaceDetected' = 'true'::jsonb
+          AND selfie."biometricResult" -> 'selfieIsRealPhotograph' = 'true'::jsonb
+          AND selfie."biometricResult" ->> 'samePerson' = 'same'
+          AND selfie."biometricResult" -> 'faceMatch' = 'true'::jsonb
+          -- The raw 0-1 confidences, not only the rounded scores: 0.695
+          -- rounds to a passing 70. CASE guards the cast, since AND does not
+          -- fix evaluation order and a string would raise instead of refuse.
+          AND CASE
+            WHEN jsonb_typeof(selfie."biometricResult" -> 'matchConfidence') = 'number'
+            THEN (selfie."biometricResult" ->> 'matchConfidence')::numeric >= 0.7
+            ELSE false
+          END
+          AND CASE
+            WHEN jsonb_typeof(selfie."biometricResult" -> 'livenessConfidence') = 'number'
+            THEN (selfie."biometricResult" ->> 'livenessConfidence')::numeric >= 0.7
+            ELSE false
+          END
           AND coalesce(
             selfie."biometricResult" ->> 'simulated',
             'false'
@@ -273,3 +290,66 @@ AS $function$
       )
   );
 $function$;
+
+-- 3. Demote clients the replaced rule no longer verifies. The UPDATE sets a
+-- non-VERIFIED status, so Client_enforce_composite_kyc does not re-check the
+-- composite for these rows. No personal data in the audit payload.
+WITH stale AS (
+  SELECT
+    client."id",
+    client."tenantId",
+    jsonb_build_object(
+      'kycStatus', client."kycStatus"::text,
+      'kycVerifiedAt', client."kycVerifiedAt",
+      'kycVerifiedById', client."kycVerifiedById",
+      'kycVerificationMethod', client."kycVerificationMethod"::text
+    ) AS previous_kyc
+  FROM "Client" AS client
+  WHERE client."kycStatus" = 'VERIFIED'
+    AND NOT "subject_has_composite_kyc"(
+      client."tenantId",
+      client."id",
+      client."idNumber",
+      client."firstName",
+      client."lastName",
+      client."dateOfBirth"
+    )
+  FOR UPDATE
+),
+demoted AS (
+  UPDATE "Client" AS client
+  SET
+    "kycStatus" = 'PENDING',
+    "kycVerifiedAt" = NULL,
+    "kycVerifiedById" = NULL,
+    "kycVerificationMethod" = NULL,
+    "updatedAt" = CURRENT_TIMESTAMP
+  FROM stale
+  WHERE client."id" = stale."id"
+    AND client."tenantId" = stale."tenantId"
+  RETURNING client."id", client."tenantId", stale.previous_kyc
+)
+INSERT INTO "AuditLog" (
+  "id", "tenantId", "userEmail", "action", "entity", "entityId",
+  "oldValue", "newValue", "createdAt"
+)
+SELECT
+  'kyc-face-match-v2-reset-' || demoted."id",
+  demoted."tenantId",
+  'migration@face-match-v2-evidence',
+  'KYC_STATUS_CHANGED',
+  'Client',
+  demoted."id",
+  demoted.previous_kyc,
+  jsonb_build_object(
+    'kycStatus', 'PENDING',
+    'kycVerifiedAt', NULL,
+    'kycVerifiedById', NULL,
+    'kycVerificationMethod', NULL,
+    'reason', 'face_match_v2_evidence_required',
+    'migration', '20261010150000_face_match_v2_evidence',
+    'databaseEnforced', true
+  ),
+  CURRENT_TIMESTAMP
+FROM demoted
+ON CONFLICT ("id") DO NOTHING;

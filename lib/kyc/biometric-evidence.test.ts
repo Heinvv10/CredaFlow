@@ -36,6 +36,8 @@ const passingVlmVerdict = {
   selfieIsRealPhotograph: true,
   samePerson: "same",
   faceMatch: true,
+  matchConfidence: 0.98,
+  livenessConfidence: 0.97,
 }
 const boundProviderResult = {
   ...passingProviderResult,
@@ -190,11 +192,31 @@ describe("assessBiometricEvidence", () => {
     })
   })
 
-  it("accepts Smile Identity evidence when the persisted VLM-unavailable marker is present", () => {
+  it("gives the VLM-unavailable marker no exemption from the v2 verdict", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       extractionResult: { vlmUnavailable: true },
       biometricResult: { ...passingProviderResult, subjectFingerprint: biometricSubjectFingerprint(subject) },
+    }, { subject })).toEqual({ ok: false, reason: "provider_verification_missing" })
+  })
+
+  it.each([
+    ["matchConfidence", 0.6951, "match_score_below_threshold"],
+    ["livenessConfidence", 0.6951, "liveness_score_below_threshold"],
+    ["matchConfidence", undefined, "provider_verification_failed"],
+    ["livenessConfidence", "0.97", "provider_verification_failed"],
+    ["matchConfidence", Number.NaN, "provider_verification_failed"],
+  ])("re-checks the raw confidence: %s %s refuses as %s", (field, value, reason) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, [field]: value },
+    }, { subject })).toEqual({ ok: false, reason })
+  })
+
+  it("accepts raw confidences exactly at the threshold", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, matchConfidence: 0.7, livenessConfidence: 0.7 },
     }, { subject })).toEqual({ ok: true })
   })
 

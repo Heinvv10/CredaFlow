@@ -211,6 +211,8 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
           selfieIsRealPhotograph: true,
           samePerson: "same",
           faceMatch: true,
+          matchConfidence: 0.98,
+          livenessConfidence: 0.97,
           subjectFingerprint: biometricSubjectFingerprint(subject),
         },
       },

@@ -101,6 +101,8 @@ const passingSelfie = {
     selfieIsRealPhotograph: true,
     samePerson: "same",
     faceMatch: true,
+    matchConfidence: 0.98,
+    livenessConfidence: 0.97,
     subjectFingerprint: biometricSubjectFingerprint(clientSubject),
   },
 }

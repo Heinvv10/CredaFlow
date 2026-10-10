@@ -41,6 +41,8 @@ const passingSelfieDocument = {
     selfieIsRealPhotograph: true,
     samePerson: "same",
     faceMatch: true,
+    matchConfidence: 0.98,
+    livenessConfidence: 0.97,
     subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
   },
 }
@@ -425,6 +427,8 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
           selfieIsRealPhotograph: true,
           samePerson: "same",
           faceMatch: true,
+          matchConfidence: 0.9,
+          livenessConfidence: 0.95,
           subjectFingerprint: "c".repeat(64),
         },
       })
@@ -481,6 +485,8 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
           selfieIsRealPhotograph: true,
           samePerson: "same",
           faceMatch: true,
+          matchConfidence: 0.98,
+          livenessConfidence: 0.97,
           subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
         },
       })
@@ -549,6 +555,8 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
           selfieIsRealPhotograph: true,
           samePerson: "same",
           faceMatch: true,
+          matchConfidence: 0.98,
+          livenessConfidence: 0.97,
           subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
         },
       })

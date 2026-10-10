@@ -34,6 +34,8 @@ const v2Pass = {
   selfieIsRealPhotograph: true,
   samePerson: "same",
   faceMatch: true,
+  matchConfidence: 0.95,
+  livenessConfidence: 0.97,
 }
 
 let sequence = 0
@@ -227,8 +229,31 @@ suite("face match v2 evidence in the database", () => {
     ["a selfie that is not real", { selfieIsRealPhotograph: false }],
     ["an uncertain same-person verdict", { samePerson: "uncertain" }],
     ["faceMatch false", { faceMatch: false }],
+    ["a raw match confidence below 0.7", { matchConfidence: 0.695 }],
+    ["a raw liveness confidence below 0.7", { livenessConfidence: 0.695 }],
+    ["no raw match confidence", { matchConfidence: undefined }],
+    ["a string raw liveness confidence", { livenessConfidence: "0.97" }],
   ])("does not verify a client on verified:true %s", async (_label, change) => {
     const fixture = await clientWithSelfie(passedSelfie({ ...v2Pass, ...change }))
     await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
+  })
+
+  it("does not verify legacy provider evidence behind the VLM-unavailable marker", async () => {
+    const fixture = await clientWithSelfie({
+      // Scores and raw confidences all pass; only the v2 verdict is absent.
+      ...passedSelfie({
+        ok: true, verified: true, matchScore: 95, livenessScore: 97,
+        matchConfidence: 0.95, livenessConfidence: 0.97,
+      }),
+      extractionResult: { vlmUnavailable: true },
+    })
+    await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
+  })
+
+  it("verifies raw confidences exactly at 0.7", async () => {
+    const fixture = await clientWithSelfie(
+      passedSelfie({ ...v2Pass, matchConfidence: 0.7, livenessConfidence: 0.7 }),
+    )
+    await expect(verify(fixture.clientId, "BIOMETRIC")).resolves.toEqual({ kycStatus: "VERIFIED" })
   })
 })
