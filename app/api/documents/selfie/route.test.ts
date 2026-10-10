@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
 
 const biometricSubject = {
   id: "client-1",
@@ -234,7 +235,7 @@ describe("POST /api/documents/selfie", () => {
         biometricLiveness: 97,
         verificationNote: "Automatically verified by VLM face match against the ID document photograph",
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v1",
+          provider: "vlm-face-match-v2",
           verified: true,
           faceMatch: true,
           idDocumentId: "id-doc-1",
@@ -847,10 +848,11 @@ describe("POST /api/documents/selfie", () => {
         biometricVerifiedAt: null,
         biometricMatchScore: 10,
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v1",
+          provider: "vlm-face-match-v2",
           verified: false,
           faceMatch: false,
-          biometricFailureReason: "match_score_below_threshold",
+          // The verdict's own refusal (not the score gate) names the reason.
+          biometricFailureReason: "provider_verification_failed",
         }),
       }),
     }))
@@ -865,8 +867,24 @@ describe("POST /api/documents/selfie", () => {
   // 2026-10-10: the VLM said faceMatch=true at 0.85 against an ID card whose
   // portrait box held only a grey silhouette. The model's own optimistic
   // booleans must not carry the match once it classifies the portrait as a
-  // placeholder.
-  it("rejects a confident match against a silhouette placeholder ID portrait", async () => {
+  // placeholder — and the refusal must be recorded under a reason that is NOT
+  // on the manual-exception allow-list, with the specific message persisted.
+  it.each([
+    [
+      "a silhouette placeholder ID portrait",
+      { idPhotoKind: { value: "silhouette_placeholder" } },
+      { idPhotoKind: "silhouette_placeholder", selfieIsRealPhotograph: true },
+      "id_document_portrait_invalid",
+      "ID document portrait is not a photograph (silhouette_placeholder)",
+    ],
+    [
+      "a selfie that is not a real photograph",
+      { selfieIsRealPhotograph: { value: false } },
+      { idPhotoKind: "photograph", selfieIsRealPhotograph: false },
+      "selfie_not_real_photograph",
+      "Selfie is not a real photograph of a live person",
+    ],
+  ])("rejects a confident match against %s", async (_label, change, judged, reason, message) => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
@@ -875,13 +893,14 @@ describe("POST /api/documents/selfie", () => {
         isLive: { value: true },
         quality: { value: "good" },
         livenessConfidence: { value: 0.95 },
-        idPhotoKind: { value: "silhouette_placeholder" },
+        idPhotoKind: { value: "photograph" },
         idPhotoIsRealPhotograph: { value: true },
         idPhotoFaceDetected: { value: true },
         selfieIsRealPhotograph: { value: true },
         samePerson: { value: "same" },
         faceMatch: { value: true },
         matchConfidence: { value: 0.85 },
+        ...change,
       },
     })
 
@@ -892,24 +911,45 @@ describe("POST /api/documents/selfie", () => {
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         extractionStatus: "failed",
+        extractionError: message,
+        verificationNote: message,
         verified: false,
         validationMismatch: true,
         biometricVerifiedAt: null,
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v1",
+          provider: "vlm-face-match-v2",
           verified: false,
-          idPhotoKind: "silhouette_placeholder",
-          error: "ID document portrait is not a photograph (silhouette_placeholder)",
-          biometricFailureReason: "provider_verification_failed",
+          error: message,
+          biometricFailureReason: reason,
         }),
       }),
     }))
+    expect(isManualKycExceptionableFailureReason(reason)).toBe(false)
     expect(txClientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kycStatus: "FAILED" }),
     }))
-    expect(auditCreateMock.mock.calls[1][0]).toEqual({
-      data: expect.objectContaining({ action: "KYC_REJECTED" }),
-    })
+    const audit = auditCreateMock.mock.calls[1][0] as {
+      data: { action: string; newValue: { document: Record<string, unknown> } }
+    }
+    expect(audit.data.action).toBe("KYC_REJECTED")
+    expect(audit.data.newValue.document).toEqual(expect.objectContaining({
+      extractionError: message,
+      biometricFailureReason: reason,
+      matchScore: 85,
+      livenessScore: 95,
+      faceMatchVerdict: {
+        provider: "vlm-face-match-v2",
+        rejection: message,
+        idPhotoKind: judged.idPhotoKind,
+        idPhotoIsRealPhotograph: true,
+        idPhotoFaceDetected: true,
+        selfieIsRealPhotograph: judged.selfieIsRealPhotograph,
+        samePerson: "same",
+        faceMatch: true,
+        matchConfidence: 0.85,
+        livenessConfidence: 0.95,
+      },
+    }))
   })
 
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {

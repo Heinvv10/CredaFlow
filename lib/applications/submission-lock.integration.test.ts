@@ -121,6 +121,13 @@ suite("application submission evidence locking", () => {
           verified: true,
           matchScore: 98,
           livenessScore: 97,
+          provider: "vlm-face-match-v2",
+          idPhotoKind: "photograph",
+          idPhotoIsRealPhotograph: true,
+          idPhotoFaceDetected: true,
+          selfieIsRealPhotograph: true,
+          samePerson: "same",
+          faceMatch: true,
           subjectFingerprint: biometricSubjectFingerprint({
             id: ids.client,
             idNumber: token.slice(0, 13),

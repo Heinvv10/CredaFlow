@@ -94,6 +94,13 @@ const passingSelfie = {
     verified: true,
     matchScore: 98,
     livenessScore: 97,
+    provider: "vlm-face-match-v2",
+    idPhotoKind: "photograph",
+    idPhotoIsRealPhotograph: true,
+    idPhotoFaceDetected: true,
+    selfieIsRealPhotograph: true,
+    samePerson: "same",
+    faceMatch: true,
     subjectFingerprint: biometricSubjectFingerprint(clientSubject),
   },
 }

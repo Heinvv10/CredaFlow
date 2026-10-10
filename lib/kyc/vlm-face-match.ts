@@ -1,6 +1,7 @@
 import {
   BIOMETRIC_LIVENESS_THRESHOLD,
   BIOMETRIC_MATCH_THRESHOLD,
+  type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
 
 /**
@@ -23,6 +24,26 @@ export type IdPhotoKind = (typeof ID_PHOTO_KINDS)[number]
 export const SAME_PERSON_VERDICTS = ["same", "different", "uncertain"] as const
 export type SamePersonVerdict = (typeof SAME_PERSON_VERDICTS)[number]
 
+/**
+ * The failure reason recorded for each refusal. ID-side and selfie-side
+ * refusals get their own reasons, which are deliberately NOT on the manual
+ * KYC exception allow-list: there is no real face on one side to reason over.
+ */
+export type VlmFaceMatchRejectionReason = Extract<
+  BiometricEvidenceFailureReason,
+  | "id_document_portrait_invalid"
+  | "selfie_not_real_photograph"
+  | "provider_verification_failed"
+  | "match_score_below_threshold"
+  | "liveness_score_below_threshold"
+>
+
+export type VlmFaceMatchRejection = {
+  reason: VlmFaceMatchRejectionReason
+  /** Persisted as the attempt's extraction error and verification note. */
+  message: string
+}
+
 export type VlmFaceMatchVerdict = {
   faceMatch: boolean
   idPhotoFaceDetected: boolean
@@ -34,11 +55,14 @@ export type VlmFaceMatchVerdict = {
   matchScore: number
   /** 0–100, from the VLM's livenessConfidence (0–1). */
   livenessScore: number
+  /** The raw 0–1 confidences the thresholds are compared against. */
+  matchConfidence: number
+  livenessConfidence: number
   /**
    * null only when EVERY gate below holds; otherwise the first gate that
    * refused. This — not `faceMatch` — is what decides `verified`.
    */
-  rejection: string | null
+  rejection: VlmFaceMatchRejection | null
 }
 
 function extractedValue(result: Record<string, unknown>, field: string): unknown {
@@ -54,21 +78,43 @@ function oneOf<T extends string>(allowed: readonly T[], value: unknown): T | nul
 }
 
 /**
- * The model's separate judgements are cross-checked here, in code, so no
- * single optimistic boolean can carry a match. Any disagreement fails.
+ * Every judgement below comes from the same model in the same response, so
+ * this is not independent corroboration: a model that is wrong about the
+ * portrait can be consistently wrong across all of them. What it does buy is
+ * that the portrait is classified separately from the match and every field
+ * must agree, so any one refusing judgement fails the attempt.
+ *
+ * Thresholds compare the RAW confidence, never the rounded 0–100 score, so a
+ * 0.6951 cannot round up to a 70 pass.
  */
-function rejectionFor(v: Omit<VlmFaceMatchVerdict, "rejection">): string | null {
+function rejectionFor(
+  v: Omit<VlmFaceMatchVerdict, "rejection">,
+): VlmFaceMatchRejection | null {
+  const refuse = (reason: VlmFaceMatchRejectionReason, message: string) => ({ reason, message })
   if (v.idPhotoKind !== "photograph") {
-    return `ID document portrait is not a photograph (${v.idPhotoKind})`
+    return refuse("id_document_portrait_invalid", `ID document portrait is not a photograph (${v.idPhotoKind})`)
   }
-  if (!v.idPhotoIsRealPhotograph) return "ID document portrait is not a real photograph of a person"
-  if (!v.idPhotoFaceDetected) return "No face detected in the ID document photograph"
-  if (!v.selfieIsRealPhotograph) return "Selfie is not a real photograph of a live person"
+  if (!v.idPhotoIsRealPhotograph) {
+    return refuse("id_document_portrait_invalid", "ID document portrait is not a real photograph of a person")
+  }
+  if (!v.idPhotoFaceDetected) {
+    return refuse("id_document_portrait_invalid", "No face detected in the ID document photograph")
+  }
+  if (!v.selfieIsRealPhotograph) {
+    return refuse("selfie_not_real_photograph", "Selfie is not a real photograph of a live person")
+  }
   if (v.samePerson !== "same" || !v.faceMatch) {
-    return "VLM face match did not confirm the selfie against the ID photograph"
+    return refuse(
+      "provider_verification_failed",
+      "VLM face match did not confirm the selfie against the ID photograph",
+    )
   }
-  if (v.matchScore < BIOMETRIC_MATCH_THRESHOLD) return "Face match confidence below threshold"
-  if (v.livenessScore < BIOMETRIC_LIVENESS_THRESHOLD) return "Liveness confidence below threshold"
+  if (v.matchConfidence < BIOMETRIC_MATCH_THRESHOLD / 100) {
+    return refuse("match_score_below_threshold", "Face match confidence below threshold")
+  }
+  if (v.livenessConfidence < BIOMETRIC_LIVENESS_THRESHOLD / 100) {
+    return refuse("liveness_score_below_threshold", "Liveness confidence below threshold")
+  }
   return null
 }
 
@@ -114,6 +160,8 @@ export function readVlmFaceMatchVerdict(extractionResult: unknown): VlmFaceMatch
     samePerson,
     matchScore: Math.round(matchConfidence * 100),
     livenessScore: Math.round(livenessConfidence * 100),
+    matchConfidence,
+    livenessConfidence,
   }
   return { ...verdict, rejection: rejectionFor(verdict) }
 }

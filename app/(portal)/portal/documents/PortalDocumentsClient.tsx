@@ -25,6 +25,7 @@ import {
   deletePortalDocumentAndReconcile,
   PortalDocumentPoller,
 } from "@/lib/kyc/portal-document-poller"
+import { portalSelfieFailureMessage } from "@/lib/kyc/biometric-failure-copy"
 
 interface Props {
   clientId: string
@@ -380,7 +381,7 @@ export function PortalDocumentsClient({
                         ? "Identity checks passed and are awaiting advisor review."
                         : "Selfie received. Verification is running."
                       : selfieFailed
-                        ? "The latest selfie could not be verified. Please retake it."
+                        ? portalSelfieFailureMessage(kycChecklist.selfie.reason)
                         : hasIdDocument
                           ? "Take a live selfie so we can match it to your ID."
                           : "Upload your ID first, then take a selfie."}
@@ -545,7 +546,7 @@ export function PortalDocumentsClient({
                   )}
                   {isLatestSelfie && selfieFailed && (
                     <span className="text-xs text-[var(--cf-danger)]">
-                      The latest selfie could not be verified. Please retake it.
+                      {portalSelfieFailureMessage(kycChecklist.selfie.reason)}
                     </span>
                   )}
                 </div>

@@ -14,6 +14,13 @@ import { Buffer } from "node:buffer"
 export const BIOMETRIC_MATCH_THRESHOLD = 70
 export const BIOMETRIC_LIVENESS_THRESHOLD = 70
 export const BIOMETRIC_SUBJECT_FINGERPRINT_VERSION = "biometric-subject-v2" as const
+/**
+ * The only provider whose result can verify a selfie. v1 carried a single
+ * faceMatch boolean that passed a selfie against a silhouette placeholder
+ * (2026-10-10), so v1 evidence never verifies. Mirrored in SQL by
+ * subject_has_composite_kyc (migration 20261010150000_face_match_v2_evidence).
+ */
+export const VLM_FACE_MATCH_PROVIDER = "vlm-face-match-v2" as const
 
 export type BiometricEvidenceFailureReason =
   | "extraction_incomplete"
@@ -33,6 +40,14 @@ export type BiometricEvidenceFailureReason =
   | "provider_verification_missing"
   | "simulated_provider_evidence"
   | "provider_verification_failed"
+  // The VLM judged the portrait area of the ID document on file not to be a
+  // real photograph with a visible face (silhouette, illustration, blank,
+  // obscured). There is no face to compare the selfie against, so no human
+  // may grant an exception over it: the client must supply a usable ID.
+  | "id_document_portrait_invalid"
+  // The VLM judged the selfie not to be a camera photograph of a real person.
+  // Not exceptionable for the same reason: the remedy is a real selfie.
+  | "selfie_not_real_photograph"
 
 const BIOMETRIC_EVIDENCE_FAILURE_REASONS = new Set<BiometricEvidenceFailureReason>([
   "extraction_incomplete",
@@ -52,6 +67,8 @@ const BIOMETRIC_EVIDENCE_FAILURE_REASONS = new Set<BiometricEvidenceFailureReaso
   "provider_verification_missing",
   "simulated_provider_evidence",
   "provider_verification_failed",
+  "id_document_portrait_invalid",
+  "selfie_not_real_photograph",
 ])
 
 export function parseBiometricEvidenceFailureReason(
@@ -246,6 +263,25 @@ export function assessBiometricEvidence(
     typeof providerResult.matchScore !== "number" ||
     typeof providerResult.livenessScore !== "number"
   ) {
+    return { ok: false, reason: "provider_verification_failed" }
+  }
+  // When the VLM ran, it IS the provider, so its evidence must be the v2
+  // verdict. Only the legacy external-provider path (persisted VLM-unavailable
+  // marker) is judged on the generic fields above alone.
+  const vlmProvided = jsonRecord(evidence.extractionResult)?.vlmUnavailable !== true
+  if (vlmProvided && providerResult.provider !== VLM_FACE_MATCH_PROVIDER) {
+    // No v2 check stands behind these scores (v1, untagged or unknown).
+    return { ok: false, reason: "provider_verification_missing" }
+  }
+  if (vlmProvided && (
+    providerResult.idPhotoKind !== "photograph" ||
+    providerResult.idPhotoIsRealPhotograph !== true ||
+    providerResult.idPhotoFaceDetected !== true ||
+    providerResult.selfieIsRealPhotograph !== true ||
+    providerResult.samePerson !== "same" ||
+    providerResult.faceMatch !== true
+  )) {
+    // `verified: true` alongside a judgement that refuses is not a pass.
     return { ok: false, reason: "provider_verification_failed" }
   }
   if (providerResult.matchScore < BIOMETRIC_MATCH_THRESHOLD) {

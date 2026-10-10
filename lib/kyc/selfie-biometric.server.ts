@@ -16,6 +16,7 @@ import {
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
   biometricSubjectFingerprint,
+  VLM_FACE_MATCH_PROVIDER,
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
 import {
@@ -39,9 +40,12 @@ import {
 type VlmFaceMatchProviderResult = {
   ok: boolean
   verified: boolean
-  provider: "vlm-face-match-v1"
+  provider: typeof VLM_FACE_MATCH_PROVIDER
   matchScore: number
   livenessScore: number
+  /** Raw 0–1 confidences; the thresholds are applied to these. */
+  matchConfidence: number
+  livenessConfidence: number
   faceMatch: boolean
   idPhotoFaceDetected: boolean
   /** What the VLM saw in the ID portrait area; only "photograph" can verify. */
@@ -150,9 +154,11 @@ export async function runBiometricVerification(
         // Every gate in readVlmFaceMatchVerdict must hold — faceMatch alone
         // once verified a selfie against a silhouette placeholder.
         verified: matchVerdict.rejection === null,
-        provider: "vlm-face-match-v1",
+        provider: VLM_FACE_MATCH_PROVIDER,
         matchScore: matchVerdict.matchScore,
         livenessScore: matchVerdict.livenessScore,
+        matchConfidence: matchVerdict.matchConfidence,
+        livenessConfidence: matchVerdict.livenessConfidence,
         faceMatch: matchVerdict.faceMatch,
         idPhotoFaceDetected: matchVerdict.idPhotoFaceDetected,
         idPhotoKind: matchVerdict.idPhotoKind,
@@ -161,9 +167,14 @@ export async function runBiometricVerification(
         samePerson: matchVerdict.samePerson,
         idDocumentId: idDocument.id,
         idDocumentSha256: idDocument.contentSha256,
-        ...(matchVerdict.rejection === null ? {} : { error: matchVerdict.rejection }),
+        ...(matchVerdict.rejection === null ? {} : { error: matchVerdict.rejection.message }),
       }
     }
+    // A completed check that refused carries its own message; only an attempt
+    // with no provider result falls back to the VLM/transport error.
+    const extractionError = biometricResult
+      ? biometricResult.error ?? null
+      : vlmResult.error ?? "Biometric verification did not run"
 
     const biometricCompleted = biometricResult?.ok === true
     const extractionStatus = biometricCompleted ? "done" as const : "failed" as const
@@ -175,9 +186,7 @@ export async function runBiometricVerification(
           verified: false,
           extractionStatus,
           extractionResult,
-          extractionError: biometricCompleted
-            ? null
-            : biometricResult?.error ?? vlmResult.error ?? "Biometric verification did not run",
+          extractionError,
           validationMismatch: false,
           validationScore: biometricResult?.matchScore ?? 0,
           biometricMatchScore: biometricResult?.matchScore ?? null,
@@ -192,6 +201,13 @@ export async function runBiometricVerification(
         })
       : { ok: false as const, reason: "subject_fingerprint_missing" as const }
     const biometricPassed = prospectiveAssessment.ok
+    // The verdict's own refusal is the reason recorded. Without this override
+    // an ID with no photograph surfaced as the generic, exceptionable
+    // provider_verification_failed (or match_score_below_threshold), letting a
+    // senior grant an exception over a match against nobody.
+    const biometricFailureReason = biometricResult && matchVerdict?.rejection
+      ? matchVerdict.rejection.reason
+      : prospectiveAssessment.ok ? null : prospectiveAssessment.reason
 
     await persistBiometricOutcome({
       docId,
@@ -199,13 +215,11 @@ export async function runBiometricVerification(
       tenantId,
       extractionGeneration,
       extractionStatus,
-      extractionError: biometricCompleted
-        ? null
-        : biometricResult?.error ?? vlmResult.error ?? "Biometric verification did not run",
+      extractionError,
       extractionResult,
       biometricResult,
       biometricPassed,
-      biometricFailureReason: prospectiveAssessment.ok ? null : prospectiveAssessment.reason,
+      biometricFailureReason,
       subjectFingerprint,
     })
   } catch (err) {
@@ -485,6 +499,22 @@ async function persistBiometricOutcome(args: {
             subjectFingerprint: args.subjectFingerprint,
             biometricFailureReason,
             latestSelfie: outcomeIsCurrent,
+            // The model's judgements behind the outcome. No personal data:
+            // enums, booleans and confidences only.
+            faceMatchVerdict: args.biometricResult
+              ? {
+                  provider: args.biometricResult.provider,
+                  rejection: args.biometricResult.error ?? null,
+                  idPhotoKind: args.biometricResult.idPhotoKind,
+                  idPhotoIsRealPhotograph: args.biometricResult.idPhotoIsRealPhotograph,
+                  idPhotoFaceDetected: args.biometricResult.idPhotoFaceDetected,
+                  selfieIsRealPhotograph: args.biometricResult.selfieIsRealPhotograph,
+                  samePerson: args.biometricResult.samePerson,
+                  faceMatch: args.biometricResult.faceMatch,
+                  matchConfidence: args.biometricResult.matchConfidence,
+                  livenessConfidence: args.biometricResult.livenessConfidence,
+                }
+              : null,
           },
           clientKyc: clientKycAuditValue(clientAfter),
         },

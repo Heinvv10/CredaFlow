@@ -151,7 +151,7 @@ suite("biometric attempt sequence migration", () => {
         'valid-selfie.jpg', true, CURRENT_TIMESTAMP, 'done',
         '{"faceDetected":{"value":true},"facesCount":{"value":1},"isLive":{"value":true},"quality":{"value":"good"}}'::jsonb,
         false, 98, 98, 97, CURRENT_TIMESTAMP,
-        '{"ok":true,"verified":true,"matchScore":98,"livenessScore":97,"subjectFingerprint":"${validSubjectFingerprint}"}'::jsonb,
+        '{"ok":true,"verified":true,"matchScore":98,"livenessScore":97,"provider":"vlm-face-match-v2","idPhotoKind":"photograph","idPhotoIsRealPhotograph":true,"idPhotoFaceDetected":true,"selfieIsRealPhotograph":true,"samePerson":"same","faceMatch":true,"subjectFingerprint":"${validSubjectFingerprint}"}'::jsonb,
         CURRENT_TIMESTAMP
       );
 

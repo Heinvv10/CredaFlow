@@ -27,8 +27,19 @@ const passingProviderResult = {
   matchScore: 98,
   livenessScore: 97,
 }
+// The v2 VLM verdict fields a pass must carry when the VLM is the provider.
+const passingVlmVerdict = {
+  provider: "vlm-face-match-v2",
+  idPhotoKind: "photograph",
+  idPhotoIsRealPhotograph: true,
+  idPhotoFaceDetected: true,
+  selfieIsRealPhotograph: true,
+  samePerson: "same",
+  faceMatch: true,
+}
 const boundProviderResult = {
   ...passingProviderResult,
+  ...passingVlmVerdict,
   subjectFingerprint: biometricSubjectFingerprint(subject),
 }
 const passingEvidence: BiometricDocumentEvidence = {
@@ -183,7 +194,36 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       extractionResult: { vlmUnavailable: true },
+      biometricResult: { ...passingProviderResult, subjectFingerprint: biometricSubjectFingerprint(subject) },
     }, { subject })).toEqual({ ok: true })
+  })
+
+  // v1 passed a selfie against a silhouette placeholder: it must never verify.
+  it.each([
+    ["v1 VLM evidence", "vlm-face-match-v1"],
+    ["untagged VLM evidence", undefined],
+    ["an unknown provider", "smile-identity"],
+  ])("does not count %s as verified", (_label, provider) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, provider },
+    }, { subject })).toEqual({ ok: false, reason: "provider_verification_missing" })
+  })
+
+  it.each([
+    ["idPhotoKind", "silhouette_placeholder"],
+    ["idPhotoKind", undefined],
+    ["idPhotoIsRealPhotograph", false],
+    ["idPhotoIsRealPhotograph", "true"],
+    ["idPhotoFaceDetected", false],
+    ["selfieIsRealPhotograph", false],
+    ["samePerson", "uncertain"],
+    ["faceMatch", false],
+  ])("refuses verified v2 evidence whose %s is %s", (field, value) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, [field]: value },
+    }, { subject })).toEqual({ ok: false, reason: "provider_verification_failed" })
   })
 
   it("does not treat an arbitrary extraction error as the configured VLM exception", () => {
@@ -223,6 +263,9 @@ describe("parseBiometricEvidenceFailureReason", () => {
     expect(parseBiometricEvidenceFailureReason("vlm_liveness_failed")).toBe(
       "vlm_liveness_failed",
     )
+    for (const reason of ["id_document_portrait_invalid", "selfie_not_real_photograph"]) {
+      expect(parseBiometricEvidenceFailureReason(reason)).toBe(reason)
+    }
     expect(parseBiometricEvidenceFailureReason("bypass")).toBeNull()
     expect(parseBiometricEvidenceFailureReason(null)).toBeNull()
   })

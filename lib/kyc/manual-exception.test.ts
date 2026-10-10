@@ -139,6 +139,9 @@ describe("manual KYC exception evidence", () => {
     "subject_identity_changed",
     "provider_verification_missing",
     "simulated_provider_evidence",
+    // No real face on one side: a senior has nothing to reason over.
+    "id_document_portrait_invalid",
+    "selfie_not_real_photograph",
   ] satisfies BiometricEvidenceFailureReason[])(
     "rejects non-exceptionable failure reason %s",
     (biometricFailureReason) => {
