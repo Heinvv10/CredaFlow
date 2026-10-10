@@ -111,8 +111,9 @@ function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value)
+/** A raw VLM confidence: finite and within 0..1. */
+function isConfidence(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
 }
 
 function extractedValue(result: Record<string, unknown>, field: string): unknown {
@@ -283,8 +284,8 @@ export function assessBiometricEvidence(
     providerResult.selfieIsRealPhotograph !== true ||
     providerResult.samePerson !== "same" ||
     providerResult.faceMatch !== true ||
-    !isFiniteNumber(providerResult.matchConfidence) ||
-    !isFiniteNumber(providerResult.livenessConfidence)
+    !isConfidence(providerResult.matchConfidence) ||
+    !isConfidence(providerResult.livenessConfidence)
   ) {
     // `verified: true` alongside a judgement that refuses is not a pass.
     return { ok: false, reason: "provider_verification_failed" }

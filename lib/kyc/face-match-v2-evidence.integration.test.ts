@@ -233,6 +233,10 @@ suite("face match v2 evidence in the database", () => {
     ["a raw liveness confidence below 0.7", { livenessConfidence: 0.695 }],
     ["no raw match confidence", { matchConfidence: undefined }],
     ["a string raw liveness confidence", { livenessConfidence: "0.97" }],
+    ["a raw match confidence of 1.0001", { matchConfidence: 1.0001 }],
+    ["a raw liveness confidence of 1.0001", { livenessConfidence: 1.0001 }],
+    ["a raw match confidence of 95", { matchConfidence: 95 }],
+    ["a raw liveness confidence of 95", { livenessConfidence: 95 }],
   ])("does not verify a client on verified:true %s", async (_label, change) => {
     const fixture = await clientWithSelfie(passedSelfie({ ...v2Pass, ...change }))
     await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
@@ -248,6 +252,13 @@ suite("face match v2 evidence in the database", () => {
       extractionResult: { vlmUnavailable: true },
     })
     await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
+  })
+
+  it("verifies raw confidences of exactly 1", async () => {
+    const fixture = await clientWithSelfie(
+      passedSelfie({ ...v2Pass, matchConfidence: 1, livenessConfidence: 1 }),
+    )
+    await expect(verify(fixture.clientId, "BIOMETRIC")).resolves.toEqual({ kycStatus: "VERIFIED" })
   })
 
   it("verifies raw confidences exactly at 0.7", async () => {

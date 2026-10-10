@@ -20,9 +20,11 @@ import {
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
 import {
+  readVlmFaceMatchSideRejection,
   readVlmFaceMatchVerdict,
   type IdPhotoKind,
   type SamePersonVerdict,
+  type VlmFaceMatchSideJudgement,
 } from "@/lib/kyc/vlm-face-match"
 import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
 
@@ -58,6 +60,12 @@ type VlmFaceMatchProviderResult = {
   idDocumentId: string
   idDocumentSha256: string | null
   error?: string
+}
+
+/** A strict refusal's side judgements when no provider result was written. */
+type StrictRejectionJudgement = VlmFaceMatchSideJudgement & {
+  provider: typeof VLM_FACE_MATCH_PROVIDER
+  rejection: string
 }
 
 type IdDocumentReference = {
@@ -176,11 +184,28 @@ export async function runBiometricVerification(
     // A refusal that can never be excepted (ID portrait or selfie not a real
     // photograph). It outranks every other failure, whichever side failed
     // first: a liveness or face-count failure is exceptionable, and recording
-    // it instead let a senior except a match against a silhouette ID.
+    // it instead let a senior except a match against a silhouette ID. When
+    // the full verdict is unreadable (any one malformed field) or names only
+    // an exceptionable refusal, the side judgements are read on their own.
+    // The side reader refuses on exactly the fields the strict verdict's
+    // non-exceptionable refusals read, so it also supplies their judgements.
+    const sideRejection = extractionUnavailable
+      ? null
+      : readVlmFaceMatchSideRejection(extractionResult)
     const strictRejection = matchVerdict?.rejection &&
       !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
       ? matchVerdict.rejection
-      : null
+      : sideRejection
+    // The judgements behind a strict refusal, for the audit row when no
+    // provider result carries them.
+    const strictJudgement: StrictRejectionJudgement | null =
+      strictRejection && sideRejection && !biometricResult
+        ? {
+            provider: VLM_FACE_MATCH_PROVIDER,
+            rejection: strictRejection.message,
+            ...sideRejection.judgement,
+          }
+        : null
     // A completed check that refused carries its own message; only an attempt
     // with no provider result falls back to the VLM/transport error.
     const extractionError = biometricResult
@@ -236,6 +261,7 @@ export async function runBiometricVerification(
       biometricPassed,
       biometricFailureReason,
       subjectFingerprint,
+      strictJudgement,
     })
   } catch (err) {
     console.error("Biometric verification error:", err)
@@ -251,6 +277,7 @@ export async function runBiometricVerification(
       biometricPassed: false,
       biometricFailureReason: "extraction_incomplete",
       subjectFingerprint,
+      strictJudgement: null,
     })
   }
 }
@@ -267,6 +294,7 @@ async function persistBiometricOutcome(args: {
   biometricPassed: boolean
   biometricFailureReason: BiometricEvidenceFailureReason | null
   subjectFingerprint: string | null
+  strictJudgement: StrictRejectionJudgement | null
 }): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     await lockAffordabilityClientEvidence(tx, {
@@ -529,7 +557,7 @@ async function persistBiometricOutcome(args: {
                   matchConfidence: args.biometricResult.matchConfidence,
                   livenessConfidence: args.biometricResult.livenessConfidence,
                 }
-              : null,
+              : args.strictJudgement,
           },
           clientKyc: clientKycAuditValue(clientAfter),
         },

@@ -1039,6 +1039,110 @@ describe("POST /api/documents/selfie", () => {
     }))
   })
 
+  // One malformed field unrelated to the portrait made the whole verdict
+  // unreadable, and a silhouette ID was again recorded under the selfie-side
+  // reason. The side judgements must be read on their own.
+  const silhouetteId = {
+    idPhotoKind: { value: "silhouette_placeholder" },
+    idPhotoIsRealPhotograph: { value: false },
+    idPhotoFaceDetected: { value: false },
+  }
+  const verdictBase = {
+    faceDetected: { value: true },
+    facesCount: { value: 1 },
+    isLive: { value: true },
+    quality: { value: "good" },
+    livenessConfidence: { value: 0.95 },
+    selfieIsRealPhotograph: { value: true },
+    samePerson: { value: "different" },
+    faceMatch: { value: false },
+    matchConfidence: { value: 0.1 },
+  }
+  const malformations: Array<[string, Record<string, unknown>]> = [
+    ["matchConfidence missing", { matchConfidence: undefined }],
+    ["livenessConfidence missing", { livenessConfidence: undefined }],
+    ["samePerson missing", { samePerson: undefined }],
+    ["matchConfidence 10", { matchConfidence: { value: 10 } }],
+    ["idPhotoKind 'Silhouette Placeholder'", { idPhotoKind: { value: "Silhouette Placeholder" } }],
+    ["idPhotoKind 'grey_avatar'", { idPhotoKind: { value: "grey_avatar" } }],
+  ]
+  const selfieFailures: Array<[string, Record<string, unknown>]> = [
+    ["isLive false", { isLive: { value: false } }],
+    ["facesCount 2", { facesCount: { value: 2 } }],
+  ]
+  it.each(selfieFailures.flatMap(([selfieLabel, selfieSide]) =>
+    malformations.map(([malformedLabel, malformed]) =>
+      [selfieLabel, malformedLabel, { ...verdictBase, ...silhouetteId, ...selfieSide, ...malformed }] as const)))(
+    "records a silhouette ID with %s and %s as id_document_portrait_invalid",
+    async (_selfieLabel, _malformedLabel, data) => {
+      extractDocumentDataMock.mockResolvedValueOnce({ ok: true, data })
+
+      await POST(request() as never)
+
+      await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+      const update = txDocumentUpdateManyMock.mock.calls[0][0] as {
+        data: { verified: boolean; biometricResult: { biometricFailureReason: string } }
+      }
+      expect(update.data.verified).toBe(false)
+      expect(update.data.biometricResult.biometricFailureReason).toBe("id_document_portrait_invalid")
+      expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
+    },
+  )
+
+  it("does not upgrade a real photo pair with a malformed confidence to a non-exceptionable reason", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        ...verdictBase,
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        isLive: { value: false },
+        matchConfidence: { value: 10 },
+      },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        biometricResult: expect.objectContaining({ biometricFailureReason: "vlm_liveness_failed" }),
+      }),
+    }))
+  })
+
+  it.each([
+    ["a readable verdict", {}, {
+      idPhotoKind: "silhouette_placeholder", idPhotoIsRealPhotograph: false,
+      idPhotoFaceDetected: false, selfieIsRealPhotograph: true,
+    }],
+    ["an unreadable verdict", { matchConfidence: undefined, idPhotoKind: { value: "grey_avatar" } }, {
+      idPhotoKind: "unrecognised", idPhotoIsRealPhotograph: false,
+      idPhotoFaceDetected: false, selfieIsRealPhotograph: true,
+    }],
+  ])("audits the side judgements behind a strict refusal with no provider result (%s)", async (
+    _label, change, judgement,
+  ) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: { ...verdictBase, ...silhouetteId, isLive: { value: false }, ...change },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(auditCreateMock).toHaveBeenCalledTimes(2))
+    const audit = auditCreateMock.mock.calls[1][0] as {
+      data: { action: string; newValue: { document: { faceMatchVerdict: unknown } } }
+    }
+    expect(audit.data.action).toBe("KYC_REJECTED")
+    expect(audit.data.newValue.document.faceMatchVerdict).toEqual({
+      provider: "vlm-face-match-v2",
+      rejection: expect.stringContaining("ID document portrait is not a photograph"),
+      ...judgement,
+    })
+  })
+
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {
     // A legacy single-image response (liveness only). Without a complete
     // verdict there is no provider evidence at all — never a partial pass.

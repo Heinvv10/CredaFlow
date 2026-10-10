@@ -213,6 +213,25 @@ describe("assessBiometricEvidence", () => {
     }, { subject })).toEqual({ ok: false, reason })
   })
 
+  it.each([
+    ["matchConfidence", 1.0001],
+    ["livenessConfidence", 1.0001],
+    ["matchConfidence", 95],
+    ["livenessConfidence", 95],
+  ])("refuses a raw %s of %s, outside 0..1", (field, value) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, [field]: value },
+    }, { subject })).toEqual({ ok: false, reason: "provider_verification_failed" })
+  })
+
+  it("accepts raw confidences of exactly 1", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, matchConfidence: 1, livenessConfidence: 1 },
+    }, { subject })).toEqual({ ok: true })
+  })
+
   it("accepts raw confidences exactly at the threshold", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,

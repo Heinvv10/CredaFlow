@@ -118,6 +118,59 @@ function rejectionFor(
   return null
 }
 
+/** The ID/selfie-side judgements, as far as they are readable. No personal data. */
+export type VlmFaceMatchSideJudgement = {
+  /** A known kind, "unrecognised" for any other present value, null if absent. */
+  idPhotoKind: IdPhotoKind | "unrecognised" | null
+  idPhotoIsRealPhotograph: boolean | null
+  idPhotoFaceDetected: boolean | null
+  selfieIsRealPhotograph: boolean | null
+}
+
+/**
+ * The ID/selfie-side refusal, read field by field. readVlmFaceMatchVerdict
+ * returns null when ANY field is malformed, so an unrelated bad confidence
+ * hid a silhouette ID behind an exceptionable selfie-side reason. This reads
+ * only the side judgements: a present idPhotoKind other than "photograph"
+ * (unknown kinds included), or an explicit false, refuses. Absent or null
+ * fields say nothing either way. ID side first, as in rejectionFor.
+ */
+export function readVlmFaceMatchSideRejection(
+  extractionResult: unknown,
+): (VlmFaceMatchRejection & { judgement: VlmFaceMatchSideJudgement }) | null {
+  if (!extractionResult || typeof extractionResult !== "object" || Array.isArray(extractionResult)) {
+    return null
+  }
+  const extraction = extractionResult as Record<string, unknown>
+  const rawKind = extractedValue(extraction, "idPhotoKind")
+  const flag = (field: string) => {
+    const value = extractedValue(extraction, field)
+    return typeof value === "boolean" ? value : null
+  }
+  const judgement: VlmFaceMatchSideJudgement = {
+    idPhotoKind: rawKind === undefined || rawKind === null
+      ? null
+      : oneOf(ID_PHOTO_KINDS, rawKind) ?? "unrecognised",
+    idPhotoIsRealPhotograph: flag("idPhotoIsRealPhotograph"),
+    idPhotoFaceDetected: flag("idPhotoFaceDetected"),
+    selfieIsRealPhotograph: flag("selfieIsRealPhotograph"),
+  }
+  const refuse = (reason: VlmFaceMatchRejectionReason, message: string) => ({ reason, message, judgement })
+  if (judgement.idPhotoKind !== null && judgement.idPhotoKind !== "photograph") {
+    return refuse("id_document_portrait_invalid", `ID document portrait is not a photograph (${judgement.idPhotoKind})`)
+  }
+  if (judgement.idPhotoIsRealPhotograph === false) {
+    return refuse("id_document_portrait_invalid", "ID document portrait is not a real photograph of a person")
+  }
+  if (judgement.idPhotoFaceDetected === false) {
+    return refuse("id_document_portrait_invalid", "No face detected in the ID document photograph")
+  }
+  if (judgement.selfieIsRealPhotograph === false) {
+    return refuse("selfie_not_real_photograph", "Selfie is not a real photograph of a live person")
+  }
+  return null
+}
+
 /**
  * Read the two-image face-match verdict out of a SELFIE extraction result.
  * Returns null — never a partial verdict — unless every field is present and

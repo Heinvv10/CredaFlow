@@ -7,7 +7,7 @@
 --
 -- 1. subject_has_composite_kyc: biometric evidence counts only when it is the
 --    v2 verdict with every judgement consistent with a pass and both raw
---    confidences at or above 0.7. The VLM-unavailable marker no longer
+--    confidences within 0.7..1. The VLM-unavailable marker no longer
 --    exempts evidence from that verdict (no writer produces a pass on it).
 --    Mirrors assessBiometricEvidence in lib/kyc/biometric-evidence.ts.
 -- 2. subject_has_manual_kyc_exception: recognise the two new failure reasons
@@ -20,6 +20,11 @@
 --    subject_has_composite_kyc on every Client write, so such a row would
 --    otherwise reject every later update. Mirrors revoke_client_composite_kyc:
 --    PENDING, provenance cleared, one KYC_STATUS_CHANGED audit row each.
+-- 4. Un-verify every live SELFIE row whose verified biometric evidence lacks
+--    the v2 verdict. Left verified=true with biometricVerifiedAt set, it is a
+--    "live biometric candidate" to subject_has_in_person_kyc_verification and
+--    would close the in-person route for good. Mirrors
+--    lib/kyc/identity-revocation.ts; the evidence JSON is kept unchanged.
 --
 -- Both function bodies are the baseline definitions with only the marked
 -- lines added. Order matters: the functions are replaced before step 3 reads
@@ -95,16 +100,17 @@ AS $function$
           AND selfie."biometricResult" ->> 'samePerson' = 'same'
           AND selfie."biometricResult" -> 'faceMatch' = 'true'::jsonb
           -- The raw 0-1 confidences, not only the rounded scores: 0.695
-          -- rounds to a passing 70. CASE guards the cast, since AND does not
-          -- fix evaluation order and a string would raise instead of refuse.
+          -- rounds to a passing 70, and anything above 1 is not a confidence.
+          -- CASE guards the cast, since AND does not fix evaluation order and
+          -- a string would raise instead of refuse.
           AND CASE
             WHEN jsonb_typeof(selfie."biometricResult" -> 'matchConfidence') = 'number'
-            THEN (selfie."biometricResult" ->> 'matchConfidence')::numeric >= 0.7
+            THEN (selfie."biometricResult" ->> 'matchConfidence')::numeric BETWEEN 0.7 AND 1
             ELSE false
           END
           AND CASE
             WHEN jsonb_typeof(selfie."biometricResult" -> 'livenessConfidence') = 'number'
-            THEN (selfie."biometricResult" ->> 'livenessConfidence')::numeric >= 0.7
+            THEN (selfie."biometricResult" ->> 'livenessConfidence')::numeric BETWEEN 0.7 AND 1
             ELSE false
           END
           AND coalesce(
@@ -293,7 +299,9 @@ $function$;
 
 -- 3. Demote clients the replaced rule no longer verifies. The UPDATE sets a
 -- non-VERIFIED status, so Client_enforce_composite_kyc does not re-check the
--- composite for these rows. No personal data in the audit payload.
+-- composite for these rows. No personal data in the audit payload. The audit
+-- id is deterministic per client and has no ON CONFLICT: a clash aborts the
+-- migration rather than demoting a client without its audit row.
 WITH stale AS (
   SELECT
     client."id",
@@ -351,5 +359,88 @@ SELECT
     'databaseEnforced', true
   ),
   CURRENT_TIMESTAMP
-FROM demoted
-ON CONFLICT ("id") DO NOTHING;
+FROM demoted;
+
+-- 4. Un-verify selfie rows whose verified evidence lacks the v2 verdict (the
+-- biometricResult lines step 1 added to subject_has_composite_kyc). Runs after
+-- step 3, so ClientDocument_revoke_stale_composite_kyc finds demoted clients
+-- already PENDING, and a client still VERIFIED keeps its composite: a row
+-- without the v2 verdict cannot be its passing selfie, a manual exception
+-- needs a failed latest selfie, and fewer live candidates only open the
+-- in-person route. No ClientDocument guard refuses this write: they freeze
+-- only rows bound to an application as agreement, PASQ or debit-mandate
+-- evidence, or typed EXECUTED_CREDIT_AGREEMENT / DEBIT_MANDATE, and the
+-- attempt-sequence trigger fires only on tenant/client/type/sequence changes.
+WITH stale_selfie AS (
+  SELECT
+    selfie."id",
+    selfie."tenantId",
+    jsonb_build_object(
+      'verified', selfie."verified",
+      'verifiedAt', selfie."verifiedAt",
+      'verifiedById', selfie."verifiedById",
+      'biometricVerifiedAt', selfie."biometricVerifiedAt",
+      'verificationNote', selfie."verificationNote"
+    ) AS previous_document
+  FROM "ClientDocument" AS selfie
+  WHERE selfie."docType" = 'SELFIE'
+    AND selfie."deletedAt" IS NULL
+    AND selfie."verified" = true
+    AND selfie."biometricVerifiedAt" IS NOT NULL
+    AND NOT coalesce(
+      selfie."biometricResult" ->> 'provider' = 'vlm-face-match-v2'
+      AND selfie."biometricResult" ->> 'idPhotoKind' = 'photograph'
+      AND selfie."biometricResult" -> 'idPhotoIsRealPhotograph' = 'true'::jsonb
+      AND selfie."biometricResult" -> 'idPhotoFaceDetected' = 'true'::jsonb
+      AND selfie."biometricResult" -> 'selfieIsRealPhotograph' = 'true'::jsonb
+      AND selfie."biometricResult" ->> 'samePerson' = 'same'
+      AND selfie."biometricResult" -> 'faceMatch' = 'true'::jsonb
+      AND CASE
+        WHEN jsonb_typeof(selfie."biometricResult" -> 'matchConfidence') = 'number'
+        THEN (selfie."biometricResult" ->> 'matchConfidence')::numeric BETWEEN 0.7 AND 1
+        ELSE false
+      END
+      AND CASE
+        WHEN jsonb_typeof(selfie."biometricResult" -> 'livenessConfidence') = 'number'
+        THEN (selfie."biometricResult" ->> 'livenessConfidence')::numeric BETWEEN 0.7 AND 1
+        ELSE false
+      END,
+      false
+    )
+  FOR UPDATE
+),
+unverified AS (
+  UPDATE "ClientDocument" AS selfie
+  SET
+    "verified" = false,
+    "verifiedAt" = NULL,
+    "verifiedById" = NULL,
+    "biometricVerifiedAt" = NULL,
+    "verificationNote" = 'Selfie evidence predates face match v2; repeat biometric or in-person verification.'
+  FROM stale_selfie
+  WHERE selfie."id" = stale_selfie."id"
+  RETURNING selfie."id", selfie."tenantId", stale_selfie.previous_document
+)
+INSERT INTO "AuditLog" (
+  "id", "tenantId", "userEmail", "action", "entity", "entityId",
+  "oldValue", "newValue", "createdAt"
+)
+SELECT
+  'kyc-face-match-v2-selfie-reset-' || unverified."id",
+  unverified."tenantId",
+  'migration@face-match-v2-evidence',
+  'KYC_REJECTED',
+  'ClientDocument',
+  unverified."id",
+  unverified.previous_document,
+  jsonb_build_object(
+    'verified', false,
+    'verifiedAt', NULL,
+    'verifiedById', NULL,
+    'biometricVerifiedAt', NULL,
+    'reason', 'face_match_v2_evidence_required',
+    'migration', '20261010150000_face_match_v2_evidence',
+    'databaseEnforced', true
+  ),
+  CURRENT_TIMESTAMP
+FROM unverified;
