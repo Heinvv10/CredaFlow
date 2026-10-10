@@ -15,7 +15,7 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Twenty stacked PRs, none merged.** Merge them in order; each is based on the
+**Twenty-one stacked PRs, none merged.** Merge them in order; each is based on the
 previous one's branch. Every one has green CI and three blind reviewers'
 SHIP/CLEAN on its final commit.
 
@@ -41,6 +41,7 @@ SHIP/CLEAN on its final commit.
 | #20 | `feat/term-starts-empty` → #19 | The portal apply form and the CRM convert form start the term empty for variable-term products (like the staff wizard); submit stays disabled until a valid term is entered |
 | #21 | `fix/credit-life-guards` → #20 | New migration `20261010180000_attach_credit_life_guards`: attaches the 15 bundled credit-life triggers; `assertDisbursedCreditLifeCoverage` leaves loans on DRAFT/SUBMITTED/UNDER_REVIEW applications out of the commit invariant; validated CHECK `InsuranceProduct_credit_life_terms_positive` (a CREDIT_LIFE product needs premium and cover above zero); indexes on `LoanApplication.agreementDocumentId` and `Loan.agreementDocId` (owner decisions D1–D3 and the CHECK). `credit-life-containment-migration` revived on the PASQ v3 fixture; the register is empty. The product API refuses non-positive credit-life terms (422) and the offer selector skips them; the policy PATCH answers 422 when a bundled credit-life policy's premium or renewal date would change; declining an application that has a loan answers 409 |
 | #22 | `fix/nca-schedule-continuation` → #21 | The credit agreement, the Form 20 quotation and the statement print every schedule, payment-history and reversed-payment row on continuation pages (no new wording; TOTAL once after the last row); documents whose tables fit one page are byte-identical and no existing render pin changed |
+| #23 | `fix/credit-life-premium-rounding` → #22 | The credit-life monthly premium is computed in exact integer cents and rounds half up like the database's `ROUND(numeric)` (it used floating point and disagreed on half-cent ties, e.g. R1,010: 454c vs 455c); real-PG suite `RUN_CREDIT_LIFE_PREMIUM_ROUNDING_IT` |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
@@ -75,7 +76,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 → #23, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
@@ -87,9 +88,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 - **Credit-life guards (#21).** The triggers have never run against a real
   credit-life product and insurer: disburse one by hand on a seeded database
-  before any client goes live. The premium rounding in
-  `lib/insurance/credit-life-election.ts` against the database's
-  `ROUND(principal/100 × 0.0045, 2)` is a separate PR. The demo seed's loan
+  before any client goes live. The demo seed's loan
   sits on a DRAFT application, which therefore can never be approved or
   declined: decline answers 409, approval still fails as a 500.
 - **Legal sign-off before any client goes live:** each client's legal team
