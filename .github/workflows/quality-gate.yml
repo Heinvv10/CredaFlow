@@ -24,7 +24,8 @@ permissions:
 
 concurrency:
   group: quality-gate-${{ github.ref }}
-  cancel-in-progress: true
+  # Only PR runs are superseded; each main commit keeps its own result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:
@@ -34,6 +35,8 @@ jobs:
     env:
       # The vitest config pins workers to UTC; the job states it too.
       TZ: UTC
+      # npm ci would otherwise download a browser no step uses (the Dockerfile sets the same).
+      PUPPETEER_SKIP_DOWNLOAD: 1
 
     steps:
       - uses: actions/checkout@v4

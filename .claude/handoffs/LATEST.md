@@ -39,9 +39,9 @@ with this handoff — its CI result is on the PR.
 
 ## Verification (local, at #4's head)
 
-CI runs only `integration-tests`, `agent-docs` and `date-boundaries`; there is
-no CI job for typecheck, lint, unit tests or the build, so those are local
-results.
+CI runs `integration-tests`, `agent-docs`, `date-boundaries` and
+`quality-gate` (tsc, lint, vitest, build and the two doc checks); the results
+below are local.
 
 - `npx tsc --noEmit` 0; `npm run lint` 0 errors, 13 warnings; `npx vitest run`
   no failures (load flakes under a full parallel run, green alone:
