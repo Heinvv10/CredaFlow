@@ -23,9 +23,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-gate-${{ github.ref }}
-  # Only PR runs are superseded; each main commit keeps its own result.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # PR runs share a group per ref, so a new push supersedes the old run. Push runs
+  # get a group per commit, so none is cancelled and each keeps its own result.
+  # `a && b || c` is safe: github.ref is never empty on pull_request.
+  group: quality-gate-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   quality:

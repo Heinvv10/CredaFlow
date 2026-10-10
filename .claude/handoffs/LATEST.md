@@ -39,14 +39,14 @@ with this handoff — its CI result is on the PR.
 
 ## Verification (local, at #4's head)
 
-CI runs `integration-tests`, `agent-docs`, `date-boundaries` and
-`quality-gate` (tsc, lint, vitest, build and the two doc checks); the results
-below are local.
+CI runs `integration-tests`, `agent-docs` and `date-boundaries`; this branch
+adds a `quality-gate` job (tsc, lint, vitest, build and the two doc checks).
+The results below are the local ones at #4's head.
 
 - `npx tsc --noEmit` 0; `npm run lint` 0 errors, 13 warnings; `npx vitest run`
   no failures (load flakes under a full parallel run, green alone:
-  `app/api/applications/[id]/disburse`, `app/api/insurance/policies/draft`,
-  `lib/messaging/send.test.ts` fingerprint); `npm run build` OK.
+  `app/api/applications/[id]/disburse`, `app/api/insurance/policies/draft`);
+  `npm run build` OK.
 - Integration (`scripts/run-integration-tests.sh`, fresh Postgres 16): 85 gated
   suites pass, 2 in `scripts/integration-baseline.txt`. CI installs
   `poppler-utils` for the suites that read rendered PDFs.
