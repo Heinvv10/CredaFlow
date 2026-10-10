@@ -639,10 +639,12 @@ suite("application submission evidence locking", () => {
     }
 
     // Precondition: every write before the audit insert succeeds on its own, so
-    // the rejection below can only come from the audit row, not an earlier write.
+    // the rejection below can only come from the audit row, not an earlier write
+    // (deferred guards are flushed too).
     class WritesReachedAudit extends Error {}
     await expect(submissionDb.$transaction(async (tx) => {
       await writeBeforeAudit(tx)
+      await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
       throw new WritesReachedAudit()
     })).rejects.toBeInstanceOf(WritesReachedAudit)
 
