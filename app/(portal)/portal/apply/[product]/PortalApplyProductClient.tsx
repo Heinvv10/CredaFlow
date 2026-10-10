@@ -67,7 +67,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
   }, [qualification, product])
 
   const [amount, setAmount] = useState<string>(String(Math.round(defaultAmountCents / 100)))
-  const [termDays, setTermDays] = useState<string>(String(fixedTerm ? product.minTermDays : product.maxTermDays))
+  const [termDays, setTermDays] = useState<string>(fixedTerm ? String(product.minTermDays) : "")
   const [purpose, setPurpose] = useState("")
   const [category, setCategory] = useState<string>("")
   const [affordabilityDeclared, setAffordabilityDeclared] = useState(false)
@@ -95,7 +95,8 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
 
   const termNum = Number(termDays)
   const termOutOfRange = !fixedTerm && (
-    !Number.isInteger(termNum)
+    termDays.trim() === ""
+    || !Number.isInteger(termNum)
     || termNum < product.minTermDays
     || termNum > product.maxTermDays
   )
