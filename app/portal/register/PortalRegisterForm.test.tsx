@@ -33,7 +33,7 @@ describe("PortalRegisterForm — brand tokens", () => {
 })
 
 describe("PortalRegisterForm — states not in the first render", () => {
-  it("source has no fixed indigo rgba or Tailwind red/green status tints", () => {
+  it("source has no fixed indigo rgba and no Tailwind red, indigo or blue classes", () => {
     const src = readFileSync(join(__dirname, "PortalRegisterForm.tsx"), "utf8")
     expect(src).not.toContain("79,70,229")
     expect(src).not.toMatch(/(red|indigo|blue)-\d{3}/)
