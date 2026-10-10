@@ -281,24 +281,61 @@ suite("bundled credit-life migration guard", () => {
       .rejects.toThrow(/approval requires an active tenant-bound credit-life product and insurer matching the acknowledged PASQ/i)
     await expectNotDisbursed(inactiveRouteOrder)
 
-    for (const { productMutation, order } of [
-      { productMutation: { active: false }, order: "policy-before-application" as const },
-      { productMutation: { active: true, premiumAmount: -1 }, order: "route" as const },
-      { productMutation: { premiumAmount: 22.5, sumAssured: 0 }, order: "route" as const },
-    ]) {
-      const scenario = await createScenario(
-        `product-${Object.keys(productMutation).join("-")}-${randomUUID().slice(0, 6)}`,
-        true,
-      )
-      await prisma.insuranceProduct.update({
-        where: { id: scenario.insuranceProductId!, tenantId: scenario.tenantId },
-        data: productMutation,
-      })
-      await expect(commitDisbursement(scenario, { order }))
-        .rejects.toThrow(/active tenant-bound credit-life product with positive configured terms/i)
-      await expectNotDisbursed(scenario)
-    }
+    // A non-positive premium or cover cannot reach this guard: the product's
+    // own CHECK refuses it (next test). Inactive is the configuration left.
+    const inactive = await createScenario("product-inactive", true)
+    await prisma.insuranceProduct.update({
+      where: { id: inactive.insuranceProductId!, tenantId: inactive.tenantId },
+      data: { active: false },
+    })
+    await expect(commitDisbursement(inactive, { order: "policy-before-application" }))
+      .rejects.toThrow(/active tenant-bound credit-life product with positive configured terms/i)
+    await expectNotDisbursed(inactive)
   }, 120_000)
+
+  it("refuses a credit-life product without a positive premium and cover", async () => {
+    const CHECK = "InsuranceProduct_credit_life_terms_positive"
+    const refusedByCheck = async (write: Promise<unknown>) => {
+      const error = await write.then(() => null, (e: unknown) => e)
+      expect(String(error)).toContain(CHECK)
+      expect(String(error)).toContain("23514")
+    }
+    const { tenantId, insuranceProductId } = await createStandaloneCreditLifeProduct(`terms-${token.slice(0, 6)}`)
+    const product = (code: string, type: "CREDIT_LIFE" | "FUNERAL_COVER", premiumAmount: number, sumAssured: number) =>
+      prisma.insuranceProduct.create({
+        data: { tenantId, code: `${code}-${token}`, name: `Synthetic ${code}`, type, premiumAmount, sumAssured },
+      })
+
+    for (const [code, premiumAmount, sumAssured] of [
+      ["zero-premium", 0, 5_000],
+      ["zero-cover", 22.5, 0],
+      ["negative-premium", -1, 5_000],
+      ["negative-cover", 22.5, -1],
+    ] as const) {
+      await refusedByCheck(product(code, "CREDIT_LIFE", premiumAmount, sumAssured))
+    }
+    for (const data of [{ premiumAmount: 0 }, { sumAssured: 0 }, { premiumAmount: -1 }, { sumAssured: -1 }]) {
+      await refusedByCheck(prisma.insuranceProduct.update({ where: { id: insuranceProductId, tenantId }, data }))
+    }
+    expect(await prisma.insuranceProduct.findUniqueOrThrow({
+      where: { id: insuranceProductId, tenantId },
+      select: { premiumAmount: true, sumAssured: true },
+    })).toEqual({ premiumAmount: new Prisma.Decimal(22.5), sumAssured: new Prisma.Decimal(5_000) })
+
+    // Other product types keep their existing rules: rated products ignore
+    // these columns and may carry zero. Turning one into credit life may not.
+    const funeral = await product("funeral-zero", "FUNERAL_COVER", 0, 0)
+    expect(funeral).toMatchObject({ type: "FUNERAL_COVER" })
+    await refusedByCheck(prisma.insuranceProduct.update({
+      where: { id: funeral.id, tenantId },
+      data: { type: "CREDIT_LIFE" },
+    }))
+
+    expect(await prisma.$queryRawUnsafe<Array<{ convalidated: boolean }>>(
+      `SELECT convalidated FROM pg_constraint WHERE conname = $1 AND conrelid = '"InsuranceProduct"'::regclass`,
+      CHECK,
+    )).toEqual([{ convalidated: true }])
+  })
 
   it("serializes product-type and policy creation races in both transaction orders", async () => {
     const unused = await createStandaloneCreditLifeProduct(`unused-product-${token.slice(0, 6)}`)
@@ -448,9 +485,26 @@ suite("bundled credit-life migration guard", () => {
       policySource: "BUNDLED_CREDIT_AGREEMENT",
     })
 
-    await expect(prisma.insurancePolicy.create({
+    // A second bundled policy passes the guard (its terms are valid) and is
+    // refused by the one-per-loan unique index.
+    const duplicate = await prisma.insurancePolicy.create({
       data: bundledPolicyData(scenario, booked),
-    })).rejects.toThrow()
+    }).then(() => null, (error: unknown) => error)
+    expect(duplicate).toBeInstanceOf(Prisma.PrismaClientKnownRequestError)
+    expect(duplicate).toMatchObject({ code: "P2002" })
+    // Prisma names the columns, not the index; linkedLoanId alone is unique
+    // only in InsurancePolicy_one_bundled_credit_life_per_loan.
+    expect([(duplicate as Prisma.PrismaClientKnownRequestError).meta?.target].flat()).toEqual(["linkedLoanId"])
+    expect(await prisma.$queryRawUnsafe<Array<{ name: string }>>(`
+      SELECT i.indexrelid::regclass::TEXT AS name
+      FROM pg_index AS i
+      WHERE i.indrelid = '"InsurancePolicy"'::regclass
+        AND i.indisunique
+        AND i.indkey::TEXT = (
+          SELECT attnum::TEXT FROM pg_attribute
+          WHERE attrelid = '"InsurancePolicy"'::regclass AND attname = 'linkedLoanId'
+        )
+    `)).toEqual([{ name: '"InsurancePolicy_one_bundled_credit_life_per_loan"' }])
 
     await expect(prisma.insurancePolicy.update({
       where: { id: policyId, tenantId: scenario.tenantId },
@@ -633,6 +687,17 @@ suite("bundled credit-life migration guard", () => {
         interestModel: "DAILY_ACCRUAL",
       },
     })
+    const officerId = `officer_credit_life_draft_${token}`
+    await prisma.user.create({
+      data: {
+        id: officerId,
+        tenantId,
+        email: `credit-life-draft-officer-${token}@example.invalid`,
+        password: "not-a-real-login",
+        name: "Synthetic Officer",
+        role: "LOAN_ADMIN",
+      },
+    })
     const startDate = new Date("2026-07-22T00:00:00.000Z")
     const loanData = (applicationId: string, scenarioTenantId: string, scenarioClientId: string, loanProductId: string) => ({
       tenantId: scenarioTenantId,
@@ -683,6 +748,20 @@ suite("bundled credit-life migration guard", () => {
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
         return loan
       })).resolves.toMatchObject({ applicationId: application.id })
+
+      // Such an application cannot then leave review (the decide route maps
+      // this exact message to a 409 on decline).
+      await expect(prisma.$transaction(async (tx) => {
+        await tx.loanApplication.update({
+          where: { id: application.id, tenantId },
+          data: { status: "DECLINED", approvedAt: new Date(), approvedById: officerId },
+        })
+        await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+      })).rejects.toThrow(/loan creation and application disbursement must commit together/i)
+      expect(await prisma.loanApplication.findUniqueOrThrow({
+        where: { id: application.id, tenantId },
+        select: { status: true },
+      })).toEqual({ status })
     }
 
     // APPROVED stays in scope: a loan without the DISBURSED transition is refused.

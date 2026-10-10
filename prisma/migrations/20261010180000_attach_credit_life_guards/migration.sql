@@ -1,19 +1,13 @@
 -- Attach the bundled credit-life guards.
 --
--- The baseline carries the functions (guardBundledCreditLifeAgreement,
--- guardCreditLifeProductIdentity, lockBundledCreditLifeDependencies,
--- assertBundledCreditLifeDependencies, assertDisbursedCreditLifeCommitInvariant)
--- but none of the 15 triggers that call them: upstream dropped them
--- (20260802000000_retire_dormant_credit_life_triggers) because legacy loans
--- carried their agreement binding in a form the guards refuse, and no
--- credit-life product could be sold. This database has no legacy loans, and a
--- credit-life product can now be offered, so a bundled policy, its loan and
--- its signed agreement evidence are enforced here again.
---
--- The trigger definitions are upstream's, unchanged: names, timing, events,
--- column lists and functions as in 20260722190000_guard_bundled_credit_life_agreement,
--- with LoanApplication_credit_life_commit_invariant in its last form
--- (20260729120100_restore_loan_application_checks).
+-- The baseline carries the bundled credit-life functions
+-- (guardBundledCreditLifeAgreement, guardCreditLifeProductIdentity,
+-- lockBundledCreditLifeDependencies, assertBundledCreditLifeDependencies,
+-- assertDisbursedCreditLifeCommitInvariant) but none of the 15 triggers that
+-- call them. This migration attaches them, scopes
+-- assertDisbursedCreditLifeCoverage to applications that reached approval,
+-- requires positive credit-life product terms, and indexes the two
+-- agreement-document columns the guards look loans up by.
 --
 -- The six *_credit_life_commit_invariant triggers are DEFERRABLE INITIALLY
 -- DEFERRED: the disbursement writes the Loan, then the DISBURSED application,
@@ -188,3 +182,19 @@ BEGIN
   END IF;
 END;
 $function$;
+
+-- A CREDIT_LIFE product must carry a premium and a sum assured above zero:
+-- the bundled-policy guard refuses a sale against any other, and the
+-- credit-life offer guard's no-offer check counts every active one. Other
+-- product types are unaffected (rated products ignore these columns).
+-- Validated: a database holding a credit-life product without positive terms
+-- fails this migration; fix or delete that product first.
+ALTER TABLE "InsuranceProduct" ADD CONSTRAINT "InsuranceProduct_credit_life_terms_positive" CHECK ("type" <> 'CREDIT_LIFE'::"InsurancePolicyType" OR ("premiumAmount" > 0 AND "sumAssured" > 0));
+
+-- The commit invariant and the dependency guards find loans by agreement
+-- document on every ClientDocument write.
+-- CreateIndex
+CREATE INDEX "Loan_agreementDocId_idx" ON "Loan"("agreementDocId");
+
+-- CreateIndex
+CREATE INDEX "LoanApplication_agreementDocumentId_idx" ON "LoanApplication"("agreementDocumentId");

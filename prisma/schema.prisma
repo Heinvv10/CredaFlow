@@ -940,6 +940,7 @@ model LoanApplication {
   @@unique([tenantId, id, clientId])
   @@index([tenantId])
   @@index([tenantId, status])
+  @@index([agreementDocumentId])
   // PostgreSQL partial unique index (not expressible in Prisma schema):
   // LoanApplication_debitMandateReference_key, created by the baseline
   // migration.
@@ -1106,6 +1107,7 @@ model Loan {
 
   @@index([tenantId])
   @@index([tenantId, status])
+  @@index([agreementDocId])
 }
 
 enum LoanChargeType {

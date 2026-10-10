@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { PATCH } from "./route"
 import { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 
 const {
   findFirstPolicy,
@@ -124,36 +125,45 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
     )
   })
 
+  const bundledCreditLife = {
+    id: "policy-1",
+    pprIssuedAt: new Date(),
+    policySource: "BUNDLED_CREDIT_AGREEMENT",
+    type: "CREDIT_LIFE",
+    premiumAmount: new Prisma.Decimal("22.50"),
+    renewalDate: new Date("2026-08-23T00:00:00.000Z"),
+  }
+
   it.each([
     [{ premiumAmount: 9999 }, "premiumAmount"],
+    [{ premiumAmount: "22.51" }, "premiumAmount"],
     [{ renewalDate: "2027-01-01" }, "renewalDate"],
-  ])("refuses %j on a bundled credit-life policy with 422, writing nothing", async (body, field) => {
-    findFirstPolicy.mockResolvedValue({
-      id: "policy-1",
-      pprIssuedAt: new Date(),
-      policySource: "BUNDLED_CREDIT_AGREEMENT",
-      type: "CREDIT_LIFE",
-    })
+    [{ premiumAmount: 1, renewalDate: "2027-01-01" }, "premiumAmount, renewalDate"],
+  ])("refuses %j on a bundled credit-life policy with 422, writing nothing", async (body, fields) => {
+    findFirstPolicy.mockResolvedValue(bundledCreditLife)
 
     const res = await PATCH(makeRequest(body), ctx)
 
     expect(res.status).toBe(422)
     const json = await res.json()
     expect(json.error).toMatch(/bundled credit-life/i)
-    expect(json.error).toContain(field)
+    expect(json.error).toContain(`Locked: ${fields}`)
     expect(updatePolicy).not.toHaveBeenCalled()
   })
 
-  it("allows a status change on a bundled credit-life policy", async () => {
-    findFirstPolicy.mockResolvedValue({
-      id: "policy-1",
-      pprIssuedAt: new Date(),
-      policySource: "BUNDLED_CREDIT_AGREEMENT",
-      type: "CREDIT_LIFE",
-    })
-    updatePolicy.mockResolvedValue({ id: "policy-1", status: "LAPSED" })
+  it.each([
+    [{ premiumAmount: 22.5 }],
+    [{ premiumAmount: "22.50" }],
+    [{ renewalDate: "2026-08-23T00:00:00.000Z" }],
+    [{ renewalDate: "" }],
+    [{ renewalDate: null }],
+    [{ status: "LAPSED" }],
+    [{ status: "LAPSED", premiumAmount: 22.5, renewalDate: "" }],
+  ])("lets %j through on a bundled credit-life policy: nothing bound would change", async (body) => {
+    findFirstPolicy.mockResolvedValue(bundledCreditLife)
+    updatePolicy.mockResolvedValue({ id: "policy-1" })
 
-    const res = await PATCH(makeRequest({ status: "LAPSED" }), ctx)
+    const res = await PATCH(makeRequest(body), ctx)
 
     expect(res.status).toBe(200)
     expect(updatePolicy).toHaveBeenCalledOnce()

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -20,8 +21,20 @@ const FAIS_LOCKED_FIELDS = ["premiumAmount", "insurer", "insurerId"] as const
 
 // Fields of a bundled credit-life policy that the database binds to its loan
 // and signed agreement (InsurancePolicy_guard_bundled_credit_life_agreement):
-// of those, the ones this PATCH can write.
-const BUNDLED_CREDIT_LIFE_LOCKED_FIELDS = ["premiumAmount", "renewalDate"] as const
+// of those, the ones this PATCH can write. Each entry says whether the update
+// below would change the stored value; an unchanged one passes the guard.
+const BUNDLED_CREDIT_LIFE_LOCKED_FIELDS = {
+  // Written whenever present; stored as Decimal(12,2).
+  premiumAmount: (data: Record<string, unknown>, existing: { premiumAmount: Prisma.Decimal }) => {
+    if (data.premiumAmount === undefined) return false
+    const next = parseFloat(String(data.premiumAmount))
+    return !Number.isFinite(next) || !new Prisma.Decimal(next).toDecimalPlaces(2).equals(existing.premiumAmount)
+  },
+  // Written only when truthy.
+  renewalDate: (data: Record<string, unknown>, existing: { renewalDate: Date }) =>
+    Boolean(data.renewalDate)
+    && new Date(data.renewalDate as string).getTime() !== existing.renewalDate.getTime(),
+} as const
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -65,7 +78,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
       const existing = await prisma.insurancePolicy.findFirst({
         where: { id, tenantId: tenant.id },
-        select: { id: true, pprIssuedAt: true, policySource: true, type: true },
+        select: { id: true, pprIssuedAt: true, policySource: true, type: true, premiumAmount: true, renewalDate: true },
       })
       if (!existing) {
         return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -105,7 +118,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
 
       if (existing.policySource === "BUNDLED_CREDIT_AGREEMENT" && existing.type === "CREDIT_LIFE") {
-        const attempted = BUNDLED_CREDIT_LIFE_LOCKED_FIELDS.filter((f) => data[f] !== undefined)
+        const attempted = Object.entries(BUNDLED_CREDIT_LIFE_LOCKED_FIELDS)
+          .filter(([, changes]) => changes(data, existing))
+          .map(([field]) => field)
         if (attempted.length > 0) {
           return NextResponse.json(
             {

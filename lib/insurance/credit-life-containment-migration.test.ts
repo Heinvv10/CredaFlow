@@ -1,5 +1,8 @@
+import fs from "node:fs"
+import path from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  baselineConstraintSql,
   baselineFunctionSql,
   baselineIndexSql,
   baselineTriggerSql,
@@ -183,5 +186,33 @@ describe("bundled credit-life triggers", () => {
     expect(oneLine(baselineTriggerSql(name))).toBe(
       `CREATE CONSTRAINT TRIGGER "${name}" AFTER INSERT OR UPDATE OR DELETE ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "assertDisbursedCreditLifeCommitInvariant"();`,
     )
+  })
+})
+
+describe("bundled credit-life migration", () => {
+  const migrationSql = fs.readFileSync(
+    path.join(__dirname, "..", "..", "prisma", "migrations", "20261010180000_attach_credit_life_guards", "migration.sql"),
+    "utf8",
+  )
+
+  it("creates exactly the 15 credit-life triggers and no other", () => {
+    const created = [...migrationSql.matchAll(/^\s*CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+"([^"]+)"/gim)].map((m) => m[1])
+    expect(created.sort()).toEqual([
+      ...attached.map(([name]) => name),
+      ...commitInvariantTables.map((table) => `${table}_credit_life_commit_invariant`),
+    ].sort())
+  })
+
+  it("requires a positive premium and cover on every credit-life product, validated", () => {
+    expect(oneLine(baselineConstraintSql("InsuranceProduct_credit_life_terms_positive"))).toBe(
+      `ALTER TABLE "InsuranceProduct" ADD CONSTRAINT "InsuranceProduct_credit_life_terms_positive" CHECK ("type" <> 'CREDIT_LIFE'::"InsurancePolicyType" OR ("premiumAmount" > 0 AND "sumAssured" > 0));`,
+    )
+  })
+
+  it.each([
+    ["LoanApplication_agreementDocumentId_idx", "LoanApplication", "agreementDocumentId"],
+    ["Loan_agreementDocId_idx", "Loan", "agreementDocId"],
+  ])("indexes %s for the agreement-document lookups", (name, table, column) => {
+    expect(oneLine(baselineIndexSql(name))).toBe(`CREATE INDEX "${name}" ON "${table}"("${column}");`)
   })
 })
