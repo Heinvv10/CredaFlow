@@ -10,6 +10,12 @@ import type { Session } from "next-auth"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
 import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
 
+class TenantColoursInvalid extends Error {
+  constructor(readonly fields: Partial<Record<TenantColourField, string>>) {
+    super("Tenant colours fail validation")
+  }
+}
+
 function isAuthorized(req: NextRequest, session: Session | null): boolean {
   if (session?.user?.role !== "SUPER_ADMIN") return false
   const adminSecret = req.headers.get("x-admin-secret")
@@ -54,7 +60,7 @@ export async function PATCH(
 
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
-    include: { config: { select: { primaryColor: true, secondaryColor: true, darkColor: true } } },
+    select: { id: true },
   })
   if (!tenant) {
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
@@ -96,14 +102,10 @@ export async function PATCH(
   // Colours are checked as the set the tenant will have after this write: a
   // value that is not #rrggbb, or any text/surface pair below WCAG AA in light
   // or dark mode, refuses the whole request (lib/theme/tenant-colours.ts).
+  // The check runs in the write's transaction, under the tenant row lock, so
+  // two concurrent changes to different colours cannot each pass against the
+  // old set and commit a combination that fails.
   const colourKeys = (Object.keys(TENANT_COLOUR_VARS) as TenantColourField[]).filter((key) => body[key] !== undefined)
-  if (colourKeys.length > 0) {
-    const next = { ...DEFAULT_TENANT_COLOURS, ...tenant.config, ...Object.fromEntries(colourKeys.map((key) => [key, body[key]])) } as TenantColours
-    const colourErrors = tenantColourErrors(next)
-    if (Object.keys(colourErrors).length > 0) {
-      return NextResponse.json({ error: "Tenant colours fail validation", fields: colourErrors }, { status: 422 })
-    }
-  }
 
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
@@ -179,7 +181,18 @@ export async function PATCH(
   // The change and its audit rows commit together, or neither does.
   const day = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : value)
   const updated = await prisma.$transaction(async (tx) => {
+    if (colourKeys.length > 0) {
+      // Locks the Tenant row, not TenantConfig: the config row may not exist
+      // yet. The read below is a new statement, so under READ COMMITTED it
+      // sees whatever the previous lock holder committed.
+      await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR UPDATE`
+    }
     const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
+    if (colourKeys.length > 0) {
+      const next = { ...DEFAULT_TENANT_COLOURS, ...before, ...Object.fromEntries(colourKeys.map((key) => [key, body[key]])) } as TenantColours
+      const colourErrors = tenantColourErrors(next)
+      if (Object.keys(colourErrors).length > 0) throw new TenantColoursInvalid(colourErrors)
+    }
     const result = await tx.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
     if (colourKeys.length > 0) {
       await logAuditStrict({
@@ -205,7 +218,14 @@ export async function PATCH(
       newValue: Object.fromEntries(bureauKeys.map((key) => [key, day(bureauUpdate[key])])),
     }, tx)
     return result
+  }).catch((e: unknown) => {
+    // Thrown before anything is written, so the transaction rolls back clean.
+    if (e instanceof TenantColoursInvalid) return e
+    throw e
   })
+  if (updated instanceof TenantColoursInvalid) {
+    return NextResponse.json({ error: "Tenant colours fail validation", fields: updated.fields }, { status: 422 })
+  }
 
   if (colourKeys.length > 0) {
     // The colours are committed; a failed invalidation only leaves the old
