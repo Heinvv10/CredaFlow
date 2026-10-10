@@ -640,7 +640,7 @@ describe.each(EVENT_CASES)("triggerNotification — $event cutover", (c) => {
   })
 })
 
-// ── WA-B1 regression: WhatsApp template vars must come from the SAME
+// ── WhatsApp template vars must come from the SAME
 // DB-fetched entity data as email/SMS, not from opts.data (which most
 // triggerNotification() call sites never populate). Before this fix,
 // loan_approved / payment_received WhatsApp messages landed in /inbox
@@ -660,7 +660,7 @@ describe("buildWaMessage — template variables", () => {
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
   })
 
-  it("application_submitted WA message is DB-sourced (pinning: the already-correct path stays correct)", async () => {
+  it("application_submitted WA message is DB-sourced", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanApplicationFindUniqueMock.mockResolvedValue({
       id: "app1",

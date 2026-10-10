@@ -446,7 +446,7 @@ describe("qualifyApplyHref — the apply handoff classifies the amount it carrie
     expect(href).toContain("term=360")
   })
 
-  it("REGRESSION: a suggested micro amount from a personal request → short-term (classified by ITS amount)", () => {
+  it("a suggested micro amount from a personal request → short-term (classified by ITS amount)", () => {
     // findMaxAffordable can suggest R2,000 (micro) for a personal request carrying
     // 360 days. The href must route to short-term for THAT amount (using the original
     // tier would apply the customer under the wrong product). The term is canonical

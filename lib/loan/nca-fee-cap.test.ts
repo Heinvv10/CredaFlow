@@ -274,7 +274,7 @@ describe("the gazetted constants are stated, not buried", () => {
   })
 })
 
-describe("REGRESSION: the exemption must reach every origination path", () => {
+describe("the exemption must reach every origination path", () => {
   // Blind review found productType reached exactly ONE of a dozen callers, so
   // the marketing quote said R10,000 while the SIGNED AGREEMENT and the BOOKED
   // LOAN both said R1,207.50 — an R8,792.50 under-charge per PO facility.

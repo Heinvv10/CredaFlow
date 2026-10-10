@@ -55,7 +55,7 @@ const loanOf = (ids: Ids) => db.loan.findUniqueOrThrow({ where: { id: ids.loanId
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "PATCH", body: JSON.stringify(body) })
 const override = (ids: Ids) => ({ reason: "Deposit genuinely reached the account on that date.", approvedById: ids.userId })
 
-suite.sequential("default charges: back-dated receipts, notice freezing, exemption, fee repricing and reversal invariants (real Postgres)", () => {
+suite.sequential("default charges: back-dated receipts, exemption, fee repricing, Section 129 settlement, reversal, collections-queue and legacy-image invariants (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })
@@ -205,7 +205,7 @@ suite.sequential("default charges: back-dated receipts, notice freezing, exempti
     expect(await queue(false)).toEqual([overdue.loanId])
   })
 
-  it("FOLLOW-UP A: a loan booked by an image that predates the fee column inserts, and replays on the fallback fee", async () => {
+  it("a loan booked by an image that predates the fee column inserts, and replays on the fallback fee", async () => {
     const tenant = await createChargesTenant(db, true)
     const template = await createChargesLoan(db, tenant)
     const app = await db.loanApplication.findFirstOrThrow({ where: { clientId: template.clientId } })

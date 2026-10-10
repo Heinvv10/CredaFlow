@@ -56,7 +56,7 @@ const INTENTIONALLY_UNWIRED = new Map([
   [
     "cleanup-disclosures",
     "Draft FAIS disclosure PDFs accumulate in uploads/disclosures/. " +
-      "POPIA-adjacent housekeeping; gates no Annexure row, so it is not scheduled.",
+      "POPIA-adjacent housekeeping; gates no compliance requirement, so it is not scheduled.",
   ],
   [
     "bureau-daily",

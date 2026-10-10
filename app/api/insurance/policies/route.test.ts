@@ -162,7 +162,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe("POST /api/insurance/policies — FAIS gate (Task 8)", () => {
+describe("POST /api/insurance/policies — FAIS gate", () => {
   it("1. returns 422 and fires gate-rejected audit when faisDisclosureAt is missing", async () => {
     process.env.NEXTAUTH_SECRET = SECRET
 

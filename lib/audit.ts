@@ -318,7 +318,7 @@ export const AuditAction = {
   // from a genuine acknowledgement and carries no audit row. Do not assume the
   // column is clean; see the legacy-row audit task before trusting it.
   INSURANCE_PPR_ACKNOWLEDGED:             "INSURANCE_PPR_ACKNOWLEDGED",
-  // RA-P1-5: insurance claim outcomes (money-committing state changes).
+  // Insurance claim outcomes (money-committing state changes).
   INSURANCE_CLAIM_APPROVED:               "INSURANCE_CLAIM_APPROVED",
   INSURANCE_CLAIM_REJECTED:               "INSURANCE_CLAIM_REJECTED",
   INSURANCE_CLAIM_UPDATED:                "INSURANCE_CLAIM_UPDATED",

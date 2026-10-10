@@ -910,7 +910,7 @@ afterEach(() => {
   })
 })
 
-describe("POST /api/applications/[id]/disburse — pre-payout evidence gates (countersign, PASQ, signed agreement, KYC, biometrics, agreement dates)", () => {
+describe("POST /api/applications/[id]/disburse — payout gates, credit-life bundling and in-transaction invariants", () => {
   it("blocks before the money transaction without provider countersign evidence", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
