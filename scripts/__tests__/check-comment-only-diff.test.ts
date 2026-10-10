@@ -43,6 +43,8 @@ describe("codeDifference", () => {
     expect(codeDifference("// @vitest-environment jsdom\nx()\n", "x()\n", "f.test.ts")).toMatch(/directive/)
     expect(codeDifference("/* eslint-disable no-console */\nx()\n", "/* eslint-disable no-debugger */\nx()\n", "f.ts")).toMatch(/directive/)
     expect(codeDifference("const a = /*#__PURE__*/ f()\n", "const a = f()\n", "f.ts")).toMatch(/directive/)
+    // Prose around an unchanged directive line may change.
+    expect(codeDifference("/**\n * Old reason.\n * @vitest-environment jsdom\n */\nx()\n", "/**\n * New reason.\n * @vitest-environment jsdom\n */\nx()\n", "f.test.ts")).toBeNull()
   })
 
   it("keeps JSX whitespace React renders, drops what it does not", () => {

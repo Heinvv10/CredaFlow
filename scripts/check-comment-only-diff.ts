@@ -83,7 +83,7 @@ export function tokens(source: string, fileName: string): string[] {
   return out
 }
 
-/** Every directive comment in the source (and a leading #! line), in order. */
+/** Every comment line holding a directive (and a leading #! line), sorted. */
 export function directives(source: string, fileName: string): string[] {
   const file = parse(source, fileName)
   const seen = new Set<number>()
@@ -92,8 +92,8 @@ export function directives(source: string, fileName: string): string[] {
     for (const r of [...(ts.getLeadingCommentRanges(source, node.getFullStart()) ?? []), ...(ts.getTrailingCommentRanges(source, node.getEnd()) ?? [])]) {
       if (seen.has(r.pos)) continue
       seen.add(r.pos)
-      const text = source.slice(r.pos, r.end)
-      if (DIRECTIVE.test(text)) out.push(text)
+      // Line by line: a directive is one line, and prose around it may change.
+      for (const line of source.slice(r.pos, r.end).split("\n")) if (DIRECTIVE.test(line)) out.push(line.trim())
     }
     node.getChildren(file).forEach(visit)
   }
