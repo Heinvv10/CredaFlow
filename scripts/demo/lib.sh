@@ -5,7 +5,7 @@
 #                  secrets.env  the shared secrets (ensure_shared_secrets, 0600)
 #                  snapshots/   bake output, one dir per UTC timestamp + `latest`
 #                  logs/        cron logs (cron-run.sh)
-#                  logs/LAST_FAILURE, last-bake, last-restore  results (status.sh)
+#                  logs/LAST_FAILURE-<job>, last-bake, last-restore  results (status.sh)
 #   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
 #
 # Every Docker name the demo scripts touch is defined once, below. The live

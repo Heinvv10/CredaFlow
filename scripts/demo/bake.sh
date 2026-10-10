@@ -21,6 +21,10 @@ set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 cd "$DEMO_ROOT"
 
+# Fail fast: the simulator is TypeScript, and a type error found after the
+# image build and stack bring-up wastes minutes.
+npm run -s demo:typecheck || die "demo:typecheck failed; nothing was started"
+
 image="" start=""
 while [ $# -gt 0 ]; do
   case "$1" in

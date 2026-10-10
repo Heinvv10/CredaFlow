@@ -9,7 +9,9 @@ const BANNER_HEIGHT_CSS =
   "html:root{--cf-demo-banner-h:3rem}@media (min-width:640px){html:root{--cf-demo-banner-h:2rem}}"
 
 // Rendered from the root layout so every surface (website, portal, staff app,
-// login pages) carries it. Not dismissable by design. Colours are the warning
+// login pages) carries it. Not dismissable by design. z-45: above the shell
+// chrome (sidebars, sticky headers: z-30/z-40) but below every dialog, sheet and
+// drawer (z-50), so an overlay covers the banner instead of its title and close button. Colours are the warning
 // token on the on-brand token: both flip with the light theme and clear 4.5:1.
 export async function DemoBanner() {
   // DEMO_MODE is runtime env and one image runs with and without it, so the
@@ -32,7 +34,7 @@ export async function DemoBanner() {
       <div
         role="note"
         data-demo-banner
-        className="sticky top-0 z-[100] flex h-[var(--cf-demo-banner-h)] items-center justify-center bg-[var(--cf-warning)] px-3 text-center text-xs font-semibold leading-4 text-[var(--cf-on-brand)]"
+        className="sticky top-0 z-[45] flex h-[var(--cf-demo-banner-h)] items-center justify-center bg-[var(--cf-warning)] px-3 text-center text-xs font-semibold leading-4 text-[var(--cf-on-brand)]"
       >
         {demoBannerText(brandName)}
       </div>

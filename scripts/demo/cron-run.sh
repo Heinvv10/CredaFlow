@@ -22,10 +22,11 @@
 # are the newest 14 of each kind of failed-bake report. The exit status is the
 # job's, so cron mail (if any) sees failures.
 #
-# Failure record: any non-zero exit writes $LOG_DIR/LAST_FAILURE (time, job,
-# exit code, log path); the next success of the SAME job removes it, so a
-# failed monthly bake stays flagged until a bake succeeds, even though the
-# nightly restores keep succeeding. scripts/demo/status.sh prints it. Nothing
+# Failure record: any non-zero exit writes $LOG_DIR/LAST_FAILURE-<job> (time,
+# job, exit code, log path); the next success of the SAME job removes only its
+# own file, so a failed monthly bake stays flagged until a bake succeeds, even
+# though the nightly restores keep succeeding. scripts/demo/status.sh prints
+# both. Nothing
 # is sent anywhere: no external notification channel is configured.
 set -euo pipefail
 export PATH="${DEMO_NODE_DIR:+$DEMO_NODE_DIR:}/usr/local/bin:/usr/bin:/bin"
@@ -50,7 +51,7 @@ esac
 
 mkdir -p "$LOG_DIR"
 log="$LOG_DIR/$job-$(date -u +%Y%m%dT%H%M%SZ).log"
-failure="$LOG_DIR/LAST_FAILURE"
+failure="$LOG_DIR/LAST_FAILURE-$job"
 record_failure() {
   printf 'at=%s\njob=%s\nexit=%s\nlog=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$job" "$1" "$log" > "$failure"
 }
@@ -77,7 +78,7 @@ rc=0
 echo "exit $rc" >> "$log"
 if [ "$rc" -ne 0 ]; then
   record_failure "$rc"
-elif [ -e "$failure" ] && grep -qx "job=$job" "$failure"; then
+else
   rm -f "$failure"
 fi
 

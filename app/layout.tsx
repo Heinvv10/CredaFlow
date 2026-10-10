@@ -37,8 +37,9 @@ const metadata: Metadata = {
 };
 
 // Read per request: DEMO_MODE is runtime env, and the same image runs with and
-// without it, so connection() keeps a prerender from baking the build's value.
-// Unset, this adds nothing to the metadata.
+// without it, so connection() keeps a prerender from baking the build's value. It
+// makes every route rendering this layout request-time in every deployment, demo
+// or not; most routes were already dynamic, so the cost is small.
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
   return isDemoMode() ? { ...metadata, robots: { index: false, follow: false } } : metadata;

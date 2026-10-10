@@ -47,10 +47,13 @@ for job in bake restore; do
   [ -z "$newest" ] || echo "  newest cron log: $newest ($(tail -1 "$LOG_DIR/$newest"))"
 done
 
-if [ -s "$LOG_DIR/LAST_FAILURE" ]; then
-  flag "LAST_FAILURE ($LOG_DIR/LAST_FAILURE):"
-  sed 's/^/       /' "$LOG_DIR/LAST_FAILURE"
-else
-  echo "LAST_FAILURE: none"
-fi
+any_failure=false
+for job in bake restore; do
+  if [ -s "$LOG_DIR/LAST_FAILURE-$job" ]; then
+    any_failure=true
+    flag "LAST_FAILURE-$job ($LOG_DIR/LAST_FAILURE-$job):"
+    sed 's/^/       /' "$LOG_DIR/LAST_FAILURE-$job"
+  fi
+done
+$any_failure || echo "LAST_FAILURE: none"
 exit "$attention"

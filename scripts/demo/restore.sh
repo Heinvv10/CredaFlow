@@ -72,6 +72,8 @@ image="$(live_image)"
 snap_image="$(jq -r .image "$snap/meta.json")"
 tenant_id="$(jq -r .tenantId "$snap/meta.json")"
 [ -n "$tenant_id" ] && [ "$tenant_id" != null ] || die "no tenantId in $snap/meta.json"
+# It is written into .env.production: only the id shape (cuid) may get there.
+[[ "$tenant_id" =~ ^[a-z0-9]{20,40}$ ]] || die "refusing: tenantId in $snap/meta.json is not a valid id"
 if [ "$snap_image" != "$image" ]; then
   $force_image || die "snapshot was baked on $snap_image but the live demo runs $image (--force-image to restore anyway)"
   note "WARNING: snapshot image $snap_image != live $image (--force-image)"
@@ -83,8 +85,15 @@ flock -w 600 9 || die "another restore holds the lock"
 
 uploads_volume="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Name}}{{end}}{{end}}' "$LIVE_APP")"
 [ -n "$uploads_volume" ] || die "$LIVE_APP has no /app/uploads volume"
+# host_port CONTAINER — the published :3300 as host:port; a wildcard or empty
+# bind address is reached through loopback.
 host_port() {
-  docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostIp}}:{{(index . 0).HostPort}}{{end}}' "$1"
+  local ip port
+  ip="$(docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostIp}}{{end}}' "$1")"
+  port="$(docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostPort}}{{end}}' "$1")"
+  [ -n "$port" ] || return 0
+  case "$ip" in "" | 0.0.0.0) ip=127.0.0.1 ;; esac
+  echo "$ip:$port"
 }
 staff_addr="$(host_port "$LIVE_APP")" portal_addr="$(host_port "$LIVE_PORTAL")"
 [ -n "$staff_addr" ] && [ -n "$portal_addr" ] || die "cannot read the published :3300 ports of $LIVE_APP / $LIVE_PORTAL"
@@ -126,6 +135,8 @@ old_moving=false new_moving=false stopped=false env_changed=false committed=fals
 
 rollback() {
   local rc=$? outcome
+  # A second signal must not cut the rollback short.
+  trap '' INT TERM HUP
   $committed && return 0
   set +e
   note "FAILED during $step (exit $rc); rolling back"
@@ -145,12 +156,13 @@ rollback() {
   fi
   if $old_moving; then
     # Once the staged files started moving in, every root entry other than
-    # $OLD/$STAGE is new (all old ones were already in $OLD) and is removed.
+    # $OLD/$STAGE is new (all old ones were already in $OLD) and is removed;
+    # earlier .old-* dirs (not this run's) are kept.
     # Before that, the root holds only old entries not yet moved: keep them.
     # Either way, whatever reached $OLD then goes back.
     if uploads_sh '
       if [ "$NEW_MOVING" = true ]; then
-        find /u -mindepth 1 -maxdepth 1 ! -name "$OLD" ! -name "$STAGE" -exec rm -rf {} +
+        find /u -mindepth 1 -maxdepth 1 ! -name ".old-*" ! -name "$STAGE" -exec rm -rf {} +
       fi
       if [ -d "/u/$OLD" ]; then
         find "/u/$OLD" -mindepth 1 -maxdepth 1 -exec mv -t /u {} +
@@ -185,7 +197,8 @@ t0="$(date +%s.%N)"
 note "restoring ${snap##*/} (image $snap_image, tenant $tenant_id) into $LIVE_PROJECT"
 
 # --- stage, while the demo keeps serving.
-for stale in $(live_sql postgres "SELECT datname FROM pg_database WHERE datname LIKE '${db}\_restore\_%'"); do
+# Exact prefix match: "_" in a LIKE pattern is a wildcard.
+for stale in $(live_sql postgres "SELECT datname FROM pg_database WHERE left(datname, length('${db}_restore_')) = '${db}_restore_'"); do
   live_sql postgres "DROP DATABASE \"$stale\" WITH (FORCE)" && note "dropped stale $stale"
 done
 step="pg_restore into $tmp_db"
@@ -233,7 +246,7 @@ db_swapped=true tmp_created=false
 step="uploads swap"
 old_moving=true
 uploads_sh 'mkdir "/u/$OLD"
-  find /u -mindepth 1 -maxdepth 1 ! -name "$STAGE" ! -name "$OLD" -exec mv -t "/u/$OLD" {} +'
+  find /u -mindepth 1 -maxdepth 1 ! -name "$STAGE" ! -name ".old-*" -exec mv -t "/u/$OLD" {} +'
 new_moving=true
 uploads_sh 'find "/u/$STAGE" -mindepth 1 -maxdepth 1 -exec mv -t /u {} +
   rmdir "/u/$STAGE"'
@@ -251,16 +264,23 @@ wait_health "$portal_addr"
 t_up="$(date +%s.%N)"
 committed=true
 
-# --- healthy on the new data: only now drop what the rollback would need.
+# --- healthy on the new data: only now drop what the rollback would need. The
+# restore has succeeded, so a cleanup failure is a warning, never a failure.
+set +e
+warnings=""
+warn() { note "WARNING: $1"; warnings="$warnings; $1"; }
 if $had_live_db; then
-  live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || note "WARNING: could not drop $old_db"
+  live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi
-for stale in $(live_sql postgres "SELECT datname FROM pg_database WHERE datname LIKE '${db}\_old\_%'"); do
+stale_olds="$(live_sql postgres "SELECT datname FROM pg_database WHERE left(datname, length('${db}_old_')) = '${db}_old_'")" \
+  || warn "could not list stale ${db}_old_* databases"
+for stale in $stale_olds; do
   live_sql postgres "DROP DATABASE \"$stale\" WITH (FORCE)" && note "dropped stale $stale"
 done
-uploads_sh 'rm -rf /u/.old-*' || note "WARNING: could not remove $uploads_volume:/$old_uploads"
+# Only this run's .old dir: earlier ones are not ours to delete.
+uploads_sh 'rm -rf "/u/$OLD"' || warn "could not remove $uploads_volume:/$old_uploads"
 
 summary="$(awk -v t0="$t0" -v td="$t_down" -v tu="$t_up" -v t1="$(date +%s.%N)" \
   'BEGIN { printf "in %.1f s, %.1f s down", t1 - t0, tu - td }')"
-record_result restore "ok ${snap##*/} $summary"
-echo "restore: ${snap##*/} restored $summary (staff $staff_addr + portal $portal_addr healthy)"
+record_result restore "ok ${snap##*/} $summary${warnings:+ (warnings$warnings)}"
+echo "restore: ${snap##*/} restored $summary (staff $staff_addr + portal $portal_addr healthy)${warnings:+; warnings$warnings}"

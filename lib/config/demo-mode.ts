@@ -46,5 +46,7 @@ export function demoCodeReveal(
 ): { demoCode?: string } {
   if (!isDemoMode(env)) return {}
   const email = recipientEmail.trim().toLowerCase()
-  return email.includes("@") && email.endsWith(UNDELIVERABLE_DOMAIN_SUFFIX) ? { demoCode: code } : {}
+  // One mailbox only: a list ("real@gmail.com, x@y.invalid") would also mail the real address.
+  const oneMailbox = email.split("@").length === 2 && !/[,;\s]/.test(email)
+  return oneMailbox && email.endsWith(UNDELIVERABLE_DOMAIN_SUFFIX) ? { demoCode: code } : {}
 }

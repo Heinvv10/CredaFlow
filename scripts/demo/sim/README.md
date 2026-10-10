@@ -163,7 +163,7 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   `cron-run.lock`, so that night's restore waits for the bake. Logs:
   `logs/<job>-<stamp>.log`, newest 14 kept; a failed bake also leaves its
   simulate/verify-pages reports there.
-- **Failures**: a failed job writes `logs/LAST_FAILURE` (time, job, exit code,
+- **Failures**: a failed job writes `logs/LAST_FAILURE-<job>` (time, job, exit code,
   log), removed by the next success of the same job; bake and restore record
   their last outcome in `logs/last-bake` / `logs/last-restore`.
   `scripts/demo/status.sh` prints these with the snapshot's age and whether its

@@ -21,7 +21,9 @@ x-faketime: &faketime
   FAKETIME_TIMESTAMP_FILE: /sim-clock/faketime.rc
   FAKETIME_NO_CACHE: "1"
   FAKETIME_DONT_FAKE_MONOTONIC: "1"
-  # The clock file's timestamp is parsed in the process's local zone; pin it.
+  # The clock file is a relative offset, so the zone does not affect the fake
+  # time. TZ stays so local-time formatting matches the seed (seed-faked.sh
+  # pins TZ=UTC too).
   TZ: UTC
 
 services:

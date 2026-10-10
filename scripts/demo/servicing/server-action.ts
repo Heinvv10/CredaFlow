@@ -16,7 +16,7 @@
  */
 import { execFileSync } from "node:child_process"
 
-import type { SimClient } from "../sim/api"
+import { parseJsonBody, type SimClient } from "../sim/api"
 
 const APP_CONTAINER = "credaflow-demo-sim-app"
 const MANIFEST = "/app/.next/server/server-reference-manifest.json"
@@ -31,7 +31,7 @@ let manifest: Record<string, ManifestEntry> | null = null
 function actionId(name: string, page: string): string {
   if (!manifest) {
     const raw = execFileSync("docker", ["exec", APP_CONTAINER, "cat", MANIFEST], { encoding: "utf8" })
-    manifest = (JSON.parse(raw) as { node: Record<string, ManifestEntry> }).node
+    manifest = parseJsonBody<{ node: Record<string, ManifestEntry> }>("EXEC", MANIFEST, 0, raw).node
   }
   const worker = `app/(dashboard)${page}/page`
   const hit = Object.entries(manifest).find(([, e]) => e.exportedName === name && worker in e.workers)
@@ -45,7 +45,7 @@ function returnValue<T>(body: string, name: string): T {
   if (!row) throw new Error(`${name}: no return row in the action response: ${body.slice(0, 300)}`)
   const raw = row.slice(2)
   // An action returning undefined serialises as "$undefined".
-  return (raw === '"$undefined"' ? undefined : JSON.parse(raw)) as T
+  return (raw === '"$undefined"' ? undefined : parseJsonBody<T>("ACTION", name, 200, raw)) as T
 }
 
 async function post<T>(actor: SimClient, name: string, page: string, body: FormData | string): Promise<T> {
