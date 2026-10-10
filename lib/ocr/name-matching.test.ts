@@ -103,8 +103,8 @@ describe("areNamesSimilar — shapes the extractor actually produces", () => {
   })
 
   it("still refuses a company account held by a client", () => {
-    // Real case: a business account on a personal client's file. The surname is
-    // simply absent, and no amount of token overlap should rescue it.
+    // A business account on a personal client's file: the surname is simply
+    // absent, and no amount of token overlap should rescue it.
     expect(areNamesSimilar("ACME WIDGETS PTY LTD", "Jan Hendrik Van Mocktest")).toBe(false)
   })
 

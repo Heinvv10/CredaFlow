@@ -1794,7 +1794,7 @@ export async function POST(
       // Trigger loan_disbursed notification (fire-and-forget). `amount` is
       // the amount the consumer actually receives — equals principal in
       // DEFERRED mode, or principal minus the initiation fee in UPFRONT
-      //; loan.principal would overstate what an UPFRONT consumer got.
+      // mode; loan.principal would overstate what an UPFRONT consumer got.
       // Passed via `data` because lib/notifications.ts's loan_disbursed
       // branch has no DB-backed source for amount/dueDate (unlike
       // reference, which it fetches directly) — this is that source,

@@ -153,7 +153,7 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
   const initiationPctOverCap = form.initiationFeePct > 15 // NCA max 15% of principal
 
   // interestRatePm is a monthly rate for every model, including DAILY_ACCRUAL
-  // (which accrues that monthly rate daily — see lib/loan-calculator.ts,.
+  // (which accrues that monthly rate daily — see lib/loan-calculator.ts).
   const displayRateLabel = "% per month"
 
   // Live repayment preview
