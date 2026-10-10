@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 import { NextRequest } from "next/server"
 
 const {
@@ -165,7 +166,6 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
       ok: false,
       reason: "verified_bank_statement_mismatch",
     })
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       bankName: "FNB",
@@ -188,7 +188,6 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
       ...application,
       repaymentMethod: "EFT",
     })
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       bankName: "FNB",
@@ -215,7 +214,6 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
         body: "{",
       },
     )
-    const { POST } = await import("./route")
 
     const response = await POST(malformed, ctx)
 
@@ -241,7 +239,6 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
       client: { ...application.client, bankBranchCode: "250655" },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(request({
       bankName: "FNB",
       branchCode: "470010",
@@ -258,7 +255,6 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
   })
 
   it("updates only banking fields and records the exact prepared evidence", async () => {
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       bankName: "FNB",
@@ -326,7 +322,6 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
       ...application,
       debitMandateSignedAt: new Date("2026-07-23T15:30:00.000Z"),
     })
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       bankName: "FNB",

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB — mirrors lib/document-auth
 
@@ -61,14 +62,12 @@ afterEach(() => { vi.clearAllMocks() })
 describe("POST /api/portal/payment/manual", () => {
   it("returns 401 when not signed in", async () => {
     auth.mockResolvedValue(null)
-    const { POST } = await import("./route")
     const res = await POST(makeReq({ loanId: "l1", amount: "10000" }, pdf()))
     expect(res.status).toBe(401)
   })
 
   it("returns 400 when the proof file is missing", async () => {
     auth.mockResolvedValue({ user: { email: "client@example.com" } })
-    const { POST } = await import("./route")
     const res = await POST(makeReq({ loanId: "l1", amount: "10000" }))
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/file is required/i)
@@ -76,7 +75,6 @@ describe("POST /api/portal/payment/manual", () => {
 
   it("returns 400 for a disallowed MIME type", async () => {
     auth.mockResolvedValue({ user: { email: "client@example.com" } })
-    const { POST } = await import("./route")
     const bad = new File([Buffer.from("x")], "p.txt", { type: "text/plain" })
     const res = await POST(makeReq({ loanId: "l1", amount: "10000" }, bad))
     expect(res.status).toBe(400)
@@ -85,7 +83,6 @@ describe("POST /api/portal/payment/manual", () => {
 
   it("returns 400 for an oversize file", async () => {
     auth.mockResolvedValue({ user: { email: "client@example.com" } })
-    const { POST } = await import("./route")
     const big = new File([new Uint8Array(MAX_FILE_SIZE + 1)], "big.pdf", { type: "application/pdf" })
     const res = await POST(makeReq({ loanId: "l1", amount: "10000" }, big))
     expect(res.status).toBe(400)
@@ -96,7 +93,6 @@ describe("POST /api/portal/payment/manual", () => {
     auth.mockResolvedValue({ user: { email: "client@example.com" } })
     findFirstClient.mockResolvedValue({ id: "c1", firstName: "Pieter", lastName: "van der Berg" })
     findFirstLoan.mockResolvedValue(null)
-    const { POST } = await import("./route")
     const res = await POST(makeReq({ loanId: "l1", amount: "10000" }, pdf()))
     expect(res.status).toBe(404)
     expect(saveFile).not.toHaveBeenCalled()
@@ -104,7 +100,6 @@ describe("POST /api/portal/payment/manual", () => {
 
   it("returns 400 when content does not match the declared type", async () => {
     auth.mockResolvedValue({ user: { email: "client@example.com" } })
-    const { POST } = await import("./route")
     const fake = new File([Buffer.from("GIF89a not a pdf")], "fake.pdf", { type: "application/pdf" })
     const res = await POST(makeReq({ loanId: "l1", amount: "10000" }, fake))
     expect(res.status).toBe(400)
@@ -119,7 +114,6 @@ describe("POST /api/portal/payment/manual", () => {
     createDoc.mockResolvedValue({ id: "doc1" })
     createNote.mockResolvedValue({ id: "note1" })
 
-    const { POST } = await import("./route")
     const res = await POST(makeReq({ loanId: "l1", amount: "315400", reference: "REF1" }, pdf()))
     expect(res.status).toBe(200)
     expect(saveFile).toHaveBeenCalledOnce()

@@ -1,5 +1,6 @@
 // app/api/insurance/disclosures/[token]/route.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { GET } from "./route"
 import { NextRequest } from "next/server"
 import { signDraftToken } from "@/lib/insurance/disclosure-token"
 
@@ -45,7 +46,6 @@ describe("GET /api/insurance/disclosures/[token]", () => {
     const pdfContent = Buffer.from("%PDF-1.4\nmock")
     readFile.mockResolvedValue(pdfContent)
 
-    const { GET } = await import("./route")
     const req = new NextRequest(`http://localhost/api/insurance/disclosures/${token}`)
     const res = await GET(req, { params: Promise.resolve({ token }) })
 
@@ -69,7 +69,6 @@ describe("GET /api/insurance/disclosures/[token]", () => {
     })
     const tamperedToken = token + "garbage"
 
-    const { GET } = await import("./route")
     const req = new NextRequest(`http://localhost/api/insurance/disclosures/${tamperedToken}`)
     const res = await GET(req, { params: Promise.resolve({ token: tamperedToken }) })
 
@@ -90,7 +89,6 @@ describe("GET /api/insurance/disclosures/[token]", () => {
       productId: "p1",
     })
 
-    const { GET } = await import("./route")
     const req = new NextRequest(`http://localhost/api/insurance/disclosures/${token}`)
     const res = await GET(req, { params: Promise.resolve({ token }) })
 

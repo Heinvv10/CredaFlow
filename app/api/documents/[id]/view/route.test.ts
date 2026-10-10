@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { GET } from "./route"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 
 const {
@@ -75,7 +76,6 @@ beforeEach(() => {
 
 describe("GET /api/documents/[id]/view agreement integrity", () => {
   it("serves only the exact application-bound agreement bytes", async () => {
-    const { GET } = await import("./route")
     const response = await GET(request(true), context)
 
     expect(response.status).toBe(200)
@@ -95,7 +95,6 @@ describe("GET /api/documents/[id]/view agreement integrity", () => {
   it("rejects altered agreement bytes", async () => {
     readFile.mockResolvedValue(Buffer.from("%PDF-1.4 altered"))
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(422)
@@ -116,7 +115,6 @@ describe("GET /api/documents/[id]/view agreement integrity", () => {
       deletedAt: null,
     })
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(422)
@@ -127,7 +125,6 @@ describe("GET /api/documents/[id]/view agreement integrity", () => {
   it("rejects an agreement whose application points to another artifact", async () => {
     loanApplicationFindFirst.mockResolvedValue(null)
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(422)
@@ -141,7 +138,6 @@ describe("GET /api/documents/[id]/view agreement integrity", () => {
     loanApplicationFindFirst.mockResolvedValue(null)
     auditLogFindFirst.mockResolvedValue({ id: "audit-generation-1" })
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(200)
@@ -180,7 +176,6 @@ describe("GET /api/documents/[id]/view agreement integrity", () => {
     })
     readFile.mockResolvedValue(bankBytes)
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(200)
@@ -205,7 +200,6 @@ describe("GET /api/documents/[id]/view generation-binding scoping", () => {
     // application, so the scoped query must not return it.
     auditLogFindFirst.mockResolvedValue(null)
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(422)
@@ -223,7 +217,6 @@ describe("GET /api/documents/[id]/view generation-binding scoping", () => {
     loanApplicationFindMany.mockResolvedValue([])
     auditLogFindFirst.mockClear()
 
-    const { GET } = await import("./route")
     const response = await GET(request(), context)
 
     expect(response.status).toBe(422)

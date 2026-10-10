@@ -1,5 +1,6 @@
 // lib/insurance/require-ims-enabled.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { requireImsEnabled } from "./require-ims-enabled"
 
 const { findUnique, getTenantConfig } = vi.hoisted(() => ({
   findUnique: vi.fn(),
@@ -25,14 +26,12 @@ describe("requireImsEnabled", () => {
   it("returns null (no-op) when featureIms is on", async () => {
     findUnique.mockResolvedValue({ featureCrm: false, featureIms: true })
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     expect(await requireImsEnabled("tenant-1")).toBeNull()
   })
 
   it("returns 404 — not 403 — when featureIms is off", async () => {
     findUnique.mockResolvedValue({ featureCrm: true, featureIms: false })
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     const res = await requireImsEnabled("tenant-1")
 
     expect(res).not.toBeNull()
@@ -47,14 +46,12 @@ describe("requireImsEnabled", () => {
     // that, not read the absent flag as permission.
     findUnique.mockResolvedValue(null)
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     expect((await requireImsEnabled("tenant-1"))?.status).toBe(404)
   })
 
   it("fails CLOSED when the lookup rejects", async () => {
     findUnique.mockRejectedValue(new Error("db unreachable"))
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     const res = await requireImsEnabled("tenant-1")
 
     expect(res).not.toBeNull()
@@ -66,7 +63,6 @@ describe("requireImsEnabled", () => {
       throw new Error("boom")
     })
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     expect((await requireImsEnabled("tenant-1"))?.status).toBe(404)
   })
 })
@@ -80,7 +76,6 @@ describe("requireImsEnabled — the kill switch has no fuse", () => {
   it("does not read the flag through the 300-second cached resolver", async () => {
     findUnique.mockResolvedValue({ featureCrm: false, featureIms: true })
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     await requireImsEnabled("tenant-1")
 
     expect(getTenantConfig).not.toHaveBeenCalled()
@@ -93,7 +88,6 @@ describe("requireImsEnabled — the kill switch has no fuse", () => {
     getTenantConfig.mockResolvedValue({ featureCrm: false, featureIms: true })
     findUnique.mockResolvedValue({ featureCrm: false, featureIms: false })
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     expect((await requireImsEnabled("tenant-1"))?.status).toBe(404)
   })
 
@@ -102,7 +96,6 @@ describe("requireImsEnabled — the kill switch has no fuse", () => {
     // row on every gated request would make the gate the expensive part.
     findUnique.mockResolvedValue({ featureCrm: false, featureIms: true })
 
-    const { requireImsEnabled } = await import("./require-ims-enabled")
     await requireImsEnabled("tenant-1")
 
     expect(findUnique).toHaveBeenCalledWith({

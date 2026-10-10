@@ -5,6 +5,7 @@
 // and body.email (auth-identity change without verification flow).
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { PUT } from "./route"
 
 const { findFirstClient, updateClient, logAudit, authMock } = vi.hoisted(() => ({
   findFirstClient: vi.fn(),
@@ -32,7 +33,6 @@ vi.mock("@/lib/audit", () => ({
 }))
 
 async function callPut(body: unknown) {
-  const { PUT } = await import("./route")
   const req = new Request("http://localhost/api/portal/profile", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

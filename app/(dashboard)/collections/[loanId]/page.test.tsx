@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
+import { default as CollectionDetailPage } from "./page"
 import { describe, it, expect, vi } from "vitest"
 import { formatZAR } from "@/lib/utils"
 
@@ -46,7 +47,6 @@ vi.mock("@/lib/prisma", () => ({
 
 describe("collections loan page", () => {
   it("states Total Paid as cash received, not the share applied to the instalments", async () => {
-    const { default: CollectionDetailPage } = await import("./page")
     const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
     const card = html.slice(html.indexOf("Total Paid"))
     expect(card.slice(0, 200)).toContain(formatZAR(50_000))

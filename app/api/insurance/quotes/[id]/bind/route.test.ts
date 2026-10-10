@@ -6,6 +6,7 @@
 // figures instead, with the request's numbers appearing nowhere.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 import { NextRequest, NextResponse } from "next/server"
 import { signDraftToken } from "@/lib/insurance/disclosure-token"
 
@@ -126,7 +127,6 @@ const FUTURE_START = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(
 
 describe("POST /api/insurance/quotes/[id]/bind", () => {
   it("IGNORES a premium and sum assured supplied in the request body", async () => {
-    const { POST } = await import("./route")
     const res = await POST(
       request({
         draftToken: validToken(),
@@ -153,7 +153,6 @@ describe("POST /api/insurance/quotes/[id]/bind", () => {
   })
 
   it("requires a draft token — no disclosure, no policy", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({ startDate: FUTURE_START }), ctx)
 
     expect(res.status).toBe(422)
@@ -166,7 +165,6 @@ describe("POST /api/insurance/quotes/[id]/bind", () => {
       tenantId: "tenant-1", clientId: "client-1", advisorId: "advisor-1",
       type: "FUNERAL_COVER", sumAssured: 20000, premiumAmount: 5, productId: "product-1",
     })
-    const { POST } = await import("./route")
     const res = await POST(request({ draftToken: mismatched }), ctx)
 
     expect(res.status).toBe(422)
@@ -175,7 +173,6 @@ describe("POST /api/insurance/quotes/[id]/bind", () => {
   })
 
   it("audits the bind with the figures as bound", async () => {
-    const { POST } = await import("./route")
     await POST(request({ draftToken: validToken(), startDate: FUTURE_START }), ctx)
 
     expect(logAudit).toHaveBeenCalledWith(
@@ -202,7 +199,6 @@ describe("POST bind — a date-only startDate naming today", () => {
   // route stops routing this field through `parseInsuranceDateInput`, this
   // returns 422 and the test fails.
   it("binds rather than refusing the day as backdated", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({ draftToken: validToken(), startDate: todayInSast() }), ctx)
 
     expect(res.status).toBe(201)
@@ -213,7 +209,6 @@ describe("POST bind — a date-only startDate naming today", () => {
     // `bindQuote` refuses `startDate < now`. The route stamps both from ONE
     // instant; if it ever again stamps them separately, this is the call that
     // races — the default start date is judged against a `now` read after it.
-    const { POST } = await import("./route")
     const res = await POST(request({ draftToken: validToken() }), ctx)
 
     expect(res.status).toBe(201)
@@ -222,7 +217,6 @@ describe("POST bind — a date-only startDate naming today", () => {
 
   it("still refuses a date-only startDate naming a past day", async () => {
     // The fix must not make backdating unrefusable: only TODAY resolves to now.
-    const { POST } = await import("./route")
     const res = await POST(request({ draftToken: validToken(), startDate: "2026-08-16" }), ctx)
 
     expect(res.status).toBe(422)
@@ -231,7 +225,6 @@ describe("POST bind — a date-only startDate naming today", () => {
   })
 
   it("refuses a startDate that is not a usable date", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({ draftToken: validToken(), startDate: "2026-02-30" }), ctx)
 
     expect(res.status).toBe(422)
@@ -241,7 +234,6 @@ describe("POST bind — a date-only startDate naming today", () => {
 
 describe("POST bind — the guards, exercised in both directions", () => {
   it("requires INSURANCE_OFFICER", async () => {
-    const { POST } = await import("./route")
     await POST(request({ draftToken: validToken() }), ctx)
     expect(requireApiRole).toHaveBeenCalledWith("INSURANCE_OFFICER")
   })
@@ -250,7 +242,6 @@ describe("POST bind — the guards, exercised in both directions", () => {
     requireApiRole.mockResolvedValue({
       error: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
     })
-    const { POST } = await import("./route")
 
     const res = await POST(request({ draftToken: validToken() }), ctx)
 
@@ -263,7 +254,6 @@ describe("POST bind — the guards, exercised in both directions", () => {
   it("is 404 with the IMS feature flag off, and binds nothing", async () => {
     // The real requireImsEnabled runs; only the TenantConfig row is stubbed.
     tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: false })
-    const { POST } = await import("./route")
 
     const res = await POST(request({ draftToken: validToken() }), ctx)
 
@@ -275,7 +265,6 @@ describe("POST bind — the guards, exercised in both directions", () => {
 
   it("stays closed when the flag lookup THROWS, rather than failing open", async () => {
     tenantConfigFindUnique.mockRejectedValue(new Error("db unreachable"))
-    const { POST } = await import("./route")
 
     const res = await POST(request({ draftToken: validToken() }), ctx)
 
@@ -285,7 +274,6 @@ describe("POST bind — the guards, exercised in both directions", () => {
 
   it("audits a refused bind", async () => {
     quoteFindFirst.mockResolvedValue({ ...QUOTE, adviceRecord: null })
-    const { POST } = await import("./route")
 
     const res = await POST(request({ draftToken: validToken() }), ctx)
 
@@ -301,7 +289,6 @@ describe("POST bind — the guards, exercised in both directions", () => {
   })
 
   it("does not audit a bind refused for a missing token — nothing was attempted", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({}), ctx)
 
     expect(res.status).toBe(422)

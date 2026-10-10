@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 
 const { auth, findFirstClient, findFirstLoan, createStitchPayment, createStitchRequest } = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -40,7 +41,6 @@ afterEach(() => { vi.clearAllMocks(); delete process.env.NEXTAUTH_URL })
 describe("POST /api/portal/payment/initiate", () => {
   it("returns 401 when not signed in", async () => {
     auth.mockResolvedValue(null)
-    const { POST } = await import("./route")
     const res = await POST(makeReq({ loanId: "l1", amount: 100 }))
     expect(res.status).toBe(401)
   })
@@ -81,7 +81,6 @@ describe("POST /api/portal/payment/initiate", () => {
     createStitchPayment.mockResolvedValue({ id: "stitch1", url: "https://stitch.example/pay/stitch1" })
     createStitchRequest.mockResolvedValue({ id: "req1" })
 
-    const { POST } = await import("./route")
     const res = await POST(makeReq({ loanId: "loan-12345678", amount: 250 }))
     expect(res.status).toBe(200)
 
@@ -129,7 +128,6 @@ describe("POST /api/portal/payment/initiate", () => {
 
     let response
     try {
-      const { POST } = await import("./route")
       response = await POST(makeReq({
         loanId: "loan-12345678",
         amount: 2_469,
@@ -179,7 +177,6 @@ describe("POST /api/portal/payment/initiate", () => {
     createStitchPayment.mockResolvedValue({ id: "stitch1", url: "https://stitch.example/pay/stitch1" })
     createStitchRequest.mockResolvedValue({ id: "req1" })
 
-    const { POST } = await import("./route")
     // R380 = R300 schedule + R80 charges: allowed. One cent more is not.
     expect((await POST(makeReq({ loanId: "l1", amount: 380 }))).status).toBe(200)
     const over = await POST(makeReq({ loanId: "l1", amount: 380.01 }))
@@ -203,7 +200,6 @@ describe("POST /api/portal/payment/initiate", () => {
         dueDate: new Date("2026-07-31T00:00:00.000Z"),
       }],
     })
-    const { POST } = await import("./route")
     findFirstLoan.mockResolvedValue(loan("DEFAULTED"))
     expect((await POST(makeReq({ loanId: "l1", amount: 250 }))).status).toBe(200)
     findFirstLoan.mockResolvedValue(loan("COMPLETED"))
