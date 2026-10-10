@@ -19,11 +19,10 @@
  * ATOMIC body, throws (it cannot be read here); a name a DO block builds at run
  * time (format, EXECUTE), and DDL a migration runs through a procedure or
  * function it creates and then calls, are not seen. Not handled: function
- * overloads
- * are not told apart by argument signature, triggers and constraints are looked
- * up by name not table, and RENAME, DISABLE TRIGGER, a DROP TABLE that drops its
- * dependents, and a function created, dropped and created again within one
- * migration (the bodies are joined) are not seen.
+ * overloads are not told apart by argument signature, triggers and constraints
+ * are looked up by name not table, and RENAME, DISABLE TRIGGER, a DROP TABLE
+ * that drops its dependents, and a function created, dropped and created again
+ * within one migration (the bodies are joined) are not seen.
  *
  * Static tests read the SQL here. A rule that only holds when it runs belongs
  * in a RUN_*_IT integration test against a migrated database instead.
