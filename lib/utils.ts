@@ -109,3 +109,6 @@ export function generateReference(prefix: string): string {
   const random = Math.random().toString(36).substring(2, 6).toUpperCase()
   return `${prefix}-${timestamp}-${random}`
 }
+
+// Throwaway: the quality gate must reject this type error.
+export const qualityGateMustFail: number = "not a number"
