@@ -37,12 +37,14 @@ SHIP/CLEAN on its final commit.
 | #16 | `fix/crm-convert-amount-bounds` → #15 | CRM lead conversion refuses a missing, non-positive, over-precise or out-of-range amount (422, nothing written), as the portal does |
 | #17 | `fix/crm-convert-recovery-scope` → #16 | CRM lead conversion refuses `recoveryApplicationId` on a lead with no linked client, which skipped the amount and Regulation 23A checks and could create a zero-amount application |
 | #18 | `fix/loan-product-bounds` → #17 | The loan product API (create and update) refuses a non-numeric, non-positive or over-int4 amount or term, or a minimum above the maximum (422, nothing written); no policy cap on amount or term |
+| #19 | `fix/application-amount-check` → #18 | New migration `20261010120000_application_amount_positive`: validated CHECK `LoanApplication_appliedAmount_positive` (`appliedAmount > 0`); real-PG suite `RUN_APPLICATION_AMOUNT_CHECK_IT` |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
 
 - **Schema:** baseline + `20261009120000_neutral_tenant_palette` +
-  `20261009150000_remove_outage_disbursement_exception` (with #3).
+  `20261009150000_remove_outage_disbursement_exception` (with #3) +
+  `20261010120000_application_amount_positive` (with #19).
   `prisma migrate diff` migrations → schema is empty.
 - **Seed:** neutral demo tenant "Acme". Demo passwords are generated on first
   creation or set by `SEED_ADMIN_PASSWORD` / `SEED_OFFICER_PASSWORD` /
@@ -68,7 +70,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
