@@ -119,3 +119,16 @@ Functional:
 - FAIS disclosure tokens are signed with `NEXTAUTH_SECRET`, not `AUTH_SECRET`; a deployment with only `AUTH_SECRET` 500s on standalone insurance sales.
 - Agreement generation can overrun Prisma's 5 s interactive-transaction limit on a loaded host (the route cleans up and reports `agreementIntegrity: staging_failed`); the simulator retries once.
 - `ClientOtp` has no `tenantId` and no `purpose`: fix before any shared-database phase.
+
+## Dress rehearsal findings (2026-10-10, build 0c362f0)
+
+All three live personas ran end to end through the real UI (headless Chromium, fake camera). Product bugs found:
+- **Portal signing packet 404 (blocker):** `lib/proxy/shared-client-api.ts` does not allow `/api/applications/[id]/signing-packet` on the client host, so the borrower signs a packet they cannot view or download.
+- A DECLINED application's decision rail reads "Approved … Repayment method missing".
+- Portal sign-in "Are you staff?" links to `/login` on the client host (404).
+- Debit-mandate bank is never pre-selected (client stores the code, dropdown holds names).
+- Returning client re-upload: new uploads show SUPERSEDED while old ones stay VERIFIED; "no selfie is needed" beside a REQUIRED selfie row.
+- KYC status pill stays PENDING until refresh after 4/4 documents verified.
+- No toast on "Update Affordability" and "Confirm Assessment Checks".
+- Pending mandate has no action on the portal Applications card.
+- Portal Apply advertises a micro loan "up to R 6,900.00" while the product maximum is R2 000.

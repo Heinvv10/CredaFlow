@@ -14,6 +14,8 @@ export function defaultKitDir(asOf: string): string {
 /**
  * Where the staff logins come from. A restore loads the BAKE's database, so
  * the staff accounts are the sim seed's, not the live demo stack's own seed.
+ * bake.sh copies both files into the snapshot; the copies under scripts/demo/
+ * are overwritten by the next simulator run, the snapshot's are not.
  */
 export const CREDENTIALS_SOURCE =
-  'scripts/demo/.sim-credentials.txt (the seed of the bake the demo was restored from); the LOAN_ADMIN is in scripts/demo/.sim-staff.json'
+  '.sim-credentials.txt in the snapshot the demo was restored from (~/credaflow-demo-data/snapshots/latest/); the LOAN_ADMIN is in .sim-staff.json beside it'
