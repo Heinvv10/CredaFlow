@@ -144,9 +144,17 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   `BUILD_TIME` in the live `.env`, `docker-compose -f docker-compose.demo.yml up
   -d --no-deps app app-portal`, then `bake.sh && restore.sh`.
 - **Schedules** (crontab of hein, box clock is SAST): `cron-run.sh restore`
-  nightly 02:30; `cron-run.sh bake` (bake, then restore) Sundays 00:30. Logs:
-  `logs/<job>-<stamp>.log`, newest 14 kept; a failed bake also leaves its
-  simulate/verify-pages reports there.
+  nightly 02:30; `cron-run.sh bake --first-sunday` (bake, then restore) at
+  02:00 on the first Sunday of the month (`0 2 1-7 * *` + the weekday check in
+  `cron-run.sh`). Jobs share `cron-run.lock`, so that night's restore waits for
+  the bake. Logs: `logs/<job>-<stamp>.log`, newest 14 kept; a failed bake also
+  leaves its simulate/verify-pages reports there.
+- **VLM pacing** (`sim/vlm-gate.ts`): the VLM is shared with FibreFlow
+  production, so the bake has at most one extraction in flight, uploads the
+  next document only after the previous one's extraction settled, pauses
+  `SIM_VLM_PAUSE_MS` (default 5000) between them, and re-extracts a failure
+  after `SIM_VLM_RETRY_BACKOFF_MS` (default `30000,60000,120000`) before
+  failing the persona.
 
 ## Modules
 

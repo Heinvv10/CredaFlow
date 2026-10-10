@@ -24,3 +24,18 @@ export function demoBannerText(brandName: string | null): string {
     ? `Demo environment — ${brandName} is a fictional lender. Do not enter real personal information.`
     : DEMO_BANNER_FALLBACK
 }
+
+/**
+ * A demo borrower's one-time codes (portal activation, password reset) are
+ * emailed to fictional `.invalid` addresses and never arrive, so in a demo the
+ * route that issues a code returns it to that same request for the screen to
+ * show. Stricter than `isDemoMode` on purpose: the banner fails safe by
+ * showing, this fails safe by hiding — only the exact string "true" reveals a
+ * code, so a mistyped value never puts an OTP in a production response.
+ */
+export function demoCodeReveal(
+  code: string,
+  env: Record<string, string | undefined> = process.env,
+): { demoCode?: string } {
+  return env.DEMO_MODE === "true" ? { demoCode: code } : {}
+}

@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { DemoCodeNotice } from "@/components/demo/DemoCodeNotice"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Mail, ArrowLeft, CheckCircle, KeyRound } from "lucide-react"
 
@@ -25,6 +26,8 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  // Set only by a DEMO_MODE deployment's response (demoCodeReveal).
+  const [demoCode, setDemoCode] = useState("")
 
   async function requestCode(e: React.FormEvent) {
     e.preventDefault()
@@ -41,6 +44,8 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
         body: JSON.stringify({ email, turnstileToken }),
       })
       if (res.ok) {
+        const d = (await res.json()) as { demoCode?: unknown }
+        setDemoCode(typeof d.demoCode === "string" ? d.demoCode : "")
         setTurnstileToken(null)
         setStep("reset")
       } else {
@@ -149,6 +154,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
                 </p>
               </div>
               <form onSubmit={resetPassword} className="space-y-4">
+                {demoCode && <DemoCodeNotice code={demoCode} />}
                 <div>
                   <label className="mb-1 block text-sm font-medium text-[var(--cf-text-secondary)]">Reset code</label>
                   <div className="relative">

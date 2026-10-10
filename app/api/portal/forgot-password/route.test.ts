@@ -218,3 +218,48 @@ describe("POST /api/portal/forgot-password", () => {
     expect(sendEmailMock).not.toHaveBeenCalled()
   })
 })
+
+// DEMO_MODE: the reset code goes to a fictional address and never arrives,
+// so a demo deployment returns it to the request that issued it. Anything but
+// the exact string "true" must keep it out of the response.
+describe("POST /api/portal/forgot-password — DEMO_MODE reset code reveal", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  function issuedCode(): string {
+    return (clientOtpCreateMock.mock.calls[0][0] as { data: { otp: string } }).data.otp
+  }
+
+  it.each([
+    ["legacy send", undefined, () => {}],
+    ["new send pipeline", "true", () => {}],
+    ["new send, Contact missing", "true", () => lookupContactMock.mockResolvedValue(null)],
+    ["new send, template missing", "true", () => messageTemplateFindFirstMock.mockResolvedValue(null)],
+  ])("returns the issued code when DEMO_MODE=true (%s)", async (_label, newSend, arrange) => {
+    vi.stubEnv("DEMO_MODE", "true")
+    if (newSend) process.env.MESSAGING_NEW_SEND_PORTAL_FORGOT = newSend
+    arrange()
+    const res = await POST(buildReq({ email: "user@example.com" }))
+    const data = await res.json()
+    expect(res.status).toBe(200)
+    expect(data.demoCode).toMatch(/^\d{6}$/)
+    expect(data.demoCode).toBe(issuedCode())
+  })
+
+  it.each([undefined, "", "false", "TRUE ", "1"])("never returns the code when DEMO_MODE=%j", async (value) => {
+    if (value === undefined) vi.stubEnv("DEMO_MODE", undefined)
+    else vi.stubEnv("DEMO_MODE", value)
+    const res = await POST(buildReq({ email: "user@example.com" }))
+    const data = await res.json()
+    expect(clientOtpCreateMock).toHaveBeenCalledTimes(1)
+    expect(data).toEqual({ success: true })
+  })
+
+  it("returns no code for an unknown email, even in demo mode", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    clientFindFirstMock.mockResolvedValue(null)
+    const data = await (await POST(buildReq({ email: "nobody@example.com" }))).json()
+    expect(data).toEqual({ success: true })
+  })
+})

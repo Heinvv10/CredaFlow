@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyDemoHeaders, demoBannerText, isDemoMode } from "./demo-mode"
+import { applyDemoHeaders, demoBannerText, demoCodeReveal, isDemoMode } from "./demo-mode"
 
 describe("isDemoMode", () => {
   it("is on only for the string true", () => {
@@ -31,5 +31,14 @@ describe("demoBannerText", () => {
   it("falls back to generic wording", () => {
     expect(demoBannerText(null)).toContain("fictional lender")
     expect(demoBannerText(null)).not.toContain("null")
+  })
+})
+
+describe("demoCodeReveal", () => {
+  it("returns the code only for the exact string true", () => {
+    expect(demoCodeReveal("123456", { DEMO_MODE: "true" })).toEqual({ demoCode: "123456" })
+  })
+  it.each([undefined, "", "false", "TRUE", "TRUE ", " true", "1", "yes"])("returns nothing for %j", (v) => {
+    expect(demoCodeReveal("123456", { DEMO_MODE: v })).toEqual({})
   })
 })

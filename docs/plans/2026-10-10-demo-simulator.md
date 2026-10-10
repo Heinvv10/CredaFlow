@@ -41,7 +41,7 @@ and on demand before a demo. Restore resets personas to unused.
 ## Risks
 
 - **History ages.** A snapshot baked on day D shows loans as they stood on D;
-  restored weeks later, DPD and arrears drift. Mitigation: re-bake weekly
+  restored weeks later, DPD and arrears drift. Mitigation: re-bake monthly (first Sunday, throttled to one VLM request at a time — a weekly unthrottled bake made the shared vLLM's health check restart it, 2026-10-10)
   (scheduled), restore nightly from the latest bake.
 - **Route handlers carry the logic** (disburse 1940 lines, agreement 1625).
   Driving them over HTTP is the point; it also means a broken route breaks the
@@ -81,7 +81,7 @@ App change (small, product code): `DEMO_MODE=true` renders a persistent
 | T3 | Origination scenario: one persona API-driven to DISBURSED | T1, T2 | loan exists; PASQ, agreement, executed agreement, mandate docs stored with valid SHA-256; no non-2xx on success steps |
 | T4 | Servicing: receipts, bank-sync CSV, day-stepped crons, arrears, S129, payment plan, settlement, write-off | T3 | each target state reached; `assert_payment_allocation_reconciles` holds |
 | T5 | Breadth: CRM, insurance, complaints, DSAR, bureau submissions, referral agents | T3 | each module's list page non-empty, no 500s |
-| T6 | Bake + restore + nightly restore / weekly bake timers | T4 | restore < 30 s; app healthy after restore |
+| T6 | Bake + restore + nightly restore / monthly bake | T4 | restore < 30 s; app healthy after restore |
 | T7 | DEMO_MODE banner + noindex; VLM wired into demo env | — | banner visible on both hosts; `X-Robots-Tag`/meta noindex present |
 | T8 | Live-demo kits (3 personas) + dress rehearsal on localhost | T2, T6 | each persona runs the full origination path after a restore |
 

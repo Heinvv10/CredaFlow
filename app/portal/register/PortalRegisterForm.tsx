@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { AlertCircle, CheckCircle, Loader2 } from "lucide-react"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { DemoCodeNotice } from "@/components/demo/DemoCodeNotice"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { trackRegisterActivated, trackRegisterCodeSent, trackRegisterStart } from "@/lib/analytics/events"
 import { safePortalPath } from "@/lib/portal-urls"
@@ -30,6 +31,9 @@ function PortalRegisterInner() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  // Set only by a DEMO_MODE deployment's response (demoCodeReveal): the code
+  // goes to a fictional address there and never arrives.
+  const [demoCode, setDemoCode] = useState("")
   const [activated, setActivated] = useState(false)
   const reference = params.get("reference") || ""
 
@@ -59,6 +63,7 @@ function PortalRegisterInner() {
       }
       trackRegisterCodeSent()
       setNotice(data.message || DEFAULT_NOTICE)
+      setDemoCode(typeof data.demoCode === "string" ? data.demoCode : "")
       setTurnstileToken(null)
       setStep("verify")
     } catch {
@@ -179,6 +184,7 @@ function PortalRegisterInner() {
                 {notice}
               </div>
             )}
+            {demoCode && <DemoCodeNotice code={demoCode} />}
             {error && (
               <div className="flex gap-3 border border-[rgba(208,92,75,0.35)] bg-[rgba(208,92,75,0.12)] px-4 py-3 text-sm text-[var(--cf-danger)]">
                 <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />

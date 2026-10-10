@@ -491,3 +491,51 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
     warn.mockRestore()
   })
 })
+
+// DEMO_MODE: the activation code goes to a fictional address and never
+// arrives, so a demo deployment returns it to the request that issued it.
+// Anything but the exact string "true" must keep it out of the response.
+describe("POST /api/portal/register — DEMO_MODE activation code reveal", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    delete process.env.MESSAGING_NEW_SEND_PORTAL_ACTIVATION
+  })
+
+  function issuedCode(): string {
+    return (createClientOtp.mock.calls[0][0] as { data: { otp: string } }).data.otp
+  }
+
+  it.each([["legacy send", undefined], ["new send pipeline", "true"]])(
+    "returns the issued code when DEMO_MODE=true (%s)",
+    async (_label, newSend) => {
+      vi.stubEnv("DEMO_MODE", "true")
+      if (newSend) {
+        process.env.MESSAGING_NEW_SEND_PORTAL_ACTIVATION = newSend
+        resolveMessagingTarget.mockResolvedValue({ ok: false, reason: "test" })
+      }
+      const { POST } = await import("./route")
+      const data = await (await POST(makeRequest(requestCodeBody))).json()
+      expect(data.demoCode).toMatch(/^\d{6}$/)
+      expect(data.demoCode).toBe(issuedCode())
+    },
+  )
+
+  it.each([undefined, "", "false", "TRUE ", "1"])("never returns the code when DEMO_MODE=%j", async (value) => {
+    if (value === undefined) vi.stubEnv("DEMO_MODE", undefined)
+    else vi.stubEnv("DEMO_MODE", value)
+    const { POST } = await import("./route")
+    const data = await (await POST(makeRequest(requestCodeBody))).json()
+    expect(createClientOtp).toHaveBeenCalledTimes(1)
+    expect(data).not.toHaveProperty("demoCode")
+    expect(JSON.stringify(data)).not.toContain(issuedCode())
+  })
+
+  it("issues and returns nothing when no client matches, even in demo mode", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    findFirstClient.mockResolvedValue(null)
+    const { POST } = await import("./route")
+    const data = await (await POST(makeRequest(requestCodeBody))).json()
+    expect(data).not.toHaveProperty("demoCode")
+    expect(createClientOtp).not.toHaveBeenCalled()
+  })
+})

@@ -3,8 +3,11 @@
  *
  * The borrower uploads the persona's SPECIMEN documents in the portal (POST
  * /api/documents, as the portal upload dialog does); extraction runs on the
- * real VLM and validates each document against the client record. The
- * simulator polls the same list the portal polls, then a credit officer
+ * real VLM and validates each document against the client record. The VLM is
+ * shared with production, so uploads go one at a time through sim/vlm-gate.ts:
+ * each waits for the previous document's extraction to finish (polling the
+ * same list the portal polls) and a failed one is re-extracted with backoff
+ * before the next is uploaded. Then a credit officer
  * verifies each document (PATCH …/documents/[docId]/verify) only when its
  * extraction finished without a critical mismatch — a misread is reported,
  * never verified over.
@@ -26,6 +29,7 @@ import path from "node:path"
 import type { Persona } from "../personas"
 import type { SimClient } from "../sim/api"
 import { log } from "../sim/env"
+import { extractWithRetry, vlmSlot, type ExtractionAttempt } from "../sim/vlm-gate"
 import { generateSpecimens, type ManifestDocument } from "../specimens"
 import type { OriginationContext } from "./context"
 
@@ -44,17 +48,54 @@ export interface StoredDocument {
 
 const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
 const POLL_MS = 3000
+/** One document: the app aborts its VLM call at 55 s; the rest is rasterising and the DB. */
+const DOCUMENT_TIMEOUT_MS = 3 * 60 * 1000
+const DOCUMENT_POLL_MS = 1000
 
 interface Upload {
   file: ManifestDocument
   docType: "ID_COPY" | "PAYSLIP" | "BANK_STATEMENT" | "PROOF_OF_ADDRESS"
 }
 
-/** Generates the persona's specimens dated `asOf` and uploads them from the portal. */
+async function listDocuments(portal: SimClient, clientId: string): Promise<StoredDocument[]> {
+  return (await portal.get<StoredDocument[]>(`/api/clients/${clientId}/documents`)).json ?? []
+}
+
+/** Waits for one document to leave `processing`; done (or skipped: no VLM configured) is not retried. */
+async function documentSettled(portal: SimClient, clientId: string, id: string): Promise<ExtractionAttempt> {
+  const deadline = Date.now() + DOCUMENT_TIMEOUT_MS
+  for (;;) {
+    const d = (await listDocuments(portal, clientId)).find((x) => x.id === id)
+    if (!d) return { ok: false, reason: `document ${id} is not in the client's list` }
+    if (d.extractionStatus === "failed") return { ok: false, reason: d.extractionError ?? "failed, no error recorded" }
+    if (d.extractionStatus !== "processing") return { ok: true }
+    if (Date.now() > deadline) return { ok: false, reason: `still processing after ${DOCUMENT_TIMEOUT_MS / 60000} min` }
+    await new Promise((r) => setTimeout(r, DOCUMENT_POLL_MS))
+  }
+}
+
+/**
+ * The documents tab's Extract action (POST /api/documents/[id]/extract,
+ * synchronous). While the app's own attempt is still processing, a second
+ * request would overlap it, so this keeps waiting for that one instead.
+ */
+async function reExtract(ctx: OriginationContext, portal: SimClient, clientId: string, id: string): Promise<ExtractionAttempt> {
+  const d = (await listDocuments(portal, clientId)).find((x) => x.id === id)
+  if (d?.extractionStatus === "processing") return documentSettled(portal, clientId, id)
+  const res = await ctx.officer.post<{ error?: string }>(`/api/documents/${id}/extract`, undefined, { expect: [200, 409, 422] })
+  if (res.status === 200) return { ok: true }
+  return { ok: false, reason: `re-extract answered ${res.status}: ${res.json?.error ?? res.text.slice(0, 200)}` }
+}
+
+/**
+ * Generates the persona's specimens dated `asOf` and uploads them from the
+ * portal, one VLM slot per document: upload, wait for its extraction, retry.
+ */
 export async function uploadDocuments(
   ctx: OriginationContext,
   portal: SimClient,
   p: Persona,
+  clientId: string,
   asOf: string,
 ): Promise<string[]> {
   const manifest = await generateSpecimens(p, asOf, ctx.specimensRoot)
@@ -65,17 +106,26 @@ export async function uploadDocuments(
 
   const ids: string[] = []
   for (const { file, docType } of uploads) {
-    const bytes = readFileSync(path.join(ctx.specimensRoot, p.id, file.file))
-    const form = new FormData()
-    form.set("file", new File([bytes], file.file, { type: file.mimeType }))
-    form.set("docType", docType)
-    const res = await portal.post<{ id: string; contentSha256: string }>("/api/documents", form, { expect: [201] })
-    if (!res.json?.id) throw new Error(`upload ${file.file} returned no id`)
-    if (res.json.contentSha256 !== file.sha256) {
-      throw new Error(`upload ${file.file}: stored sha256 ${res.json.contentSha256} != generated ${file.sha256}`)
-    }
-    ids.push(res.json.id)
-    log(`${p.id}: uploaded ${docType} ${file.file}`)
+    const label = `${p.id} ${docType} ${file.file}`
+    ids.push(await vlmSlot(label, async () => {
+      const bytes = readFileSync(path.join(ctx.specimensRoot, p.id, file.file))
+      const form = new FormData()
+      form.set("file", new File([bytes], file.file, { type: file.mimeType }))
+      form.set("docType", docType)
+      const res = await portal.post<{ id: string; contentSha256: string }>("/api/documents", form, { expect: [201] })
+      if (!res.json?.id) throw new Error(`upload ${file.file} returned no id`)
+      if (res.json.contentSha256 !== file.sha256) {
+        throw new Error(`upload ${file.file}: stored sha256 ${res.json.contentSha256} != generated ${file.sha256}`)
+      }
+      const id = res.json.id
+      log(`${p.id}: uploaded ${docType} ${file.file}`)
+      await extractWithRetry(
+        label,
+        () => documentSettled(portal, clientId, id),
+        () => reExtract(ctx, portal, clientId, id),
+      )
+      return id
+    }))
   }
   return ids
 }
@@ -84,7 +134,7 @@ export async function uploadDocuments(
 export async function awaitExtraction(portal: SimClient, clientId: string, ids: string[]): Promise<StoredDocument[]> {
   const deadline = Date.now() + EXTRACTION_TIMEOUT_MS
   for (;;) {
-    const docs = (await portal.get<StoredDocument[]>(`/api/clients/${clientId}/documents`)).json ?? []
+    const docs = await listDocuments(portal, clientId)
     const mine = docs.filter((d) => ids.includes(d.id))
     if (mine.length === ids.length && mine.every((d) => d.extractionStatus !== "processing")) return mine
     if (Date.now() > deadline) throw new Error(`extraction did not finish within ${EXTRACTION_TIMEOUT_MS / 60000} min`)
@@ -100,10 +150,10 @@ function describe(d: StoredDocument): string {
 }
 
 /**
- * A failed extraction (the VLM is shared and occasionally drops a request) is
- * re-run once by the officer with the documents tab's Extract action (POST
- * /api/documents/[id]/extract, synchronous). A document that fails again is
- * left failed for verifyDocuments to report.
+ * A document still failed when its verification step runs (a resumed run that
+ * stopped mid-upload) is re-run by the officer with the documents tab's
+ * Extract action, through the same slot and backoff as an upload. One that
+ * fails every retry fails the persona.
  */
 export async function retryFailedExtractions(
   ctx: OriginationContext,
@@ -115,7 +165,9 @@ export async function retryFailedExtractions(
   if (failed.length === 0) return docs
   for (const d of failed) {
     log(`  re-extracting ${d.docType} ${d.fileName} (${d.extractionError ?? "no error recorded"})`)
-    await ctx.officer.post(`/api/documents/${d.id}/extract`, undefined, { expect: [200, 422] })
+    const label = `${d.docType} ${d.fileName}`
+    const run = () => reExtract(ctx, portal, clientId, d.id)
+    await vlmSlot(label, () => extractWithRetry(label, run, run))
   }
   return awaitExtraction(portal, clientId, docs.map((d) => d.id))
 }

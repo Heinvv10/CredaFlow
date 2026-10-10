@@ -167,8 +167,7 @@ function timetable(opts: OriginationOptions, decision: Decision): OriginationAct
     // documents: uploaded from the portal on day 0, verified by the officer on day 1
     act("documents", 0, "10:00", async (ctx, p, s, portal) => {
       const client = await portal.get()
-      s.docIds = await uploadDocuments(ctx, client, p, new Timeline(opts.start).date(0))
-      await awaitExtraction(client, need(s.clientId, "client"), s.docIds)
+      s.docIds = await uploadDocuments(ctx, client, p, need(s.clientId, "client"), new Timeline(opts.start).date(0))
     }),
     act("documents", 1, "09:00", async (ctx, _p, s, portal) => {
       await ensureStaffSessions(ctx)
