@@ -1,0 +1,70 @@
+name: quality-gate
+
+# The checks CLAUDE.md's verification order requires before "done": typecheck,
+# lint, the unit/mocked suites and the production build. Without this job they
+# run only on a developer's machine, and a PR can merge red. The two doc
+# checks are listed too because the same order includes them; agent-docs.yml
+# runs them on its own as well.
+#
+# Integration suites and date boundaries have their own workflows and are not
+# repeated here.
+#
+# No paths: filter, for the same reason agent-docs.yml has none. A filter only
+# guesses which PRs can break a check, and a type or build error can come from
+# a change in any directory.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Nothing here pushes, comments, or calls the API — matching agent-docs.yml.
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # The vitest config pins workers to UTC; the job states it too.
+      TZ: UTC
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --legacy-peer-deps is required: plain `npm ci` fails on the next-auth
+      # beta peer conflict. See CLAUDE.md "Tool Overrides".
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      # Must precede tsc: the Prisma client types come from generate.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+      - name: Documented paths resolve
+        run: npm run claude-md:check
+
+      - name: AGENTS.md mirrors match CLAUDE.md
+        run: npm run agents:check
