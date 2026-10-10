@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { arrivalPlan, formatRands, type ParsedQuote } from "@/lib/insurance/quickquote-bridge"
 
 /**
@@ -77,7 +78,17 @@ export function QuickQuoteArrival({ quotes, panelComplete }: Props) {
             {slot.quote.logoUrl ? (
               // Decorative: the insurer is named in text beside it, so a
               // duplicate accessible name would just be read twice.
-              <img src={slot.quote.logoUrl} alt="" />
+              // Scraped from the insurer panel's own markup (arbitrary remote
+              // host, intrinsic size unknown), so it cannot go through the
+              // optimizer; CSS caps the rendered size.
+              <Image
+                src={slot.quote.logoUrl}
+                alt=""
+                width={56}
+                height={24}
+                unoptimized
+                style={{ width: "auto", height: "auto" }}
+              />
             ) : null}
           </span>
           <span className="cf-arrival-name">{slot.quote.insurer}</span>

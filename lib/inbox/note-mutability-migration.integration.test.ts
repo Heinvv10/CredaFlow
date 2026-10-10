@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Real-DB proof of Message_internal_note_mutability_guard.
  *

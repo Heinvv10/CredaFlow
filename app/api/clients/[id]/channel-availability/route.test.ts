@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
