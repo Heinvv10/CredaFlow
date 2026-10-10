@@ -124,21 +124,39 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
     )
   })
 
-  it("allows premiumAmount change on a BUNDLED_CREDIT_AGREEMENT policy (FAIS-exempt path)", async () => {
+  it.each([
+    [{ premiumAmount: 9999 }, "premiumAmount"],
+    [{ renewalDate: "2027-01-01" }, "renewalDate"],
+  ])("refuses %j on a bundled credit-life policy with 422, writing nothing", async (body, field) => {
     findFirstPolicy.mockResolvedValue({
       id: "policy-1",
       pprIssuedAt: new Date(),
       policySource: "BUNDLED_CREDIT_AGREEMENT",
+      type: "CREDIT_LIFE",
     })
-    updatePolicy.mockResolvedValue({ id: "policy-1", premiumAmount: 9999 })
 
-    const res = await PATCH(makeRequest({ premiumAmount: 9999 }), ctx)
+    const res = await PATCH(makeRequest(body), ctx)
+
+    expect(res.status).toBe(422)
+    const json = await res.json()
+    expect(json.error).toMatch(/bundled credit-life/i)
+    expect(json.error).toContain(field)
+    expect(updatePolicy).not.toHaveBeenCalled()
+  })
+
+  it("allows a status change on a bundled credit-life policy", async () => {
+    findFirstPolicy.mockResolvedValue({
+      id: "policy-1",
+      pprIssuedAt: new Date(),
+      policySource: "BUNDLED_CREDIT_AGREEMENT",
+      type: "CREDIT_LIFE",
+    })
+    updatePolicy.mockResolvedValue({ id: "policy-1", status: "LAPSED" })
+
+    const res = await PATCH(makeRequest({ status: "LAPSED" }), ctx)
 
     expect(res.status).toBe(200)
     expect(updatePolicy).toHaveBeenCalledOnce()
-    expect(logAudit).not.toHaveBeenCalledWith(
-      expect.objectContaining({ action: "INSURANCE_PATCH_FAIS_LOCKED" })
-    )
   })
 
   it("preserves the pre-existing pprIssuedAt activation guard for status=ACTIVE", async () => {

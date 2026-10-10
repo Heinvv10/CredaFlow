@@ -18,6 +18,11 @@ import { logAudit, AuditAction } from "@/lib/audit"
 // they MUST be added here in the same change.
 const FAIS_LOCKED_FIELDS = ["premiumAmount", "insurer", "insurerId"] as const
 
+// Fields of a bundled credit-life policy that the database binds to its loan
+// and signed agreement (InsurancePolicy_guard_bundled_credit_life_agreement):
+// of those, the ones this PATCH can write.
+const BUNDLED_CREDIT_LIFE_LOCKED_FIELDS = ["premiumAmount", "renewalDate"] as const
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const guard = await requireApiRole("READONLY")
@@ -60,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
       const existing = await prisma.insurancePolicy.findFirst({
         where: { id, tenantId: tenant.id },
-        select: { id: true, pprIssuedAt: true, policySource: true },
+        select: { id: true, pprIssuedAt: true, policySource: true, type: true },
       })
       if (!existing) {
         return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -93,6 +98,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           return NextResponse.json(
             {
               error: `Cannot change FAIS-disclosed fields on a STANDALONE policy. Cancel this policy and rebind to issue a fresh disclosure. Locked: ${attempted.join(", ")}`,
+            },
+            { status: 422 }
+          )
+        }
+      }
+
+      if (existing.policySource === "BUNDLED_CREDIT_AGREEMENT" && existing.type === "CREDIT_LIFE") {
+        const attempted = BUNDLED_CREDIT_LIFE_LOCKED_FIELDS.filter((f) => data[f] !== undefined)
+        if (attempted.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Cannot change the terms of a bundled credit-life policy: they are bound to its loan and signed credit agreement. Locked: ${attempted.join(", ")}`,
             },
             { status: 422 }
           )

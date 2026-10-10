@@ -13,6 +13,10 @@ export function creditLifeOfferFindFirstArgs(tenantId: string) {
       // about whether cover is on offer. Prisma cannot express BTRIM here, so
       // whitespace-only names still need the caller's trim check.
       name: { not: "" },
+      // The bundled-policy guard refuses a sale against a product without
+      // positive configured terms, so such a product is never offered.
+      premiumAmount: { gt: 0 },
+      sumAssured: { gt: 0 },
       insurer: {
         is: {
           tenantId,

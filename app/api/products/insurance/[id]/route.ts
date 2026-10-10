@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
+import {
+  CREDIT_LIFE_PRODUCT_TERMS_ERROR,
+  creditLifeProductTermsIssues,
+} from "@/lib/insurance/credit-life-product-terms"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -25,6 +29,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const before = await prisma.insuranceProduct.findUnique({ where: { id, tenantId: tenant.id } })
     if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
+    const premiumAmount = Number(body.premiumAmount)
+    const sumAssured = Number(body.sumAssured)
+    // An absent type leaves the stored one in place, so judge that one.
+    const termsIssues = creditLifeProductTermsIssues({ type: body.type ?? before.type, premiumAmount, sumAssured })
+    if (termsIssues.length > 0) {
+      return NextResponse.json({ error: CREDIT_LIFE_PRODUCT_TERMS_ERROR, invalidFields: termsIssues }, { status: 422 })
+    }
+
     // Validate the underwriter belongs to this tenant before writing the FK —
     // the DB FK only enforces existence, not tenancy (defence-in-depth IDOR).
     if (body.insurerId) {
@@ -38,8 +50,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         code: body.code,
         name: body.name,
         type: body.type,
-        premiumAmount: Number(body.premiumAmount),
-        sumAssured: Number(body.sumAssured),
+        premiumAmount,
+        sumAssured,
         commissionRate: Number(body.commissionRate ?? 0.15),
         active: body.active,
         insurerId: body.insurerId || null,
