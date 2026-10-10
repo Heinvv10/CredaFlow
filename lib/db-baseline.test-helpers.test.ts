@@ -113,3 +113,141 @@ describe("baselineConstraintSql", () => {
     expect(() => h.baselineConstraintSql("c2")).toThrow(/dropped by 2_b/)
   })
 })
+
+describe("SQL-aware scanning", () => {
+  it("ends a trigger at its own semicolon despite an apostrophe in a comment", async () => {
+    const h = await load({
+      "1_a":
+        `CREATE TRIGGER "t1" BEFORE INSERT ON "T"\n  -- don't fire on bulk\n  FOR EACH ROW EXECUTE FUNCTION f();\n` +
+        `CREATE TRIGGER "t2" AFTER UPDATE ON "T" FOR EACH ROW EXECUTE FUNCTION g();\n-- that's all\nSELECT 1;\n`,
+    })
+    const t1 = h.baselineTriggerSql("t1")
+    expect(t1).toMatch(/EXECUTE FUNCTION f\(\);$/)
+    expect(t1).not.toContain("t2")
+  })
+
+  it("ends a $$ function at its own close, not at a later $function$ one", async () => {
+    const h = await load({
+      "1_a":
+        `CREATE OR REPLACE FUNCTION g() RETURNS trigger AS $$ BEGIN RETURN NEW; END $$ LANGUAGE plpgsql;\n` +
+        fn(`CREATE OR REPLACE FUNCTION public."other"()`, "RAISE EXCEPTION 'x'"),
+    })
+    const g = h.baselineFunctionSql("g")
+    expect(g).toMatch(/END \$\$ LANGUAGE plpgsql;$/)
+    expect(g).not.toContain("RAISE")
+  })
+
+  it("ends a $function$ function that closes with a trailing clause", async () => {
+    const h = await load({
+      "1_a":
+        `CREATE OR REPLACE FUNCTION f1() RETURNS trigger AS $function$ BEGIN RETURN NEW; END $function$ LANGUAGE plpgsql;\n` +
+        `CREATE OR REPLACE FUNCTION f2() RETURNS int AS $function$ SELECT 2 $function$ LANGUAGE sql;\n`,
+    })
+    expect(h.baselineFunctionSql("f1")).not.toContain("SELECT 2")
+    expect(h.baselineFunctionSql("f2")).toContain("SELECT 2")
+  })
+
+  it("does not read a DROP inside a function body or a comment as a drop", async () => {
+    const h = await load({
+      "1_a": `CREATE INDEX "i1" ON "T"("a");\nCREATE INDEX "i2" ON "T"("a");\n`,
+      "2_b":
+        fn(`CREATE OR REPLACE FUNCTION f()`, "\n  DROP INDEX IF EXISTS \"i1\";\n") +
+        `/* outer /* nested */ DROP INDEX "i2"; */\n-- DROP INDEX "i2";\nSELECT 'x'; DROP TABLE "z";\n`,
+    })
+    expect(h.baselineIndexSql("i1")).toContain("CREATE INDEX")
+    expect(h.baselineIndexSql("i2")).toContain("CREATE INDEX")
+  })
+
+  it("does not read a CREATE inside a comment or string as a definition", async () => {
+    const h = await load({
+      "1_a": `CREATE INDEX "i1" ON "T"("a");\n`,
+      "2_b": `-- CREATE INDEX "i1" ON "T"("b");\nSELECT E'it\\'s; CREATE INDEX "i1" ON "T"("c");';\nSELECT "a;b";\n`,
+    })
+    expect(h.baselineIndexSql("i1")).toContain(`("a")`)
+  })
+
+  it("handles tagged dollar quotes, E strings and doubled quotes", async () => {
+    const h = await load({
+      "1_a": `CREATE TRIGGER "t1" BEFORE INSERT ON "T" FOR EACH ROW WHEN (NEW.a = E'a\\';b' OR NEW."x;""y" = 'it''s;') EXECUTE FUNCTION f();\n`,
+      "2_b": `CREATE OR REPLACE FUNCTION h() RETURNS int AS $body$ SELECT $$;$$; $body$ LANGUAGE sql;\n`,
+    })
+    expect(h.baselineTriggerSql("t1")).toMatch(/EXECUTE FUNCTION f\(\);$/)
+    expect(h.baselineFunctionSql("h")).toMatch(/LANGUAGE sql;$/)
+  })
+})
+
+describe("ALTER TABLE grammar and lists", () => {
+  it("accepts IF EXISTS before ONLY and rejects ONLY before IF EXISTS", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\nALTER TABLE "T" ADD CONSTRAINT "c2" CHECK (a > 0);\n`,
+      "2_b": `ALTER TABLE IF EXISTS ONLY "T" DROP CONSTRAINT "c1";\nALTER TABLE ONLY IF EXISTS "T" DROP CONSTRAINT "c2";\n`,
+    })
+    expect(() => h.baselineConstraintSql("c1")).toThrow(/dropped by 2_b/)
+    expect(h.baselineConstraintSql("c2")).toContain("a > 0")
+  })
+
+  it("treats an unquoted table name case-insensitively", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
+      "2_b": `alter table Public.MyTable drop constraint c1;\n`,
+    })
+    expect(() => h.baselineConstraintSql("c1")).toThrow(/dropped by 2_b/)
+  })
+
+  it("counts every object of a multi-object DROP", async () => {
+    const h = await load({
+      "1_a": fn(`CREATE OR REPLACE FUNCTION f1()`) + `CREATE INDEX "i1" ON "T"("a");\nCREATE INDEX "i2" ON "T"("a");\n`,
+      "2_b": `DROP FUNCTION a(), f1();\nDROP INDEX "i1", public."i2";\n`,
+    })
+    expect(() => h.baselineFunctionSql("f1")).toThrow(/dropped by 2_b/)
+    expect(() => h.baselineIndexSql("i1")).toThrow(/dropped by 2_b/)
+    expect(() => h.baselineIndexSql("i2")).toThrow(/dropped by 2_b/)
+  })
+
+  it("counts a DROP CONSTRAINT after an ADD in one ALTER TABLE", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
+      "2_b": `ALTER TABLE "T" ADD CONSTRAINT "c9" CHECK (b > 0),\n DROP CONSTRAINT "c1";\n`,
+    })
+    expect(() => h.baselineConstraintSql("c1")).toThrow(/dropped by 2_b/)
+    expect(h.baselineConstraintSql("c9")).toContain("b > 0")
+  })
+
+  it("returns the ADD of an atomic DROP then ADD, splitting only on top-level commas", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
+      "2_b": `ALTER TABLE "T" DROP CONSTRAINT "c1", ADD CONSTRAINT "c1" CHECK (a IN (1, 2) AND b <> 'x,y');\n`,
+    })
+    const c1 = h.baselineConstraintSql("c1")
+    expect(c1).toContain("a IN (1, 2)")
+  })
+
+  it("does not take a column default comma for an action boundary", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
+      "2_b": `ALTER TABLE "T" ADD CONSTRAINT "c2" CHECK (f(1, 'DROP CONSTRAINT "c1"') > 0);\n`,
+    })
+    expect(h.baselineConstraintSql("c1")).toContain("a > 0")
+  })
+})
+
+describe("CREATE forms and unqualified coverage", () => {
+  it("counts a plain CREATE FUNCTION and CREATE OR REPLACE TRIGGER after a drop", async () => {
+    const h = await load({
+      "1_a": fn(`CREATE OR REPLACE FUNCTION f1()`, "OLD") + `CREATE TRIGGER "t1" BEFORE INSERT ON "T" FOR EACH ROW EXECUTE FUNCTION f();\n`,
+      "2_b": `DROP FUNCTION f1();\n` + fn(`CREATE FUNCTION f1()`, "NEW") + `DROP TRIGGER "t1" ON "T";\nCREATE OR REPLACE TRIGGER "t1" AFTER INSERT ON "T" FOR EACH ROW EXECUTE FUNCTION f();\n`,
+    })
+    expect(h.baselineFunctionSql("f1")).toContain("NEW")
+    expect(h.baselineTriggerSql("t1")).toContain("AFTER INSERT")
+  })
+
+  it("honours an unqualified DROP INDEX, unqualified-table DROP CONSTRAINT, and unquoted schemaless CREATE INDEX", async () => {
+    const h = await load({
+      "1_a": `CREATE INDEX "i1" ON "T"("a");\nCREATE INDEX i2 ON "T"("a");\nALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
+      "2_b": `DROP INDEX "i1";\nDROP CONSTRAINT_NOT_REAL;\nALTER TABLE "T" DROP CONSTRAINT "c1";\n`,
+    })
+    expect(() => h.baselineIndexSql("i1")).toThrow(/dropped by 2_b/)
+    expect(() => h.baselineConstraintSql("c1")).toThrow(/dropped by 2_b/)
+    expect(h.baselineIndexSql("i2")).toContain("CREATE INDEX i2")
+  })
+})
