@@ -27,7 +27,10 @@ import {
 } from "@/lib/affordability/snapshot"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
-import { CREDIT_LIFE_DISCLOSURE_VERSION } from "@/lib/insurance/credit-life-election"
+import {
+  CREDIT_LIFE_DISCLOSURE_VERSION,
+  calculateCreditLifeMonthlyPremiumCents,
+} from "@/lib/insurance/credit-life-election"
 import { createPasqEvidence } from "@/lib/compliance/pasq"
 
 const suite = process.env.RUN_PASQ_CEREMONY_IT === "1" ? describe : describe.skip
@@ -62,7 +65,7 @@ async function createCeremonyScenario(label: string, principalCents = PRINCIPAL_
     principalCents,
     termDays: TERM_DAYS,
     // Reg 3(1) maximum the guard pins: 0.45% of principal per month.
-    monthlyPremiumCents: Math.round(principalCents * 0.0045),
+    monthlyPremiumCents: calculateCreditLifeMonthlyPremiumCents(principalCents),
     productId: creditLifeProductId,
     productName: "Synthetic Credit Life",
     insurerId: creditLifeInsurerId,

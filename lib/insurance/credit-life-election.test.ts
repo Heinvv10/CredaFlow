@@ -306,3 +306,49 @@ describe("verifyAppliedCreditLifeDisclosure — no-offer applications", () => {
     })).toEqual({ ok: false, reason: "missing" })
   })
 })
+
+describe("credit-life premium rounding matches Postgres ROUND(numeric)", () => {
+  // Postgres rounds half away from zero on exact numerics; principal is positive.
+  function reference(principalCents: number): number {
+    return Number((BigInt(principalCents) * BigInt(45) + BigInt(5_000)) / BigInt(10_000))
+  }
+
+  it.each([
+    [101_000, 455],
+    [1_339_000, 6_026],
+    [100_000, 450],
+    [100_001, 450],
+    [100_111, 450],
+    [500_000, 2_250],
+  ])("premium for %i cents is %i", (principalCents, expected) => {
+    expect(calculateCreditLifeMonthlyPremiumCents(principalCents)).toBe(expected)
+  })
+
+  it("agrees with the exact reference for every principal from 1 to 2,000,000 cents", () => {
+    let mismatches = 0
+    for (let p = 1; p <= 2_000_000; p++) {
+      if (calculateCreditLifeMonthlyPremiumCents(p) !== reference(p)) mismatches++
+    }
+    expect(mismatches).toBe(0)
+  })
+
+  it("agrees with the exact reference on 500,000 random principals up to 500,000,000 cents", () => {
+    let seed = 20261010
+    const next = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+      return seed
+    }
+    let mismatches = 0
+    for (let i = 0; i < 500_000; i++) {
+      const p = 1 + (next() % 500_000_000)
+      if (calculateCreditLifeMonthlyPremiumCents(p) !== reference(p)) mismatches++
+    }
+    expect(mismatches).toBe(0)
+  })
+
+  it("rejects principals whose exact calculation would leave the safe-integer range", () => {
+    expect(() =>
+      calculateCreditLifeMonthlyPremiumCents(Number.MAX_SAFE_INTEGER),
+    ).toThrow(RangeError)
+  })
+})
