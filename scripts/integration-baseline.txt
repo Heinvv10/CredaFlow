@@ -27,5 +27,4 @@
 # the matching `require_*_on_insert` ones: disabling those may change nothing.
 # Do not read a passing suite as proof that a whole trigger family is covered.
 
-lib/applications/submission-lock.integration.test.ts
 lib/insurance/credit-life-containment-migration.integration.test.ts
