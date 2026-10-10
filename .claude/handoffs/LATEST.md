@@ -38,6 +38,7 @@ SHIP/CLEAN on its final commit.
 | #17 | `fix/crm-convert-recovery-scope` → #16 | CRM lead conversion refuses `recoveryApplicationId` on a lead with no linked client, which skipped the amount and Regulation 23A checks and could create a zero-amount application |
 | #18 | `fix/loan-product-bounds` → #17 | The loan product API (create and update) refuses a non-numeric, non-positive or over-int4 amount or term, or a minimum above the maximum (422, nothing written); no policy cap on amount or term |
 | #19 | `fix/application-amount-check` → #18 | New migration `20261010120000_application_amount_positive`: validated CHECK `LoanApplication_appliedAmount_positive` (`appliedAmount > 0`); real-PG suite `RUN_APPLICATION_AMOUNT_CHECK_IT` |
+| #20 | `feat/term-starts-empty` → #19 | The portal apply form and the CRM convert form start the term empty for variable-term products (like the staff wizard); submit stays disabled until a valid term is entered |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
@@ -70,7 +71,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
@@ -125,10 +126,9 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   - The credit agreement (and the Form 20 quotation, same renderer) prints at
     most 38 schedule rows and silently drops the rest, while its TOTAL row sums
     the full schedule. Nothing caps instalments: the seeded PERSONAL product
-    allows 1,800 days (60 instalments). The portal and the CRM convert form
-    default the term field to the product's maximum (the staff wizard starts
-    it empty), so an untouched PERSONAL application from either is 60
-    instalments. `lib/pdf/statement.ts` has the same
+    allows 1,800 days (60 instalments). The portal, the CRM convert form and
+    the staff wizard start the term empty (#20), so the client or staff member
+    chooses it. `lib/pdf/statement.ts` has the same
     ~37-row cut. Options are an upstream cap or a continuation page; an NCA
     document change needs Hein's and legal sign-off.
   - `lib/__tests__/webhook-replay.test.ts` runs whenever `DATABASE_URL` is set
