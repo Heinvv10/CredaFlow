@@ -12,7 +12,8 @@
  * and whitespace runs collapsed, string contents untouched. For .yml/.yaml/.sh
  * files every added or removed line must be blank or a whole-line comment (a
  * `#` line inside a heredoc or YAML block scalar is content this cannot tell
- * apart — check those by eye); scripts/integration-baseline.txt is checked
+ * apart — check those by eye; nor can it see a Prisma line break turning into a
+ * space, which `prisma validate` catches); scripts/integration-baseline.txt is checked
  * line by line, its `#` lines being comments. Any other changed file, an added,
  * deleted or (working-tree mode) untracked file, a rename and a mode change are
  * reported. Exits 1 when anything is reported.
@@ -29,7 +30,7 @@ const STRIP: Record<string, { line?: string; block?: boolean; backslash: boolean
   prisma: { line: "//", backslash: true },
 }
 /** Comments that change what a tool does, not just what a reader reads. */
-const DIRECTIVE = /@ts-(ignore|expect-error|nocheck|check)|eslint-(disable|enable)|(vitest|jest)-environment|<reference\b|[@#]__(PURE|NO_SIDE_EFFECTS)__|(istanbul|c8|v8) ignore|prettier-ignore|biome-ignore|webpack[A-Z]|@jsx(Runtime|ImportSource|Frag)?\b|@license|@preserve/
+const DIRECTIVE = /@ts-(ignore|expect-error|nocheck|check)|eslint-(disable|enable)|(vitest|jest)-environment|<reference\b|[@#]__(PURE|NO_SIDE_EFFECTS)__|(istanbul|c8|v8) ignore|prettier-ignore|biome-ignore|webpack[A-Z]|turbopack[A-Z]|@vite-ignore|tslint:|@jsx(Runtime|ImportSource|Frag)?\b|@license|@preserve/
 /** Files with `#` comment lines whose extension says nothing about it. */
 const LINE_COMMENT_FILES: Record<string, RegExp> = {
   "integration-baseline.txt": /^\s*(#.*)?$/,
@@ -83,9 +84,21 @@ export function tokens(source: string, fileName: string): string[] {
   return out
 }
 
-/** Every comment line holding a directive (and a leading #! line), sorted. */
+/**
+ * Every comment line holding a directive (and a leading #! line), each keyed
+ * by the index of the token after it: a directive applies to what follows, so
+ * moving one is a change too.
+ */
 export function directives(source: string, fileName: string): string[] {
   const file = parse(source, fileName)
+  const starts: number[] = []
+  const leaves = (node: ts.Node): void => {
+    const children = node.getChildren(file)
+    if (children.length === 0) starts.push(node.getStart(file))
+    else children.forEach(leaves)
+  }
+  leaves(file)
+  const nextToken = (pos: number) => starts.findIndex((s) => s >= pos)
   const seen = new Set<number>()
   const out: string[] = source.startsWith("#!") ? [source.split("\n")[0]] : []
   const visit = (node: ts.Node) => {
@@ -93,7 +106,7 @@ export function directives(source: string, fileName: string): string[] {
       if (seen.has(r.pos)) continue
       seen.add(r.pos)
       // Line by line: a directive is one line, and prose around it may change.
-      for (const line of source.slice(r.pos, r.end).split("\n")) if (DIRECTIVE.test(line)) out.push(line.trim())
+      for (const line of source.slice(r.pos, r.end).split("\n")) if (DIRECTIVE.test(line)) out.push(`${nextToken(r.end)} ${line.trim()}`)
     }
     node.getChildren(file).forEach(visit)
   }
@@ -120,8 +133,10 @@ export function stripComments(source: string, fileName: string): string {
   while (i < source.length) {
     const c = source[i]
     if (c === "'" || c === '"') {
+      // SQL escape strings (E'it\'s') take backslash escapes; plain SQL strings do not.
+      const backslash = syntax.backslash || (c === "'" && /[eE]/.test(source[i - 1] ?? ""))
       let j = i + 1
-      while (j < source.length && source[j] !== c) j += syntax.backslash && source[j] === "\\" ? 2 : 1
+      while (j < source.length && source[j] !== c) j += backslash && source[j] === "\\" ? 2 : 1
       out += source.slice(i, j + 1)
       i = j + 1
     } else if (syntax.block && source.startsWith("/*", i)) {

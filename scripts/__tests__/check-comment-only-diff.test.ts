@@ -43,6 +43,8 @@ describe("codeDifference", () => {
     expect(codeDifference("// @vitest-environment jsdom\nx()\n", "x()\n", "f.test.ts")).toMatch(/directive/)
     expect(codeDifference("/* eslint-disable no-console */\nx()\n", "/* eslint-disable no-debugger */\nx()\n", "f.ts")).toMatch(/directive/)
     expect(codeDifference("const a = /*#__PURE__*/ f()\n", "const a = f()\n", "f.ts")).toMatch(/directive/)
+    // A directive applies to what follows it: moving one is a change.
+    expect(codeDifference("// eslint-disable-next-line no-console\na()\nb()\n", "a()\n// eslint-disable-next-line no-console\nb()\n", "f.ts")).toMatch(/directive/)
     // Prose around an unchanged directive line may change.
     expect(codeDifference("/**\n * Old reason.\n * @vitest-environment jsdom\n */\nx()\n", "/**\n * New reason.\n * @vitest-environment jsdom\n */\nx()\n", "f.test.ts")).toBeNull()
   })
@@ -69,6 +71,7 @@ describe("strippedDifference", () => {
     expect(strippedDifference("SELECT '--a', 1;", "SELECT '--b', 2;", "m.sql")).not.toBeNull()
     expect(strippedDifference('a::before { content: "/*"; color: red } b { content: "*/" }', 'a::before { content: "/*"; color: blue } b { content: "*/" }', "a.css")).not.toBeNull()
     expect(strippedDifference("SELECT 'a b';", "SELECT 'ab';", "m.sql")).not.toBeNull()
+    expect(strippedDifference("SELECT E'it\\'s -- ', 1; SELECT 2;", "SELECT E'it\\'s -- ', 1; SELECT 3;", "m.sql")).not.toBeNull()
   })
 
   it("reports a code change", () => {
