@@ -19,12 +19,18 @@
  *
  * The signature page is page 4 in this fixture; the execution page is page 5 of
  * the fallback variant.
+ *
+ * Also writes agreement-60-UNSIGNED.pdf and agreement-60-EXECUTED-stamped.pdf:
+ * a 60-instalment schedule continues onto a second schedule page, which moves
+ * the signature page to page 5.
  */
 import { writeFileSync, mkdirSync } from "node:fs"
 import { deflateSync } from "node:zlib"
 import { generateCreditAgreementPdfWithAnchors } from "../../lib/pdf/creditAgreement"
 import { stampExecutedAgreement } from "../../lib/pdf/executed-agreement"
 import { ACME_LENDER } from "../../lib/config/__fixtures__/lender-identity"
+import { calculateLoan } from "../../lib/loan-calculator"
+import { boundaryAgreementInput, boundaryLoanInput, boundaryStartDate } from "../nca-pdf-fingerprint"
 
 /**
  * A drawn signature, as the portal captures one: a stroke on a transparent
@@ -186,9 +192,28 @@ async function main() {
   })
   writeFileSync(`${outDir}/agreement-EXECUTED-page.pdf`, appended.bytes)
 
-  console.log(`wrote 3 PDFs to ${outDir}`)
+  const long = await generateCreditAgreementPdfWithAnchors(
+    boundaryAgreementInput("agreement", calculateLoan(boundaryLoanInput(60), boundaryStartDate)),
+  )
+  writeFileSync(`${outDir}/agreement-60-UNSIGNED.pdf`, long.bytes)
+  const longStamped = await stampExecutedAgreement({
+    agreementBytes: long.bytes,
+    anchors: long.signatureAnchors,
+    // Signed after this fixture's quotation (22 July 2026), not the one above.
+    execution: {
+      ...execution,
+      consumerSignedAt: new Date("2026-07-23T09:30:00.000Z"),
+      countersignedAt: new Date("2026-07-24T14:00:00.000Z"),
+    },
+    ceremonyMarker: "0123456789ab",
+    identity,
+  })
+  writeFileSync(`${outDir}/agreement-60-EXECUTED-stamped.pdf`, longStamped.bytes)
+
+  console.log(`wrote 5 PDFs to ${outDir}`)
   console.log(`  stamped path : ${stamped.method}  (signature page is page 4)`)
   console.log(`  fallback path: ${appended.method}  (execution page is page 5)`)
+  console.log(`  60 instalments: ${longStamped.method}  (signature page is page ${(long.signatureAnchors?.pageIndex ?? -1) + 1})`)
 }
 
 main().catch((error) => {

@@ -205,3 +205,27 @@ export function drawSectionTitle(
   drawText(page, title, MARGIN + 6, y, font, 11, WHITE)
   return y - 30
 }
+
+/**
+ * Draws table rows top-down. A row that would start below `floor` goes onto a
+ * continuation page from `openContinuation` (which adds the page and repeats
+ * the table's own title and column headers) — a table never stops short of
+ * its last row. `drawRow` draws one row, or one unit that must stay together,
+ * and returns the y below it. Returns where the last row left off, which is
+ * where anything that follows the table (its TOTAL, its footer) belongs.
+ */
+export function drawRowsWithContinuation<T>(table: {
+  page: PDFPage
+  y: number
+  rows: readonly T[]
+  floor: number
+  openContinuation: (from: PDFPage) => { page: PDFPage; y: number }
+  drawRow: (page: PDFPage, y: number, row: T, index: number) => number
+}): { page: PDFPage; y: number } {
+  let { page, y } = table
+  for (let i = 0; i < table.rows.length; i++) {
+    if (y < table.floor) ({ page, y } = table.openContinuation(page))
+    y = table.drawRow(page, y, table.rows[i], i)
+  }
+  return { page, y }
+}

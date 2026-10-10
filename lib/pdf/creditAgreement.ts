@@ -1,11 +1,11 @@
-import { PDFDocument, StandardFonts } from "pdf-lib"
+import { PDFDocument, StandardFonts, type PDFPage } from "pdf-lib"
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import {
   A4_WIDTH, A4_HEIGHT, MARGIN, CONTENT_WIDTH, LABEL_VALUE_OFFSET,
   DARK, ACCENT, GRAY, WHITE,
   formatZarPdf, formatDatePdf,
   drawText, drawTableRow, drawLabelValueTable,
-  drawPageNumber, drawSectionTitle,
+  drawPageNumber, drawSectionTitle, drawRowsWithContinuation,
   embedLogo, fitLogo,
 } from "./helpers"
 import { annualisedInterestRate, termInterestPercent } from "@/lib/loan/annualised-rate"
@@ -175,8 +175,9 @@ export async function generateCreditAgreementPdfWithAnchors(
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
   const italic = await doc.embedFont(StandardFonts.HelveticaOblique)
   // Page numbers are drawn at the end via doc.getPages() so the total
-  // reflects whatever was actually added (4 normally, 5 if the bundled
-  // Credit Life block overflowed p4).
+  // reflects whatever was actually added (4 normally, plus one for each
+  // repayment-schedule continuation page and one if the bundled Credit Life
+  // block overflowed p4).
 
   // Annualisation follows the product's interest MODEL (lib/loan/annualised-rate).
   // Compounding a FLAT / DAILY_ACCRUAL rate quoted an annual cost the consumer
@@ -527,9 +528,6 @@ export async function generateCreditAgreementPdfWithAnchors(
 
   // ── PAGE 2: REPAYMENT SCHEDULE ────────────────────────────────────────────
   const p2 = doc.addPage([A4_WIDTH, A4_HEIGHT])
-  y = A4_HEIGHT - MARGIN
-  drawText(p2, "REPAYMENT SCHEDULE", MARGIN, y, bold, 14, ACCENT); y -= 24
-
   const colDefs = [
     { label: "No.", x: MARGIN, width: 30 },
     { label: "Due Date", x: MARGIN + 35, width: 80 },
@@ -544,30 +542,38 @@ export async function generateCreditAgreementPdfWithAnchors(
     { label: "Balance", x: MARGIN + 425, width: 80 },
   ]
 
-  // Header row
-  drawTableRow(p2, y, colDefs.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
-  y -= 20
-
-  for (const item of schedule) {
-    if (y < MARGIN + 40) {
-      // Known limitation: schedules longer than 38 rows are silently
-      // truncated here (no continuation page), and nothing upstream caps the
-      // instalment count — a product's maxTermDays does not keep a loan within
-      // the rows this page renders.
-      break
-    }
-    const bg = item.installmentNo % 2 === 0 ? undefined : { ...WHITE }
-    drawTableRow(p2, y, [
-      { text: String(item.installmentNo), x: colDefs[0].x, width: colDefs[0].width },
-      { text: formatDatePdf(item.dueDate), x: colDefs[1].x, width: colDefs[1].width },
-      { text: formatZarPdf(item.principalDue), x: colDefs[2].x, width: colDefs[2].width },
-      { text: formatZarPdf(item.interestDue), x: colDefs[3].x, width: colDefs[3].width },
-      { text: formatZarPdf(item.feesDue), x: colDefs[4].x, width: colDefs[4].width },
-      { text: formatZarPdf(item.totalDue), x: colDefs[5].x, width: colDefs[5].width },
-      { text: formatZarPdf(item.closingBalance), x: colDefs[6].x, width: colDefs[6].width },
-    ], regular, 8, DARK, bg)
-    y -= 18
+  // Title and header row, repeated on every continuation page.
+  const drawScheduleHead = (page: PDFPage): number => {
+    let headY = A4_HEIGHT - MARGIN
+    drawText(page, "REPAYMENT SCHEDULE", MARGIN, headY, bold, 14, ACCENT); headY -= 24
+    drawTableRow(page, headY, colDefs.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
+    return headY - 20
   }
+  y = drawScheduleHead(p2)
+
+  // 38 rows a page. Continuation pages are added before p3 exists, so they
+  // follow p2 directly.
+  const scheduleEnd = drawRowsWithContinuation({
+    page: p2, y, rows: schedule, floor: MARGIN + 40,
+    openContinuation: () => {
+      const page = doc.addPage([A4_WIDTH, A4_HEIGHT])
+      return { page, y: drawScheduleHead(page) }
+    },
+    drawRow: (page, rowY, item) => {
+      const bg = item.installmentNo % 2 === 0 ? undefined : { ...WHITE }
+      drawTableRow(page, rowY, [
+        { text: String(item.installmentNo), x: colDefs[0].x, width: colDefs[0].width },
+        { text: formatDatePdf(item.dueDate), x: colDefs[1].x, width: colDefs[1].width },
+        { text: formatZarPdf(item.principalDue), x: colDefs[2].x, width: colDefs[2].width },
+        { text: formatZarPdf(item.interestDue), x: colDefs[3].x, width: colDefs[3].width },
+        { text: formatZarPdf(item.feesDue), x: colDefs[4].x, width: colDefs[4].width },
+        { text: formatZarPdf(item.totalDue), x: colDefs[5].x, width: colDefs[5].width },
+        { text: formatZarPdf(item.closingBalance), x: colDefs[6].x, width: colDefs[6].width },
+      ], regular, 8, DARK, bg)
+      return rowY - 18
+    },
+  })
+  y = scheduleEnd.y
 
   // Total row — sum the actual schedule columns so the TOTAL always foots to
   // the printed instalment rows. The Fees column includes the deferred
@@ -579,7 +585,7 @@ export async function generateCreditAgreementPdfWithAnchors(
   const totFees = schedule.reduce((a, r) => a + r.feesDue, 0)
   const totDue = schedule.reduce((a, r) => a + r.totalDue, 0)
   y -= 4
-  drawTableRow(p2, y, [
+  drawTableRow(scheduleEnd.page, y, [
     { text: "TOTAL", x: colDefs[0].x, width: colDefs[0].width },
     { text: "", x: colDefs[1].x, width: colDefs[1].width },
     { text: formatZarPdf(totPrincipal), x: colDefs[2].x, width: colDefs[2].width },

@@ -27,6 +27,9 @@ The output is the legal artefact a court would read.
   text. Re-rendered drafts (the application debit mandate) pass none.
 - **All money is `formatZarPdf()`.** No bare numbers, no other locale.
 - **All dates are `formatDatePdf()`.** Consistent format across documents.
+- **Tables continue onto a new page, never break** (`drawRowsWithContinuation`):
+  repeat the existing title and headers, no new wording, one TOTAL after the
+  last row. Tables that fit keep their pinned bytes (`lib/pdf/schedule-continuation.test.ts`).
 - **Helpers are shared.** New colors, fonts, or table primitives go in
   `lib/pdf/helpers.ts` — don't redefine `A4_WIDTH`/`MARGIN` per file.
 
