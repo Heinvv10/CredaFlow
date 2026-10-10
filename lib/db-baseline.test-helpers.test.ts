@@ -244,10 +244,56 @@ describe("CREATE forms and unqualified coverage", () => {
   it("honours an unqualified DROP INDEX, unqualified-table DROP CONSTRAINT, and unquoted schemaless CREATE INDEX", async () => {
     const h = await load({
       "1_a": `CREATE INDEX "i1" ON "T"("a");\nCREATE INDEX i2 ON "T"("a");\nALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
-      "2_b": `DROP INDEX "i1";\nDROP CONSTRAINT_NOT_REAL;\nALTER TABLE "T" DROP CONSTRAINT "c1";\n`,
+      "2_b": `DROP INDEX "i1";\nALTER TABLE "T" DROP CONSTRAINT "c1";\n`,
     })
     expect(() => h.baselineIndexSql("i1")).toThrow(/dropped by 2_b/)
     expect(() => h.baselineConstraintSql("c1")).toThrow(/dropped by 2_b/)
     expect(h.baselineIndexSql("i2")).toContain("CREATE INDEX i2")
+  })
+})
+
+describe("DO blocks", () => {
+  it("refuses to guess about an object named inside a DO block, dynamic DDL included", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\nCREATE TRIGGER "t1" BEFORE INSERT ON "T" FOR EACH ROW EXECUTE FUNCTION f();\n` +
+        `CREATE INDEX "i1" ON "T"("a");\n` + fn(`CREATE OR REPLACE FUNCTION f1()`) + `CREATE INDEX other ON "T"("a");\n`,
+      "2_b":
+        `DO $$ BEGIN\nALTER TABLE "T" DROP CONSTRAINT "c1";\nDROP TRIGGER "t1" ON "T";\n` +
+        `EXECUTE 'DROP INDEX "i1"';\nEXCEPTION WHEN undefined_object THEN NULL;\nEND $$;\n` +
+        `DO $x$ BEGIN DROP FUNCTION f1(); END $x$ LANGUAGE plpgsql;\n`,
+    })
+    expect(() => h.baselineConstraintSql("c1")).toThrow(/c1 appears inside a DO block in 2_b/)
+    expect(() => h.baselineTriggerSql("t1")).toThrow(/t1 appears inside a DO block in 2_b/)
+    expect(() => h.baselineIndexSql("i1")).toThrow(/i1 appears inside a DO block in 2_b/)
+    expect(() => h.baselineFunctionSql("f1")).toThrow(/f1 appears inside a DO block in 2_b/)
+    expect(h.baselineIndexSql("other")).toContain("CREATE INDEX other")
+  })
+})
+
+describe("rebuilt constraint action", () => {
+  it("ends in one semicolon, without comments, when the ADD is the last action", async () => {
+    const h = await load({
+      "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\n`,
+      "2_b": `ALTER TABLE "T"\n -- drop first\n DROP CONSTRAINT "c1",\n -- then add\n ADD CONSTRAINT "c1" CHECK (a > 1);\n`,
+    })
+    expect(h.baselineConstraintSql("c1")).toMatch(/^ALTER TABLE "T"\s+ADD CONSTRAINT "c1" CHECK \(a > 1\);$/)
+  })
+})
+
+describe("DROP FUNCTION without an argument list, and BEGIN ATOMIC", () => {
+  it("counts DROP FUNCTION f1 and DROP FUNCTION IF EXISTS f2 CASCADE as drops", async () => {
+    const h = await load({
+      "1_a": fn(`CREATE OR REPLACE FUNCTION f1()`) + fn(`CREATE OR REPLACE FUNCTION f2()`),
+      "2_b": `DROP FUNCTION f1;\nDROP FUNCTION IF EXISTS public."f2" CASCADE;\n`,
+    })
+    expect(() => h.baselineFunctionSql("f1")).toThrow(/dropped by 2_b/)
+    expect(() => h.baselineFunctionSql("f2")).toThrow(/dropped by 2_b/)
+  })
+
+  it("throws on a BEGIN ATOMIC body instead of truncating it", async () => {
+    const h = await load({
+      "1_a": `CREATE FUNCTION f1() RETURNS int LANGUAGE sql\nBEGIN ATOMIC\n  SELECT 1;\n  SELECT 2;\nEND;\n`,
+    })
+    expect(() => h.baselineFunctionSql("f1")).toThrow(/f1.*BEGIN ATOMIC/)
   })
 })

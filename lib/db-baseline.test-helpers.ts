@@ -15,8 +15,13 @@
  * the newest migration that defines it, or an error if that migration drops it.
  * `readBaselineSql` is the baseline file alone.
  *
- * Known limits, left loud: function overloads are not told apart by argument
- * signature, and triggers and constraints are looked up by name, not table.
+ * Known limits: an object named inside a DO block, or a function with a BEGIN
+ * ATOMIC body, throws (it cannot be read here); a name a DO block builds at run
+ * time (format, EXECUTE) is not seen. Not handled: function overloads
+ * are not told apart by argument signature, triggers and constraints are looked
+ * up by name not table, and RENAME, DISABLE TRIGGER, a DROP TABLE that drops its
+ * dependents, and a function created, dropped and created again within one
+ * migration (the bodies are joined) are not seen.
  *
  * Static tests read the SQL here. A rule that only holds when it runs belongs
  * in a RUN_*_IT integration test against a migrated database instead.
@@ -212,8 +217,13 @@ function dropList(head: string, item: string): Reader {
  * Walk the newest-first migrations for the first one with an event for the
  * object; its last event decides (drop, or the creates).
  */
-function latest(read: Reader[], what: string, many = false): string[] {
+function latest(name: string, read: Reader[], what: string, many = false): string[] {
+  const mention = new RegExp(`(?<![\\w$])${ident(name)}`)
   for (const { dir, stmts } of migrationsNewestFirst()) {
+    // DDL inside a DO body (or EXECUTE'd from one) is not parsed: refuse rather than guess
+    if (stmts.some((s) => /^DO(?![\w$])/i.test(s.code) && mention.test(s.code))) {
+      throw new Error(`${name} appears inside a DO block in ${dir}; the helper cannot read it - assert on that migration directly`)
+    }
     const events = stmts.flatMap((s) => read.flatMap((r) => r(s)))
     const creates = events.filter((e): e is { text: string } => e !== "drop").map((e) => e.text)
     if (creates.length === 0 && events.length === 0) continue
@@ -232,9 +242,15 @@ function latest(read: Reader[], what: string, many = false): string[] {
  */
 export function baselineFunctionSql(name: string): string {
   const fn = `${SCHEMA}${ident(name)}\\s*\\(`
-  return latest([
-    simple(`${words("CREATE")}\\s+(?:${words("OR REPLACE")}\\s+)?${words("FUNCTION")}\\s+${fn}`, "(?!)"),
-    dropList(`${words("DROP FUNCTION")}\\s+${IF_EXISTS}`, fn),
+  const create = simple(`${words("CREATE")}\\s+(?:${words("OR REPLACE")}\\s+)?${words("FUNCTION")}\\s+${fn}`, "(?!)")
+  return latest(name, [
+    (s) => {
+      const events = create(s)
+      // a SQL-standard body holds `;`, so the split cut it short
+      if (events.length && /\bBEGIN\s+ATOMIC\b/i.test(s.code)) throw new Error(`function ${name} has a BEGIN ATOMIC body; the helper cannot read it`)
+      return events
+    },
+    dropList(`${words("DROP FUNCTION")}\\s+${IF_EXISTS}`, `${SCHEMA}${ident(name)}(?![\\w$"])`),
   ], `function ${name}`, true).join("\n\n")
 }
 
@@ -252,15 +268,15 @@ export function baselineConstraintSql(name: string): string {
       if (drop.test(action)) return ["drop"]
       if (!add.test(action)) return []
       // a lone action keeps the whole statement; one of several is rebuilt on its own
-      return [{ text: actions.length === 1 ? whole(s) : `${s.text.slice(0, m[0].length)}${s.text.slice(a, b).trim()};` }]
+      return [{ text: actions.length === 1 ? whole(s) : `${s.code.slice(0, m[0].length)}${s.code.slice(a, b).trim().replace(/;$/, "")};` }]
     })
   }
-  return latest([read], `constraint ${name}`)[0]
+  return latest(name, [read], `constraint ${name}`)[0]
 }
 
 /** The `CREATE [OR REPLACE] [CONSTRAINT] TRIGGER "name" …;` statement. */
 export function baselineTriggerSql(name: string): string {
-  return latest([simple(
+  return latest(name, [simple(
     `${words("CREATE")}\\s+(?:${words("OR REPLACE")}\\s+)?(?:${words("CONSTRAINT")}\\s+)?${words("TRIGGER")}\\s+${ident(name)}\\s`,
     `${words("DROP TRIGGER")}\\s+${IF_EXISTS}${ident(name)}\\s`,
   )], `trigger ${name}`)[0]
@@ -268,7 +284,7 @@ export function baselineTriggerSql(name: string): string {
 
 /** The `CREATE [UNIQUE] INDEX "name" …;` statement. */
 export function baselineIndexSql(name: string): string {
-  return latest([
+  return latest(name, [
     simple(
       `${words("CREATE")}\\s+(?:${words("UNIQUE")}\\s+)?${words("INDEX")}\\s+(?:${words("CONCURRENTLY")}\\s+)?(?:${words("IF NOT EXISTS")}\\s+)?${SCHEMA}${ident(name)}\\s`,
       "(?!)",
