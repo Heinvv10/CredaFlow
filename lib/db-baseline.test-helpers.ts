@@ -17,7 +17,9 @@
  *
  * Known limits: an object named inside a DO block, or a function with a BEGIN
  * ATOMIC body, throws (it cannot be read here); a name a DO block builds at run
- * time (format, EXECUTE) is not seen. Not handled: function overloads
+ * time (format, EXECUTE), and DDL a migration runs through a procedure or
+ * function it creates and then calls, are not seen. Not handled: function
+ * overloads
  * are not told apart by argument signature, triggers and constraints are looked
  * up by name not table, and RENAME, DISABLE TRIGGER, a DROP TABLE that drops its
  * dependents, and a function created, dropped and created again within one
