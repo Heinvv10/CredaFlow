@@ -116,7 +116,7 @@ function PortalRegisterInner() {
           email address and SA ID number from that application so we can link your portal profile.
         </p>
         {reference && (
-          <div className="mt-5 border border-[var(--cf-border-strong)] bg-[rgba(79,70,229,0.08)] px-4 py-3 text-sm text-[var(--cf-brand)]">
+          <div className="mt-5 border border-[var(--cf-border-strong)] bg-[color-mix(in_srgb,var(--cf-brand)_8%,transparent)] px-4 py-3 text-sm text-[var(--cf-brand)]">
             Application reference: <strong>{reference}</strong>
           </div>
         )}
@@ -131,7 +131,7 @@ function PortalRegisterInner() {
         ) : step === "request" ? (
           <form onSubmit={handleRequestCode} className="mt-6 space-y-4">
             {error && (
-              <div className="flex gap-3 border border-red-300/30 bg-red-400/10 px-4 py-3 text-sm text-[var(--cf-danger)]">
+              <div className="flex gap-3 border border-[rgba(208,92,75,0.35)] bg-[rgba(208,92,75,0.12)] px-4 py-3 text-sm text-[var(--cf-danger)]">
                 <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
                 <p>{error}</p>
               </div>
@@ -175,12 +175,12 @@ function PortalRegisterInner() {
         ) : (
           <form onSubmit={handleActivate} className="mt-6 space-y-4">
             {notice && (
-              <div className="border border-[var(--cf-border-strong)] bg-[rgba(79,70,229,0.08)] px-4 py-3 text-sm text-[var(--cf-brand)]">
+              <div className="border border-[var(--cf-border-strong)] bg-[color-mix(in_srgb,var(--cf-brand)_8%,transparent)] px-4 py-3 text-sm text-[var(--cf-brand)]">
                 {notice}
               </div>
             )}
             {error && (
-              <div className="flex gap-3 border border-red-300/30 bg-red-400/10 px-4 py-3 text-sm text-[var(--cf-danger)]">
+              <div className="flex gap-3 border border-[rgba(208,92,75,0.35)] bg-[rgba(208,92,75,0.12)] px-4 py-3 text-sm text-[var(--cf-danger)]">
                 <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
                 <p>{error}</p>
               </div>
