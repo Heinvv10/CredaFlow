@@ -15,8 +15,9 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Four stacked PRs are open, none merged** (merge in order; each is based on
-the previous one's branch):
+**Four stacked PRs, none merged** (merge in order; each is based on the
+previous one's branch). #1–#3 are open with CI green; #4 is opened together
+with this handoff — its CI result is on the PR.
 
 | PR | Branch | What |
 |---|---|---|
@@ -36,7 +37,11 @@ the previous one's branch):
 - **No deploy path.** No production or staging environment exists; hosting is
   an open decision.
 
-## Verification (at #4's head, all PRs' CI green on GitHub)
+## Verification (local, at #4's head)
+
+CI runs only `integration-tests`, `agent-docs` and `date-boundaries`; there is
+no CI job for typecheck, lint, unit tests or the build, so those are local
+results.
 
 - `npx tsc --noEmit` 0; `npm run lint` 0 errors, 13 warnings; `npx vitest run`
   no failures (load flakes under a full parallel run, green alone:
@@ -67,7 +72,11 @@ the previous one's branch):
   approves the rendered NCA documents and the website's legal pages. Render
   hashes are pinned in tests; a pin proves the render has not moved, not that
   it is approved.
-- **`section129_email`** is not seeded: the S129 email path refuses until a
+- **Section 129 email:** by default (`MESSAGING_NEW_SEND_S129` unset) the
+  S129 routes send the cover email from the code template
+  `lib/email/templates/section129.ts`, whose wording no client's legal team has
+  reviewed. With the flag on, they use the tenant's `section129_email`
+  `MessageTemplate` instead — which is not seeded, so that path refuses until a
   tenant creates its own legally approved template.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
