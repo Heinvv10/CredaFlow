@@ -39,13 +39,15 @@ SHIP/CLEAN on its final commit.
 | #18 | `fix/loan-product-bounds` → #17 | The loan product API (create and update) refuses a non-numeric, non-positive or over-int4 amount or term, or a minimum above the maximum (422, nothing written); no policy cap on amount or term |
 | #19 | `fix/application-amount-check` → #18 | New migration `20261010120000_application_amount_positive`: validated CHECK `LoanApplication_appliedAmount_positive` (`appliedAmount > 0`); real-PG suite `RUN_APPLICATION_AMOUNT_CHECK_IT` |
 | #20 | `feat/term-starts-empty` → #19 | The portal apply form and the CRM convert form start the term empty for variable-term products (like the staff wizard); submit stays disabled until a valid term is entered |
+| #21 | `fix/credit-life-guards` → #20 | New migration `20261010180000_attach_credit_life_guards`: the 15 bundled credit-life triggers re-attached as upstream defined them, and `assertDisbursedCreditLifeCoverage` leaves loans on DRAFT/SUBMITTED/UNDER_REVIEW applications out of the commit invariant (owner decisions D1–D3). `credit-life-containment-migration` revived on the PASQ v3 fixture; the register is empty. A CREDIT_LIFE product needs premium and cover above zero (product API 422, offer selector skips it); the policy PATCH answers 422 instead of 500 for a bundled credit-life policy's premium or renewal date |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
 
 - **Schema:** baseline + `20261009120000_neutral_tenant_palette` +
   `20261009150000_remove_outage_disbursement_exception` (with #3) +
-  `20261010120000_application_amount_positive` (with #19).
+  `20261010120000_application_amount_positive` (with #19) +
+  `20261010180000_attach_credit_life_guards` (with #21).
   `prisma migrate diff` migrations → schema is empty.
 - **Seed:** neutral demo tenant "Acme". Demo passwords are generated on first
   creation or set by `SEED_ADMIN_PASSWORD` / `SEED_OFFICER_PASSWORD` /
@@ -66,39 +68,30 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 - `npm run build` OK
 - `dates:check`, `test:tz`, `claude-md:check` and `agents:check` OK
 - the identity-boundary test passes
-- Integration (`scripts/run-integration-tests.sh`): 87 gated suites pass, 1 in
-  `scripts/integration-baseline.txt`.
+- Integration (`scripts/run-integration-tests.sh`): 89 gated suites, 88 pass
+  and the OCR accuracy suite skips (it needs `RUN_VLM_ACCURACY` and a VLM);
+  `scripts/integration-baseline.txt` is empty (with #21).
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
-3. Decide the last register suite, `credit-life-containment-migration` (see
-   "Open questions").
-4. Decide hosting and add a deploy path with its own gates. The deployment must
+3. Decide hosting and add a deploy path with its own gates. The deployment must
    schedule the externally owned cron routes (`instrumentation.cron-census.test.ts`
    lists them); nothing in this repo does.
 
 ## Open questions (owner: Hein)
 
-- **Credit-life containment suite.** It cannot be revived on the PASQ v3 fixture
-  without owner decisions:
-  - **Guards not attached.** The bundled credit-life guard functions it tests
-    exist in the baseline migration but are attached to no trigger:
-    `guardBundledCreditLifeAgreement`, `guardCreditLifeProductIdentity`,
-    `assertDisbursedCreditLifeCommitInvariant` and related. Most of its
-    expected rejections never fire, so the first decision is whether to
-    reattach them (a DB-guard migration).
-  - **Pre-empted by earlier guards.** With them reattached, some expectations
-    are still pre-empted by earlier guards: the signed-evidence rewrite, the
-    agreement-sha change, the document retirement and product `active:false`.
-  - **Cannot arrange.** The missing and malformed election scenarios can't be
-    set up, because completed agreement artifacts are immutable.
-  - **Weakened race.** One race assertion now rejects at an earlier step.
-
-  The full per-assertion table is in PR #8's description.
+- **Credit-life guards (#21).** The triggers have never run against a real
+  credit-life product and insurer: disburse one by hand on a seeded database
+  before any client goes live. The premium rounding in
+  `lib/insurance/credit-life-election.ts` against the database's
+  `ROUND(principal/100 × 0.0045, 2)` is a separate PR. The offer selector now skips a product without positive
+  terms, but the approval guard's no-offer check does not, so such a product
+  (only writable outside the API) makes approval refuse with "cover became
+  available" rather than offer nothing.
 - **Legal sign-off before any client goes live:** each client's legal team
   approves the rendered NCA documents and the website's legal pages. Render
   hashes are pinned in tests; a pin proves the render has not moved, not that
