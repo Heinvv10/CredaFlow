@@ -38,6 +38,49 @@ export const fingerprintInput = {
 
 export const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
 
+// Schedule-length boundaries, pinned in lib/pdf/schedule-continuation.test.ts:
+// the longest tables that fitted one page before continuation pages existed
+// (38 agreement rows, 37 statement schedule rows, 38 payment-history rows).
+export const boundaryStartDate = new Date("2026-07-22T08:00:00.000Z")
+
+/** calculateLoan input for an `instalments`-month reducing-balance loan. */
+export const boundaryLoanInput = (instalments: number) => ({
+  principal: 10_000_000, termDays: instalments * 30, interestRatePm: 0.03,
+  interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.165,
+  initiationFeeMax: 108_000, monthlyServiceFee: 6900, productType: "MICRO", initiationFeePayment: "DEFERRED" as const,
+})
+
+/** generateCreditAgreementPdf input for a calc from boundaryLoanInput. */
+export function boundaryAgreementInput<C extends { schedule: Array<{ dueDate: Date }> }>(variant: "pasq" | "agreement", calc: C) {
+  return {
+    variant, lender: fingerprintInput.lender, calc,
+    client: { firstName: "Thandi", lastName: "Mthembu", idNumber: "9401010000080", addressLine1: "1 Fixture Street", city: "Johannesburg" },
+    application: { reference: "APP-FIXTURE-0001", agreementType: "Personal Loan", appliedTermDays: calc.schedule.length * 30 },
+    product: { interestRatePm: 0.03, interestModel: "REDUCING_BALANCE", monthlyServiceFee: 6900 },
+    startDate: boundaryStartDate, maturityDate: calc.schedule[calc.schedule.length - 1].dueDate,
+    quotePresentedAt: boundaryStartDate, quoteValidUntilDate: "2026-07-29",
+    initiationFeePayment: "DEFERRED" as const, ceremonyMarker: "0123456789ab",
+  }
+}
+
+/** generateStatementPdf input with `rows` schedule rows and `paid` payments. */
+export function boundaryStatementInput(rows: number, paid: number) {
+  const month = (i: number) => new Date(Date.UTC(2026, 7 + i, 1, 8))
+  const schedule = Array.from({ length: rows }, (_, i) => ({
+    installmentNo: i + 1, dueDate: month(i), totalDue: 350_000,
+    totalPaid: i < paid ? 350_000 : 0, status: i < paid ? "PAID" : "PENDING",
+  }))
+  const payments = Array.from({ length: paid }, (_, i) => ({
+    createdAt: month(i), receivedAt: month(i), amount: 350_000 + i, paymentMethod: "EFT",
+    reference: `FNB-${1000 + i}`, allocationStatus: "ALLOCATED" as const,
+  }))
+  return {
+    lender: fingerprintInput.lender, client: { ...fingerprintInput.client, email: "fixture@example.invalid" },
+    loan: { ...fingerprintInput.statementLoan, principal: 10_000_000, totalRepayable: rows * 350_000, status: "ACTIVE", daysInArrears: 0, arrearsAmount: 0 },
+    product: { name: "Personal Loan" }, schedule, payments, statementDate: fingerprintInput.asAt,
+  }
+}
+
 async function main() {
   const root = process.argv[2]
   const RealDate = Date
@@ -58,7 +101,16 @@ async function main() {
     lender, client: { ...client, email: "fixture@example.invalid" }, loan: statementLoan, product: { name: "Micro Loan" },
     schedule: statementSchedule, payments: statementPayments, statementDate: asAt,
   })
-  process.stdout.write(JSON.stringify({ s129: sha256(s129), cob: sha256(cob), statement: sha256(statement) }) + "\n")
+  const { calculateLoan } = await import(join(root, "lib/loan-calculator.ts"))
+  const { generateCreditAgreementPdf } = await import(join(root, "lib/pdf/creditAgreement.ts"))
+  const calc38 = calculateLoan(boundaryLoanInput(38), boundaryStartDate)
+  const agreement38 = await generateCreditAgreementPdf(boundaryAgreementInput("agreement", calc38))
+  const pasq38 = await generateCreditAgreementPdf(boundaryAgreementInput("pasq", calc38))
+  const statement37 = await generateStatementPdf(boundaryStatementInput(37, 38))
+  process.stdout.write(JSON.stringify({
+    s129: sha256(s129), cob: sha256(cob), statement: sha256(statement),
+    agreement38: sha256(agreement38), pasq38: sha256(pasq38), statement37: sha256(statement37),
+  }) + "\n")
 }
 
 if (process.argv[1]?.endsWith("nca-pdf-fingerprint.ts")) {
