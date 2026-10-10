@@ -9,9 +9,11 @@
 # to the sim network stops compose from removing it (fresh-stack.sh does this).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-NAME=credaflow-demo-sim-smtp
-NETWORK=credaflow-demo-sim_default
+# shellcheck source=scripts/demo/lib.sh
+. "$(dirname "$0")/../lib.sh"
+ROOT="$DEMO_ROOT"
+NAME="$SIM_SMTP"
+NETWORK="$SIM_NETWORK"
 IMAGE=node:22-bookworm-slim
 MAIL_DIR="$ROOT/scripts/demo/.out/sim-mail"
 

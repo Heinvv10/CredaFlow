@@ -11,6 +11,9 @@
  *     (GET/POST /api/settings/totp) on first sign-in, as the UI forces.
  *   - Settings → Attorneys (POST /api/settings/attorneys): the panel firm an
  *     account is handed to after a Section 129 notice.
+ *   - Settings → Bank Statement Import (PATCH /api/settings/bank-sync, ADMIN
+ *     with a TOTP-verified session): on, so the weekly statement goes through
+ *     Payments → Bank reconciliation (servicing/bank-statement.ts).
  *
  * The collections manager's credentials are generated here and kept in
  * scripts/demo/.sim-staff.json (chmod 600, untracked), tagged with the user
@@ -123,10 +126,19 @@ async function ensureAttorneyFirm(ctx: OriginationContext): Promise<void> {
   log(`Settings → Attorneys: ${ATTORNEY_FIRM}`)
 }
 
+async function ensureBankSync(ctx: OriginationContext): Promise<void> {
+  const current = (await ctx.admin.get<{ bankSyncEnabled: boolean }>("/api/settings/bank-sync")).json
+  if (current?.bankSyncEnabled === true) return
+  const res = await ctx.admin.patch<{ ok: boolean; bankSyncEnabled: boolean }>("/api/settings/bank-sync", { bankSyncEnabled: true })
+  if (res.json?.bankSyncEnabled !== true) throw new Error(`PATCH /api/settings/bank-sync did not enable it: ${res.text.slice(0, 300)}`)
+  log("Settings → Bank Statement Import: on")
+}
+
 export async function ensureServicingSetup(ctx: OriginationContext): Promise<Actors> {
   await ensureStaffSessions(ctx)
   await ensureEmailConfig(ctx)
   await ensureAttorneyFirm(ctx)
+  await ensureBankSync(ctx)
   const loanAdminCreds = await ensureLoanAdmin(ctx)
   return { ...ctx, loanAdmin: new SimClient(), loanAdminCreds }
 }

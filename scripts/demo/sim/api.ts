@@ -38,6 +38,16 @@ export class ApiError extends Error {
   }
 }
 
+/** JSON.parse of a response body; a malformed body throws naming the request, not a bare SyntaxError. */
+export function parseJsonBody<T>(method: string, path: string, status: number, text: string): T {
+  try {
+    return JSON.parse(text) as T
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err)
+    throw new Error(`${method} ${path} → ${status}: malformed JSON body (${why}): ${text.slice(0, 300)}`)
+  }
+}
+
 export interface RequestOptions {
   /** Statuses that count as success; anything else throws ApiError. */
   expect?: readonly number[]
@@ -80,7 +90,7 @@ export class SimClient {
     const bytes = new Uint8Array(await res.arrayBuffer())
     const text = new TextDecoder().decode(bytes)
     const isJson = (res.headers.get("content-type") ?? "").includes("application/json")
-    const json = isJson && text ? (JSON.parse(text) as T) : null
+    const json = isJson && text ? parseJsonBody<T>(method, path, res.status, text) : null
 
     const expected = opts.expect ?? (method === "POST" ? [200, 201] : [200])
     if (!expected.includes(res.status)) throw new ApiError(method, path, res.status, text)

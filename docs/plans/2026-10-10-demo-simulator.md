@@ -66,7 +66,8 @@ scripts/demo/
   bake.sh               sim stack up → migrate → base seed → simulate → snapshot
   restore.sh            snapshot → live demo DB + uploads volume → restart app
 docker-compose.demo-sim.yml   db + app under faketime, no public ingress
-demo-kit/<persona>/     the files to upload live + a one-page cheat sheet
+~/credaflow-demo-data/kits/<as-of>/<persona>/   (outside git; kits/build.ts)
+                        the files to upload live + a one-page cheat sheet
 ```
 
 App change (small, product code): `DEMO_MODE=true` renders a persistent
@@ -81,7 +82,7 @@ App change (small, product code): `DEMO_MODE=true` renders a persistent
 | T3 | Origination scenario: one persona API-driven to DISBURSED | T1, T2 | loan exists; PASQ, agreement, executed agreement, mandate docs stored with valid SHA-256; no non-2xx on success steps |
 | T4 | Servicing: receipts, bank-sync CSV, day-stepped crons, arrears, S129, payment plan, settlement, write-off | T3 | each target state reached; `assert_payment_allocation_reconciles` holds |
 | T5 | Breadth: CRM, insurance, complaints, DSAR, bureau submissions, referral agents | T3 | each module's list page non-empty, no 500s |
-| T6 | Bake + restore + nightly restore / monthly bake | T4 | restore < 30 s; app healthy after restore |
+| T6 | Bake + restore + nightly restore / monthly bake | T4 | restore < 60 s; app healthy after restore; a failed restore leaves the previous data live |
 | T7 | DEMO_MODE banner + noindex; VLM wired into demo env | — | banner visible on both hosts; `X-Robots-Tag`/meta noindex present |
 | T8 | Live-demo kits (3 personas) + dress rehearsal on localhost | T2, T6 | each persona runs the full origination path after a restore |
 
@@ -116,3 +117,5 @@ Functional:
 - `bankSyncEnabled` had no setting (added on this branch: Settings → Bank Statement Import).
 - `/app/uploads` was root-owned in the image (fixed on this branch in `Dockerfile`).
 - FAIS disclosure tokens are signed with `NEXTAUTH_SECRET`, not `AUTH_SECRET`; a deployment with only `AUTH_SECRET` 500s on standalone insurance sales.
+- Agreement generation can overrun Prisma's 5 s interactive-transaction limit on a loaded host (the route cleans up and reports `agreementIntegrity: staging_failed`); the simulator retries once.
+- `ClientOtp` has no `tenantId` and no `purpose`: fix before any shared-database phase.

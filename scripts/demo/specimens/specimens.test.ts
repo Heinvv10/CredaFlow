@@ -105,7 +105,9 @@ describe('ID card photo', () => {
     expect(svg).not.toContain('NO PHOTOGRAPH')
   })
 
-  it('prints the photo on live-demo personas only', async () => {
+  // Renders four full specimen sets (ID card, three payslips, a statement
+  // each): ~5 s on an idle box, so the 5 s default fails it under any load.
+  it('prints the photo on live-demo personas only', { timeout: 60_000 }, async () => {
     const photo = await fakePhoto()
     const sha = async (id: string, withPhoto: boolean) =>
       (await generateSpecimens(getPersona(id), '2026-10-10', scratch(), withPhoto ? { presenterPhoto: photo } : {})).documents[0]!.sha256

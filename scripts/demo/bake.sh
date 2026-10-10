@@ -42,20 +42,17 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 work="$SNAP_DIR/.partial-$stamp"
 rm -rf "$SNAP_DIR"/.partial-*
 (umask 077; mkdir "$work")
-# On failure keep the two reports (never the credentials) next to the logs.
+# On failure keep the two reports (never the credentials) next to the logs,
+# and record the failure for status.sh.
 keep_reports() {
-  local f
+  local rc=$? f
   for f in simulate-report.txt verify-pages.txt; do
     [ -e "$work/$f" ] && { mkdir -p "$LOG_DIR"; cp "$work/$f" "$LOG_DIR/bake-$stamp-$f"; }
   done
   rm -rf "$work"
+  record_result bake "failed (exit $rc) bake $stamp from $start on $image; latest unchanged"
 }
 trap keep_reports EXIT
-
-sim_sql() {
-  docker exec -e SQL="$1" credaflow-demo-sim-db \
-    sh -c 'psql -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$SQL"'
-}
 
 # The sim migrates and seeds from this worktree's prisma/, so it must carry
 # exactly the migrations baked into the image the snapshot will run on.
@@ -66,7 +63,7 @@ image_migrations="$(docker run --rm --entrypoint ls "$image" /app/prisma/migrati
 ensure_shared_secrets
 export SIM_BASE_IMAGE="$image"
 note "sim image on $image"
-docker-compose -f docker-compose.demo-sim.yml --env-file .env.demo-sim build app >&2
+sim_compose build app >&2
 
 note "fresh sim stack from $start"
 scripts/demo/sim/fresh-stack.sh "${start}T07:30:00+02:00"
@@ -87,9 +84,9 @@ npx tsx scripts/demo/sim/verify-pages.ts > "$work/verify-pages.txt" \
   || { grep -v '^200 ok' "$work/verify-pages.txt" >&2 || true; die "verify-pages failed"; }
 
 note "snapshot"
-docker exec credaflow-demo-sim-db \
+docker exec "$SIM_DB" \
   sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' > "$work/db.dump"
-docker exec credaflow-demo-sim-app tar -czf - -C /app/uploads . > "$work/uploads.tar.gz"
+docker exec "$SIM_APP" tar -czf - -C /app/uploads . > "$work/uploads.tar.gz"
 upload_files="$(tar -tzf "$work/uploads.tar.gz" | grep -vc '/$' || true)"
 # The seed's TOTP secrets are fresh per bake: these are the staff logins that
 # work on the live demo after this snapshot is restored.
@@ -97,19 +94,12 @@ cp scripts/demo/.sim-credentials.txt scripts/demo/.sim-staff.json scripts/demo/.
 
 tenant_id="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = 'acme'")"
 [ -n "$tenant_id" ] || die "no acme tenant in the sim database"
-counts="$(sim_sql "SELECT json_build_object(
-  'loans', (SELECT count(*) FROM \"Loan\"),
-  'applications', (SELECT count(*) FROM \"LoanApplication\"),
-  'clients', (SELECT count(*) FROM \"Client\"),
-  'users', (SELECT count(*) FROM \"User\"),
-  'payments', (SELECT count(*) FROM \"Payment\"),
-  'clientDocuments', (SELECT count(*) FROM \"ClientDocument\"),
-  'insurancePolicies', (SELECT count(*) FROM \"InsurancePolicy\"))")"
+counts="$(sim_sql "$SNAPSHOT_COUNTS_SQL")"
 
 jq -n \
   --arg stamp "$stamp" --arg startedAt "$started_at" --arg finishedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg image "$image" --arg imageId "$(docker image inspect -f '{{.Id}}' "$image")" \
-  --arg simImageId "$(docker image inspect -f '{{.Id}}' credaflow:demo-sim)" \
+  --arg simImageId "$(docker image inspect -f '{{.Id}}' "$SIM_IMAGE")" \
   --arg worktreeTag "$(worktree_tag)" \
   --arg simStart "$(jq -r .start scripts/demo/.sim-state.json)" \
   --arg simUntil "$(jq -r .until scripts/demo/.sim-state.json)" \
@@ -125,6 +115,7 @@ jq -n \
 mv "$work" "$SNAP_DIR/$stamp"
 trap - EXIT
 ln -sfn "$stamp" "$SNAP_DIR/latest"
+record_result bake "ok $stamp from $start on $image"
 
 # Keep the newest 4 (timestamp names sort chronologically).
 find "$SNAP_DIR" -mindepth 1 -maxdepth 1 -type d -name '20*Z' -printf '%f\n' | sort | head -n -4 \

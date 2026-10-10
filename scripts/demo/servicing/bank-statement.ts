@@ -2,25 +2,26 @@
  * The lender's own bank statement (ABSA CSV export: Date, Description, Amount,
  * Balance), imported weekly on Payments → Bank reconciliation the way staff do
  * it: the StatementUpload form calls the `uploadStatementAction` Server
- * Action, then each proposed match is confirmed with `confirmMatchAction`.
+ * Action, then each line is reconciled from the review queue: a line the
+ * matcher proposed for the right loan is confirmed (`confirmMatchAction`); a
+ * line it left unmatched, or proposed for another loan, is assigned to the
+ * right loan (`reassignMatchAction`, the queue's loan picker).
  *
  * EFT repayments appear as credits naming the payer's bank, account number
  * and name (the persona's real-looking banking details), with or without the
  * loan reference — the matcher's EXACT and HEURISTIC tiers respectively. A
  * bank fee debit keeps it looking like a statement rather than a list of
- * repayments.
+ * repayments; it stays in the queue, as a debit does in a real one.
  *
- * If the product refuses the import (TenantConfig.bankSyncEnabled is off and
- * no Settings screen or API turns it on), staff fall back to what they do
- * without bank sync: capture each EFT credit from the statement by hand,
- * value-dated to the statement line. The refusal is logged, not hidden.
+ * Bank sync is switched on in servicing/setup.ts (Settings → Bank Statement
+ * Import), so a refused upload is a failure, not a fallback.
  */
+import type { UploadStatementResult } from "../../../app/(dashboard)/payments/bank-reconciliation/actions"
 import { bankDef } from "../personas/catalog"
 import type { Persona } from "../personas"
 import type { SimClient } from "../sim/api"
 import { log } from "../sim/env"
-import { proposedMatches } from "./loan-read"
-import { recordReceipt } from "./payments"
+import { statementLines } from "./loan-read"
 import { callAction, callFormAction } from "./server-action"
 
 const PAGE = "/payments/bank-reconciliation"
@@ -37,17 +38,14 @@ export interface EftCredit {
   eventId: string
 }
 
-type UploadResult =
-  | { ok: true; importId: string; lineCount: number; newTxnCount: number; autoApplied: number; deduplicated: boolean }
-  | { ok: false; error: string }
-
-const BANK_SYNC_DISABLED = "Bank sync is not enabled for this tenant."
-
 export interface ImportOutcome {
-  imported: boolean
+  lines: number
+  /** Proposed for the right loan; confirmed. */
   confirmed: number
-  capturedByHand: number
-  leftForReview: number
+  /** Unmatched or proposed for another loan; assigned to the right one. */
+  assigned: number
+  /** Already reconciled (a re-upload after --resume). */
+  alreadyMatched: number
 }
 
 function describe(c: EftCredit): string {
@@ -82,40 +80,27 @@ export async function importStatement(
 ): Promise<ImportOutcome> {
   const form = new FormData()
   form.set("file", new File([csv], `absa-statement-${importDay}.csv`, { type: "text/csv" }))
-  const result = await callFormAction<UploadResult>(officer, "uploadStatementAction", PAGE, form)
-  const outcome: ImportOutcome = { imported: false, confirmed: 0, capturedByHand: 0, leftForReview: 0 }
+  const result = await callFormAction<UploadStatementResult>(officer, "uploadStatementAction", PAGE, form)
+  if (!result.ok) throw new Error(`statement ${importDay} refused: ${result.error}`)
+  log(`statement ${importDay}: ${result.lineCount} lines, ${result.newTxnCount} new, ${result.autoApplied} auto-applied${result.deduplicated ? " (already imported)" : ""}`)
 
-  if (!result.ok) {
-    if (result.error !== BANK_SYNC_DISABLED) throw new Error(`statement ${importDay} refused: ${result.error}`)
-    log(`statement ${importDay}: import refused ("${result.error}"); capturing ${credits.length} EFT credit(s) by hand`)
-    for (const c of credits) {
-      await recordReceipt(officer, {
-        loanId: c.loanId,
-        amountCents: c.amountCents,
-        method: "EFT",
-        reference: describe(c).slice(0, 80),
-        notes: `Captured from bank statement of ${importDay}`,
-        receivedDay: c.day < importDay ? c.day : undefined,
-        idempotencyKey: `sim-eft-${c.eventId}`,
-      })
-      outcome.capturedByHand++
-    }
-    return outcome
-  }
-
-  outcome.imported = true
-  log(`statement ${importDay}: ${result.lineCount} lines, ${result.newTxnCount} new, ${result.autoApplied} auto-applied`)
-  const proposals = await proposedMatches(result.importId)
+  const lines = await statementLines(result.importId)
+  const outcome: ImportOutcome = { lines: lines.length, confirmed: 0, assigned: 0, alreadyMatched: 0 }
   for (const c of credits) {
-    const hit = proposals.find((m) => m.loanId === c.loanId && m.amountCents === c.amountCents && m.postedDay === c.day)
-    if (!hit) {
-      outcome.leftForReview++
-      continue
+    const description = describe(c)
+    const line = lines.find((l) => l.description === description && l.amountCents === c.amountCents && l.postedDay === c.day)
+    if (!line) throw new Error(`statement ${importDay}: no imported line "${description}" ${money(c.amountCents)} on ${c.day}`)
+    if (line.matchStatus === "MATCHED" && line.matchedLoanId === c.loanId) {
+      outcome.alreadyMatched++
+    } else if (line.matchStatus === "PROPOSED" && line.matchedLoanId === c.loanId) {
+      await callAction<undefined>(officer, "confirmMatchAction", PAGE, [line.txnId, c.loanId])
+      outcome.confirmed++
+    } else if (line.matchStatus === "PROPOSED" || line.matchStatus === "UNMATCHED") {
+      await callAction<undefined>(officer, "reassignMatchAction", PAGE, [line.txnId, c.loanId])
+      outcome.assigned++
+    } else {
+      throw new Error(`statement ${importDay}: line ${line.txnId} is ${line.matchStatus} (loan ${line.matchedLoanId ?? "none"}), not open for ${c.loanRef}`)
     }
-    await callAction<undefined>(officer, "confirmMatchAction", PAGE, [hit.txnId, hit.loanId])
-    proposals.splice(proposals.indexOf(hit), 1)
-    outcome.confirmed++
   }
-  if (outcome.leftForReview > 0) log(`statement ${importDay}: ${outcome.leftForReview} credit(s) left in the review queue`)
   return outcome
 }

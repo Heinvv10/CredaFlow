@@ -1,0 +1,12 @@
+// The demo simulator is typechecked on its own (npm run demo:typecheck) and is
+// excluded from the root tsconfig, so a simulator type error can never fail a
+// lender's `next build`.
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["**/*.ts"],
+  "exclude": [".out"]
+}

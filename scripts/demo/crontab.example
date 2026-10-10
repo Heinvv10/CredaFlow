@@ -1,0 +1,25 @@
+# CredaFlow public demo: the two scheduled jobs (cron-run.sh). Install into
+# the crontab of the user that owns the demo data dir and can run docker.
+# The times assume the box clock is SAST (cron runs local time).
+#
+# Replace before installing:
+#   <WORKTREE>  absolute path of the demo/simulator worktree (holds scripts/demo)
+#   <NODE_DIR>  the directory holding node and npx, resolved once now:
+#                 dirname "$(command -v node)"      # e.g. /usr/bin
+#               cron's PATH does not include an nvm/fnm/volta install;
+#               cron-run.sh puts DEMO_NODE_DIR first on its PATH and refuses
+#               (exit 127, LAST_FAILURE) if node/npx/docker-compose are missing.
+#
+# Results: $DEMO_DATA_DIR/logs/ (default ~/credaflow-demo-data/logs/), and
+#   <WORKTREE>/scripts/demo/status.sh
+# which prints the snapshot age, image match, last bake/restore and any
+# LAST_FAILURE. No notification is sent on failure: wire status.sh into a
+# monitor if one is wanted.
+
+# Nightly 02:30: restore the latest baked snapshot into the live demo stack.
+30 2 * * * DEMO_NODE_DIR=<NODE_DIR> <WORKTREE>/scripts/demo/cron-run.sh restore
+
+# First Sunday of the month 02:00: throttled bake of six months of history,
+# then restore. cron ORs day-of-month with day-of-week, so the line fires on
+# days 1-7 and cron-run.sh exits at once unless the day is a Sunday.
+0 2 1-7 * * DEMO_NODE_DIR=<NODE_DIR> <WORKTREE>/scripts/demo/cron-run.sh bake --first-sunday

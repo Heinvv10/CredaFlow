@@ -28,7 +28,10 @@ npx tsx scripts/demo/sim/smoke.ts   # optional: leaves the clock at +30 days
 `fresh-stack.sh` = `down -v` → clock → `up` → chown the uploads volume →
 `prisma migrate deploy` → `seed-faked.sh` (the base seed under the fake clock,
 in a throwaway container) → rewrite `DEBIT_MANDATE_CREDITOR_TENANT_ID` to the
-new tenant id → recreate the app.
+new tenant id → recreate the app. Every compose call is pinned to the sim
+project (`sim_compose` in `scripts/demo/lib.sh`, `-p credaflow-demo-sim`), and
+it refuses a `SIM_HOST_DATABASE_URL` that is not `127.0.0.1:5456`. All Docker
+names (live and sim) are constants in `lib.sh`.
 
 The network is pinned to 172.16.120.0/24 because the host firewall only lets
 172.16.0.0/12 Docker networks reach the VLM on :8100.
@@ -58,10 +61,12 @@ it ends in its storyline's state; the report at the end checks every storyline,
 `assert_payment_allocation_reconciles()` and `check-dates`. State is saved after
 every event in `scripts/demo/.sim-state.json`; `--resume` continues a crashed run.
 
-- **Bank sync cannot be switched on through the product** (`TenantConfig.
-  bankSyncEnabled`, no Settings field or API). The statement upload is still
-  made every week through the page's Server Action; when it is refused, staff
-  capture the statement's EFT credits by hand (`servicing/bank-statement.ts`).
+- **Bank sync** is switched on in the servicing setup through Settings → Bank
+  Statement Import (`PATCH /api/settings/bank-sync`, the TOTP-verified admin).
+  Each statement is uploaded through the page's Server Action and every EFT
+  credit reconciled from the review queue: confirmed when the matcher proposed
+  the right loan, otherwise assigned to it (`servicing/bank-statement.ts`). A
+  refused upload fails the event; there is no hand-capture fallback.
 - **Outbound email** goes to `smtp-sink.sh` (container `credaflow-demo-sim-smtp`,
   mail filed under `scripts/demo/.out/sim-mail/`), configured through Settings →
   Email; a Section 129 notice is only issued when the provider accepts it. The
@@ -134,21 +139,36 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   `latest` moved only when every check passed; the newest 4 are kept. It
   refuses to run when this worktree's `prisma/migrations` differ from the
   image's (the sim migrates and seeds from the worktree).
-- **restore.sh**: refuses a snapshot baked on another image than the live
-  staff container runs. Stops app + portal (never the tunnel), drops and
-  recreates the database inside the db container, `pg_restore`s, replaces the
-  uploads volume (owned by the image's `nextjs:nodejs`), writes the snapshot's
-  tenant id to `DEBIT_MANDATE_CREDITOR_TENANT_ID` in the live `.env.production`,
-  `up -d` app + portal and waits for `/api/health` on :3310 and :3312.
+- **restore.sh**: refuses, before touching anything, a target whose app,
+  portal and db are not in compose project `credaflow-demo` started from
+  `LIVE_DIR`, or whose app/portal lack `DEMO_MODE=true`; and a snapshot baked
+  on another image than the live staff container runs. While the demo keeps
+  serving it `pg_restore`s into `<db>_restore_<ts>` (row counts checked against
+  `meta.json`) and unpacks the uploads into `.restore-<ts>` in the volume (file
+  count checked). Then: stop app + portal (never the tunnel) → rename the live
+  db to `<db>_old_<ts>` and the staged one into place (one transaction) → swap
+  the uploads (old ones to `.old-<ts>`) → tenant id into
+  `DEBIT_MANDATE_CREDITOR_TENANT_ID` in the live `.env.production` → `up -d`
+  app + portal → `/api/health` on both. The old db and uploads are dropped
+  only once both answer; any failure after the stop renames them back and
+  restarts app + portal. Measured on a throwaway copy of the live stack:
+  14–24 s, ~6 s of it down.
 - **Moving live to a new build**: `build-image.sh`, set `APP_IMAGE`, `GIT_SHA`,
   `BUILD_TIME` in the live `.env`, `docker-compose -f docker-compose.demo.yml up
   -d --no-deps app app-portal`, then `bake.sh && restore.sh`.
-- **Schedules** (crontab of hein, box clock is SAST): `cron-run.sh restore`
-  nightly 02:30; `cron-run.sh bake --first-sunday` (bake, then restore) at
-  02:00 on the first Sunday of the month (`0 2 1-7 * *` + the weekday check in
-  `cron-run.sh`). Jobs share `cron-run.lock`, so that night's restore waits for
-  the bake. Logs: `logs/<job>-<stamp>.log`, newest 14 kept; a failed bake also
-  leaves its simulate/verify-pages reports there.
+- **Schedules** (`scripts/demo/crontab.example`, box clock is SAST):
+  `cron-run.sh restore` nightly 02:30; `cron-run.sh bake --first-sunday`
+  (bake, then restore) at 02:00 on the first Sunday of the month
+  (`0 2 1-7 * *` + the weekday check in `cron-run.sh`). Jobs share
+  `cron-run.lock`, so that night's restore waits for the bake. Logs:
+  `logs/<job>-<stamp>.log`, newest 14 kept; a failed bake also leaves its
+  simulate/verify-pages reports there.
+- **Failures**: a failed job writes `logs/LAST_FAILURE` (time, job, exit code,
+  log), removed by the next success of the same job; bake and restore record
+  their last outcome in `logs/last-bake` / `logs/last-restore`.
+  `scripts/demo/status.sh` prints these with the snapshot's age and whether its
+  image matches live (exit 1 when something needs attention). Nothing is sent
+  anywhere; no notification channel is configured.
 - **VLM pacing** (`sim/vlm-gate.ts`): the VLM is shared with FibreFlow
   production, so the bake has at most one extraction in flight, uploads the
   next document only after the previous one's extraction settled, pauses

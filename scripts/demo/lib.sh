@@ -5,7 +5,13 @@
 #                  secrets.env  the shared secrets (ensure_shared_secrets, 0600)
 #                  snapshots/   bake output, one dir per UTC timestamp + `latest`
 #                  logs/        cron logs (cron-run.sh)
-#   LIVE_DIR       the live demo's compose project; default ~/Workspace/CredaFlow-demo
+#                  logs/LAST_FAILURE, last-bake, last-restore  results (status.sh)
+#   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
+#
+# Every Docker name the demo scripts touch is defined once, below. The live
+# project name can be overridden (DEMO_LIVE_PROJECT) only to point restore.sh
+# at a throwaway copy of the live stack for testing; restore.sh still refuses
+# any target that is not a DEMO_MODE=true stack of that project in $LIVE_DIR.
 #
 # Nothing here prints a secret value: env files are read key by key into shell
 # variables (env_get) and handed to containers by name, never echoed.
@@ -16,10 +22,37 @@ LIVE_DIR="${LIVE_DIR:-$HOME/Workspace/CredaFlow-demo}"
 SHARED_SECRETS="$DEMO_DATA_DIR/secrets.env"
 SNAP_DIR="$DEMO_DATA_DIR/snapshots"
 LOG_DIR="$DEMO_DATA_DIR/logs"
-LIVE_APP=credaflow-demo-app
-LIVE_PORTAL=credaflow-demo-portal
-LIVE_DB=credaflow-demo-db
 export DEMO_DATA_DIR
+
+# The live demo stack (docker-compose.demo.yml in $LIVE_DIR).
+LIVE_PROJECT="${DEMO_LIVE_PROJECT:-credaflow-demo}"
+LIVE_COMPOSE_FILE=docker-compose.demo.yml
+LIVE_APP="$LIVE_PROJECT-app"
+LIVE_PORTAL="$LIVE_PROJECT-portal"
+LIVE_DB="$LIVE_PROJECT-db"
+
+# The simulator stack (docker-compose.demo-sim.yml in this worktree).
+SIM_PROJECT=credaflow-demo-sim
+SIM_APP="$SIM_PROJECT-app"
+SIM_DB="$SIM_PROJECT-db"
+SIM_SMTP="$SIM_PROJECT-smtp"
+SIM_NETWORK="${SIM_PROJECT}_default"
+SIM_IMAGE=credaflow:demo-sim
+# Where SIM_HOST_DATABASE_URL must point (the sim db's published port).
+SIM_DB_HOST_PORT=127.0.0.1:5456
+
+# The row counts a snapshot records (bake.sh) and a restore verifies (restore.sh).
+SNAPSHOT_COUNTS_SQL="$(cat <<'SQL'
+SELECT json_build_object(
+  'loans', (SELECT count(*) FROM "Loan"),
+  'applications', (SELECT count(*) FROM "LoanApplication"),
+  'clients', (SELECT count(*) FROM "Client"),
+  'users', (SELECT count(*) FROM "User"),
+  'payments', (SELECT count(*) FROM "Payment"),
+  'clientDocuments', (SELECT count(*) FROM "ClientDocument"),
+  'insurancePolicies', (SELECT count(*) FROM "InsurancePolicy"))
+SQL
+)"
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 note() { echo "[${0##*/} $(date -u +%H:%M:%S)] $*" >&2; }
@@ -42,6 +75,26 @@ env_set() {
 # The image the live staff container runs (the snapshot must match it).
 live_image() {
   docker inspect -f '{{.Config.Image}}' "$LIVE_APP" 2>/dev/null || die "$LIVE_APP not found"
+}
+
+# sim_compose ARGS… — docker-compose on the sim project, pinned by -p so a
+# COMPOSE_PROJECT_NAME in the environment cannot redirect it (`down -v`!).
+sim_compose() {
+  docker-compose -p "$SIM_PROJECT" -f "$DEMO_ROOT/docker-compose.demo-sim.yml" --env-file "$DEMO_ROOT/.env.demo-sim" "$@"
+}
+
+# sim_sql SQL — one query in the sim db, run inside its container with the
+# container's own POSTGRES_* env (no credential in this host's argv).
+sim_sql() {
+  docker exec -e SQL="$1" "$SIM_DB" \
+    sh -c 'psql -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$SQL"'
+}
+
+# record_result NAME LINE — the one-line outcome of the last bake/restore,
+# read by status.sh ($LOG_DIR/last-<NAME>).
+record_result() {
+  mkdir -p "$LOG_DIR"
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" > "$LOG_DIR/last-$1"
 }
 
 # worktree_tag — <short sha>, or <short sha>-dirty-<hash8> when the tree has

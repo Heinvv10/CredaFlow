@@ -55,24 +55,30 @@ export async function readLoan(loanId: string): Promise<LoanView> {
   }
 }
 
-export interface ProposedMatch {
+export interface StatementLine {
   txnId: string
-  loanId: string
+  /** UNMATCHED | PROPOSED | MATCHED | IGNORED */
+  matchStatus: string
+  matchedLoanId: string | null
   amountCents: number
   postedDay: string
+  /** The statement's Description cell, as imported. */
+  description: string | null
 }
 
-/** The PROPOSED lines of one statement import, as the reconciliation queue lists them. */
-export async function proposedMatches(importId: string): Promise<ProposedMatch[]> {
+/** Every line of one statement import, as the reconciliation screen lists them. */
+export async function statementLines(importId: string): Promise<StatementLine[]> {
   const rows = await readDb().bankTransaction.findMany({
-    where: { importId, matchStatus: "PROPOSED", matchedLoanId: { not: null } },
-    select: { id: true, matchedLoanId: true, amountCents: true, postedDate: true },
+    where: { importId },
+    select: { id: true, matchStatus: true, matchedLoanId: true, amountCents: true, postedDate: true, rawReference: true },
     orderBy: { postedDate: "asc" },
   })
   return rows.map((r) => ({
     txnId: r.id,
-    loanId: r.matchedLoanId ?? "",
+    matchStatus: r.matchStatus,
+    matchedLoanId: r.matchedLoanId,
     amountCents: r.amountCents,
     postedDay: r.postedDate.toISOString().slice(0, 10),
+    description: r.rawReference,
   }))
 }

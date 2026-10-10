@@ -129,7 +129,7 @@ export function kitReadme(asOf: string, entries: readonly KitEntry[]): string {
     '- Restore the demo snapshot so all three personas are unused (the returning client keeps only her settled first loan).',
     '- Documents are dated for the as-of date above; rebuild the kit if you demo in a later month.',
     '- Logins are by role; the credentials are not in this kit (see each cheat sheet).',
-    '- Activation code: new clients activate the portal with a 6-digit code emailed to their address. Persona addresses are `.invalid` and the demo sends no email, so have a way to read the code ready before the demo (open item from the kit build).',
+    '- Portal activation: new clients activate the portal with a 6-digit one-time code. The demo shows that code on the activation screen instead of emailing it, but only on a deployment with DEMO_MODE set to exactly `true` and only for a `.invalid` address (every persona here has one; a real address typed in gets no code on screen). The same goes for a portal password reset.',
     '- `manifest.json` in each folder is the ground truth `verify-vlm.ts --out <this folder>` checks extraction against; it is not uploaded.',
     '',
   ].join('\n')

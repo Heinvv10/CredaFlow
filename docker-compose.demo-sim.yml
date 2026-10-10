@@ -4,14 +4,14 @@
 # no public ingress: both ports bind to 127.0.0.1 only. Data is produced by
 # driving the HTTP API (scripts/demo/sim), then snapshotted.
 #
-# Clock: scripts/demo/sim/clock.ts writes scripts/demo/.sim-clock/faketime.rc
-# ("@YYYY-MM-DD HH:MM:SS", UTC). Both containers preload libfaketime and
+# Clock: scripts/demo/sim/clock.ts writes scripts/demo/.sim-clock/faketime.rc,
+# a libfaketime RELATIVE offset in whole seconds ("-16557329"): every faked
+# process computes real-now + offset. Both containers preload libfaketime and
 # re-read the file on every time call, so rewriting it moves the app's
 # Date.now() and Postgres' now() together. The directory (not the file) is
 # mounted so the atomic rename in clock.ts is visible inside the containers.
 #
-#   npx tsx scripts/demo/sim/clock.ts set 2026-04-01T09:00:00Z   # first, once
-#   docker compose -f docker-compose.demo-sim.yml up -d --build
+#   scripts/demo/sim/fresh-stack.sh 2026-04-01T07:30:00+02:00   # DESTROYS the sim volumes
 #
 # Env: .env.demo-sim + $DEMO_DATA_DIR/secrets.env (untracked; see
 # scripts/demo/sim/README.md).

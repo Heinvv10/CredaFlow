@@ -16,12 +16,16 @@
 # credentials, SEED_PRINT_CREDENTIALS=1) goes to stdout; progress to stderr.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-NETWORK=credaflow-demo-sim_default
+# shellcheck source=scripts/demo/lib.sh
+. "$(dirname "$0")/../lib.sh"
+ROOT="$DEMO_ROOT"
 IMAGE=credaflow-demo-sim-seed:local
 RUNTIME=node_modules/@prisma/client/runtime/library.js
 
-DATABASE_URL="$(node -e 'console.log(require("node:util").parseEnv(require("fs").readFileSync(process.argv[1],"utf8")).DATABASE_URL)' "$ROOT/.env.demo-sim")"
+# Exported and handed to the container by name (-e DATABASE_URL): the URL
+# carries the password, so it never appears in an argv.
+DATABASE_URL="$(env_get "$ROOT/.env.demo-sim" DATABASE_URL)"
+export DATABASE_URL
 [ -n "$DATABASE_URL" ] || { echo "seed-faked: DATABASE_URL missing from .env.demo-sim" >&2; exit 1; }
 [ -s "$ROOT/scripts/demo/.sim-clock/faketime.rc" ] || { echo "seed-faked: set the sim clock first (clock.ts set …)" >&2; exit 1; }
 
@@ -35,14 +39,17 @@ trap 'rm -rf "$PATCH_DIR"' EXIT
 cp "$ROOT/$RUNTIME" "$PATCH_DIR/library.js"
 grep -q '|so.default.constants.dlopen.RTLD_DEEPBIND' "$PATCH_DIR/library.js"
 sed -i 's/|so.default.constants.dlopen.RTLD_DEEPBIND//' "$PATCH_DIR/library.js"
-! grep -q 'RTLD_DEEPBIND' "$PATCH_DIR/library.js"
+if grep -q 'RTLD_DEEPBIND' "$PATCH_DIR/library.js"; then
+  echo "seed-faked: RTLD_DEEPBIND still present after the patch" >&2
+  exit 1
+fi
 chmod 644 "$PATCH_DIR/library.js"
 
 docker run --rm \
-  --network "$NETWORK" \
+  --network "$SIM_NETWORK" \
   --user "$(id -u):$(id -g)" \
   -e HOME=/tmp \
-  -e DATABASE_URL="$DATABASE_URL" \
+  -e DATABASE_URL \
   -e SEED_PRINT_CREDENTIALS=1 \
   -e TZ=UTC \
   -e FAKETIME_TIMESTAMP_FILE=/sim-clock/faketime.rc \

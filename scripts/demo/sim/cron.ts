@@ -15,6 +15,7 @@
  * repo, so their slots here are chosen to respect data dependencies:
  * charges and DPD settle before escalations and reminders read them.
  */
+import { parseJsonBody } from "./api"
 import { now, setClock } from "./clock"
 import { log, simBaseUrl, simEnv } from "./env"
 
@@ -96,7 +97,9 @@ export async function runCronJob(job: CronJob): Promise<CronRun> {
   })
   const text = await res.text()
   let body: unknown = text
-  if ((res.headers.get("content-type") ?? "").includes("application/json") && text) body = JSON.parse(text)
+  if ((res.headers.get("content-type") ?? "").includes("application/json") && text) {
+    body = parseJsonBody(job.method, `/api/cron/${job.name}`, res.status, text)
+  }
   log(`cron ${job.name} ${res.status}`)
   return { name: job.name, status: res.status, at: now().toISOString(), body }
 }
