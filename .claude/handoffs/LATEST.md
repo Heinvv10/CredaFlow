@@ -102,7 +102,8 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
 - **TOTP enrolment policy** for new staff, and the `ncrStatus` wording on the
   website.
-- **History left in UI copy and names.** The string pass did not change UI copy:
+- **History left in UI copy and names.** The string pass changed no customer-facing
+  UI copy (one staff-manual key rule lost a review ID); these remain:
   - "Run the S2 backfill to populate." on the contacts page
   - "until Phase 7 go-live" in `IntegrationsTab.tsx`
 
