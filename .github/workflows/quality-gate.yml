@@ -56,8 +56,11 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # The project's type graph exceeds Node's default heap on the runner (~2.5 GB measured).
       - name: Typecheck
         run: npx tsc --noEmit
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Lint
         run: npm run lint
@@ -67,6 +70,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Documented paths resolve
         run: npm run claude-md:check
