@@ -221,6 +221,72 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
     expect(applications).toBe(0)
   })
 
+  it("refuses recoveryApplicationId on an unlinked lead and writes nothing", async () => {
+    // The route zeroes the loan inputs when recoveryApplicationId is set, so
+    // only a product with minAmount 0 lets the old code reach the writes.
+    const zeroMinProductId = `${productId}_zero`
+    await db.loanProduct.create({
+      data: {
+        id: zeroMinProductId,
+        tenantId,
+        code: `STAFF-CONVERT-ZERO-${token}`,
+        name: "Staff Conversion Zero Minimum Product",
+        productType: "PERSONAL",
+        minAmount: 0,
+        maxAmount: 1_000_000,
+        minTermDays: 30,
+        maxTermDays: 90,
+        interestRatePm: 0.03,
+        interestModel: "DAILY_ACCRUAL",
+        initiationFeePct: 0.15,
+        initiationFeeMax: 105_000,
+        monthlyServiceFee: 6_900,
+      },
+    })
+    const response = await POST(new NextRequest(
+      `http://localhost/api/crm/leads/${leadId}/convert`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-tenant-slug": `staff-conversion-${token}`,
+        },
+        body: JSON.stringify({
+          idNumber: `800101${token.slice(0, 7)}`,
+          firstName: "Synthetic",
+          lastName: "Staff Conversion",
+          email,
+          phone,
+          employmentStatus: "EMPLOYED",
+          employerName: "Synthetic Employer",
+          monthlyIncome: 15_000,
+          monthlyExpenses: 8_000,
+          appliedAmount: 5_000,
+          appliedTermDays: 30,
+          productId: zeroMinProductId,
+          purpose: "Synthetic integration test",
+          recoveryApplicationId: "app-x",
+          recoveryReason: "Synthetic recovery reason",
+        }),
+      },
+    ), { params: Promise.resolve({ id: leadId }) })
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/no linked client/i)
+    const [lead, clients, applications] = await Promise.all([
+      db.lead.findUniqueOrThrow({ where: { id: leadId } }),
+      db.client.count({ where: { tenantId } }),
+      db.loanApplication.count({ where: { tenantId } }),
+    ])
+    expect(lead).toEqual(expect.objectContaining({
+      status: "QUALIFIED",
+      convertedToClientId: null,
+      convertedToApplicationId: null,
+    }))
+    expect(clients).toBe(0)
+    expect(applications).toBe(0)
+  })
+
   it("commits one dual-linked Contact, retained identities, and exact conversion evidence", async () => {
     const before = await db.contact.findFirstOrThrow({
       where: { tenantId, leadId },

@@ -439,6 +439,11 @@ export async function POST(
         } else {
           if (lockedLead.status === "CONVERTED") return { kind: "stranded" as const }
 
+          // recoveryApplicationId zeroes the loan inputs above and is only
+          // honoured for a linked client; here it would create a client and
+          // application from amount 0 with no MLE check, so refuse before any write.
+          if (recoveryApplicationId) return { kind: "recovery_without_linked_client" as const }
+
           // Keep the duplicate check under the lead lock. It remains a
           // friendly error; Client unique constraints are the race authority.
           const existing = await tx.client.findFirst({
@@ -750,6 +755,12 @@ export async function POST(
       if (result.kind === "recovery_reason_required") {
         return NextResponse.json(
           { error: "A recovery reason of at least 10 characters is required." },
+          { status: 422 },
+        )
+      }
+      if (result.kind === "recovery_without_linked_client") {
+        return NextResponse.json(
+          { error: "This lead has no linked client, so there is no application to recover. Convert it without selecting an application." },
           { status: 422 },
         )
       }
