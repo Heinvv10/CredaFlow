@@ -40,7 +40,7 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164 }: 
 
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 border-r border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:flex md:flex-col">
+      <aside className="fixed bottom-0 left-0 top-[var(--cf-demo-banner-h)] z-40 hidden w-60 border-r border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:flex md:flex-col">
         <div className="flex h-16 items-center border-b border-[var(--cf-border-subtle)] px-5">
           <div>
             <p className="text-xs font-semibold text-[var(--cf-text)]">{brandName}</p>

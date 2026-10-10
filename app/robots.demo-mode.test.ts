@@ -16,3 +16,9 @@ describe("robots.txt", () => {
     expect(first.disallow).not.toBe("/")
   })
 })
+
+describe("robots.txt rendering", () => {
+  it("is rendered per request, so the runtime DEMO_MODE applies", async () => {
+    expect((await import("./robots")).dynamic).toBe("force-dynamic")
+  })
+})

@@ -1,8 +1,9 @@
 // DEMO_MODE is a server-side runtime env var (never NEXT_PUBLIC_), so one image
-// serves both the demo and a normal deployment. Anything but the literal
-// string "true" is off.
+// serves both the demo and a normal deployment. Anything but the exact string
+// "true" is off — no trimming, no case folding — because the same switch
+// decides whether a one-time code may appear in a response (demoCodeReveal).
 export function isDemoMode(env: Record<string, string | undefined> = process.env): boolean {
-  return env.DEMO_MODE?.trim().toLowerCase() === "true"
+  return env.DEMO_MODE === "true"
 }
 
 export const DEMO_ROBOTS_HEADER = "noindex, nofollow"
@@ -25,17 +26,25 @@ export function demoBannerText(brandName: string | null): string {
     : DEMO_BANNER_FALLBACK
 }
 
+/** RFC 2606 reserves `.invalid`: mail to it can never be delivered. */
+const UNDELIVERABLE_DOMAIN_SUFFIX = ".invalid"
+
 /**
  * A demo borrower's one-time codes (portal activation, password reset) are
  * emailed to fictional `.invalid` addresses and never arrive, so in a demo the
  * route that issues a code returns it to that same request for the screen to
- * show. Stricter than `isDemoMode` on purpose: the banner fails safe by
- * showing, this fails safe by hiding — only the exact string "true" reveals a
- * code, so a mistyped value never puts an OTP in a production response.
+ * show. Both conditions are required: demo mode on (exact "true"), AND the
+ * address the code was issued to is a `.invalid` one. A real address typed
+ * into the public demo — or any account on a deployment that has DEMO_MODE
+ * set by mistake — therefore never gets its code in the response, so the
+ * reveal can't be used to take over or enumerate a deliverable mailbox.
  */
 export function demoCodeReveal(
   code: string,
+  recipientEmail: string,
   env: Record<string, string | undefined> = process.env,
 ): { demoCode?: string } {
-  return env.DEMO_MODE === "true" ? { demoCode: code } : {}
+  if (!isDemoMode(env)) return {}
+  const email = recipientEmail.trim().toLowerCase()
+  return email.includes("@") && email.endsWith(UNDELIVERABLE_DOMAIN_SUFFIX) ? { demoCode: code } : {}
 }

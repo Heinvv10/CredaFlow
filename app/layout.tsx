@@ -5,6 +5,7 @@ import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { DeploymentConfigError, requireAppBaseUrl } from "@/lib/config/deployment-urls";
 import { DemoBanner } from "@/components/demo/DemoBanner";
 import { isDemoMode } from "@/lib/config/demo-mode";
+import { connection } from "next/server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,8 +37,10 @@ const metadata: Metadata = {
 };
 
 // Read per request: DEMO_MODE is runtime env, and the same image runs with and
-// without it. Unset, this adds nothing to the metadata.
-export function generateMetadata(): Metadata {
+// without it, so connection() keeps a prerender from baking the build's value.
+// Unset, this adds nothing to the metadata.
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
   return isDemoMode() ? { ...metadata, robots: { index: false, follow: false } } : metadata;
 }
 
@@ -47,13 +50,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className="dark"
-      data-theme="dark"
-      {...(isDemoMode() ? { "data-demo-mode": "true" } : {})}
-      suppressHydrationWarning
-    >
+    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

@@ -66,7 +66,7 @@ function ResetForm({ brandName }: { brandName: string }) {
 
   return (
     <div className="cf-app-surface min-h-screen flex items-center justify-center px-4">
-      <ThemeToggle className="fixed right-4 top-4 z-10" />
+      <ThemeToggle className="fixed right-4 top-[calc(1rem+var(--cf-demo-banner-h))] z-10" />
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-[var(--cf-text)]">{brandName}</h1>

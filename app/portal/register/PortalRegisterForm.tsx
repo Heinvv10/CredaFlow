@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { AlertCircle, CheckCircle, Loader2 } from "lucide-react"
 import { ThemeToggle } from "@/components/ThemeToggle"
-import { DemoCodeNotice } from "@/components/demo/DemoCodeNotice"
+import { DemoCodeNotice, demoCodeFrom } from "@/components/demo/DemoCodeNotice"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { trackRegisterActivated, trackRegisterCodeSent, trackRegisterStart } from "@/lib/analytics/events"
 import { safePortalPath } from "@/lib/portal-urls"
@@ -63,7 +63,7 @@ function PortalRegisterInner() {
       }
       trackRegisterCodeSent()
       setNotice(data.message || DEFAULT_NOTICE)
-      setDemoCode(typeof data.demoCode === "string" ? data.demoCode : "")
+      setDemoCode(demoCodeFrom(data))
       setTurnstileToken(null)
       setStep("verify")
     } catch {
@@ -112,7 +112,7 @@ function PortalRegisterInner() {
 
   return (
     <main className="cf-app-surface min-h-screen px-4 py-14 text-[var(--cf-text)]">
-      <ThemeToggle className="fixed right-4 top-4 z-10" />
+      <ThemeToggle className="fixed right-4 top-[calc(1rem+var(--cf-demo-banner-h))] z-10" />
       <div className="mx-auto w-full max-w-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-7 shadow-[var(--cf-shadow-panel)] backdrop-blur-xl">
         <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-[var(--cf-brand)]">Client portal</p>
         <h1 className="text-3xl font-semibold">Activate your portal account</h1>

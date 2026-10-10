@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { AuditAction } from "@/lib/audit"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 
 // The switch for the bank-statement CSV import (lib/bank-sync/import.ts, the
@@ -72,19 +72,17 @@ export async function PATCH(req: NextRequest) {
           update: { bankSyncEnabled: enabled },
           create: { tenantId: tenant.id, bankSyncEnabled: enabled },
         })
-        await tx.auditLog.create({
-          data: {
-            tenantId: tenant.id,
-            action: enabled ? AuditAction.BANK_SYNC_ENABLED : AuditAction.BANK_SYNC_DISABLED,
-            entity: "TenantConfig",
-            entityId: tenant.id,
-            userId: guard.user.id,
-            userEmail: guard.user.email,
-            oldValue: prev ?? { bankSyncEnabled: DEFAULT_BANK_SYNC_ENABLED },
-            newValue: { bankSyncEnabled: enabled },
-            ipAddress: callerIp(req),
-          },
-        })
+        await logAuditStrict({
+          tenantId: tenant.id,
+          action: enabled ? AuditAction.BANK_SYNC_ENABLED : AuditAction.BANK_SYNC_DISABLED,
+          entity: "TenantConfig",
+          entityId: tenant.id,
+          userId: guard.user.id,
+          userEmail: guard.user.email,
+          oldValue: prev ?? { bankSyncEnabled: DEFAULT_BANK_SYNC_ENABLED },
+          newValue: { bankSyncEnabled: enabled },
+          ipAddress: callerIp(req),
+        }, tx)
       })
 
       return NextResponse.json({ ok: true, bankSyncEnabled: enabled })

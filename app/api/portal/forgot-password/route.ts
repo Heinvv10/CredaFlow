@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
         // visible in error tracking + we can backfill the missing
         // ContactIdentity row out-of-band.
         console.warn("[portal-forgot] Client without Contact:", { clientId: client.id, tenantId })
-        return NextResponse.json({ success: true, ...demoCodeReveal(otp) })
+        return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
       }
       const template = await prisma.messageTemplate.findFirst({
         where: { tenantId, key: "portal_forgot_password_email", channel: "EMAIL" },
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
       if (!template) {
         // Migration not applied yet (e.g. flag flipped before deploy).
         console.warn("[portal-forgot] MessageTemplate missing:", { tenantId })
-        return NextResponse.json({ success: true, ...demoCodeReveal(otp) })
+        return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
       }
       // Fire-and-forget: a transient sendMessage failure must NOT 500 the
       // route. The OTP row is already written; the user can re-request a
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       }).catch((err: unknown) => {
         console.error("[portal-forgot] sendMessage failed:", err)
       })
-      return NextResponse.json({ success: true, ...demoCodeReveal(otp) })
+      return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
     }
 
     // Legacy path: direct sendEmail() — kept until all tenants are
@@ -161,6 +161,6 @@ export async function POST(req: NextRequest) {
       category: "portal-otp",
     })
 
-    return NextResponse.json({ success: true, ...demoCodeReveal(otp) })
+    return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
   })
 }

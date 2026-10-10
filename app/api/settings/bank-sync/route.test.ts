@@ -20,21 +20,21 @@ vi.mock("@/lib/prisma", () => ({
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => transactionMock(cb),
   },
 }))
-vi.mock("@/lib/audit", () => ({
-  AuditAction: {
-    BANK_SYNC_ENABLED: "BANK_SYNC_ENABLED",
-    BANK_SYNC_DISABLED: "BANK_SYNC_DISABLED",
-  },
-}))
-vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1" }))
+// lib/audit is real: the audit row must reach the transaction client
+// (logAuditStrict(params, tx)), which is what these tests observe.
+vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "203.0.113.7" }))
 
 import { GET, PATCH } from "./route"
 
 function patchRequest(body: unknown) {
+  return rawPatchRequest(JSON.stringify(body))
+}
+
+function rawPatchRequest(body: string) {
   return new NextRequest("http://localhost/api/settings/bank-sync", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body,
   })
 }
 
@@ -110,6 +110,7 @@ describe("PATCH /api/settings/bank-sync", () => {
         userEmail: "admin@example.test",
         oldValue: { bankSyncEnabled: false },
         newValue: { bankSyncEnabled: true },
+        ipAddress: "203.0.113.7",
       }),
     })
   })
@@ -144,11 +145,39 @@ describe("PATCH /api/settings/bank-sync", () => {
     })
   })
 
-  it("rejects a non-boolean value without writing", async () => {
-    const response = await PATCH(patchRequest({ bankSyncEnabled: "yes" }))
+  it.each([
+    ["a non-boolean value", { bankSyncEnabled: "yes" }],
+    ["a null value", { bankSyncEnabled: null }],
+    ["a missing key", {}],
+    ["a null body", null],
+  ])("rejects %s with 400 without writing", async (_label, body) => {
+    const response = await PATCH(patchRequest(body))
 
     expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: "bankSyncEnabled must be true or false." })
     expectNoWrite()
+  })
+
+  it("rejects a body that is not JSON with 400 without writing", async () => {
+    const response = await PATCH(rawPatchRequest("{not json"))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: "Invalid JSON body." })
+    expectNoWrite()
+  })
+
+  it("returns 500 and reports no success when the transaction fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    // The audit insert fails inside the transaction, so the whole write rolls
+    // back (proved against Postgres in route.integration.test.ts).
+    auditLogCreateMock.mockRejectedValue(new Error("audit insert failed"))
+
+    const response = await PATCH(patchRequest({ bankSyncEnabled: true }))
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: "Failed to update the bank sync setting" })
+    expect(error).toHaveBeenCalled()
+    error.mockRestore()
   })
 })
 
@@ -174,5 +203,26 @@ describe("GET /api/settings/bank-sync", () => {
     expect(tenantConfigFindUniqueMock).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: "tenant-1" } }),
     )
+  })
+
+  it("returns the stored value", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ bankSyncEnabled: true })
+
+    const response = await GET(new NextRequest("http://localhost/api/settings/bank-sync"))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ bankSyncEnabled: true })
+  })
+
+  it("returns 500 when the read fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    tenantConfigFindUniqueMock.mockRejectedValue(new Error("db down"))
+
+    const response = await GET(new NextRequest("http://localhost/api/settings/bank-sync"))
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: "Failed to load the bank sync setting" })
+    expect(error).toHaveBeenCalled()
+    error.mockRestore()
   })
 })

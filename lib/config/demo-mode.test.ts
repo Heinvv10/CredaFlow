@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest"
 import { applyDemoHeaders, demoBannerText, demoCodeReveal, isDemoMode } from "./demo-mode"
 
 describe("isDemoMode", () => {
-  it("is on only for the string true", () => {
+  it("is on only for the exact string true", () => {
     expect(isDemoMode({ DEMO_MODE: "true" })).toBe(true)
-    expect(isDemoMode({ DEMO_MODE: " TRUE " })).toBe(true)
   })
-  it.each([undefined, "", "false", "1", "yes"])("is off for %j", (v) => {
+  it.each([undefined, "", "false", "1", "yes", "TRUE", "True", " true", "true ", " TRUE "])("is off for %j", (v) => {
     expect(isDemoMode({ DEMO_MODE: v })).toBe(false)
   })
 })
@@ -35,10 +34,29 @@ describe("demoBannerText", () => {
 })
 
 describe("demoCodeReveal", () => {
-  it("returns the code only for the exact string true", () => {
-    expect(demoCodeReveal("123456", { DEMO_MODE: "true" })).toEqual({ demoCode: "123456" })
+  const ON = { DEMO_MODE: "true" }
+
+  it("returns the code for a .invalid recipient when demo mode is exactly true", () => {
+    expect(demoCodeReveal("123456", "thabo@acme-lending.invalid", ON)).toEqual({ demoCode: "123456" })
   })
-  it.each([undefined, "", "false", "TRUE", "TRUE ", " true", "1", "yes"])("returns nothing for %j", (v) => {
-    expect(demoCodeReveal("123456", { DEMO_MODE: v })).toEqual({})
+  it("normalises the recipient before checking the domain", () => {
+    expect(demoCodeReveal("123456", "  Thabo@Acme-Lending.INVALID ", ON)).toEqual({ demoCode: "123456" })
+  })
+  it.each([undefined, "", "false", "TRUE", "TRUE ", " true", "1", "yes"])(
+    "returns nothing for DEMO_MODE=%j, even for a .invalid recipient",
+    (v) => {
+      expect(demoCodeReveal("123456", "thabo@acme-lending.invalid", { DEMO_MODE: v })).toEqual({})
+    },
+  )
+  it.each([
+    "someone@example.com",
+    "someone@gmail.com",
+    "someone@invalid.co.za",
+    "someone@example.invalid.com",
+    "someone@example.invalid.",
+    "invalid",
+    ".invalid",
+  ])("returns nothing in demo mode for a deliverable or malformed recipient %j", (email) => {
+    expect(demoCodeReveal("123456", email, ON)).toEqual({})
   })
 })

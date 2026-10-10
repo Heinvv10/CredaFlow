@@ -224,7 +224,7 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
           }
         })
 
-        return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code) })
+        return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code, email) })
       }
 
       // Legacy path: direct sendEmail(). Kept until the new path has soaked.
@@ -263,7 +263,7 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
         console.error("[portal-register] activation email failed:", err)
       })
 
-      return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code) })
+      return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code, email) })
     }
 
     return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE })

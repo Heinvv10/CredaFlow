@@ -35,7 +35,7 @@ export async function AppTopbar({ user }: AppTopbarProps) {
   const logo = await getLenderLogo(tenantId)
   const logoVersion = logo ? createHash("sha256").update(logo).digest("hex").slice(0, 12) : null
   return (
-    <header className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 backdrop-blur lg:px-6">
+    <header className="fixed inset-x-0 top-[var(--cf-demo-banner-h)] z-50 flex h-14 items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 backdrop-blur lg:px-6">
       {/* pl-12 on mobile clears the fixed hamburger (lg:hidden, left-3 + w-9)
           so it no longer overlaps the logo (audit N-12). */}
       <div className="flex min-w-0 items-center gap-4 pl-12 lg:pl-0">
