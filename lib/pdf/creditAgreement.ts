@@ -616,6 +616,7 @@ export async function generateCreditAgreementPdfWithAnchors(
     const lines = wrapText(clause, regular, 8.5, CONTENT_WIDTH - 8)
     for (const line of lines) { drawText(p3, line, MARGIN + 4, y, regular, 8.5, DARK); y -= 13 }
     y -= 6
+    // Never reached by these clauses; guarded in __tests__/agreement-continuation.test.ts ("terms page").
     if (y < MARGIN + 20) break
   }
 

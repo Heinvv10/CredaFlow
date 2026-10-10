@@ -99,6 +99,44 @@ describe("statement with a 60-row schedule and 60 payments", () => {
   })
 })
 
+describe("statement table boundaries", () => {
+  // The history TOTAL: one, after the last payment, equal to the printed sum.
+  function expectTotal(pages: PdfTextRun[][], payments: Array<{ page: number; y: number; amount: number }>) {
+    const totals = pages.flatMap((runs, page) => runs.filter((r) => r.text === "TOTAL").map((r) => ({ page, y: r.y })))
+    const last = payments[payments.length - 1]
+    expect(totals).toEqual([{ page: last.page, y: last.y - 22 }])
+    expect(cents(at(pages[last.page], MARGIN + 90, last.y - 22)!)).toBe(payments.reduce((sum, p) => sum + p.amount, 0))
+  }
+
+  it.each([37, 38, 74, 75, 120])("prints all %i schedule rows, 37 to a page", async (n) => {
+    const { pages, scheduleIdx, payments, scheduleRows } = await render(boundaryStatementInput(n, 3))
+    expect(scheduleIdx).toHaveLength(Math.ceil(n / 37))
+    expect(pages).toHaveLength(2 + scheduleIdx.length)
+    expect(scheduleRows.map((r) => r.no)).toEqual(Array.from({ length: n }, (_, i) => i + 1))
+    for (const boundary of [37, 38, 74, 75, 111, 112, n].filter((b) => b <= n)) {
+      expect(scheduleRows[boundary - 1].page, `row ${boundary}`).toBe(scheduleIdx[Math.floor((boundary - 1) / 37)])
+    }
+    const footers = pages.flatMap((runs, page) => runs.filter((r) => FOOTER.test(r.text)).map(() => page))
+    expect(footers).toEqual([pages.length - 1])
+    expectTotal(pages, payments)
+    expectPageNumbers(pages)
+  })
+
+  it.each([38, 39, 76, 77, 120])("prints all %i payments, 38 to a page", async (n) => {
+    const input = boundaryStatementInput(3, n)
+    const { pages, historyIdx, scheduleIdx, payments } = await render(input)
+    expect(historyIdx).toEqual(Array.from({ length: Math.ceil(n / 38) }, (_, k) => 1 + k))
+    expect(scheduleIdx).toEqual([historyIdx[historyIdx.length - 1] + 1])
+    expect(payments.map((p) => p.reference)).toEqual(input.payments.map((p) => p.reference))
+    for (const boundary of [38, 39, 76, 77, 114, 115, n].filter((b) => b <= n)) {
+      expect(payments[boundary - 1].page, `payment ${boundary}`).toBe(historyIdx[Math.floor((boundary - 1) / 38)])
+    }
+    expectTotal(pages, payments)
+    expect(payments.reduce((sum, p) => sum + p.amount, 0)).toBe(input.payments.reduce((sum, p) => sum + p.amount, 0))
+    expectPageNumbers(pages)
+  })
+})
+
 describe("statement history page break", () => {
   it("starts a new page for a row that would begin below MARGIN + 40, as the one-page history stopped", async () => {
     // One payment with a charges line, then plain ones: the 38th row would

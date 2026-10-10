@@ -81,6 +81,31 @@ export function boundaryStatementInput(rows: number, paid: number) {
   }
 }
 
+/** Statements whose history carries charge rows, reversed-payment notes and
+ *  "of which … default charges" lines, each still fitting on three pages. */
+export function variantStatementInputs() {
+  const types = ["DEFAULT_INTEREST", "SERVICE_FEE", "DEFAULT_ADMIN"] as const
+  const postings = Array.from({ length: 30 }, (_, i) => ({
+    type: types[i % 3], day: new Date(Date.UTC(2026, 8, 2 + i)).toISOString().slice(0, 10), amount: 1_000 + i * 10,
+  }))
+  const charged = boundaryStatementInput(3, 5)
+  const reversed = boundaryStatementInput(3, 30)
+  const ofWhich = boundaryStatementInput(3, 20)
+  return {
+    statementCharges: { ...charged, charges: { postings, outstanding: 25_000, settlement: 900_000 } },
+    statementReversed: {
+      ...reversed,
+      payments: reversed.payments.map((p, i) => (i < 8
+        ? { ...p, reversed: true, reversedAt: new Date(Date.UTC(2029, 0, 10 + i, 8)), reversalReason: `Bank recall ${i}` }
+        : p)),
+    },
+    statementOfWhich: {
+      ...ofWhich,
+      payments: ofWhich.payments.map((p) => ({ ...p, defaultInterestAllocated: 1_000, chargeFeesAllocated: 500 })),
+    },
+  }
+}
+
 async function main() {
   const root = process.argv[2]
   const RealDate = Date
@@ -107,9 +132,15 @@ async function main() {
   const agreement38 = await generateCreditAgreementPdf(boundaryAgreementInput("agreement", calc38))
   const pasq38 = await generateCreditAgreementPdf(boundaryAgreementInput("pasq", calc38))
   const statement37 = await generateStatementPdf(boundaryStatementInput(37, 38))
+  const variants = variantStatementInputs()
+  const statementCharges = await generateStatementPdf(variants.statementCharges)
+  const statementReversed = await generateStatementPdf(variants.statementReversed)
+  const statementOfWhich = await generateStatementPdf(variants.statementOfWhich)
   process.stdout.write(JSON.stringify({
     s129: sha256(s129), cob: sha256(cob), statement: sha256(statement),
     agreement38: sha256(agreement38), pasq38: sha256(pasq38), statement37: sha256(statement37),
+    statementCharges: sha256(statementCharges), statementReversed: sha256(statementReversed),
+    statementOfWhich: sha256(statementOfWhich),
   }) + "\n")
 }
 

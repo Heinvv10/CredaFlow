@@ -139,3 +139,28 @@ describe("signatures on a continued agreement", () => {
     }
   })
 })
+
+describe("terms page", () => {
+  // The clause loop stops drawing at MARGIN + 20 without a continuation page.
+  // These clauses never reach it; a clause added later that would must fail
+  // here rather than be dropped from the agreement.
+  const HEADINGS = [
+    "1. LATE PAYMENT:", "2. DEFAULT:", "3. SECTION 129 NOTICE:", "4. COLLECTION COSTS:", "5. CREDIT BUREAU:",
+    "6. POPIA:", "7. JURISDICTION:", "8. ENTIRE AGREEMENT:", "9. VARIATION:", "10. CONSUMER RIGHTS:",
+  ]
+
+  it.each(["agreement", "pasq"] as const)("prints every clause of the %s in full, with room to spare", async (variant) => {
+    const calc = calculateLoan(boundaryLoanInput(120), boundaryStartDate)
+    const pdf = await generateCreditAgreementPdf({ ...boundaryAgreementInput(variant, calc), willAutoBundleCl: true })
+    const pages = await extractPdfTextRunsByPage(pdf)
+    const termsPages = pages.filter((runs) => runs.some((r) => r.text === "TERMS AND CONDITIONS"))
+    expect(termsPages).toHaveLength(1)
+    const lines = termsPages[0].filter((r) => r.x === MARGIN + 4)
+    for (const heading of HEADINGS) {
+      expect(lines.filter((r) => r.text.startsWith(heading)), heading).toHaveLength(1)
+    }
+    expect(lines[lines.length - 1].text.endsWith("periodic statements of account.")).toBe(true)
+    // After the last line the loop steps down 13 + 6 and only then checks.
+    expect(Math.min(...lines.map((r) => r.y)) - 19).toBeGreaterThanOrEqual(MARGIN + 20)
+  })
+})
