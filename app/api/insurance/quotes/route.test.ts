@@ -553,7 +553,7 @@ describe("POST /api/insurance/quotes — a rate card activated TODAY is quotable
   })
 })
 
-describe("POST /api/insurance/quotes — F2: expiry is provisioned, not volunteered", () => {
+describe("POST /api/insurance/quotes — expiry is provisioned, not volunteered", () => {
   function created() {
     return createQuote.mock.calls[0][0].data as Record<string, unknown>
   }

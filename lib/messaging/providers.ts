@@ -242,13 +242,13 @@ export async function dispatch(
       }
     }
     case "VOICE":
-      throw new Error("voice channel dispatch is not supported in PR-2 (lands in S5)")
+      throw new Error("voice channel dispatch is not supported")
     case "MANUAL":
       throw new Error("manual channel does not dispatch — internal notes are written directly")
     case "ALL_CHANNELS":
       throw new Error("ALL_CHANNELS is a consent-scope sentinel, not a real channel")
     case "CHATBOT":
-      throw new Error("chatbot channel dispatch is not supported in PR-2")
+      throw new Error("chatbot channel dispatch is not supported")
     default: {
       const _exhaustive: never = channel
       throw new Error(`unsupported channel: ${_exhaustive}`)

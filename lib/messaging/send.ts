@@ -268,10 +268,10 @@ export async function resolveProvider(channel: Channel, tenantId?: string): Prom
       })
       return (settings?.waProvider === "WA_CLOUD" ? "WA_CLOUD" : "WA_UNOFFICIAL") as Provider
     }
-    case "VOICE":    throw new Error("voice provider lands in S5")
+    case "VOICE":    throw new Error("voice channel dispatch is not supported")
     case "MANUAL":   throw new Error("manual channel does not have a dispatch provider")
     case "ALL_CHANNELS": throw new Error("ALL_CHANNELS is a consent-scope sentinel, not a real channel")
-    case "CHATBOT":  throw new Error("chatbot channel dispatch is not supported in PR-2")
+    case "CHATBOT":  throw new Error("chatbot channel dispatch is not supported")
     default: {
       const _exhaustive: never = channel
       throw new Error(`unsupported channel: ${_exhaustive}`)

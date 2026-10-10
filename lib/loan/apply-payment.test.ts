@@ -151,7 +151,7 @@ describe("applyManualReceipt — balance + status behaviour", () => {
     })
   })
 
-  it("R2-A: closes a loan settled by a back-dated receipt on its latest receipt's value date", async () => {
+  it("closes a loan settled by a back-dated receipt on its latest receipt's value date", async () => {
     const { db, loanUpdate, auditCreate, paymentFindFirst } = makeDb(makeLoan("DEFAULTED"))
     const later = new Date("2026-01-20T08:00:00.000Z")
     paymentFindFirst.mockResolvedValue({ receivedAt: later })

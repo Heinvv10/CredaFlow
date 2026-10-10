@@ -91,7 +91,7 @@ const settlement = async (ids: Ids) => {
   return (await runWithTenant(ids.tenantId, () => loanSettlementFigures(payments, loan, new Date()))).totalToSettle
 }
 
-suite.sequential("round 5 (real Postgres)", () => {
+suite.sequential("charges statement balance, bulk refund-due and post-stop document regressions (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => {
     vi.useRealTimers()
@@ -99,7 +99,7 @@ suite.sequential("round 5 (real Postgres)", () => {
   })
   beforeEach(() => { vi.setSystemTime(NOW) })
 
-  it("R5-1: the statement's final running balance is what the receipt paths accept to settle — never live, live and stopped", async () => {
+  it("the statement's final running balance is what the receipt paths accept to settle — never live, live and stopped", async () => {
     const never = await createLoan(false)
     await capture(never, 50_000)
     expect(await statementBalance(never)).toBe(await settlement(never))
@@ -117,7 +117,7 @@ suite.sequential("round 5 (real Postgres)", () => {
     expect(await statementBalance(stopped)).toBe(await settlement(stopped))
   })
 
-  it("R5-3: a bulk row on a loan already settled before the upload is recorded refund-due, not skipped", async () => {
+  it("a bulk row on a loan already settled before the upload is recorded refund-due, not skipped", async () => {
     const ids = await createLoan()
     await capture(ids, SCHEDULE_TOTAL + DEFAULT_INTEREST)
     const loan = await db.loan.findUniqueOrThrow({ where: { id: ids.loanId } })
@@ -130,7 +130,7 @@ suite.sequential("round 5 (real Postgres)", () => {
     expect(held.map((p) => [p.amount, p.reconciliationReason])).toEqual([[12_300, "overpayment_refund_due"]])
   })
 
-  it("F1: after a stop every document and reader still states the cash the client paid", async () => {
+  it("after a stop every document and reader still states the cash the client paid", async () => {
     const ids = await createLoan()
     await capture(ids, 100_000) // pays Sep 2..25 default interest (R80) first
     const cash = { statement: 100_000, certificate: 100_000 }

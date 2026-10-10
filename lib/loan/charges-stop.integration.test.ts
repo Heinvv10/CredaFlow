@@ -85,7 +85,7 @@ suite.sequential("default charges stopped for good (real Postgres)", () => {
     vi.setSystemTime(NOW)
   })
 
-  it("F2: --disable refuses on a tenant whose charges never went live, writing nothing", async () => {
+  it("--disable refuses on a tenant whose charges never went live, writing nothing", async () => {
     const tenant = await createChargesTenant(db, false)
     const actor = { userId: tenant.userId, userEmail: "a@test.invalid" }
     await expect(runWithTenant(tenant.tenantId, () => disableCharges(prisma, tenant.tenantId, NOW, actor)))

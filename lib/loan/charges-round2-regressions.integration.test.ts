@@ -47,12 +47,12 @@ const loanOf = (ids: Ids) => db.loan.findUniqueOrThrow({ where: { id: ids.loanId
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "PATCH", body: JSON.stringify(body) })
 const override = (ids: Ids) => ({ reason: "Deposit genuinely reached the account on that date.", approvedById: ids.userId })
 
-suite.sequential("round 2 (real Postgres)", () => {
+suite.sequential("charges sync, notice freezing and exemption regressions (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })
 
-  it("R2-A: a back-dated receipt that settles alongside a later receipt closes the loan on the later value date, and the sync accepts it", async () => {
+  it("a back-dated receipt that settles alongside a later receipt closes the loan on the later value date, and the sync accepts it", async () => {
     const ids = await createLoan()
     vi.setSystemTime(new Date("2026-09-20T10:00:00+02:00"))
     await capture(ids, 100_000)
@@ -75,7 +75,7 @@ suite.sequential("round 2 (real Postgres)", () => {
     expect(loan.closedAt).toEqual(new Date("2026-09-20T10:00:00+02:00"))
   })
 
-  it("R2-B: a notice without a frozen amount is refused until --apply stamps today's charge on it, audited; then it never moves", async () => {
+  it("a notice without a frozen amount is refused until --apply stamps today's charge on it, audited; then it never moves", async () => {
     const ids = await createLoan()
     const notice = await db.complianceRecord.create({ data: {
       tenantId: ids.tenantId, type: "SECTION_129_NOTICE", referenceId: ids.loanId, idempotencyKey: `s129-${ids.loanId}`,
@@ -97,7 +97,7 @@ suite.sequential("round 2 (real Postgres)", () => {
     expect((await loanOf(ids)).charges.find((c) => c.type === "DEFAULT_ADMIN")?.amount).toBe(8_200)
   })
 
-  it("R2-C: exempting a loan whose client paid the charges splits them off as refund-due, audited, and staff can record the refund", async () => {
+  it("exempting a loan whose client paid the charges splits them off as refund-due, audited, and staff can record the refund", async () => {
     const ids = await createLoan()
     const { payment } = await capture(ids, SCHEDULE_TOTAL + DEFAULT_INTEREST)
     const ex = await setExemption(req({ exempt: true, reason: "Complaint upheld: charges applied in error." }), { params: Promise.resolve({ id: ids.loanId }) })
@@ -114,7 +114,7 @@ suite.sequential("round 2 (real Postgres)", () => {
     expect(rf.status).toBe(200)
   })
 
-  it("R2-D: a loan booked without the fee gets the fallback written on first sync, audited, so a product edit cannot reprice it", async () => {
+  it("a loan booked without the fee gets the fallback written on first sync, audited, so a product edit cannot reprice it", async () => {
     const ids = await createLoan()
     await db.loan.update({ where: { id: ids.loanId }, data: { monthlyServiceFee: null } })
     const OCT_5 = new Date("2026-10-05T10:00:00+02:00")
@@ -129,7 +129,7 @@ suite.sequential("round 2 (real Postgres)", () => {
     expect(f2).toBe(f1)
   })
 
-  it("R2-F: a WRITTEN_OFF loan with no writeOffAt is refused", async () => {
+  it("a WRITTEN_OFF loan with no writeOffAt is refused", async () => {
     const ids = await createLoan()
     await db.loan.update({ where: { id: ids.loanId }, data: { status: "WRITTEN_OFF", writeOffAt: null } })
     await expect(sync(ids, new Date("2026-12-26T10:00:00+02:00"))).rejects.toThrow(/WRITTEN_OFF with no writeOffAt/)

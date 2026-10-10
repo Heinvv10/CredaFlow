@@ -66,7 +66,7 @@ describe("ChargesPanel", () => {
     expect(html).not.toContain("Default interest")
   })
 
-  it("F3: warns staff when the latest Section 129 notice's charge could not be posted", () => {
+  it("warns staff when the latest Section 129 notice's charge could not be posted", () => {
     const html = render({ charges: null, chargesNotDerived: "Default charges would re-open this settled loan" })
     expect(html).toContain("The latest Section 129 notice was recorded, but its admin charge was not posted")
     expect(html).toContain("Default charges would re-open this settled loan")

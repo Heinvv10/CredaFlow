@@ -109,7 +109,7 @@ const currentNotSettled = { id: "L1", status: "ACTIVE", collectionsStage: "NONE"
 
 const contact = { id: "ct1", primaryWaJid: "27@s.whatsapp.net", primaryPhone: "27" }
 
-describe("PATCH collections-stage — F-20 settled-account guard", () => {
+describe("PATCH collections-stage — settled-account guard", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "o@x" } })

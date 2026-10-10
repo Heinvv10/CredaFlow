@@ -193,7 +193,7 @@ export const curriculum: ManualModule[] = [
         summary: "Capture a receipt, see how it allocates, and reverse safely.",
         requiredRole: "LOAN_ADMIN",
         liveRoute: "/payments",
-        keyRules: ["Reversals are audited and must not clobber loan status (audit F-fix).", "Allocation order is system-driven."],
+        keyRules: ["Reversals are audited and must not clobber loan status.", "Allocation order is system-driven."],
         steps: [
           { caption: "Capture a payment against a loan", liveRoute: "/payments" },
           { caption: "See the allocation reduce arrears then principal", liveRoute: "/payments" },

@@ -328,7 +328,7 @@ describe("POST quote disclosure — the token carries what the bind compares", (
   })
 })
 
-describe("POST quote disclosure — F3/F4: bounded issuance, audited refusals", () => {
+describe("POST quote disclosure — bounded issuance, audited refusals", () => {
   it("audits every in-handler refusal", async () => {
     for (const [mutate, reason] of [
       [{ status: "DRAFT" }, "NOT_DISCLOSABLE"],

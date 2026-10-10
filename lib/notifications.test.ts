@@ -391,7 +391,7 @@ describe("triggerNotification — application_submitted cutover", () => {
       expect(blockedCall![0].data.error).toBe("NO_CONSENT_ON_FILE")
     })
 
-    it("routes WA leg through client.whatsapp (NOT client.phone) — mirrors PR-9 policy", async () => {
+    it("routes WA leg through client.whatsapp (NOT client.phone)", async () => {
       // client.whatsapp is set + distinct from client.phone
       const waClient = { ...client, whatsapp: "0739999999" }
       clientFindUniqueMock.mockResolvedValue(waClient)
@@ -514,7 +514,7 @@ describe("triggerNotification — application_submitted cutover", () => {
       process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED = "true"
     })
 
-    it("does NOT cut over loan_approved (only application_submitted is in scope for PR-10a)", async () => {
+    it("does NOT cut over loan_approved (only application_submitted is cut over to the new send path)", async () => {
       loanFindUniqueMock.mockResolvedValue({
         id: "ln1",
         reference: "LN-0001",

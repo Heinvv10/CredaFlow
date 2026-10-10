@@ -23,7 +23,7 @@ describe("rejectImpossibleValueDate — bounds no override can buy", () => {
     })).toBe("future")
   })
 
-  it("K5: refuses a value instant later today, but not a date-only today before 02:00 SAST", () => {
+  it("refuses a value instant later today, but not a date-only today before 02:00 SAST", () => {
     // 10:00 SAST now; the deposit claims 16:00 today.
     const now = at("2026-09-26T08:00:00.000Z")
     expect(rejectImpossibleValueDate({ receivedAt: at("2026-09-26T14:00:00.000Z"), asOf: now, loanStartDate: START })).toBe("future")

@@ -36,7 +36,7 @@ const writers: Record<string, (ids: Ids, amount: number) => Promise<unknown>> = 
     return applyBankTransaction({ txnId: txn.id, loanId: ids.loanId, tenantId: ids.tenantId, userEmail: "x@test.invalid" })
   },
 }
-suite.sequential("round 3 daily-accrual ±1c", () => {
+suite.sequential("daily-accrual ±1c settlement", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })

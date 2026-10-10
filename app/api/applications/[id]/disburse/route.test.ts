@@ -2349,7 +2349,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     expect(triggerNotification).not.toHaveBeenCalled()
   })
 
-  it("issues + tracks the FAIS/PPR disclosure for the bundled policy (F-25)", async () => {
+  it("issues + tracks the FAIS/PPR disclosure for the bundled policy", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
       tenantId: "tenant-1",
@@ -2392,7 +2392,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     )
   })
 
-  it("does not roll back the disburse if FAIS/PPR disclosure issuance fails (F-25)", async () => {
+  it("does not roll back the disburse if FAIS/PPR disclosure issuance fails", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
       tenantId: "tenant-1",
@@ -2543,7 +2543,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     expect(triggerNotification).not.toHaveBeenCalled()
   })
 
-  it("R-09: throws inside the tx and maps to 409 when a concurrent disburse already claimed the application", async () => {
+  it("throws inside the tx and maps to 409 when a concurrent disburse already claimed the application", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
       tenantId: "tenant-1",

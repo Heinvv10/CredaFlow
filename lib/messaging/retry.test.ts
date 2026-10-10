@@ -950,7 +950,7 @@ describe("processRetryBatch", () => {
 
 import { Prisma } from "@prisma/client"
 
-describe("processRetryBatch — PR-2.5 hardenings", () => {
+describe("processRetryBatch — advisory lock, expiry sweep and error classification", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Restore the routing of $transaction back to the shared txMock (cleared

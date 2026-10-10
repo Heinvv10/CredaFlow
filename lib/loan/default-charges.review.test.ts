@@ -4,7 +4,7 @@ import { d, input, row } from "./default-charges.test-helpers"
 
 // Regressions for the engine.
 
-describe("computeDefaultCharges — review round 1", () => {
+describe("computeDefaultCharges — in duplum cap, default window and accrual limits", () => {
   // R100 principal, 5% pm, bullet due 1 Jan 2026, R5 interest, no fee.
   const small = row("2026-01-01", 10_000, 500)
   const base = (over: Partial<DefaultChargeInput> = {}): DefaultChargeInput => input({
@@ -77,8 +77,8 @@ describe("computeDefaultCharges — review round 1", () => {
   })
 })
 
-describe("review round 2", () => {
-  it("R2-G: a service fee falling on the 1st after a month-end maturity stays inside the in duplum cap", () => {
+describe("service fee after a month-end maturity", () => {
+  it("a service fee falling on the 1st after a month-end maturity stays inside the in duplum cap", () => {
     const r = computeDefaultCharges({
       schedule: [{ dueDate: d("2026-01-31"), principalDue: 10_000, interestDue: 500, feesDue: 0, totalDue: 10_500 }],
       receipts: [], adminCharges: [], interestRatePm: 0.05, monthlyServiceFee: 6_900,
@@ -109,8 +109,8 @@ describe("same-day receipts and letters", () => {
   })
 })
 
-describe("review round 3", () => {
-  it("R3-4: a receipt and a letter at the same instant: the receipt comes first", () => {
+describe("receipt and letter ordering, and cap invariants over random loans", () => {
+  it("a receipt and a letter at the same instant: the receipt comes first", () => {
     const at = new Date("2026-09-26T10:00:00+02:00")
     const r = computeDefaultCharges(input({
       asOf: d("2026-09-27"),
@@ -120,7 +120,7 @@ describe("review round 3", () => {
     expect(r.postings.filter((p) => p.type === "DEFAULT_ADMIN")).toEqual([])
   })
 
-  it("R3-S: over 3,000 random loans, receipts and letters, never breaches the cap and never loses a receipt", () => {
+  it("over 3,000 random loans, receipts and letters, never breaches the cap and never loses a receipt", () => {
     const DAY = 86_400_000
     const bad: unknown[] = []
     for (let seed = 1; seed < 3000; seed++) {

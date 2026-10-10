@@ -112,7 +112,7 @@ describe("calculateLoan — DAILY_ACCRUAL model", () => {
     expect(result.totalInterest).toBe(1000000) // R10,000.00
   })
 
-  it("golden: PO funding R200,000 / 90 days at 2.5%/month = R15,000 interest (F-18 regression guard)", () => {
+  it("golden: PO funding R200,000 / 90 days at 2.5%/month = R15,000 interest", () => {
     // The seed's LN-SEED-0004 (identical R200k/90d PO) booked R15,000.
     // The buggy per-day path produced R450,000 (225% of principal) — usury.
     const result = calculateLoan(
@@ -179,7 +179,7 @@ describe("calculateLoan — initiation fee", () => {
   })
 })
 
-describe("calculateLoan — initiation-fee payment mode + schedule footing (F-13)", () => {
+describe("calculateLoan — initiation-fee payment mode + schedule footing", () => {
   const sumScheduleTotalDue = (s: { totalDue: number }[]) =>
     s.reduce((acc, r) => acc + r.totalDue, 0)
 
@@ -229,7 +229,7 @@ describe("calculateLoan — initiation-fee payment mode + schedule footing (F-13
     expect(r.totalInterest).toBe(interestOnly.totalInterest)
   })
 
-  it("golden: audit loan R20,000 / 12mo / 3%pm / R1,080 fee / R69 service foots to the stated total (F-13)", () => {
+  it("golden: audit loan R20,000 / 12mo / 3%pm / R1,080 fee / R69 service foots to the stated total", () => {
     // Audit LN-TEST-0001: schedule summed to R24,938.90 while the stated
     // total was R26,018.90 — a R1,080 gap = the initiation fee never billed.
     // initiationFeePct 0.054 of R20,000 = R1,080.

@@ -88,7 +88,7 @@ describe("whatsapp-bridge-admin", () => {
   // succeeded would leave a live slot nobody saw the code for, and a retry could
   // create a second one. addWaBridgeNumber needs its own bound comfortably
   // above 30s; every other call keeps the shorter 15s bound.
-  it("[IMPORTANT-3] addWaBridgeNumber uses a timeout above the bridge's 30s pairing window", async () => {
+  it("addWaBridgeNumber uses a timeout above the bridge's 30s pairing window", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -103,7 +103,7 @@ describe("whatsapp-bridge-admin", () => {
     expect(usedMs).toBeGreaterThan(30_000)
   })
 
-  it("[IMPORTANT-3] listWaBridgeNumbers keeps the shorter 15s timeout by default", async () => {
+  it("listWaBridgeNumbers keeps the shorter 15s timeout by default", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ numbers: [] }) })
     global.fetch = fetchMock as unknown as typeof fetch
@@ -113,7 +113,7 @@ describe("whatsapp-bridge-admin", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(15_000)
   })
 
-  it("[IMPORTANT-3] promoteWaBridgeNumber keeps the shorter 15s timeout (interactive call, not the add-slot path)", async () => {
+  it("promoteWaBridgeNumber keeps the shorter 15s timeout (interactive call, not the add-slot path)", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true }) })
     global.fetch = fetchMock as unknown as typeof fetch
@@ -130,7 +130,7 @@ describe("whatsapp-bridge-admin", () => {
   // wrong. An explicit timeoutMs override lets the page-load call use a
   // short bound while every other (interactive, user-initiated) call stays
   // at 15s.
-  it("[IMPORTANT-6] listWaBridgeNumbers accepts a shorter timeoutMs override for the page-load path", async () => {
+  it("listWaBridgeNumbers accepts a shorter timeoutMs override for the page-load path", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ numbers: [] }) })
     global.fetch = fetchMock as unknown as typeof fetch
@@ -147,7 +147,7 @@ describe("whatsapp-bridge-admin", () => {
   // would poll a different endpoint than sends actually use, silently inverting the
   // alert's meaning. This client must fail loud instead of guessing, the
   // same way getAdminSecret() already does for the missing-secret case.
-  it("[IMPORTANT-4] throws when WA_SENDER_URL is unset instead of guessing a default host", async () => {
+  it("throws when WA_SENDER_URL is unset instead of guessing a default host", async () => {
     delete process.env.WA_SENDER_URL
     const fetchMock = vi.fn()
     global.fetch = fetchMock as unknown as typeof fetch

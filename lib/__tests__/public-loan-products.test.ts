@@ -36,7 +36,7 @@ import type { LivePricing, PublicLoanProduct } from "../public-loan-products"
 // marketing quote matches origination; when legal changes the LoanProduct config,
 // update PRODUCT_PRICING and these expectations together (see product-pricing.ts).
 
-describe("PRODUCT_PRICING mirrors the live LoanProduct config (W-2)", () => {
+describe("PRODUCT_PRICING mirrors the live LoanProduct config", () => {
   it("personal loan: 16.5% init capped at R1,080, R69 service, 3%/mo reducing balance", () => {
     expect(PRODUCT_PRICING.personal).toEqual({
       productType: "PERSONAL",
@@ -74,7 +74,7 @@ describe("PRODUCT_PRICING mirrors the live LoanProduct config (W-2)", () => {
   })
 })
 
-describe("public marketing quote == the loan the customer is actually charged (W-2)", () => {
+describe("public marketing quote == the loan the customer is actually charged", () => {
   // The point is that the marketing quote equals what the customer is charged.
   // The FIGURES moved when the NCA Reg 42 initiation-fee ceiling was enforced in
   // calculateLoan (lib/loan/nca-fee-cap.ts): personal is consumer credit, so the
@@ -112,7 +112,7 @@ describe("public marketing quote == the loan the customer is actually charged (W
   })
 })
 
-describe("personal calculator surfaces the term, not an understated APR (W-1)", () => {
+describe("personal calculator surfaces the term, not an understated APR", () => {
   it("the tertiary metric is the loan term, and no APR figure is derived", () => {
     const quote = calculatePublicLoanQuote(getPublicLoanProduct("personal"), 1000000, 12)
     // the old (totalInterest / principal) * (365 / termDays) 'Est. APR'

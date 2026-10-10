@@ -346,7 +346,7 @@ describe("settlement capped by the default-charges replay", () => {
   })
 })
 
-describe("N1: the replay cap bounds what a receipt applies, never whether it settles", () => {
+describe("the replay cap bounds what a receipt applies, never whether it settles", () => {
   const day15 = new Date("2026-07-16T10:00:00.000Z")
 
   it("books a partial receipt on a daily-accrual bullet before maturity as a partial, with no s125 reprice", () => {

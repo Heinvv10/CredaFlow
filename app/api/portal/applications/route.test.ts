@@ -229,7 +229,7 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
-  it("F-1: a malformed request 400s WITHOUT consuming the CREATE budget", async () => {
+  it("a malformed request 400s WITHOUT consuming the CREATE budget", async () => {
     const res = await POST(buildReq({ ...validBody, productCode: "" }))
     expect(res.status).toBe(400)
     expect(createCapCalls()).toBe(0)
@@ -291,7 +291,7 @@ describe("POST /api/portal/applications", () => {
     expect(auditLogCreate).not.toHaveBeenCalled()
   })
 
-  it("F-4: monthlyIncome <= 0 is rejected 422 before the CREATE cap is touched", async () => {
+  it("monthlyIncome <= 0 is rejected 422 before the CREATE cap is touched", async () => {
     findFirstClient.mockResolvedValue({ ...CLIENT, monthlyIncome: 0 })
     const res = await POST(buildReq(validBody))
     expect(res.status).toBe(422)
@@ -353,7 +353,7 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
-  it("F-1: a duplicate in-flight application 409s WITHOUT consuming the CREATE budget", async () => {
+  it("a duplicate in-flight application 409s WITHOUT consuming the CREATE budget", async () => {
     findFirstApplication.mockResolvedValue({ id: "existing", reference: "APP-OLD", status: "SUBMITTED" })
     const res = await POST(buildReq(validBody))
     expect(res.status).toBe(409)
@@ -387,7 +387,7 @@ describe("POST /api/portal/applications", () => {
     expect(triggerNotification).not.toHaveBeenCalled()
   })
 
-  it("F-1: the CREATE cap is enforced on a genuine create — 429 blocks the create", async () => {
+  it("the CREATE cap is enforced on a genuine create — 429 blocks the create", async () => {
     checkRateLimit.mockImplementation((key: string) =>
       key === CREATE_KEY ? { allowed: false, remaining: 0, retryAfterSeconds: 1800 } : ALLOW,
     )

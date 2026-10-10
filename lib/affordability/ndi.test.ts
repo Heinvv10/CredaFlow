@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { assessAffordability, affordabilityRiskGrade } from "./ndi"
 
 describe("assessAffordability — all cents", () => {
-  it("F-05 golden: Bongani R25k income, R8k expenses, R1,800 debt → NDI R15,200, AFFORDABLE", () => {
+  it("golden: Bongani R25k income, R8k expenses, R1,800 debt → NDI R15,200, AFFORDABLE", () => {
     // The audit bug treated the R1,800/m debt (180000 cents) as R180,000 and
     // produced NDI -R163,000 / NOT AFFORDABLE. Correct cents math:
     const r = assessAffordability({
