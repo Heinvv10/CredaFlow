@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { authMock, findUnique, update, configBefore, transaction, logAuditStrict, revalidateTag } = vi.hoisted(() => ({
+const { authMock, findUnique, update, configBefore, transaction, logAuditStrict, revalidateTag, queryRaw } = vi.hoisted(() => ({
+  queryRaw: vi.fn(),
   revalidateTag: vi.fn(),
   authMock: vi.fn(),
   findUnique: vi.fn(),
@@ -41,8 +42,9 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     update.mockReset().mockResolvedValue({ id: "t1", config: {} })
     configBefore.mockReset().mockResolvedValue({ featureBureauSubmission: false, bureauSupplierNumber: null, bureauTradingName: "Old Name", bureauReportingStartDate: new Date("2026-06-01T00:00:00.000Z") })
     // The transaction client: the update and the audit row must both go through it.
-    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, isTx: true }))
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, $queryRaw: queryRaw, isTx: true }))
     logAuditStrict.mockReset().mockResolvedValue(undefined)
+    queryRaw.mockReset().mockResolvedValue([])
   })
 
   it("writes valid values, normalised, and audits the change", async () => {
@@ -138,7 +140,8 @@ describe("PATCH /api/admin/tenants/[tenantId] — tenant colours", () => {
     findUnique.mockReset().mockResolvedValue({ id: "t1", config: GOOD })
     update.mockReset().mockResolvedValue({ id: "t1", config: {} })
     configBefore.mockReset().mockResolvedValue(GOOD)
-    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, isTx: true }))
+    queryRaw.mockReset().mockResolvedValue([{ "?column?": 1 }])
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, $queryRaw: queryRaw, isTx: true }))
     logAuditStrict.mockReset().mockResolvedValue(undefined)
     revalidateTag.mockReset()
   })
@@ -164,9 +167,8 @@ describe("PATCH /api/admin/tenants/[tenantId] — tenant colours", () => {
   })
 
   it("measures a tenant with no config row against the default colours", async () => {
-    findUnique.mockResolvedValue({ id: "t1", config: null })
+    configBefore.mockResolvedValue(null)
     expect((await patch({ darkColor: "#101418" })).status).toBe(200)
-    findUnique.mockResolvedValue({ id: "t1", config: null })
     expect(Object.keys((await (await patch({ darkColor: "#C0C0C0" })).json()).fields)).toEqual(["darkColor"])
   })
 
@@ -183,13 +185,24 @@ describe("PATCH /api/admin/tenants/[tenantId] — tenant colours", () => {
     expect(Object.keys(json.fields)).toEqual([field])
     expect(json.fields[field]).toMatch(reason)
     expect(update).not.toHaveBeenCalled()
-    expect(transaction).not.toHaveBeenCalled()
     expect(logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("locks the tenant row, then reads the saved colours, then validates and writes, all in one transaction", async () => {
+    const order: string[] = []
+    queryRaw.mockImplementation(async () => { order.push("lock"); return [] })
+    configBefore.mockImplementation(async () => { order.push("read"); return GOOD })
+    update.mockImplementation(async () => { order.push("write"); return { id: "t1", config: {} } })
+    // The outside read is stale by the time the lock is granted; it must not decide.
+    findUnique.mockResolvedValue({ id: "t1", config: { ...GOOD, darkColor: "#C0C0C0" } })
+    expect((await patch({ primaryColor: "#7A3E1D" })).status).toBe(200)
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(["lock", "read", "write"])
   })
 
   it("checks a single colour against the tenant's other saved colours", async () => {
     // The saved primary is part of the set measured, not the default one.
-    findUnique.mockResolvedValue({ id: "t1", config: { ...GOOD, primaryColor: "#FFD700" } })
+    configBefore.mockResolvedValue({ ...GOOD, primaryColor: "#FFD700" })
     const response = await patch({ secondaryColor: "#245E92" })
     expect(response.status).toBe(422)
     expect(Object.keys((await response.json()).fields)).toEqual(["primaryColor"])
