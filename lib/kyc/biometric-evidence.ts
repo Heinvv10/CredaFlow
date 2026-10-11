@@ -18,7 +18,7 @@ export const BIOMETRIC_SUBJECT_FINGERPRINT_VERSION = "biometric-subject-v2" as c
  * The only provider whose result can verify a selfie. v1 carried a single
  * faceMatch boolean that passed a selfie against a silhouette placeholder
  * (2026-10-10), so v1 evidence never verifies. Mirrored in SQL by
- * subject_has_composite_kyc (migration 20261010150000_face_match_v2_evidence).
+ * subject_has_composite_kyc (migration 20261011060000_face_match_v2_evidence).
  */
 export const VLM_FACE_MATCH_PROVIDER = "vlm-face-match-v2" as const
 

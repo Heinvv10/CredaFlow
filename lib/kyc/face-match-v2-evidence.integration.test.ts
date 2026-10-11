@@ -1,5 +1,5 @@
 /**
- * Database proof for migration 20261010150000_face_match_v2_evidence.
+ * Database proof for migration 20261011060000_face_match_v2_evidence.
  *
  * Run against a throwaway fully migrated PostgreSQL database:
  *

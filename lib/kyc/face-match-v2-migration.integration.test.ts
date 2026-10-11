@@ -1,5 +1,5 @@
 /**
- * Upgrade proof for migration 20261010150000_face_match_v2_evidence: a client
+ * Upgrade proof for migration 20261011060000_face_match_v2_evidence: a client
  * VERIFIED on v1 selfie evidence before the migration is demoted by it (with
  * an audit row) instead of being left unwritable by Client_enforce_composite_kyc,
  * and its v1 selfie is un-verified so the in-person route opens. Clients
@@ -26,7 +26,7 @@ import { MANUAL_KYC_EXCEPTION_KIND, MANUAL_KYC_EXCEPTION_VERSION } from "@/lib/k
 
 const RUN = process.env.RUN_FACE_MATCH_V2_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
-const MIGRATION = "20261010150000_face_match_v2_evidence"
+const MIGRATION = "20261011060000_face_match_v2_evidence"
 const MIGRATIONS_DIR = path.join(process.cwd(), "prisma", "migrations")
 const NOT_VERIFIED = "Client KYC cannot be VERIFIED without current composite evidence"
 const name = `fm_v2_mig_${randomBytes(6).toString("hex")}`

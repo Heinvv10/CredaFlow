@@ -355,7 +355,7 @@ SELECT
     'kycVerifiedById', NULL,
     'kycVerificationMethod', NULL,
     'reason', 'face_match_v2_evidence_required',
-    'migration', '20261010150000_face_match_v2_evidence',
+    'migration', '20261011060000_face_match_v2_evidence',
     'databaseEnforced', true
   ),
   CURRENT_TIMESTAMP
@@ -439,7 +439,7 @@ SELECT
     'verifiedById', NULL,
     'biometricVerifiedAt', NULL,
     'reason', 'face_match_v2_evidence_required',
-    'migration', '20261010150000_face_match_v2_evidence',
+    'migration', '20261011060000_face_match_v2_evidence',
     'databaseEnforced', true
   ),
   CURRENT_TIMESTAMP
