@@ -56,7 +56,7 @@ export function BureauOverridePanel({ applicationId }: Props) {
             </Button>
           ) : (
             <>
-              <label htmlFor="bureau-override-reason" className="mt-3 block text-sm font-medium text-[var(--cf-text-primary)]">
+              <label htmlFor="bureau-override-reason" className="mt-3 block text-sm font-medium text-[var(--cf-text)]">
                 Motivating reason for override <span className="text-[var(--cf-danger)]">*</span>
               </label>
               <Textarea

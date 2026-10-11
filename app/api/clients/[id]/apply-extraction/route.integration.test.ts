@@ -90,7 +90,8 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
         bankName: "ABSA",
         bankAccountNumber: "40987654321",
         bankBranchCode: "632005",
-        accountType: "SAVINGS",
+        // No accountType: extraction may only set it on a record that has none
+        // (staff-confirmed wins — lib/kyc/extraction-bank-fields.ts).
       },
     })
 
@@ -136,6 +137,7 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
           fileName: "bank.pdf",
           verified: true,
           verifiedAt,
+          createdAt: new Date("2026-07-23T01:00:00.000Z"),
           extractionStatus: "done",
           extractionGeneration: `generation-${token}`,
           extractionResult: {
@@ -152,6 +154,28 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
           validationScore: 100,
         },
       ],
+    })
+    // A newer statement a named reviewer refused, while the older one above
+    // still carries BANK_STATEMENT. Once the apply invalidates the verified
+    // statement, this refusal is the CURRENT bank document, so the composite
+    // roll-up is FAILED — the projection the route must audit from the
+    // trigger's durable PENDING. Without it the composite is PENDING too: a
+    // system re-flag after a bank-detail change is not an adverse finding
+    // (lib/kyc/document-state.ts), and the route has nothing to project.
+    await db.clientDocument.create({
+      data: {
+        id: `bank_refused_extract_${token}`,
+        tenantId: ids.tenant,
+        clientId: ids.client,
+        docType: "BANK_STATEMENT",
+        fileUrl: "",
+        fileName: "bank-reupload.pdf",
+        verified: false,
+        verificationNote: "Synthetic refusal: statement is illegible.",
+        verificationRejectedAt: new Date("2026-07-23T03:00:00.000Z"),
+        verificationRejectedById: ids.user,
+        createdAt: new Date("2026-07-23T03:00:00.000Z"),
+      },
     })
     await db.clientDocument.create({
       data: {

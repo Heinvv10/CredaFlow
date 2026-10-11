@@ -20,6 +20,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import type { PrismaClient } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 import { bindQuote } from "./bind"
 
 const RUN = process.env.RUN_IMS_BIND_IT === "1"
@@ -81,8 +82,10 @@ async function seedFamilyQuote(label: string): Promise<Fixture> {
 
   await prisma.tenant.create({ data: { id: tenantId, name: `IT ${suffix}`, slug: `it-${suffix}` } })
   // featureIms ON — requireImsEnabled reads the LIVE TenantConfig row, and
-  // without it every insurance route 404s before any logic runs.
-  await prisma.tenantConfig.create({ data: { tenantId, featureIms: true } })
+  // without it every insurance route 404s before any logic runs. The lender
+  // identity too: the disclosure route refuses (409) to issue a FAIS
+  // disclosure for a tenant whose identity is not configured.
+  await prisma.tenantConfig.create({ data: { tenantId, featureIms: true, ...VALID_LENDER_COLUMNS } })
 
   const advisor = await prisma.user.create({
     data: {

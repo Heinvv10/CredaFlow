@@ -21,7 +21,7 @@ export function LoanSummaryBadges({
       <StatusPill tone={loanStatusTone[status] ?? "neutral"}>
         {formatStatusLabel(status)}
       </StatusPill>
-      <Link href={`/applications/${applicationId}`} className="text-xs font-medium text-[var(--cf-text-muted)] hover:text-[var(--cf-accent)] hover:underline">
+      <Link href={`/applications/${applicationId}`} className="text-xs font-medium text-[var(--cf-text-muted)] hover:text-[var(--cf-brand)] hover:underline">
         View application →
       </Link>
     </div>

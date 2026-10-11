@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
+import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 
 // Shared real-Postgres fixture for the default-charges integration tests.
 //
@@ -16,9 +17,11 @@ export async function createChargesTenant(db: PrismaClient, enabled = true): Pro
   const ids = { tenantId: `t_chg_${t}`, userId: `u_chg_${t}` }
   await db.tenant.create({ data: { id: ids.tenantId, slug: `chg-${t}`, name: "Charges IT" } })
   // Go-live well before the fixture loan, so no cut-off applies unless a test
-  // sets its own.
+  // sets its own. A complete synthetic lender identity, because the statement,
+  // certificate of balance and NCR return refuse to render without one.
   await db.tenantConfig.create({
     data: {
+      ...VALID_LENDER_COLUMNS,
       tenantId: ids.tenantId,
       defaultChargesEnabled: enabled,
       defaultChargesStartedAt: enabled ? new Date("2026-01-01T00:00:00+02:00") : null,

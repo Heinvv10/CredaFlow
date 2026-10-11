@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { withoutTenantScope } from "@/lib/tenant-scope"
+import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 import { ProviderDispatchError, dispatch } from "@/lib/messaging/providers"
 import { actionSendWa, sendAutomationWaMessage } from "./actions"
 import { replayAutomationLog } from "./engine"
@@ -59,7 +60,14 @@ suite("automation WhatsApp occurrence delivery", () => {
   beforeAll(async () => {
     await withoutTenantScope(async () => {
       await prisma.tenant.create({
-        data: { id: tenantId, slug: `automation-wa-${token}`, name: "Automation WA integration" },
+        data: {
+          id: tenantId,
+          slug: `automation-wa-${token}`,
+          name: "Automation WA integration",
+          // payment_overdue_7d quotes the lender's collections number and
+          // refuses to render without a configured identity.
+          config: { create: VALID_LENDER_COLUMNS },
+        },
       })
       await prisma.user.create({
         data: {
@@ -318,7 +326,10 @@ suite("automation WhatsApp occurrence delivery", () => {
           productId,
           appliedAmount: 100_000,
           appliedTermDays: 30,
-          status: "DISBURSED",
+          // Default status: DISBURSED cannot be inserted without the full
+          // PASQ/agreement/countersign chain (guardLoanApplicationPasqApproval),
+          // and nothing in lib/automation reads the application. Same seeding
+          // as lib/loan/schedule-paid-at.integration.test.ts.
         },
       })
       await prisma.loan.create({

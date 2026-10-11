@@ -21,8 +21,10 @@ suite("retry notification projections", () => {
     const now = new Date("2026-07-23T00:00:00.000Z")
     const tenantId = `tenant_retry_projection_${token}`
     const contactId = `contact_retry_projection_${token}`
-    const smsConversationId = `conversation_retry_sms_${token}`
-    const emailConversationId = `conversation_retry_email_${token}`
+    // One thread per contact: Conversation_one_open_per_contact is a partial
+    // UNIQUE on (tenantId, contactId) WHERE closedAt IS NULL. The SMS and EMAIL
+    // messages share it — per-Message channel may differ from the thread's.
+    const conversationId = `conversation_retry_projection_${token}`
     const templateId = `template_retry_projection_${token}`
     const messages = {
       expired: `message_retry_expired_${token}`,
@@ -36,11 +38,8 @@ suite("retry notification projections", () => {
     await prisma.contact.create({
       data: { id: contactId, tenantId, firstSeenChannel: "SMS" },
     })
-    await prisma.conversation.createMany({
-      data: [
-        { id: smsConversationId, tenantId, contactId, channel: "SMS" },
-        { id: emailConversationId, tenantId, contactId, channel: "EMAIL" },
-      ],
+    await prisma.conversation.create({
+      data: { id: conversationId, tenantId, contactId, channel: "SMS" },
     })
     await prisma.messageTemplate.create({
       data: {
@@ -69,7 +68,7 @@ suite("retry notification projections", () => {
         {
           id: messages.expired,
           tenantId,
-          conversationId: smsConversationId,
+          conversationId,
           channel: "SMS",
           direction: "OUTBOUND",
           provider: "BULKSMS",
@@ -85,7 +84,7 @@ suite("retry notification projections", () => {
         {
           id: messages.consent,
           tenantId,
-          conversationId: smsConversationId,
+          conversationId,
           channel: "SMS",
           direction: "OUTBOUND",
           provider: "BULKSMS",
@@ -101,7 +100,7 @@ suite("retry notification projections", () => {
         {
           id: messages.email,
           tenantId,
-          conversationId: emailConversationId,
+          conversationId,
           channel: "EMAIL",
           direction: "OUTBOUND",
           provider: "SMTP",

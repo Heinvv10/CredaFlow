@@ -370,6 +370,8 @@ suite.sequential("default charges through the receipt writers (real Postgres)", 
     portal.email = (await db.client.findUniqueOrThrow({ where: { id: ids.clientId } })).email
     portal.stitchId = `stitch_def_${ids.loanId}`
     process.env.STITCH_WEBHOOK_SECRET = "charges-it-secret"
+    // The Stitch redirect URL is built from it; CI sets no app env.
+    process.env.NEXTAUTH_URL = "http://localhost:3000"
 
     const started = await initiateStitch(new Request("http://localhost/api/portal/payment/initiate", {
       method: "POST", body: JSON.stringify({ loanId: ids.loanId, amount: (SCHEDULE_TOTAL + DEFAULT_INTEREST) / 100 }),

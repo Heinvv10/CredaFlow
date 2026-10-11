@@ -62,7 +62,7 @@ export function ClientStatusButton({ clientId, blacklisted, deceased }: Props) {
   if (pending) {
     const undoing = pending === "deceased" ? deceased : blacklisted
     return (
-      <div className="flex flex-col gap-2 rounded-md border border-[var(--cf-border)] p-3">
+      <div className="flex flex-col gap-2 rounded-md border border-[var(--cf-border-subtle)] p-3">
         <label htmlFor="status-reason" className="text-sm font-medium">
           {pending === "deceased"
             ? undoing ? "Why is this record being reversed?" : "Record this client as deceased"
@@ -70,7 +70,7 @@ export function ClientStatusButton({ clientId, blacklisted, deceased }: Props) {
         </label>
         <input
           id="status-reason"
-          className="rounded border border-[var(--cf-border)] px-2 py-1 text-sm"
+          className="rounded border border-[var(--cf-border-subtle)] px-2 py-1 text-sm"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Reason — recorded in the audit trail"

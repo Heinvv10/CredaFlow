@@ -233,7 +233,7 @@ export default async function DashboardPage() {
               </div>
               <p className="mt-3 text-3xl font-semibold tabular-nums text-[var(--cf-text)]">{bucket.b.count}</p>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--cf-surface-strong)]">
-                <div className="h-full rounded-full bg-[var(--cf-accent)]" style={{ width: `${Math.min(100, bucket.b.pct)}%` }} />
+                <div className="h-full rounded-full bg-[var(--cf-brand)]" style={{ width: `${Math.min(100, bucket.b.pct)}%` }} />
               </div>
             </div>
           ))}
@@ -279,7 +279,7 @@ export default async function DashboardPage() {
                               <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: avatarColor }}>
                                 {initials}
                               </div>
-                              <Link href={`/applications/${app.id}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-accent)]">
+                              <Link href={`/applications/${app.id}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand)]">
                                 {app.client.firstName} {app.client.lastName}
                               </Link>
                             </div>

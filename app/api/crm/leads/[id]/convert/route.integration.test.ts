@@ -29,6 +29,12 @@ const { requireApiRoleMock } = vi.hoisted(() => ({
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: () => requireApiRoleMock(),
 }))
+// The real withTenantContext lazily imports @/lib/auth, whose next-auth import
+// of "next/server" does not resolve under vitest's Node ESM loader. Its session
+// is bound to this tenant, so the principal/tenant check still runs.
+vi.mock("@/lib/auth", () => ({
+  auth: async () => ({ user: { id: userId, tenantId } }),
+}))
 
 import { POST } from "./route"
 
@@ -245,7 +251,10 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
           productId,
           appliedAmount: 400_000,
           appliedTermDays: 30,
-          status: "DISBURSED",
+          // Neither status is what this test is about: the route never reads
+          // it. DISBURSED is unreachable by a bare insert (the PASQ approval
+          // trigger), and only one of the two may be open for this product.
+          status: "DECLINED",
         },
         {
           id: applicationBId,
@@ -255,7 +264,7 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
           productId,
           appliedAmount: 500_000,
           appliedTermDays: 30,
-          status: "DISBURSED",
+          status: "SUBMITTED",
         },
       ],
     })

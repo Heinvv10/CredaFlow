@@ -96,7 +96,10 @@ suite("Message internal-note mutability guard", () => {
   // disjunct like `direction` with no test going red. See mutation proof
   // in the migration report: each of these five is independently killed.
   it("refuses to move a note to another thread or another author", async () => {
-    const other = await prisma.conversation.create({ data: { tenantId, contactId, channel: "SMS" } })
+    // Closed: Conversation_one_open_per_contact allows one open thread per contact.
+    const other = await prisma.conversation.create({
+      data: { tenantId, contactId, channel: "SMS", status: "CLOSED", closedAt: new Date() },
+    })
     await expect(
       prisma.message.update({ where: { id: noteId }, data: { conversationId: other.id } }),
     ).rejects.toThrow(/cannot change author, thread or kind/)

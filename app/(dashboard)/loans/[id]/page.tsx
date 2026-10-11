@@ -156,7 +156,7 @@ export default async function LoanDetailPage(
               </div>
               <div className="h-3 overflow-hidden rounded-full bg-[var(--cf-surface-strong)]">
                 <div
-                  className="h-full rounded-full bg-[var(--cf-accent)] transition-all"
+                  className="h-full rounded-full bg-[var(--cf-brand)] transition-all"
                   style={{ width: `${Math.min(paidPercentage, 100)}%` }}
                 />
               </div>
@@ -180,7 +180,7 @@ export default async function LoanDetailPage(
                 {initials}
               </div>
               <div className="min-w-0">
-                <Link href={`/clients/${loan.client.id}`} className="text-lg font-bold text-[var(--cf-text)] hover:text-[var(--cf-accent)]">
+                <Link href={`/clients/${loan.client.id}`} className="text-lg font-bold text-[var(--cf-text)] hover:text-[var(--cf-brand)]">
                   {loan.client.firstName} {loan.client.lastName}
                 </Link>
                 <p className="text-sm text-[var(--cf-text-muted)]">Loan {loan.reference}</p>
@@ -190,26 +190,26 @@ export default async function LoanDetailPage(
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-sm">
                 <Phone className="h-4 w-4 text-[var(--cf-text-muted)]" />
-                <span className="text-[var(--cf-text-soft)]">{loan.client.phone}</span>
+                <span className="text-[var(--cf-text-secondary)]">{loan.client.phone}</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <Mail className="h-4 w-4 text-[var(--cf-text-muted)]" />
-                <span className="text-[var(--cf-text-soft)]">{loan.client.email}</span>
+                <span className="text-[var(--cf-text-secondary)]">{loan.client.email}</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <User className="h-4 w-4 text-[var(--cf-text-muted)]" />
-                <span className="text-[var(--cf-text-soft)]">{loan.client.idNumber}</span>
+                <span className="text-[var(--cf-text-secondary)]">{loan.client.idNumber}</span>
               </div>
               {loan.client.employerName && (
                 <div className="flex items-center gap-3 text-sm">
                   <Briefcase className="h-4 w-4 text-[var(--cf-text-muted)]" />
-                  <span className="text-[var(--cf-text-soft)]">{loan.client.employerName}</span>
+                  <span className="text-[var(--cf-text-secondary)]">{loan.client.employerName}</span>
                 </div>
               )}
               {loan.client.monthlyIncome && (
                 <div className="flex items-center gap-3 text-sm">
                   <Wallet className="h-4 w-4 text-[var(--cf-text-muted)]" />
-                  <span className="text-[var(--cf-text-soft)]">{formatZAR(loan.client.monthlyIncome)}/month</span>
+                  <span className="text-[var(--cf-text-secondary)]">{formatZAR(loan.client.monthlyIncome)}/month</span>
                 </div>
               )}
             </div>
@@ -246,7 +246,7 @@ export default async function LoanDetailPage(
               </div>
               <div className="mt-3 flex justify-between gap-4 border-t border-[var(--cf-border-subtle)] pt-3">
                 <span className="text-[var(--cf-text-muted)]">Total repayable</span>
-                <span className="whitespace-nowrap text-right font-bold text-[var(--cf-accent)]">{formatZAR(loan.totalRepayable)}</span>
+                <span className="whitespace-nowrap text-right font-bold text-[var(--cf-brand)]">{formatZAR(loan.totalRepayable)}</span>
               </div>
             </div>
           </DataPanel>
@@ -260,7 +260,7 @@ export default async function LoanDetailPage(
                 eyebrow="Servicing"
                 title="Record payment"
                 description="Capture a repayment against this loan and keep the schedule in sync."
-                actions={<CreditCard className="h-5 w-5 text-[var(--cf-accent)]" />}
+                actions={<CreditCard className="h-5 w-5 text-[var(--cf-brand)]" />}
                 className="mb-5"
               />
               <PaymentForm

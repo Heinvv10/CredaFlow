@@ -153,7 +153,6 @@ body {
 
 .cf-app-surface [class*="bg-[#f9fafb]"],
 .cf-app-surface [class*="bg-[#F9FAFB]"],
-.cf-app-surface [class*="bg-[#f9fafb]"],
 .cf-app-surface [class*="bg-[#f8f8f8]"],
 .cf-app-surface [class*="bg-[#F8F8F8]"],
 .cf-app-surface [class*="bg-[#fafafa]"],
@@ -288,20 +287,12 @@ body {
 .cf-app-surface [class~="text-[#4F46E5]"],
 .cf-app-surface [class~="text-[#4f46e5]"],
 .cf-app-surface [class~="text-[#4338CA]"],
-.cf-app-surface [class~="text-[#4338ca]"],
-.cf-app-surface [class~="text-[#4338CA]"],
-.cf-app-surface [class~="text-[#4338ca]"],
-.cf-app-surface [class~="text-[#4338CA]"],
 .cf-app-surface [class~="text-[#4338ca]"] {
   color: var(--cf-brand) !important;
 }
 
 .cf-app-surface [class~="bg-[#4F46E5]"],
 .cf-app-surface [class~="bg-[#4f46e5]"],
-.cf-app-surface [class~="bg-[#4338CA]"],
-.cf-app-surface [class~="bg-[#4338ca]"],
-.cf-app-surface [class~="bg-[#4338CA]"],
-.cf-app-surface [class~="bg-[#4338ca]"],
 .cf-app-surface [class~="bg-[#4338CA]"],
 .cf-app-surface [class~="bg-[#4338ca]"] {
   background-color: var(--cf-brand) !important;
@@ -310,10 +301,6 @@ body {
 .cf-app-surface [class~="bg-[#4F46E5]"].text-white,
 .cf-app-surface [class~="bg-[#4f46e5]"].text-white,
 .cf-app-surface [class~="bg-[#4338CA]"].text-white,
-.cf-app-surface [class~="bg-[#4338ca]"].text-white,
-.cf-app-surface [class~="bg-[#4338CA]"].text-white,
-.cf-app-surface [class~="bg-[#4338ca]"].text-white,
-.cf-app-surface [class~="bg-[#4338CA]"].text-white,
 .cf-app-surface [class~="bg-[#4338ca]"].text-white {
   color: var(--cf-on-brand) !important;
 }
@@ -321,24 +308,16 @@ body {
 .cf-app-surface [style^="color: rgb(79, 70, 229)"],
 .cf-app-surface [style*="; color: rgb(79, 70, 229)"],
 .cf-app-surface [style^="color: rgb(67, 56, 202)"],
-.cf-app-surface [style*="; color: rgb(67, 56, 202)"],
-.cf-app-surface [style^="color: rgb(67, 56, 202)"],
-.cf-app-surface [style*="; color: rgb(67, 56, 202)"],
-.cf-app-surface [style^="color: rgb(67, 56, 202)"],
 .cf-app-surface [style*="; color: rgb(67, 56, 202)"] {
   color: var(--cf-brand) !important;
 }
 
 .cf-app-surface [style*="background-color: rgb(79, 70, 229)"],
-.cf-app-surface [style*="background-color: rgb(67, 56, 202)"],
-.cf-app-surface [style*="background-color: rgb(67, 56, 202)"],
 .cf-app-surface [style*="background-color: rgb(67, 56, 202)"] {
   background-color: var(--cf-brand) !important;
 }
 
 .cf-app-surface [style*="background-color: rgb(79, 70, 229)"].text-white,
-.cf-app-surface [style*="background-color: rgb(67, 56, 202)"].text-white,
-.cf-app-surface [style*="background-color: rgb(67, 56, 202)"].text-white,
 .cf-app-surface [style*="background-color: rgb(67, 56, 202)"].text-white {
   color: var(--cf-on-brand) !important;
 }
@@ -463,8 +442,6 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
    legacy status cards and chart labels inherit the active theme tokens. */
 .cf-app-surface :is(
   [style^="color:#4f46e5" i], [style*=";color:#4f46e5" i], [style*="; color:#4f46e5" i],
-  [style^="color:#4338ca" i], [style*=";color:#4338ca" i], [style*="; color:#4338ca" i],
-  [style^="color:#4338ca" i], [style*=";color:#4338ca" i], [style*="; color:#4338ca" i],
   [style^="color:#4338ca" i], [style*=";color:#4338ca" i], [style*="; color:#4338ca" i]
 ) {
   color: var(--cf-brand) !important;
@@ -473,11 +450,7 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
 .cf-app-surface :is(
   [style*="background-color:#4f46e5" i], [style*="background-color: #4f46e5" i],
   [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
-  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
-  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
   [style^="background:#4f46e5" i], [style*=";background:#4f46e5" i],
-  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
-  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
   [style^="background:#4338ca" i], [style*=";background:#4338ca" i]
 ) {
   background-color: var(--cf-brand) !important;
@@ -486,11 +459,7 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
 .cf-app-surface :is(
   [style*="background-color:#4f46e5" i], [style*="background-color: #4f46e5" i],
   [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
-  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
-  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
   [style^="background:#4f46e5" i], [style*=";background:#4f46e5" i],
-  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
-  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
   [style^="background:#4338ca" i], [style*=";background:#4338ca" i]
 ).text-white {
   color: var(--cf-on-brand) !important;
@@ -499,11 +468,7 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
 .cf-app-surface :is(
   [style*="background-color:#4f46e5" i], [style*="background-color: #4f46e5" i],
   [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
-  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
-  [style*="background-color:#4338ca" i], [style*="background-color: #4338ca" i],
   [style^="background:#4f46e5" i], [style*=";background:#4f46e5" i],
-  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
-  [style^="background:#4338ca" i], [style*=";background:#4338ca" i],
   [style^="background:#4338ca" i], [style*=";background:#4338ca" i]
 ) .text-white {
   color: var(--cf-on-brand) !important;

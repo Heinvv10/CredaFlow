@@ -37,8 +37,7 @@
 #
 # THAT CONSTRAINT HAS NOW BROKEN THREE SUITES — it also took out
 # pasq-v3-billing for nine days. Check it FIRST on any entry below whose
-# failure is a check-constraint violation on LoanApplication; several
-# probably are.
+# failure is a check-constraint violation on LoanApplication.
 #
 #   lib/compliance/provider-consumer-signature-migration (PR pending) — the
 #     provider/consumer countersignature envelope gate. All 8 of its broken
@@ -55,8 +54,5 @@
 #
 # Fix these before adding anything new to the list.
 
-app/api/clients/[id]/apply-extraction/route.integration.test.ts
-app/api/crm/leads/[id]/convert/route.integration.test.ts
 lib/applications/submission-lock.integration.test.ts
-lib/automation/wa-delivery.integration.test.ts
 lib/insurance/credit-life-containment-migration.integration.test.ts

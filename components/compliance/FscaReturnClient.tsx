@@ -200,12 +200,14 @@ export function FscaReturnClient({
       <section className="flex items-center justify-end gap-2 pt-2 border-t">
         <a
           href={`/api/reports/export?type=fsca-quarterly&quarter=${data.quarter}`}
+          download
           className="px-3 py-1.5 rounded text-sm border hover:bg-gray-50"
         >
           Download quarterly (.xlsx)
         </a>
         <a
           href="/api/reports/export?type=fsca-annual"
+          download
           className="px-3 py-1.5 rounded text-sm border hover:bg-gray-50"
         >
           Download annual (.xlsx)

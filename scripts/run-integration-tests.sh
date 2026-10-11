@@ -120,7 +120,7 @@ if [[ "${1:-}" == "--check-database-url" ]]; then
 fi
 
 mapfile -t ALL < <(find . -name '*.integration.test.ts' -not -path './node_modules/*' \
-  -not -path './.claude/*' -not -path './.worktrees/*' | sed 's|^\./||' | sort)
+  -not -path './.claude/*' -not -path './.worktrees/*' -not -path './.next/*' | sed 's|^\./||' | sort)
 
 if [[ ${#ALL[@]} -eq 0 ]]; then
   echo "!! Found no *.integration.test.ts files. Refusing: a gate that finds" >&2

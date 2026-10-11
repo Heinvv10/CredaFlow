@@ -583,8 +583,6 @@ export async function POST(
             ) as unknown as Prisma.InputJsonValue,
             status: "SUBMITTED",
             submittedAt: now,
-            pasqAcknowledgedAt: now,
-            pasqAcknowledgedBy: guard.user.name ?? "admin",
             clientAffordabilityDeclaredAt: now,
             recklessLendingAssessed: true,
             recklessLendingAssessedAt: now,

@@ -14,6 +14,7 @@
  */
 import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
+import { randomBytes } from "node:crypto"
 import { VALID_LENDER_COLUMNS } from "../lib/config/__fixtures__/lender-identity"
 import { calculateLoan } from "../lib/loan-calculator"
 import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
@@ -33,13 +34,15 @@ const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
 
 const BRAND = VALID_LENDER_COLUMNS.brandName ?? "Acme Lending"
 const STAFF_DOMAIN = "acme-lending.example"
-// Demo-only passwords. TOTP is mandatory for staff, so each staff user also
-// gets a secret generated when the user is first created (never in source).
-// Credentials are printed only with SEED_PRINT_CREDENTIALS=1, so they stay out
-// of CI logs.
-const ADMIN_PASSWORD = "Demo-hZV37YSrG3UM!"
-const OFFICER_PASSWORD = "Demo-MbXlvyRltzZS!"
-const PORTAL_PASSWORD = "Demo-7HRv3yDJkmxJ!"
+// Demo passwords are never in source. SEED_ADMIN_PASSWORD,
+// SEED_OFFICER_PASSWORD and SEED_PORTAL_PASSWORD set them (on every run);
+// unset, a random one is generated when the row is first created and a rerun
+// keeps it. TOTP is mandatory for staff, so each staff user also gets a secret
+// generated on first creation. Credentials are printed only with
+// SEED_PRINT_CREDENTIALS=1, so they stay out of CI logs.
+const kept = (env: string) => `(unchanged; rerun with ${env}=… to reset it)`
+const envPassword = (name: string) => process.env[name] || undefined
+const generatePassword = () => `Demo-${randomBytes(12).toString("base64url")}!`
 const SEED_LOAN_REFERENCE = "LN-SEED-0001"
 
 /**
@@ -47,21 +50,26 @@ const SEED_LOAN_REFERENCE = "LN-SEED-0001"
  * it: the base32 secret in `totpSecret`, `totpEnabled = true`. A rerun keeps
  * an existing secret so an authenticator already set up keeps working.
  */
-async function upsertStaff(tenantId: string, email: string, name: string, role: "ADMIN" | "CREDIT_OFFICER", password: string) {
+async function upsertStaff(tenantId: string, email: string, name: string, role: "ADMIN" | "CREDIT_OFFICER", passwordEnv: string) {
   const existing = await prisma.user.findUnique({ where: { email }, select: { tenantId: true, totpSecret: true } })
-  // email is globally unique: on a shared database the upsert below would
+  // email is globally unique: on a shared database the write below would
   // otherwise rewrite another tenant's user (password, tenantId).
   if (existing && existing.tenantId !== tenantId) {
     throw new Error(`Seed refused: user ${email} belongs to another tenant (${existing.tenantId ?? "none"}). The demo seed never rewrites another tenant's row.`)
   }
   const totpSecret = existing?.totpSecret ?? generateTotpSecret()
-  const hash = await bcrypt.hash(password, 12)
-  const user = await prisma.user.upsert({
-    where: { email },
-    update: { tenantId, password: hash, active: true, totpSecret, totpEnabled: true },
-    create: { tenantId, email, name, role, password: hash, active: true, totpSecret, totpEnabled: true },
-  })
-  return { user, password, totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
+  const password = envPassword(passwordEnv)
+  const fields = { tenantId, active: true, totpSecret, totpEnabled: true }
+  if (existing) {
+    const user = await prisma.user.update({
+      where: { email },
+      data: { ...fields, ...(password ? { password: await bcrypt.hash(password, 12) } : {}) },
+    })
+    return { user, password: password ?? kept(passwordEnv), totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
+  }
+  const created = password ?? generatePassword()
+  const user = await prisma.user.create({ data: { ...fields, email, name, role, password: await bcrypt.hash(created, 12) } })
+  return { user, password: created, totpSecret, otpauth: generateTotpUri(email, totpSecret, BRAND) }
 }
 
 // ⚠️ EVERY client email MUST stay on a `.invalid` domain. The inherited demo
@@ -117,8 +125,8 @@ async function main() {
   await seedDocumentTemplates(tenant.id)
   await seedDefaultMessageTemplates(prisma, tenant.id, BRAND)
 
-  const admin = await upsertStaff(tenant.id, `admin@${STAFF_DOMAIN}`, "Demo Admin", "ADMIN", ADMIN_PASSWORD)
-  const officer = await upsertStaff(tenant.id, `credit.officer@${STAFF_DOMAIN}`, "Demo Credit Officer", "CREDIT_OFFICER", OFFICER_PASSWORD)
+  const admin = await upsertStaff(tenant.id, `admin@${STAFF_DOMAIN}`, "Demo Admin", "ADMIN", "SEED_ADMIN_PASSWORD")
+  const officer = await upsertStaff(tenant.id, `credit.officer@${STAFF_DOMAIN}`, "Demo Credit Officer", "CREDIT_OFFICER", "SEED_OFFICER_PASSWORD")
 
   const products: Record<string, { id: string }> = {}
   for (const p of PRODUCTS) {
@@ -129,7 +137,13 @@ async function main() {
     })
   }
 
-  const portalHash = await bcrypt.hash(PORTAL_PASSWORD, 12)
+  // One portal password for every seeded client. Generated only if a client
+  // is created this run; an existing client keeps its password unless
+  // SEED_PORTAL_PASSWORD is set.
+  const portalEnv = envPassword("SEED_PORTAL_PASSWORD")
+  const portalPassword = portalEnv ?? generatePassword()
+  const portalHash = await bcrypt.hash(portalPassword, 12)
+  let portalPasswordUsed = false
   const clients: { id: string; income: number; expenses: number }[] = []
   for (const [i, c] of CLIENTS.entries()) {
     const email = `${c.firstName}.${c.lastName}@acme-lending.invalid`.toLowerCase()
@@ -141,7 +155,7 @@ async function main() {
     const row = await prisma.client.upsert({
       // idNumber is the stable identifier across seed revisions.
       where: { idNumber: c.idNumber },
-      update: { portalPassword: portalHash, email },
+      update: { ...(portalEnv ? { portalPassword: portalHash } : {}), email },
       create: {
         tenantId: tenant.id,
         reference: `CLI-SEED-${String(i + 1).padStart(4, "0")}`,
@@ -156,6 +170,7 @@ async function main() {
         portalPassword: portalHash,
       },
     })
+    if (portalEnv || row.portalPassword === portalHash) portalPasswordUsed = true
     clients.push({ id: row.id, income: c.income, expenses: c.expenses })
   }
 
@@ -185,13 +200,13 @@ async function main() {
 
   console.log(`\nSeed complete: tenant "acme" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {
-    console.log("Credentials not printed; rerun with SEED_PRINT_CREDENTIALS=1 on a local terminal.")
+    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD and SEED_PORTAL_PASSWORD to choose or reset them.")
     return
   }
   for (const s of [admin, officer]) {
     console.log(`\n  ${s.user.role}: ${s.user.email}\n    password: ${s.password}\n    TOTP secret (base32): ${s.totpSecret}\n    otpauth: ${s.otpauth}`)
   }
-  console.log(`\n  Client portal password (every seeded client): ${PORTAL_PASSWORD}`)
+  console.log(`\n  Client portal password (seeded clients created or reset this run): ${portalPasswordUsed ? portalPassword : kept("SEED_PORTAL_PASSWORD")}`)
 }
 
 /**

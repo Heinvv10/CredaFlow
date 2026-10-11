@@ -378,7 +378,7 @@ export function UploadDialog({
                         face to face, an ADMIN can record that on the{" "}
                         <a
                           href={selfieAlternatives.kycHref}
-                          className="font-medium text-[var(--cf-accent)] underline"
+                          className="font-medium text-[var(--cf-brand)] underline"
                         >
                           KYC tab
                         </a>
@@ -392,7 +392,7 @@ export function UploadDialog({
                         now &mdash; the{" "}
                         <a
                           href={selfieAlternatives.kycHref}
-                          className="font-medium text-[var(--cf-accent)] underline"
+                          className="font-medium text-[var(--cf-brand)] underline"
                         >
                           KYC tab
                         </a>{" "}
@@ -408,7 +408,7 @@ export function UploadDialog({
             <div
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
-              className="rounded-xl border-2 border-dashed border-[var(--cf-border-subtle)] bg-[rgba(255,255,255,0.035)] p-6 text-center transition-colors hover:border-[var(--cf-accent)] cursor-pointer"
+              className="rounded-xl border-2 border-dashed border-[var(--cf-border-subtle)] bg-[rgba(255,255,255,0.035)] p-6 text-center transition-colors hover:border-[var(--cf-brand)] cursor-pointer"
               onClick={() => inputRef.current?.click()}
             >
               <input

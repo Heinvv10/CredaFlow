@@ -151,5 +151,10 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # lib/loan/charges-round5-regressions reads the rendered PDFs with
+      # pdftotext; the runner image does not guarantee it.
+      - name: Install pdftotext
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh

@@ -45,6 +45,16 @@ suite("Conversation.lastActivityAt", () => {
     await prisma.$disconnect()
   })
 
+  // Conversation_one_open_per_contact allows one thread per contact with
+  // closedAt NULL. Threads that must both be open (the queue hides CLOSED)
+  // therefore need a contact each.
+  async function freshContact(): Promise<string> {
+    const c = await prisma.contact.create({
+      data: { tenantId, firstName: "IT", lastName: `${tag}-${randomUUID().slice(0, 8)}`, firstSeenChannel: "WHATSAPP" },
+    })
+    return c.id
+  }
+
   // THE DEFECT. Ordered by lastInboundAt NULLS LAST, the outbound-only thread
   // sat below the stale one; with 30-row paging that is invisibility, not a
   // cosmetic reshuffle. This runs the real listConversations query against a
@@ -63,7 +73,7 @@ suite("Conversation.lastActivityAt", () => {
     })
     const oldInbound = await prisma.conversation.create({
       data: {
-        tenantId, contactId, channel: "WHATSAPP", status: "OPEN",
+        tenantId, contactId: await freshContact(), channel: "WHATSAPP", status: "OPEN",
         lastInboundAt: staleInbound,
         lastOutboundAt: null,
         lastActivityAt: staleInbound,
@@ -85,7 +95,7 @@ suite("Conversation.lastActivityAt", () => {
     const now = new Date("2026-08-20T10:00:00.000Z")
     const cv = await prisma.conversation.create({
       data: {
-        tenantId, contactId, channel: "WHATSAPP", status: "OPEN",
+        tenantId, contactId: await freshContact(), channel: "WHATSAPP", status: "OPEN",
         lastOutboundAt: now, lastActivityAt: now,
       },
     })
@@ -127,7 +137,9 @@ suite("Conversation.lastActivityAt", () => {
     })
     const oldInbound = await prisma.conversation.create({
       data: {
-        tenantId, contactId: listContact.id, channel: "EMAIL", status: "OPEN",
+        // One open thread per contact: the older thread is closed history,
+        // which getContactComms lists alongside the open one.
+        tenantId, contactId: listContact.id, channel: "EMAIL", status: "CLOSED", closedAt: staleInbound,
         subject: "Old query",
         lastInboundAt: staleInbound, lastOutboundAt: null, lastActivityAt: staleInbound,
       },
@@ -146,21 +158,24 @@ suite("Conversation.lastActivityAt", () => {
   it("backfills lastActivityAt as the later of the two timestamps, falling back to createdAt", async () => {
     const earlier = new Date("2026-03-01T00:00:00.000Z")
     const later = new Date("2026-06-01T00:00:00.000Z")
+    // Five threads on one contact: all closed, so the one-open-per-contact
+    // index does not apply. The backfill expression ignores status.
+    const closed = { status: "CLOSED" as const, closedAt: later }
 
     const bothInboundNewer = await prisma.conversation.create({
-      data: { tenantId, contactId, channel: "EMAIL", lastInboundAt: later, lastOutboundAt: earlier },
+      data: { tenantId, contactId, channel: "EMAIL", ...closed, lastInboundAt: later, lastOutboundAt: earlier },
     })
     const bothOutboundNewer = await prisma.conversation.create({
-      data: { tenantId, contactId, channel: "EMAIL", lastInboundAt: earlier, lastOutboundAt: later },
+      data: { tenantId, contactId, channel: "EMAIL", ...closed, lastInboundAt: earlier, lastOutboundAt: later },
     })
     const inboundOnly = await prisma.conversation.create({
-      data: { tenantId, contactId, channel: "EMAIL", lastInboundAt: later, lastOutboundAt: null },
+      data: { tenantId, contactId, channel: "EMAIL", ...closed, lastInboundAt: later, lastOutboundAt: null },
     })
     const outboundOnly = await prisma.conversation.create({
-      data: { tenantId, contactId, channel: "EMAIL", lastInboundAt: null, lastOutboundAt: later },
+      data: { tenantId, contactId, channel: "EMAIL", ...closed, lastInboundAt: null, lastOutboundAt: later },
     })
     const neither = await prisma.conversation.create({
-      data: { tenantId, contactId, channel: "EMAIL", lastInboundAt: null, lastOutboundAt: null },
+      data: { tenantId, contactId, channel: "EMAIL", ...closed, lastInboundAt: null, lastOutboundAt: null },
     })
 
     const ids = [bothInboundNewer.id, bothOutboundNewer.id, inboundOnly.id, outboundOnly.id, neither.id]

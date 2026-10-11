@@ -328,11 +328,11 @@ export default async function ReportsPage() {
             Default Charges
           </Link>
           <div className="flex flex-wrap items-center gap-1.5">
-            <a href="/api/reports/export?type=loans"
+            <a href="/api/reports/export?type=loans" download
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e6b3f] text-white rounded-lg text-xs font-semibold hover:bg-[#155030] transition-colors">
               <Download className="h-3.5 w-3.5" />Loans Excel
             </a>
-            <a href="/api/reports/export?type=par"
+            <a href="/api/reports/export?type=par" download
               className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50 transition-colors">
               <Download className="h-3.5 w-3.5" />PAR Excel
             </a>
@@ -591,9 +591,15 @@ export default async function ReportsPage() {
                   <td className="font-medium text-[#262a33]">{report.name}</td>
                   <td className="text-[#4b5060]">{report.period}</td>
                   <td>
-                    <Link href={report.href} className="btn-outline-gold inline-block text-center">
-                      {report.href.startsWith("/api") ? "Export" : "View"}
-                    </Link>
+                    {report.href.startsWith("/api") ? (
+                      <a href={report.href} download className="btn-outline-gold inline-block text-center">
+                        Export
+                      </a>
+                    ) : (
+                      <Link href={report.href} className="btn-outline-gold inline-block text-center">
+                        View
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}

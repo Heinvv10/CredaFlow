@@ -125,7 +125,7 @@ export default async function ArrearsAgingPage() {
           </p>
         </div>
         <Button asChild>
-          <a href="/api/reports/export?type=par">
+          <a href="/api/reports/export?type=par" download>
             <Download className="h-4 w-4" />
             Export to Excel
           </a>
