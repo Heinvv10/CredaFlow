@@ -16,7 +16,7 @@ import { BIOMETRIC_LIVENESS_THRESHOLD, BIOMETRIC_MATCH_THRESHOLD } from '@/lib/k
 import type { Persona, PersonaBankCode } from '../personas/types'
 import { money } from '../specimens/pdf-kit'
 
-export type Actor = 'CREDIT OFFICER' | 'ADMIN' | 'CLIENT'
+export type Actor = 'CREDIT OFFICER' | 'ADMIN' | 'CLIENT' | 'PRESENTER'
 
 export interface Step {
   who: Actor
@@ -72,12 +72,10 @@ const MANDATE_BANK_LABEL: Record<PersonaBankCode, string> = {
  * Everything below was walked through the real UI in the dress rehearsal of
  * 2026-10-10 (build 0c362f0): button and panel names are the ones on screen.
  */
-function documentsAndSelfie(p: Persona, latestPayslip: string, returning: boolean): Step[] {
+function documentsAndSelfie(p: Persona, latestPayslip: string): Step[] {
   const files = `id-card.png on ID Copy; ${latestPayslip} on Payslip (one payslip is enough: the row keeps the latest and shows older ones as SUPERSEDED); the bank statement on Bank Statement; the SAME bank statement on Proof of Address (the specimens carry no utility bill; that row accepts a statement)`
   const wait = 'wait for "Analysing your document..." to become "Document scanned" (5 to 15 seconds) before the next'
-  const upload: Step = returning
-    ? { who: 'CLIENT', where: 'Portal > Documents > Required documents', action: `Optional for her: this step and the next two can be skipped, because her first-loan documents and in-person identity check still stand (the page says "All required documents are complete ... no selfie is needed") and Start Review is not blocked. To show fresh documents anyway, press Replace on each row, one file at a time, and ${wait}: ${files}.`, expect: 'The four rows stay VERIFIED (the first-loan documents); each new upload is listed under My documents as SUPERSEDED until staff verify it.' }
-    : { who: 'CLIENT', where: 'Portal > Documents > Required documents', action: `One file at a time, each on its own row: press Upload, choose the file, press Upload, and ${wait}: ${files}.`, expect: 'Four rows PENDING REVIEW and "Action needed: Selfie verification". What was read off each document shows on the staff KYC tab, not here.' }
+  const upload: Step = { who: 'CLIENT', where: 'Portal > Documents > Required documents', action: `One file at a time, each on its own row: press Upload, choose the file, press Upload, and ${wait}: ${files}.`, expect: 'Four rows PENDING REVIEW and "Action needed: Selfie verification". What was read off each document shows on the staff KYC tab, not here.' }
   return [
     upload,
     { who: 'CLIENT', where: 'Same page > Selfie verification row > Take selfie', action: 'Open Camera (allow the browser camera prompt), face in the oval, Take Photo, then Upload. See "At the selfie step" below.', expect: `Toast "Selfie uploaded"; within about 20 seconds the row reads "Identity verified at NN% match" and "VERIFIED - NN%" (needs match ${BIOMETRIC_MATCH_THRESHOLD}% and liveness ${BIOMETRIC_LIVENESS_THRESHOLD}% or more). If it could not be verified, press Retake.` },
@@ -116,15 +114,27 @@ function newClientCapture(p: Persona, declined: boolean): Step[] {
   ]
 }
 
+/**
+ * The returning client is not asked to re-capture: her first-loan documents
+ * and in-person identity check still stand and Start Review is not blocked.
+ * Re-uploading would only list SUPERSEDED rows, so the story skips it.
+ */
+const RETURNING_DOCUMENTS_NOTE: Step = {
+  who: 'PRESENTER',
+  where: 'Portal > Documents',
+  action: 'Say: "Returning clients aren\'t asked to re-capture: the page says all required documents are complete and no selfie is needed." Point at the four VERIFIED rows and that message. Upload nothing and take no selfie; the staff KYC step is skipped too.',
+  expect: 'The page reads "All required documents are complete ... no selfie is needed".',
+}
+
 /** `latestPayslip` is the file name of the newest payslip in the kit folder. */
 export function stepsFor(p: Persona, latestPayslip: string): Step[] {
   switch (p.storyline) {
     case 'live-clean-approve':
-      return [...newClientCapture(p, false), ...documentsAndSelfie(p, latestPayslip, false), ...reviewAndAffordability(p, true), complianceChecks(), ...approveToPayout(p)]
+      return [...newClientCapture(p, false), ...documentsAndSelfie(p, latestPayslip), ...reviewAndAffordability(p, true), complianceChecks(), ...approveToPayout(p)]
     case 'live-affordability-decline':
       return [
         ...newClientCapture(p, true),
-        ...documentsAndSelfie(p, latestPayslip, false),
+        ...documentsAndSelfie(p, latestPayslip),
         ...reviewAndAffordability(p, false),
         { who: 'ADMIN', where: 'Applications > the application > Decision rail', action: 'NCA Compliance Checks already shows "Complete" (recorded with the reckless-lending acknowledgement in the wizard): nothing to tick. Repayment method Debit order, then Approve.', expect: `Refused by the product, not by the presenter. Red toast and a line in the rail: "${RECORDED_DECLINE_REASON}" (figures in cents: NDI ${R(180913)} against ${R(283861)} required). The status stays UNDER REVIEW.` },
         { who: 'ADMIN', where: 'Same page > Decision rail', action: `Decline, Decline category "Affordability", reason "${DECLINE_TEXT}", Confirm Decline.`, expect: 'Status DECLINED, "Application Declined". The borrower sees Declined and the reason under Portal > Applications. Story ends here.' },
@@ -134,7 +144,7 @@ export function stepsFor(p: Persona, latestPayslip: string): Step[] {
         { who: 'CREDIT OFFICER', where: `Staff app > Clients > search "${p.lastName}" > View`, action: 'Loans tab: the first loan is COMPLETED with R 0.00 outstanding (settled early). KYC tab: 4 / 4 verified, identity "VERIFIED IN PERSON".', expect: 'An existing client with a clean repayment history.' },
         { who: 'CLIENT', where: 'Portal sign-in page', action: 'Sign in with the persona email (portal already active from the first loan).', expect: 'Overview shows the settled loan: account status "Paid Up", outstanding balance R 0.00.' },
         { who: 'CLIENT', where: 'Portal > Apply > Apply for Personal Loan', action: `"APPLYING AS" shows the details on file. Replace the pre-filled maximums with amount ${p.loanRequest.amountCents / 100} and term ${p.loanRequest.termDays}; category "${purposeOf(p).category}"; purpose "${purposeOf(p).text}"; tick both boxes; Submit application. Fallback if the portal refuses: CREDIT OFFICER > Applications > New Application for the existing client.`, expect: 'The application page opens with status Submitted; no re-capture.' },
-        ...documentsAndSelfie(p, latestPayslip, true),
+        RETURNING_DOCUMENTS_NOTE,
         ...reviewAndAffordability(p, true),
         complianceChecks(),
         ...approveToPayout(p),

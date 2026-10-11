@@ -6,7 +6,7 @@ import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { LIVE_DEMO_PERSONAS, getPersona } from '../personas'
 import { buildKits } from './index'
-import { RECORDED_DECLINE_REASON } from './stories'
+import { RECORDED_DECLINE_REASON, stepsFor } from './stories'
 
 const ASOF = '2026-10-10'
 let root = ''
@@ -60,6 +60,28 @@ describe('buildKits', () => {
     const md = readFileSync(join(root, 'kit', 'live-affordability-decline', 'CHEAT-SHEET.md'), 'utf8')
     expect(md).toContain(RECORDED_DECLINE_REASON)
     expect(md).not.toContain('Disburse Loan')
+  })
+
+  const UPLOAD_SELFIE_KYC = /\bUpload\b|Take selfie|Selfie verification|KYC tab/i
+  it('returning client story has no upload, selfie or KYC-verify step, only the presenter note', () => {
+    const steps = stepsFor(getPersona('live-returning-client'), 'payslip-2026-09.pdf')
+    const note = steps.filter((s) => s.who === 'PRESENTER')
+    expect(note).toHaveLength(1)
+    expect(note[0]?.where).toBe('Portal > Documents')
+    // The staff KYC tab appears once, as the opening read-only look at her record.
+    const rest = steps.filter((s) => s.who !== 'PRESENTER' && !s.where.includes('View'))
+    for (const s of rest) expect([s.where, UPLOAD_SELFIE_KYC.test(`${s.where} ${s.action}`)]).toEqual([s.where, false])
+    const md = readFileSync(join(root, 'kit', 'live-returning-client', 'CHEAT-SHEET.md'), 'utf8')
+    expect(md).not.toContain('At the selfie step')
+    expect(md).toContain('spare, not needed for this story')
+  })
+
+  it.each(['live-clean-approve', 'live-affordability-decline'])('%s still uploads documents, takes the selfie and verifies KYC', (id) => {
+    const steps = stepsFor(getPersona(id), 'payslip-2026-09.pdf')
+    expect(steps.some((s) => s.where.includes('Required documents') && /press Upload/.test(s.action))).toBe(true)
+    expect(steps.some((s) => s.where.includes('Take selfie'))).toBe(true)
+    expect(steps.some((s) => s.where.includes('KYC tab') && /press Verify/.test(s.action))).toBe(true)
+    expect(steps.some((s) => s.who === 'PRESENTER')).toBe(false)
   })
 
   it('lists the three stories in running order in the README', () => {

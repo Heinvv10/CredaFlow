@@ -89,17 +89,19 @@ export function cheatSheetFor(p: Persona, documents: readonly ManifestDocument[]
   const latestPayslip = payslips[payslips.length - 1]
   if (!latestPayslip) throw new Error(`${p.id}: the kit has no payslip`)
   const steps = stepsFor(p, latestPayslip)
+  const returning = p.storyline === 'live-returning-client'
   return {
     title: `${p.firstName} ${p.lastName}: ${p.storyline}`,
     subtitle: p.summary,
     sections: [
-      { heading: p.storyline === 'live-returning-client' ? 'Details on file (check, do not re-type)' : 'Details to type', rows: detailRows(p) },
+      { heading: returning ? 'Details on file (check, do not re-type)' : 'Details to type', rows: detailRows(p) },
       { heading: 'Logins (by role)', items: loginItems(p) },
       { heading: 'Click path', numbered: true, items: steps.map((s) => `[${s.who}] ${s.where}: ${s.action} Expect: ${s.expect}`) },
-      { heading: 'At the selfie step, say', quote: SELFIE_SCRIPT },
+      ...(returning ? [] : [{ heading: 'At the selfie step, say', quote: SELFIE_SCRIPT }]),
       {
-        heading: 'Files to upload (this folder)',
+        heading: returning ? 'Files in this folder (spare, not needed for this story)' : 'Files to upload (this folder)',
         items: documents.map((d) => {
+          if (returning) return `${d.file} (${d.docType.replace('_', ' ').toLowerCase()}; spare, not needed for this story)`
           const spare = d.docType === 'PAYSLIP' && d.file !== latestPayslip ? '; spare, not needed' : ''
           const twice = d.docType === 'BANK_STATEMENT' ? '; also as proof of address' : ''
           return `${d.file} (${d.docType.replace('_', ' ').toLowerCase()}${spare}${twice})`
@@ -133,7 +135,7 @@ export function kitReadme(asOf: string, entries: readonly KitEntry[]): string {
   return [
     `# CredaFlow live-demo kit (as of ${asOf})`,
     '',
-    'Three storylines, one folder each: SPECIMEN documents to upload and a one-page `CHEAT-SHEET.pdf` (same text in `CHEAT-SHEET.md`).',
+    'Three storylines, one folder each: SPECIMEN documents (the returning client uploads nothing: hers are spare) and a one-page `CHEAT-SHEET.pdf` (same text in `CHEAT-SHEET.md`).',
     'The ID cards carry the presenter\'s real photo so the live selfie genuinely face-matches. Keep this folder private (chmod 700), never commit or share it.',
     '',
     '## Suggested running order',
@@ -146,8 +148,8 @@ export function kitReadme(asOf: string, entries: readonly KitEntry[]): string {
     '',
     '- Restore the demo snapshot so all three personas are unused (the returning client keeps only her settled first loan). A restore signs everyone out.',
     '- Browsers: CREDIT OFFICER and ADMIN both work in the staff app, so give each its own browser profile (or one a private window) and keep both signed in; the client portal is a separate site. Staff pages do not update themselves when the other role or the borrower acts: refresh the application page before each staff step.',
-    '- Camera: the selfie can only be taken with the camera (no file upload). Allow the camera for the portal site before the demo.',
-    '- Waits: each uploaded document takes 5 to 15 seconds to scan and the selfie match up to 20 seconds; everything else answers within a few seconds. Upload one document at a time and wait for "Document scanned" before the next (the extraction model is shared).',
+    '- Camera: the selfie (new clients only) can only be taken with the camera (no file upload). Allow the camera for the portal site before the demo.',
+    '- Waits (new clients; the returning client uploads nothing): each uploaded document takes 5 to 15 seconds to scan and the selfie match up to 20 seconds; everything else answers within a few seconds. Upload one document at a time and wait for "Document scanned" before the next (the extraction model is shared).',
     '- Known issue on build 0c362f0: on the portal signing page the frame that should show the PASQ + agreement packet shows `{"error":"Not found"}`, and so do its "Open PDF in a new tab" and "Download agreement" links. Signing still works. Show the packet from the staff app instead (application > Credit Agreement panel > View PASQ + Agreement).',
     '- Documents are dated for the as-of date above; rebuild the kit if you demo in a later month.',
     '- Logins are by role; the credentials are not in this kit (see each cheat sheet).',
