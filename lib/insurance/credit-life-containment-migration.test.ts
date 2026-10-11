@@ -1,15 +1,19 @@
+import fs from "node:fs"
+import path from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  baselineConstraintSql,
   baselineFunctionSql,
   baselineIndexSql,
   baselineTriggerSql,
 } from "../db-baseline.test-helpers"
 
-// The bundled credit-life functions are in the baseline, but most of the
-// triggers that called them were deliberately retired (no credit-life product
-// can be sold yet) and are absent from the final schema. These tests pin the
-// function bodies kept for reinstatement, plus the indexes and the one
-// ComplianceRecord trigger that are still live.
+// The bundled credit-life functions are in the baseline; the 15 triggers that
+// call them are attached by 20261010180000_attach_credit_life_guards (the
+// ComplianceRecord lock trigger was never detached). These tests pin the
+// function bodies, the trigger definitions and the indexes as written. Whether
+// the rules hold when they run is the integration suite's job
+// (credit-life-containment-migration.integration.test.ts).
 const guardAgreement = baselineFunctionSql("guardBundledCreditLifeAgreement")
 const policyTerms = baselineFunctionSql("assertBundledCreditLifePolicyTerms")
 const productIdentity = baselineFunctionSql("guardCreditLifeProductIdentity")
@@ -120,5 +124,95 @@ describe("bundled credit-life database containment", () => {
 
   it("refuses hard deletion of a bundled policy", () => {
     expect(guardAgreement).toContain("Bundled credit-life policy records cannot be hard-deleted")
+  })
+
+  it("leaves loans on applications that never reached approval outside the commit invariant", () => {
+    expect(disbursedCoverage).toMatch(
+      /IF loan_id IS NULL\s+AND application_status <> 'DISBURSED'::"AppStatus" THEN\s+RETURN;\s+END IF;\s+(?:--[^\n]*\n\s*)*IF application_status IN \('DRAFT'::"AppStatus", 'SUBMITTED'::"AppStatus", 'UNDER_REVIEW'::"AppStatus"\) THEN\s+RETURN;\s+END IF;\s+(?:--[^\n]*\n\s*)*IF loan_id IS NULL\s+OR application_status <> 'DISBURSED'::"AppStatus"/,
+    )
+    for (const status of ["APPROVED", "DECLINED", "CANCELLED", "DISBURSED"]) {
+      expect(disbursedCoverage).not.toMatch(new RegExp(`IF application_status IN \\([^)]*'${status}'`))
+    }
+  })
+})
+
+const loanColumns = ["id", "tenantId", "clientId", "applicationId", "agreementDocId", "principal", "startDate", "maturityDate"]
+const applicationColumns = [
+  "id", "tenantId", "clientId", "agreementDocumentId", "agreementDocumentSha256", "agreementSignedAt",
+  "agreementSignedMethod", "agreementSignedByIp", "agreementSignedByUserId", "agreementSignatureData",
+]
+const documentColumns = [
+  "id", "tenantId", "clientId", "docType", "fileName", "fileSize", "mimeType", "verified", "verifiedAt",
+  "deletedAt", "storagePath", "contentSha256", "signatureState", "signedAt",
+]
+const updateOf = (columns: string[]) => `UPDATE OF ${columns.map((c) => `"${c}"`).join(", ")}`
+
+// [trigger, table, timing + events exactly as written, function]
+const attached: Array<[string, string, string, string]> = [
+  ["InsurancePolicy_guard_bundled_credit_life_agreement", "InsurancePolicy",
+    `BEFORE INSERT OR ${updateOf(["tenantId", "clientId", "type", "policySource", "linkedLoanId", "productId", "premiumAmount", "sumAssured", "startDate", "renewalDate"])} OR DELETE`,
+    "guardBundledCreditLifeAgreement"],
+  ["InsuranceProduct_guard_credit_life_identity", "InsuranceProduct",
+    `BEFORE ${updateOf(["id", "tenantId", "type"])}`, "guardCreditLifeProductIdentity"],
+  ["Loan_lock_bundled_credit_life_dependencies", "Loan",
+    `BEFORE ${updateOf(loanColumns)} OR DELETE`, "lockBundledCreditLifeDependencies"],
+  ["Loan_assert_bundled_credit_life_dependencies", "Loan",
+    `AFTER ${updateOf(loanColumns)} OR DELETE`, "assertBundledCreditLifeDependencies"],
+  ["LoanApplication_lock_bundled_credit_life_dependencies", "LoanApplication",
+    `BEFORE ${updateOf(applicationColumns)} OR DELETE`, "lockBundledCreditLifeDependencies"],
+  ["LoanApplication_assert_bundled_credit_life_dependencies", "LoanApplication",
+    `AFTER ${updateOf(applicationColumns)} OR DELETE`, "assertBundledCreditLifeDependencies"],
+  ["ClientDocument_lock_bundled_credit_life_dependencies", "ClientDocument",
+    `BEFORE ${updateOf(documentColumns)} OR DELETE`, "lockBundledCreditLifeDependencies"],
+  ["ClientDocument_assert_bundled_credit_life_dependencies", "ClientDocument",
+    `AFTER ${updateOf(documentColumns)} OR DELETE`, "assertBundledCreditLifeDependencies"],
+  ["ComplianceRecord_assert_bundled_credit_life_dependencies", "ComplianceRecord",
+    `AFTER INSERT OR ${updateOf(["tenantId", "type", "referenceId", "status", "completedAt", "data"])} OR DELETE`,
+    "assertBundledCreditLifeDependencies"],
+]
+const commitInvariantTables = ["Loan", "LoanApplication", "ClientDocument", "ComplianceRecord", "InsurancePolicy", "InsuranceProduct"]
+
+const oneLine = (sql: string) => sql.replace(/\s+/g, " ").trim()
+
+describe("bundled credit-life triggers", () => {
+  it.each(attached)("%s is attached to %s with its exact events and function", (name, table, events, fn) => {
+    expect(oneLine(baselineTriggerSql(name))).toBe(
+      `CREATE TRIGGER "${name}" ${events} ON "${table}" FOR EACH ROW EXECUTE FUNCTION "${fn}"();`,
+    )
+  })
+
+  it.each(commitInvariantTables)("%s carries the deferred commit invariant on every write", (table) => {
+    const name = `${table}_credit_life_commit_invariant`
+    expect(oneLine(baselineTriggerSql(name))).toBe(
+      `CREATE CONSTRAINT TRIGGER "${name}" AFTER INSERT OR UPDATE OR DELETE ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "assertDisbursedCreditLifeCommitInvariant"();`,
+    )
+  })
+})
+
+describe("bundled credit-life migration", () => {
+  const migrationSql = fs.readFileSync(
+    path.join(__dirname, "..", "..", "prisma", "migrations", "20261010180000_attach_credit_life_guards", "migration.sql"),
+    "utf8",
+  )
+
+  it("creates exactly the 15 credit-life triggers and no other", () => {
+    const created = [...migrationSql.matchAll(/^\s*CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+"([^"]+)"/gim)].map((m) => m[1])
+    expect(created.sort()).toEqual([
+      ...attached.map(([name]) => name),
+      ...commitInvariantTables.map((table) => `${table}_credit_life_commit_invariant`),
+    ].sort())
+  })
+
+  it("requires a positive premium and cover on every credit-life product, validated", () => {
+    expect(oneLine(baselineConstraintSql("InsuranceProduct_credit_life_terms_positive"))).toBe(
+      `ALTER TABLE "InsuranceProduct" ADD CONSTRAINT "InsuranceProduct_credit_life_terms_positive" CHECK ("type" <> 'CREDIT_LIFE'::"InsurancePolicyType" OR ("premiumAmount" > 0 AND "sumAssured" > 0));`,
+    )
+  })
+
+  it.each([
+    ["LoanApplication_agreementDocumentId_idx", "LoanApplication", "agreementDocumentId"],
+    ["Loan_agreementDocId_idx", "Loan", "agreementDocId"],
+  ])("indexes %s for the agreement-document lookups", (name, table, column) => {
+    expect(oneLine(baselineIndexSql(name))).toBe(`CREATE INDEX "${name}" ON "${table}"("${column}");`)
   })
 })

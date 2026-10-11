@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
+import {
+  CREDIT_LIFE_PRODUCT_TERMS_ERROR,
+  creditLifeProductTermsIssues,
+} from "@/lib/insurance/credit-life-product-terms"
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -19,6 +23,13 @@ export async function POST(req: NextRequest) {
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const body = await req.json()
+    const premiumAmount = Number(body.premiumAmount)
+    const sumAssured = Number(body.sumAssured)
+
+    const termsIssues = creditLifeProductTermsIssues({ type: body.type, premiumAmount, sumAssured })
+    if (termsIssues.length > 0) {
+      return NextResponse.json({ error: CREDIT_LIFE_PRODUCT_TERMS_ERROR, invalidFields: termsIssues }, { status: 422 })
+    }
 
     // Validate the underwriter belongs to this tenant before writing the FK —
     // the DB FK only enforces existence, not tenancy (defence-in-depth IDOR).
@@ -33,8 +44,8 @@ export async function POST(req: NextRequest) {
         code: body.code,
         name: body.name,
         type: body.type,
-        premiumAmount: Number(body.premiumAmount),
-        sumAssured: Number(body.sumAssured),
+        premiumAmount,
+        sumAssured,
         commissionRate: Number(body.commissionRate ?? 0.15),
         active: body.active ?? true,
         insurerId: body.insurerId || null,

@@ -96,6 +96,10 @@ function rebaseContractForDatabaseTest(
   }
 }
 
+// What the completed agreement artifact records as the credit-life election.
+// "missing" writes no artifact; "malformed" writes a non-boolean value.
+export type AgreementArtifactElection = boolean | "missing" | "malformed"
+
 export async function createApprovedPasqV3Application(
   label: string,
   election: "ACCEPTED" | "DECLINED" = "ACCEPTED",
@@ -109,6 +113,9 @@ export async function createApprovedPasqV3Application(
   // method from APPROVED onward, so a null one cannot reach the states these
   // tests exercise at all.
   repaymentMethod: "EFT" | "DEBIT_ORDER" = "DEBIT_ORDER",
+  // Defaults to the PASQ election. A completed artifact is immutable, so a
+  // scenario that needs a missing or malformed one is created with it.
+  agreementArtifactElection: AgreementArtifactElection = election === "ACCEPTED",
 ) {
   const token = randomUUID().replaceAll("-", "")
   const tenantId = `tenant_pasq_v3_${label}_${token}`
@@ -570,7 +577,7 @@ export async function createApprovedPasqV3Application(
     })
   }
   const insuranceProductId = disclosure.productId
-  if (withDisbursementAgreement) {
+  if (withDisbursementAgreement && agreementArtifactElection !== "missing") {
     await prisma.complianceRecord.create({
       data: {
         tenantId,
@@ -587,7 +594,10 @@ export async function createApprovedPasqV3Application(
           storagePath: `/tmp/credit-agreement-${applicationId}.pdf`,
           fileName: `credit-agreement-${applicationId}.pdf`,
           fileSize: 4096,
-          creditLifeAutoBundleEligible: election === "ACCEPTED",
+          creditLifeAutoBundleEligible:
+            agreementArtifactElection === "malformed"
+              ? "true"
+              : agreementArtifactElection,
         },
       },
     })
@@ -621,6 +631,20 @@ type WriteOptions = {
   // Let a caller know the ids of rows a rolled-back transaction would create.
   loanId?: string
   policyId?: string
+  // "auto" writes the bundled policy when the PASQ election is ACCEPTED, as
+  // the route does; "none" never writes one; "missing_product" writes one with
+  // no product, whatever the election.
+  policy?: "auto" | "none" | "missing_product"
+  // Field overrides for the bundled policy, given the terms it is bound to.
+  policyOverrides?: (terms: { startDate: Date; maturityDate: Date }) =>
+    Partial<Prisma.InsurancePolicyUncheckedCreateInput>
+  // Runs inside the transaction once the policy row is written.
+  afterPolicyCreated?: () => Promise<void>
+  // "route": loan, application DISBURSED, schedule, then policy (the policy
+  // after the application, as in the disburse route). "policy-before-application":
+  // loan, policy, application, schedule, so the policy guard reads the product
+  // before the application's credit-life offer guard does.
+  order?: "route" | "policy-before-application"
 }
 
 // The tenant-scoped `@/lib/prisma` client's transaction and a plain
@@ -638,6 +662,10 @@ export async function writePasqV3Disbursement(
     payoutShiftDays = 0,
     loanId = `loan_${randomUUID().replaceAll("-", "")}`,
     policyId,
+    policy = "auto",
+    policyOverrides,
+    afterPolicyCreated,
+    order = "route",
   }: WriteOptions = {},
 ) {
   const tx = transaction as Prisma.TransactionClient
@@ -653,6 +681,7 @@ export async function writePasqV3Disbursement(
   const maturityDate = agreementDueDate(
     scenario.pasqEvidence.billing.schedule.at(-1)!.dueDate,
   )
+  const startDate = scenario.signedAt
   await tx.loan.create({
     data: {
       id: loanId,
@@ -676,7 +705,7 @@ export async function writePasqV3Disbursement(
         + totalRepayableOffset,
       outstandingPrincipal:
         scenario.pasqEvidence.calculator.principalCents,
-      startDate: scenario.signedAt,
+      startDate,
       maturityDate,
       nextPaymentDate: agreementDueDate(
         scenario.pasqEvidence.billing.schedule[0].dueDate,
@@ -687,6 +716,48 @@ export async function writePasqV3Disbursement(
       agreementDocId: scenario.agreementDocumentId,
     },
   })
+  const writePolicy = async (): Promise<string | null> => {
+    if (
+      policy === "none"
+      || (
+        policy === "auto"
+        && (
+          scenario.pasqEvidence.creditLife.election !== "ACCEPTED"
+          || !scenario.insuranceProductId
+        )
+      )
+    ) {
+      return null
+    }
+    const created = await tx.insurancePolicy.create({
+      select: { id: true },
+      data: {
+        ...(policyId ? { id: policyId } : {}),
+        tenantId: scenario.tenantId,
+        policyNumber: `CL-PV3-${randomUUID()}`,
+        clientId: scenario.clientId,
+        type: "CREDIT_LIFE",
+        status: "ACTIVE",
+        premiumAmount:
+          scenario.pasqEvidence.creditLife.monthlyPremiumCents / 100,
+        sumAssured: scenario.pasqEvidence.calculator.principalCents / 100,
+        linkedLoanId: loanId,
+        startDate,
+        renewalDate: maturityDate,
+        ...(policy === "missing_product"
+          ? {}
+          : { productId: scenario.insuranceProductId }),
+        policySource: "BUNDLED_CREDIT_AGREEMENT",
+        ...policyOverrides?.({ startDate, maturityDate }),
+      },
+    })
+    await afterPolicyCreated?.()
+    return created.id
+  }
+  let createdPolicyId: string | null = null
+  if (order === "policy-before-application") {
+    createdPolicyId = await writePolicy()
+  }
   await tx.loanApplication.update({
     where: {
       id: scenario.applicationId,
@@ -710,33 +781,8 @@ export async function writePasqV3Disbursement(
       totalDue: item.totalDueCents,
     })),
   })
-  let createdPolicyId: string | null = null
-  if (
-    scenario.pasqEvidence.creditLife.election === "ACCEPTED"
-    && scenario.insuranceProductId
-  ) {
-    const policy = await tx.insurancePolicy.create({
-      select: { id: true },
-      data: {
-        ...(policyId ? { id: policyId } : {}),
-        tenantId: scenario.tenantId,
-        policyNumber: `CL-PV3-${randomUUID()}`,
-        clientId: scenario.clientId,
-        type: "CREDIT_LIFE",
-        status: "ACTIVE",
-        premiumAmount:
-          scenario.pasqEvidence.creditLife.monthlyPremiumCents / 100,
-        sumAssured: scenario.pasqEvidence.calculator.principalCents / 100,
-        linkedLoanId: loanId,
-        startDate: scenario.signedAt,
-        renewalDate: maturityDate,
-        productId: scenario.insuranceProductId,
-        policySource: "BUNDLED_CREDIT_AGREEMENT",
-      },
-    })
-    createdPolicyId = policy.id
-  }
-  return { loanId, policyId: createdPolicyId }
+  if (order === "route") createdPolicyId = await writePolicy()
+  return { loanId, policyId: createdPolicyId, startDate, maturityDate }
 }
 
 export async function bookLoan(

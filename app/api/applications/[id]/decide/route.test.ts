@@ -17,6 +17,7 @@ const transactionMock = vi.fn()
 const txUpdateManyMock = vi.fn()
 const txCreditLifeOfferFindFirstMock = vi.fn()
 const txAuditLogCreateMock = vi.fn()
+const txExecuteRawUnsafeMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const evaluateAffordabilityGateMock = vi.fn()
 const verifyLockedApprovalCandidateMock = vi.fn()
@@ -395,10 +396,12 @@ beforeEach(() => {
   })
   txDocumentUpdateManyMock.mockResolvedValue({ count: 0 })
   txCreditLifeOfferFindFirstMock.mockResolvedValue(null)
+  txExecuteRawUnsafeMock.mockResolvedValue(0)
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({
     loanApplication: { updateMany: txUpdateManyMock },
     clientDocument: { updateMany: (a: unknown) => txDocumentUpdateManyMock(a) },
     auditLog: { create: txAuditLogCreateMock },
+    $executeRawUnsafe: (sql: string) => txExecuteRawUnsafeMock(sql),
     // return_to_review re-resolves the current credit-life offer to decide
     // whether the stored election has actually gone stale.
     insuranceProduct: { findFirst: (a: unknown) => txCreditLifeOfferFindFirstMock(a) },
@@ -1040,6 +1043,42 @@ it("409s on decline when a concurrent decision already moved the application off
 
   expect(res.status).toBe(409)
   expect(txAuditLogCreateMock).not.toHaveBeenCalled()
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("checks the deferred constraints inside the decline transaction, after its audit row", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({ action: "decline", reason: "Failed affordability", declineCategory: "AFFORDABILITY" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txExecuteRawUnsafeMock).toHaveBeenCalledWith("SET CONSTRAINTS ALL IMMEDIATE")
+  expect(txExecuteRawUnsafeMock.mock.invocationCallOrder[0])
+    .toBeGreaterThan(txAuditLogCreateMock.mock.invocationCallOrder[0])
+})
+
+it("409s a decline of an application that already has a loan, and does not notify", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txExecuteRawUnsafeMock.mockRejectedValueOnce(new Error(
+    "Invalid `tx.$executeRawUnsafe()` invocation: Raw query failed. Code: `23514`. Message: `Loan creation and application disbursement must commit together with matching tenant and client evidence`",
+  ))
+
+  const res = await POST(makeReq({ action: "decline", reason: "Failed affordability", declineCategory: "AFFORDABILITY" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({
+    error: "This application already has a loan booked against it, so it cannot be declined.",
+  })
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("still 500s a decline whose constraint check fails for any other reason", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txExecuteRawUnsafeMock.mockRejectedValueOnce(new Error("connection reset"))
+
+  const res = await POST(makeReq({ action: "decline", reason: "Failed affordability", declineCategory: "AFFORDABILITY" }), ctx)
+
+  expect(res.status).toBe(500)
   expect(triggerNotificationMock).not.toHaveBeenCalled()
 })
 

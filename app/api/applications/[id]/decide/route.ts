@@ -1289,38 +1289,54 @@ export async function POST(
         // one transaction. A failed audit insert must leave the application
         // UNDER_REVIEW rather than creating an unaudited decline.
         const decisionAt = new Date()
-        const declined = await prisma.$transaction(async (tx) => {
-          const changed = await tx.loanApplication.updateMany({
-            where: {
-              id,
-              tenantId: tenant.id,
-              status: "UNDER_REVIEW",
-              updatedAt: application.updatedAt,
-            },
-            data: {
-              status: "DECLINED",
-              approvedById: guard.user.id,
-              approvedAt: decisionAt,
-              decisionReason: reason || "Declined",
-              declineCategory,
-            },
-          })
-          if (changed.count === 0) return false
+        let declined: boolean
+        try {
+          declined = await prisma.$transaction(async (tx) => {
+            const changed = await tx.loanApplication.updateMany({
+              where: {
+                id,
+                tenantId: tenant.id,
+                status: "UNDER_REVIEW",
+                updatedAt: application.updatedAt,
+              },
+              data: {
+                status: "DECLINED",
+                approvedById: guard.user.id,
+                approvedAt: decisionAt,
+                decisionReason: reason || "Declined",
+                declineCategory,
+              },
+            })
+            if (changed.count === 0) return false
 
-          await tx.auditLog.create({
-            data: {
-              tenantId: tenant.id,
-              userId: guard.user.id,
-              userEmail: guard.user.email,
-              action: AuditAction.LOAN_DECLINED,
-              entity: "LoanApplication",
-              entityId: id,
-              oldValue: { status: application.status },
-              newValue: { status: "DECLINED", reason: reason || "Declined", declineCategory },
-            },
+            await tx.auditLog.create({
+              data: {
+                tenantId: tenant.id,
+                userId: guard.user.id,
+                userEmail: guard.user.email,
+                action: AuditAction.LOAN_DECLINED,
+                entity: "LoanApplication",
+                entityId: id,
+                oldValue: { status: application.status },
+                newValue: { status: "DECLINED", reason: reason || "Declined", declineCategory },
+              },
+            })
+            // The credit-life commit invariant is deferred: run it here so a
+            // refusal reaches the catch below instead of failing the commit.
+            await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+            return true
           })
-          return true
-        })
+        } catch (error) {
+          // A loan booked on a never-approved application (the demo seed
+          // does this) keeps it in DRAFT, SUBMITTED or UNDER_REVIEW.
+          if (String(error).includes("Loan creation and application disbursement must commit together")) {
+            return NextResponse.json(
+              { error: "This application already has a loan booked against it, so it cannot be declined." },
+              { status: 409 }
+            )
+          }
+          throw error
+        }
         if (!declined) {
           return NextResponse.json(
             { error: "Application status changed before it could be declined; refresh and try again." },

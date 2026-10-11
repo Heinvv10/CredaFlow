@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { PATCH } from "./route"
 import { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 
 const {
   findFirstPolicy,
@@ -124,21 +125,48 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
     )
   })
 
-  it("allows premiumAmount change on a BUNDLED_CREDIT_AGREEMENT policy (FAIS-exempt path)", async () => {
-    findFirstPolicy.mockResolvedValue({
-      id: "policy-1",
-      pprIssuedAt: new Date(),
-      policySource: "BUNDLED_CREDIT_AGREEMENT",
-    })
-    updatePolicy.mockResolvedValue({ id: "policy-1", premiumAmount: 9999 })
+  const bundledCreditLife = {
+    id: "policy-1",
+    pprIssuedAt: new Date(),
+    policySource: "BUNDLED_CREDIT_AGREEMENT",
+    type: "CREDIT_LIFE",
+    premiumAmount: new Prisma.Decimal("22.50"),
+    renewalDate: new Date("2026-08-23T00:00:00.000Z"),
+  }
 
-    const res = await PATCH(makeRequest({ premiumAmount: 9999 }), ctx)
+  it.each([
+    [{ premiumAmount: 9999 }, "premiumAmount"],
+    [{ premiumAmount: "22.51" }, "premiumAmount"],
+    [{ renewalDate: "2027-01-01" }, "renewalDate"],
+    [{ premiumAmount: 1, renewalDate: "2027-01-01" }, "premiumAmount, renewalDate"],
+  ])("refuses %j on a bundled credit-life policy with 422, writing nothing", async (body, fields) => {
+    findFirstPolicy.mockResolvedValue(bundledCreditLife)
+
+    const res = await PATCH(makeRequest(body), ctx)
+
+    expect(res.status).toBe(422)
+    const json = await res.json()
+    expect(json.error).toMatch(/bundled credit-life/i)
+    expect(json.error).toContain(`Locked: ${fields}`)
+    expect(updatePolicy).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ premiumAmount: 22.5 }],
+    [{ premiumAmount: "22.50" }],
+    [{ renewalDate: "2026-08-23T00:00:00.000Z" }],
+    [{ renewalDate: "" }],
+    [{ renewalDate: null }],
+    [{ status: "LAPSED" }],
+    [{ status: "LAPSED", premiumAmount: 22.5, renewalDate: "" }],
+  ])("lets %j through on a bundled credit-life policy: nothing bound would change", async (body) => {
+    findFirstPolicy.mockResolvedValue(bundledCreditLife)
+    updatePolicy.mockResolvedValue({ id: "policy-1" })
+
+    const res = await PATCH(makeRequest(body), ctx)
 
     expect(res.status).toBe(200)
     expect(updatePolicy).toHaveBeenCalledOnce()
-    expect(logAudit).not.toHaveBeenCalledWith(
-      expect.objectContaining({ action: "INSURANCE_PATCH_FAIS_LOCKED" })
-    )
   })
 
   it("preserves the pre-existing pprIssuedAt activation guard for status=ACTIVE", async () => {

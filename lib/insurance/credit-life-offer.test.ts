@@ -19,6 +19,13 @@ describe("creditLifeOfferFindFirstArgs", () => {
     })
   })
 
+  it("skips a product whose configured premium or cover is not positive", () => {
+    expect(creditLifeOfferFindFirstArgs("tenant-1").where).toMatchObject({
+      premiumAmount: { gt: 0 },
+      sumAssured: { gt: 0 },
+    })
+  })
+
   it("selects deterministically when more than one supported offer exists", () => {
     expect(creditLifeOfferFindFirstArgs("tenant-1").orderBy).toEqual([
       { createdAt: "asc" },
