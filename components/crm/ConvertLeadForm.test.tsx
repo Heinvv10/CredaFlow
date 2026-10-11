@@ -22,6 +22,14 @@ describe("TermField", () => {
     expect(html).toContain("Term must be a whole number between 30 and 90 days")
   })
 
+  it("renders an empty input and the range message for an empty variable term", () => {
+    const html = renderToStaticMarkup(
+      <TermField product={{ minTermDays: 30, maxTermDays: 90 }} value="" onChange={() => {}} />
+    )
+    expect(html).toContain('value=""')
+    expect(html).toContain("Term must be a whole number between 30 and 90 days")
+  })
+
   it("renders nothing for a fixed-term product", () => {
     const html = renderToStaticMarkup(
       <TermField product={{ minTermDays: 30, maxTermDays: 30 }} value="30" onChange={() => {}} />

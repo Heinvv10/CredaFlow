@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { UserCheck, Briefcase, CreditCard, AlertCircle, CheckCircle } from "lucide-react"
 import { LOAN_PURPOSE_OPTIONS } from "@/lib/loan-purpose-categories"
-import { defaultTermInput, isFixedTerm, termForRequest, termIsInvalid, type TermBounds } from "./convert-term"
+import { convertBlocked, defaultTermInput, isFixedTerm, termForRequest, termIsInvalid, type TermBounds } from "./convert-term"
 
 type Product = {
   id: string
@@ -382,7 +382,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
                 setError("")
                 handleSubmit()
               }}
-              disabled={loading || (!!selectedProduct && termIsInvalid(selectedProduct, termDays))}
+              disabled={convertBlocked(selectedProduct, termDays, loading)}
               className="px-6 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60"
               style={{ backgroundColor: "#16A085" }}
             >

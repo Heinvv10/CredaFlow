@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { defaultTermInput, isFixedTerm, termIsInvalid, termForRequest } from "./convert-term"
+import { defaultTermInput, isFixedTerm, termIsInvalid, termForRequest, convertBlocked } from "./convert-term"
 
 const variable = { minTermDays: 30, maxTermDays: 90 }
 const fixed = { minTermDays: 30, maxTermDays: 30 }
 
 describe("convert lead term", () => {
-  it("defaults to maxTermDays for a variable product and the product term for a fixed one", () => {
-    expect(defaultTermInput(variable)).toBe("90")
+  it("starts empty for a variable product and uses the product term for a fixed one", () => {
+    expect(defaultTermInput(variable)).toBe("")
     expect(defaultTermInput(fixed)).toBe("30")
   })
 
@@ -36,5 +36,14 @@ describe("convert lead term", () => {
   it("omits the term for a fixed-term product and when no product is selected", () => {
     expect(termForRequest(fixed, "30")).toBeUndefined()
     expect(termForRequest(undefined, "30")).toBeUndefined()
+  })
+
+  it("blocks conversion while loading or while a variable product has no valid term", () => {
+    expect(convertBlocked(variable, "", false)).toBe(true)
+    expect(convertBlocked(variable, "120", false)).toBe(true)
+    expect(convertBlocked(variable, "45", false)).toBe(false)
+    expect(convertBlocked(variable, "45", true)).toBe(true)
+    expect(convertBlocked(fixed, "", false)).toBe(false)
+    expect(convertBlocked(undefined, "", false)).toBe(false)
   })
 })

@@ -91,6 +91,35 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
   })
 
+  it("starts the variable term empty and blocks submit until a valid term is chosen", async () => {
+    const termInput = () => renderer.root.findByProps({ id: "termDays" })
+    expect(termInput().props.value).toBe("")
+
+    await act(async () => renderer.root.findByProps({ id: "purpose" }).props.onChange({ target: { value: "stock purchase" } }))
+    await act(async () => renderer.root.findAllByType("input").filter(
+      (i) => i.props.type === "radio" && i.props.name === "creditLifeElection",
+    )[1].props.onChange())
+    const checkboxByText = (text: string) => renderer.root.findAllByType("label").find((l) =>
+      l.findAllByType("span").some((sp) => sp.children.filter((c) => typeof c === "string").join("").includes(text)),
+    )!.findByProps({ type: "checkbox" })
+    await act(async () => checkboxByText("income, expenses and debt").props.onChange({ target: { checked: true } }))
+    await act(async () => findPasqCheckbox(renderer.root).props.onChange({ target: { checked: true } }))
+
+    const ack = () => checkboxByText("I confirm I was shown")
+    // Everything else is complete; only the term is missing.
+    await act(async () => ack().props.onChange({ target: { checked: true } }))
+    expect(termInput().props.value).toBe("")
+    expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
+
+    await act(async () => termInput().props.onChange({ target: { value: "45" } }))
+    await act(async () => ack().props.onChange({ target: { checked: true } }))
+    expect(findSubmitButton(renderer.root).props.disabled).toBe(false)
+
+    await act(async () => termInput().props.onChange({ target: { value: "" } }))
+    await act(async () => ack().props.onChange({ target: { checked: true } }))
+    expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
+  })
+
   it("clears the disclosure acknowledgement when a variable term changes", async () => {
     const acceptedElection = renderer.root.findAllByType("input").find(
       (input) =>
