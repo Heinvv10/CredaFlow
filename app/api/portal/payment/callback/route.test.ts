@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { GET } from "./route"
 
 const { updateRequest } = vi.hoisted(() => ({ updateRequest: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
@@ -17,7 +18,6 @@ afterEach(() => { vi.clearAllMocks() })
 describe("GET /api/portal/payment/callback", () => {
   it("redirects a completed payment to the success page with a RELATIVE Location", async () => {
     updateRequest.mockResolvedValue({})
-    const { GET } = await import("./route")
     const res = await GET(makeReq("?status=complete&id=stitch1"))
 
     expect(res.status).toBe(307)
@@ -30,7 +30,6 @@ describe("GET /api/portal/payment/callback", () => {
 
   it("redirects a failed payment to the failure page", async () => {
     updateRequest.mockResolvedValue({})
-    const { GET } = await import("./route")
     const res = await GET(makeReq("?status=failed&id=stitch1"))
 
     expect(res.status).toBe(307)
@@ -38,7 +37,6 @@ describe("GET /api/portal/payment/callback", () => {
   })
 
   it("treats an unknown status as failure and still emits a relative Location", async () => {
-    const { GET } = await import("./route")
     const res = await GET(makeReq("?status=cancelled"))
 
     expect(res.status).toBe(307)

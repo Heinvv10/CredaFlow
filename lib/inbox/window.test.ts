@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { it, expect } from "vitest"
 import { computeWaWindow } from "./window"
 
 const base = new Date("2026-07-05T12:00:00.000Z")

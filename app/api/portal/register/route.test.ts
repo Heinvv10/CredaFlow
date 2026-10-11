@@ -11,6 +11,7 @@
 // identical generic 400 (no 409 leak); (e) the pre-existing gates (Turnstile,
 // per-IP cap, per-identity rate limit) still fire ahead of both modes.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 import { NextRequest } from "next/server"
 
 const {
@@ -139,7 +140,6 @@ afterEach(() => {
 
 describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration safety)", () => {
   it("returns the generic success and creates a ClientOtp when a matching un-activated client exists", async () => {
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     const data = await res.json()
 
@@ -166,7 +166,6 @@ describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration s
   it("returns the IDENTICAL generic success when no client matches (no 404 leak)", async () => {
     findFirstClient.mockResolvedValue(null)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     const data = await res.json()
 
@@ -185,7 +184,6 @@ describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration s
     // client simply doesn't match — same as not-found from the caller's view.
     findFirstClient.mockResolvedValue(null)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     const data = await res.json()
 
@@ -202,7 +200,6 @@ describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration s
 
 describe("POST /api/portal/register — verify-activate mode", () => {
   it("activates the account, marks the OTP used, and writes a CLIENT_UPDATED audit log", async () => {
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(verifyBody))
     const data = await res.json()
 
@@ -234,7 +231,6 @@ describe("POST /api/portal/register — verify-activate mode", () => {
   it("rejects an invalid/expired OTP with the generic 400 and never activates", async () => {
     findFirstClientOtp.mockResolvedValue(null)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(verifyBody))
     const data = await res.json()
 
@@ -248,7 +244,6 @@ describe("POST /api/portal/register — verify-activate mode", () => {
   it("rejects a mismatched OTP code with the same generic 400", async () => {
     findFirstClientOtp.mockResolvedValue({ ...validOtpRecord, otp: "111111" })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(verifyBody))
     const data = await res.json()
 
@@ -260,7 +255,6 @@ describe("POST /api/portal/register — verify-activate mode", () => {
   it("rejects an already-activated client with the SAME generic 400 (no 409 leak)", async () => {
     findFirstClient.mockResolvedValue({ ...unactivatedClient, portalPassword: "already-set" })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(verifyBody))
     const data = await res.json()
 
@@ -274,7 +268,6 @@ describe("POST /api/portal/register — verify-activate mode", () => {
   it("rejects a no-matching-client case with the SAME generic 400 (no 404 leak)", async () => {
     findFirstClient.mockResolvedValue(null)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(verifyBody))
     const data = await res.json()
 
@@ -285,7 +278,6 @@ describe("POST /api/portal/register — verify-activate mode", () => {
   })
 
   it("rejects a too-short password before ever touching the OTP/client tables", async () => {
-    const { POST } = await import("./route")
     const res = await POST(makeRequest({ ...verifyBody, password: "short", confirmPassword: "short" }))
     const data = await res.json()
 
@@ -295,7 +287,6 @@ describe("POST /api/portal/register — verify-activate mode", () => {
   })
 
   it("rejects mismatched password/confirmPassword", async () => {
-    const { POST } = await import("./route")
     const res = await POST(makeRequest({ ...verifyBody, confirmPassword: "different-1234" }))
     const data = await res.json()
 
@@ -309,7 +300,6 @@ describe("POST /api/portal/register — preserved gates (SIGN-04/04b/07)", () =>
   it("rejects a missing/invalid Turnstile token before touching the database, in either mode", async () => {
     verifyTurnstile.mockResolvedValue({ ok: false, errorCodes: ["missing-token"] })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest({ ...requestCodeBody, turnstileToken: undefined }))
     const data = await res.json()
 
@@ -332,7 +322,6 @@ describe("POST /api/portal/register — preserved gates (SIGN-04/04b/07)", () =>
     })
     callerIp.mockReturnValue("203.0.113.99") // SAME IP every request
 
-    const { POST } = await import("./route")
 
     let lastRes: Response | undefined
     for (let i = 0; i < 31; i++) {
@@ -355,7 +344,6 @@ describe("POST /api/portal/register — preserved gates (SIGN-04/04b/07)", () =>
       }
     })
 
-    const { POST } = await import("./route")
 
     let lastRes: Response | undefined
     for (let i = 0; i < 6; i++) {
@@ -385,7 +373,6 @@ describe("POST /api/portal/register — preserved gates (SIGN-04/04b/07)", () =>
       return { allowed: true, remaining: 4, retryAfterSeconds: 0 }
     })
 
-    const { POST } = await import("./route")
     await POST(makeRequest({ ...requestCodeBody, email: "  JANE@Example.COM " }))
 
     // The identity-gate key is lower-cased + trimmed identically to the DB
@@ -411,7 +398,6 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
   })
 
   it("routes the activation code through sendMessage() so it lands on the comms timeline", async () => {
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     expect(res.status).toBe(200)
 
@@ -440,7 +426,6 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
     // were awaited on the request path, this POST would hang.
     resolveMessagingTarget.mockReturnValue(new Promise(() => {}))
 
-    const { POST } = await import("./route")
     const res = await Promise.race([
       POST(makeRequest(requestCodeBody)),
       new Promise((_, reject) => setTimeout(() => reject(new Error("POST awaited the send")), 500)),
@@ -457,7 +442,6 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
     const { SendBlockedError } = await import("@/lib/messaging/send")
     sendMessage.mockRejectedValue(new SendBlockedError("CHANNEL_OPTED_OUT"))
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     expect(res.status).toBe(200)
     await new Promise((resolve) => setImmediate(resolve))
@@ -480,7 +464,6 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
     sendMessage.mockRejectedValue(new Error("Refusing to send redacted template: UNSUB_TOKEN_SECRET is not set"))
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     expect(res.status).toBe(200)
     await new Promise((resolve) => setImmediate(resolve))
@@ -499,7 +482,6 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
     resolveMessagingTarget.mockResolvedValue({ ok: false, reason: "no Contact row for this email address" })
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(requestCodeBody))
     expect(res.status).toBe(200)
     await new Promise((resolve) => setImmediate(resolve))

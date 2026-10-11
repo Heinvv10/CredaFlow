@@ -1,6 +1,7 @@
 // app/api/insurance/policies/draft/route.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { POST } from "./route"
 
 const { findUniqueClient, findUniqueAdvisor, findUniqueProduct, findManyRateTable, findManyRule, getTenantFromRequest, logAudit, writeFile, mkdir } = vi.hoisted(() => ({
   findUniqueClient: vi.fn(),
@@ -105,7 +106,6 @@ describe("POST /api/insurance/policies/draft", () => {
     const { NextResponse } = await import("next/server")
     lenderIdentityMock.mockResolvedValueOnce({ refusal: NextResponse.json({ code: "LENDER_IDENTITY_NOT_CONFIGURED" }, { status: 409 }) })
 
-    const { POST } = await import("./route")
     const res = await POST(new NextRequest("http://localhost/api/insurance/policies/draft", {
       method: "POST",
       body: JSON.stringify({ clientId: "c1", advisorId: "u1", productId: "p1", type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420 }),
@@ -122,7 +122,6 @@ describe("POST /api/insurance/policies/draft", () => {
     findUniqueAdvisor.mockResolvedValue({ id: "u1", name: "Bongani Zulu" })
     findUniqueProduct.mockResolvedValue({ id: "p1", type: "FUNERAL_COVER", name: "Family Funeral Cover" })
 
-    const { POST } = await import("./route")
     const req = new NextRequest("http://localhost/api/insurance/policies/draft", {
       method: "POST",
       body: JSON.stringify({ clientId: "c1", advisorId: "u1", productId: "p1", type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420 }),
@@ -139,7 +138,6 @@ describe("POST /api/insurance/policies/draft", () => {
 
   it("returns 404 when client is in a different tenant", async () => {
     findUniqueClient.mockResolvedValue(null)
-    const { POST } = await import("./route")
     const req = new NextRequest("http://localhost/api/insurance/policies/draft", {
       method: "POST",
       body: JSON.stringify({ clientId: "c1", advisorId: "u1", productId: "p1", type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420 }),
@@ -170,7 +168,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
   })
 
   it("refuses a premium the rate card does not produce, and NAMES the derived figure", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({ ...FUNERAL, premiumAmount: 300 }))
 
     expect(res.status).toBe(409)
@@ -185,7 +182,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
     // The reason the gate lives on this route rather than on the bind: a
     // client-facing regulatory document must never exist for a price the
     // insurer's card does not support.
-    const { POST } = await import("./route")
     await POST(request({ ...FUNERAL, premiumAmount: 300 }))
 
     expect(writeFile).not.toHaveBeenCalled()
@@ -193,7 +189,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
   })
 
   it("audits the refusal", async () => {
-    const { POST } = await import("./route")
     await POST(request({ ...FUNERAL, premiumAmount: 300 }))
 
     expect(logAudit).toHaveBeenCalledWith(
@@ -209,7 +204,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
   })
 
   it("refuses a rated type with no productId, because nothing can price it", async () => {
-    const { POST } = await import("./route")
     const { productId: _omitted, ...noProduct } = FUNERAL
     const res = await POST(request(noProduct))
 
@@ -220,7 +214,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
 
   it("refuses a product with no ACTIVE rate table — canSellProduct is a GATE", async () => {
     findManyRateTable.mockResolvedValue([])
-    const { POST } = await import("./route")
     const res = await POST(request(FUNERAL))
 
     expect(res.status).toBe(409)
@@ -230,7 +223,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
 
   it("refuses a client with no date of birth rather than guessing an age", async () => {
     findUniqueClient.mockResolvedValue({ ...RATEABLE_CLIENT, dateOfBirth: null })
-    const { POST } = await import("./route")
     const res = await POST(request(FUNERAL))
 
     expect(res.status).toBe(409)
@@ -239,7 +231,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
 
   it("screens LIFE_INSURANCE too", async () => {
     findUniqueProduct.mockResolvedValue({ id: "p1", type: "LIFE_INSURANCE", name: "Life Cover" })
-    const { POST } = await import("./route")
     const res = await POST(request({ ...FUNERAL, type: "LIFE_INSURANCE", premiumAmount: 999 }))
 
     expect(res.status).toBe(409)
@@ -247,7 +238,6 @@ describe("POST /api/insurance/policies/draft — the rating gate", () => {
   })
 
   it("accepts the premium the card DOES produce", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request(FUNERAL))
     expect(res.status).toBe(201)
     expect(writeFile).toHaveBeenCalledOnce()
@@ -275,7 +265,6 @@ describe("POST /api/insurance/policies/draft — credit life and short-term are 
 
   it("a CREDIT_LIFE draft still succeeds with NO rate table present", async () => {
     findUniqueProduct.mockResolvedValue({ id: "p1", type: "CREDIT_LIFE", name: "Credit Life" })
-    const { POST } = await import("./route")
     const res = await POST(request({ clientId: "c1", advisorId: "u1", productId: "p1", type: "CREDIT_LIFE", sumAssured: 20000, premiumAmount: 88 }))
 
     expect(res.status).toBe(201)
@@ -286,7 +275,6 @@ describe("POST /api/insurance/policies/draft — credit life and short-term are 
 
   it("a SHORT_TERM_MOTOR draft still succeeds with NO rate table present", async () => {
     findUniqueProduct.mockResolvedValue({ id: "p1", type: "SHORT_TERM_MOTOR", name: "Motor" })
-    const { POST } = await import("./route")
     const res = await POST(request({ clientId: "c1", advisorId: "u1", productId: "p1", type: "SHORT_TERM_MOTOR", sumAssured: 150000, premiumAmount: 640 }))
 
     expect(res.status).toBe(201)
@@ -294,7 +282,6 @@ describe("POST /api/insurance/policies/draft — credit life and short-term are 
   })
 
   it("a credit life draft succeeds even with no productId at all", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({ clientId: "c1", advisorId: "u1", type: "CREDIT_LIFE", sumAssured: 20000, premiumAmount: 88 }))
     expect(res.status).toBe(201)
   })
@@ -322,7 +309,6 @@ describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by 
     // THE BYPASS: claim CREDIT_LIFE against a FUNERAL_COVER product and
     // requiresRating() went false, skipping the gate entirely and issuing a
     // client-facing disclosure at a premium no rate card produced.
-    const { POST } = await import("./route")
     const res = await POST(request({
       clientId: "c1", advisorId: "u1", productId: "p1",
       type: "CREDIT_LIFE", sumAssured: 50000, premiumAmount: 0.01,
@@ -334,7 +320,6 @@ describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by 
   })
 
   it("rates against the PRODUCT's type, so a matching body type is still screened", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({
       clientId: "c1", advisorId: "u1", productId: "p1",
       type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 1,
@@ -346,7 +331,6 @@ describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by 
   })
 
   it("refuses a type that is not a real InsurancePolicyType", async () => {
-    const { POST } = await import("./route")
     const res = await POST(request({
       clientId: "c1", advisorId: "u1", productId: "p1",
       type: "NOT_A_TYPE", sumAssured: 50000, premiumAmount: 420,
@@ -358,7 +342,6 @@ describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by 
   it("reaches PRODUCT_REQUIRED for a rated type with no product", async () => {
     // The gate's own refusal could never fire, because the gate was skipped
     // before it could be consulted.
-    const { POST } = await import("./route")
     const res = await POST(request({
       clientId: "c1", advisorId: "u1",
       type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420,
@@ -371,7 +354,6 @@ describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by 
   it("refuses a negative premium on the NON-rated branch too", async () => {
     // The non-rated branch did no numeric validation at all.
     findUniqueProduct.mockResolvedValue({ id: "p1", type: "CREDIT_LIFE", name: "Credit Life" })
-    const { POST } = await import("./route")
     const res = await POST(request({
       clientId: "c1", advisorId: "u1", productId: "p1",
       type: "CREDIT_LIFE", sumAssured: 20000, premiumAmount: -50,
@@ -383,7 +365,6 @@ describe("POST /api/insurance/policies/draft — the gate cannot be bypassed by 
 
   it("refuses a zero premium on the non-rated branch", async () => {
     findUniqueProduct.mockResolvedValue({ id: "p1", type: "CREDIT_LIFE", name: "Credit Life" })
-    const { POST } = await import("./route")
     const res = await POST(request({
       clientId: "c1", advisorId: "u1", productId: "p1",
       type: "CREDIT_LIFE", sumAssured: 20000, premiumAmount: 0,

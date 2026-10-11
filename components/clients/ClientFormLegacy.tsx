@@ -65,12 +65,6 @@ interface ClientFormProps {
   }
 }
 
-const EMPTY_EXPENSES: ExpenseBreakdownData = {
-  housing: 0, transport: 0, food: 0, education: 0,
-  insurance: 0, clothing: 0, entertainment: 0, medical: 0, other: 0,
-  belowMleJustification: "",
-}
-
 const EXPENSE_KEYS = [
   "housing", "transport", "food", "education", "insurance",
   "clothing", "entertainment", "medical", "other",

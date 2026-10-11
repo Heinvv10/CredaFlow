@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { southAfricanCalendarDate } from "@/lib/compliance/sa-business-days"
 import { NextRequest } from "next/server"
+import { POST } from "./route"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
@@ -925,7 +926,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     verifyStoredProviderCountersign.mockReturnValue({ ok: false, reason: "missing" })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -951,7 +951,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     verifyPasqDocumentArtifact.mockResolvedValue({ ok: false, reason: "hash_mismatch" })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -980,7 +979,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       .mockResolvedValueOnce({ ok: false, reason: "missing" })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(409)
@@ -1016,7 +1014,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     )
     prismaTransaction.mockRejectedValueOnce(guardError)
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1043,7 +1040,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     prismaTransaction.mockRejectedValueOnce(new Error("connection terminated unexpectedly"))
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     // A system failure must NOT be relabelled as a refusal — that would tell an
@@ -1064,7 +1060,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       product: {},
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1085,7 +1080,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     readFile.mockResolvedValue(Buffer.from("%PDF-1.4 changed"))
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1118,7 +1112,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
         monthlyServiceFee: 0,
       },
     })
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1158,7 +1151,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       { docType: "BANK_STATEMENT", verified: true, verificationNote: null },
     ])
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1213,7 +1205,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       ),
     )
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1279,7 +1270,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       return Promise.resolve({ id: "bank-doc-1" })
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1336,7 +1326,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       return Promise.resolve({ id: "bank-doc-1" })
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1373,7 +1362,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
         monthlyServiceFee: 0,
       },
     })
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1438,7 +1426,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1537,7 +1524,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate, scheduleCreateMany } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     const responseBody = await response.clone().json()
@@ -1643,7 +1629,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(409)
@@ -1673,7 +1658,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual(expect.objectContaining({
@@ -1703,7 +1687,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       submission: { stage: "SUBMISSION", capturedAt: "2026-05-01T00:00:00.000Z" },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1728,7 +1711,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     affordabilityContractEvidenceIsIntact.mockReturnValue(false)
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1783,7 +1765,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1840,7 +1821,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1865,7 +1845,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     findFirstDocument.mockResolvedValueOnce(null)
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -1894,7 +1873,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(200)
@@ -1942,7 +1920,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
     })
     const tx = buildTxMock({})
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
     return { response, ...tx }
   }
@@ -2015,7 +1992,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     const body = await response.clone().json()
@@ -2054,7 +2030,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       insuranceProductFindFirst,
     } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -2223,7 +2198,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(200)
@@ -2265,7 +2239,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { insurancePolicyCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -2307,7 +2280,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(409)
@@ -2338,7 +2310,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { insurancePolicyCreate } = buildTxMock(artifact)
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(409)
@@ -2365,7 +2336,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     buildTxMock({})
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
     expect(res.status).toBe(200)
 
@@ -2411,7 +2381,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     // the loan + bound cover stay valid, and pprIssuedAt is NOT stamped.
     generateFaisDisclosurePdf.mockRejectedValueOnce(new Error("pdf boom"))
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -2439,7 +2408,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     const { LenderIdentityError } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     getLenderIdentityMock.mockRejectedValue(new LenderIdentityError(["fscaNumber"]))
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -2467,7 +2435,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     const bundleError = new Error("simulated insurance.create DB failure")
     const { auditLogCreate } = buildTxMock({ bundlePolicyCreateThrows: bundleError })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     // Outer catch returns 500 — disburse blocked, no AUTOBUNDLED audit fired
@@ -2499,7 +2466,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       auditLogCreateThrowsForAction: "LOAN_DISBURSED",
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(500)
@@ -2530,7 +2496,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       auditLogCreateThrowsForAction: "LOAN_CREATED",
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(500)
@@ -2559,7 +2524,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { insurancePolicyCreate, auditLogCreate } = buildTxMock({ applicationUpdateManyCount: 0 })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(409)
@@ -2592,7 +2556,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -2615,7 +2578,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { insurancePolicyCreate } = buildTxMock({ product: null })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(409)
@@ -2653,7 +2615,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { insuranceProductFindFirst } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -2752,7 +2713,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       agreementArtifactData: creditLifeEvidence.artifact,
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -2780,7 +2740,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       agreementArtifactData: creditLifeEvidence.artifact,
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(500)
@@ -2812,7 +2771,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     productType: "MICRO",
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(422)
@@ -2830,7 +2788,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     readAffordabilitySnapshotStore.mockReturnValue({ contract: passingContract })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -2850,7 +2807,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     affordabilityDecisionSnapshotIsIntact.mockReturnValueOnce(false)
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -2902,7 +2858,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     approvalSnapshotMatches.mockReturnValueOnce({ ok: false, reason: "changed" })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(verifyCurrentAffordabilityApproval).toHaveBeenCalledWith(expect.objectContaining({
@@ -2967,7 +2922,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       reason: "debt_evidence_invalid",
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -3026,7 +2980,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       reason: "affordability_failed",
     })
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -3075,7 +3028,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate, auditLogCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(409)
@@ -3136,7 +3088,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(409)
@@ -3182,7 +3133,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       )
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect(response.status).toBe(422)
@@ -3221,7 +3171,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     tenantConfigFindUnique.mockResolvedValueOnce({ collectionsEngineEnabled: true })
     const { loanCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest({
       bank: "Capitec",
       accountNo: "99999",
@@ -3268,7 +3217,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       },
     })
     const { loanCreate, auditLogCreate } = buildTxMock({})
-    const { POST } = await import("./route")
 
     const response = await POST(makeRequest(), ctx)
 
@@ -3315,7 +3263,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       ok: false,
       reason: "bank_details_incomplete",
     })
-    const { POST } = await import("./route")
 
     const response = await POST(makeRequest(), ctx)
 
@@ -3355,7 +3302,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       ok: false,
       reason: "signature_missing",
     })
-    const { POST } = await import("./route")
 
     const response = await POST(makeRequest(), ctx)
 
@@ -3435,7 +3381,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       })
     const { auditLogCreate } = buildTxMock({})
 
-    const { POST } = await import("./route")
     const response = await POST(makeRequest(), ctx)
 
     expect({
@@ -3480,7 +3425,6 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
       referralCode: { id: "code-1", agentId: "agent-1", agent: { status: "ACTIVE", commissionBps: null } },
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -3517,7 +3461,6 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
     tenantConfigFindUnique.mockResolvedValueOnce({ collectionsEngineEnabled: true })
     avsCheckFindFirst.mockResolvedValueOnce(null)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(409)
@@ -3542,7 +3485,6 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
     buildTxMock({})
     // default mocks: flag off (hoisted default)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)
@@ -3572,7 +3514,6 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
       },
     })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(409)
@@ -3620,7 +3561,6 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
         passed: true,
       })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(200)

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { extractDocumentData } from "./vlm-extract"
 
 // pdftoppm is stubbed at the process seam because the degenerate render cannot
 // be provoked through a fixture any more: -scale-to bounds the raster by output
@@ -67,7 +68,6 @@ describe("a render pdftoppm refused but reported as success", () => {
   })
 
   it("refuses the document instead of asking the model to read a 1x1 pixel", async () => {
-    const { extractDocumentData } = await import("./vlm-extract")
 
     const result = await extractDocumentData({
       fileBuffer: Buffer.from("%PDF-1.4 stub, the render is mocked"),

@@ -4,6 +4,7 @@
 // fields that appeared on the FAIS disclosure PDF the client acknowledged
 // at bind. Other fields (risk info, renewalDate, status) remain editable.
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { PATCH } from "./route"
 import { NextRequest } from "next/server"
 
 const {
@@ -69,7 +70,6 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
       policySource: "STANDALONE",
     })
 
-    const { PATCH } = await import("./route")
     const res = await PATCH(makeRequest({ premiumAmount: 9999 }), ctx)
 
     expect(res.status).toBe(422)
@@ -95,7 +95,6 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
       policySource: "STANDALONE",
     })
 
-    const { PATCH } = await import("./route")
     const res = await PATCH(
       makeRequest({ insurer: "New Co", insurerId: "ins-2" }),
       ctx
@@ -116,7 +115,6 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
     })
     updatePolicy.mockResolvedValue({ id: "policy-1", vehicleRegNumber: "ABC 123 GP" })
 
-    const { PATCH } = await import("./route")
     const res = await PATCH(makeRequest({ vehicleRegNumber: "ABC 123 GP" }), ctx)
 
     expect(res.status).toBe(200)
@@ -134,7 +132,6 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
     })
     updatePolicy.mockResolvedValue({ id: "policy-1", premiumAmount: 9999 })
 
-    const { PATCH } = await import("./route")
     const res = await PATCH(makeRequest({ premiumAmount: 9999 }), ctx)
 
     expect(res.status).toBe(200)
@@ -151,7 +148,6 @@ describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
       policySource: "STANDALONE",
     })
 
-    const { PATCH } = await import("./route")
     const res = await PATCH(makeRequest({ status: "ACTIVE" }), ctx)
 
     expect(res.status).toBe(400)

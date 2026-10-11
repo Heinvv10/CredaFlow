@@ -15,6 +15,7 @@
 // that the route hands down one instant, not two.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 import { NextRequest } from "next/server"
 import { signDraftToken } from "@/lib/insurance/disclosure-token"
 
@@ -80,7 +81,6 @@ const ctx = { params: Promise.resolve({ id: "quote-1" }) }
 
 describe("POST bind — one instant, not two", () => {
   it("passes an explicit `now` to bindQuote rather than letting it read its own", async () => {
-    const { POST } = await import("./route")
     await POST(request({ draftToken: validToken() }), ctx)
 
     expect(bindQuote).toHaveBeenCalledTimes(1)
@@ -91,7 +91,6 @@ describe("POST bind — one instant, not two", () => {
   })
 
   it("defaults startDate to the very same instant it judges the bind at", async () => {
-    const { POST } = await import("./route")
     await POST(request({ draftToken: validToken() }), ctx)
 
     const args = bindQuote.mock.calls[0][1]
@@ -101,7 +100,6 @@ describe("POST bind — one instant, not two", () => {
   })
 
   it("judges a caller-supplied startDate against that same instant", async () => {
-    const { POST } = await import("./route")
     await POST(request({ draftToken: validToken(), startDate: "2026-09-01T00:00:00Z" }), ctx)
 
     const args = bindQuote.mock.calls[0][1]

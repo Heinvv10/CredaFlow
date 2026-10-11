@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { it, expect, vi, beforeEach } from "vitest"
 
 vi.mock("./conversations", () => ({ listConversations: vi.fn() }))
 

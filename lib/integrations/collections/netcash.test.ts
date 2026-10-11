@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { netcashCollections } from "./netcash"
-import { CollectionProviderError, type AvsRequest } from "./types"
+import { type AvsRequest } from "./types"
 
 const req: AvsRequest = {
   accountHolder: "T Client",

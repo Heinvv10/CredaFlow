@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { POST } from "./route"
 import { NextRequest } from "next/server"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { sha256DebitMandateValue } from "@/lib/compliance/debit-mandate"
@@ -210,7 +211,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
         body: "{",
       },
     )
-    const { POST } = await import("./route")
 
     const response = await POST(malformed, ctx)
 
@@ -223,7 +223,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
   })
 
   it("requires the exact prepared document hash", async () => {
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
@@ -258,7 +257,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
         stagedAt: "2026-07-23T15:59:00.000Z",
       },
     })
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
@@ -294,7 +292,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
         stagedAt: "2026-07-23T15:30:00.000Z",
       },
     })
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
@@ -337,7 +334,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
   })
 
   it("stores the exact signed PDF and auditable customer signature evidence", async () => {
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
@@ -441,7 +437,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
       .mockReset()
       .mockResolvedValueOnce(draftPdf)
       .mockRejectedValueOnce(new Error("PNG decode failed"))
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: `data:image/png;base64,${fakePng.toString("base64")}`,
@@ -464,7 +459,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
       }))
       .mockRejectedValueOnce(new Error("ambiguous transaction result"))
     applicationFindFirst.mockRejectedValueOnce(new Error("database unavailable"))
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
@@ -491,7 +485,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
       id: "app-1",
       debitMandateSignedAt: new Date("2026-07-23T16:00:00.000Z"),
     })
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
@@ -515,7 +508,6 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
       .mockRejectedValueOnce(new Error("transaction rolled back"))
     applicationFindFirst.mockResolvedValueOnce(null)
     deleteManagedFileStrict.mockRejectedValueOnce(new Error("permission denied"))
-    const { POST } = await import("./route")
 
     const response = await POST(request({
       signature: "Casey Staging",
