@@ -11,6 +11,7 @@ import { NextRequest } from "next/server"
 import { POST } from "./route"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { calculateCreditLifeMonthlyPremiumCents } from "@/lib/insurance/credit-life-election"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
 
 const {
@@ -417,7 +418,7 @@ function buildCreditLifeTestEvidence(principalCents: number, termDays: number) {
     ...CREDIT_LIFE_DISCLOSURE,
     principalCents,
     termDays,
-    monthlyPremiumCents: Math.round(principalCents * 0.0045),
+    monthlyPremiumCents: calculateCreditLifeMonthlyPremiumCents(principalCents),
   }
   const disclosureSha256 = createCreditLifeDisclosureSha256(disclosure)
   return {

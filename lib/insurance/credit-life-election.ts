@@ -56,6 +56,9 @@ export function creditLifePrincipalIsEligible(principalCents: number): boolean {
   )
 }
 
+// Largest principal for which principalCents * 45 + 5_000 is a safe integer.
+const MAX_PREMIUM_PRINCIPAL_CENTS = Math.floor((Number.MAX_SAFE_INTEGER - 5_000) / 45)
+
 /**
  * Credit Life Insurance Regulations, 2017, reg 3(1): R4.50 per R1,000 of
  * deferred amount per month. Keep this one integer-cents calculation shared by
@@ -64,10 +67,17 @@ export function creditLifePrincipalIsEligible(principalCents: number): boolean {
 export function calculateCreditLifeMonthlyPremiumCents(
   principalCents: number,
 ): number {
-  if (!Number.isSafeInteger(principalCents) || principalCents <= 0) {
+  if (
+    !Number.isSafeInteger(principalCents)
+    || principalCents <= 0
+    || principalCents > MAX_PREMIUM_PRINCIPAL_CENTS
+  ) {
     throw new RangeError("Credit-life principal must be a positive integer number of cents")
   }
-  return Math.round(principalCents * 0.0045)
+  // Exact integer form of the database's ROUND(principal::numeric * 0.0045),
+  // which rounds half away from zero. Float Math.round(p * 0.0045) rounds
+  // half-cent ties down (e.g. 1_339_000 -> 6025, database says 6026).
+  return Math.floor((principalCents * 45 + 5_000) / 10_000)
 }
 
 export function creditLifeOfferMatches(
