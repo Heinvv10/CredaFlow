@@ -208,7 +208,12 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        const text = await res.text()
+        let message = text
+        try { message = JSON.parse(text).error || text } catch { message = text }
+        throw new Error(message || "Save failed")
+      }
       router.push("/settings/products/loan")
       router.refresh()
     } catch (err: unknown) {

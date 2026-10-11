@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
+import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
 import { micro30ContractIssues } from "@/lib/product-config/micro30"
 
 export async function GET(req: NextRequest) {
@@ -22,6 +23,16 @@ export async function POST(req: NextRequest) {
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const body = await req.json()
+    const boundsIssues = loanProductBoundsIssues(body)
+    if (boundsIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
+          invalidFields: boundsIssues,
+        },
+        { status: 422 },
+      )
+    }
     const data = {
       tenantId: tenant.id,
       code: body.code,
