@@ -61,7 +61,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("PATCH /api/insurance/policies/[id] — R-09 FAIS lockdown (gap #1)", () => {
+describe("PATCH /api/insurance/policies/[id] — FAIS lockdown", () => {
   it("rejects premiumAmount change on a STANDALONE policy with 422 + fais_locked audit", async () => {
     findFirstPolicy.mockResolvedValue({
       id: "policy-1",

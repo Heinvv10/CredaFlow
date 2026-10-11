@@ -9,8 +9,8 @@ const repair = [
   baselineFunctionSql("guardLoanApplicationProviderCountersign"),
 ].join("\n")
 
-describe("provider countersign forward repair migration", () => {
-  it("reinstalls explicit NULL-safe hashes for previously migrated databases", () => {
+describe("baseline provider countersign constraint and guard", () => {
+  it("the countersign constraint and guard carry explicit NULL-safe hash checks", () => {
     expect(repair).toContain(
       `"agreementCountersignatureSha256" IS NOT NULL`,
     )

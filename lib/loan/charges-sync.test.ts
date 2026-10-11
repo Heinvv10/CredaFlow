@@ -147,7 +147,7 @@ describe("syncLoanCharges — flag on", () => {
     expect(auditActions(tx)).toEqual(["LOAN_CHARGES_SYNCED"])
   })
 
-  it("R8-2: audits a re-split between instalments that leaves charges and totalPaid unchanged", async () => {
+  it("audits a re-split between instalments that leaves charges and totalPaid unchanged", async () => {
     // R2,000 over two instalments, no default interest (rate 0). R1,100 was
     // booked instalment by instalment; s126(3) pays both instalments' R50
     // interest and R34.50 fees first, so R69 less principal is realised and
@@ -174,7 +174,7 @@ describe("syncLoanCharges — flag on", () => {
     expect(audit.newValue).toMatchObject({ totalPaid: 110_000, outstandingPrincipal: 106_900, daysInArrears: 42 })
   })
 
-  it("R8-2: writes but does not audit a DPD-only change, as the DPD cron does", async () => {
+  it("writes but does not audit a DPD-only change, as the DPD cron does", async () => {
     const loan = makeLoan({ interestRatePm: 0, daysInArrears: 24 })
     const tx = makeTx(loan)
     await syncLoanCharges(asTx(tx), ref, d("2026-09-26"), { source: "test" })
@@ -183,7 +183,7 @@ describe("syncLoanCharges — flag on", () => {
     expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 
-  it("R8-2: audits a status-only change", async () => {
+  it("audits a status-only change", async () => {
     // Paid in full on the due date: no charges; only the status is stale.
     const loan = makeLoan({ totalPaid: 216_900, outstandingPrincipal: 0, arrearsAmount: 0, daysInArrears: 0, nextPaymentDate: null })
     loan.repaymentSchedule[0] = { ...loan.repaymentSchedule[0], totalPaid: 216_900, status: "PAID", paidAt: d("2026-09-01") }
@@ -192,7 +192,7 @@ describe("syncLoanCharges — flag on", () => {
     expect(auditActions(tx)).toEqual(["LOAN_CHARGES_SYNCED", "LOAN_STATUS_CHANGED"])
   })
 
-  it("R8-2: audits a closing-date-only change", async () => {
+  it("audits a closing-date-only change", async () => {
     // Settled on the due date, but booked closed two days later.
     const loan = makeLoan({
       status: "COMPLETED", closedAt: d("2026-09-03"), totalPaid: 216_900, outstandingPrincipal: 0,
@@ -205,7 +205,7 @@ describe("syncLoanCharges — flag on", () => {
     expect(auditActions(tx)).toEqual(["LOAN_CHARGES_SYNCED", "LOAN_STATUS_CHANGED"])
   })
 
-  it("R8-2: audits a principal-only change", async () => {
+  it("audits a principal-only change", async () => {
     // Booked principal is stale; instalments, charges and totalPaid agree.
     const loan = makeLoan({ interestRatePm: 0, daysInArrears: 25, outstandingPrincipal: 150_000 })
     const tx = makeTx(loan)
@@ -217,7 +217,7 @@ describe("syncLoanCharges — flag on", () => {
     })
   })
 
-  it("R8-2: audits a re-split that moves only interest between instalments", async () => {
+  it("audits a re-split that moves only interest between instalments", async () => {
     // R80 booked to instalment 1's interest and fees; s126(3) pays both
     // instalments' interest instead. No principal, arrears or DPD moves.
     const instalment = (id: string, due: string) => ({
@@ -328,7 +328,7 @@ describe("syncLoanCharges — flag on", () => {
     })
   })
 
-  it("R7-2: re-dates a paid instalment whose completing receipt was reversed, though its totalPaid is unchanged", async () => {
+  it("re-dates a paid instalment whose completing receipt was reversed, though its totalPaid is unchanged", async () => {
     // Booked PAID on 9 Sep by a receipt since reversed; the live receipt of
     // 5 Sep (R10 default interest, then the R2,169) is what completed it.
     const loan = makeLoan({
@@ -453,7 +453,7 @@ describe("syncLoanCharges — flag on", () => {
     }
   })
 
-  it("R2-F: refuses a closed status that has lost its date instead of charging it as open", async () => {
+  it("refuses a closed status that has lost its date instead of charging it as open", async () => {
     for (const over of [
       { status: "WRITTEN_OFF", writeOffAt: null },
       { status: "COMPLETED", closedAt: null },
@@ -465,7 +465,7 @@ describe("syncLoanCharges — flag on", () => {
     }
   })
 
-  it("R2-D: records the fallback fee on a loan booked without one, audited, so a product edit cannot move it", async () => {
+  it("records the fallback fee on a loan booked without one, audited, so a product edit cannot move it", async () => {
     const tx = makeTx(makeLoan({ monthlyServiceFee: null }))
     await syncLoanCharges(asTx(tx), ref, d("2026-10-02"), { source: "cron" })
     expect(tx.loan.update).toHaveBeenCalledWith({
@@ -477,7 +477,7 @@ describe("syncLoanCharges — flag on", () => {
     }) })
   })
 
-  it("R2-A: dates a settled loan's closing at its last receipt, not the earlier date a writer stamped", async () => {
+  it("dates a settled loan's closing at its last receipt, not the earlier date a writer stamped", async () => {
     const loan = makeLoan({ status: "COMPLETED", closedAt: d("2026-09-10"), totalPaid: 216_900, chargesAccrued: 0 })
     const tx = makeTx(loan, {
       receipts: [
@@ -491,7 +491,7 @@ describe("syncLoanCharges — flag on", () => {
     expect(auditActions(tx)).toContain("LOAN_STATUS_CHANGED")
   })
 
-  it("R2-A: decides completion from a replay not bounded by the closing date a writer stamped", async () => {
+  it("decides completion from a replay not bounded by the closing date a writer stamped", async () => {
     // A writer closed it on 5 Sep, but the settling receipt is dated 11 Sep and
     // pays the R30 of default interest to the 10th first.
     const tx = makeTx(makeLoan({ status: "COMPLETED", closedAt: d("2026-09-05"), totalPaid: 216_900 }), {
@@ -501,13 +501,13 @@ describe("syncLoanCharges — flag on", () => {
       .toMatchObject({ status: "COMPLETED", closedAt: d("2026-09-11"), chargesAccrued: 3_000, totalPaid: 216_900 })
   })
 
-  it("F4: charges are never live once stopped, whatever the flag says", () => {
+  it("charges are never live once stopped, whatever the flag says", () => {
     const config = { defaultChargesEnabled: true, defaultChargesStartedAt: d("2026-01-01"), defaultChargesStoppedAt: null as Date | null }
     expect(chargesEnabled({ tenant: { config } })).toBe(true)
     expect(chargesEnabled({ tenant: { config: { ...config, defaultChargesStoppedAt: d("2026-09-20") } } })).toBe(false)
   })
 
-  it("K1: derives nothing for a tenant whose charges were stopped", async () => {
+  it("derives nothing for a tenant whose charges were stopped", async () => {
     const stopped = makeLoan({ tenant: { config: { ...makeLoan().tenant.config, defaultChargesStoppedAt: d("2026-09-20") } } })
     const tx = makeTx(stopped)
     expect(await syncLoanCharges(asTx(tx), ref, d("2026-10-11"), { source: "test" })).toBeNull()

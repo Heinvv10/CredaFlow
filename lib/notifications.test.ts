@@ -200,7 +200,7 @@ describe("triggerNotification — application_submitted cutover", () => {
     delete process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED
   })
 
-  describe("flag OFF — legacy path (regression guard)", () => {
+  describe("flag OFF — legacy path", () => {
     it("calls sendEmail + sendSms, no sendMessage", async () => {
       sendEmailMock.mockResolvedValue({ ok: true, messageId: "em-1" })
       sendSmsMock.mockResolvedValue({ ok: true, messageId: "sm-1" })
@@ -391,7 +391,7 @@ describe("triggerNotification — application_submitted cutover", () => {
       expect(blockedCall![0].data.error).toBe("NO_CONSENT_ON_FILE")
     })
 
-    it("routes WA leg through client.whatsapp (NOT client.phone) — mirrors PR-9 policy", async () => {
+    it("routes WA leg through client.whatsapp (NOT client.phone)", async () => {
       // client.whatsapp is set + distinct from client.phone
       const waClient = { ...client, whatsapp: "0739999999" }
       clientFindUniqueMock.mockResolvedValue(waClient)
@@ -514,7 +514,7 @@ describe("triggerNotification — application_submitted cutover", () => {
       process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED = "true"
     })
 
-    it("does NOT cut over loan_approved (only application_submitted is in scope for PR-10a)", async () => {
+    it("does NOT cut over loan_approved on the application_submitted flag (flags are per event)", async () => {
       loanFindUniqueMock.mockResolvedValue({
         id: "ln1",
         reference: "LN-0001",
@@ -640,12 +640,12 @@ describe.each(EVENT_CASES)("triggerNotification — $event cutover", (c) => {
   })
 })
 
-// ── WA-B1 regression: WhatsApp template vars must come from the SAME
+// ── WhatsApp template vars must come from the SAME
 // DB-fetched entity data as email/SMS, not from opts.data (which most
 // triggerNotification() call sites never populate). Before this fix,
 // loan_approved / payment_received WhatsApp messages landed in /inbox
 // with empty `*${var}*` gaps, e.g. "Outstanding balance: **." ─────────
-describe("buildWaMessage — template-variable regression (WA-B1)", () => {
+describe("buildWaMessage — template variables", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     tenantFindUniqueMock.mockResolvedValue({ id: "tn1" })
@@ -660,7 +660,7 @@ describe("buildWaMessage — template-variable regression (WA-B1)", () => {
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
   })
 
-  it("application_submitted WA message is DB-sourced (pinning: the already-correct path stays correct)", async () => {
+  it("application_submitted WA message is DB-sourced", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanApplicationFindUniqueMock.mockResolvedValue({
       id: "app1",
@@ -682,7 +682,7 @@ describe("buildWaMessage — template-variable regression (WA-B1)", () => {
     expect(body).not.toMatch(/\*\*/)
   })
 
-  it("application_declined WA message interpolates the real reference (pinning: WA_TEMPLATES.application_declined was previously unmocked/untested)", async () => {
+  it("application_declined WA message interpolates the real reference", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanApplicationFindUniqueMock.mockResolvedValue({
       id: "app1",
@@ -702,7 +702,7 @@ describe("buildWaMessage — template-variable regression (WA-B1)", () => {
     expect(waCall![0].vars.body).toBe("Hi Sipho, your application *APP-0055* was unsuccessful.")
   })
 
-  it("section129_sent WA reference flows end-to-end from data.reference (mirrors the section129/route.ts fix)", async () => {
+  it("section129_sent WA reference flows end-to-end from data.reference", async () => {
     // section129_sent has no new-send flag (see NEW_SEND_FLAGS comment in
     // lib/notifications.ts) — always legacy path. isWaEnabled:()=>false in
     // this file's mock means sendWhatsAppMessage never actually dispatches,
@@ -728,7 +728,7 @@ describe("buildWaMessage — template-variable regression (WA-B1)", () => {
     expect(missingVarsLog).toBeUndefined()
   })
 
-  it("section129_sent WA leg skips + logs WA_VARS_MISSING when data.reference is omitted (pre-fix behavior, guards against regressing the route fix)", async () => {
+  it("section129_sent WA leg skips + logs WA_VARS_MISSING when data.reference is omitted", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0099", outstandingPrincipal: 0 })
 
@@ -741,7 +741,7 @@ describe("buildWaMessage — template-variable regression (WA-B1)", () => {
     expect(missingVarsLog).toBeDefined()
   })
 
-  it("loan_overdue WA leg interpolates amount + reference when the trigger site supplies both (mirrors the fixed lib/collections/escalation.ts and lib/collections/reminders.ts calls)", async () => {
+  it("loan_overdue WA leg interpolates amount + reference when the trigger site supplies both", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
     process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
@@ -1266,7 +1266,7 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
     expect(smsLog?.[0].data.status).toBe("blocked")
   })
 
-  it("CHANNEL ON: today's behaviour is unchanged — legacy sendSms still fires", async () => {
+  it("CHANNEL ON: legacy sendSms still fires", async () => {
     delete process.env.BULKSMS_DRY_RUN
 
     await triggerNotification(baseOpts)

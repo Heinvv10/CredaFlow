@@ -62,7 +62,7 @@ describe("portal Make Payment", () => {
       for (const v of Object.values(BANK_ENV)) expect(out).toContain(v)
     })
 
-    it.each(Object.keys(BANK_ENV))("hides the whole panel when %s is unset (audit F-2)", async (missing) => {
+    it.each(Object.keys(BANK_ENV))("hides the whole panel when %s is unset", async (missing) => {
       for (const [k, v] of Object.entries(BANK_ENV)) vi.stubEnv(k, k === missing ? "" : v)
       expect(await html()).not.toContain("Bank Transfer Details")
     })

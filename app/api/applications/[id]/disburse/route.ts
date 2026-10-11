@@ -261,7 +261,7 @@ export async function POST(
     // context is caught by the outer try/catch and surfaced as a 500. With
     // `return <promise>`, the outer try block exits before the promise
     // settles, the rejection escapes the catch, and Next.js sees an unhandled
-    // rejection — masking R-09b's bundle-failure-rolls-back-disburse intent.
+    // rejection — masking the rule that a bundle failure rolls back the disburse.
     // One seam for every refusal this route can produce.
     //
     // All 33 refusal paths carry `disbursementPrecondition`, and NONE of them
@@ -1391,7 +1391,7 @@ export async function POST(
         }
 
         // Auto-create CREDIT_LIFE bundle if eligible.
-        // R-09b: belt-and-braces — the agreementSignedAt invariant is already
+        // Belt-and-braces — the agreementSignedAt invariant is already
         // enforced upstream (early return ~line 53). Re-asserting at the
         // bundle site means a future refactor that moves the bundle out of
         // this route can't accidentally drop the precondition. The FAIS
@@ -1400,7 +1400,7 @@ export async function POST(
         // be a regulatory misstatement.
         if (!txApplication.agreementSignedAt) {
           throw new Error(
-            "[R-09b] Bundle invariant violated: reached credit-life bundle code with application.agreementSignedAt = null. " +
+            "Bundle invariant violated: reached credit-life bundle code with application.agreementSignedAt = null. " +
             "The upstream signed-agreement gate should have blocked this disburse. Refusing to bundle."
           )
         }

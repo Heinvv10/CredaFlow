@@ -315,7 +315,7 @@ describe("applyBackfillAccrual", () => {
 
 
 
-describe("self-referral exclusion (Hein, 2026-08-06: agents do not earn on their own loan)", () => {
+describe("self-referral exclusion: agents do not earn on their own loan", () => {
   it("skips a loan where the borrower is the agent", () => {
     const { accrue, skipped } = planCommissionBackfill(
       [candidate({ clientName: "AGENT ONE", agentName: "Agent One" })], 100)

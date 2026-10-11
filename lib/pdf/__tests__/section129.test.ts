@@ -67,7 +67,7 @@ describe("generateSection129Pdf", () => {
     expect(content).toContain(pdfHex("L-2026-0001"))
   })
 
-  it("renders without throwing when client has no address fields (regression: prod loans with null addressLine1/city)", async () => {
+  it("renders without throwing when client has no address fields", async () => {
     const buf = await generateSection129Pdf({
       ...baseInput,
       client: {
@@ -80,7 +80,7 @@ describe("generateSection129Pdf", () => {
     expect(buf.subarray(0, 4).toString("ascii")).toBe("%PDF")
   })
 
-  it("contains no non-WinAnsi codepoints in any string literal of section129.ts (regression: ⚠ U+26A0 threw on every loan)", () => {
+  it("contains no non-WinAnsi codepoints in any string literal of section129.ts", () => {
     // pdf-lib's StandardFont (Helvetica) uses WinAnsi (CP1252) encoding.
     // Any literal passed to drawText/page.drawText with a codepoint outside
     // the WinAnsi range causes generateSection129Pdf to throw — which is the

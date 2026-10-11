@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { BulkUpload, BulkUploadRecorded } from "./BulkUpload"
 
 describe("BulkUploadRecorded", () => {
-  it("F5: says how many rows were held for reconciliation and recorded as refund due", () => {
+  it("says how many rows were held for reconciliation and recorded as refund due", () => {
     const html = renderToStaticMarkup(<BulkUploadRecorded
       held={[{ id: "h1", row: 2, loanRef: "LN-1", amount: 10_000, reason: "Default charges would re-open this settled loan" }]}
       refundDue={[{ id: "r1", row: 3, loanRef: "LN-2", amount: 500 }]}
@@ -28,7 +28,7 @@ function text(node: ReactTestInstance | string): string {
 describe("BulkUpload", () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
-  it("R6-2: shows the held and refund-due rows from the upload result", async () => {
+  it("shows the held and refund-due rows from the upload result", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       processed: 0, skipped: 0, errors: [], payments: [],
       held: [{ id: "h1", row: 1, loanRef: "LN-1", amount: 20_000, reason: "Loan status is WRITTEN_OFF" }],

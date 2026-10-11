@@ -328,7 +328,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
   // that window is microseconds (registerSlot is synchronous inside boot's
   // loop) versus a 5-minute poll -- the trade would be backwards. The empty
   // pool must fire.
-  it("[CRITICAL-2] fires the allDown fallback when the bridge reports zero slots (empty pool is an outage, not silence)", async () => {
+  it("fires the allDown fallback when the bridge reports zero slots (empty pool is an outage, not silence)", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([])
     vi.mocked(decideWaBridgeAlert).mockReturnValue(null)
     vi.mocked(prisma.waBridgeAlarm.findUnique).mockResolvedValue(null)
@@ -346,7 +346,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(body.alerted).toBe(2)
   })
 
-  it("[CRITICAL-2] does not re-alert an empty pool when the alarm is already active", async () => {
+  it("does not re-alert an empty pool when the alarm is already active", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([])
     vi.mocked(decideWaBridgeAlert).mockReturnValue(null)
     vi.mocked(prisma.waBridgeAlarm.findUnique).mockResolvedValue({
@@ -454,7 +454,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
   // branch exists to prevent. These tests prove BOTH call sites (the normal
   // path and the bridge-unreachable 502 path share fireCriticalAlarm).
 
-  it("[CRITICAL-1] main path: does not latch the alarm when zero recipients were alerted, so the next poll retries", async () => {
+  it("main path: does not latch the alarm when zero recipients were alerted, so the next poll retries", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([
       { slotId: "a", number: "1", status: "LOGGED_OUT", priority: 0, connectedAt: null, disconnectedAt: null, lastDisconnectReason: "LOGGED_OUT" },
     ] as never)
@@ -478,7 +478,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(body2.alert).toBe("CRITICAL")
   })
 
-  it("[CRITICAL-1] main path: DOES latch the alarm when at least one recipient was alerted (existing behaviour preserved)", async () => {
+  it("main path: DOES latch the alarm when at least one recipient was alerted", async () => {
     vi.mocked(listWaBridgeNumbers).mockResolvedValue([
       { slotId: "a", number: "1", status: "LOGGED_OUT", priority: 0, connectedAt: null, disconnectedAt: null, lastDisconnectReason: "LOGGED_OUT" },
     ] as never)
@@ -495,7 +495,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     })
   })
 
-  it("[CRITICAL-1] bridge-unreachable path: does not latch the alarm when zero recipients were alerted, so the next poll retries", async () => {
+  it("bridge-unreachable path: does not latch the alarm when zero recipients were alerted, so the next poll retries", async () => {
     vi.mocked(listWaBridgeNumbers).mockRejectedValue(new Error("fetch failed"))
     vi.mocked(prisma.waBridgeAlarm.findUnique).mockResolvedValue(null)
     vi.mocked(sendWaBridgeAlert).mockResolvedValue(0)
@@ -512,7 +512,7 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(res2.status).toBe(502)
   })
 
-  it("[CRITICAL-1] bridge-unreachable path: DOES latch the alarm when at least one recipient was alerted (existing behaviour preserved)", async () => {
+  it("bridge-unreachable path: DOES latch the alarm when at least one recipient was alerted", async () => {
     vi.mocked(listWaBridgeNumbers).mockRejectedValue(new Error("fetch failed"))
     vi.mocked(prisma.waBridgeAlarm.findUnique).mockResolvedValue(null)
     vi.mocked(sendWaBridgeAlert).mockResolvedValue(1)

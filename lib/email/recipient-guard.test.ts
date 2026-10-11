@@ -56,7 +56,7 @@ describe("delivery mode", () => {
   })
 })
 
-describe("the incident must not be repeatable", () => {
+describe("public mailboxes and domains are refused by default", () => {
   it.each(PUBLIC_MAILBOXES)("refuses %s by default", (address) => {
     const d = checkRecipient(address, env())
     expect(d.allowed).toBe(false)

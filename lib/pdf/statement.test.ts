@@ -177,7 +177,7 @@ describe("generateStatementPdf payment history", () => {
     expect(texts(rows.find((columns) => columns[0]?.text === "TOTAL CHARGES")!).slice(0, 2)).toEqual(["TOTAL CHARGES", "R 112.00"])
   })
 
-  it("R5-1: with charges not live, a receipt reduces the balance by its schedule share and shows the part that paid charges", async () => {
+  it("with charges not live, a receipt reduces the balance by its schedule share and shows the part that paid charges", async () => {
     // Stopped after a R500 receipt paid R80 of default interest: settlement is R2,169 - R420.
     await generateStatementPdf({
       ...statementInput(0.05, "FLAT"),

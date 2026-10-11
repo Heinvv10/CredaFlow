@@ -44,12 +44,12 @@ const capture = (ids: Ids, amount: number, over: Record<string, unknown> = {}) =
 const loanOf = (ids: Ids) => db.loan.findUniqueOrThrow({ where: { id: ids.loanId }, include: { charges: true, repaymentSchedule: true } })
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "PATCH", body: JSON.stringify(body) })
 
-suite.sequential("round 3 (real Postgres)", () => {
+suite.sequential("charges waiver exemption, sweep race, S129 issuedAt ordering and settle-amount (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })
 
-  it("R3-1: exempting a loan closed by a small-balance waiver retires the waiver and refunds exactly the excess cash", async () => {
+  it("exempting a loan closed by a small-balance waiver retires the waiver and refunds exactly the excess cash", async () => {
     const ids = await createLoan()
     await capture(ids, SCHEDULE_TOTAL + DEFAULT_INTEREST - 50) // 50c short of settling
     await runWithTenant(ids.tenantId, () => waiveSmallBalance(payments, { tenantId: ids.tenantId, loanId: ids.loanId, reason: "rounding residue", userId: ids.userId, userEmail: null }))
@@ -68,7 +68,7 @@ suite.sequential("round 3 (real Postgres)", () => {
     expect(await db.auditLog.count({ where: { action: "PAYMENT_WAIVER_RETIRED", tenantId: ids.tenantId } })).toBe(1)
   })
 
-  it("R3-2: a receipt landing between --apply's plan and its sweep cannot slip a lowered totalPaid through unaccepted", async () => {
+  it("a receipt landing between --apply's plan and its sweep cannot slip a lowered totalPaid through unaccepted", async () => {
     // First go-live (the only go-live now): the plan sees an overdue loan with
     // no receipts, so nothing needs accepting.
     const ids = await createLoan(false)
@@ -96,7 +96,7 @@ suite.sequential("round 3 (real Postgres)", () => {
     expect(result).toMatchObject({ failures: [{ loanId: ids.loanId, error: expect.stringMatching(/already booked to the instalments onto charges/) }] })
   })
 
-  it("R3-3: an S129 whose provider issuedAt precedes a settling receipt, recorded after it, does not re-open the settled loan", async () => {
+  it("an S129 whose provider issuedAt precedes a settling receipt, recorded after it, does not re-open the settled loan", async () => {
     const ids = await createLoan()
     const reservedAt = new Date("2026-09-26T09:00:00+02:00")
     const recordData = {
@@ -121,7 +121,7 @@ suite.sequential("round 3 (real Postgres)", () => {
     expect(loan.chargesOutstanding).toBe(0)
   })
 
-  it("R3-4: documents' Total Amount to Settle is exactly what a writer accepts to close (FLAT overdue with charges)", async () => {
+  it("documents' Total Amount to Settle is exactly what a writer accepts to close (FLAT overdue with charges)", async () => {
     const ids = await createLoan()
     await capture(ids, 30_000)
     const loan = await loanOf(ids)

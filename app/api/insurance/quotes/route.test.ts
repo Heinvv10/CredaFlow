@@ -387,7 +387,7 @@ describe("POST /api/insurance/quotes — a covered life may not carry another te
   })
 })
 
-describe("POST /api/insurance/quotes — B3: a date of birth is evidence, not an assertion", () => {
+describe("POST /api/insurance/quotes — a date of birth is evidence, not an assertion", () => {
   const AS_CLIENT = { ...LIFE, clientId: "client-1" }
 
   it("takes the DOB from the CLIENT ROW, overriding whatever the caller sent", async () => {
@@ -553,7 +553,7 @@ describe("POST /api/insurance/quotes — a rate card activated TODAY is quotable
   })
 })
 
-describe("POST /api/insurance/quotes — F2: expiry is provisioned, not volunteered", () => {
+describe("POST /api/insurance/quotes — expiry is provisioned, not volunteered", () => {
   function created() {
     return createQuote.mock.calls[0][0].data as Record<string, unknown>
   }

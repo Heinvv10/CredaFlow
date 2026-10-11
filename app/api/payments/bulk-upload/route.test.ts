@@ -235,7 +235,7 @@ it("re-sorts the error list back into upload row order", async () => {
 })
 
 for (const status of ["WRITTEN_OFF", "PENDING_WRITE_OFF"]) {
-  it(`R6-1: holds money for a ${status} loan for reconciliation (loan_not_allocatable), allocating nothing`, async () => {
+  it(`holds money for a ${status} loan for reconciliation (loan_not_allocatable), allocating nothing`, async () => {
     loanFindManyMock.mockResolvedValue([{ id: "loanA", reference: "LN-1" }])
     txLoanFindUniqueMock.mockResolvedValue(loanObj({ status }))
 
@@ -252,7 +252,7 @@ for (const status of ["WRITTEN_OFF", "PENDING_WRITE_OFF"]) {
   })
 }
 
-it("R6-1: records money for a COMPLETED loan as refund-due", async () => {
+it("records money for a COMPLETED loan as refund-due", async () => {
   loanFindManyMock.mockResolvedValue([{ id: "loanA", reference: "LN-1" }])
   txLoanFindUniqueMock.mockResolvedValue(loanObj({ status: "COMPLETED" }))
 

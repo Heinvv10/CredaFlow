@@ -36,7 +36,7 @@ import type { LivePricing, PublicLoanProduct } from "../public-loan-products"
 // marketing quote matches origination; when legal changes the LoanProduct config,
 // update PRODUCT_PRICING and these expectations together (see product-pricing.ts).
 
-describe("PRODUCT_PRICING mirrors the live LoanProduct config (W-2)", () => {
+describe("PRODUCT_PRICING mirrors the live LoanProduct config", () => {
   it("personal loan: 16.5% init capped at R1,080, R69 service, 3%/mo reducing balance", () => {
     expect(PRODUCT_PRICING.personal).toEqual({
       productType: "PERSONAL",
@@ -74,7 +74,7 @@ describe("PRODUCT_PRICING mirrors the live LoanProduct config (W-2)", () => {
   })
 })
 
-describe("public marketing quote == the loan the customer is actually charged (W-2)", () => {
+describe("public marketing quote == the loan the customer is actually charged", () => {
   // The point is that the marketing quote equals what the customer is charged.
   // The FIGURES moved when the NCA Reg 42 initiation-fee ceiling was enforced in
   // calculateLoan (lib/loan/nca-fee-cap.ts): personal is consumer credit, so the
@@ -112,7 +112,7 @@ describe("public marketing quote == the loan the customer is actually charged (W
   })
 })
 
-describe("personal calculator surfaces the term, not an understated APR (W-1)", () => {
+describe("personal calculator surfaces the term, not an understated APR", () => {
   it("the tertiary metric is the loan term, and no APR figure is derived", () => {
     const quote = calculatePublicLoanQuote(getPublicLoanProduct("personal"), 1000000, 12)
     // the old (totalInterest / principal) * (365 / termDays) 'Est. APR'
@@ -226,7 +226,7 @@ describe("applyLivePricing (calculator overlays the live LoanProduct fee structu
   })
 })
 
-describe("live-aware qualify bounds (Phase 1: qualify wizard tracks the live ranges)", () => {
+describe("live-aware qualify bounds (qualify wizard tracks the live ranges)", () => {
   const personalRange = (minAmount: number, maxAmount: number): LivePricing => ({
     interestRatePm: 0.03,
     interestModel: "REDUCING_BALANCE",
@@ -311,7 +311,7 @@ describe("qualifyTerm — canonical-days ↔ display conversion + clamp (term-un
   })
 })
 
-describe("productForAmount — the ONE shared amount→product tiering rule (Phase 2)", () => {
+describe("productForAmount — the ONE shared amount→product tiering rule", () => {
   const fee = (extra: Partial<LivePricing>): LivePricing => ({
     interestRatePm: 0.05,
     interestModel: "FLAT",
@@ -377,7 +377,7 @@ describe("productForAmount — the ONE shared amount→product tiering rule (Pha
     expect(clamped).toBe(5000) // clamped up to personal min — no dead band
   })
 
-  it("disabled/missing product falls back to the static boundary (Phase 0 decision)", () => {
+  it("disabled/missing product falls back to the static boundary", () => {
     // active:false → the live read omits short-term → applyLivePricing keeps the
     // static short-term (R10,000 max), so the micro boundary stays static.
     const p = applyLivePricing({
@@ -388,7 +388,7 @@ describe("productForAmount — the ONE shared amount→product tiering rule (Pha
   })
 })
 
-describe("applyProductLimitsRands — apply slider bounds from live products (Phase 2)", () => {
+describe("applyProductLimitsRands — apply slider bounds from live products", () => {
   it("empty overlay → the static apply limits (rands)", () => {
     expect(applyProductLimitsRands(applyLivePricing({}))).toEqual({
       MICRO: [500, 10000],
@@ -417,7 +417,7 @@ describe("applyProductLimitsRands — apply slider bounds from live products (Ph
   })
 })
 
-describe("qualifyApplyHref — the apply handoff classifies the amount it carries (Phase 2 review fix)", () => {
+describe("qualifyApplyHref — the apply handoff classifies the amount it carries", () => {
   // Config: short-term R500–R2,000, personal R5,000–R100,000.
   const staging = () =>
     applyLivePricing({
@@ -446,7 +446,7 @@ describe("qualifyApplyHref — the apply handoff classifies the amount it carrie
     expect(href).toContain("term=360")
   })
 
-  it("REGRESSION: a suggested micro amount from a personal request → short-term (classified by ITS amount)", () => {
+  it("a suggested micro amount from a personal request → short-term (classified by ITS amount)", () => {
     // findMaxAffordable can suggest R2,000 (micro) for a personal request carrying
     // 360 days. The href must route to short-term for THAT amount (using the original
     // tier would apply the customer under the wrong product). The term is canonical
@@ -459,7 +459,7 @@ describe("qualifyApplyHref — the apply handoff classifies the amount it carrie
   })
 })
 
-describe("marketing-copy formatters (Phase 3)", () => {
+describe("marketing-copy formatters", () => {
   it("formatRandsWhole: whole rands, comma-grouped, no decimals (cents in)", () => {
     expect(formatRandsWhole(50000)).toBe("R500")
     expect(formatRandsWhole(200000)).toBe("R2,000")

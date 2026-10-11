@@ -269,7 +269,7 @@ describe("requireDebitMandateBankDetails", () => {
     })
   })
 
-  it("REJECTS a transmission account — retired 2026-08-05", () => {
+  it("REJECTS a transmission account", () => {
     // Accepting it here let a consumer sign a mandate the database would
     // refuse at payout: the guard allow-lists ('CHEQUE','SAVINGS') and the DB
     // canonicaliser has no transmission branch, so disbursement raised 23514

@@ -36,7 +36,7 @@ suite("sendMessage integration", () => {
       create: {
         id: TENANT_ID,
         slug: TENANT_ID,
-        name: "Phase 9 S2 test",
+        name: "Messaging send test tenant",
       },
     })
     await prisma.contact.upsert({

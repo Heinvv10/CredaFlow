@@ -204,7 +204,7 @@ describe("PATCH status — the success path", () => {
   })
 })
 
-describe("PATCH status — B2: a screened-out DRAFT cannot be promoted", () => {
+describe("PATCH status — a screened-out DRAFT cannot be promoted", () => {
   it("refuses DRAFT -> QUOTED when the quote FAILED the insurer's terms", async () => {
     // The laundering path. createQuote refused to WRITE this quote as QUOTED;
     // nothing stopped a later PATCH from setting the status the writer had

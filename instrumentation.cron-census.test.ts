@@ -55,17 +55,17 @@ const INTENTIONALLY_UNWIRED = new Map([
   ],
   [
     "cleanup-disclosures",
-    "OPEN GAP (2026-07-31): draft FAIS disclosure PDFs accumulate in uploads/disclosures/. " +
-      "POPIA-adjacent housekeeping; gates no Annexure row, so it was not scheduled in this sprint.",
+    "Draft FAIS disclosure PDFs accumulate in uploads/disclosures/. " +
+      "POPIA-adjacent housekeeping; gates no contractual requirement, so it is not scheduled.",
   ],
   [
     "bureau-daily",
-    "OPEN GAP (2026-10-01): the daily bureau file (lib/bureau-submission). Built but not scheduled: " +
-      "registering it on a server is Hein's decision, and nothing is sent until Experian confirms a channel.",
+    "The daily bureau file (lib/bureau-submission). Built but not scheduled: " +
+      "registering it on a server is the operator's decision, and nothing is sent until Experian confirms a channel.",
   ],
   [
     "bureau-monthly",
-    "OPEN GAP (2026-10-01): the monthly bureau file (lib/bureau-submission). Built but not scheduled, as " +
+    "The monthly bureau file (lib/bureau-submission). Built but not scheduled, as " +
       "bureau-daily. When it is, run it early on the 1st: a loan paid or reversed after month end is held.",
   ],
   // NOT `payment-reminders`. It duplicates the externally scheduled

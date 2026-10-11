@@ -1,6 +1,6 @@
 // app/api/applications/[id]/disburse/route.test.ts
 //
-// Covers R-09b: credit-life auto-bundle behaviour inside the disburse tx.
+// Covers credit-life auto-bundle behaviour inside the disburse tx.
 // The bundle was previously fire-and-forget (void async IIFE that swallowed
 // errors via console.error). Now it runs inside prisma.$transaction so a
 // bundle failure rolls back the disburse — the FAIS bundled-exemption
@@ -910,7 +910,7 @@ afterEach(() => {
   })
 })
 
-describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () => {
+describe("POST /api/applications/[id]/disburse — payout gates, credit-life bundling and in-transaction invariants", () => {
   it("blocks before the money transaction without provider countersign evidence", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
@@ -2349,7 +2349,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     expect(triggerNotification).not.toHaveBeenCalled()
   })
 
-  it("issues + tracks the FAIS/PPR disclosure for the bundled policy (F-25)", async () => {
+  it("issues + tracks the FAIS/PPR disclosure for the bundled policy", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
       tenantId: "tenant-1",
@@ -2392,7 +2392,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     )
   })
 
-  it("does not roll back the disburse if FAIS/PPR disclosure issuance fails (F-25)", async () => {
+  it("does not roll back the disburse if FAIS/PPR disclosure issuance fails", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
       tenantId: "tenant-1",
@@ -2543,7 +2543,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
     expect(triggerNotification).not.toHaveBeenCalled()
   })
 
-  it("R-09: throws inside the tx and maps to 409 when a concurrent disburse already claimed the application", async () => {
+  it("throws inside the tx and maps to 409 when a concurrent disburse already claimed the application", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
       tenantId: "tenant-1",
@@ -3498,7 +3498,7 @@ describe("POST /api/applications/[id]/disburse — R-09b bundle hardening", () =
   })
 })
 
-describe("POST /api/applications/[id]/disburse — Phase 7 AVS gate (dark behind collectionsEngineEnabled)", () => {
+describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEngineEnabled", () => {
   it("blocks disbursement when collectionsEngineEnabled and no passing AVS check", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",

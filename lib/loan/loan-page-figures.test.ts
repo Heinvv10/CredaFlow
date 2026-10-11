@@ -62,7 +62,7 @@ describe("staffLoanFigures", () => {
     expect((await staffLoanFigures(db as any, { ...residue, totalPaid: 216_799 }, asOf)).waivable).toBe(false)
   })
 
-  it("R2-H: shows what settles the loan today as its balance while charges are live, not the maturity total", async () => {
+  it("shows what settles the loan today as its balance while charges are live, not the maturity total", async () => {
     loadChargesReplay.mockResolvedValue(replay(0))
     // R2,000 daily-accrual bullet at 10% a month, 15 days in: R100 accrued of R200.
     const daily = {
@@ -79,7 +79,7 @@ describe("staffLoanFigures", () => {
     expect(figures).toMatchObject({ settlementAmount: 210_000, balance: 210_000, maturityBalance: 220_000 })
   })
 
-  it("F3: carries the reason the latest Section 129 notice's charge could not be posted", async () => {
+  it("carries the reason the latest Section 129 notice's charge could not be posted", async () => {
     loadChargesReplay.mockResolvedValue(replay(0))
     db.complianceRecord.findFirst.mockResolvedValueOnce({ data: { lifecycle: "ISSUED", chargesNotDerived: "refused: re-open" } })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

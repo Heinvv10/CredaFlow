@@ -162,7 +162,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe("POST /api/insurance/policies — FAIS gate (Task 8)", () => {
+describe("POST /api/insurance/policies — FAIS gate", () => {
   it("1. returns 422 and fires gate-rejected audit when faisDisclosureAt is missing", async () => {
     process.env.NEXTAUTH_SECRET = SECRET
 
@@ -325,7 +325,7 @@ describe("POST /api/insurance/policies — FAIS gate (Task 8)", () => {
     expect(ackPayload.faisDisclosureAt).not.toBe(yesterday)
   })
 
-  it("7. R-09: returns 422 token_replay when the same draftToken has already bound a policy", async () => {
+  it("7. returns 422 token_replay when the same draftToken has already bound a policy", async () => {
     process.env.NEXTAUTH_SECRET = SECRET
 
     // The pre-check findUnique hits an existing row with this token's hash.

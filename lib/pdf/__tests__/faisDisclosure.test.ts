@@ -68,7 +68,7 @@ describe("generateFaisDisclosurePdf", () => {
     expect(content).toContain(pdfHex("8501015000080"))
   })
 
-  it("renders the FULL statutory body without clipping a clause, even under long names (C-1 regression)", async () => {
+  it("renders the FULL statutory body without clipping a clause, even under long names", async () => {
     // The overflow guard must paginate so NO clause is drawn off the bottom of
     // the page. Stress with long names + the bundled-credit-life input shape
     // (ncrNumber + insurer present, which pushes the body lowest), then assert

@@ -98,7 +98,7 @@ describe("loanSettlementFigures", () => {
     expect(figures).toMatchObject({ live: false, chargesOutstanding: 0, totalToSettle: 216_900, interestAndFeesOutstanding: 16_900, chargeLines: [] })
   })
 
-  it("R2-H: states what the receipt paths accept to settle, charges included, not a lower amount owing", async () => {
+  it("states what the receipt paths accept to settle, charges included, not a lower amount owing", async () => {
     loadChargesReplay.mockResolvedValue({
       result: result({ interestAccrued: 3_000, interestOutstanding: 3_000 }),
       goLive: new Date("2026-01-01"), accrueFrom: new Date("2026-01-01"),
@@ -142,7 +142,7 @@ describe("certificatePaidToDate", () => {
     payment: { aggregate: vi.fn(async () => ({ _sum: { amount, defaultInterestAllocated: splits, chargeFeesAllocated: 0 } })) },
   })
 
-  it("R6-2: on a never-live loan settled with a small-balance waiver, is undefined so the certificate shows Loan.totalPaid as main does", async () => {
+  it("on a never-live loan settled with a small-balance waiver, is undefined so the certificate shows Loan.totalPaid", async () => {
     loadChargesReplay.mockResolvedValue(null)
     // R2,168.25 cash + a R0.75 waiver: cash received is below Loan.totalPaid.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

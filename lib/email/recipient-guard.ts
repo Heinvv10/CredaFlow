@@ -176,7 +176,6 @@ export function blockedMessage(address: string, decision: RecipientDecision): st
     `Refused to deliver to ${domain ?? "an unparseable address"}: this environment runs in ` +
     `"${decision.mode}" delivery mode and may only reach ${(decision.allowedDomains ?? []).join(", ")}. ` +
     `Set EMAIL_DELIVERY_MODE=unrestricted on production only, or add the domain to ` +
-    `EMAIL_RECIPIENT_ALLOWLIST. This guard exists because staging once sent real ` +
-    `Section 129 statutory demands to members of the public.`
+    `EMAIL_RECIPIENT_ALLOWLIST.`
   )
 }

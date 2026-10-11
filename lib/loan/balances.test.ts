@@ -21,7 +21,7 @@ function schedule(): ScheduleRowLike[] {
 const PRINCIPAL = 2_000_000 // 600k + 650k + 750k
 
 describe("recomputeLoanBalances", () => {
-  it("F-14: reduces principal by the PRINCIPAL portion only, not the gross receipt", () => {
+  it("reduces principal by the PRINCIPAL portion only, not the gross receipt", () => {
     // Pay instalment 1 in full (R6,669.00). Gross-subtraction would drop principal
     // to 2,000,000 - 666,900 = 1,333,100. Correct is 2,000,000 - 600,000 = 1,400,000.
     const s = schedule()
@@ -30,7 +30,7 @@ describe("recomputeLoanBalances", () => {
     expect(b.outstandingPrincipal).toBe(1_400_000) // not 1,333,100
   })
 
-  it("F-15: a partial payment does NOT zero genuine arrears/DPD", () => {
+  it("a partial payment does NOT zero genuine arrears/DPD", () => {
     // Instalments 1 & 2 overdue (due day10/day20, now day40). Client pays R1.00
     // toward instalment 1. Arrears must remain ~both overdue instalments, DPD from
     // the earliest overdue due date (day10 -> 30 days).
@@ -100,7 +100,7 @@ describe("recomputeLoanBalances", () => {
 
 const TOTAL_REPAYABLE = 666_900 + 696_900 + 776_900 // 2,140,700
 
-describe("allocateReceipts (N-01/N-02 — payment/reversal derive schedule state)", () => {
+describe("allocateReceipts (payment/reversal derive schedule state)", () => {
   it("fills instalments earliest-first up to each totalDue", () => {
     const s = schedule()
     // One receipt of instalment-1 + half of instalment-2.
@@ -119,7 +119,7 @@ describe("allocateReceipts (N-01/N-02 — payment/reversal derive schedule state
     expect(allocateReceipts(schedule(), 0)).toEqual([0, 0, 0])
   })
 
-  it("N-01: reversing the settling receipt restores the exact pre-payment state", () => {
+  it("reversing the settling receipt restores the exact pre-payment state", () => {
     // Settle the loan with two receipts (R6,669.00 then the remainder), then
     // reverse the second. The remaining receipt (R6,669.00) must re-derive to:
     //   row1 PAID, rows 2/3 unpaid, outstanding = principal - row1.principalDue.

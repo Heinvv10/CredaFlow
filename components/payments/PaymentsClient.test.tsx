@@ -356,7 +356,7 @@ describe("PaymentsClient reconciliation queue", () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
   })
 
-  it("R4-4: shows a receipt held because default charges refused it, with a reason staff can act on", () => {
+  it("shows a receipt held because default charges refused it, with a reason staff can act on", () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     const held = payment({
       id: "p9", reference: "STITCH-9", allocationStatus: "UNAPPLIED" as const, amount: 10_000,

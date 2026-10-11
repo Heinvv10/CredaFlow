@@ -229,7 +229,7 @@ suite.sequential("sync guard: no caller moves booked money or re-opens a settled
       .toMatchObject({ newValue: expect.objectContaining({ processed: 1, held: 1 }) })
   })
 
-  it("K6: bulk-upload money above what settles a loan is recorded refund-due, never skipped", async () => {
+  it("bulk-upload money above what settles a loan is recorded refund-due, never skipped", async () => {
     const ids = await createLoan()
     const ref = (await db.loan.findUniqueOrThrow({ where: { id: ids.loanId } })).reference
     const settle = SCHEDULE_TOTAL + DEFAULT_INTEREST

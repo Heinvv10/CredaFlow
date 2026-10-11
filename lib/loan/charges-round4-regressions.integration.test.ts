@@ -53,12 +53,12 @@ async function reserveNotice(ids: Ids, at: Date) {
   return { record, recordData }
 }
 
-suite.sequential("round 4 (real Postgres)", () => {
+suite.sequential("charges value-date ordering and held bank-line regressions (real Postgres)", () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"], now: NOW }) })
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
   beforeEach(() => { vi.setSystemTime(NOW) })
 
-  it("R4-1: a value date later today is refused, and a notice is dated after every receipt already on the loan", async () => {
+  it("a value date later today is refused, and a notice is dated after every receipt already on the loan", async () => {
     const ids = await createLoan()
     const { record, recordData } = await reserveNotice(ids, new Date("2026-09-26T09:00:00+02:00"))
     // 10:00: staff try to capture a deposit the bank shows at 16:00 today.
@@ -80,7 +80,7 @@ suite.sequential("round 4 (real Postgres)", () => {
     expect((await paysOf(ids))[0].defaultInterestAllocated).toBe(split)
   })
 
-  it("R4-4: a bank line held (charges refused) can be allocated once the cause is fixed, and is never double-booked", async () => {
+  it("a bank line held (charges refused) can be allocated once the cause is fixed, and is never double-booked", async () => {
     const ids = await createLoan()
     // An issued notice without a frozen amount (e.g. finalised by the previous image) -> every replay refuses.
     await db.complianceRecord.create({ data: { tenantId: ids.tenantId, type: "SECTION_129_NOTICE", referenceId: ids.loanId, idempotencyKey: `s129u-${ids.loanId}`, status: "COMPLETED", completedAt: new Date("2026-09-10T10:00:00+02:00"), data: { lifecycle: "ISSUED" } } })

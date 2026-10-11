@@ -151,7 +151,7 @@ describe("the calculator cannot charge above the statutory maximum", () => {
   })
 })
 
-describe("NCA_REG42 pricing makes the CONFIG agree with the CHARGE (C7)", () => {
+describe("NCA_REG42 pricing makes the CONFIG agree with the CHARGE", () => {
   // The defect: the fee table published `initiationFeePct` while the engine
   // charged the statutory figure. A product priced ON the schedule cannot
   // disagree with itself, because there is no second number to disagree with.
@@ -274,7 +274,7 @@ describe("the gazetted constants are stated, not buried", () => {
   })
 })
 
-describe("REGRESSION: the exemption must reach every origination path", () => {
+describe("the exemption must reach every origination path", () => {
   // Blind review found productType reached exactly ONE of a dozen callers, so
   // the marketing quote said R10,000 while the SIGNED AGREEMENT and the BOOKED
   // LOAN both said R1,207.50 — an R8,792.50 under-charge per PO facility.
@@ -292,7 +292,7 @@ describe("REGRESSION: the exemption must reach every origination path", () => {
     expect(calc.initiationFee).not.toBe(ncaInitiationFeeCap(R(500_000))) // NOT R1,207.50
   })
 
-  it("the same facility WOULD be clamped without its category — the bug's shape", () => {
+  it("the same facility WOULD be clamped without its category", () => {
     const clamped = calculateLoan({ principal: R(500_000), termDays: 120, ...PO, productType: null })
     expect(clamped.initiationFee).toBe(R(1207.5))
     expect(R(10_000) - clamped.initiationFee).toBe(R(8792.5))
