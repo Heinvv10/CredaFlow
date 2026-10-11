@@ -218,7 +218,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
               <p className="mb-6 text-sm leading-relaxed text-[var(--cf-text-secondary)]">
                 Your password has been updated. You can now sign in with your new password.
               </p>
-              <Link href="/portal/login" className="text-sm font-semibold text-[#4338CA] hover:underline">
+              <Link href="/portal/login" className="text-sm font-semibold text-[var(--cf-brand-alt)] hover:underline">
                 Go to sign in →
               </Link>
             </div>

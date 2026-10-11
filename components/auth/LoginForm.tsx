@@ -182,7 +182,7 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
                   a dead mailto: link. */}
               <Link
                 href={variant === "staff" ? "/forgot-password" : "/portal/forgot-password"}
-                className="text-sm font-medium text-[#4338CA] hover:underline"
+                className="text-sm font-medium text-[var(--cf-brand-alt)] hover:underline"
               >
                 Forgot password?
               </Link>
@@ -215,7 +215,7 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
             {variant === "client" ? (
               <p className="mt-1 text-center text-xs text-[var(--cf-text-muted)]">
                 First time here?{" "}
-                <Link href="/portal/register" className="font-medium text-[#4338CA] hover:underline">
+                <Link href="/portal/register" className="font-medium text-[var(--cf-brand-alt)] hover:underline">
                   Create your account
                 </Link>
               </p>

@@ -10,7 +10,7 @@ const redirectMock = vi.fn((path: string) => {
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("next/navigation", () => ({ redirect: (p: string) => redirectMock(p) }))
 vi.mock("@/components/auth/LoginForm", () => ({ default: () => null }))
-vi.mock("@/lib/tenant", () => ({ getResolvedTenantId: async () => "tenant-1" }))
+vi.mock("@/lib/tenant", () => ({ getResolvedTenantId: async () => "tenant-1", getTenantConfig: async () => null }))
 vi.mock("@/lib/config/identity", () => ({ getLenderBrandName: async () => "Acme Lending" }))
 
 import PortalLoginPage from "./page"

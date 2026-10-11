@@ -393,6 +393,9 @@ export const AuditAction = {
   BUREAU_SUBMISSION_DOWNLOADED: "BUREAU_SUBMISSION_DOWNLOADED",
   BUREAU_ADVERSE_LISTING_CONFIRMED: "BUREAU_ADVERSE_LISTING_CONFIRMED",
   BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED",
+  // Tenant administration (app/api/admin/tenants).
+  TENANT_CREATED: "TENANT_CREATED",
+  TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED",
   // Lender identity (lib/config/identity-write.ts) — legal name, NCR/FSP/
   // company-reg numbers, registered office and contact details.
   LENDER_IDENTITY_UPDATED: "LENDER_IDENTITY_UPDATED",

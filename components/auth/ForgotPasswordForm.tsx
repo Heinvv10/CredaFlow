@@ -58,7 +58,7 @@ export default function ForgotPasswordForm({ brandName }: { brandName: string })
                 The link expires in 30 minutes.
               </p>
               <p className="text-xs text-[var(--cf-text-muted)] mb-4">Didn&apos;t get it? Check your spam folder.</p>
-              <Link href="/login" className="text-sm text-[#4338CA] font-semibold hover:underline">
+              <Link href="/login" className="text-sm text-[var(--cf-brand-alt)] font-semibold hover:underline">
                 ← Back to login
               </Link>
             </div>
@@ -95,7 +95,7 @@ export default function ForgotPasswordForm({ brandName }: { brandName: string })
                 <Button
                   type="submit"
                   disabled={loading || !email}
-                  className="w-full bg-[#4338CA] hover:bg-[#4F46E5] text-white font-semibold py-2.5"
+                  className="w-full bg-[var(--cf-brand)] hover:bg-[var(--cf-brand-alt)] text-[var(--cf-on-brand)] font-semibold py-2.5"
                 >
                   {loading ? "Sending…" : "Send Reset Link"}
                 </Button>

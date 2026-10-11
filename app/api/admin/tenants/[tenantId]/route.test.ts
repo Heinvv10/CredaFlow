@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { authMock, findUnique, update, configBefore, transaction, logAuditStrict } = vi.hoisted(() => ({
+const { authMock, findUnique, update, configBefore, transaction, logAuditStrict, revalidateTag } = vi.hoisted(() => ({
+  revalidateTag: vi.fn(),
   authMock: vi.fn(),
   findUnique: vi.fn(),
   update: vi.fn(),
@@ -13,8 +14,9 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }))
 vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, update }, $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({
   logAuditStrict,
-  AuditAction: { BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED" },
+  AuditAction: { BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED" },
 }))
+vi.mock("next/cache", () => ({ revalidateTag }))
 vi.mock("@/lib/bureau-submission/generate", () => ({ SUPPLIER_NUMBER: /^[A-Z0-9]{1,10}$/ }))
 
 import { PATCH } from "./route"
@@ -96,8 +98,8 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     expect(logAuditStrict).not.toHaveBeenCalled()
   })
 
-  it("does not write an audit row when no bureau field changed", async () => {
-    expect((await patch({ primaryColor: "#123456" })).status).toBe(200)
+  it("does not write an audit row when no audited field changed", async () => {
+    expect((await patch({ featureReports: true })).status).toBe(200)
     expect(logAuditStrict).not.toHaveBeenCalled()
     expect(transaction).not.toHaveBeenCalled()
   })
@@ -124,5 +126,72 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await patch({ featureBureauSubmission: true })).status).toBe(403)
     expect(update).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/admin/tenants/[tenantId] — tenant colours", () => {
+  const GOOD = { primaryColor: "#1F4E79", secondaryColor: "#245E92", darkColor: "#0F1115" }
+
+  beforeEach(() => {
+    process.env.ADMIN_SECRET = "s3cret"
+    authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
+    findUnique.mockReset().mockResolvedValue({ id: "t1", config: GOOD })
+    update.mockReset().mockResolvedValue({ id: "t1", config: {} })
+    configBefore.mockReset().mockResolvedValue(GOOD)
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, isTx: true }))
+    logAuditStrict.mockReset().mockResolvedValue(undefined)
+    revalidateTag.mockReset()
+  })
+
+  it("saves a passing set, audits it in the same transaction and invalidates the cached config", async () => {
+    const response = await patch({ primaryColor: "#7A3E1D", darkColor: "#101418" })
+    expect(response.status).toBe(200)
+    expect(configWritten()).toEqual({ primaryColor: "#7A3E1D", darkColor: "#101418" })
+    expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "t1", userId: "u1", action: "TENANT_COLOURS_UPDATED", entity: "TenantConfig",
+      oldValue: { primaryColor: "#1F4E79", darkColor: "#0F1115" },
+      newValue: { primaryColor: "#7A3E1D", darkColor: "#101418" },
+    }), expect.objectContaining({ isTx: true }))
+    expect(revalidateTag).toHaveBeenCalledWith("tenant-config-t1", { expire: 0 })
+  })
+
+  it("still reports the committed save when the cache cannot be invalidated", async () => {
+    revalidateTag.mockImplementation(() => { throw new Error("no cache store") })
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    expect((await patch({ primaryColor: "#7A3E1D" })).status).toBe(200)
+    expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("not invalidated"), expect.any(Error))
+    errorLog.mockRestore()
+  })
+
+  it("measures a tenant with no config row against the default colours", async () => {
+    findUnique.mockResolvedValue({ id: "t1", config: null })
+    expect((await patch({ darkColor: "#101418" })).status).toBe(200)
+    findUnique.mockResolvedValue({ id: "t1", config: null })
+    expect(Object.keys((await (await patch({ darkColor: "#C0C0C0" })).json()).fields)).toEqual(["darkColor"])
+  })
+
+  it.each([
+    ["a yellow primary", { primaryColor: "#FFD700" }, "primaryColor", /^light: /],
+    ["a light darkColor", { darkColor: "#C0C0C0" }, "darkColor", /^dark: .* on --cf-bg /],
+    ["a non-hex string", { secondaryColor: "teal" }, "secondaryColor", /^must be a #rrggbb hex colour$/],
+    ["CSS smuggled into a colour", { primaryColor: "#1F4E79;}body{display:none" }, "primaryColor", /^must be a #rrggbb/],
+    ["null", { darkColor: null }, "darkColor", /^must be a #rrggbb/],
+  ])("refuses %s with 422, a field-level reason, and writes nothing", async (_label, body, field, reason) => {
+    const response = await patch(body)
+    expect(response.status).toBe(422)
+    const json = await response.json()
+    expect(Object.keys(json.fields)).toEqual([field])
+    expect(json.fields[field]).toMatch(reason)
+    expect(update).not.toHaveBeenCalled()
+    expect(transaction).not.toHaveBeenCalled()
+    expect(logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("checks a single colour against the tenant's other saved colours", async () => {
+    // The saved primary is part of the set measured, not the default one.
+    findUnique.mockResolvedValue({ id: "t1", config: { ...GOOD, primaryColor: "#FFD700" } })
+    const response = await patch({ secondaryColor: "#245E92" })
+    expect(response.status).toBe(422)
+    expect(Object.keys((await response.json()).fields)).toEqual(["primaryColor"])
   })
 })
