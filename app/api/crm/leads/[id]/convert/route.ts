@@ -47,6 +47,20 @@ interface ConversionClient {
   monthlyExpenses: number
 }
 
+// Same rule as the portal: a fixed-term product (min == max) takes its own term
+// when none is given; otherwise a whole number of days within [min, max].
+function resolveTermDays(
+  requested: unknown,
+  product: { minTermDays: number; maxTermDays: number },
+): number | null {
+  const term = requested === undefined || requested === null ? null : Number(requested)
+  if (product.minTermDays === product.maxTermDays) {
+    return term === null ? product.minTermDays : term === product.minTermDays ? term : null
+  }
+  if (term === null || !Number.isInteger(term) || term <= 0) return null
+  return term < product.minTermDays || term > product.maxTermDays ? null : term
+}
+
 function classifyAgreementType(amountCents: number): "SMALL" | "INTERMEDIATE" | "LARGE" {
   if (amountCents <= 1_500_000) return "SMALL"
   if (amountCents <= 25_000_000) return "INTERMEDIATE"
@@ -435,6 +449,14 @@ export async function POST(
           where: { id: data.productId, tenantId: tenant.id },
         })
         if (!product || !product.active) return { kind: "product_unavailable" as const }
+        if (resolveTermDays(data.appliedTermDays, product) === null) {
+          return {
+            kind: "term_out_of_range" as const,
+            min: product.minTermDays,
+            max: product.maxTermDays,
+            name: product.name,
+          }
+        }
 
         // 1. Create client. The CRM intake captures a single scalar
         // `monthlyExpenses` — the per-category breakdown wasn't asked for at
@@ -532,6 +554,10 @@ export async function POST(
         if (!lockedProduct || !lockedProduct.active) {
           throw new Error("Selected loan product is unavailable")
         }
+        const appliedTermDays = resolveTermDays(data.appliedTermDays, lockedProduct)
+        if (appliedTermDays === null) {
+          throw new Error("Applied term is outside the selected loan product's bounds")
+        }
 
         const snapshotClient = await tx.client.findUnique({
           where: { id: client.id, tenantId: tenant.id },
@@ -546,7 +572,7 @@ export async function POST(
           clientDebts: snapshotClient.debtObligations,
           application: {
             appliedAmount: amountCents,
-            appliedTermDays: data.appliedTermDays || 30,
+            appliedTermDays,
             productId: lockedProduct.id,
             initiationFeePayment: "DEFERRED",
           },
@@ -569,7 +595,7 @@ export async function POST(
             clientId: client.id,
             productId: lockedProduct.id,
             appliedAmount: amountCents,
-            appliedTermDays: data.appliedTermDays || 30,
+            appliedTermDays,
             purpose: data.purpose || null,
             loanPurposeCategory: data.loanPurposeCategory || null,
             agreementType: classifyAgreementType(amountCents),
@@ -605,7 +631,7 @@ export async function POST(
               clientId: client.id,
               productId: lockedProduct.id,
               appliedAmount: amountCents,
-              appliedTermDays: data.appliedTermDays || 30,
+              appliedTermDays,
               snapshotSchemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
               decisionFingerprint: submissionSnapshot.decisionFingerprint,
             },
@@ -746,6 +772,12 @@ export async function POST(
       if (result.kind === "product_unavailable") {
         return NextResponse.json(
           { error: "Selected loan product is unavailable" },
+          { status: 422 },
+        )
+      }
+      if (result.kind === "term_out_of_range") {
+        return NextResponse.json(
+          { error: `Term must be between ${result.min} and ${result.max} days for ${result.name}.` },
           { status: 422 },
         )
       }

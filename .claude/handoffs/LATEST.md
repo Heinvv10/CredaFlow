@@ -15,7 +15,7 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Eleven stacked PRs, none merged.** Merge them in order; each is based on the
+**Twelve stacked PRs, none merged.** Merge them in order; each is based on the
 previous one's branch. Every one has green CI and three blind reviewers'
 SHIP/CLEAN on its final commit.
 
@@ -32,6 +32,7 @@ SHIP/CLEAN on its final commit.
 | #11 | `fix/tenant-colour-patch-race` → #10 | Colour PATCH validates under `FOR NO KEY UPDATE` on the Tenant row, inside the write's transaction; real-PG race suite `RUN_TENANT_COLOUR_RACE_IT` (existing and missing config row) |
 | #12 | `fix/portal-register-theming` → #11 | `/portal/register` renders inside `TenantThemeProvider` like the other sign-in pages; its indigo tints use the brand token |
 | #13 | `test/db-baseline-helper-forms` → #12 | `lib/db-baseline.test-helpers.ts` splits migrations into SQL statements (comments, strings, `$tag$` bodies) and reads multi-line, unqualified and multi-object DDL; identical results on every existing migration |
+| #14 | `fix/crm-convert-term-bounds` → #13 | CRM lead conversion refuses a term outside the product's min/max (422, nothing written), as the staff wizard and portal already did |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
@@ -63,7 +64,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
@@ -118,14 +119,18 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   - The credit agreement (and the Form 20 quotation, same renderer) prints at
     most 38 schedule rows and silently drops the rest, while its TOTAL row sums
     the full schedule. Nothing caps instalments: the seeded PERSONAL product
-    allows 1,800 days (60 instalments), and the CRM lead-convert route takes
-    `appliedTermDays` with no min/max check. `lib/pdf/statement.ts` has the same
+    allows 1,800 days (60 instalments), and the CRM convert form has no term
+    input: it always sends the product's maximum term
+    (`components/crm/ConvertLeadForm.tsx`), so every CRM conversion of that
+    product is a 60-instalment application. `lib/pdf/statement.ts` has the same
     ~37-row cut. Options are an upstream cap or a continuation page; an NCA
     document change needs Hein's and legal sign-off.
   - `lib/__tests__/webhook-replay.test.ts` runs whenever `DATABASE_URL` is set
     (not behind a `RUN_*_IT` gate) and its fixture creates an
     APPROVED application without a PASQ document, which the
     `lockLoanApplicationPasqDocument` trigger refuses on a migrated database. CI's quality job sets no `DATABASE_URL`, so it skips there.
+  - CRM lead conversion does not check `appliedAmount` against the product's
+    min/max, nor that it is a positive number (the staff wizard and portal do).
   - The page background's indigo radial glow (`app/globals.css`) is not
     tenant-themed on any page.
   - The baseline helpers do not tell function overloads apart, nor scope
