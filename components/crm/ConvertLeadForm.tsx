@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { UserCheck, Briefcase, CreditCard, AlertCircle, CheckCircle } from "lucide-react"
 import { LOAN_PURPOSE_OPTIONS } from "@/lib/loan-purpose-categories"
+import { defaultTermInput, isFixedTerm, termForRequest, termIsInvalid, type TermBounds } from "./convert-term"
 
 type Product = {
   id: string
@@ -86,6 +87,10 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
   const [amount, setAmount] = useState(
     parsePrefillAmount(prefill["Amount"] ?? "0").toString()
   )
+  const [termDays, setTermDays] = useState(() => {
+    const initial = products.find((p) => p.id === defaultProductId)
+    return initial ? defaultTermInput(initial) : ""
+  })
   const [purpose, setPurpose] = useState(prefill["Purpose"] ?? "")
   const [purposeCategory, setPurposeCategory] = useState("OTHER")
   const [recoveryReason, setRecoveryReason] = useState("")
@@ -111,7 +116,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
           monthlyExpenses: parseFloat(expenses) || 0,
           productId,
           appliedAmount: parseFloat(amount) || 0,
-          appliedTermDays: selectedProduct?.maxTermDays ?? 30,
+          appliedTermDays: termForRequest(selectedProduct, termDays),
           purpose: purpose.trim() || null,
           loanPurposeCategory: purposeCategory || null,
           recoveryReason: recoveryMode ? recoveryReason.trim() : undefined,
@@ -299,7 +304,11 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
             <label className="block text-xs font-semibold text-gray-600 mb-1">Loan Product *</label>
             <select
               value={productId}
-              onChange={(e) => setProductId(e.target.value)}
+              onChange={(e) => {
+                setProductId(e.target.value)
+                const next = products.find((p) => p.id === e.target.value)
+                setTermDays(next ? defaultTermInput(next) : "")
+              }}
               className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
             >
               {products.map((p) => (
@@ -333,6 +342,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
               placeholder="Enter amount"
             />
           </div>
+          {selectedProduct && <TermField product={selectedProduct} value={termDays} onChange={setTermDays} />}
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Purpose Category</label>
             <select
@@ -372,7 +382,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
                 setError("")
                 handleSubmit()
               }}
-              disabled={loading}
+              disabled={loading || (!!selectedProduct && termIsInvalid(selectedProduct, termDays))}
               className="px-6 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60"
               style={{ backgroundColor: "#16A085" }}
             >
@@ -384,6 +394,39 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
             </button>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+export function TermField({
+  product, value, onChange,
+}: {
+  product: TermBounds
+  value: string
+  onChange: (v: string) => void
+}) {
+  if (isFixedTerm(product)) return null
+  const invalid = termIsInvalid(product, value)
+  return (
+    <div>
+      <label htmlFor="convert-term-days" className="block text-xs font-semibold text-gray-600 mb-1">
+        Term (days) — between {product.minTermDays} and {product.maxTermDays}
+      </label>
+      <input
+        id="convert-term-days"
+        type="number"
+        min={product.minTermDays}
+        max={product.maxTermDays}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+      />
+      {invalid && (
+        <p className="mt-1 text-xs text-red-700">
+          Term must be a whole number between {product.minTermDays} and {product.maxTermDays} days.
+        </p>
       )}
     </div>
   )

@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest"
+import { defaultTermInput, isFixedTerm, termIsInvalid, termForRequest } from "./convert-term"
+
+const variable = { minTermDays: 30, maxTermDays: 90 }
+const fixed = { minTermDays: 30, maxTermDays: 30 }
+
+describe("convert lead term", () => {
+  it("defaults to maxTermDays for a variable product and the product term for a fixed one", () => {
+    expect(defaultTermInput(variable)).toBe("90")
+    expect(defaultTermInput(fixed)).toBe("30")
+  })
+
+  it("detects fixed-term products", () => {
+    expect(isFixedTerm(fixed)).toBe(true)
+    expect(isFixedTerm(variable)).toBe(false)
+  })
+
+  it("flags empty, non-integer and out-of-range terms on a variable product", () => {
+    for (const bad of ["", "abc", "45.5", "29", "91", "0", "-30"]) {
+      expect(termIsInvalid(variable, bad), bad).toBe(true)
+    }
+    for (const ok of ["30", "45", "90"]) {
+      expect(termIsInvalid(variable, ok), ok).toBe(false)
+    }
+  })
+
+  it("never flags a fixed-term product, whatever the input", () => {
+    expect(termIsInvalid(fixed, "")).toBe(false)
+    expect(termIsInvalid(fixed, "999")).toBe(false)
+  })
+
+  it("sends the staff-entered term for a variable product, not maxTermDays", () => {
+    expect(termForRequest(variable, "45")).toBe(45)
+  })
+
+  it("omits the term for a fixed-term product and when no product is selected", () => {
+    expect(termForRequest(fixed, "30")).toBeUndefined()
+    expect(termForRequest(undefined, "30")).toBeUndefined()
+  })
+})
