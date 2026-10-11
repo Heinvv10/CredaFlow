@@ -35,6 +35,8 @@ export function validateStep2LoanParams(
     errs.appliedAmount = "Required"
   } else if (!/^\d+(\.\d{1,2})?$/.test(d.appliedAmount)) {
     errs.appliedAmount = "Numeric amount in Rand"
+  } else if (!(Number(d.appliedAmount) > 0)) {
+    errs.appliedAmount = "Must be greater than zero"
   } else if (product) {
     const amt = Number(d.appliedAmount)
     if (amt < product.minAmount) errs.appliedAmount = `Below product minimum (R ${product.minAmount})`
