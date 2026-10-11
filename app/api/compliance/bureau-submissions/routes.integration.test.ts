@@ -89,7 +89,11 @@ suite.sequential("staff bureau-submission routes (real Postgres)", () => {
       expect(row.mode).toBe("TEST")
       const [audit] = await audits(t, "BUREAU_SUBMISSION_GENERATED")
       expect(audit).toMatchObject({ userId: t.userId, entityId: body.submissionId })
-      expect(JSON.stringify(audit.newValue)).not.toMatch(/FIXTURE|\d{13}/)
+      // The file's sha256 is checked for shape only: 64 random hex digits hold
+      // 13 decimal digits in a row often enough to fail an ID-number match.
+      const { sha256, ...rest } = audit.newValue as Record<string, unknown>
+      expect(sha256).toMatch(/^[0-9a-f]{64}$/)
+      expect(JSON.stringify(rest)).not.toMatch(/FIXTURE|\d{13}/)
     })
 
     it("is refused below LOAN_ADMIN and when signed out, writing nothing", async () => {

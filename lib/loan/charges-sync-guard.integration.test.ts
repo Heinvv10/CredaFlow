@@ -240,11 +240,13 @@ suite.sequential("sync guard: no caller moves booked money or re-opens a settled
     expect(body).toMatchObject({ processed: 1, skipped: 0, refundDue: [
       expect.objectContaining({ row: 1, amount: 500 }), expect.objectContaining({ row: 2, amount: 3_000 }),
     ] })
-    const pays = await db.payment.findMany({ where: { loanId: ids.loanId }, orderBy: { createdAt: "asc" } })
+    // By amount, not createdAt: the settling payment and its refund-due
+    // remainder can be stamped in the same millisecond.
+    const pays = await db.payment.findMany({ where: { loanId: ids.loanId }, orderBy: { amount: "desc" } })
     expect(pays.map((p) => [p.amount, p.allocationStatus, p.reconciliationReason])).toEqual([
-      [settle, "ALLOCATED", null], [500, "UNAPPLIED", "overpayment_refund_due"], [3_000, "UNAPPLIED", "overpayment_refund_due"],
+      [settle, "ALLOCATED", null], [3_000, "UNAPPLIED", "overpayment_refund_due"], [500, "UNAPPLIED", "overpayment_refund_due"],
     ])
-    expect(pays[1].parentPaymentId).toBe(pays[0].id)
+    expect(pays[2].parentPaymentId).toBe(pays[0].id)
     expect(await db.loan.findUniqueOrThrow({ where: { id: ids.loanId } })).toMatchObject({ status: "COMPLETED", totalPaid: SCHEDULE_TOTAL })
   })
 })

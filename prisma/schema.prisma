@@ -920,7 +920,6 @@ model LoanApplication {
   disbursementBranchCode        String?
   disbursementAccountType       String?
   disbursementRef               String?
-  disbursementExceptionId       String?              @unique
   submittedAt                   DateTime?
   createdAt                     DateTime             @default(now())
   updatedAt                     DateTime             @updatedAt
@@ -932,7 +931,6 @@ model LoanApplication {
   approvedBy                    User?                @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementCountersignedBy      User?                @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementSignedBy             User?                @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  disbursementException         ComplianceRecord?    @relation("ApplicationDisbursementException", fields: [tenantId, disbursementExceptionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   loan                          Loan?
   conversations                 Conversation[]
   convertedLead                Lead?                @relation("LeadConvertedApplication")
@@ -941,7 +939,6 @@ model LoanApplication {
 
   @@unique([tenantId, id])
   @@unique([tenantId, id, clientId])
-  @@unique([tenantId, disbursementExceptionId])
   @@index([tenantId])
   @@index([tenantId, status])
   // PostgreSQL partial unique index (not expressible in Prisma schema):
@@ -1760,7 +1757,6 @@ model ComplianceRecord {
   data        Json?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  disbursementApplication LoanApplication? @relation("ApplicationDisbursementException")
 
   @@unique([tenantId, id])
   @@index([tenantId, type, referenceId, status, completedAt])
