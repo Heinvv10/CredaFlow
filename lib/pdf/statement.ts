@@ -1,10 +1,10 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
+import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib"
 import {
   A4_WIDTH, A4_HEIGHT, MARGIN, CONTENT_WIDTH,
   DARK, ACCENT, GRAY, WHITE,
   formatZarPdf, formatDatePdf,
   drawText, drawTableRow, drawLabelValueTable,
-  drawPageNumber, drawSectionTitle,
+  drawPageNumber, drawSectionTitle, drawRowsWithContinuation,
   embedLogo, fitLogo,
 } from "./helpers"
 import { annualisedInterestRate } from "@/lib/loan/annualised-rate"
@@ -102,13 +102,30 @@ interface StatementOpts {
 }
 
 export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer> {
-  const { client, loan, product, schedule, payments } = opts
+  const dated = { ...opts, statementDate: opts.statementDate ?? new Date() }
+  // "Page x of y" is drawn as each page is finished, so the total must be known
+  // up front: three pages unless a table continued, then once more with the
+  // real count. A layout never depends on the total, so the count holds.
+  let doc = await renderStatement(dated, 3)
+  if (doc.getPageCount() !== 3) doc = await renderStatement(dated, doc.getPageCount())
+  const bytes = await doc.save()
+  return Buffer.from(bytes)
+}
+
+async function renderStatement(opts: StatementOpts & { statementDate: Date }, totalPages: number): Promise<PDFDocument> {
+  const { client, loan, product, schedule, payments, statementDate } = opts
   const lender = requireLenderIdentityFields(opts.lender, ["legalName", "ncrNumber"])
-  const statementDate = opts.statementDate ?? new Date()
   const doc = await PDFDocument.create()
   const regular = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  const totalPages = 3
+  const pageNumber = (page: PDFPage) => doc.getPages().indexOf(page) + 1
+  // A continuation page: number the page being left, then open the next with
+  // its table's title and header row repeated.
+  const continuePage = (from: PDFPage, head: (page: PDFPage) => number) => {
+    drawPageNumber(from, pageNumber(from), totalPages, regular)
+    const page = doc.addPage([A4_WIDTH, A4_HEIGHT])
+    return { page, y: head(page) }
+  }
 
   // Model-aware annualisation — see lib/loan/annualised-rate.
   const annual = annualisedInterestRate({
@@ -219,9 +236,10 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
 
   // ── PAGE 2: PAYMENT HISTORY ─────────────────────────────────────────
   const p2 = doc.addPage([A4_WIDTH, A4_HEIGHT])
-  y = A4_HEIGHT - MARGIN
-  drawText(p2, "PAYMENT HISTORY", MARGIN, y, bold, 14, ACCENT)
-  y -= 28
+  const historyTitle = (page: PDFPage): number => {
+    drawText(page, "PAYMENT HISTORY", MARGIN, A4_HEIGHT - MARGIN, bold, 14, ACCENT)
+    return A4_HEIGHT - MARGIN - 28
+  }
 
   // Method column widened to fit "<method> / Reversed" (the longest being
   // "DEBIT ORDER / Reversed" ≈ 95px @ 8pt) without touching the Reference column.
@@ -233,8 +251,12 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
     { label: "Running Balance", x: MARGIN + 405, width: 105 },
   ]
 
-  drawTableRow(p2, y, payCols.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
-  y -= 20
+  const historyHead = (page: PDFPage): number => {
+    const headY = historyTitle(page)
+    drawTableRow(page, headY, payCols.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
+    return headY - 20
+  }
+  y = historyHead(p2)
 
   // Sort payments chronologically for running balance
   const sortedPayments = [...payments].sort(
@@ -257,60 +279,66 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
   // receipt reduces the balance, never below zero), with charges added in.
   let remaining = Math.max(0, loan.totalRepayable)
 
-  for (let i = 0; i < entries.length; i++) {
-    if (y < MARGIN + 40) break
-    const entry = entries[i]
-    const bg = i % 2 === 0 ? undefined : rgb(0.98, 0.98, 0.98)
-    if ("charge" in entry) {
-      remaining += entry.charge.amount
-      drawTableRow(p2, y, [
-        { text: formatDatePdf(chargeDate(entry.charge)), x: payCols[0].x, width: payCols[0].width },
-        { text: formatZarPdf(entry.charge.amount), x: payCols[1].x, width: payCols[1].width },
-        { text: CHARGE_TYPE_LABELS[entry.charge.type], x: payCols[2].x, width: payCols[2].width },
-        { text: "Charge", x: payCols[3].x, width: payCols[3].width },
-        { text: formatZarPdf(remaining), x: payCols[4].x, width: payCols[4].width },
-      ], regular, 8, DARK, bg)
-      y -= 18
-      continue
-    }
-    const p = entry.payment
-    const isAllocated =
-      p.allocationStatus === undefined || p.allocationStatus === "ALLOCATED"
-    const allocationLabel =
-      p.allocationStatus === "UNAPPLIED"
-        ? "Unapplied"
-        : p.allocationStatus === "REFUNDED"
-          ? "Refunded"
-          : null
-    const baseMethod = displayPaymentMethod(p.paymentMethod, (method) => method.replace(/_/g, " "))
-    const methodLabel = p.reversed
-      ? methodLabelWithReversal(baseMethod, true)
-      : allocationLabel
-        ? `${baseMethod} / ${allocationLabel}`
-        : baseMethod
-    // Every receipt remains visible, but only an allocated, non-reversed
-    // receipt can reduce the loan balance or count toward the total. While
-    // charges are shown as debits the whole receipt offsets them; otherwise
-    // (never live, or stopped) only its schedule share reduces the balance
-    // and the part that paid charges is shown under it, so the row reconciles.
-    const reducesBalance = !p.reversed && isAllocated
-    const paidCharges = opts.charges ? 0 : (p.defaultInterestAllocated ?? 0) + (p.chargeFeesAllocated ?? 0)
-    if (reducesBalance) remaining = Math.max(0, remaining - (p.amount - paidCharges))
-    drawTableRow(p2, y, [
-      { text: formatDatePdf(statementPaymentDate(p)), x: payCols[0].x, width: payCols[0].width },
-      { text: formatZarPdf(p.amount), x: payCols[1].x, width: payCols[1].width },
-      { text: methodLabel, x: payCols[2].x, width: payCols[2].width },
-      { text: p.reference || "—", x: payCols[3].x, width: payCols[3].width },
-      { text: reducesBalance ? formatZarPdf(remaining) : "—", x: payCols[4].x, width: payCols[4].width },
-    ], regular, 8, p.reversed || !isAllocated ? GRAY : DARK, bg)
-    y -= 18
-    if (reducesBalance && paidCharges > 0) {
-      drawTableRow(p2, y, [
-        { text: `of which ${formatZarPdf(paidCharges)} default charges`, x: payCols[2].x, width: payCols[2].width + payCols[3].width },
-      ], regular, 7, GRAY, bg)
-      y -= 14
-    }
-  }
+  // A payment and its "of which … default charges" line are one row here, so
+  // they never split across pages.
+  const history = drawRowsWithContinuation({
+    page: p2, y, rows: entries, floor: MARGIN + 40,
+    openContinuation: (from) => continuePage(from, historyHead),
+    drawRow: (page, rowY, entry, i) => {
+      const bg = i % 2 === 0 ? undefined : rgb(0.98, 0.98, 0.98)
+      if ("charge" in entry) {
+        remaining += entry.charge.amount
+        drawTableRow(page, rowY, [
+          { text: formatDatePdf(chargeDate(entry.charge)), x: payCols[0].x, width: payCols[0].width },
+          { text: formatZarPdf(entry.charge.amount), x: payCols[1].x, width: payCols[1].width },
+          { text: CHARGE_TYPE_LABELS[entry.charge.type], x: payCols[2].x, width: payCols[2].width },
+          { text: "Charge", x: payCols[3].x, width: payCols[3].width },
+          { text: formatZarPdf(remaining), x: payCols[4].x, width: payCols[4].width },
+        ], regular, 8, DARK, bg)
+        return rowY - 18
+      }
+      const p = entry.payment
+      const isAllocated =
+        p.allocationStatus === undefined || p.allocationStatus === "ALLOCATED"
+      const allocationLabel =
+        p.allocationStatus === "UNAPPLIED"
+          ? "Unapplied"
+          : p.allocationStatus === "REFUNDED"
+            ? "Refunded"
+            : null
+      const baseMethod = displayPaymentMethod(p.paymentMethod, (method) => method.replace(/_/g, " "))
+      const methodLabel = p.reversed
+        ? methodLabelWithReversal(baseMethod, true)
+        : allocationLabel
+          ? `${baseMethod} / ${allocationLabel}`
+          : baseMethod
+      // Every receipt remains visible, but only an allocated, non-reversed
+      // receipt can reduce the loan balance or count toward the total. While
+      // charges are shown as debits the whole receipt offsets them; otherwise
+      // (never live, or stopped) only its schedule share reduces the balance
+      // and the part that paid charges is shown under it, so the row reconciles.
+      const reducesBalance = !p.reversed && isAllocated
+      const paidCharges = opts.charges ? 0 : (p.defaultInterestAllocated ?? 0) + (p.chargeFeesAllocated ?? 0)
+      if (reducesBalance) remaining = Math.max(0, remaining - (p.amount - paidCharges))
+      drawTableRow(page, rowY, [
+        { text: formatDatePdf(statementPaymentDate(p)), x: payCols[0].x, width: payCols[0].width },
+        { text: formatZarPdf(p.amount), x: payCols[1].x, width: payCols[1].width },
+        { text: methodLabel, x: payCols[2].x, width: payCols[2].width },
+        { text: p.reference || "—", x: payCols[3].x, width: payCols[3].width },
+        { text: reducesBalance ? formatZarPdf(remaining) : "—", x: payCols[4].x, width: payCols[4].width },
+      ], regular, 8, p.reversed || !isAllocated ? GRAY : DARK, bg)
+      rowY -= 18
+      if (reducesBalance && paidCharges > 0) {
+        drawTableRow(page, rowY, [
+          { text: `of which ${formatZarPdf(paidCharges)} default charges`, x: payCols[2].x, width: payCols[2].width + payCols[3].width },
+        ], regular, 7, GRAY, bg)
+        rowY -= 14
+      }
+      return rowY
+    },
+  })
+  let historyPage = history.page
+  y = history.y
 
   // Total rows: payments (cash only — a waived balance is not a payment) and,
   // when there are any, charges, so neither total is read as the other.
@@ -322,7 +350,7 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
     : [["TOTAL", totalPayments]]
   for (const [index, [label, amount]] of totalRows.entries()) {
     y -= index === 0 ? 4 : 18
-    drawTableRow(p2, y, [
+    drawTableRow(historyPage, y, [
       { text: label, x: payCols[0].x, width: payCols[0].width },
       { text: formatZarPdf(amount), x: payCols[1].x, width: payCols[1].width },
       { text: "", x: payCols[2].x, width: payCols[2].width },
@@ -333,7 +361,7 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
 
   if (sortedPayments.length === 0) {
     y -= 20
-    drawText(p2, "No payments recorded.", MARGIN + 4, y, regular, 9, GRAY)
+    drawText(historyPage, "No payments recorded.", MARGIN + 4, y, regular, 9, GRAY)
   }
 
   // Reversed-payment footnotes — a reversed row shows "<method> / Reversed" and is
@@ -341,26 +369,36 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
   // the statement stays transparent about the voided entry.
   const reversedPayments = sortedPayments.filter((p) => p.reversed)
   if (reversedPayments.length > 0) {
-    y -= 24
-    drawText(p2, "REVERSED PAYMENTS", MARGIN, y, bold, 8, GRAY)
-    y -= 14
-    for (const p of reversedPayments) {
-      if (y < MARGIN + 20) break
-      const detail = reversalDetailLine(p, formatDatePdf) ?? "Reversed"
-      const line = `${formatDatePdf(statementPaymentDate(p))}  ${formatZarPdf(p.amount)}  —  ${detail}`
-      drawText(p2, line, MARGIN + 4, y, regular, 8, GRAY)
-      y -= 12
+    // The heading stays with its first line; lines that do not fit continue
+    // on a page headed by the page's title and this heading again.
+    const notesHead = (page: PDFPage): number => {
+      const headY = historyTitle(page)
+      drawText(page, "REVERSED PAYMENTS", MARGIN, headY, bold, 8, GRAY)
+      return headY - 14
     }
+    y -= 24
+    if (y - 14 < MARGIN + 20) {
+      ({ page: historyPage, y } = continuePage(historyPage, notesHead))
+    } else {
+      drawText(historyPage, "REVERSED PAYMENTS", MARGIN, y, bold, 8, GRAY)
+      y -= 14
+    }
+    ({ page: historyPage, y } = drawRowsWithContinuation({
+      page: historyPage, y, rows: reversedPayments, floor: MARGIN + 20,
+      openContinuation: (from) => continuePage(from, notesHead),
+      drawRow: (page, lineY, p) => {
+        const detail = reversalDetailLine(p, formatDatePdf) ?? "Reversed"
+        const line = `${formatDatePdf(statementPaymentDate(p))}  ${formatZarPdf(p.amount)}  —  ${detail}`
+        drawText(page, line, MARGIN + 4, lineY, regular, 8, GRAY)
+        return lineY - 12
+      },
+    }))
   }
 
-  drawPageNumber(p2, 2, totalPages, regular)
+  drawPageNumber(historyPage, pageNumber(historyPage), totalPages, regular)
 
   // ── PAGE 3: REPAYMENT SCHEDULE ──────────────────────────────────────
   const p3 = doc.addPage([A4_WIDTH, A4_HEIGHT])
-  y = A4_HEIGHT - MARGIN
-  drawText(p3, "REPAYMENT SCHEDULE", MARGIN, y, bold, 14, ACCENT)
-  y -= 28
-
   const schCols = [
     { label: "No.", x: MARGIN, width: 30 },
     { label: "Due Date", x: MARGIN + 35, width: 90 },
@@ -370,38 +408,46 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
     { label: "Balance", x: MARGIN + 395, width: 110 },
   ]
 
-  drawTableRow(p3, y, schCols.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
-  y -= 20
+  const scheduleHead = (page: PDFPage): number => {
+    let headY = A4_HEIGHT - MARGIN
+    drawText(page, "REPAYMENT SCHEDULE", MARGIN, headY, bold, 14, ACCENT)
+    headY -= 28
+    drawTableRow(page, headY, schCols.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
+    return headY - 20
+  }
+  y = scheduleHead(p3)
 
   let scheduleBalance = loan.totalRepayable
-  for (let i = 0; i < schedule.length; i++) {
-    if (y < MARGIN + 60) break
-    const s = schedule[i]
-    scheduleBalance = Math.max(0, scheduleBalance - s.totalPaid)
-    const isOverdue = s.status === "OVERDUE"
-    // Overdue rows get a light gray border indicator
-    const bg = isOverdue
-      ? rgb(0.98, 0.93, 0.93)
-      : i % 2 === 0 ? undefined : rgb(0.98, 0.98, 0.98)
-    drawTableRow(p3, y, [
-      { text: String(s.installmentNo), x: schCols[0].x, width: schCols[0].width },
-      { text: formatDatePdf(new Date(s.dueDate)), x: schCols[1].x, width: schCols[1].width },
-      { text: formatZarPdf(s.totalDue), x: schCols[2].x, width: schCols[2].width },
-      { text: formatZarPdf(s.totalPaid), x: schCols[3].x, width: schCols[3].width },
-      { text: s.status, x: schCols[4].x, width: schCols[4].width },
-      { text: formatZarPdf(scheduleBalance), x: schCols[5].x, width: schCols[5].width },
-    ], regular, 8, DARK, bg)
-    y -= 18
-  }
+  const scheduleEnd = drawRowsWithContinuation({
+    page: p3, y, rows: schedule, floor: MARGIN + 60,
+    openContinuation: (from) => continuePage(from, scheduleHead),
+    drawRow: (page, rowY, s, i) => {
+      scheduleBalance = Math.max(0, scheduleBalance - s.totalPaid)
+      const isOverdue = s.status === "OVERDUE"
+      // Overdue rows get a light gray border indicator
+      const bg = isOverdue
+        ? rgb(0.98, 0.93, 0.93)
+        : i % 2 === 0 ? undefined : rgb(0.98, 0.98, 0.98)
+      drawTableRow(page, rowY, [
+        { text: String(s.installmentNo), x: schCols[0].x, width: schCols[0].width },
+        { text: formatDatePdf(new Date(s.dueDate)), x: schCols[1].x, width: schCols[1].width },
+        { text: formatZarPdf(s.totalDue), x: schCols[2].x, width: schCols[2].width },
+        { text: formatZarPdf(s.totalPaid), x: schCols[3].x, width: schCols[3].width },
+        { text: s.status, x: schCols[4].x, width: schCols[4].width },
+        { text: formatZarPdf(scheduleBalance), x: schCols[5].x, width: schCols[5].width },
+      ], regular, 8, DARK, bg)
+      return rowY - 18
+    },
+  })
+  y = scheduleEnd.y
 
   // Footer
   y -= 20
   const contactLine = `This statement is generated as at ${formatDatePdf(statementDate)}.`
-  drawText(p3, contactLine, MARGIN + 4, y, regular, 8, GRAY)
+  drawText(scheduleEnd.page, contactLine, MARGIN + 4, y, regular, 8, GRAY)
   y -= 14
 
-  drawPageNumber(p3, 3, totalPages, regular)
+  drawPageNumber(scheduleEnd.page, pageNumber(scheduleEnd.page), totalPages, regular)
 
-  const bytes = await doc.save()
-  return Buffer.from(bytes)
+  return doc
 }

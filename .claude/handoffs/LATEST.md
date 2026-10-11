@@ -15,7 +15,7 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Nineteen stacked PRs, none merged.** Merge them in order; each is based on the
+**Twenty stacked PRs, none merged.** Merge them in order; each is based on the
 previous one's branch. Every one has green CI and three blind reviewers'
 SHIP/CLEAN on its final commit.
 
@@ -40,6 +40,7 @@ SHIP/CLEAN on its final commit.
 | #19 | `fix/application-amount-check` → #18 | New migration `20261010120000_application_amount_positive`: validated CHECK `LoanApplication_appliedAmount_positive` (`appliedAmount > 0`); real-PG suite `RUN_APPLICATION_AMOUNT_CHECK_IT` |
 | #20 | `feat/term-starts-empty` → #19 | The portal apply form and the CRM convert form start the term empty for variable-term products (like the staff wizard); submit stays disabled until a valid term is entered |
 | #21 | `fix/credit-life-guards` → #20 | New migration `20261010180000_attach_credit_life_guards`: attaches the 15 bundled credit-life triggers; `assertDisbursedCreditLifeCoverage` leaves loans on DRAFT/SUBMITTED/UNDER_REVIEW applications out of the commit invariant; validated CHECK `InsuranceProduct_credit_life_terms_positive` (a CREDIT_LIFE product needs premium and cover above zero); indexes on `LoanApplication.agreementDocumentId` and `Loan.agreementDocId` (owner decisions D1–D3 and the CHECK). `credit-life-containment-migration` revived on the PASQ v3 fixture; the register is empty. The product API refuses non-positive credit-life terms (422) and the offer selector skips them; the policy PATCH answers 422 when a bundled credit-life policy's premium or renewal date would change; declining an application that has a loan answers 409 |
+| #22 | `fix/nca-schedule-continuation` → #21 | The credit agreement, the Form 20 quotation and the statement print every schedule, payment-history and reversed-payment row on continuation pages (no new wording; TOTAL once after the last row); documents whose tables fit one page are byte-identical and no existing render pin changed |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
@@ -74,7 +75,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
@@ -115,14 +116,17 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   comment. Test fixtures use the placeholder phone `+27820000000`, a dialable
   SA number.
 - **Known limits:**
-  - The credit agreement (and the Form 20 quotation, same renderer) prints at
-    most 38 schedule rows and silently drops the rest, while its TOTAL row sums
-    the full schedule. Nothing caps instalments: the seeded PERSONAL product
-    allows 1,800 days (60 instalments). The portal, the CRM convert form and
-    the staff wizard start the term empty (#20), so the client or staff member
-    chooses it. `lib/pdf/statement.ts` has the same
-    ~37-row cut. Options are an upstream cap or a continuation page; an NCA
-    document change needs Hein's and legal sign-off.
+  - Long NCA documents are new renders (#22): a schedule beyond 38 rows (37 on
+    the statement) continues on extra pages that repeat the existing title and
+    column headers. Each lender's legal team must sign off a rendered long
+    schedule before go-live; samples are rendered by
+    `scripts/ops/render-pasq-review.ts` and
+    `scripts/ops/render-executed-agreement-review.ts`. A 39-row schedule puts
+    row 39 and TOTAL alone on the continuation page. PASQs and agreements
+    already stored with more than 38 rows stay truncated (execution stamps the
+    stored bytes). Nothing caps instalments: the seeded PERSONAL product allows
+    1,800 days (60 instalments); the portal, the CRM convert form and the staff
+    wizard start the term empty (#20).
   - `lib/__tests__/webhook-replay.test.ts` runs whenever `DATABASE_URL` is set
     (not behind a `RUN_*_IT` gate) and its fixture creates an
     APPROVED application without a PASQ document, which the

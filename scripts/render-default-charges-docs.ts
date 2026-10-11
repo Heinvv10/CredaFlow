@@ -11,6 +11,7 @@ import { generateStatementPdf } from "@/lib/pdf/statement"
 import { generateCertificateOfBalancePdf } from "@/lib/pdf/certificateOfBalance"
 import { generateSection129Pdf } from "@/lib/pdf/section129"
 import { ACME_LENDER as lender } from "@/lib/config/__fixtures__/lender-identity"
+import { boundaryStatementInput } from "@/scripts/nca-pdf-fingerprint"
 
 const OUT = process.argv[2]
 const client = { firstName: "Synthetic", lastName: "Borrower", idNumber: "9001015009087", email: "fixture@example.invalid", addressLine1: "1 Fixture Street", city: "Johannesburg" }
@@ -67,6 +68,8 @@ async function main() {
     loan: { ...s129loan, arrearsAmount: legacy.arrearsAmount, outstandingPrincipal: legacy.outstandingPrincipal } }))
   writeFileSync(`${OUT}/s129-with-charges.pdf`, await generateSection129Pdf({ lender, client, noticeDate: asAt,
     loan: { ...s129loan, arrearsAmount: charged.arrearsAmount, totalOutstanding: toSettle, chargesOutstanding: chargesOwing } }))
+  // A long statement: 60 payments and 60 instalments continue onto new pages.
+  writeFileSync(`${OUT}/statement-60-rows.pdf`, await generateStatementPdf(boundaryStatementInput(60, 60)))
   process.stdout.write(JSON.stringify({ postings, chargesOwing, scheduleOwing, settle, toSettle }) + "\n")
 }
 main().then(() => process.exit(0), (error) => { process.stderr.write(String(error)); process.exit(1) })

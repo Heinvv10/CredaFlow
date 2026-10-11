@@ -15,6 +15,8 @@
 import { writeFileSync } from "node:fs"
 import { generateCreditAgreementPdf } from "../../lib/pdf/creditAgreement"
 import { ACME_LENDER } from "../../lib/config/__fixtures__/lender-identity"
+import { calculateLoan } from "../../lib/loan-calculator"
+import { boundaryAgreementInput, boundaryLoanInput, boundaryStartDate } from "../nca-pdf-fingerprint"
 
 const baseInput = {
   variant: "pasq" as const,
@@ -111,7 +113,11 @@ async function main() {
     } as never,
   })
   writeFileSync(`${outDir}/pasq-creditlife-AFTER.pdf`, pasqCl)
-  console.log(`wrote 3 PDFs to ${outDir}`)
+  // A 60-instalment schedule, which continues onto a second schedule page.
+  const calc60 = calculateLoan(boundaryLoanInput(60), boundaryStartDate)
+  writeFileSync(`${outDir}/pasq-60-instalments.pdf`, await generateCreditAgreementPdf(boundaryAgreementInput("pasq", calc60)))
+  writeFileSync(`${outDir}/agreement-60-instalments.pdf`, await generateCreditAgreementPdf(boundaryAgreementInput("agreement", calc60)))
+  console.log(`wrote 5 PDFs to ${outDir}`)
 }
 
 main().catch((error) => {
