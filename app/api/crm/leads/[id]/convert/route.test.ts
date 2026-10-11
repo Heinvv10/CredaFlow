@@ -1021,6 +1021,37 @@ describe("POST /api/crm/leads/[id]/convert amount bounds", () => {
     expectNothingWritten()
   })
 
+  it("refuses recoveryApplicationId on a lead with no linked client and writes nothing", async () => {
+    // A product with minAmount 0 would otherwise let the zeroed recovery inputs through.
+    productFindUniqueMock.mockResolvedValue({ ...product, minAmount: 0 })
+    const response = await POST(
+      new NextRequest("http://localhost/api/crm/leads/lead-1/convert", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          idNumber: "8001015000086",
+          firstName: "Jane",
+          lastName: "Doe",
+          email: "jane@example.test",
+          phone: "+27821234567",
+          monthlyIncome: 0,
+          monthlyExpenses: 0,
+          appliedAmount: 0,
+          appliedTermDays: 30,
+          productId: "product-1",
+          purpose: "Household costs",
+          recoveryApplicationId: "app-x",
+          recoveryReason: "Verified historical conversion evidence",
+        }),
+      }),
+      context,
+    )
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/no linked client/i)
+    expectNothingWritten()
+  })
+
   it.each([
     ["exactly min", 1_000, 100_000],
     ["exactly max", 10_000, 1_000_000],
