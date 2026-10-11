@@ -26,6 +26,10 @@ import {
   type ApplicationSubmissionTransaction,
 } from "./submission-lock"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import {
+  createApprovedPasqV3Application,
+  writePasqV3Disbursement,
+} from "@/lib/compliance/pasq-v3-application.integration-fixture"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -40,11 +44,7 @@ suite("application submission evidence locking", () => {
     client: `client_snapshot_${token}`,
     product: `product_snapshot_${token}`,
     application: `application_snapshot_${token}`,
-    loan: `loan_snapshot_${token}`,
-    schedule: `schedule_snapshot_${token}`,
     avs: `avs_snapshot_${token}`,
-    policy: `policy_snapshot_${token}`,
-    referralEvent: `referral_event_snapshot_${token}`,
     selfie: `selfie_snapshot_${token}`,
   }
 
@@ -153,10 +153,6 @@ suite("application submission evidence locking", () => {
 
   afterAll(async () => {
     await submissionDb.avsCheck.deleteMany({ where: { id: ids.avs } })
-    await submissionDb.referralEvent.deleteMany({ where: { id: ids.referralEvent } })
-    await submissionDb.insurancePolicy.deleteMany({ where: { id: ids.policy } })
-    await submissionDb.repaymentSchedule.deleteMany({ where: { loanId: ids.loan } })
-    await submissionDb.loan.deleteMany({ where: { id: ids.loan } })
     await submissionDb.auditLog.deleteMany({ where: { entityId: ids.application } })
     await submissionDb.tenantConfig.deleteMany({ where: { tenantId: ids.tenant } })
     await submissionDb.loanApplication.deleteMany({ where: { tenantId: ids.tenant } })
@@ -618,98 +614,60 @@ suite("application submission evidence locking", () => {
   })
 
   it("rolls back the loan, schedule, policy, commission, and status when the disbursement audit fails", async () => {
-    const startDate = new Date("2026-07-21T00:00:00.000Z")
-    const maturityDate = new Date("2026-08-20T00:00:00.000Z")
-    await submissionDb.loanApplication.update({
-      where: { id: ids.application },
-      data: { status: "APPROVED", disbursedAt: null },
-    })
+    // Built on the PASQ v3 fixture: the hand-built application above cannot
+    // reach APPROVED under the PASQ v3 guards.
+    const scenario = await createApprovedPasqV3Application("submission-lock")
+    const loanId = `loan_rollback_${token}`
+    const policyId = `policy_rollback_${token}`
+    const referralEventId = `referral_event_rollback_${token}`
 
-    await expect(submissionDb.$transaction(async (tx) => {
-      await tx.loan.create({
-        data: {
-          id: ids.loan,
-          tenantId: ids.tenant,
-          reference: `LOAN-${token}`,
-          applicationId: ids.application,
-          clientId: ids.client,
-          productId: ids.product,
-          principal: 500_000,
-          totalInterest: 15_000,
-          initiationFee: 75_000,
-          totalRepayable: 596_900,
-          outstandingPrincipal: 500_000,
-          startDate,
-          maturityDate,
-          nextPaymentDate: maturityDate,
-          interestRatePm: 0.03,
-          interestModel: "DAILY_ACCRUAL",
-          monthlyServiceFee: 0,
-        },
-      })
-      await tx.repaymentSchedule.create({
-        data: {
-          id: ids.schedule,
-          tenantId: ids.tenant,
-          loanId: ids.loan,
-          installmentNo: 1,
-          dueDate: maturityDate,
-          principalDue: 500_000,
-          interestDue: 15_000,
-          feesDue: 81_900,
-          totalDue: 596_900,
-        },
-      })
-      await tx.insurancePolicy.create({
-        data: {
-          id: ids.policy,
-          tenantId: ids.tenant,
-          policyNumber: `POL-${token}`,
-          clientId: ids.client,
-          type: "CREDIT_LIFE",
-          status: "ACTIVE",
-          premiumAmount: 22.5,
-          sumAssured: 5_000,
-          startDate,
-          renewalDate: maturityDate,
-          linkedLoanId: ids.loan,
-          policySource: "BUNDLED_CREDIT_AGREEMENT",
-        },
-      })
+    type Tx = Parameters<Parameters<typeof submissionDb.$transaction>[0]>[0]
+    const writeBeforeAudit = async (tx: Tx) => {
+      await writePasqV3Disbursement(tx, scenario, { loanId, policyId })
       await tx.referralEvent.create({
         data: {
-          id: ids.referralEvent,
-          tenantId: ids.tenant,
+          id: referralEventId,
+          tenantId: scenario.tenantId,
           eventType: "CONVERTED",
           source: "PORTAL",
           amountCents: 500_000,
           commissionCents: 10_000,
           commissionStatus: "PENDING",
-          metadata: { loanId: ids.loan, applicationId: ids.application },
+          metadata: { loanId, applicationId: scenario.applicationId },
         },
       })
-      await tx.loanApplication.update({
-        where: { id: ids.application },
-        data: { status: "DISBURSED", disbursedAt: startDate },
-      })
+    }
+
+    // Precondition: every write before the audit insert succeeds on its own, so
+    // the rejection below can only come from the audit row, not an earlier write
+    // (deferred guards are flushed too).
+    class WritesReachedAudit extends Error {}
+    await expect(submissionDb.$transaction(async (tx) => {
+      await writeBeforeAudit(tx)
+      await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+      throw new WritesReachedAudit()
+    })).rejects.toBeInstanceOf(WritesReachedAudit)
+
+    await expect(submissionDb.$transaction(async (tx) => {
+      await writeBeforeAudit(tx)
       await tx.auditLog.create({
         data: {
-          tenantId: ids.tenant,
+          tenantId: scenario.tenantId,
           userId: `missing-user-${token}`,
           action: "LOAN_DISBURSED",
           entity: "LoanApplication",
-          entityId: ids.application,
+          entityId: scenario.applicationId,
         },
       })
     })).rejects.toThrow()
 
     const [loan, scheduleCount, policy, commission, application] = await Promise.all([
-      submissionDb.loan.findUnique({ where: { id: ids.loan } }),
-      submissionDb.repaymentSchedule.count({ where: { loanId: ids.loan } }),
-      submissionDb.insurancePolicy.findUnique({ where: { id: ids.policy } }),
-      submissionDb.referralEvent.findUnique({ where: { id: ids.referralEvent } }),
+      submissionDb.loan.findUnique({ where: { id: loanId } }),
+      submissionDb.repaymentSchedule.count({ where: { loanId } }),
+      submissionDb.insurancePolicy.findUnique({ where: { id: policyId } }),
+      submissionDb.referralEvent.findUnique({ where: { id: referralEventId } }),
       submissionDb.loanApplication.findUniqueOrThrow({
-        where: { id: ids.application },
+        where: { id: scenario.applicationId },
         select: { status: true, disbursedAt: true },
       }),
     ])

@@ -20,12 +20,20 @@
 # from APPROVED onward, and a fixture that creates an application already
 # APPROVED needs it on the create.
 #
-# Both suites below need a fixture for a fully countersigned, disbursable
-# PASQ v3 application: approval and disbursement now require one.
+# A fixture for a fully countersigned, disbursable PASQ v3 application exists
+# (lib/compliance/pasq-v3-application.integration-fixture.ts). The suite below
+# cannot be revived on it alone: (a) the bundled credit-life guard functions it
+# exercises (guardBundledCreditLifeAgreement, guardCreditLifeProductIdentity,
+# assertDisbursedCreditLifeCommitInvariant and related) are in the baseline
+# migration but attached to no trigger, so most expected rejections never fire;
+# reattaching them is a database-guard decision for the owner; (b) on the
+# fixture, some expectations are pre-empted by earlier PASQ v3, countersign,
+# branch-witness and bound-document guards, and its missing/malformed-election
+# scenarios cannot be arranged because completed agreement artifacts are
+# immutable: also an owner decision.
 #
 # A green suite here exercises the `guard_*_update` triggers, not necessarily
 # the matching `require_*_on_insert` ones: disabling those may change nothing.
 # Do not read a passing suite as proof that a whole trigger family is covered.
 
-lib/applications/submission-lock.integration.test.ts
 lib/insurance/credit-life-containment-migration.integration.test.ts

@@ -47,8 +47,8 @@ The results below are the local ones at #4's head.
   no failures (load flakes under a full parallel run, green alone:
   `app/api/applications/[id]/disburse`, `app/api/insurance/policies/draft`);
   `npm run build` OK.
-- Integration (`scripts/run-integration-tests.sh`, fresh Postgres 16): 85 gated
-  suites pass, 2 in `scripts/integration-baseline.txt`. CI installs
+- Integration (`scripts/run-integration-tests.sh`, fresh Postgres 16): 86 gated
+  suites pass, 1 in `scripts/integration-baseline.txt`. CI installs
   `poppler-utils` for the suites that read rendered PDFs.
 
 ## Next steps
@@ -56,12 +56,13 @@ The results below are the local ones at #4's head.
 1. Merge #1 → #2 → #3 → #4 (rebase each onto `main` as the one below lands).
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
-3. The two register suites (`submission-lock`, `credit-life-containment-
-   migration`) need a shared fixture for a fully countersigned, disbursable
-   PASQ v3 application; the builder in
-   `lib/compliance/pasq-v3-billing-migration.integration.test.ts` is the
-   starting point. Some of credit-life-containment's expected errors will be
-   pre-empted by earlier PASQ v3 guards and need re-deciding.
+3. The fixture for a fully countersigned, disbursable PASQ v3 application
+   exists (`lib/compliance/pasq-v3-application.integration-fixture.ts`) and
+   `submission-lock` runs on it. `credit-life-containment-migration` stays in
+   the register until the owner decides whether to reattach the bundled
+   credit-life guard functions to triggers and how to handle its scenarios
+   pre-empted by earlier guards or blocked by immutable agreement artifacts
+   (see `scripts/integration-baseline.txt`).
 4. Decide hosting and add a deploy path with its own gates. The deployment must
    schedule the externally owned cron routes (`instrumentation.cron-census.test.ts`
    lists them); nothing in this repo does.
