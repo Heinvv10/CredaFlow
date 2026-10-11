@@ -1663,10 +1663,17 @@ describe("sendMessage — redactStoredBody templates", () => {
   })
 
   it("fingerprints the TRUE payload — identical to the non-redacted send", async () => {
-    const redacted = await send(otpTemplate)
-    const plain = await send(plainTemplate)
-    expect(plain.bodyText).toBe("Your code is 483920")
-    expect(redacted.payloadFingerprint).toBe(plain.payloadFingerprint)
+    // Clock pinned: the fingerprint covers the unsubscribe token, which embeds the send time.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-01-15T10:00:00.000Z"))
+    try {
+      const redacted = await send(otpTemplate)
+      const plain = await send(plainTemplate)
+      expect(plain.bodyText).toBe("Your code is 483920")
+      expect(redacted.payloadFingerprint).toBe(plain.payloadFingerprint)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("does not redact a template that has not opted in", async () => {

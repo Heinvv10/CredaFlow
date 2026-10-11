@@ -1,0 +1,85 @@
+name: quality-gate
+
+# The checks CLAUDE.md's verification order requires before "done": typecheck,
+# lint, the unit/mocked suites and the production build. Without this job they
+# run only on a developer's machine, and a PR can merge red. The two doc
+# checks are listed too because the same order includes them; agent-docs.yml
+# runs them on its own as well.
+#
+# Integration suites and date boundaries have their own workflows and are not
+# repeated here.
+#
+# No paths: filter, for the same reason agent-docs.yml has none. A filter only
+# guesses which PRs can break a check, and a type or build error can come from
+# a change in any directory.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Nothing here pushes, comments, or calls the API — matching agent-docs.yml.
+permissions:
+  contents: read
+
+concurrency:
+  # PR runs share a group per ref, so a new push supersedes the old run. Push runs
+  # get a group per commit, so none is cancelled and each keeps its own result.
+  # `a && b || c` is safe: github.ref is never empty on pull_request.
+  group: quality-gate-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # The vitest config pins workers to UTC; the job states it too.
+      TZ: UTC
+      # npm ci would otherwise download a browser no step uses (the Dockerfile sets the same).
+      PUPPETEER_SKIP_DOWNLOAD: 1
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --legacy-peer-deps is required: plain `npm ci` fails on the next-auth
+      # beta peer conflict. See CLAUDE.md "Tool Overrides".
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      # Must precede tsc: the Prisma client types come from generate.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # The project's type graph exceeds Node's default heap on the runner (~2.5 GB measured).
+      - name: Typecheck
+        run: npx tsc --noEmit
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Lint
+        run: npm run lint
+
+      # The unit suites shell out to pdftoppm/pdfinfo (poppler-utils) and qpdf,
+      # which the production image installs and the runner does not.
+      - name: Install PDF tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Documented paths resolve
+        run: npm run claude-md:check
+
+      - name: AGENTS.md mirrors match CLAUDE.md
+        run: npm run agents:check

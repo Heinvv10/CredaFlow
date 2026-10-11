@@ -85,8 +85,9 @@ Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
   `scripts/integration-baseline.txt` lists the suites known to fail; it may
   only shrink.
 
-CI (`.github/workflows/`) runs the integration suites, the agent-doc gates and
-the date-boundary checks.
+CI (`.github/workflows/`) runs the quality gate (typecheck, lint, unit tests,
+build), the integration suites, the agent-doc gates and the date-boundary
+checks.
 
 ## Environment
 
