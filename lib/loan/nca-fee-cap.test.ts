@@ -88,7 +88,7 @@ describe("capInitiationFee takes the LESSER of commercial and statutory", () => 
   })
 
   it("clamps a configured fee that exceeds the ceiling", () => {
-    // The live defect: R3,000 at a flat 15% = R450 against a R419.75 ceiling.
+    // The defect: R3,000 at a flat 15% = R450 against a R419.75 ceiling.
     expect(capInitiationFee(R(450), R(3000))).toBe(R(419.75))
   })
 
@@ -100,7 +100,7 @@ describe("capInitiationFee takes the LESSER of commercial and statutory", () => 
 })
 
 describe("the calculator cannot charge above the statutory maximum", () => {
-  // The real guard: drive the product config that was over-charging in prod.
+  // The real guard: drive the product config that could over-charge.
   const MICRO = {
     interestRatePm: 0.05, interestModel: "FLAT" as const,
     initiationFeeModel: "FLAT_PCT" as const,

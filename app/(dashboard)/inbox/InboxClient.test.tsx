@@ -163,7 +163,7 @@ describe("queue switch clears a selection that left the list", () => {
     // page.tsx guarantees a deep-linked conversation is either already in
     // list.conversations or pinned into initialConversations (see its
     // getConversationSummary fallback) — so pinnedRef.current is populated
-    // here, same as production. The mocked initial reload comes back WITHOUT
+    // here, same as at runtime. The mocked initial reload comes back WITHOUT
     // cv1, forcing reloadList's needsPin path to re-add it before the
     // selection-clearing pass runs.
     listMock.mockResolvedValueOnce({ conversations: [], nextCursor: null })

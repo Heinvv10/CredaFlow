@@ -12,9 +12,9 @@ import { DOC_TYPE_LABELS, SYSTEM_GENERATED_DOC_TYPES } from "../document-types"
  * fails closed with signed_packet_changed, because the reader's findFirst no
  * longer matches the row the writer created.
  *
- * Verified by mutation on 2026-08-05 — the whole suite passed with the writer
- * and reader disagreeing. This file is the only thing standing between that
- * mutation and production.
+ * Without this file the whole suite passes with the writer and reader
+ * disagreeing; it is the only thing standing between that mutation and a
+ * release.
  */
 
 const PACKET_DOC_TYPE = "SIGNED_AGREEMENT_PACKET"
@@ -74,8 +74,8 @@ describe("returned signed packet docType", () => {
   })
 
   // It carries the consumer's actual signature, so the generic verify, extract
-  // and delete paths must all refuse it. As OTHER they did not: a prod row
-  // reached verified=true with signatureState still returned_pending_recording,
+  // and delete paths must all refuse it. As OTHER they did not: a row could
+  // reach verified=true with signatureState still returned_pending_recording,
   // a combination the recording transaction never writes.
   it("is locked statutory evidence", () => {
     expect(isLockedStatutoryEvidence(PACKET_DOC_TYPE)).toBe(true)

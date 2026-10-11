@@ -16,7 +16,7 @@ describe("needsCommissionAttention", () => {
     expect(needsCommissionAttention(ev("PAYABLE", "APPROVED"))).toBe(false)
   })
 
-  // OWNER RULING (2026-08-06): BLOCKED is a resolved staff decision exactly as
+  // Product rule: BLOCKED is a resolved staff decision exactly as
   // APPROVED is — leaving it in would nag forever about something a human
   // already decided. commissionStatus carries BLOCKED, not qualityFlag.
   it("excludes BLOCKED — a resolved staff decision", () => {

@@ -90,7 +90,7 @@ describe("validateStep2LoanParams", () => {
 
   // Pins ApplicationProduct.{min,max}Amount as rand. DB stores cents; the SSR/API
   // loaders divide by 100 before handing the shape to the wizard. If anyone ever
-  // pipes the raw cents value through again, this test fails before staging does.
+  // pipes the raw cents value through again, this test fails first.
   it("treats product.minAmount/maxAmount as rand (not cents)", () => {
     const rand: ApplicationProduct = { ...PRODUCT, minAmount: 100, maxAmount: 2000 }
     // Below rand bound — should reject

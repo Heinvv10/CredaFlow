@@ -9,8 +9,8 @@ import {
 } from "./pdf-decrypt"
 
 // RC4-128, user password "1234567890123" — the same scheme and the same
-// ID-number-as-password convention observed on the real statements that
-// blocked disbursement in production. Regenerate with:
+// ID-number-as-password convention used on bank statements emailed to
+// clients. Regenerate with:
 //   pypdf PdfWriter.encrypt(user_password=..., algorithm="RC4-128")
 const ENCRYPTED_FIXTURE = path.join(
   __dirname,

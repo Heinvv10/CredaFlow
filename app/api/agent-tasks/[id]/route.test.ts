@@ -295,7 +295,7 @@ describe("an assignee may close their task — not cancel or re-open it", () => 
 })
 
 // `completedById` is the "who did this work" field at a lender. It records the
-// FIRST close, and nothing in the codebase ever clears it — the F1 restriction
+// FIRST close, and nothing in the codebase ever clears it — the restriction
 // above leans on that, so it is pinned here rather than assumed.
 describe("the completion stamp", () => {
   it("records who closed the task, and when", async () => {
@@ -325,7 +325,7 @@ describe("the completion stamp", () => {
   })
 })
 
-// The F1 reasoning cites this dedup explicitly as why a re-open is dangerous.
+// The restriction cites this dedup explicitly as why a re-open is dangerous.
 // Reasoning the code depends on deserves a test of its own.
 describe("the lead timeline note", () => {
   it("is written on a first completion", async () => {

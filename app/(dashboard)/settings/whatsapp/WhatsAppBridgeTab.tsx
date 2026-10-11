@@ -57,8 +57,8 @@ export function WhatsAppBridgeTab({ initial }: { initial: WaBridgeSlot[] | null 
   const [newNumber, setNewNumber] = useState("")
   // Set when the bridge reports it does not recognise this number. Confirming
   // is a deliberate assertion that the number is not linked to another bridge:
-  // on 2026-08-04 the same number was added to two bridges and WhatsApp
-  // revoked BOTH sessions, taking prod's number down for eight hours.
+  // a number added to two bridges makes WhatsApp revoke BOTH
+  // sessions, taking the number down for hours.
   const [confirmUnknown, setConfirmUnknown] = useState(false)
   const [needsConfirm, setNeedsConfirm] = useState(false)
   const [pairing, setPairing] = useState<PairingResult | null>(null)

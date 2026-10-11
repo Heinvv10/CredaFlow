@@ -64,7 +64,7 @@ describe("where builders", () => {
 
   it("gives the PAR numerator the same population as its denominator", () => {
     // A numerator drawn from a wider population than its denominator prints a
-    // ratio above 100% — audit F-01/F-21/F-27.
+    // ratio above 100%.
     const book = collectibleLoanWhere("t1")
     const par = collectibleParWhere("t1", 30)
     expect(par.status).toEqual(book.status)

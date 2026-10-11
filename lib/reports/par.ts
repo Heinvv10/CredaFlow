@@ -24,7 +24,7 @@ import { collectibleLoanWhere, collectibleParWhere } from "@/lib/loan/collectibl
 // understated the book.
 //
 // Numerator and denominator share one population by construction here, so the
-// ratio cannot exceed 100% — the defect audit F-01/F-21/F-27 originally fixed.
+// ratio cannot exceed 100% — the defect that originally motivated the guard.
 
 export interface ParBucket {
   /** Number of collectible loans at or beyond this DPD threshold. */

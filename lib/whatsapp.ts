@@ -41,7 +41,7 @@ interface WaSendOptions {
 }
 
 // Exported for tests so the idempotent-JID contract has direct coverage.
-// Production callers go through sendWhatsAppMessage which uses it internally.
+// Callers go through sendWhatsAppMessage which uses it internally.
 export function normalizePhone(phone: string): string {
   // Idempotent: accept either a raw phone OR a fully-qualified WA JID
   // (`27821234567@s.whatsapp.net`). Without the suffix-strip, callers that

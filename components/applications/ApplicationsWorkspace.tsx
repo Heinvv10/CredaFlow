@@ -191,8 +191,7 @@ export function ApplicationsWorkspace({
               </span>
               {view === "board" && closedCount > 0 ? (
                 // The board has no lane for these. Without this they are not
-                // reachable from this page at all — 29 of 63 applications on
-                // production the day this was written.
+                // reachable from this page at all.
                 <button
                   type="button"
                   onClick={showClosed}

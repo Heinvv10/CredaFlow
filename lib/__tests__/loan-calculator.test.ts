@@ -101,7 +101,7 @@ describe("calculateLoan — DAILY_ACCRUAL model", () => {
   // credit-agreement PDF (which prints "% per month") all treat it as monthly.
   // DAILY_ACCRUAL spreads that monthly rate across the days in the term:
   // dailyRate = interestRatePm / 30. The previous code applied the monthly rate
-  // PER DAY, over-charging PO funding ~30x (audit F-18, NCA s.100-105 usury).
+  // PER DAY, over-charging PO funding ~30x (NCA s.100-105 usury).
   it("spreads the monthly rate across days (interestRatePm / 30)", () => {
     // R100,000 at 2.5%/month for 120 days → 0.025/30 * 120 = 0.10 → R10,000
     const result = calculateLoan(
@@ -183,7 +183,7 @@ describe("calculateLoan — initiation-fee payment mode + schedule footing (F-13
   const sumScheduleTotalDue = (s: { totalDue: number }[]) =>
     s.reduce((acc, r) => acc + r.totalDue, 0)
 
-  // The core F-13 invariant: a consumer's instalment columns must add up to the
+  // The core invariant: a consumer's instalment columns must add up to the
   // stated Total. Assert it across every model in both fee-payment modes.
   const cases = [
     { label: "FLAT", interestModel: "FLAT" as const, termDays: 30, interestRatePm: 0.05 },
@@ -251,7 +251,7 @@ describe("calculateLoan — monthly service fee on single-payment (bullet) loans
     expect(r.serviceFees).toBe(6900)
     expect(r.schedule[0].feesDue).toBe(15000 + 6900) // deferred initiation + service fee
     expect(r.totalRepayable).toBe(100000 + 5000 + 15000 + 6900) // R1,269.00
-    expect(r.schedule[0].totalDue).toBe(r.totalRepayable) // single payment still foots (F-13)
+    expect(r.schedule[0].totalDue).toBe(r.totalRepayable) // single payment still foots
   })
 
   it("prices the approved MICRO30 daily-accrual + R69 contract exactly", () => {

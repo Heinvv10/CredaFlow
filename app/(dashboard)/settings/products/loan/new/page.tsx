@@ -3,7 +3,7 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 
 export default async function NewLoanProductPage() {
-  // Product create is an ADMIN mutation — gate the form page to match (F-29).
+  // Product create is an ADMIN mutation — gate the form page to match.
   await requireMinRole("ADMIN")
   return (
     <div className="p-6 lg:p-8">

@@ -11,7 +11,7 @@
 // WHY THE KEY IS lastActivityAt: the sort key used to be lastInboundAt, which
 // is null on any thread the customer has never replied to. NULLS LAST then put
 // every outbound-only conversation below every conversation that ever got a
-// reply, however old — 41 of 106 PROD conversations on 2026-08-20, all of them
+// reply, however old, leaving them
 // past the 30-row first page and invisible to staff. lastActivityAt is the
 // later of lastInboundAt and lastOutboundAt, maintained by every writer of
 // either. lastInboundAt is still the right key for "does a customer await a

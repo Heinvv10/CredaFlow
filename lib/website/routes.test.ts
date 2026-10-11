@@ -15,7 +15,7 @@ import * as websiteLayout from "@/app/(website)/layout"
 import * as homePage from "@/app/page"
 import * as llms from "@/app/llms.txt/route"
 
-// Decision D-W1: the public site is the kept pages only.
+// Decision: the public site is the kept pages only.
 const APP = path.join(process.cwd(), "app")
 
 /** Every page route under app/, as URL paths (route groups stripped). */

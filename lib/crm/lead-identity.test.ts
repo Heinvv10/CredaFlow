@@ -11,9 +11,8 @@ import {
 // normaliseFullName — the functions under test — would make every assertion
 // true by construction.
 //
-// The cluster fixtures below are the real shape of prod as of 2026-08-15
-// (names and contact details replaced with synthetic ones): six phone clusters covering 23 of 43
-// leads, five of which are one person and one of which is three people.
+// The cluster fixtures below use synthetic names and contact details. They
+// model a phone cluster that is one person and one that is several people.
 
 const lead = (over: Partial<LeadIdentityFields> & { id: string }): LeadIdentityFields => ({
   firstName: "Test",
@@ -32,7 +31,7 @@ describe("normaliseFullName", () => {
   })
 
   it("collapses the internal double space seen in real rows", () => {
-    // Prod stores this lead as "nhlanhla  mocktest " — double space AND a
+    // A stored name may read "nhlanhla  mocktest " — double space AND a
     // trailing space. Without the collapse it is a different person.
     expect(normaliseFullName("Nhlanhla ", " Mocktest ")).toBe("nhlanhla mocktest")
     expect(normaliseFullName("Lerato", " Testerson")).toBe("lerato testerson")
@@ -62,7 +61,7 @@ describe("leadIdentityKey", () => {
   })
 
   it("gives DIFFERENT keys to two people on one phone", () => {
-    // THE case that forbids a phone-only key. Both rows are real on prod.
+    // THE case that forbids a phone-only key. Two people can share one phone.
     const johan = leadIdentityKey(lead({ id: "a", firstName: "Johan", lastName: "van Testhuis" }))
     const marie = leadIdentityKey(lead({ id: "b", firstName: "Marie", lastName: "van Testhuis" }))
     expect(johan).not.toBe(marie)
@@ -83,8 +82,8 @@ describe("leadIdentityKey", () => {
   })
 
   it("ignores email entirely", () => {
-    // One prod lead has three addresses, one a mistyped domain. If
-    // email were in the key she would be three people.
+    // One lead can carry several addresses, one a mistyped domain. If
+    // email were in the key she would be several people.
     const one = leadIdentityKey(lead({ id: "a", firstName: "Dineo", lastName: "Testperson", phone: "0820000082" }))
     const two = leadIdentityKey(lead({ id: "b", firstName: "Dineo", lastName: "Testperson", phone: "0820000082" }))
     expect(one).toBe(two)

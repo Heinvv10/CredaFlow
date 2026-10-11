@@ -8,7 +8,7 @@ import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
 
 type NavLink = { label: string; href: string; children?: { label: string; href: string; description: string }[] }
 
-// The kept public pages only (decision D-W1): offer → evaluate → contact.
+// The kept public pages only: offer → evaluate → contact.
 const navLinks: NavLink[] = [
   { label: "Home", href: "/" },
   { label: "Insurance", href: "/site/products/insurance" },

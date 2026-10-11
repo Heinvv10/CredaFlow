@@ -80,9 +80,8 @@ export default async function InsuranceModuleSettingsPage() {
                 The space after </strong> is an explicit {" "} expression, not a
                 literal space. A literal one is dropped by the JSX transform here
                 and the sentence renders as "does notmake anything sellable" —
-                observed in the real browser on staging at 3127c969, while the
-                source on that same commit read `</strong> make` with the space
-                present. Nothing in the test suite catches it: the component
+                observed in a real browser even though the source read
+                `</strong> make` with the space present. Nothing in the test suite catches it: the component
                 tests assert on text extracted from the rendered tree, which
                 normalises whitespace away.
               */}

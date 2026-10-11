@@ -846,7 +846,7 @@ it("clears an inherited quotation when approving", async () => {
 })
 
 it("approves a NO-OFFER application (DECLINED, premium 0) without a billing error", async () => {
-  // Regression for the exact 2026-07-28 production outage shape, this time
+  // Regression for a no-offer application failing billing validation, this time
   // at approval-time billing: the helper rejects premium 0 when `offered`
   // defaults to true, so an approval path that omits the flag turns every
   // no-offer application into a 422 "billing schedule outside range".
@@ -1344,10 +1344,10 @@ it("404s when the application does not exist in the tenant", async () => {
   expect(res.status).toBe(404)
 })
 
-// A production application (ref anonymised), 2026-08-12: un-approving to correct one credit obligation
-// cleared a still-valid credit-life election, and the only surface that can
+// Un-approving to correct one credit obligation
+// must not clear a still-valid credit-life election: the only surface that can
 // recapture one is the draft wizard — which also discards the bureau enquiry.
-// The consumer paid for a second bureau footprint to re-record identical
+// The consumer would pay for a second bureau footprint to re-record identical
 // evidence. Nothing this transition touches is bound by the disclosure hash.
 it("retains a no-offer credit-life election when there is still no offer", async () => {
   findUniqueMock.mockResolvedValue({

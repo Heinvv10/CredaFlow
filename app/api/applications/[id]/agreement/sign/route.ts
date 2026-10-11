@@ -433,10 +433,9 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       // A packet whose stamp names an EARLIER PASQ or agreement is the common
       // case, and it has a specific cause worth naming: regenerating either
       // document after the consumer signed mints a new digest, which orphans
-      // the packet already returned. Staff hit this on 2026-08-05 — two
-      // correct 8-page packets were uploaded and the agreement was
-      // regenerated twelve seconds later, so both were
-      // refused by the bare message below with nothing to act on.
+      // the packet already returned. Without a specific message, correct
+      // packets uploaded before a regeneration are refused by the bare message
+      // below with nothing for staff to act on.
       const supersededDocuments =
         binding?.version === "signed-pasq-credit-agreement-v1"
         && binding.applicationId === id

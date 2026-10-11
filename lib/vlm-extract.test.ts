@@ -182,7 +182,7 @@ describe("PDF conversion temp-file hygiene", () => {
 
   // The document written to /tmp is the client's bank statement or payslip in
   // plaintext. Cleanup used to run only after a successful convert, so every
-  // failure left one behind; three were sitting in production on 2026-07-31.
+  // failure left one behind.
   it("removes the client's document from /tmp when conversion FAILS", async () => {
     const before = await strandedTempFiles()
 
@@ -216,7 +216,7 @@ describe("PDF conversion temp-file hygiene", () => {
 
 describe("payslip period-column post-processing", () => {
   // Synthetic figures, shaped like a payslip (Jul 2026) that the VLM read
-  // wrong in production: it took Total Earnings and Total Deductions from the
+  // wrong: it took Total Earnings and Total Deductions from the
   // YTD column while taking Net Pay (which has no YTD column) from the current
   // period, producing an income 4x the client's actual monthly earnings.
   const CURRENT = { grossIncome: 4012345, netIncome: 2654321, totalDeductions: 1358024 }
@@ -550,10 +550,10 @@ describe("render resolution", () => {
     expect(widthPx).toBe(Math.ceil((595.276 / 72) * RENDER_DPI))
   })
 
-  // The failure that shipped in PR #732: fitting only the LONG edge let the
+  // Fitting only the LONG edge lets the
   // SHORT edge collapse on an elongated page, and the short edge is where the
   // columns are. A 600x4000pt page — an ordinary "share as PDF" export from a
-  // phone banking app — rendered 702px wide, an effective 84dpi.
+  // phone banking app — would render 702px wide, an effective 84dpi.
   it("holds the short edge above the accuracy floor on an elongated page", () => {
     const { widthPx } = renderTargetPx(600, 4000)
     const effectiveDpi = widthPx / (600 / 72)
@@ -570,9 +570,8 @@ describe("render resolution", () => {
   })
 
   it("stays at or above the resolution where column reads stopped failing", () => {
-    // Measured on 40 real production payslips: at 200dpi three were read from
-    // the year-to-date column instead of the current month, scoring 5/8 against
-    // ground truth. At 300 and 400 that became 8/8 with no YTD reads. Below 300
+    // At low resolution the model reads the year-to-date column instead of
+    // the current month. At 300 and above it does not. Below 300
     // the model can see the digits perfectly and still cannot tell which column
     // they sit under, which is a silent wrong answer about someone's income.
     expect(RENDER_DPI).toBeGreaterThanOrEqual(300)
@@ -728,14 +727,13 @@ describe("bank-statement product-name post-processing", () => {
       : { accountTypePrinted: { value: printed, validated: true } }),
   })
 
-  // Client case, 2026-08-27: an ABSA "Flexi Account" statement was extracted
-  // as CHEQUE and the SAVINGS payout record was refused as a mismatch. Flexi
+  // An ABSA "Flexi Account" statement extracted as CHEQUE would refuse a
+  // SAVINGS payout record as a mismatch. Flexi
   // is ABSA's savings product; the printed name is authoritative over a guess.
   it.each([
     ["Flexi Account", "SAVINGS"],
     ["FLEXI SAVINGS ACCOUNT", "SAVINGS"],
-    // Client case, 2026-08-28: Standard Bank prints "MYMOACC"; VLM said CHEQUE,
-    // the account is a savings account. Hein confirmed with the client.
+    // Standard Bank prints "MYMOACC"; the VLM said CHEQUE, but it is a savings account.
     ["MYMOACC", "SAVINGS"],
     ["MyMo Account", "SAVINGS"],
     ["Easy Account", "CHEQUE"],

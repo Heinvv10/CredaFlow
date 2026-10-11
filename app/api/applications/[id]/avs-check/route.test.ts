@@ -1,6 +1,6 @@
 // app/api/applications/[id]/avs-check/route.test.ts
 //
-// Merge-blocker gate (review wave, 2026-07-10): every Phase 7 collections
+// Merge-blocker gate: every Phase 7 collections
 // surface must ship dark behind TenantConfig.collectionsEngineEnabled. This
 // covers the route's 409 refusal when the flag is off, and confirms
 // runAvsCheck is never reached in that case.

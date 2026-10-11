@@ -102,7 +102,7 @@ export type CompositeKycResult = {
   /**
    * Documents-grade. Origination only — NEVER payout.
    *
-   * Policy (2026-07-27): a selfie is not compulsory to review or approve an
+   * Policy: a selfie is not compulsory to review or approve an
    * application, but is required before money moves. So this requires the four
    * core documents and no active manual rejection, and tolerates a biometric
    * that was never captured. It does NOT tolerate one that was captured and
@@ -211,8 +211,8 @@ function coherentVerifiedProvenance(state: ClientKycState): boolean {
     state.kycVerifiedAt !== null &&
     state.kycVerificationMethod !== null &&
     // Automated providers verify with no staff actor: SMILE_IDENTITY for
-    // rows verified before the 2026-07-28 switch, BIOMETRIC for the VLM
-    // face match since. Every other method needs a named verifier.
+    // legacy rows verified by SMILE_IDENTITY, BIOMETRIC for the VLM
+    // face match. Every other method needs a named verifier.
     (state.kycVerificationMethod === "SMILE_IDENTITY"
       || state.kycVerificationMethod === "BIOMETRIC"
       || state.kycVerifiedById !== null)
@@ -533,7 +533,7 @@ export async function readCompositeKycState(
       verifiedAt: latestSelfie?.biometricVerifiedAt ?? new Date(),
       verifiedById: null,
       // The biometric provider is the VLM face match; SMILE_IDENTITY remains
-      // in the enum only for rows verified before the 2026-07-28 switch.
+      // in the enum only for legacy rows.
       method: "BIOMETRIC",
     },
     preserveVerifiedProvenance: args.preserveVerifiedProvenance,

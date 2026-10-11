@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
 
       // Verify the real file content matches the declared MIME (defence vs. a
       // spoofed Content-Type persisting a mislabeled file). Mirrors the guard
-      // on /api/portal/payment/manual (audit F-5).
+      // on /api/portal/payment/manual.
       const head = new Uint8Array(await file.slice(0, MAGIC_BYTE_PREFIX).arrayBuffer())
       if (!matchesMagic(head, file.type)) {
         return NextResponse.json(

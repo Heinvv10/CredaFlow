@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       }
       // Fire-and-forget: a transient sendMessage failure must NOT 500 the
       // route. The OTP row is already written; the user can re-request a
-      // code on the second screen. PR-2.5's retry cron picks up TRANSIENT
+      // code on the second screen. The messaging-retry cron picks up TRANSIENT
       // failures + the SUPPRESSED_BY_CONSENT terminal state is logged in
       // the Message row for ops.
       await sendMessage({

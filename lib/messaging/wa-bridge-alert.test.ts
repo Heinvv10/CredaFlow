@@ -120,9 +120,8 @@ describe("sendWaBridgeAlert", () => {
     expect(sent).toBe(1)
   })
 
-  // This email is read during an outage. It named "Comms Hub → WhatsApp Bridge",
-  // a tab that no longer exists — an instruction that sends an admin looking for
-  // a control on a page that does not have it.
+  // This email is read during an outage, so it must name the page where the
+  // bridge tab actually is — not a control on a page that does not have it.
   it("points admins at the page where the bridge tab actually is", async () => {
     vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: "u1", email: "a@x.com", name: "A" }] as never)
     vi.mocked(sendEmail).mockResolvedValue({ ok: true } as never)

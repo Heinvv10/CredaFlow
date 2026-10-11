@@ -90,7 +90,7 @@ export function TurnstileWidget({
 
   useEffect(() => {
     if (!siteKey || isTestSiteKey) {
-      // Dev/staging fallback: keep the form flow usable without rendering
+      // Dev fallback: keep the form flow usable without rendering
       // Cloudflare's public test widget on a client-facing page.
       onToken("dev-bypass")
       return

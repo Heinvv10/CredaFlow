@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     if (safeBody.imapPass === MASK) safeBody.imapPass = existing?.imapPass
 
     // Refuse to STORE a mailbox this environment may not poll. Catching it here
-    // means a staging operator never gets a config that silently fails later.
+    // means an operator never gets a config that silently fails later.
     const imapHost = safeBody.imapHost || null
     if (imapHost) {
       const decision = inboundHostAllowed(imapHost)

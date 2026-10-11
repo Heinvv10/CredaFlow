@@ -26,7 +26,7 @@ interface BandForm {
 
 /**
  * A blank row. `lifeType` is never left empty: a `<select>` whose value matches
- * no option silently displays option[0], which has reached production twice in
+ * no option silently displays option[0], a defect that has recurred in
  * this repo — the operator sees MAIN_MEMBER and the form holds "".
  */
 const BLANK: BandForm = {

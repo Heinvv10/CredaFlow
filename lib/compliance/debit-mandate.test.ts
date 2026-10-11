@@ -241,9 +241,8 @@ describe("verified bank-statement evidence", () => {
     })
   })
 
-  // The real case, reproduced from production on 2026-08-13: a Discovery Bank
-  // statement for client clxtestdiscoveryclient001, R1 500 approved, signed by
-  // both parties, refused at payout. Discovery prints NO branch code anywhere
+  // A Discovery Bank statement for an approved application, signed by both
+  // parties, must not be refused at payout. Discovery prints NO branch code anywhere
   // on the page — SA retail banks run one universal code — so the extraction
   // had no branchCode at all and the gate compared '' against the record.
   const discoveryStatement = {
@@ -322,15 +321,12 @@ describe("verified bank-statement evidence", () => {
     )).toEqual({ ok: true, evidence: expected.bankStatement })
   })
 
-  // The real case, reproduced from production on 2026-08-18: a Capitec
-  // statement for a client, application
-  // clxtestpayoutrefused00001, R1 500 approved, consumer and provider
-  // signatures recorded, refused at payout with `verified_bank_statement_
-  // mismatch`. The page is headed "Main Account Statement" and names no product
+  // A Capitec statement for an approved application, consumer and provider
+  // signatures recorded, must not be refused at payout with
+  // `verified_bank_statement_mismatch`. The page is headed "Main Account Statement" and names no product
   // anywhere — Capitec prints none — so the extractor answered OTHER, which
   // lib/vlm-extract.ts defines as "cannot tell", and the gate compared that
-  // non-answer against a SAVINGS record. Twelve of the forty-seven verified
-  // statements on file that day had no determinable account type.
+  // non-answer against a SAVINGS record.
   const capitecStatement = {
     id: "statement-1",
     contentSha256: "a".repeat(64),
@@ -571,7 +567,7 @@ describe("verified bank-statement evidence", () => {
   })
 
   it("refuses a transmission statement — it can no longer match any account", () => {
-    // TRANSMISSION was retired as a selectable account type on 2026-08-05, so
+    // TRANSMISSION was retired as a selectable account type, so
     // no client record can be transmission and such a statement is always a
     // genuine mismatch. This ALSO keeps this canonicaliser in step with the
     // DATABASE one (`canonicalAccountType`), which never had a
@@ -610,11 +606,10 @@ describe("verified bank-statement evidence", () => {
   })
 
   // SA banks print the PRODUCT name where the gate expects an account TYPE.
-  // "EASY ACCOUNT" (one client) and "PRESTIGEACC" (another client) are both
-  // FNB transactional accounts, but neither canonicalised, so the payout tuple
-  // could never match and both approved disbursements were refused with
-  // `verified_bank_statement_mismatch` on 2026-08-05 — with correct account
-  // number, bank and branch code.
+  // "EASY ACCOUNT" and "PRESTIGEACC" are both FNB transactional accounts, but
+  // if neither canonicalised the payout tuple could never match and approved
+  // disbursements would be refused with `verified_bank_statement_mismatch` —
+  // despite a correct account number, bank and branch code.
   it.each([
     ["EASY ACCOUNT"],
     ["Easy Account"],
@@ -725,11 +720,11 @@ describe("verified bank-statement evidence", () => {
       "verified_bank_statement_mismatch",
       "bankName",
     ],
-    // "different branch" was a case here until 2026-08-13. It is now asserted
+    // "different branch" is not a case here. It is asserted
     // to BIND, in "binds a branch code that DISAGREES with the record" above —
     // the branch code is functionally determined by the bank, so this leg
     // checked the bank twice while blocking clients whose statement prints no
-    // branch code at all. Moved rather than deleted so the reversal is visible.
+    // branch code at all. Moved rather than deleted so the rule is visible.
     [
       "different account type",
       {

@@ -358,7 +358,7 @@ describe("POST /api/documents", () => {
   // uploader, because it is the upload they know. It stores the file as an
   // ordinary client document and reports success — nothing records it against
   // the loan, and disbursement keeps refusing for a reason that reads like a
-  // system fault. Both signed agreements returned on 2026-08-04 landed here.
+  // system fault.
   it("warns that a loose upload is NOT the recorded signed agreement", async () => {
     applicationFindFirstMock.mockResolvedValue({
       id: "app-1",

@@ -2,10 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { PromiseToPayTab } from "./CollectionDetailTabs"
 
-// This is the surface a collections officer actually reads. An earlier fix
-// moved the identical rule in `lib/collections/promiseToPay.ts`, which has no
-// production callers — so the badge stayed wrong while the suite stayed green.
-// These tests exist so that cannot happen again.
+// This is the surface a collections officer actually reads. The identical rule
+// in `lib/collections/promiseToPay.ts` has no production callers, so testing
+// only that copy would leave the badge wrong while the suite stayed green.
 
 const PROMISE = {
   id: "note-1",

@@ -98,7 +98,7 @@ export default async function LeadDetailPage({
   // live value rather than the never-populated persisted column.
   const scoredLead = { ...lead, leadScore: calculateLeadScore(lead) }
 
-  // Pre-F-23 leads may not have a Contact yet (directory backfill reconciles
+  // Older leads may not have a Contact yet (directory backfill reconciles
   // them) — the page renders without messaging until one exists.
   const comms = lead.contact
     ? await getContactComms({ tenantId, contactId: lead.contact.id })

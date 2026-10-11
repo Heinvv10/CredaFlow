@@ -64,9 +64,9 @@ export type PublicLoanQuote = {
   schedule: LoanCalcResult["schedule"]
 }
 
-// Amount ranges + terms below MIRROR the active production LoanProduct rows so
+// Amount ranges + terms below MIRROR the active LoanProduct rows so
 // the marketing calculators/apply form never advertise an amount or term the
-// product can't originate (extends the W-2 single-source principle to ranges):
+// product can't originate (extends the single-source principle to ranges):
 //   Short-term/MICRO30 R500–R10,000    · 30-day fixed
 //   Personal           R2,000–R100,000 · 3–60 months
 //   PO funding        R10,000–R500,000 · 1–4 months (30–120 days, shown in months)
@@ -239,7 +239,7 @@ export function applyLivePricing(
     // rejected at apply time. When a narrow, non-month-aligned range makes
     // ceil(min) > floor(max) (no whole month fits), clamp the MIN down to the
     // max rather than the max up to the min: it is safe to under-offer a term,
-    // but advertising a term the product can't originate breaks the W-2 rule.
+    // but advertising a term the product can't originate breaks the single-source rule.
     const maxTerm = product.termUnit === "months"
       ? Math.max(1, Math.floor(live.maxTermDays / 30))
       : live.maxTermDays
@@ -447,7 +447,7 @@ export function calculatePublicLoanQuote(product: PublicLoanProduct, rawAmount: 
   const secondaryMetric = product.code === "personal"
     ? totalRepayable
     : totalRepayable - result.disbursementAmount
-  // "Est. APR" was removed from the personal calculator (audit W-1): the old
+  // "Est. APR" was removed from the personal calculator: the old
   // interest / principal formula understated the true reducing-balance rate
   // roughly 2x. All products now surface the loan term as the tertiary metric.
   const tertiaryMetric = term
@@ -474,7 +474,7 @@ export function buildProductApplyHref(product: PublicLoanProduct, quote: PublicL
   const base = target === "mobile" ? product.mobileHref : product.desktopHref
   // Invoice discounting has no LoanProduct to originate — route its CTA to an
   // advisor enquiry instead of the apply form, carrying the amount as context
-  // rather than as an applyable product (W-12).
+  // rather than as an applyable product.
   if (product.code === "invoice-discounting") {
     const enquiry = new URLSearchParams({ enquiry: "invoice-discounting", amount: String(quote.amount) })
     return `/site/contact?${enquiry.toString()}`

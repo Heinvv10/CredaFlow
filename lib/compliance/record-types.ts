@@ -6,8 +6,7 @@
  * per-application evidence produced by the loan lifecycle — a `CREDIT_BUREAU_CHECK`
  * left PENDING on an abandoned application is not an unmet legal obligation, but
  * it dragged the headline down permanently and the number drifted with loan
- * volume. On production it read 59% "At Risk" while every statutory tab held
- * zero records.
+ * volume, reading "At Risk" while every statutory tab held zero records.
  *
  * Three groups, because they answer three different questions:
  *

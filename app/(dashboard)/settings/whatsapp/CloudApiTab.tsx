@@ -6,8 +6,8 @@ import { CheckCircle, Info, MessageCircle, Send, XCircle } from "lucide-react"
 /**
  * Meta Embedded Signup (JS SDK) glue — browser-only. Requires a Meta
  * Tech-Provider app that has passed App Review for whatsapp_business_management
- * + whatsapp_business_messaging; that setup is external to this repo (Hein).
- * NOT unit-tested — verified live per Task 11 Step 10. Minimal shape of the
+ * + whatsapp_business_messaging; that setup is external to this repo.
+ * NOT unit-tested; it needs a live Meta app. Minimal shape of the
  * SDK global, loaded lazily via <script>, not covered by @types.
  */
 declare global {
@@ -175,7 +175,7 @@ export function CloudApiTab({ waProvider, wabaPhoneNumberId }: { waProvider?: st
     <div className="space-y-6">
       {/* Meta Embedded Signup — official WhatsApp Cloud API onboarding.
           Button is disabled until NEXT_PUBLIC_META_APP_ID / NEXT_PUBLIC_META_ES_CONFIG_ID
-          are configured (Hein's Meta Tech-Provider setup, external to this repo). */}
+          are configured (the Meta Tech-Provider setup is external to this repo). */}
       <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5">
         <h2 className="font-semibold text-gray-900 text-sm mb-1">Official WhatsApp Cloud API</h2>
         <p className="text-xs text-gray-400 mb-3">

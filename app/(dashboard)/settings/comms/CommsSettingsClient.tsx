@@ -17,7 +17,7 @@ import type { CannedReplyDTO, RosterMember } from "../../inbox/types"
 const TAB_VALUES = ["channel", "hours", "canned", "roster"]
 
 /** Tabs that used to live here and now live elsewhere, so old deep links —
- *  including the ones already sent in bridge outage alert emails — still
+ *  including any already sent in bridge outage alert emails — still
  *  land on the screen they name. */
 const LEGACY_TAB_REDIRECTS: Record<string, string> = {
   "wa-bridge": "/settings/whatsapp?tab=bridge",

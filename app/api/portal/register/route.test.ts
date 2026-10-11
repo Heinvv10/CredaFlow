@@ -473,8 +473,8 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
   })
 
   it("audits a non-eligibility send failure too — the staging UNSUB_TOKEN_SECRET case", async () => {
-    // assertRedactedSendIsRecoverable throws exactly here on staging, where
-    // UNSUB_TOKEN_SECRET is unset and walkthroughs happen. Nobody awaits the
+    // assertRedactedSendIsRecoverable throws exactly here wherever
+    // UNSUB_TOKEN_SECRET is unset (a walkthrough environment). Nobody awaits the
     // detached promise, so without a row the consumer gets success:true, no
     // code, and no trace anywhere.
     sendMessage.mockRejectedValue(new Error("Refusing to send redacted template: UNSUB_TOKEN_SECRET is not set"))

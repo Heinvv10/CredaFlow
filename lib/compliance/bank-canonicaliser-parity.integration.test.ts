@@ -23,16 +23,15 @@ const suite = process.env.RUN_BANK_CANONICAL_IT === "1" ? describe : describe.sk
 /**
  * Every spelling either implementation must handle identically.
  *
- * The production rows are not illustrative — they are the eight distinct values
- * the VLM has actually extracted from bank statements (45 documents, read
- * 2026-08-08) plus the six spellings stored on real client records. If the two
+ * The spellings are not illustrative — they are the distinct values the VLM
+ * extracts from bank statements plus the spellings stored on client records. If the two
  * canonicalisers can disagree about any of them, a real consumer is affected.
  */
 const SPELLINGS = [
-  // --- the 8 distinct production VLM extractions ---
+  // --- the distinct VLM extractions ---
   "FNB", "Capitec Bank Limited", "NEDBANK", "Absa Bank Ltd",
   "Standard Bank", "Capitec Bank", "GoTyme Bank", "Discovery Bank",
-  // --- the spellings stored on production client records ---
+  // --- the spellings stored on client records ---
   "First National Bank", "capitec", "CAPITEC", "ABSA", "TYME_BANK", "STANDARD_BANK",
   // --- registered names a statement prints instead of the brand ---
   "FIRSTRAND BANK LIMITED t/a FNB", "FirstRand Bank Limited",

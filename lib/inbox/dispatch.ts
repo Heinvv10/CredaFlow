@@ -181,7 +181,7 @@ async function sendEmailReply(input: AgentReplyInput, conv: LoadedConversation):
   // MS Graph outbound stores a synthetic Message-ID (lib/email/service.ts) so the
   // customer's reply can't be thread-matched back to our message yet. Gate email
   // replies to SMTP until the real internetMessageId is captured post-send
-  // (Phase-2 follow-up). Production runs IMAP_SMTP, so this is a no-op there.
+  // (follow-up). A tenant on IMAP_SMTP is unaffected.
   if (config.provider === "MSGRAPH") {
     return { ok: false, reason: "CHANNEL_DISABLED", detail: "Email replies require SMTP; MS Graph threading is a follow-up." }
   }

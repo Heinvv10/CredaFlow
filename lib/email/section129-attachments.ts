@@ -8,8 +8,8 @@ import type { LenderIdentity } from "@/lib/config/identity-schema"
  * mailbox or court bundle.
  *
  * Inline letterhead/signature images were previously embedded as `cid:`
- * attachments but were dropped 2026-05-22 after a deliverability smoke
- * showed Velocity Fibre's MX silently filtering the multipart/related
+ * attachments but were dropped after a deliverability smoke
+ * showed a receiving MX silently filtering the multipart/related
  * structure. The PDF carries the full polished letterhead — the email
  * body is now plain HTML.
  */

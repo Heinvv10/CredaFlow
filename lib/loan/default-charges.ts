@@ -8,7 +8,7 @@ import { dayOfMonth, daysInMonth, isLastDayOfMonth, isoDay } from "@/lib/loan/da
 // schedule plus every live receipt and letter, so a back-dated receipt or a
 // reversal re-prices the whole history instead of patching a running total.
 //
-// Rules (NCA s101(1), s103, s126(3); product decisions 2026-09-26):
+// Rules (NCA s101(1), s103, s126(3) and product rules):
 //  - Default interest runs from the day after a missed due date, at the loan's
 //    own monthly rate divided by the days in that calendar month, on OVERDUE
 //    PRINCIPAL only (no interest on interest). A day's interest is earned only

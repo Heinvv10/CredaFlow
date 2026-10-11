@@ -55,8 +55,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         // NCA s.108: this certificate is a legal statement of the consumer's
         // account. The rate it states must be the rate they contracted at,
         // which disburse/route.ts freezes onto the Loan row from the approval
-        // snapshot. Reading the live LoanProduct row here meant ordinary
-        // repricing retroactively misstated this document for every existing
+        // snapshot. Reading the live LoanProduct row here would mean ordinary
+        // repricing retroactively misstates this document for every existing
         // loan on that product.
         interestRatePm: loan.interestRatePm,
         lastPaymentDate: loan.lastPaymentDate,

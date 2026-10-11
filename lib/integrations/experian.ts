@@ -8,7 +8,7 @@
  * `experian-spec.ts`; this file is the transport layer.
  *
  * STATUS — request/response shapes mapped from the UAT OpenAPI 3.0.1 Swagger +
- * XSD (self-served 2026-06-24; saved to ~/Downloads/experian-uat/). The REST path
+ * XSD. The REST path
  * `POST {base}/RequestNewEnquiry`, the snake_case request body, and the
  * `BureauNewBureauEnquiryDataResponse` shape are all confirmed against that spec.
  * NOT YET wired into decisioning, and field NAMES are confirmed but VALUE semantics

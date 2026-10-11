@@ -172,7 +172,7 @@ function disbursedHtml(identity: LenderIdentity, name: string, ref: string): str
 function overdueHtml(identity: LenderIdentity, name: string, days: number, ref: string): string {
   const daysText = days ? ` by <strong>${days} days</strong>` : ""
   // Quote the loan reference so a client paying by EFT/deposit puts it on the
-  // payment and the bank-sync reconciler makes an EXACT match (#424).
+  // payment and the bank-sync reconciler makes an EXACT match.
   const refLine = ref
     ? `<p style="margin:0 0 16px;color:#444;line-height:1.6;">Please quote your loan reference <strong>${ref}</strong> on your payment so we can allocate it to your account.</p>`
     : ""
@@ -327,7 +327,7 @@ async function buildTemplate(
       text: `Dear ${fullName}, your loan payment is overdue${days ? ` by ${days} days` : ""}. Please make payment immediately${reference ? `, quoting reference ${reference}` : ""}.`,
       // "amount overdue" isn't computed by this branch — it comes from
       // opts.data.amount, which both callers set to Loan.arrearsAmount (CENTS;
-      // lib/collections/reminders.ts and escalation.ts, since #380).
+      // lib/collections/reminders.ts and escalation.ts).
       // `outstanding` isn't included here: payment_overdue_1d/7d don't
       // interpolate it (only payment_received does).
       waVars: { ...EMPTY_WA_VARS, reference, amount: Number(d.amount ?? 0), days },
@@ -524,16 +524,17 @@ async function logNotification(
   }
 }
 
-// ── Shared new-send dispatch (flag-gated, used by all PR-10a–f cutover events) ─
+// ── Shared new-send dispatch (flag-gated, used by every cutover event) ────────
 //
 // New-send path: render the legacy template, look up Contact rows per
 // channel via ContactIdentity, dispatch through sendMessage(). NotificationLog
 // rows are still written so the staff + portal notifications pages keep
-// working — PR-12 will retire NotificationLog when every event has cut over.
+// working — NotificationLog stays until every event has cut over.
 //
 // Behaviour preserved across all events:
 //   - Email + SMS always attempted (canonical channels).
-//   - WhatsApp attempted only when client.whatsapp is set — mirrors PR-9.
+//   - WhatsApp attempted only when client.whatsapp is set — mirrors the
+//     payment-reminder policy (lib/collections/reminders.ts).
 //     A missing whatsapp number is "silent skip" (don't fail the notif).
 //   - SendBlockedError (consent / channel opt-out / BLOCKED contact) is
 //     recorded as a "blocked" NotificationLog row — NOT as an error — so
@@ -661,7 +662,7 @@ async function sendEventNewSend(
     })
   }
 
-  // WhatsApp policy mirrors PR-9 (lib/collections/reminders.ts:247): use
+  // WhatsApp policy mirrors the payment reminders (lib/collections/reminders.ts): use
   // `client.whatsapp` for the WA leg, skip silently when null. Most clients
   // with `whatsapp=null` simply aren't on WhatsApp and falling back to
   // `client.phone` would (a) attempt delivery to a non-WA number, and
@@ -746,9 +747,9 @@ async function dispatchChannel(args: {
   })
   if (!contact) {
     // Data drift — Client without a ContactIdentity row for this channel.
-    // Should never happen for clients created after PR-10a wires
-    // provisionContactForClient into the client-create flow; surface the
-    // gap loudly for legacy clients pre-backfill.
+    // Should never happen for clients created since the client-create flow
+    // calls provisionContactForClient; surface the gap loudly for legacy
+    // clients pre-backfill.
     await logNotification(args.opts.tenantId, {
       loanId: args.opts.loanId,
       clientId: args.client.id,
@@ -907,7 +908,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
     })
   }
 
-  // Flag-gated cutover (PR-10a+). Each event in NEW_SEND_FLAGS can be
+  // Flag-gated cutover. Each event in NEW_SEND_FLAGS can be
   // independently cut over via its env flag. Events absent from the map
   // (e.g. section129_sent) stay on the legacy direct-send path.
   // The new-send path writes Message + Conversation + Audit rows in addition

@@ -15,8 +15,8 @@
  * --period defaults to the last month end; --reporting-start defaults to the
  * tenant's configured date, else the first day of the period's month.
  *
- * Running this against staging or production reads live client data and needs
- * Hein's explicit go.
+ * Running this against a database holding real client data reads that data and
+ * needs the operator's explicit approval.
  */
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"

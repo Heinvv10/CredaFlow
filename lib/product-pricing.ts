@@ -1,6 +1,6 @@
 // SINGLE SOURCE OF TRUTH for public-facing loan pricing.
 //
-// These figures MUST mirror the active LoanProduct rows in the production DB —
+// These figures MUST mirror the active LoanProduct rows in the database —
 // the same config read by app/api/applications/[id]/affordability — so the
 // marketing quote equals the loan the customer is actually charged.
 //
@@ -11,7 +11,7 @@
 // surface now reads from here.
 //
 // NCA note: the personal-loan initiation fee (16.5%) is under separate legal
-// review (audit W-8). This module reflects what the product CURRENTLY charges;
+// review. This module reflects what the product CURRENTLY charges;
 // it does NOT set or change that fee. When the LoanProduct config changes
 // (legal-gated), update this snapshot in the same change so the two stay in
 // lockstep.
@@ -39,7 +39,7 @@ export type ProductPricing = {
 }
 
 // Keyed by public product code. Each entry mirrors the corresponding
-// production LoanProduct row.
+// LoanProduct row.
 export const PRODUCT_PRICING: Record<PublicPricingCode, ProductPricing> = {
   // "30-Day Micro Loan" (MICRO30) — 15% init capped at R1,000, R69 service
   // (R60 + VAT, the NCA-prescribed max), 5%/month. The service fee is charged
@@ -55,7 +55,7 @@ export const PRODUCT_PRICING: Record<PublicPricingCode, ProductPricing> = {
     initiationFeeMax: 100000,
     monthlyServiceFee: 6900,
   },
-  // "Personal Loan" — 16.5% init capped at R1,080 (under W-8 legal review),
+  // "Personal Loan" — 16.5% init capped at R1,080,
   // R69 service, 3%/month reducing balance.
   personal: {
     productType: "PERSONAL",
@@ -78,7 +78,7 @@ export const PRODUCT_PRICING: Record<PublicPricingCode, ProductPricing> = {
     monthlyServiceFee: 0,
   },
   // Invoice discounting has NO live LoanProduct: the quote is indicative only
-  // and the apply flow routes it to an advisor enquiry (W-12). Priced to match
+  // and the apply flow routes it to an advisor enquiry. Priced to match
   // its nearest real product (PO funding) so the estimate is not misleading.
   "invoice-discounting": {
     productType: "PO_FUNDING",

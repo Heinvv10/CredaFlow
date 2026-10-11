@@ -1,8 +1,8 @@
 # Handoff — CredaFlow
 
-**Repository:** `github.com/Heinvv10/CredaFlow` (private). `main` starts as one
-initial commit holding this tree. Work branches from `main`; one branch per
-change, reviewed by a fresh agent before merge.
+**Repository:** `github.com/Heinvv10/CredaFlow` (private). `main` is one initial
+commit. Work branches from `main`; one branch per change, reviewed by fresh
+agents before merge.
 
 ## State
 
@@ -11,85 +11,91 @@ providers. The codebase is lender-neutral: every lender's identity, brand
 colours and feature flags are `TenantConfig` data, NCA documents refuse to
 render without a valid identity, and a digest-based guard keeps a previous
 lender's identity out of the tree. The guard's digests are deliberately not in
-the repository (committed short-value digests can be reversed): keep
-`~/.config/credaflow/other-lender-digests.json` on any machine that ports code
-from the old codebase. Without it the guard is off. Read `CLAUDE.md`, then
-`docs/ARCHITECTURE.md`.
+the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
+machine that ports code from the old codebase. Without it the guard is off.
+Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-- **Schema:** one baseline migration (`20261009000000_baseline`) plus
-  `20261009120000_neutral_tenant_palette` (colour defaults only).
+**Four stacked PRs, none merged** (merge in order; each is based on the
+previous one's branch). #1–#3 are open with CI green; #4 is opened together
+with this handoff — its CI result is on the PR.
+
+| PR | Branch | What |
+|---|---|---|
+| #1 | `fix/ci-green-and-quality` → `main` | Integration gate green (9 stale fixtures fixed, register 5 → 2, lead-convert PASQ-stamp bug), lint 0 errors (exports are downloads), undefined `--cf-*` tokens and duplicate selectors removed with a test, demo passwords out of source |
+| #2 | `feat/tenant-colour-validation` → #1 | Tenant colours refused with 422 per field when any text/surface pair falls below WCAG AA; maths in `lib/theme/`, runtime token copy tested against `app/globals.css`; tenant creation and colour changes audited; sign-in pages themed |
+| #3 | `chore/remove-outage-reconciliation` → #2 | Dead outage disbursement exception removed (code, schema, triggers, functions, guard branches) by migration `20261009150000_…`; new CHECK `ComplianceRecord_no_disbursement_exception` keeps the old trigger's refusal (approved at the confirmation gate); two integration flakes fixed |
+| #4 | `chore/comment-history-pass` → #3 | Comments that narrated a previous operator's history rewritten as rules; `scripts/check-comment-only-diff.ts` proves the pass changed comments only |
+
+- **Schema:** baseline + `20261009120000_neutral_tenant_palette` +
+  `20261009150000_remove_outage_disbursement_exception` (with #3).
   `prisma migrate diff` migrations → schema is empty.
-- **Seed:** neutral demo tenant "Acme" (`prisma/seed.ts`, `seed-staging.ts`);
-  `SEED_PRINT_CREDENTIALS=1` prints the demo logins and TOTP secrets.
-- **Palette:** indigo brand on slate neutrals, light and dark; brand tokens
-  derive from the tenant's colours (`components/TenantThemeProvider.tsx`).
-  Every text/surface pair is WCAG AA (`scripts/palette-contrast.ts`).
+- **Seed:** neutral demo tenant "Acme". Demo passwords are generated on first
+  creation or set by `SEED_ADMIN_PASSWORD` / `SEED_OFFICER_PASSWORD` /
+  `SEED_PORTAL_PASSWORD`; `SEED_PRINT_CREDENTIALS=1 npx prisma migrate reset
+  --force` prints them. A database seeded before #1 still accepts the old
+  published passwords until it is reseeded with all three variables set.
 - **No deploy path.** No production or staging environment exists; hosting is
-  an open decision. `Dockerfile` / `docker-compose*.yml` build and run locally.
-- **Push:** this tree is to be pushed as ONE orphan commit on `main`. Nothing older
-  goes to GitHub.
+  an open decision.
 
-## Verification (at the initial commit)
+## Verification (local, at #4's head)
 
-- `npx tsc --noEmit` 0 errors; `npm run lint` 5 errors (the known
-  `<a href="/api/reports/export/…">` pattern in `app/(dashboard)/reports/` and
-  `components/compliance/FscaReturnClient.tsx`) + 13 warnings.
-- `npx vitest run`: no deterministic failures. Known load flakes under a full
-  parallel run, green alone: `app/api/applications/[id]/disburse`,
-  `app/portal/register`, `debit-mandate`, `lib/messaging/send.test.ts`
-  (fingerprint).
-- `npm run build` OK (one NFT tracing warning).
-- `npm run claude-md:check`, `npm run agents:check` OK.
-- Integration (`scripts/run-integration-tests.sh`, fresh baseline-migrated
-  Postgres 16): 167 gated suites, 9 failing, all known environment/fixture
-  debt (inbox conversation-last-activity, mentions, note-mutability;
-  insurance bind, quote-to-policy; loan charges-round5, charges-sync,
-  small-balance-waiver; messaging retry-notification-projection), plus the
-  5 suites in `scripts/integration-baseline.txt`.
+CI runs only `integration-tests`, `agent-docs` and `date-boundaries`; there is
+no CI job for typecheck, lint, unit tests or the build, so those are local
+results.
+
+- `npx tsc --noEmit` 0; `npm run lint` 0 errors, 13 warnings; `npx vitest run`
+  no failures (load flakes under a full parallel run, green alone:
+  `app/api/applications/[id]/disburse`, `app/api/insurance/policies/draft`,
+  `lib/messaging/send.test.ts` fingerprint); `npm run build` OK.
+- Integration (`scripts/run-integration-tests.sh`, fresh Postgres 16): 85 gated
+  suites pass, 2 in `scripts/integration-baseline.txt`. CI installs
+  `poppler-utils` for the suites that read rendered PDFs.
 
 ## Next steps
 
-1. Watch the first CI runs on GitHub (`integration-tests`, `agent-docs`,
-   `date-boundaries`); a red run is a follow-up PR, never a force-push.
-2. Decide hosting (demo on one box, real clients each on their own instance
-   and database) and add a deploy path with its own gates.
-3. The lint errors above: route the report exports through `next/link` or a
-   button.
-4. Tenant colours: the staff app, the portal and the website's `--cf-*`
-   tokens follow `TenantConfig`; the website's hardcoded accent classes, the
-   sign-in pages, the NCA PDFs and the emails use the default palette. A tenant's light-mode
-   brand and dark background are not contrast-checked when saved — validate
-   them on write (`scripts/palette-contrast.ts` has the maths).
-5. The in-app manual (`lib/manual/curriculum.ts`) links `/admin-manual/videos`
-   and `/admin-manual/screenshots`, which are not in the repository.
-6. Forked-lender guard: CI runs it OFF (no digests file). To run it in CI,
-   store the digests JSON as a GitHub Actions secret and point
-   `CREDAFLOW_OTHER_LENDER_DIGESTS` at it in a job that runs
-   `lib/config/legacy-identity-boundary.test.ts`. Residual misses: the brand
-   glued to another lowercase word or pluralised, a suffixed host name.
-7. Demo passwords are constants in `prisma/seed.ts`: rotate them (or read
-   them from env) before seeding anything internet-facing.
+1. Merge #1 → #2 → #3 → #4 (rebase each onto `main` as the one below lands).
+2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
+   (the old literals are in `main`'s public history).
+3. The two register suites (`submission-lock`, `credit-life-containment-
+   migration`) need a shared fixture for a fully countersigned, disbursable
+   PASQ v3 application; the builder in
+   `lib/compliance/pasq-v3-billing-migration.integration.test.ts` is the
+   starting point. Some of credit-life-containment's expected errors will be
+   pre-empted by earlier PASQ v3 guards and need re-deciding.
+4. Decide hosting and add a deploy path with its own gates. The deployment must
+   schedule the externally owned cron routes (`instrumentation.cron-census.test.ts`
+   lists them); nothing in this repo does.
 
 ## Open questions (owner: Hein)
 
 - **Legal sign-off before any client goes live:** each client's legal team
-  approves the rendered NCA documents (Section 129, credit agreement/PASQ,
-  certificate of balance, statement, debit mandate, FAIS disclosure) and the
-  website's legal pages. Render hashes are pinned in tests.
-- **`section129_email`** is not seeded: the S129 email path refuses until a
+  approves the rendered NCA documents and the website's legal pages. Render
+  hashes are pinned in tests; a pin proves the render has not moved, not that
+  it is approved.
+- **Section 129 email:** by default (`MESSAGING_NEW_SEND_S129` unset) the
+  S129 routes send the cover email from the code template
+  `lib/email/templates/section129.ts`, whose wording no client's legal team has
+  reviewed. With the flag on, they use the tenant's `section129_email`
+  `MessageTemplate` instead — which is not seeded, so that path refuses until a
   tenant creates its own legally approved template.
-- **Outage-disbursement reconciliation is dead code** (untested TS paths in
-  the disbursement module): delete it, or re-enable it with new tests first.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
-- **TOTP enrolment policy** for new staff, and the `ncrStatus` wording shown
-  on the website.
-- **Integration debt:** the 9 failing gated suites above and the 5 register
-  entries; `bind.integration` uses a hard-coded past start date. Make the
-  gate green (fix or register) before relying on the CI job.
-- **Inherited comment history (accepted debt):** about 470 files carry dated
-  comments about the previous operator's production incidents and decisions
-  (none names a lender). Neutralise them file by file, before a client
-  receives the code.
+- **TOTP enrolment policy** for new staff, and the `ncrStatus` wording on the
+  website.
+- **Strings still carry history** the comment pass could not touch (string
+  literals were out of scope): test names with review IDs or a person's name
+  (e.g. `lib/referral-agents/commission-backfill.test.ts`), the recipient-guard
+  error text, `[CRITICAL-n]`/`[IMPORTANT-n]` test titles, and "OPEN GAP (date)"
+  entries in the cron census. `lib/email/templates/` was outside the comment
+  pass apart from one comment in `section129.ts` that named a real business;
+  the rest of that folder has not been reviewed for history.
+- **Known limits:** the credit agreement truncates schedules beyond 38 rows
+  (nothing upstream caps instalments); `lib/db-baseline.test-helpers.ts` only
+  recognises `DROP` / `CREATE OR REPLACE` in the `public."x"` one-line form;
+  two concurrent super-admin colour PATCHes are each validated against the set
+  read outside the transaction; `/portal/register` is not tenant-themed.
+- **Forked-lender guard in CI:** CI runs it off (no digests). To run it there,
+  store the digests JSON as an Actions secret and point
+  `CREDAFLOW_OTHER_LENDER_DIGESTS` at it.
 - **Seed** creates no approved/disbursed applications, payments, insurance or
   compliance records: those need the product flows driven, not inserts.

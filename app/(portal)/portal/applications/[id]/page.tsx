@@ -188,7 +188,7 @@ export default async function ApplicationDetailPage({
         </div>
       </div>
 
-      {/* What happens next — in-flight statuses (M3). The other statuses
+      {/* What happens next — in-flight statuses. The other statuses
          (APPROVED+needsSig, DECLINED, DISBURSED) are covered by the
          existing banners below; DRAFT is not-yet-submitted and CANCELLED
          is terminal — neither benefits from a "next step" hint. While a

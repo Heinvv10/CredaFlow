@@ -101,12 +101,10 @@ export function deriveDobFromSaId(id: string): string {
   // SA convention: YY <= current 2-digit year => 2000s; otherwise 1900s.
   // Cutoff is dynamic — a static cutoff (e.g. "24") incorrectly classes
   // newborns as 19xx once the year rolls past it.
-  // SAST year. This runs on the server, where the container is UTC, and the
-  // earlier version of this line was exempted on the reasoning that the
-  // two-hour band "can only straddle 1 January, where both readings yield the
-  // same century". That is wrong, and a blind reviewer was right to call it:
-  // at 00:30 SAST on 1 Jan 2027 the UTC year is still 2026, so `currentYY` is
-  // 26 and an ID with `yy = 27` fails `yy <= currentYY` and is read as 1927
+  // SAST year. This runs on the server, where the container is UTC. It is not
+  // safe to exempt on the reasoning that the two-hour band "can only straddle
+  // 1 January, where both readings yield the same century": at 00:30 SAST on
+  // 1 Jan 2027 the UTC year is still 2026, so `currentYY` is 26 and an ID with `yy = 27` fails `yy <= currentYY` and is read as 1927
   // instead of 2027. A newborn dependant on a funeral policy is exactly the
   // case that produces such an ID.
   const currentYY = sastParts(new Date()).year % 100
@@ -219,7 +217,7 @@ export function validateStep2Address(
 // runtime-pure lets client-wizard.test.ts assert each one against the
 // generated @prisma/client enum — a value that is not an enum member reaches
 // prisma.client.create() and throws PrismaClientValidationError, which is how
-// "Wages" 500'd client creation in production on 2026-07-28.
+// a non-member option such as "Wages" would 500 client creation.
 export const EMPLOYMENT_STATUSES = [
   { value: "EMPLOYED", label: "Employed (full-time)" },
   { value: "PART_TIME", label: "Part-time / contract" },

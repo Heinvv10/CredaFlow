@@ -287,7 +287,7 @@ export type LockedCurrentApprovalResult =
  * Which grade of KYC evidence a transition demands.
  *
  * "origination" — four core documents, no manual rejection. Biometrics are not
- * required to approve an application (policy 2026-07-27), so the cached
+ * required to approve an application (policy), so the cached
  * kycStatus projection is deliberately NOT consulted either: a client with no
  * selfie yet projects PENDING, which is correct and must not block approval.
  *

@@ -125,10 +125,9 @@ function recordSurnameReadings(tokens: string[]): { surname: string; givens: str
  * Find the recorded surname among the document's tokens and remove it,
  * returning what is left. Null when the surname is not there at all.
  *
- * The surname is NOT assumed to be last. Measured against 99 real extracted
- * holder names on production, the commonest failing shape puts it in the
- * middle — "MNR JOHANNES H TESTER HERMANUS" for Johannes Hermanus Tester — and
- * a last-token rule raised a false mismatch on 13 of them. Position carries no
+ * The surname is NOT assumed to be last. The commonest failing shape of extracted
+ * holder names puts it in the middle — "MNR JOHANNES H TESTER HERMANUS" for
+ * Johannes Hermanus Tester — and a last-token rule raises a false mismatch. Position carries no
  * information here; presence does.
  *
  * The adjacent-run fallback exists because OCR splits surnames: "MR AMOS MOCK
@@ -230,8 +229,7 @@ function matchesReading(
   // record contributes a single initial whenever `firstName` is one word — so
   // "AL AMIN" was accepted for Ahmed Amin, two different first names sharing a
   // letter. In the payout direction that is exactly the wrong answer, and no
-  // pair in the production corpus needs it: every real repair here matches the
-  // initials exactly.
+  // real repair needs it: genuine repairs match the initials exactly.
   if (statementInitials === recordInitials) return true
   if (recordInitials.startsWith(statementInitials)) return true
 

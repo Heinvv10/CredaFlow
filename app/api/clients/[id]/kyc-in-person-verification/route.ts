@@ -144,7 +144,7 @@ export async function POST(
         // Only a LIVE biometric candidate takes this route out of scope: an
         // attempt still processing, or one whose provider-verified evidence
         // passed. A failed or soft-deleted attempt must not close the human
-        // fallback (2026-07-28 remediation, report §3 F); the senior
+        // fallback; the senior
         // exception remains available in parallel for the failed evidence.
         if (latestSelfie) {
           return { kind: "biometric_attempt_exists" as const }

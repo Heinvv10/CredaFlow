@@ -111,10 +111,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       })
     })
   } catch (error) {
-    // Third instance of the same defect the reviewer named in the other two
-    // read handlers. This route has no write sibling to be inconsistent with,
-    // which is precisely why it was missed — the reasoning is the read itself:
-    // a 500 that leaves no trace is a production incident with no evidence.
+    // Logged like the other read handlers. This route has no write sibling
+    // to be consistent with, so the reasoning is the read itself: a 500 that
+    // leaves no trace leaves no evidence to diagnose it with.
     console.error("Failed to fetch quote:", error)
     return NextResponse.json({ error: "Failed to fetch quote" }, { status: 500 })
   }

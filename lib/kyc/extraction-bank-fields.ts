@@ -1,9 +1,9 @@
 /**
  * The two bank fields a bank-statement extraction must NOT write blindly.
  *
- * 2026-08-27/28, production: one client's bank statement was verified and then
- * invalidated five times, and a disbursement was blocked, because each re-apply
- * of the same document wrote back two values that were not actually new.
+ * A bank statement can be verified and then invalidated repeatedly, and a
+ * disbursement blocked, because each re-apply of the same document writes back
+ * two values that are not actually new.
  * `app/api/clients/[id]/apply-extraction` un-verifies every verified statement
  * whenever the payout tuple moves — which is correct, and stays — but the tuple
  * was moving on nothing:
@@ -25,14 +25,14 @@ import { toBankCode } from "@/lib/banks"
  * Whether a statement names the bank the record already holds — and if not,
  * what to write.
  *
- * Canonicalising only the EXTRACTED side was half a fix. A staging client
- * stores the LABEL "First National Bank", the
+ * Canonicalising only the EXTRACTED side was half a fix. A client
+ * may store the LABEL "First National Bank", the
  * statement prints the same words, and comparing the canonicalised "FNB"
  * against the raw stored label still read as a bank change: 409 "decision
- * evidence is bound to bankName". Production stores the same spread — CAPITEC
- * (18) and Capitec (5), Capitec Bank Limited (2), Capitec Bank, capitec,
- * Standard Bank, Discovery Bank, African Bank — much of it on clients with
- * verified statements, so every one of those re-applies would invalidate one.
+ * evidence is bound to bankName". Stored values come in many spellings —
+ * CAPITEC, Capitec, Capitec Bank Limited, capitec, Standard Bank, Discovery
+ * Bank, African Bank — including on clients with verified statements, so every
+ * one of those re-applies would invalidate one.
  *
  * Same bank writes NOTHING, rather than writing the canonical code. Rewriting
  * "First National Bank" to "FNB" would move the payout tuple and invalidate the
@@ -79,7 +79,7 @@ export interface SkippedExtractionField {
 }
 
 /**
- * Staff-confirmed wins (Hein, 2026-08-28).
+ * Staff-confirmed wins.
  *
  * Extraction may set `accountType` only on a record that has none. Capitec and
  * several ABSA products print no account type at all, so the model is guessing

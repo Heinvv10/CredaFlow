@@ -213,7 +213,8 @@ describe("triggerNotification — application_submitted cutover", () => {
       // 3 NotificationLog writes: email + sms + whatsapp. The legacy path
       // still records a whatsapp "failed" log row when waMessage is truthy
       // even if isWaEnabled() is false (no actual WA send happened, but the
-      // log row gets written). Preserved verbatim — out of scope for PR-10a.
+      // log row gets written). Preserved verbatim — the cutover leaves the
+      // legacy path unchanged.
       expect(notificationLogCreateMock).toHaveBeenCalledTimes(3)
     })
 
@@ -314,7 +315,7 @@ describe("triggerNotification — application_submitted cutover", () => {
       // Email + SMS go through new-send. WhatsApp is NOT dispatched because
       // the test client has client.phone but no waMessage path can fire
       // without isWaEnabled() — in this cutover, waMessage is built but
-      // only dispatched when client.phone is present (mirror PR-9 policy).
+      // only dispatched when client.phone is present (mirrors the payment-reminder policy).
       // We expect at least email + sms calls.
       expect(sendMessageMock.mock.calls.length).toBeGreaterThanOrEqual(2)
 
@@ -530,7 +531,7 @@ describe("triggerNotification — application_submitted cutover", () => {
   })
 })
 
-// ── PR-10b–f cutover tests ────────────────────────────────────────────────────
+// ── Per-event cutover tests ───────────────────────────────────────────────────
 
 const loanCommon = {
   id: "ln1",
@@ -1185,9 +1186,9 @@ describe("triggerNotification — per-event flag isolation", () => {
   })
 })
 
-// Prod runs BULKSMS_DRY_RUN=true — SMS is off. Both dispatch paths used to
-// send anyway and record a `simulated` NotificationLog row (plus, on the
-// new-send path, a SIMULATED Message row) for a message nobody received.
+// With BULKSMS_DRY_RUN=true SMS is off. Neither dispatch path may send anyway
+// and record a `simulated` NotificationLog row (plus, on the new-send path, a
+// SIMULATED Message row) for a message nobody received.
 describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () => {
   beforeEach(() => {
     vi.clearAllMocks()

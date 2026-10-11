@@ -19,10 +19,9 @@ describe("REASONS", () => {
 })
 
 describe("NO_SIGNAL_APPROVAL_REASON", () => {
-  // The owner ruled on this exact wording (2026-08-06) — plain hyphen, not
-  // an em dash — after C1 found the one-click "Mark payable" path (no
-  // signals) submitting REASONS.PAYABLE[0], which falsely claims a
-  // duplicate check was performed.
+  // The wording is fixed — plain hyphen, not an em dash — because the
+  // one-click "Mark payable" path (no signals) must not submit
+  // REASONS.PAYABLE[0], which falsely claims a duplicate check was performed.
   it("matches the owner-approved wording exactly", () => {
     expect(NO_SIGNAL_APPROVAL_REASON).toBe("Approved from the commission queue - no triage signals raised")
   })

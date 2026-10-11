@@ -6,7 +6,7 @@ import {
 } from "@/lib/kyc/extraction-bank-fields"
 
 describe("storedBankName", () => {
-  // The incident: the VLM read "STANDARD BANK" off the statement and the route
+  // The failure: the VLM read "STANDARD BANK" off the statement and the route
   // stored that string, while the staff form stores the SA_BANKS code
   // "STANDARD_BANK". The two are the same bank and a different string, so every
   // re-apply counted as a bank-detail change and un-verified the statement.
@@ -34,14 +34,14 @@ describe("storedBankName", () => {
 })
 
 describe("resolveExtractedBankName", () => {
-  // Canonicalising only the EXTRACTED side left the gap this closes: a staging
-  // client stores "First National Bank" (the label
+  // Canonicalising only the EXTRACTED side left the gap this closes: a client
+  // stores "First National Bank" (the label
   // form), extraction read the same words off the statement, and comparing the
   // canonicalised "FNB" against the raw stored label still read as a bank
-  // change — 409 "decision evidence is bound to bankName". Production holds the
-  // same spread: CAPITEC (18) and Capitec (5), Capitec Bank Limited (2),
-  // Capitec Bank, capitec, Standard Bank, Discovery Bank, African Bank, many on
-  // clients with verified statements.
+  // change — 409 "decision evidence is bound to bankName". Stored values come
+  // in many spellings (CAPITEC, Capitec, Capitec Bank Limited, capitec,
+  // Standard Bank, Discovery Bank, African Bank), including on clients with
+  // verified statements.
   it.each([
     ["First National Bank", "First National Bank"],
     ["Capitec", "CAPITEC BANK LIMITED"],
@@ -87,10 +87,10 @@ describe("resolveExtractedBankName", () => {
 })
 
 describe("resolveExtractedAccountType", () => {
-  // Staff-confirmed wins (Hein, 2026-08-28). Capitec and several ABSA products
+  // Staff-confirmed wins. Capitec and several ABSA products
   // print no account type, so the VLM guesses; a staff member who has read the
-  // statement has not. Overwriting their value invalidated a verified statement
-  // five times on one file and blocked a disbursement.
+  // statement has not. Overwriting their value invalidates a verified statement
+  // and can block a disbursement.
   it("does not apply an extracted type over a value the record already holds", () => {
     expect(resolveExtractedAccountType({ extracted: "CHEQUE", record: "SAVINGS" })).toEqual({
       apply: undefined,

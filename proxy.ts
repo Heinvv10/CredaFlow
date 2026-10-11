@@ -34,7 +34,7 @@ export default auth((req) => {
   // Smart email-CTA entry: checks account state and 302s to login or register.
   // Public like the login/register pages it routes to (it holds no session).
   const isPortalContinuePage = req.nextUrl.pathname === "/portal/continue"
-  // Client-facing self-service reset page (W-5). Must be public like
+  // Client-facing self-service reset page. Must be public like
   // /portal/login and /portal/register — the page's own auth() redirects a
   // logged-in user, so no separate logged-in guard entry is needed.
   const isPortalForgotPasswordPage = req.nextUrl.pathname === "/portal/forgot-password"
@@ -51,8 +51,8 @@ export default auth((req) => {
   // the embed is fully configured (lib/insurance/quickquote-config.ts).
   //
   // Scoped to the allow-listed quote hosts. Path alone is NOT sufficient:
-  // prod's `app` and `app-portal` are separate services sharing ONE image, so
-  // a path-only match served FSP's jQuery 1.9.1 bundle on app.* and portal.*
+  // `app` and `app-portal` are separate services sharing ONE image, so
+  // a path-only match would serve FSP's jQuery 1.9.1 bundle on app.* and portal.*
   // — the origins that carry staff and client session cookies. Script running
   // there can issue same-origin credentialed fetches from any logged-in tab.
   const isQuoteHostRoute = path === "/quote" || path.startsWith("/quote/")
@@ -74,8 +74,7 @@ export default auth((req) => {
   const isSharedClientApi = isSharedClientApiPath(req.nextUrl.pathname)
   const isPublicWebsiteRoot = path === "/"
   // SEO/AI-crawler assets must reach robots/sitemap/llms.txt without redirecting
-  // to staging login — these three paths are intentionally always public.
-  // See PR #147 for the full audit context.
+  // to the login page — these three paths are intentionally always public.
   const isSeoAsset =
     path === "/robots.txt" || path === "/sitemap.xml" || path === "/llms.txt"
   // Static in-app learning media for authenticated staff manual pages. Public

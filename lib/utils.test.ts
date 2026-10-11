@@ -7,7 +7,7 @@ import { formatDate, formatDateTime, maskEmail, escapeHtml } from "./utils"
 // or toLocale*() without an explicit timeZone) instead of pinning SAST
 // explicitly, this is exactly the case that flips output between a server
 // (commonly UTC) and a browser (SAST) — the class of bug behind the React
-// #418 hydration mismatches this fix addresses.
+// #418 hydration mismatches this pinning prevents.
 const CROSS_MIDNIGHT_UTC = "2026-07-11T23:30:00.000Z"
 
 describe("formatDate — pinned to Africa/Johannesburg regardless of runtime zone", () => {

@@ -5,8 +5,8 @@
  * Fails if any backtick-quoted `lib/...` / `app/...` path doesn't exist on
  * disk. Catches the "rename without doc update" pattern that no test notices.
  *
- * Covers THREE tiers — the root CLAUDE.md and the skills were unprotected
- * until 2026-07-29, which is exactly where the drift accumulated (the root file
+ * Covers THREE tiers — the root CLAUDE.md and the skills are easy to leave
+ * unprotected, which is exactly where drift accumulates (the root file
  * carries the most path references of any doc in the repo):
  *   1. nested `.claude.md` under lib/ app/ prisma/
  *   2. root `CLAUDE.md`

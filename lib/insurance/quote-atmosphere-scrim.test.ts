@@ -251,8 +251,8 @@ describe("quote atmosphere scrim", () => {
   })
 
   /* And it must cover it with a REAL margin, which is a different claim.
-     `>= COLUMN_HALF_REM` was satisfied by equality, and equality measured 6px
-     of actual clearance on staging — because the gradient is centred on the
+     `>= COLUMN_HALF_REM` was satisfied by equality, and equality gave 6px
+     of actual clearance in a browser — because the gradient is centred on the
      viewport while the column is centred on the content box, so a scrollbar
      offsets one from the other and eats the difference. 6px is not a margin;
      it is a rounding error that happened to have the right sign.

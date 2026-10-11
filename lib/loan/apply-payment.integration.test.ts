@@ -1,5 +1,5 @@
 /**
- * Real-Postgres integration test for the payment lost-update race (issue #422).
+ * Real-Postgres integration test for the payment lost-update race.
  *
  * A true lost-update race only manifests against a real database with real
  * transaction isolation — mocked Prisma has no locking semantics — so this test

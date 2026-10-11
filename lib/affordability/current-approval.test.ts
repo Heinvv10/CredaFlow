@@ -116,7 +116,7 @@ function transactionFor(
 
 describe("locked affordability approval verification", () => {
   it("approves without biometrics, but still refuses to bind the consumer", async () => {
-    // Policy 2026-07-27: biometrics gate signing and payout, not origination.
+    // Policy: biometrics gate signing and payout, not origination.
     // The two verifiers must therefore disagree on exactly this input — four
     // verified core documents, no selfie ever captured, cached kycStatus still
     // PENDING because no identity evidence exists yet. If both used the same
@@ -317,7 +317,7 @@ describe("locked affordability approval verification", () => {
     })
 
     it("approves a NO-OFFER application — premium 0 is legal, not an error", async () => {
-      // The 2026-07-28 production outage shape: DECLINED + premium exactly 0
+      // The failure shape: DECLINED + premium exactly 0
       // + no-offer disclosure. createPasqBillingEvidence REJECTS a zero
       // premium when `offered` defaults to true, so a call site that omits
       // the flag makes every such application unapprovable at approval time.
@@ -558,10 +558,10 @@ describe("locked affordability approval verification", () => {
 // A product's pricing terms are what the consumer was quoted under NCA s.92 and
 // agreed to. Editing the LoanProduct row afterwards is ordinary maintenance for
 // FUTURE applications — it must never reach backwards and invalidate a deal that
-// has already been priced, quoted and approved. Prod 2026-07-30: flipping the
-// Personal Loan product REDUCING_BALANCE -> FLAT silently repriced an approved
+// has already been priced, quoted and approved. Flipping the Personal Loan
+// product REDUCING_BALANCE -> FLAT must not silently reprice an approved
 // R10,000 loan from 3 instalments totalling R11,892.91 to a single R12,187.00
-// bullet payment, and blocked its agreement from being generated at all.
+// bullet payment, nor block its agreement from being generated.
 describe("product pricing terms are frozen at approval", () => {
   // The repriced product below is deliberately a WORSE deal on a DIFFERENT
   // interest model, so if the verifier ever re-derives from the live row again

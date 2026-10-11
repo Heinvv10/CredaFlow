@@ -59,7 +59,7 @@ it("offers the internal note toggle on the client comms tab", () => {
 })
 
 it("clears a stale send-failure banner once a note is added successfully", async () => {
-  // Finding 3: addNote didn't clear `fallback` on entry (unlike sendReply),
+  // addNote didn't clear `fallback` on entry (unlike sendReply),
   // so a successful note could sit under a leftover "Message could not be
   // sent right now." banner from an earlier failed reply — a false claim
   // about an action that just succeeded.

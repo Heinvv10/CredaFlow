@@ -22,7 +22,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     $transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
       cb({
-        // #422: the tx now takes a FOR UPDATE lock on the loan first.
+        // The tx takes a FOR UPDATE lock on the loan first.
         $queryRaw: () => Promise.resolve([]),
         $executeRawUnsafe: (statement: string) =>
           executeRawUnsafeMock(statement),

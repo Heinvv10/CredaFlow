@@ -1,8 +1,8 @@
 // Inbound counterpart to lib/email/recipient-guard.ts. That guard stops a
 // non-production box SENDING to a member of the public; this one stops it
 // CONNECTING to the production mailbox — where it would read, thread and
-// (via record-inbound) mutate real customer conversations, and where a staging
-// poll racing production's poll silently competes for the same messages.
+// (via record-inbound) mutate real customer conversations, and where a
+// non-production poll racing production's poll silently competes for the same messages.
 //
 // Same delivery-mode detector as recipient-guard.ts:56-60: only the exact
 // string "unrestricted" opts out, so a typo leaves the box restricted.

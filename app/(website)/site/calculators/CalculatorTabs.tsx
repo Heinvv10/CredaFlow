@@ -41,7 +41,7 @@ export default function CalculatorTabs() {
       </div>
 
       {/* Keep every tab mounted (hidden when inactive) so entered inputs survive
-          a tab switch — the old conditional render unmounted and discarded them (W-29). */}
+          a tab switch — the old conditional render unmounted and discarded them. */}
       <div className={active === "repayment" ? "" : "hidden"}><RepaymentTab /></div>
       <div className={active === "affordability" ? "" : "hidden"}><AffordabilityTab /></div>
       <div className={active === "comparison" ? "" : "hidden"}><ComparisonTab /></div>

@@ -187,11 +187,11 @@ describe("POST /api/clients — real failures are not disguised as duplicates", 
 })
 
 describe("POST /api/clients — phone/email already held by another contact", () => {
-  // Real case (2026-09-15): staff captured a client whose phone number was
-  // already provisioned for a different client. The ContactIdentity unique
-  // constraint refused it, the target was ["tenantId", ...], and the operator
-  // got "A client with these details already exists" — then searched for the
-  // applicant by ID and name, found nothing, and was stuck.
+  // Staff can capture a client whose phone number is already provisioned for
+  // a different client. The ContactIdentity unique constraint refuses it with a
+  // target of ["tenantId", ...]; a generic "A client with these details already
+  // exists" would leave the operator searching for the applicant by ID and name,
+  // finding nothing, and stuck.
 
   it("names the phone number and the client who already has it", async () => {
     transactionMock.mockRejectedValue(identityViolation())

@@ -71,7 +71,7 @@ export interface ManualReceiptInput {
 /**
  * The transaction runner applyManualReceipt needs. `Pick<typeof prisma, …>`
  * captures the tenant-scope-extended client's exact `$transaction` type, so the
- * production caller passes the singleton with no cast (matches the codebase
+ * real caller passes the singleton with no cast (matches the codebase
  * convention in lib/messaging/types.ts and lib/consent.ts). Tests pass a plain
  * PrismaClient cast to this type.
  */
@@ -82,7 +82,7 @@ export type PaymentDb = Pick<typeof prisma, "$transaction">
  *
  * The whole read-modify-write runs inside one transaction that FIRST takes a
  * `FOR UPDATE` lock on the loan (see lockLoanForUpdate) so concurrent receipts
- * serialise instead of racing on a stale balance (issue #422). The settlement
+ * serialise instead of racing on a stale balance. The settlement
  * split is computed against the freshly-locked balance, so two concurrent
  * payments can't each pass the "within settlement" check and jointly
  * over-collect.
@@ -273,8 +273,8 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
         })
       }
 
-      // Recompute principal + arrears + DPD from the post-payment schedule
-      // (audit F-14/F-15). Arrears describe TODAY, so this stays on `asOf` even
+      // Recompute principal + arrears + DPD from the post-payment schedule.
+      // Arrears describe TODAY, so this stays on `asOf` even
       // when the receipt is back-dated.
       const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
       closedAt = isCompleted ? await closingValueDate(tx, input.loanId, receivedAt) : loan.closedAt

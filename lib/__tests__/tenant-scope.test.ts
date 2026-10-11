@@ -52,9 +52,9 @@ describe("tenant-scope — ALS primitives", () => {
       "NotificationLog", "ComplianceRecord", "CreditBureauCheck",
       "Complaint", "DataSubjectRequest", "LoginLog",
       "Insurer", "CoiDeclaration", "TcfOutcome",
-      // PR #97 — insurance flow
+      // Insurance flow
       "InsuranceProduct",
-      // Phase 9 CRM + helpdesk (PR #170, S1 step 1a). WebhookSignatureFailure
+      // Phase 9 CRM + helpdesk. WebhookSignatureFailure
       // is excluded since its tenantId is nullable.
       "Contact", "ContactIdentity", "ContactConsent",
       "ContactMerge", "Conversation", "Message",
@@ -67,7 +67,7 @@ describe("tenant-scope — ALS primitives", () => {
       // Phase 7 collection engine — non-null tenantId; lib/avs.ts passes
       // explicit tenantId on create and guards cross-tenant on read.
       "AvsCheck",
-      // In-app bell items (#442) — non-null tenantId. Written both inside a
+      // In-app bell items — non-null tenantId. Written both inside a
       // request (withTenantContext's ALS frame) and by the lead-task-reminder
       // cron, which has NO frame and therefore passes an explicit tenantId on
       // every call; the rewriter requires one or the other.

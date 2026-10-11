@@ -8,7 +8,7 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Mail, ArrowLeft, CheckCircle, KeyRound } from "lucide-react"
 
-// Client-facing self-service password reset (audit W-5). A locked-out portal
+// Client-facing self-service password reset. A locked-out portal
 // client previously had no route back in except a dead support mailbox. This
 // wires the UI to the existing OTP endpoints:
 //   POST /api/portal/forgot-password  { email }                 -> emails a 6-digit code

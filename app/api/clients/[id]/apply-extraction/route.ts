@@ -350,10 +350,9 @@ export async function POST(
         // verified selfie and resets kycStatus whenever the subject fingerprint
         // moves. That is correct — evidence bound to the old identity does not
         // describe the new one — but it happened with no warning, and OCR'd
-        // names arrive here one click away from a bulk apply. In production a
-        // client verified in person at 13:16 had that verification and two
-        // passing selfies destroyed at 13:30 by an ID_COPY apply; the only
-        // remaining route was to re-verify the person.
+        // names arrive here one click away from a bulk apply. An ID_COPY
+        // apply can destroy an in-person verification and passing selfies; the
+        // only remaining route is to re-verify the person.
         //
         // The APPROVED-application refusal above is the same shape: name what
         // is bound, refuse, say how to proceed. This one is overridable because

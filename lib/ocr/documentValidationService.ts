@@ -1,7 +1,6 @@
 /**
  * Document Validation Service
  * Compares VLM-extracted data against client records to detect mismatches.
- * Adapted from FibreFlow's staff validation to work with LMS clients.
  */
 
 import { prisma } from '@/lib/prisma'

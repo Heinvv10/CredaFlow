@@ -6,11 +6,10 @@ const LOCKED_STATUTORY_EVIDENCE_TYPES = new Set([
   "EXECUTED_CREDIT_AGREEMENT",
   "FORM_20_PRE_AGREEMENT",
   "DEBIT_MANDATE",
-  // The returned packet the consumer physically signed. It was filed as OTHER
-  // until 2026-08-05, which left it deletable and verifiable through the
-  // generic paths — and a prod row reached verified=true while its
-  // signatureState was still 'returned_pending_recording', a combination the
-  // signing route never writes. Verification of this artifact happens inside
+  // The returned packet the consumer physically signed. Filed as OTHER it
+  // would be deletable and verifiable through the generic paths, allowing
+  // verified=true while its signatureState is still
+  // 'returned_pending_recording', a combination the signing route never writes. Verification of this artifact happens inside
   // the recording transaction, against the digest, or not at all.
   "SIGNED_AGREEMENT_PACKET",
 ])

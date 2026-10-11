@@ -160,8 +160,8 @@ describe("StatementsTab shape", () => {
 
 describe("unknownAgentSentence", () => {
   // These read as trivial. They exist because the interleaved-JSX form of this
-  // sentence rendered "agent isno longer" in the production build while the
-  // element tree — and therefore every test above — kept the space. Asserting
+  // sentence can render "agent isno longer" in a production build while the
+  // element tree — and therefore every test above — keeps the space. Asserting
   // the whole sentence as one string is what makes the wording checkable at all.
   it("reads correctly in the singular", () => {
     expect(unknownAgentSentence(1)).toBe(

@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   try {
     payment = await prisma.$transaction(async (tx) => {
       // Serialise against concurrent receipts on this loan before reading its
-      // balances for allocation (issue #422).
+      // balances for allocation.
       await lockLoanForUpdate(tx, stitchPayment.loanId)
 
       const result = await tx.stitchPaymentRequest.updateMany({
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
 
       // Stitch has already moved real money, so every terminal branch persists
       // a receipt. Only allocate against the schedule when the
-      // loan is in a state that still owes on that schedule (post-#365 policy:
+      // loan is in a state that still owes on that schedule (policy:
       // ACTIVE+DEFAULTED allocate; PENDING_WRITE_OFF/WRITTEN_OFF/COMPLETED/etc
       // need manual reconciliation instead).
       if (loan && ["ACTIVE", "DEFAULTED"].includes(loan.status)) {
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
         }
 
         // Recompute outstanding principal + arrears + DPD from the full
-        // post-payment schedule (audit F-14/F-15).
+        // post-payment schedule.
         const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
         const newTotalPaid = projection.newTotalPaid
         const isCompleted = projection.isCompleted

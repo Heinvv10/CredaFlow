@@ -91,8 +91,8 @@ type ConversationRow = {
 // Newest customer-facing message's channel per conversation. Internal notes
 // are excluded: lib/inbox/notes.ts stamps them with Conversation.channel, so
 // a note posted after a WhatsApp reminder would put the stale badge back.
-// SIMULATED is excluded too: those rows were never sent (431 SMS in prod, none
-// delivered), so badging a thread SMS would claim a channel that never ran.
+// SIMULATED is excluded too: those rows were never sent (SMS is off by
+// policy and nothing was delivered), so badging a thread SMS would claim a channel that never ran.
 // Raw SQL for DISTINCT ON — Prisma's `distinct` loads every row into JS.
 async function latestChannelByConversation(tenantId: string, ids: string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map()
@@ -154,8 +154,8 @@ export async function listConversations(args: {
     where: queueWhere(args.queue, args.tenantId, args.agentUserId),
     // lastActivityAt, NOT lastInboundAt: a thread that has only ever had
     // outbound traffic has lastInboundAt = null and sorted below every
-    // conversation that ever got a reply, which put 39% of PROD conversations
-    // permanently past the first page. See lib/inbox/ordering.ts.
+    // conversation that ever got a reply, which could leave it permanently
+    // past the first page. See lib/inbox/ordering.ts.
     // Mirrored by compareConversations() for the client's poll-merge. Change
     // both together or the list visibly reshuffles on the first delta tick.
     orderBy: [{ lastActivityAt: { sort: "desc", nulls: "last" } }, { id: "desc" }],

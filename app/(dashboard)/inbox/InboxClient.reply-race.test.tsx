@@ -1,7 +1,7 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-// The staging walk: after Send the composer cleared but the reply showed only seconds later. The
+// After Send the composer cleared but the reply showed only seconds later, though the
 // server had stored it. The 4s poll's thread read, sent before the reply was stored, could land
 // after the read that followed the send and put the thread back as it was.
 vi.mock("./QueuePanel", () => ({ QueuePanel: () => null }))

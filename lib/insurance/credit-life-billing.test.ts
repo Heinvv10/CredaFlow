@@ -26,12 +26,11 @@ describe("credit-life billing periods", () => {
   })
 })
 
-// Production outage 2026-07-28: every application created after credit-life
-// shipped carried election=DECLINED with a premium of exactly 0, because no
-// CREDIT_LIFE product is configured for the tenant. This helper demanded a
-// positive premium unconditionally — before its own `if (!accepted)` early
-// return could fire — so PASQ generation threw an uncaught RangeError and
-// returned an empty 500. No application could be approved at all.
+// When no CREDIT_LIFE product is configured for the tenant, every application
+// carries election=DECLINED with a premium of exactly 0. This helper must not
+// demand a positive premium unconditionally — before its own `if (!accepted)`
+// early return — or PASQ generation throws an uncaught RangeError and returns
+// an empty 500, and no application can be approved at all.
 //
 // The DB models this state explicitly: the
 // LoanApplication_credit_life_election_complete CHECK admits

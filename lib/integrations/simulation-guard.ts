@@ -41,11 +41,11 @@ export function isDeployedBuild(): boolean {
  * a lending decision or asserts that money moved.
  *
  * BulkSMS is deliberately absent. Its simulation is a supported operating mode
- * (prod runs `BULKSMS_DRY_RUN=true` today) and it is modelled honestly
+ * (a deployment may run `BULKSMS_DRY_RUN=true`) and it is modelled honestly
  * end-to-end: status `SIMULATED` not `SENT`, dispatch state `SIMULATED` not
  * `ACCEPTED`, audit action `MESSAGE_SIMULATED`, and an amber "Simulated — not
  * sent" in the UI. Nothing is fabricated, so there is nothing to forbid —
- * gating it would break prod messaging for no safety gain.
+ * gating it would break messaging for no safety gain.
  */
 const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
   experian: {
@@ -97,8 +97,8 @@ function explicitlyAllowed(integration: GuardedIntegration): boolean {
   // A provider carrying its own vendor-sandbox rule is NOT opt-in-able. Smile is
   // the KYC source of truth and its prior guard threw unconditionally whenever
   // SMILE_IDENTITY_ENV was not "test"; letting the generic list satisfy it would
-  // widen that boundary rather than preserve it — a regression introduced by
-  // this very refactor and caught in review. For those providers the vendor
+  // widen that boundary rather than preserve it — a regression the
+  // refactor must not introduce. For those providers the vendor
   // signal is the ONLY route to simulation.
   if (SIMULATION_FORBIDDEN_ON_DEPLOYED[integration].sandboxEnvVar) return false
 

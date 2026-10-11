@@ -80,7 +80,7 @@ export default async function CompliancePage({
     // Status of the return actually due, rather than "is there any PENDING row
     // anywhere". The card previously fell through to a hardcoded SUBMITTED
     // badge whenever no PENDING row existed — including when no NCR record had
-    // ever been created, which is the case in production.
+    // ever been created, which is the case on a fresh deployment.
     // A filed return outranks any other row for the quarter. Ordering by
     // createdAt alone let a later PENDING row mask an earlier SUBMITTED one and
     // report a filed quarter as outstanding, so submitted rows are preferred

@@ -185,7 +185,7 @@ describe("PortalApplyProductClient with no credit-life offer", () => {
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
   })
 
-  // Regression: prod's only CREDIT_LIFE product has no insurer, so every
+  // Regression: when the only CREDIT_LIFE product has no insurer, every
   // portal applicant gets creditLifeOffer === null. The old
   // `disabled={!creditLifeDisclosureAcknowledged}` gate could then never
   // open (the disclosure block doesn't render), which made the portal

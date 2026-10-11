@@ -26,8 +26,8 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
  * digest. The upload route already rejects them (`VALID_DOC_TYPES`, 400
  * "Invalid docType"), so offering them in a picker is a dead option — and not a
  * harmless one. They are exactly what someone holding a returned signed packet
- * reaches for instead of "Upload and Record Signed Packet", which is the
- * mistake that left two live consumers' signed documents inert on 2026-08-04.
+ * reaches for instead of "Upload and Record Signed Packet", which leaves the
+ * signed documents inert, never recorded against the application.
  *
  * DOC_TYPE_LABELS still carries all of them: generated documents must render a
  * label wherever they are LISTED. This list governs what may be CREATED.

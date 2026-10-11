@@ -94,8 +94,8 @@ export function UploadDialog({
   const [error, setError] = useState("")
   // The upload succeeded, but the file is not what staff may think it is. This
   // holds the dialog open instead of closing behind a toast — the whole point
-  // is that a vanishing confirmation is how a signed agreement came to sit
-  // unrecorded against a live loan.
+  // is that a vanishing confirmation lets a signed agreement sit
+  // unrecorded against a loan.
   const [postUploadWarning, setPostUploadWarning] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -333,7 +333,7 @@ export function UploadDialog({
                   the server re-resolve the tab, and only then does the
                   #kyc-identity-verification anchor exist to scroll to. Same
                   reason app/(dashboard)/settings/whatsapp uses a bare <a> for
-                  its own ?tab= deep link. Walked on staging 918ad0c4. */}
+                  its own ?tab= deep link. */}
               {selfieAlternatives && (
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[rgba(255,255,255,0.035)] p-3 text-sm text-[var(--cf-text-muted)]">
                   <p className="font-medium text-[var(--cf-text)]">

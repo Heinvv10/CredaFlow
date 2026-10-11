@@ -20,10 +20,10 @@ type Limits = { minAmount: number; maxAmount: number; minTermDays: number; maxTe
 
 // Real product limits (cents / days) derived from the LIVE product (fail-open to
 // static). The compare only quotes each product within the range it can actually
-// be originated at (W-16), and only declares a "cheaper" winner when BOTH products
+// be originated at, and only declares a "cheaper" winner when BOTH products
 // can serve the selected amount AND term. Personal loans start at 3 months, so
 // below 90 days the personal card is shown as unavailable rather than fed a
-// degenerate 0-month schedule that dropped the initiation fee (W-3).
+// degenerate 0-month schedule that dropped the initiation fee.
 function limitsFor(p: PublicLoanProduct): Limits {
   return {
     minAmount: p.minAmount,
@@ -53,7 +53,7 @@ function rangeLabel(lim: Limits): string {
 }
 
 // Fees/rates come from the LIVE product (fail-open to static), so this tab agrees
-// with the product calculator and updates when the admin edits a rate/fee (W-2).
+// with the product calculator and updates when the admin edits a rate/fee.
 function buildQuote(p: PublicLoanProduct, amountCents: number, termDays: number): LoanCalcResult {
   return calculateLoan({
     principal: amountCents,

@@ -121,7 +121,7 @@ describe("centsToRandDebts", () => {
       } as unknown as { outstandingBalance: number; monthlyInstalment: number },
     ])
     expect(out[0].outstandingBalance).toBe(0)
-    // 49100 cents -> R491: the exact inverse of the prod-corruption case.
+    // 49100 cents -> R491: the exact inverse of the double-conversion corruption case.
     expect(out[0].monthlyInstalment).toBe(491)
     expect((out[0] as { notes?: string }).notes).toBe("keep me")
   })

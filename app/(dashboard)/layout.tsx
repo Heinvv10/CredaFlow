@@ -18,8 +18,8 @@ async function getSidebarData(tenantId: string) {
     }),
     prisma.loan.count({
       // Match the collections queue + dashboard count (the collectible book,
-      // actually in arrears) — the badge previously disagreed (audit F-03), and
-      // a settled R0 loan with stale DPD must not inflate it (F-20). The
+      // actually in arrears) — the badge previously disagreed, and
+      // a settled R0 loan with stale DPD must not inflate it. The
       // population moves with COLLECTIBLE_STATUSES so the badge cannot drift
       // from the queue it counts.
       where: {

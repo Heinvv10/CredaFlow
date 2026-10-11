@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     // Every notice prints the tenant's own NCR registration; refuse the whole
-    // batch before any work when it is missing or invalid (audit F-11).
+    // batch before any work when it is missing or invalid.
     const lender = await lenderIdentityOrRefusal(tenant.id)
     if (lender.refusal) return lender.refusal
     const logo = await getLenderLogo(tenant.id)
@@ -472,7 +472,7 @@ export async function POST(req: NextRequest) {
             ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
             : {}),
         }).catch(() => {
-          // Preserve the non-retryable result even during a DB incident.
+          // Preserve the non-retryable result even during a DB failure.
         })
         results.push({ loanId: loan.id, reference: loan.reference, outcome: "RECONCILIATION_REQUIRED", issuanceId: reservation.issuanceId, error: "Provider accepted notice but finalisation failed" })
         continue

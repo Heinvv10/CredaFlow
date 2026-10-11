@@ -172,9 +172,8 @@ describe("POST /api/collections/[loanId]/reminder", () => {
     }))
   })
 
-  // Prod runs BULKSMS_DRY_RUN=true. The SMS leg used to dispatch anyway and
-  // come back SIMULATED — a manual reminder that reads as handled but that
-  // the borrower never received.
+  // With BULKSMS_DRY_RUN=true the SMS leg must not dispatch and
+  // report SIMULATED as handled — a manual reminder the borrower never received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {
     afterEach(() => {
       delete process.env.BULKSMS_DRY_RUN

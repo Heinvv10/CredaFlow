@@ -27,7 +27,7 @@ export type CreditLifeRetentionDecision =
  * second bureau footprint to re-record byte-identical evidence.
  *
  * RETENTION HAS NO TIME BOUND, and that is a decision, not an oversight.
- * Reviewed and chosen by Hein on 2026-08-12: an election is retained on
+ * An election is retained on
  * integrity alone — whether it still verifies against current state — with no
  * expiry on how long ago the consumer acknowledged it.
  *

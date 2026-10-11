@@ -125,7 +125,7 @@ export async function loadCommissionData(opts: {
     : []
   const clientIdByLoanId = new Map(allLoans.map((l) => [l.id, l.clientId]))
 
-  // Agents are a small roster (12 in production), so fetching all of them is
+  // Agents are a small roster, so fetching all of them is
   // cheaper than a per-row lookup and lets a borrower match ANY agent, not just
   // the referring one.
   const agents = await prisma.referralAgent.findMany({
@@ -180,7 +180,7 @@ export async function loadCommissionData(opts: {
       code: event.code,
       lead: event.lead,
       borrower,
-      // OWNER RULING (2026-08-07): never suppressed while the row is in the
+      // Owner rule: signals are never suppressed while the row is in the
       // queue. A prior decision does NOT take a row out of queueWhere (Block
       // sets qualityFlag LOW_QUALITY, which the filter's `qualityFlag not
       // null` arm still matches), so hiding its signals left the one-click

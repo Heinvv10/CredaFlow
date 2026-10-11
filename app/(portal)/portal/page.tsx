@@ -491,7 +491,7 @@ function InsuranceSection({
                     the cents the form sends by 100 — see app/api/insurance/policies).
                     formatZAR expects CENTS, so multiply by 100, matching the staff
                     surfaces (e.g. settings/products/insurance). Without this the
-                    portal showed premiums 100× too small (R5 → "R 0.05"). F-01. */}
+                    portal showed premiums 100× too small (R5 → "R 0.05"). */}
                 <p className="mt-0.5 text-[12px] text-[var(--cf-text-muted)]">Coverage: <span className="whitespace-nowrap">{formatZAR(Number(policy.sumAssured) * 100)}</span></p>
               </div>
               <div className="text-right">

@@ -4,10 +4,9 @@
 // ~570 files run under it today and flipping the default to jsdom to serve one
 // new file would change the environment every one of them runs in.
 //
-// This file exists because two independent review rounds found defects in the
-// DOM layer and in no other part of the change. The pure bridge functions were
-// caught by tests or were right first time; `write` and `checkboxTaken` were
-// caught only by someone reading them, because nothing could execute them.
+// This file exists because the DOM layer is where defects hide. The pure bridge
+// functions are covered by plain tests; `write` and `checkboxTaken` could be
+// checked only by reading them until something could execute them.
 
 import { beforeEach, describe, expect, it } from "vitest"
 import { checkboxTaken, checkedBindingProperty, control, readOptions, write } from "./quickquote-dom"

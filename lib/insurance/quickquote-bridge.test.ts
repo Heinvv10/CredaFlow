@@ -473,7 +473,7 @@ describe("acceptsNumber", () => {
     expect(acceptsNumber("contentsValue", "7500000")).toBe(true)
   })
 
-  // The bound is checked here or nowhere: measured on quote-staging, assigning
+  // The bound is checked here or nowhere: observed on FSP's test site, assigning
   // an out-of-range value to their input succeeds and their model takes it.
   it("refuses a value below or above FSP's bounds", () => {
     expect(acceptsNumber("contentsValue", "99999")).toBe(false)
@@ -884,7 +884,7 @@ describe("arrivalPlan", () => {
     excessLabel: "basic excess",
   })
 
-  // FSP's real return order from the 2026-08-08 staging walk, which is not
+  // FSP's real return order as observed on their test site, which is not
   // price order — that mismatch is the whole point of the re-sort.
   const arrived = () => [
     q("King Price", 729.6),
@@ -1089,7 +1089,7 @@ describe("canAddVehicle", () => {
 })
 
 describe("the vehicle / policy field split", () => {
-  // Measured after addVehicle(): #tVehicles held exactly Year, Make, Model,
+  // Observed after addVehicle(): #tVehicles held exactly Year, Make, Model,
   // vehicleuse, overnightparking. Everything else was gone from the DOM.
   it("asks five fields per additional vehicle", () => {
     expect([...VEHICLE_FIELDS].sort()).toEqual(

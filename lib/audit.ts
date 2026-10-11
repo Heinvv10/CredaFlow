@@ -292,7 +292,7 @@ export const AuditAction = {
   // only. With the flag off, app/api/insurers/**, app/api/products/insurance/**,
   // app/api/portal/insurance/**/ppr-acknowledge and app/api/cron/insurance-renewal
   // all still serve — deliberately, because live credit life reads insurer and
-  // insurance-product records and gating them would break production.
+  // insurance-product records and gating them would break credit life.
   // Recorded because it opens and closes the gated surface plus the Insurance
   // and Compliance staff sections.
   IMS_MODULE_ENABLED:                "IMS_MODULE_ENABLED",
@@ -305,7 +305,7 @@ export const AuditAction = {
   INSURANCE_POLICY_AUTOBUNDLED:           "INSURANCE_POLICY_AUTOBUNDLED",
   INSURANCE_AUTOBUNDLE_SKIPPED:           "INSURANCE_AUTOBUNDLE_SKIPPED",
   INSURANCE_PATCH_FAIS_LOCKED:            "INSURANCE_PATCH_FAIS_LOCKED",
-  // F-25: PPR / FAIS disclosure issued for an auto-bundled credit-life policy.
+  // PPR / FAIS disclosure issued for an auto-bundled credit-life policy.
   INSURANCE_PPR_ISSUED:                   "INSURANCE_PPR_ISSUED",
   INSURANCE_PPR_ISSUE_FAILED:             "INSURANCE_PPR_ISSUE_FAILED",
   // Policyholder acknowledging the PPR disclosure themselves in the portal.

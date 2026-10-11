@@ -119,7 +119,7 @@ export async function processEscalations(): Promise<EscalationResult> {
       tenantId: tenant.id,
       status: { in: ["ACTIVE", "DEFAULTED"] },
       daysInArrears: { gte: 5 },
-      // Never auto-escalate / auto-S.129 a settled R0 account (audit F-20).
+      // Never auto-escalate / auto-S.129 a settled R0 account.
       arrearsAmount: { gt: 0 },
       outstandingPrincipal: { gt: 0 },
     },

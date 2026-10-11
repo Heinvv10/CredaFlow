@@ -1315,7 +1315,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // W-4: send a real confirmation email so the success page's promise is
+    // send a real confirmation email so the success page's promise is
     // true, but ONLY when an application was actually created (applicationId) —
     // never on an identity conflict, a blacklisted client, or a lead-only
     // submission, so we don't send an official "application received / Status:
@@ -1330,7 +1330,7 @@ export async function POST(req: NextRequest) {
               : productTypeNormalised === "MICRO" ? "Short-term Loan"
                 : "Loan enquiry"
         // Route at CLICK time via /portal/continue rather than baking the
-        // login-vs-register choice here (finding W-11): it re-checks account
+        // login-vs-register choice here: it re-checks account
         // state when the customer clicks — so a customer who registers between
         // this email going out and clicking it still lands on login, not a stale
         // register link — and matches email+reference to avoid enumeration.
@@ -1389,7 +1389,7 @@ export async function POST(req: NextRequest) {
     // run before the applicant's own confirmation.
     //
     // Nothing about the outcome reaches the response below — the applicant must
-    // not be able to learn that we recognise them (enumeration safety, PR #412).
+    // not be able to learn that we recognise them (enumeration safety).
     // NOT reached by the two early idempotent-replay returns above (the
     // already-converted replay, and the pre-application submissionKey replay).
     // That is correct, not an oversight: a replay is the SAME submission
@@ -1400,9 +1400,9 @@ export async function POST(req: NextRequest) {
     // Runs AFTER the response is sent. Not a detail: on a match this does a
     // throttle write, a Notification insert and a real SMTP send, and three of
     // these five routes send no email at all when there is no match. Awaiting
-    // it made a recognised submission measurably slower than an unrecognised
-    // one — a timing oracle for the exact fact this route must never reveal
-    // (enumeration safety, PR #412). Response timing is now identical either
+    // it would make a recognised submission measurably slower than an
+    // unrecognised one — a timing oracle for the exact fact this route must
+    // never reveal (enumeration safety). Response timing is identical either
     // way.
     //
     // deferAfterResponse (Next's after()) rather than a bare floating

@@ -84,7 +84,7 @@ describe("generateSection129Pdf", () => {
     // pdf-lib's StandardFont (Helvetica) uses WinAnsi (CP1252) encoding.
     // Any literal passed to drawText/page.drawText with a codepoint outside
     // the WinAnsi range causes generateSection129Pdf to throw — which is the
-    // exact failure mode that 500'd every prod loan in the 2026-05-18 audit.
+    // exact failure mode that makes every loan's notice fail.
     // We scan the source itself so the test fails when the bad glyph is
     // re-introduced, not just when the bad code path happens to run.
     const source = readFileSync(join(__dirname, "..", "section129.ts"), "utf8")

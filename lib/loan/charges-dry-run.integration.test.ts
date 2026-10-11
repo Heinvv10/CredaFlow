@@ -1,6 +1,6 @@
 /**
  * Real-Postgres test: the back-fill dry run previews exactly what the
- * following --apply writes, per loan, at first go-live (review round 2, N6).
+ * following --apply writes, per loan, at first go-live.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/charges-dry-run.integration.test.ts

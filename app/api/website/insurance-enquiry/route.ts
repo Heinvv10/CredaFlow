@@ -162,9 +162,9 @@ export async function POST(req: NextRequest) {
     // Runs AFTER the response is sent. Not a detail: on a match this does a
     // throttle write, a Notification insert and a real SMTP send, and three of
     // these five routes send no email at all when there is no match. Awaiting
-    // it made a recognised submission measurably slower than an unrecognised
-    // one — a timing oracle for the exact fact this route must never reveal
-    // (enumeration safety, PR #412). Response timing is now identical either
+    // it would make a recognised submission measurably slower than an
+    // unrecognised one — a timing oracle for the exact fact this route must
+    // never reveal (enumeration safety). Response timing is identical either
     // way.
     //
     // deferAfterResponse (Next's after()) rather than a bare floating

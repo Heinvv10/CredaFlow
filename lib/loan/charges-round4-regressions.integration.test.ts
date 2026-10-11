@@ -1,6 +1,5 @@
 /**
- * Regressions from the round-4 adversarial review of default charges. The
- * off-window repros (R4-2, R4-3, R4-5) went with the off windows: the kill
+ * Further regressions for default charges. There are no off-window cases: the kill
  * switch is one-way (charges-stop.integration.test.ts).
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \

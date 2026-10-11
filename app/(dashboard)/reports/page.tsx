@@ -297,7 +297,7 @@ export default async function ReportsPage() {
   // Portfolio/board reporting exposes strategic figures (book value, PAR,
   // disbursements). This overview queries Prisma directly; its sibling
   // reports/advisor API gates at LOAN_ADMIN, so match that here — collections
-  // and credit roles shouldn't see executive numbers they can't action (F-29).
+  // and credit roles shouldn't see executive numbers they can't action.
   await requireMinRole("LOAN_ADMIN")
   const data = await getReportData()
 

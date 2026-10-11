@@ -198,9 +198,9 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
           }
         })().catch(async (err: unknown) => {
           // Nobody awaits this promise, so a console line is the whole record
-          // unless we write one. The live trigger is
-          // assertRedactedSendIsRecoverable on STAGING, where
-          // UNSUB_TOKEN_SECRET is unset and walkthroughs happen: the consumer
+          // unless we write one. The likely trigger is
+          // assertRedactedSendIsRecoverable where UNSUB_TOKEN_SECRET is unset
+          // (a walkthrough environment): the consumer
           // gets success:true, no code ever arrives, and without this row
           // there is nothing to find. Same treatment as the SendBlockedError
           // sibling above.

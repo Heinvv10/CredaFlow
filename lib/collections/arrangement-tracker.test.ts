@@ -82,8 +82,6 @@ describe("arrangement tracker — SAST day bucketing", () => {
     // one, but it is stricter, and the test that pins it should say so rather
     // than let the suite only cover the cases that favour the borrower.
     //
-    // Blast radius measured before merge: PROD holds 0 PaymentArrangement rows,
-    // so nothing is re-judged on deploy.
     const summary = analyseArrangement(WEEKLY, [
       { id: "p1", amount: 100_000, receivedAt: new Date("2026-08-09T22:30:00Z") },
     ])

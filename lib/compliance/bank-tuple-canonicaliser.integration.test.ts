@@ -15,7 +15,7 @@
  * a trigger or a CHECK constraint.
  *
  * So this suite executes the real functions against a real database, and pins
- * the exact inputs that caused the production incident on 2026-08-13: a
+ * the exact inputs that once defeated the payout gate: a
  * Discovery Bank statement printing "Transaction Account", which the TypeScript
  * side accepted and the DB canonicaliser returned '' for.
  *
@@ -108,8 +108,8 @@ suite("the BankAccountType enum", () => {
   it("carries OTHER", async () => {
     // If the baseline migration has not applied, the app writing accountType='OTHER'
     // fails at the database with 22P02. Fail-closed, but a hard error for staff,
-    // and the staging deploy gate does NOT apply migrations — so this assertion
-    // is the thing that catches a half-applied deploy.
+    // and a deploy gate that does NOT apply migrations leaves this assertion as
+    // the thing that catches a half-applied deploy.
     const rows = await prisma.$queryRaw<{ enumlabel: string }[]>`
       SELECT e.enumlabel
       FROM pg_enum e

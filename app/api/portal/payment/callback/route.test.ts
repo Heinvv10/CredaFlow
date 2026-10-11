@@ -5,7 +5,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { stitchPaymentRequest: { update: updateRequest } },
 }))
 
-// req.url mirrors the container's internal bind (0.0.0.0:3300) in production —
+// req.url mirrors the container's internal bind (0.0.0.0:3300) when deployed —
 // the whole point of PORT-01b is that the redirect Location must NOT be built
 // from it.
 function makeReq(qs: string) {

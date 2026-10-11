@@ -146,7 +146,7 @@ describe("analytics configuration", () => {
     // Absolute (origin + path) is REQUIRED: a bare relative "/portal/register"
     // makes Matomo resolve against the live PII-bearing location.href, whose "@"
     // (email=x@example.com) mis-parses and leaks the email domain back into the
-    // reported URL (caught live on staging). Guard the invariant.
+    // reported URL. Guard the invariant.
     expect(script).toContain("window.location.origin")
     // setCustomUrl must be queued BEFORE trackPageView or the first pageview
     // still reports the real (PII-bearing) URL.

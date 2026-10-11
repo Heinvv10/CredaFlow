@@ -215,8 +215,9 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     const clientName = [application.client.firstName, application.client.lastName]
       .filter(Boolean).join(" ")
     let delivery: { ok: boolean; simulated?: boolean; error?: string; providerOutcome?: string }
-    // The WhatsApp leg deliberately stays on the legacy BulkSMS path. Routing
-    // it through sendMessage() resolves WA_CLOUD on prod, and an out-of-window
+    // The WhatsApp leg deliberately stays on the legacy BulkSMS path. Routed
+    // through sendMessage(), a tenant whose waProvider is WA_CLOUD (the
+    // default is WA_UNOFFICIAL) resolves to WA_CLOUD, and an out-of-window
     // send there needs an APPROVED WABA template — which pasq_link_whatsapp
     // does not have. A new applicant who has never messaged in is always
     // out-of-window, i.e. the normal PASQ case, so cutting it over would fail
@@ -224,7 +225,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     // approved a template for it.
     const newSend = isPasqLinkNewSendEnabled() && channel !== "WHATSAPP"
     if (newSend) {
-      // New path: sendMessage() via the Phase 9 S2 pipeline, so delivery of the
+      // New path: the sendMessage() pipeline, so delivery of the
       // s.92(1) quotation link is provable from the client's comms timeline —
       // including the SMS leg, which previously wrote no Message at all.
       //

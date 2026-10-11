@@ -167,7 +167,7 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
           constructionType: data.constructionType || null,
           propertyValue: data.propertyValue ? parseFloat(data.propertyValue) : null,
           // FAIS gate fields — server discards faisDisclosureAt and stamps from
-          // its own clock (PR #98), but a value is still required for presence.
+          // its own clock, but a value is still required for presence.
           faisDisclosureAt: new Date().toISOString(),
           faisDisclosurePdfUrl: pdfUrl,
           draftToken,

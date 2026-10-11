@@ -354,15 +354,14 @@ export async function sendEmail(opts: SendEmailOptions): Promise<EmailResult> {
   // WHO may be emailed, before anything is dispatched.
   //
   // Placed here, at the ONE seam every send passes through, rather than in the
-  // callers. The guard that failed on 2026-08-02 lived in a walkthrough and
-  // checked the loan reference — it proved the loan was synthetic and said
-  // nothing about where that loan's mail went, so two real Section 129
-  // statutory demands reached members of the public. A recipient check belongs
+  // callers. A guard in a walkthrough that checks the loan reference proves
+  // the loan is synthetic and says nothing about where that loan's mail goes,
+  // so a real Section 129 statutory demand could reach a member of the public. A recipient check belongs
   // at the point of delivery, not at the point the work was requested.
   //
   // Refusals are RECORDED, not silently dropped: a blocked send that leaves no
-  // trace is indistinguishable from a send that never happened, and the whole
-  // reason this incident ran for months was that nobody could see it.
+  // trace is indistinguishable from a send that never happened, and a
+  // misdirected send can go on unnoticed for months if nobody can see it.
   const recipientDecision = checkRecipient(opts.to)
   if (!recipientDecision.allowed) {
     const error = blockedMessage(opts.to, recipientDecision)
@@ -448,7 +447,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<EmailResult> {
 
   // Apply the tenant default Reply-To (e.g. support@) for customer-facing mail,
   // unless the caller set one explicitly. EXCEPTION: Section 129 statutory
-  // notices are sent with NO Reply-To by deliberate decision (2026-05-22 — a
+  // notices are sent with NO Reply-To by deliberate decision (a
   // From/Reply-To mismatch tripped anti-spam), so they must never inherit the
   // tenant default. When nothing applies, replies fall back to fromAddress.
   const defaultReplyTo = opts.category === "section129" ? undefined : config.replyToAddress || undefined

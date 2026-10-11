@@ -3,7 +3,7 @@ import type { ChargeType } from "@/lib/loan/default-charges"
 /**
  * Consumer-facing names of the default charges.
  * A leaf module so the PDF documents and client components can use them.
- * Customer copy: changes need Hein's approval.
+ * Customer copy: changes need the lender's approval.
  */
 export const CHARGE_TYPE_LABELS: Record<ChargeType, string> = {
   DEFAULT_INTEREST: "Default interest",

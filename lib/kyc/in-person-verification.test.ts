@@ -104,7 +104,7 @@ describe("currentInPersonKycVerification", () => {
   })
 
   it("SURVIVES a failed biometric attempt — the human fallback stays open", () => {
-    // Regression (report §3 F): one failed selfie permanently closed the
+    // Regression: one failed selfie permanently closed the
     // in-person route, removing every path to payout-grade KYC.
     expect(current({
       blockingBiometricAttempt: false,
@@ -278,7 +278,7 @@ describe("matchesBlockingSelfie", () => {
   })
 
   it("does NOT block a soft-deleted attempt", () => {
-    // The 2026-07-28 remediation: a deleted attempt must leave the in-person
+    // A deleted attempt must leave the in-person
     // route open, or a client whose selfie was withdrawn has no way through.
     expect(
       matchesBlockingSelfie({ ...live, deletedAt: new Date("2026-07-28T11:00:00.000Z") }),

@@ -118,7 +118,7 @@ describe("POST /api/applications/[id]/selfie/send-link", () => {
     expect(sendSms).not.toHaveBeenCalled()
   })
 
-  // Prod runs BULKSMS_DRY_RUN=true. Without this guard the route dispatched,
+  // A deployment with BULKSMS_DRY_RUN=true sends nothing. Without this guard the route dispatched,
   // got a `simulated` result, and audited a capture link the consumer never
   // received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {

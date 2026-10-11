@@ -17,11 +17,11 @@ function doc(over: Partial<Parameters<typeof selectUsableIdDocument>[0][number]>
 
 describe("selectUsableIdDocument", () => {
   it("ignores a stale ID copy with no stored content and takes the usable one", () => {
-    // The defect this exists for, reproduced from live staging data: a client
-    // with a 2026-05-09 ID copy carrying contentSha256 = NULL and two later
-    // verified copies with real digests. Taking the FIRST row refused the
-    // in-person verification — and therefore the disbursement — of a client
-    // who had two perfectly good ID documents on file.
+    // The defect this exists for: a client with an older ID copy carrying
+    // contentSha256 = NULL and two later verified copies with real digests.
+    // Taking the FIRST row refuses the in-person verification — and therefore
+    // the disbursement — of a client who has two perfectly good ID documents
+    // on file.
     const chosen = selectUsableIdDocument([
       doc({ id: "seeded-no-content", contentSha256: null, createdAt: new Date("2026-05-09T15:15:34Z") }),
       doc({ id: "reupload-1", contentSha256: SHA, createdAt: new Date("2026-08-01T04:52:50Z") }),

@@ -73,10 +73,9 @@ function render(overrides: Partial<Parameters<typeof ComplianceDashboardClient>[
 
 describe("NCR quarterly return card", () => {
   it("says NOT PREPARED when no return exists, never SUBMITTED", () => {
-    // The regression this exists for: the card had two branches and treated
-    // "no PENDING row" as proof of submission. On production, where nothing
-    // has ever created an NCR_QUARTERLY_RETURN record, it asserted a filed
-    // statutory return backed by nothing.
+    // A card with two branches would treat "no PENDING row" as proof of
+    // submission. Where nothing has ever created an NCR_QUARTERLY_RETURN
+    // record, that asserts a filed statutory return backed by nothing.
     const out = renderNcr({
       ncrNumber: "NCRCP99999",
       quarter: "2026-Q2", quarterLabel: "Q2 2026",

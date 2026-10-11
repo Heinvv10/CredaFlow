@@ -16,8 +16,8 @@ import { callerIp } from "@/lib/rate-limit"
 // and (dashboard)/compliance layouts redirect. It does NOT cover
 // app/api/insurers/**, app/api/products/insurance/**, the portal's
 // ppr-acknowledge route or app/api/cron/insurance-renewal — those keep serving
-// with the flag off, because live credit life reads insurer and
-// insurance-product records and closing them would break production. That
+// with the flag off, because credit life reads insurer and
+// insurance-product records and closing them would break it. That
 // boundary is DELIBERATE. The sentence under the switch in
 // components/settings/ImsModuleToggle.tsx says the same thing to the operator;
 // the two must not drift.

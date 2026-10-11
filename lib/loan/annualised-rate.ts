@@ -21,7 +21,7 @@
 // the schema and `annualisedInterestRate` will throw rather than silently
 // annualise it on the wrong basis.
 
-// Every product annualises on a NOMINAL basis (Hein's decision, 2026-07-22).
+// Every product annualises on a NOMINAL basis.
 // The arithmetic still differs by model because the billing does, but the basis
 // does not — so the figures are comparable across products, which is the only
 // job this number has.

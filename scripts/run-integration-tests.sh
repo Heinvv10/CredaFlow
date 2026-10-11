@@ -16,10 +16,8 @@
 #   and passes trivially. Do not read its green as real-DB coverage.
 #
 # THE RATCHET
-#   17 of 38 suites failed on the first pass here. Three of those were parallel-
-#   execution contamination and pass alone (see --no-file-parallelism below), so
-#   14 are recorded in scripts/integration-baseline.txt and excluded from the
-#   gate. Everything NOT in the baseline must pass. The baseline may only shrink,
+#   Suites known to fail are recorded in scripts/integration-baseline.txt and
+#   excluded from the gate. Everything NOT in the baseline must pass. The baseline may only shrink,
 #   and both directions are enforced:
 #     - a gated suite that breaks  -> job fails (regression)
 #     - a baselined suite that now passes -> job fails, telling you to delete
@@ -36,8 +34,7 @@
 #
 # WHY --no-file-parallelism
 #   Every suite shares ONE database. vitest runs files in parallel by default,
-#   and three messaging suites failed only because of that — they pass alone
-#   and were wrongly recorded as broken on the first pass here. Run them
+#   and suites that pass alone then fail on each other's rows. Run them
 #   sequentially or the gate reports contamination as breakage.
 set -euo pipefail
 

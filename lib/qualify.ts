@@ -2,7 +2,7 @@
 import { calculateLoan } from "@/lib/loan-calculator"
 import { PRODUCT_PRICING } from "@/lib/product-pricing"
 
-// Fee/rate parameters are sourced from the single pricing snapshot (audit W-2)
+// Fee/rate parameters are sourced from the single pricing snapshot
 // so this qualify engine charges what each real LoanProduct charges. Personal =
 // 16.5% init / R1,080 cap / R69 service; micro (short-term) = 15% init /
 // R1,000 cap / R69 service (R60 + VAT, billed on the 30-day term); PO = 2.5%/month.
@@ -53,7 +53,7 @@ export function computeQualification(
   const maxInstalment = Math.max(0, Math.floor(ndi * 0.70))
 
   // Personal Loan: 3% pm reducing balance, 60 months. Ceiling R100,000 (matches
-  // the prod PERSONAL LoanProduct maxAmount, the source of truth).
+  // the PERSONAL LoanProduct maxAmount, the source of truth).
   const personalMax = maxQualifyingPrincipal(
     200000, 10000000, 100000,
     (p) => calculateLoan({

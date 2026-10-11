@@ -17,8 +17,7 @@ describe("compareConversations", () => {
   // THE DEFECT THIS KEY EXISTS FOR. The sort key used to be lastInboundAt,
   // which is null on a thread that has only ever had outbound traffic. NULLS
   // LAST then buried every such thread below every conversation that ever got
-  // a reply, however stale — 41 of 106 PROD conversations on 2026-08-20, all
-  // of them past the 30-row first page. A recent outbound must outrank an old
+  // a reply, however stale — pushing them past the 30-row first page. A recent outbound must outrank an old
   // inbound.
   it("ranks a recent outbound-only thread above an older thread with inbound", () => {
     // lastActivityAt is GREATEST(lastInboundAt, lastOutboundAt): for the
@@ -30,7 +29,7 @@ describe("compareConversations", () => {
   })
 
   it("keeps 41 outbound-only threads interleaved by recency, not dumped at the bottom", () => {
-    // Shape of the measured PROD population: 41 outbound-only, 65 with inbound.
+    // A mix of 41 outbound-only threads and 65 with inbound.
     const outboundOnly = Array.from({ length: 41 }, (_, i) =>
       row(`2026-08-${String(1 + (i % 20)).padStart(2, "0")}T00:00:00.000Z`, `out${i}`),
     )

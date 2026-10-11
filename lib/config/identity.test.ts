@@ -96,7 +96,7 @@ describe("getLenderIdentity", () => {
     expect(identity.legalName).toBe("Acme Lending (Pty) Ltd")
   })
 
-  // F-11: the old resolver printed a hardcoded constant whatever the DB said.
+  // the old resolver printed a hardcoded constant whatever the DB said.
   // With no constant left, an unconfigured tenant must get an error, never a
   // value from somewhere else.
   it("throws for an unconfigured tenant instead of returning any default", async () => {

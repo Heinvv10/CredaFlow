@@ -28,12 +28,12 @@ import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
  *
  * Two properties below are load-bearing rather than incidental:
  *
- *  1. It sends ONCE per instalment. The original query took everything due
- *     within the next 3 days and mailed all of it on every run, so a single
- *     instalment produced a reminder on day 3, day 2, day 1 and day 0 —
- *     roughly four messages, across both email and WhatsApp. What prevents
- *     that now is the durable marker, not a narrow window: the window stays
- *     open to the due date precisely so a FAILED send can still be retried.
+ *  1. It sends ONCE per instalment. Mailing everything due within the next
+ *     3 days on every run would give a single instalment a reminder on day 3,
+ *     day 2, day 1 and day 0 — roughly four messages, across both email and
+ *     WhatsApp. What prevents that is the durable marker, not a narrow
+ *     window: the window stays open to the due date precisely so a FAILED
+ *     send can still be retried.
  *  2. Nothing is sent without checking consent. Reminders are service comms on
  *     a credit agreement, but a borrower who has opted out or been marked
  *     do-not-contact must still be suppressed.
@@ -42,10 +42,10 @@ const REMINDER_LEAD_DAYS = 3
 const NOTE_TYPE = "payment_due_reminder"
 
 // SAST midnight. The job itself fires at 07:00 SAST, comfortably inside the
-// same UTC day, so the SCHEDULE was never the problem — but `dueDate` is
-// compared here too, and an instalment due at 23:30 SAST sits on the next UTC
-// day. That made `daysBetween` read 2 where the borrower sees 3, and the
-// courtesy reminder went out a day late.
+// same UTC day, but `dueDate` is compared here too, and an instalment due at
+// 23:30 SAST sits on the next UTC day. A UTC day boundary would make
+// `daysBetween` read 2 where the borrower sees 3, and the courtesy reminder
+// would go out a day late.
 function startOfDay(d: Date): Date {
   return sastStartOfDay(d)
 }
@@ -243,8 +243,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // ...and of those, whether any outcome was AMBIGUOUS. Both senders classify
     // their failures, and an ambiguous one means the provider may already have
     // dispatched (a timeout after Graph accepted; a WA 2xx with no message id).
-    // Replaying that would produce the very duplicate this route was fixed to
-    // stop, so ambiguity BLOCKS the retry and is flagged for reconciliation.
+    // Replaying that would produce the very duplicate this route must not
+    // send, so ambiguity BLOCKS the retry and is flagged for reconciliation.
     const ambiguous: string[] = []
 
     if (availability.EMAIL.enabled) {
@@ -276,7 +276,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         style: "currency",
         currency: "ZAR",
       }).format(amountDue / 100)
-      // Awaited, unlike the previous fire-and-forget call: the LoanNote written
+      // Awaited, not fire-and-forget: the LoanNote written
       // below is the audit record of what was sent, so it must not be written
       // before the send has actually resolved.
       try {
@@ -290,9 +290,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           // Template path. sendWhatsAppForTenant takes no template, so on
           // WA_CLOUD it can only free-text — which Meta permits solely inside
           // the 24h service window. A reminder is by definition unprompted, so
-          // the borrower is almost never inside it (all four loans due
-          // 2026-08-21 have never sent us an inbound message). Without an
-          // approved template every reminder was therefore refused
+          // the borrower is almost never inside it. Without an approved
+          // template every reminder would therefore be refused
           // WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE. sendMessage() selects and fills
           // one.
           const sendResult = await sendMessage({
@@ -349,9 +348,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           // throw" as delivered would record a send that never happened — and,
           // worse, write the marker that suppresses the retry.
           //
-          // Routed through the tenant's configured provider: this called the
-          // Baileys bridge directly, which after the WA_CLOUD cutover is a
-          // transport with no numbers paired, so every reminder failed.
+          // Routed through the tenant's configured provider, not the Baileys
+          // bridge directly: on WA_CLOUD the bridge is a transport with no
+          // numbers paired, so every reminder would fail.
           const waResult = await sendWhatsAppForTenant({
             tenantId,
             // Lets the Cloud sender read the 24h service window. Omitting it

@@ -125,7 +125,7 @@ describe("the reporting / behaviour boundary", () => {
 
   it("keeps the collections work lists on the eligibility population", () => {
     // The S129-due header count must match what the bulk-send route will
-    // actually accept (audit F-22), or the page advertises work the API
+    // actually accept, or the page advertises work the API
     // refuses.
     const page = code("app/(dashboard)/collections/page.tsx")
     const bulk = code("app/api/loans/section129/bulk/route.ts")

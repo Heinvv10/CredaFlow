@@ -69,14 +69,13 @@ export default async function PortalDebitMandatePage({
         // record prefills as CHEQUE and the consumer corrects it before
         // signing.
         //
-        // Two records reach that fallback, and neither is a mistake:
-        //   - TRANSMISSION, retired 2026-08-05, inert, none in any environment.
-        //   - OTHER, added 2026-08-13, which is EFT-only for exactly the same
+        // Two account types reach that fallback, and neither is a mistake:
+        //   - TRANSMISSION, a retired, inert type that no record carries.
+        //   - OTHER, which is EFT-only for exactly the same
         //     reason this form is CHEQUE/SAVINGS-only.
         //
-        // An OTHER client reaches this page more easily than an earlier draft
-        // of this comment claimed. That draft said it required staff to set
-        // OTHER AFTER a debit-order application existed. Not so: nothing screens
+        // An OTHER client reaches this page easily: it does not require staff to
+        // set OTHER AFTER a debit-order application exists. Nothing screens
         // Client.accountType when an application is approved onto DEBIT_ORDER
         // (app/api/applications/[id]/decide/route.ts takes repaymentMethod from
         // the form and never looks at the account type), so an ALREADY-OTHER

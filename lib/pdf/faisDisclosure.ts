@@ -54,9 +54,9 @@ export interface FaisInput {
   issuedAt?: Date
 }
 
-// LEGAL_WORDING_BEGIN — G1 FAIS disclosure wording. Compliance-officer
-// sign-off obtained 2026-06-13 (owner-confirmed). Do NOT edit this block
-// without a fresh compliance review — each clause is annotated with its
+// LEGAL_WORDING_BEGIN — G1 FAIS disclosure wording. Legally reviewed text:
+// do NOT paraphrase it. A change needs the lender's legal sign-off before
+// merge — each clause is annotated with its
 // regulatory citation so legal can re-verify against source text.
 //
 // Sources:
@@ -150,8 +150,8 @@ const FAIS_DISCLOSURE_BODY = [
 // LEGAL_WORDING_END
 
 /** Clause 2's text wraps at 72 columns after its 3-space indent: the width the
- *  approved block was hand-wrapped to, so a name the length of the one it was
- *  approved with breaks on exactly the approved lines. */
+ *  reviewed block was hand-wrapped to, so a name the length of the one it was
+ *  reviewed with breaks on exactly the reviewed lines. */
 const CLAUSE_WIDTH = 72
 
 function faisDisclosureBody(legalName: string): string[] {
@@ -246,7 +246,7 @@ export async function generateFaisDisclosurePdf(input: FaisInput): Promise<Buffe
   y -= 8
 
   // Lives covered — multi-life only. Rendered BEFORE the statutory wording so
-  // the compliance-signed LEGAL_WORDING block below is untouched, and each life
+  // the legally reviewed LEGAL_WORDING block below is untouched, and each life
   // is listed with its own cover and its own premium so the totals above are
   // accounted for rather than merely asserted.
   if (lives && lives.length > 0) {
@@ -278,8 +278,8 @@ export async function generateFaisDisclosurePdf(input: FaisInput): Promise<Buffe
   // Statutory disclosure section.
   // Guard BEFORE drawing each line — not after a fixed batch — so no line can
   // be drawn below the bottom margin. The previous "every 10 lines, after
-  // drawing" guard fit the 5-line stub but left the compliance-signed-off
-  // 60+-line body able to clip a clause off the bottom of page 1 (F-25).
+  // drawing" guard fits a 5-line stub but leaves the legally reviewed 60+-line
+  // body able to clip a clause off the bottom of page 1.
   y = drawSectionTitle(page, y, "Statutory Disclosure", bold)
   for (const line of faisDisclosureBody(lender.legalName)) {
     ;({ page, y } = await ensureRoom(doc, page, y, regular, MARGIN, 70))

@@ -784,7 +784,7 @@ describe("processRetryBatch", () => {
     // template is "[redacted — ...]". Replaying it would send that literal
     // string to the consumer instead of their one-time code or signing link,
     // and the vars needed to re-render are not persisted. Explicit guard, not
-    // the incidental fact that every current redacted callsite passes
+    // reliance on every redacted callsite passing
     // automaticRetry:false.
     txMock.message.updateMany
       .mockResolvedValueOnce({ count: 0 } as any)
@@ -942,7 +942,7 @@ describe("processRetryBatch", () => {
   })
 })
 
-// ── PR-2.5 hardening trio (advisory lock, EXPIRED_SWEEP audit, tighter catch) ──
+// ── Retry hardening trio (advisory lock, EXPIRED_SWEEP audit, tighter catch) ──
 //
 // The sweep wraps its body in `prisma.$transaction(async (tx) => ...)` so
 // every query goes through `tx` (= `txMock`). The lock-acquire query is

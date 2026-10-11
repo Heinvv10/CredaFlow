@@ -107,7 +107,7 @@ describe("insurance quotes page", () => {
   })
 
   /* The flag-off floor. FSP_QUICKQUOTE_MULTI_RISK is unset by the beforeEach
-     above, and unset must mean vehicle-only — this is the state prod is in.
+     above, and unset must mean vehicle-only — this is the default deployment state.
      Asserted as an exact list: a test for "contains motor" would still pass
      if the other two leaked in. */
   it("offers vehicle only while the multi-risk flag is off", async () => {

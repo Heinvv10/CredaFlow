@@ -9,10 +9,10 @@ import { describe, expect, it } from "vitest"
  * of every website page. If the footer's last row ends inside the strip the
  * launcher occupies, the launcher covers a regulatory disclosure.
  *
- * That is not hypothetical — it shipped. Measured on staging `79bf082c` at max
- * scroll, the launcher's ink overlapped the line
- * "Registered Credit Provider — NCR Reg: … · FSP: …" at every
- * viewport from 375px to 1440px (2px deep at 375px, 12px deep at 1024–1440px).
+ * That is not hypothetical: without the reserve, at max scroll the launcher's
+ * ink overlaps the line "Registered Credit Provider — NCR Reg: … · FSP: …" at
+ * every viewport from 375px to 1440px (2px deep at 375px, 12px deep at
+ * 1024–1440px).
  *
  * The vitest harness is `environment: "node"` (no jsdom, no layout engine), so
  * this cannot be asserted geometrically. It is asserted as a cross-file
@@ -74,7 +74,7 @@ describe("website Footer / WhatsApp launcher clearance", () => {
     const offsetPx = Number(bottomOffset[1]) * SPACING_UNIT_PX
 
     // Top edge of the launcher, measured up from the bottom of the viewport.
-    // Verified against the live staging render, which reported exactly 68px.
+    // Rendered, this comes to exactly 68px.
     const launcherTopFromBottomPx = offsetPx + launcherOccupiedHeightPx(launcher)
 
     const footerPadding = matchOrThrow(

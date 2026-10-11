@@ -32,14 +32,13 @@ export function QuickQuoteHeightReporter() {
      *
      * So a single tall transient — FSP's raw form flashing before the takeover
      * hides it — locked the frame at that height for the rest of the session.
-     * Measured on staging: a frame 2412px tall around 1221px of content, i.e.
-     * ~1190px of dead space under the form. It was 1897px before the boot
-     * skeleton made the first measurement taller, so this was always broken;
-     * the skeleton only made it more obvious.
+     * Observed: a frame 2412px tall around 1221px of content, i.e.
+     * ~1190px of dead space under the form. The boot skeleton makes the first
+     * measurement taller, which only makes this more obvious.
      *
      * `body` is no better — something in the global stylesheet gives it a
      * full-height minimum, so it stretches to the viewport too. `main`'s bottom
-     * edge in document coordinates does not: measured 1221 at viewports of 700,
+     * edge in document coordinates does not: it reads 1221 at viewports of 700,
      * 1600 and 2000. That is what makes shrinking possible at all.
      */
     const contentHeight = () => {

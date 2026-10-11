@@ -274,7 +274,7 @@ describe("applyManualReceipt — over-payment split (NCA s125)", () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
-  // The live incident: R2,469.00 maturity total, client paid R2,500.00 on day 17
+  // Early settlement: R2,469.00 maturity total, client paid R2,500.00 on day 17
   // of a 30-day term. s125(2)(b) charges 17 days of interest (R56.67, not the
   // contractual R100.00), so R2,425.67 settles the loan and R74.33 goes back.
   const DAY_17 = new Date("2026-07-18T10:00:00.000Z")
@@ -336,7 +336,7 @@ describe("applyManualReceipt — over-payment split (NCA s125)", () => {
     vi.setSystemTime(DAY_17)
     // The excess is money held for the client, not a repayment. If it lands in
     // totalPaid the statement and certificate of balance both over-report what
-    // was collected on a live NCA account.
+    // was collected on an NCA account.
     const { db, loanUpdate } = makeDb(makeDailyLoan())
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

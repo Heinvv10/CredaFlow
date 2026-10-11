@@ -2,22 +2,22 @@
  * Who a non-production environment is allowed to email.
  *
  * WHY THIS EXISTS
- *   On 2026-08-02 a UAT walkthrough on staging sent two genuine NCA Section 129
- *   statutory demands — formal notices of default on the lender's letterhead,
- *   citing its NCR number, quoting arrears, giving ten business days before legal
- *   proceedings — to a real outlook.com and a real gmail.com mailbox. Staging
- *   had also been mailing the same public addresses for months on cron
- *   (payment_due_reminder, loan_overdue, payment_received).
+ *   A walkthrough on a non-production environment that carries a live SMTP
+ *   sender can send genuine NCA Section 129 statutory demands — formal notices
+ *   of default on the lender's letterhead, citing its NCR number, quoting
+ *   arrears, giving ten business days before legal proceedings — to real
+ *   public mailboxes, and scheduled jobs (payment_due_reminder, loan_overdue,
+ *   payment_received) can mail the same addresses repeatedly.
  *
- *   Two individually reasonable decisions caused it: the seed used plausible
- *   public addresses so demo data looked credible, and staging carries a live
- *   SMTP sender on the production domain. Rewriting the seed (#631) fixed the
- *   DATA. This fixes the CLASS: no environment outside production can deliver
- *   to an unapproved domain, whatever the data says.
+ *   Two individually reasonable choices combine to cause it: seed data using
+ *   plausible public addresses so demo data looks credible, and a live SMTP
+ *   sender outside production. Fixing the seed fixes the DATA. This fixes the
+ *   CLASS: no environment outside production can deliver to an unapproved
+ *   domain, whatever the data says.
  *
  * WHY NOT NODE_ENV
  *   Staging and production run the SAME Docker image and BOTH set
- *   NODE_ENV=production (verified on both containers, 2026-08-03). NODE_ENV
+ *   NODE_ENV=production. NODE_ENV
  *   cannot distinguish them, so keying delivery safety on it would be a guard
  *   that is simply absent on the environment it is meant to protect.
  *

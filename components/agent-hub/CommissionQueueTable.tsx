@@ -115,8 +115,7 @@ export function CommissionQueueTable({
                   <div className="flex flex-wrap gap-2">
                     {/* payableActionFor builds the WHOLE payload — there is
                         deliberately no object literal here to add a preset
-                        reason back into. That is the property that took two
-                        review rounds to establish, and a call site cannot be
+                        reason back into. That is the property to preserve, and a call site cannot be
                         unit-tested in this repo (environment: "node", no jsdom),
                         so it is pinned in the helper instead. */}
                     <button

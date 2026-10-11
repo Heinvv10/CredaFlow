@@ -7,7 +7,7 @@ import {
 import { updateLenderIdentity, type IdentityWriteDb } from "./identity-write"
 import { VALID_LENDER_COLUMNS } from "./__fixtures__/lender-identity"
 
-// Decision D-W5: four optional regulatory details for the public
+// Decision: four optional regulatory details for the public
 // regulatory-information page. Real calendar dates, never in the future; a
 // closed status list; a printable city. Not typed twice, but audited.
 

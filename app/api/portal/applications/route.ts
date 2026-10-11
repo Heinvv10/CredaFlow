@@ -160,8 +160,8 @@ export async function POST(req: NextRequest) {
     // The apply screen initialises its election state to "" and posts it
     // verbatim when no offer block ever rendered. An empty string is NOT a
     // stated election — but `?? "DECLINED"` only catches null/undefined, so
-    // "" fell through to isCreditLifeElection and 400'd EVERY no-offer
-    // portal submission (production is in the no-offer state). Blank means
+    // "" would fall through to isCreditLifeElection and 400 EVERY no-offer
+    // portal submission. Blank means
     // absent; a stated ACCEPTED is still refused above, and a stated
     // DECLINED passes through untouched.
     const statedElection = body.creditLifeElection === "" ? undefined : body.creditLifeElection
@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
     // Mirror the client-side apply gate (PortalApplyProductClient disables Submit
     // when monthlyIncome <= 0). A direct API caller must not create an application
     // with no declared income: staff affordability review + the NDI snapshot are
-    // the real gate, but the UI and API must agree (audit F-4).
+    // the real gate, but the UI and API must agree.
     if (client.monthlyIncome <= 0) {
       return NextResponse.json(
         { error: "Please add your monthly income to your profile before you can apply." },
@@ -255,8 +255,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Resolve the EXACT product the portal page displayed, by tenant-scoped
-    // unique code. Type-based resolution with creation-order tiebreak was
-    // correct only by accident while each productType had one row.
+    // unique code. Type-based resolution with creation-order tiebreak is
+    // correct only by accident while each productType has one row.
     const product = await prisma.loanProduct.findFirst({
       where: { tenantId: tenant.id, code: productCode, active: true },
     })
@@ -355,9 +355,8 @@ export async function POST(req: NextRequest) {
           return { ok: false as const, status: 422, body: { error: "Application evidence is no longer available. Please refresh and try again." } }
         }
         // The client discloses the product identity ONLY when an offer block
-        // rendered. Requiring it unconditionally made every no-offer
-        // submission die here with "offer is incomplete" — the third layer
-        // of the same outage (client gate, blank-election 400, and this).
+        // rendered. Requiring it unconditionally would make every no-offer
+        // submission die here with "offer is incomplete".
         const disclosedCreditLifeProductId =
           typeof body.creditLifeProductId === "string" && body.creditLifeProductId.trim() !== ""
             ? body.creditLifeProductId
@@ -391,7 +390,7 @@ export async function POST(req: NextRequest) {
         // guardLoanApplicationCreditLifeOffer, only re-validates the
         // disclosure at APPROVED/DISBURSED entry, so this 409 is the sole
         // submission-time gate.) Explicit branches: Prisma silently DROPS an
-        // `id: undefined` filter, which is how this used to "work" by
+        // `id: undefined` filter, which would "work" only by
         // accident.
         const currentCreditLifeProduct = await tx.insuranceProduct.findFirst({
           where: disclosedCreditLifeProductId !== null ? {

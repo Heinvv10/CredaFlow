@@ -41,8 +41,7 @@ async function getApplications() {
     }),
     // Refused payouts, newest first — `latestRefusalByApplication` takes the
     // first row it sees per application as the current reason and counts the
-    // rest. Unbounded in principle; 28 rows across four applications on
-    // production at the time of writing, and it grows only when a payout is
+    // rest. Unbounded in principle, but it grows only when a payout is
     // refused. If it ever gets large, narrow it by application id rather than
     // by date — an application blocked for a fortnight is exactly the one that
     // must still show a badge.

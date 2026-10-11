@@ -121,7 +121,7 @@ function request(body: Record<string, unknown>) {
 const ctx = { params: Promise.resolve({ id: "quote-1" }) }
 
 // Cover may not be backdated, so a fixed calendar date goes stale the day it
-// passes: these tests broke on 2026-09-01. A week from now is always valid.
+// passes. A week from now is always valid.
 const FUTURE_START = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
 describe("POST /api/insurance/quotes/[id]/bind", () => {
@@ -196,8 +196,8 @@ describe("POST bind — a date-only startDate naming today", () => {
     return new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Johannesburg" })
   }
 
-  // The whole point of the fix, at the HTTP boundary. `"2026-08-17"` used to
-  // parse to midnight UTC — an instant in the past — so `bind.ts` refused it as
+  // The HTTP boundary check. A bare date such as `"2026-08-17"` parses to
+  // midnight UTC — an instant in the past — so `bind.ts` would refuse it as
   // backdated cover and staff could not bind a policy starting today. If the
   // route stops routing this field through `parseInsuranceDateInput`, this
   // returns 422 and the test fails.

@@ -159,7 +159,7 @@ describe("payout vs debit-order bank tuple readers", () => {
   })
 
   it("refuses a retired TRANSMISSION account BOTH tuples", () => {
-    // Retired 2026-08-05 and inert. Failing closed here keeps it that way even
+    // Retired and inert. Failing closed here keeps it that way even
     // if a legacy row surfaces.
     expect(currentVerifiedBankDetails(application("TRANSMISSION"))).toBeNull()
     expect(currentDebitMandateBankDetails(application("TRANSMISSION"))).toBeNull()

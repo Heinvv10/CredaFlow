@@ -196,7 +196,7 @@ export function validateEnquiryInput(
 const yn = (b?: boolean) => (b ? "Y" : "N")
 
 /** REST request body `RequestNormalSearchV3Body` per the UAT Swagger (OpenAPI
- *  3.0.1, self-served 2026-06-24): snake_case keys, and `purpose` is an int32 —
+ *  3.0.1): snake_case keys, and `purpose` is an int32 —
  *  NOT the camelCase/string shape the SOAP example suggested. Field shapes
  *  verified against the spec; live response still pending test consumer IDs. */
 export function buildRequestPayload(

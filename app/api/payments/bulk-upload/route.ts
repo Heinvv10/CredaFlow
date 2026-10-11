@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       })
 
       // ONE transaction per loan, each taking a FOR UPDATE lock on that single
-      // loan before reading its balance (issue #422). One loan per tx means each
+      // loan before reading its balance. One loan per tx means each
       // tx only ever holds one loan lock, so there is no lock-ordering deadlock
       // against concurrent bulk uploads or the single-loan payment paths.
       for (const [reference, parsedRows] of byRef) {
@@ -246,8 +246,7 @@ export async function POST(req: NextRequest) {
                 })
               }
 
-              // Recompute balances from the full post-payment schedule (audit
-              // F-14/F-15): reduce principal only by the principal portion paid,
+              // Recompute balances from the full post-payment schedule: reduce principal only by the principal portion paid,
               // and never zero genuine arrears.
               const balances = recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf)
               const newTotalPaid = projection.newTotalPaid

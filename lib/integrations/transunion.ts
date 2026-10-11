@@ -78,7 +78,7 @@ export async function getCreditReport(opts: CreditReportOptions): Promise<Credit
   if (dryRun) {
     // Fails closed on a deployed build unless the environment is explicitly
     // declared non-production — a fabricated bureau score must never stand in
-    // for a real one on a live lender.
+    // for a real one on a deployed build.
     assertSimulationAllowed("transunion", true)
     // `simulated` is load-bearing, not decoration: simulation-presentation.ts
     // branches on it, and without it Settings -> Integrations reports a green

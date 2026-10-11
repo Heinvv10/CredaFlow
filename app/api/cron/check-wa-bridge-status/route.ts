@@ -23,8 +23,8 @@ import { logAudit, AuditAction } from "@/lib/audit"
 // gated on `!alarm.active`, and the clear branch needs a CONNECTED slot that
 // by definition does not exist while the channel is down. That produces
 // exactly ONE email for an outage of any length -- if it is missed, the
-// channel stays dead in silence, which is precisely the six-day outage this
-// whole feature was built to prevent.
+// channel stays dead in silence, which is precisely the failure this
+// monitor exists to prevent.
 const RE_ALERT_AFTER_MS = 6 * 60 * 60 * 1000
 
 type AlarmState = { active: boolean; lastAlertedAt: Date | null } | null
@@ -195,8 +195,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   )
 
   // Drop mirror rows for slots the bridge no longer reports. The upserts above
-  // only ever ADD, so a retired number lingered forever: staging held 3 rows
-  // while the bridge reported 1, two of them frozen days earlier. Harmless to
+  // only ever ADD, so a retired number would linger forever. Harmless to
   // the alert path today (`allDown` and the transition diff both read
   // `current`), but `previous` feeds decideWaBridgeAlert, so a stale
   // CONNECTED row would eventually manufacture a phantom disconnect for a
@@ -218,7 +217,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // not "nothing to report": Array.prototype.every on [] is vacuously true,
   // and that's the right answer here -- selectActiveSlot([]) returns null,
   // so outbound WhatsApp is completely dead. A `current.length > 0` guard
-  // used to suppress this on the theory it was only a cold-start window
+  // would suppress this on the theory it was only a cold-start window
   // (main() -> startHttpServer -> boot(), registerSlot synchronous inside
   // boot's loop), but that window is microseconds against a 5-minute poll --
   // the trade was backwards, and the empty pool is reachable through the

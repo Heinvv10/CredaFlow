@@ -10,11 +10,10 @@ import { requireLenderIdentityFields, type LenderIdentity } from "@/lib/config/i
  * rendered to a PDF (lib/pdf/section129.ts) and attached. The email body
  * here is a deliberately plain text-styled cover note.
  *
- * Why no inline letterhead/signature images: a 2026-05-22 staging smoke
- * showed that an HTML body carrying inline `cid:` images was getting
- * silently filtered by some corporate mail gateways (Velocity Fibre's
- * MX in particular) — a known anti-spam pattern for messages mixing
- * `Reply-To` mismatch + multipart/related with embedded images. Keeping
+ * Why no inline letterhead/signature images: some corporate mail gateways
+ * silently filter an HTML body carrying inline `cid:` images — a known
+ * anti-spam pattern for messages mixing a `Reply-To` mismatch with
+ * multipart/related embedded images. Keeping
  * the body images-free and the PDF as the binding artefact gives the
  * highest deliverability while preserving the polished feel.
  *

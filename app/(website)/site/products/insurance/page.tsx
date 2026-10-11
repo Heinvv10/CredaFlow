@@ -156,8 +156,8 @@ export default async function CoverProductPage() {
       />
       {/*
         When the comparison surface is live it becomes the hero's PRIMARY
-        action. Measured on staging before this change: the quote CTA sat
-        3136px down a 6332px page — 50%, 2.7 screens — behind two explainer
+        action. Left in place, the quote CTA sits
+        about 2.7 screens down the page behind two explainer
         sections, so the only instant, self-service action on the page was the
         hardest thing on it to reach. The section itself cannot simply be moved
         up: the explainers live inside ProductPageTemplate, which every product

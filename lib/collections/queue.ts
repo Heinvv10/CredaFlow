@@ -23,7 +23,7 @@ import { COLLECTIONS_ELIGIBLE_STATUSES } from "@/lib/collections/section129-elig
 export function collectionsQueueWhere(tenantId: string, chargesLive: boolean): Prisma.LoanWhereInput {
   const overdueOnSchedule = {
     // Only genuinely-overdue accounts — a settled loan with stale DPD but R0
-    // arrears must NOT sit in the collections queue (audit F-02/F-20).
+    // arrears must NOT sit in the collections queue.
     daysInArrears: { gt: 0 },
     arrearsAmount: { gt: 0 },
     // A fully-repaid loan carrying stale arrears (arrears > outstanding) must

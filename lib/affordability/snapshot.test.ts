@@ -1078,7 +1078,7 @@ describe("affordability decision snapshots", () => {
         establishedAt,
       ).schedule[0].dueDate,
     )
-    // These assert the SAME-DAY rule, which since 2026-08-07 applies only to
+    // These assert the SAME-DAY rule, which applies only to
     // DEBIT_ORDER (its mandate fixes the collection dates before payout). Passed
     // explicitly so the assertions keep testing what they were written to test;
     // the EFT relaxation has its own describe block above.
@@ -1137,8 +1137,8 @@ describe("affordability decision snapshots", () => {
   // construction.
   //
   // An EFT loan has no mandate and nothing authorising dates in advance, so the
-  // statutory s92(3) window is the only bound it needs. That is where the
-  // paper-signature incidents happened, and where relaxing this actually helps.
+  // statutory s92(3) window is the only bound it needs. That is where
+  // relaxing the same-day rule actually helps.
   //
   // An UNSET method takes the strict path. We do not know what will be
   // collected, so the safe answer is the one that was already true.

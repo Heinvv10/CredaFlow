@@ -50,8 +50,8 @@ export type UtmParams = {
   term?: string
 }
 
-// Analytics credentials are public build-time values. A staging image can
-// therefore retain production values if it is rebuilt from a contaminated
+// Analytics credentials are public build-time values. A non-production image
+// can therefore retain production values if it is rebuilt from a contaminated
 // Docker cache or box-local Compose environment. Keep the environment boundary
 // in the browser as a final fail-closed control: these hosts must never load a
 // configured production tracker. The hosts come from
@@ -124,8 +124,8 @@ export function buildAnalyticsConfig(env: AnalyticsEnv = process.env): Analytics
 // MUST be an ABSOLUTE URL. setCustomUrl resolves a RELATIVE value against the
 // live location.href, and Matomo's host parser mis-reads an "@" in the query
 // (email=x@example.com → host "example.com") — so a bare "/portal/register"
-// leaks the email domain + other query params back into the reported URL
-// (verified live on staging). Concatenating window.location.origin sidesteps all
+// leaks the email domain + other query params back into the reported URL.
+// Concatenating window.location.origin sidesteps all
 // of Matomo's URL re-parsing. JSON.stringify keeps the path a safe JS literal.
 export function buildMatomoTrackerScript(config: MatomoConfig, customUrl?: string): string {
   if (!config.enabled) return ""

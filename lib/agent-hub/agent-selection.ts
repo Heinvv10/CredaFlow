@@ -17,7 +17,7 @@ export const ALL_AGENTS = "__all__"
 
 /**
  * Upper bound on how many agents one statement may name. Comfortably above any
- * real roster (production runs a dozen), but it stops an unbounded
+ * real roster, but it stops an unbounded
  * `id: { in: [...] }` being built from arbitrary caller input — the only other
  * limit was the URL length the proxy happened to accept.
  */

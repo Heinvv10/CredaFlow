@@ -23,9 +23,8 @@ describe("countUnansweredConversations", () => {
     expect(await countUnansweredConversations("tenant-1")).toBe(0)
   })
 
-  // Mocked Prisma cannot execute SQL, so this asserts the QUERY SHAPE only —
-  // the predicate itself was verified against the live staging dataset (2 of
-  // 78 open conversations, both genuinely awaiting a reply).
+  // Mocked Prisma cannot execute SQL, so this asserts the QUERY SHAPE only;
+  // the predicate itself needs a real database to exercise.
   it("scopes to the tenant, excludes CLOSED, and asks 'who spoke last' not 'was it read'", async () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValue([{ count: BigInt(0) }] as never)
     await countUnansweredConversations("tenant-1")
@@ -44,7 +43,7 @@ describe("countUnansweredConversations", () => {
     expect(text).not.toContain("readAt")
   })
 
-  // Text assertion on the SQL only; the predicate is checked on staging.
+  // Text assertion on the SQL only; the predicate needs a real database.
   it("counts a website chat only once it is handed off, or while a staffer holds it and the visitor wrote last", async () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValue([{ count: BigInt(0) }] as never)
     await countUnansweredConversations("tenant-1")

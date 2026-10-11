@@ -22,7 +22,7 @@ import {
  * A selfie takes this out of scope only while it is a LIVE biometric
  * candidate: an attempt still processing, or one whose provider-verified
  * evidence passed. A failed or soft-deleted attempt does NOT close the human
- * fallback (2026-07-28 remediation, report §3 F) — the senior exception in
+ * fallback — the senior exception in
  * lib/kyc/manual-exception.ts remains available in parallel for reasoning
  * over the failed evidence itself.
  */

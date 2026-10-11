@@ -61,7 +61,7 @@ export default function Footer({ identity }: { identity: LenderIdentity }) {
       {/* pb reserves the strip the WhatsApp launcher occupies (fixed, bottom-6
           + a 44px pill = 68px up from the viewport bottom). Without it the
           launcher lands on the same NCR / FSP strip the z-10 above
-          protects — a second, unrelated way to obscure it. Measured on staging
+          protects — a second, unrelated way to obscure it. This happens
           at every width from 375px to 1440px; at desktop widths the pill covers
           the registration number outright. Kept as pt/pb rather than py so the
           reserve does not also pad the top. Enforced by Footer.test.tsx. */}

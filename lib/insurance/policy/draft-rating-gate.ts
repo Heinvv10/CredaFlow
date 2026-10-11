@@ -11,8 +11,8 @@
 // had exactly one caller — the readiness panel — and no writer consulted it, so
 // a product with no rate card could still be sold at any price an operator
 // typed. That is closable now, and was not closable in Phase 1, for one
-// verified reason: production holds zero insurance policies, so no staff
-// capability is being withdrawn from anybody.
+// reason: no insurance policies have been sold yet, so no staff capability is
+// being withdrawn from anybody.
 //
 // SCOPE IS DELIBERATELY NARROW. Only FUNERAL_COVER and LIFE_INSURANCE are
 // screened, because they are the only types that have rate cards. Credit life

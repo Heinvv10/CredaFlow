@@ -814,7 +814,7 @@ export async function POST(
 
         // Deceased is a NON-OVERRIDABLE hard stop — an audited override reason
         // cannot approve a consumer the bureau reports as deceased (owner
-        // decision 2026-07-06). Checked before the override bypass below.
+        // decision). Checked before the override bypass below.
         const hardStop = nonOverridableBlock({ deceased: bureauCheck?.deceased ?? false })
         if (hardStop.blocked) {
           return NextResponse.json(
@@ -933,8 +933,8 @@ export async function POST(
             // No-offer disclosures carry DECLINED + premium exactly 0; the
             // billing helper's validation branches on `offered` and REJECTS a
             // zero premium when it defaults to true. Omitting this made every
-            // no-offer application unapprovable — the exact blast radius of
-            // the 2026-07-28 production outage, reintroduced at approval time.
+            // no-offer application unapprovable — the same failure that a zero
+            // premium causes anywhere else the helper runs.
             offered: creditLifeDisclosure.evidence.offered,
             monthlyPremiumCents: creditLifeDisclosure.evidence.monthlyPremiumCents,
             premiumPeriods: calculateCreditLifePremiumPeriods(

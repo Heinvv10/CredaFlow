@@ -36,7 +36,7 @@ export function evaluateBureauGate(
 }
 
 /** Bureau markers that an audited override CANNOT bypass. Deceased is
- *  non-overridable (owner decision 2026-07-06): you cannot lend to a consumer
+ *  non-overridable: you cannot lend to a consumer
  *  the bureau reports as deceased, regardless of a staff override reason. */
 export function nonOverridableBlock(check: { deceased: boolean }): { blocked: boolean; reason?: string } {
   if (check.deceased) {

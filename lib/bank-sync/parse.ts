@@ -1,7 +1,6 @@
 import type { ParsedStatementLine } from "./types"
 
-// Column order in the ABSA "Transaction History" CSV export. Layout confirmed
-// against a real export 2026-07-14 (example values below are invented): header is `Date,Description,Amount,Balance` — there is
+// Column order in the ABSA "Transaction History" CSV export. Example values below are invented: header is `Date,Description,Amount,Balance` — there is
 // NO dedicated reference column; the payer's reference is embedded in the free-
 // text Description (e.g. "DIGITAL TRANSF CR 12345678-1234-0001 ABSA BANK TST to
 // Acme Store"), so `rawReference` is sourced from Description below.

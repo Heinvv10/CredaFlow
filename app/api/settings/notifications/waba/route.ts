@@ -13,8 +13,8 @@ import { submitTemplateForApproval, wabaFieldsChanged } from "@/lib/whatsapp/tem
 
 /**
  * Authoring endpoint for the WABA columns of a MessageTemplate — the writer the
- * registration chain (PRs #519–#522) was built against but never had, which is
- * why every template's wabaTemplateName stayed null and none could register.
+ * registration chain depends on: without it every template's wabaTemplateName
+ * stays null and none can register.
  *
  * Separate from the sibling POST that edits sms/email copy: that route sits at
  * the LOAN_ADMIN floor, while submitting a template to Meta for approval binds

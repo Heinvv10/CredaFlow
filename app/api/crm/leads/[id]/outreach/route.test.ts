@@ -68,8 +68,8 @@ describe("POST /api/crm/leads/[id]/outreach", () => {
   })
 
   it("keeps the READONLY floor of its free-text sibling", () => {
-    // Decision 1 of #334, reaffirmed by Hein — any staff who can view the
-    // record may message it. Tightening this needs a product decision.
+    // Any staff who can view the record may message it. Tightening this
+    // needs a product decision.
     return POST(req({ kind: "QUALIFICATION", channel: "WHATSAPP" }), ctx as any).then(() => {
       expect(requireApiRoleMock).toHaveBeenCalledWith("READONLY")
     })

@@ -64,8 +64,8 @@ export function leadOutreachDeliveryOutcome(status: MsgStatus): Exclude<
  * Upsert the MessageTemplate backing one outreach button.
  *
  * Created on demand rather than seeded: no MessageTemplate CRUD UI exists and
- * prod has none of these rows, so a seed would have to be re-run per
- * environment. `update` re-syncs the body so editing the copy in
+ * a fresh environment has none of these rows, so a seed would have to be
+ * re-run per environment. `update` re-syncs the body so editing the copy in
  * lead-outreach-templates.ts is what ships it — the DB row is a projection of
  * the code, never the source of truth.
  *
@@ -176,7 +176,7 @@ export async function sendLeadOutreach(input: {
   if (!eligible.ok) return { ok: false, reason: eligible.reason, detail: eligible.detail }
 
   if (!lead.contact) {
-    // Pre-F-23 leads predate the Contact directory; the backfill reconciles
+    // Older leads predate the Contact directory; the backfill reconciles
     // them. Nothing to send to until then.
     return { ok: false, reason: "NO_CONTACT", detail: "this lead has no contact record yet" }
   }

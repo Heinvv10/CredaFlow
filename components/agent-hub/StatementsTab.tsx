@@ -25,12 +25,12 @@ function when(iso: string) {
 
 /**
  * Built as one string rather than JSX text interleaved with {expressions}.
- * The interleaved form lost the space after the singular/plural clause in the
- * production build only — the element tree kept it, so no test could see it.
+ * The interleaved form can lose the space after the singular/plural clause in
+ * the production build only — the element tree keeps it, so no test can see it.
  * Exported so the wording is assertable without rendering.
  */
 export function unknownAgentSentence(count: number): string {
-  // The only caller guards on `length > 0`, so production cannot reach this.
+  // The only caller guards on `length > 0`, so the real UI cannot reach this.
   // Guarded anyway because the function is exported: "0 selected agents are no
   // longer on this roster" is a false statement, and "-1 selected agents" is
   // nonsense. Returning nothing renders nothing, which is the truthful output
@@ -119,10 +119,10 @@ export function StatementsTab({
           // the preview looking like a complete statement for the selection.
           //
           // One pre-built string, not text interleaved with {expressions}: the
-          // interleaved form rendered "agent isno longer" in the production
-          // build. The space survived the element tree — so the component test
-          // asserting this sentence passed — and was dropped by the compiler
-          // only in the built output. Nothing but looking at the page caught it.
+          // interleaved form can render "agent isno longer" in the production
+          // build. The space survives the element tree — so a component test
+          // asserting this sentence passes — and is dropped by the compiler
+          // only in the built output. Only looking at the page catches it.
           <p className="border-b border-[var(--cf-border-subtle)] px-5 py-3 text-xs text-[var(--cf-danger)]">
             {unknownAgentSentence(unknownAgentIds.length)}
           </p>

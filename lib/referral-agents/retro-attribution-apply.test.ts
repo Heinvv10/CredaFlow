@@ -55,7 +55,7 @@ describe("loadRetroAttributionPlan", () => {
     expect(plan.blockers).toEqual([])
   })
 
-  // FIX-5. isSelfReferral compares the client against the agent, and the SAME
+  // isSelfReferral compares the client against the agent, and the SAME
   // PUT may be changing the client's name, phone or email. Reading the stored
   // values let one request rename the client to match the agent and assign that
   // agent, evading the check entirely — a self-referral in a single edit.

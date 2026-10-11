@@ -485,8 +485,8 @@ describe("validateStep4Review", () => {
   })
 })
 
-// Regression guard for the 2026-07-28 production incident: the Step 3
-// dropdowns offered values ("WAGES", "BUSINESS", "GRANT", "PART_TIME",
+// Regression guard: the Step 3
+// dropdowns once offered values ("WAGES", "BUSINESS", "GRANT", "PART_TIME",
 // "STUDENT", "RETIRED", "TRANSMISSION") that were not members of the Prisma
 // enum they are persisted to. Selecting one reached prisma.client.create()
 // and threw PrismaClientValidationError, so "Create client" failed.

@@ -97,7 +97,7 @@ describe("POST /api/applications/[id]/agreement/send-link", () => {
     expect(message).not.toContain("app.lender.example")
   })
 
-  // Prod runs BULKSMS_DRY_RUN=true. Without this guard the route dispatched,
+  // A deployment with BULKSMS_DRY_RUN=true sends nothing. Without this guard the route dispatched,
   // got a `simulated` result, and audited a signing link the consumer never
   // received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {

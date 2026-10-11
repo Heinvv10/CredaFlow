@@ -102,17 +102,15 @@ describe("listConversations", () => {
 
   // Regression, two layers deep.
   //
-  // Layer 1 (2026-07): staging had 73 outbound-only conversations
-  // (lastInboundAt = NULL) and 1 with a real inbound message. Postgres
-  // `ORDER BY x DESC` puts NULLs FIRST by default, so the one genuine inbound
-  // conversation sorted behind all 73 NULLs and fell off the first page.
+  // Layer 1: Postgres `ORDER BY x DESC` puts NULLs FIRST by default, so
+  // outbound-only conversations (lastInboundAt = NULL) sorted ahead of the
+  // genuine inbound ones and pushed them off the first page.
   // `nulls: "last"` fixed that.
   //
-  // Layer 2 (2026-08, THIS defect): NULLS LAST then buried the OTHER side —
+  // Layer 2 (THIS defect): NULLS LAST then buried the OTHER side —
   // an outbound-only thread has lastInboundAt = NULL forever, so it ranked
-  // below every conversation that ever got a reply, however stale. 41 of 106
-  // PROD conversations were in that state, all invisible past the 30-row
-  // first page. The sort key is now lastActivityAt = GREATEST(lastInboundAt,
+  // below every conversation that ever got a reply, however stale, and could
+  // sit invisible past the 30-row first page. The sort key is now lastActivityAt = GREATEST(lastInboundAt,
   // lastOutboundAt), which has a value for both populations.
   //
   // A mocked Prisma can't execute real ordering, so this asserts the query
@@ -254,7 +252,7 @@ describe("getThread", () => {
     expect(r!.window.open).toBe(true) // 11:30 + 24h > 12:00
   })
 
-  // Regression (prod, 2026-08-11): getThread fell back to cv.lastInboundAt when
+  // Regression: getThread fell back to cv.lastInboundAt when
   // the contact JSON was empty, so the panel showed "24h reply window open"
   // while lib/whatsapp-cloud.ts — which reads ONLY the contact field — rejected
   // the reply with WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE. The indicator must agree
@@ -446,7 +444,7 @@ describe("resolveQueueForConversation", () => {
 // Conversation.channel is only the channel a thread was OPENED on; one thread
 // carries every channel. The queue badge must follow the newest
 // customer-facing message, or a WhatsApp reminder in an email-opened thread
-// is badged EMAIL (seen in prod 2026-09-24).
+// is badged EMAIL.
 describe("queue channel badge", () => {
   it("badges a conversation with its newest customer-facing message's channel", async () => {
     vi.mocked(prisma.conversation.findMany).mockResolvedValue([convRow({ id: "cv1", channel: "EMAIL" })] as any)

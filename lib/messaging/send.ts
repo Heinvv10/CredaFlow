@@ -64,8 +64,8 @@ function buildListUnsubscribeUrl(
   if (template.statutoryOverride) return undefined
   const secret = process.env.UNSUB_TOKEN_SECRET
   if (!secret) {
-    // Misconfigured staging/dev: skip the header rather than fail the send.
-    // Production will alarm via /api/health or first-send observability.
+    // Misconfigured non-production environment: skip the header rather than
+    // fail the send. A production deployment must set UNSUB_TOKEN_SECRET.
     return undefined
   }
   const exp = preparedAt.getTime() + NINETY_DAYS_MS
@@ -82,8 +82,8 @@ function buildListUnsubscribeUrl(
  * term is the signed List-Unsubscribe token, which exists only when
  * UNSUB_TOKEN_SECRET is set (see buildListUnsubscribeUrl).
  *
- * UNSUB_TOKEN_SECRET is set on prod but UNSET on staging — and staging is
- * exactly where walkthroughs happen. Refuse the send rather than write a row
+ * UNSUB_TOKEN_SECRET may be unset in non-production environments — exactly
+ * where walkthroughs happen. Refuse the send rather than write a row
  * whose secret is recoverable from itself. Thrown before the transaction, so
  * no Message is reserved and nothing reaches a provider.
  *
@@ -606,7 +606,7 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
   }
 
   // Test doubles created before the dispatch-control migration may omit the
-  // new fields. Production rows always carry the committed token.
+  // new fields. Real rows always carry the committed token.
   const dispatchToken = msg.dispatchToken ?? prepared.dispatchToken
   if (!dispatchToken) {
     throw new Error("Message dispatch reservation is missing its attempt token")
@@ -662,7 +662,7 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
   }
 
   // Dispatch after commit. Failure must not roll back the Message row —
-  // we need it in FAILED state for the audit trail and the (PR-2.5) retry path.
+  // we need it in FAILED state for the audit trail and the retry path.
   let dispatchResult: Awaited<ReturnType<typeof dispatchWithinTimeout>>
   try {
     dispatchResult = await dispatchWithinTimeout(opts.channel, provider, dispatchPayload, {

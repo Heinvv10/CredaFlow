@@ -60,7 +60,7 @@ describe("deliverViaMessaging", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("reports a SIMULATED dispatch as simulated — never as a real send", async () => {
-    // BULKSMS_DRY_RUN is true on prod. A caller that audits this as sent
+    // BULKSMS_DRY_RUN can be true in a deployment. A caller that audits this as sent
     // writes a false compliance record for a notice that never left.
     sendMessage.mockImplementation(async (o: any) => {
       o.onProviderDispatchStart?.()
@@ -139,7 +139,7 @@ describe("deliverViaMessaging", () => {
     async (status) => {
       // sendMessage RETURNS these rather than throwing when it owns the retry.
       // Unreachable only while every caller passes automaticRetry:false — the
-      // same incidental protection made explicit for the retry guard.
+      // same implicit protection made explicit for the retry guard.
       sendMessage.mockImplementation(async (o: any) => {
         o.onProviderDispatchStart?.()
         return { status, dispatchState: "DEFINITELY_REJECTED", errorMessage: "provider said no" }

@@ -7,8 +7,8 @@ import { arrivalPlan, formatRands, type ParsedQuote } from "@/lib/insurance/quic
  *
  * The wait used to be three lines of text for ten seconds. This replaces the
  * dead air with the only thing on the screen the visitor actually wants: the
- * prices, arriving. FSP hand rows over in their own order — measured on
- * 2026-08-08 as King Price, Absa, Auto and General, Virseker, 1st For Women,
+ * prices, arriving. FSP hand rows over in their own order — observed as
+ * King Price, Absa, Auto and General, Virseker, 1st For Women,
  * which is not price order — so once the panel is complete the whole set
  * reorders and the cheapest rises to the top.
  *

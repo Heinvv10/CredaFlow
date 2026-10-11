@@ -134,7 +134,7 @@ export function CommissionTab({
       <section className="rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)]">
         <div className="border-b border-[var(--cf-border-subtle)] px-5 py-4">
           <h2 className="font-semibold text-[var(--cf-text)]">Commission and quality queue</h2>
-          {/* OWNER RULING (2026-08-06): this queue must never hide outstanding
+          {/* RULE: this queue must never hide outstanding
               work by calendar default, so it is NOT scoped by the date filter
               below — that filter only narrows the Decision history section.
               Said explicitly so a staff member who changes the date range and

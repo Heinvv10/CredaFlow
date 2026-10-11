@@ -53,7 +53,7 @@ interface FilterSelectProps {
 /**
  * Options are always rendered with an explicit `value`, and callers derive them
  * from the rows on screen — a select whose bound value matches no option
- * silently displays option[0], which has misled staff in prod before.
+ * silently displays option[0], which misleads staff.
  */
 export function FilterSelect({ value, onChange, label, options }: FilterSelectProps) {
   return (

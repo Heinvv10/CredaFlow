@@ -129,7 +129,7 @@ function readWith(reader: CompositeKycReader) {
 describe("inMemoryKycReader", () => {
   // The reader hand-mirrors predicates the real reader sends to Postgres. Each
   // case below is one way that mirror can be wrong while still returning
-  // something plausible — which is how it would reach production unnoticed.
+  // something plausible — which is how it would go unnoticed.
   const cases: { name: string; data: ReadinessKycRows }[] = [
     { name: "every core document verified, no selfie", data: rows() },
     {

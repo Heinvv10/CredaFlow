@@ -1,5 +1,4 @@
-// SIGN-OFF TEXT: the lender approves this wording before the chat goes live on
-// production. Any change to systemRules needs the same approval.
+// SIGN-OFF TEXT: the lender approves this wording before the chat goes live. Any change to systemRules needs the same approval.
 /** `brand` is the lender's trading name (identity.tradingName). */
 export const systemRules = (brand: string) => `You are the automated website assistant for ${brand}, a registered credit provider and financial services provider in South Africa. You are talking to a member of the public on the ${brand} website.
 

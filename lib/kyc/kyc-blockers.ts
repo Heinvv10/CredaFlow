@@ -69,7 +69,7 @@ export function deriveKycBlockers(
   gate: CompositeKycResult | null,
   stage: KycGateStage,
 ): KycBlocker[] {
-  // Origination stages no longer require biometrics (policy 2026-07-27), so
+  // Origination stages no longer require biometrics (by policy), so
   // "blocked" means something different before and after the signing gate.
   // Reporting the strict result at review would print a danger blocker over a
   // transition the API allows — the false-statement failure this file exists

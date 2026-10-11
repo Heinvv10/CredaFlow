@@ -308,7 +308,7 @@ suite("PASQ signing-ceremony database guards", () => {
     // buffer of 100 (where both formulas agree), so only a real approval
     // against a real database could catch it. This installs evidence built by
     // the SAME production helpers the decide route uses.
-    // R1,500 over 30 days reproduces the production incident exactly: the
+    // R1,500 over 30 days reproduces the float-drift case exactly: the
     // recurring instalment lands on 186_900, inside a float-drift zone for a
     // 110% buffer.
     const DRIFT_PRINCIPAL_CENTS = 150_000

@@ -370,8 +370,8 @@ export function applyPayslipPostProcessing(
 /**
  * SAVINGS bank PRODUCT names, as printed on real statements. The model is
  * asked to map the printed product to CHEQUE/SAVINGS itself and to answer
- * OTHER when unsure, but it guesses: an ABSA "Flexi Account" came back CHEQUE
- * on 2026-08-27 and a correct SAVINGS payout record was refused as a mismatch.
+ * OTHER when unsure, but it guesses: an ABSA "Flexi Account" can come back CHEQUE
+ * and a correct SAVINGS payout record is then refused as a mismatch.
  * ABSA sells the product as the "Flexi Savings Account" (absa.co.za, personal
  * banking > save & invest); statements print it as "Flexi Account".
  *
@@ -386,7 +386,7 @@ export function applyPayslipPostProcessing(
 export const SAVINGS_ACCOUNT_PRODUCT_PREFIXES = [
   'flexiaccount',   // ABSA Flexi (Savings) Account, printed "Flexi Account"
   'flexisavings',   // ABSA Flexi Savings Account
-  'mymo',           // Standard Bank MyMo, printed "MYMOACC"; savings (client case, 2026-08-28)
+  'mymo',           // Standard Bank MyMo, printed "MYMOACC"; savings
 ] as const
 
 function printedProductAccountType(printed: string): 'CHEQUE' | 'SAVINGS' | null {
@@ -496,9 +496,8 @@ async function withPrivateTempDir<T>(work: (dir: string) => Promise<T> | T): Pro
   try {
     return await work(dir)
   } finally {
-    // A failure is exactly when the plaintext must still go: cleanup used to run
-    // on the success path only, and three client documents were sitting in
-    // production /tmp on 2026-07-31 as a result.
+    // A failure is exactly when the plaintext must still go: cleanup on the
+    // success path only would leave client documents in /tmp.
     try { rmSync(dir, { recursive: true, force: true }) } catch { /* already gone */ }
   }
 }
@@ -518,16 +517,12 @@ async function withPrivateTempDir<T>(work: (dir: string) => Promise<T> | T): Pro
  * real client documents is worse than the attack it prevents. The bomb is held
  * to 21MB here against 13.7GB unbounded.
  *
- * CORRECTION, 2026-08-14. This comment claimed a 3-page A4 600dpi colour scan
- * "failed outright" at 512MB, and that is what set 1GB rather than something
- * smaller. It is wrong. Re-measured on a fixture whose page box is genuinely
- * A4: that document renders at 256MB, and at every size above. The original
- * fixture was built by ImageMagick, which writes the PIXEL COUNT as the page
- * size — so its page declared itself 4960x7016 POINTS, ~70x the area of A4, and
- * what was measured was page geometry, not scan resolution. An independent
- * reviewer could not reproduce the claim either. 1GB is left as-is because it
- * costs nothing and holds the bomb; it is simply not the tight bound this
- * paragraph presented it as.
+ * A genuine A4 3-page 600dpi colour scan renders at 256MB, and at every size
+ * above it, so 1GB is not a tight bound for real scans. It is kept because it
+ * costs nothing and holds the bomb. Beware test fixtures built by ImageMagick:
+ * it writes the PIXEL COUNT as the page size, so a 4960x7016 pixel scan declares
+ * a 4960x7016 POINT page, ~70x the area of A4, and measures page geometry rather
+ * than scan resolution.
  *
  * What happens to a bounded bomb varies by how it is built, and NOT every case
  * fails loudly. A stream inflating inside the page content dies and is caught.
@@ -535,7 +530,7 @@ async function withPrivateTempDir<T>(work: (dir: string) => Promise<T> | T): Pro
  * allocation and exit 0, leaving a small degraded JPEG — so a bounded document
  * may still hand the model a blank or corrupt page rather than an error.
  *
- * CLOSED 2026-08-14 by isFullPageRender: the output is now checked against the
+ * Closed by isFullPageRender: the output is now checked against the
  * size that was asked for, and a stub fails the extraction instead of being
  * sent. Measured once it could be provoked deliberately: 631 bytes, 1x1 px,
  * exit 0.
@@ -557,24 +552,17 @@ const MAX_RENDER_MEMORY_KB = 1024 * 1024
 /**
  * Resolution the page is rendered at for the model, in dots per inch.
  *
- * Measured on 40 real production payslips against ground truth derived from
- * each document's own text:
- *
- *   200 dpi   5/8 correct, THREE read from the year-to-date column, 32/40 reconcile
- *   300 dpi   8/8 correct, none from YTD, 36/40 reconcile
- *   400 dpi   8/8 correct, none from YTD, 36-37/40 reconcile (three runs)
- *
- * The failure at 200 was never about reading digits — the model returned the
- * YTD figures exactly, so it saw them perfectly. It could not resolve WHICH
- * COLUMN a figure sat under, and column position is the only thing separating
+ * Too low a resolution makes the model read the year-to-date column instead of
+ * the current month. The failure is not about reading digits — the model sees
+ * the YTD figures perfectly. It cannot always resolve WHICH
+ * COLUMN a figure sits under, and column position is the only thing separating
  * this month's pay from the tax year's. Resolution alone does not fix it
- * either: with the older prompt, 200, 300 and 400 all failed. It took the
- * current prompt, which names the column to read, AND enough resolution to
+ * either: with a prompt that does not name the column, no resolution
+ * suffices. It takes a prompt that names the column to read, AND enough resolution to
  * tell the columns apart.
  *
- * 400 rather than 300 for margin above a failure point that lies somewhere
- * between 200 and 300 — a misread here is silent, and 300 sits at the edge of
- * what was tested. Both scored the same, so drop to 300 if the payload matters:
+ * 400 rather than 300 for margin above a failure point that lies below 300 —
+ * a misread here is silent. Drop to 300 if the payload matters:
  * a page is ~355KB at 200, ~650KB at 300 and ~975KB at 400.
  */
 export const RENDER_DPI = 400
@@ -602,8 +590,7 @@ export const RENDER_DPI = 400
  *                 perfectly and still cannot tell WHICH COLUMN they sit under,
  *                 which is the silent wrong-income failure this whole path
  *                 exists to prevent. It renders, it looks fine, and nothing
- *                 signals it. Shipped in PR #732 and caught in review before
- *                 reaching production.
+ *                 signals it.
  *
  *   this          computes both axes at true RENDER_DPI from the CropBox, and
  *                 only if that exceeds MAX_RENDER_PIXELS scales both down to
@@ -623,11 +610,10 @@ export const RENDER_DPI = 400
  *   120 Mpx        477MB                 815MB   (20% headroom — too thin)
  *    90 Mpx        360MB                 615MB   (40% headroom)
  *
- * An earlier draft cited the 477MB text-only figure as the cost at the cap. It
- * is a real measurement of an unrepresentative fixture: any page that large in
- * the wild is a scan, and a scan carries an image. Independently reproduced at
- * 833MB by a reviewer across four constructions, high and low entropy alike,
- * which is what prompted dropping the cap from 120M.
+ * The 477MB text-only figure is not the cost at the cap. It is a real
+ * measurement of an unrepresentative fixture: any page that large in the wild
+ * is a scan, and a scan carries an image. Image-bearing constructions, high and
+ * low entropy alike, reach 833MB, which is why the cap is 90 Mpx and not 120M.
  *
  * 90 Mpx still admits every realistic document at true RENDER_DPI — the largest
  * is the phone screenshot at 74 Mpx — so the reduction costs nothing but
@@ -759,7 +745,7 @@ async function toVlmImageDataUrl(
       // The directory is what protects the rendered JPEG: pdftoppm creates it
       // with its own umask, so no mode we set on our side would cover it.
       // Cleanup is the directory's, and runs on failure too — three client
-      // documents were stranded in production /tmp on 2026-07-31 when it didn't.
+      // documents would be stranded in /tmp if it didn't.
       await withPrivateTempDir(async (dir) => {
         const tmpIn = join(dir, 'in.pdf')
         const tmpOutPrefix = join(dir, 'out')

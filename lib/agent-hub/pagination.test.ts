@@ -48,7 +48,7 @@ describe("totalPages", () => {
   })
 })
 
-// Review finding (fix round 1): an unclamped page produced a nonsensical
+// An unclamped page produced a nonsensical
 // footer ("Page 99 of 1") and an empty table after a stale bookmark or
 // hand-edited ?page= outlived a shrinking result set. Each case below targets
 // a distinct mutant so a future regression can't slip through by only

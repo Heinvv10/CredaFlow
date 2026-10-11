@@ -64,7 +64,7 @@ describe("disbursementGuardViolation", () => {
 
   it("does NOT claim an unrelated failure is a payout refusal", () => {
     // Mislabelling an outage as a compliance refusal would send staff chasing
-    // customer paperwork during an incident.
+    // customer paperwork during an infrastructure failure.
     expect(disbursementGuardViolation(new Error("connect ECONNREFUSED 10.0.0.1:5432"))).toBeNull()
     expect(disbursementGuardViolation(new Error("Timed out fetching a new connection"))).toBeNull()
     expect(disbursementGuardViolation(undefined)).toBeNull()

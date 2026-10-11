@@ -39,8 +39,8 @@
  * 37, not 36. The column element's half is exactly 36rem, which sounds like
  * enough — but the gradient is centred on the VIEWPORT while the column is
  * centred on the content box, and a scrollbar offsets one from the other.
- * Measured on staging at a 16px root: the disclosure began 6px inside the
- * band. It passed, and 6px is not a margin. The extra rem absorbs the widest
+ * At a 16px root the disclosure began 6px inside the band with a plain 36.
+ * That passes, and 6px is not a margin. The extra rem absorbs the widest
  * scrollbar at any root size; see COLUMN_PADDING_REM and the test that states
  * the requirement instead of leaving it to be re-measured by hand.
  */

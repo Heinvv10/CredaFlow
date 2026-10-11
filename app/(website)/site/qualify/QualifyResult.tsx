@@ -30,7 +30,7 @@ interface ResultProps {
 // Micro (<= the live short-term max) uses short-term product pricing; larger
 // amounts use personal-loan pricing. Fees come from the LIVE product (fail-open
 // to the static catalogue via getPublicLoanProduct), so the pre-qual estimate
-// matches what the borrower is actually charged (W-2).
+// matches what the borrower is actually charged.
 function feeFieldsForAmount(products: PublicLoanProduct[], amountCents: number, microMax: number) {
   const code = amountCents <= microMax * 100 ? "short-term" : "personal"
   const product = products.find((p) => p.code === code) ?? getPublicLoanProduct(code)

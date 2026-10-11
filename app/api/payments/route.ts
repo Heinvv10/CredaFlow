@@ -19,7 +19,7 @@ const PAYMENT_METHODS = new Set(["EFT", "CASH", "DEBIT_ORDER", "CARD"])
 export async function POST(req: NextRequest) {
   try {
     // Collections agents capture the arrears payments they collect, so payment
-    // recording is allowed from COLLECTIONS_AGENT upward (F-30). Lower roles
+    // recording is allowed from COLLECTIONS_AGENT upward. Lower roles
     // (READONLY, COLLECTIONS_OFFICER) still 403.
     const guard = await requireApiRole("COLLECTIONS_AGENT")
     if (guard.error) return guard.error
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       // The read-modify-write on the loan's balances (over-payment guard,
       // allocation, recompute) runs inside applyManualReceipt under a per-loan
       // FOR UPDATE lock, so concurrent receipts serialise instead of losing
-      // updates (issue #422).
+      // updates.
       let result
       try {
         result = await applyManualReceipt(prisma, {

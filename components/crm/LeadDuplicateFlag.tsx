@@ -55,8 +55,8 @@ export function LeadDuplicateFlag({
             "There are too many leads to compare in one pass, so older leads were not checked against this one."
           ) : (
             // Whole sentences per branch rather than a ternary spliced into
-            // surrounding JSX text. `{ternary} this lead's phone` rendered as
-            // "sharethis" in production: Turbopack (Next 16's default `next
+            // surrounding JSX text. `{ternary} this lead's phone` renders as
+            // "sharethis" in the production build: Turbopack (Next 16's default `next
             // build` bundler — its own Rust codepath, NOT the next-swc binding)
             // drops the leading whitespace of a text node that follows an
             // expression, emitting "Other leads share","this lead's phone…" as

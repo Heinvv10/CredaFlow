@@ -1,6 +1,6 @@
 /**
  * Provision a Contact + per-channel ContactIdentity rows for a newly-created
- * Client. Required by the Phase 9 S2 cutover (PR-10a) because the new-send
+ * Client. Required by the new-send cutover because the new-send
  * path (lib/messaging/send.ts) looks up the recipient by channel-keyed
  * ContactIdentity. Without provisioning at client-create time, transactional
  * notifications for new clients silently drop on the floor.

@@ -62,9 +62,9 @@ export function ImsModuleToggle({ featureIms }: Props) {
               it exactly. `requireImsEnabled` gates the /api/insurance routes,
               and the Insurance and Compliance dashboard layouts redirect. It
               does NOT gate insurer or insurance-product setup — live credit
-              life reads those records, so closing them would break production.
-              An earlier version of this line promised "staff cannot reach any
-              insurance screen or endpoint", which was false in four places.
+              life reads those records, so closing them would break credit life.
+              The sentence must not promise "staff cannot reach any
+              insurance screen or endpoint"; that would be false.
             */}
             <p className="text-sm text-muted-foreground">
               Off hides the Insurance and Compliance sections and closes the insurance API. Insurer

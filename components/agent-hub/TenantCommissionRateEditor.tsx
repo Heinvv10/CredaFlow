@@ -100,7 +100,7 @@ export function TenantCommissionRateEditor({ initialBps }: { initialBps: number 
         </p>
       ) : null}
 
-      {/* The silent-disable that left the ledger empty from 2026-07-11 to 2026-08-06. */}
+      {/* A silent 0% disables commission and leaves the ledger empty. */}
       {!invalid && bps === 0 ? (
         <p className="mt-2 text-xs text-[var(--cf-danger)]">
           0% switches commission OFF. Referred loans will disburse and no agent will earn

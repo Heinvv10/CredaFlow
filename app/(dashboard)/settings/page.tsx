@@ -127,7 +127,7 @@ export default async function SettingsPage() {
           {/*
             The IMS module switch. Linked here deliberately: it withdraws the
             insurance API surface, and a control reachable only by typing its
-            URL is not much of a control during an incident. The description
+            URL is not much of a control when it is needed urgently. The description
             names only what the switch actually covers — insurer and insurance
             product setup below stay reachable either way, because live credit
             life reads those records.

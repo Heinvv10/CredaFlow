@@ -196,7 +196,7 @@ function addVehicleOnHost(root: HTMLElement | null): boolean {
  * of an add. Never throws, and changes nothing when their model cannot be
  * reached.
  *
- * MEASURED on quote-staging, 2026-08-08, immediately after calling this on a
+ * Observed immediately after calling this on a
  * two-vehicle policy: `Vehicles.length` drops by one, the remaining (now
  * active) vehicle's Year is repopulated from FSP's own memory ("2018"), and
  * the per-policy licence fields — absent from the DOM since the add — are
@@ -209,8 +209,7 @@ function addVehicleOnHost(root: HTMLElement | null): boolean {
  * the inverse. The caller decrements our own count and drops a saved snapshot
  * on the strength of this answer, so a call that ran but removed nothing must
  * not report success — that would leave us claiming one car while FSP still
- * hold two, which is the our-model-vs-theirs divergence this branch has
- * already shipped one Critical over.
+ * hold two, which is an our-model-vs-theirs divergence.
  */
 function removeActiveVehicleFrom(root: HTMLElement | null): boolean {
   if (!root) return false
@@ -846,8 +845,7 @@ export function QuickQuoteWizard({
            addVehicleOnHost, which reads their model back rather than
            trusting a call that ran without throwing. An add can still fail
            outright (their model unreachable), and claiming a car count the
-           DOM does not back is the same our-model-vs-theirs divergence a
-           previous task shipped a Critical over — so the state set below
+           DOM does not back is the same our-model-vs-theirs divergence — so the state set below
            comes from what landed, never from savedCars.length + 1 outright,
            and a failed add stops the loop rather than writing the next
            car's fields into whatever vehicle happens to still be active,
@@ -1228,7 +1226,7 @@ export function QuickQuoteWizard({
      showMoreCars before its declaration and throw (tsc: TS2448/TS2454). See
      the `done` comment above the settle effect for the sibling case where
      that same ordering hazard hid inside a closure instead.
-     MEASURED, not inferred (quote-staging, 2026-08-08): FSP rebuild the whole
+     Observed, not inferred: FSP rebuild the whole
      vehicle subtree on every add. `addVehicle()` calls `policy.valueHasMutated()`,
      and `#tVehicles` is `data-bind="with: $root.activeVehicle"`, so knockout
      tears the subtree down and re-renders it around the new vehicle.
@@ -1491,8 +1489,8 @@ export function QuickQuoteWizard({
       // and anything they then type writes into FSP's ACTIVE vehicle, which
       // is still the one they believed they had left.
       //
-      // removeActiveVehicleFrom mirrors FSP's own inverse (MEASURED,
-      // quote-staging 2026-08-08: a full inverse of addVehicle — vehicle
+      // removeActiveVehicleFrom mirrors FSP's own inverse (observed:
+      // a full inverse of addVehicle — vehicle
       // count drops by one and the previous vehicle's answers and licence
       // fields are restored in their DOM). Doing that first means the clamp
       // below sees a journey that is genuinely complete, rather than one
@@ -1573,7 +1571,7 @@ export function QuickQuoteWizard({
 
           // Make/model options were cleared to [] on add and nothing else
           // restores them. removeActiveVehicle() repopulates FSP's own
-          // selects SYNCHRONOUSLY — MEASURED, quote-staging 2026-08-08: 56
+          // selects SYNCHRONOUSLY — observed: 56
           // make options and 125 model options present in the SAME tick, no
           // AJAX, no polling. Read eagerly, here, rather than inside the
           // setOptions updater below: an updater is React-owned code that

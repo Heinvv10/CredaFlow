@@ -116,7 +116,7 @@ export function planCommissionBackfill(
       plan.skipped.push({ ...c, reason: "INELIGIBLE_LOAN_STATUS" })
       continue
     }
-    // An agent does not earn commission on their own loan (Hein, 2026-08-06).
+    // An agent does not earn commission on their own loan.
     // Reported ahead of agent/code status and the rate because it is the most
     // DURABLE blocker: reactivating a suspended agent or setting a rate will
     // never make a self-referral payable, so leading with either of those sends
@@ -174,7 +174,7 @@ export type PlannedAccrual = {
  * Write one backfilled accrual and its audit row inside a caller-supplied
  * transaction.
  *
- * `recordAccrual` is the PRODUCTION accrual function, injected rather than
+ * `recordAccrual` is the real accrual function, injected rather than
  * imported here so this stays unit-testable and so the backfill cannot drift
  * from the gates the live disbursement path applies.
  *

@@ -127,7 +127,7 @@ describe("WABA body templates vs the vars the code supplies", () => {
   })
 
   it.each(EVENTS)("%s: body is not only variables — Meta rejects that", (event) => {
-    // Proven against the live API on 2026-08-12 with a body of exactly
+    // Meta's API rejects a body of exactly
     // "{{body}}": error_subcode 2388047, "The message body can't have more
     // than two consecutive newline characters, ONLY HAVE PARAMETERS, or have
     // more than 10 emojis."

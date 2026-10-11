@@ -19,8 +19,8 @@ import {
  * their jQuery 1.9.1 bundle, not their JSONP, not the Google Analytics property
  * their script injects — loads into this origin.
  *
- * The frame mounts immediately on page load (2026-08-08, deliberate product
- * decision, overriding the previous click-to-load gate): FSP's analytics
+ * The frame mounts immediately on page load (a deliberate product decision,
+ * overriding a click-to-load gate): FSP's analytics
  * cookies are now set on every passive view of this section, not just after
  * an explicit "Get instant quotes" click. Do not revert this silently if a
  * consent requirement resurfaces — see the note below.
@@ -277,18 +277,16 @@ export function QuickQuotePanel({
            Browsers without support simply load eagerly, which is the old
            behaviour of this branch — so the fallback is safe. */
         loading="lazy"
-        /* ⚠️ DO NOT ADD A CSS TRANSITION ON HEIGHT HERE. It was tried, shipped
-           to staging, and reverted the same night — it makes the frame
+        /* ⚠️ DO NOT ADD A CSS TRANSITION ON HEIGHT HERE. It makes the frame
            OSCILLATE forever, which is far worse than the snap it was meant to
            soften.
            The loop: animating the height continuously changes the FRAME's
            viewport; the frame's ResizeObserver watches document.documentElement
            and fires on every intermediate value; scrollHeight is never less
            than the viewport, so the frame reports the animating height straight
-           back; the parent applies it and re-animates. Measured on staging:
-           1224 <-> 2037 on a ~1s cycle, indefinitely. Disabling the transition
-           in the live page stopped it dead — zero height messages in the next
-           nine seconds.
+           back; the parent applies it and re-animates. Observed:
+           1224 <-> 2037 on a ~1s cycle, indefinitely; without the transition
+           there are no further height messages.
            Smoothness comes from the boot skeleton inside the frame reserving
            the form's real height instead (QuickQuoteBootSkeleton), which leaves
            only a ~2px change to absorb. There is nothing left worth animating. */

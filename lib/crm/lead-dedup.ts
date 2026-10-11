@@ -120,8 +120,8 @@ export function leadDedupKeys(lead: { email: string | null; phone: string | null
  * `a.phone === b.phone` is true when BOTH are null, so two leads with
  * unparseable phones (or two with no email) would match on having nothing in
  * common. The keys are compared, never the raw columns — "+27821234567" and
- * "0821234567" are the same number written twice, and staging holds exactly
- * that pair under two different names.
+ * "0821234567" are the same number written twice, even when the leads carry
+ * two different names.
  */
 export function duplicateReasons(a: LeadDedupKeys, b: LeadDedupKeys): DuplicateReason[] {
   const reasons: DuplicateReason[] = []
@@ -249,7 +249,7 @@ export function applyCandidateCap<T>(
 //
 // Two fixes were considered and rejected. A denylist of known placeholders is
 // unbounded guesswork — enumerating what strangers happen to type is a game you
-// cannot finish, and without production data its contents would be invention. A
+// cannot finish, and without real data its contents would be invention. A
 // frequency rule (ignore any key shared by more than N leads) is data-driven and
 // tempting, but it fails silently and in the wrong direction: a genuinely shared
 // number — a family, an employer's switchboard — would cross the threshold and

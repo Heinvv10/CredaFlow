@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const tx = {
-  // #422: the loan is now read + FOR-UPDATE-locked INSIDE the transaction.
+  // The loan is read + FOR-UPDATE-locked INSIDE the transaction.
   $queryRaw: vi.fn(async () => []),
   $executeRawUnsafe: vi.fn(async () => 1),
   payment: { create: vi.fn(async () => ({ id: "pay1" })), findFirst: vi.fn(async () => null) },
@@ -69,7 +69,7 @@ describe("applyBankTransaction", () => {
     vi.mocked(tx.loan.findFirst).mockResolvedValue(baseLoan as never)
     const res = await applyBankTransaction({ txnId: "txn1", loanId: "loanA", tenantId: "t1", userId: "u1", userEmail: "u@x.co" })
     expect(res.paymentId).toBe("pay1")
-    // #422: a FOR UPDATE lock is taken on the loan before the balance is read/written.
+    // A FOR UPDATE lock is taken on the loan before the balance is read/written.
     expect(tx.$queryRaw).toHaveBeenCalled()
     const lockSql = ((vi.mocked(tx.$queryRaw).mock.calls[0] as unknown[])[0] as string[]).join(" ")
     expect(lockSql).toMatch(/FOR UPDATE/)

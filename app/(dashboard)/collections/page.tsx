@@ -58,7 +58,7 @@ async function getPendingWriteOffs(tenantId: string) {
 async function getSection129DueCount(tenantId: string) {
   // Accounts at the S129 send threshold (90+ DPD, actually in arrears) with no
   // notice yet — matches the bulk-send action + alert banner so the "S129 Due"
-  // header agrees with both (audit F-22).
+  // header agrees with both.
   const loans = await prisma.loan.findMany({
     where: {
       tenantId,

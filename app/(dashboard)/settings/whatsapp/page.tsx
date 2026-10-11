@@ -43,7 +43,7 @@ export default async function WhatsAppSettingsPage() {
     // Promise.all, so a bridge that's up-but-unresponsive must degrade to
     // the tab's "unreachable" state quickly instead of stalling the whole
     // WhatsApp Settings page for the full 15s default -- the very screen an
-    // operator needs during an incident.
+    // operator needs when the bridge is down.
     listWaBridgeNumbers({ timeoutMs: 5_000 }).catch(() => null), // null = "bridge unreachable", not "zero numbers"
   ])
 

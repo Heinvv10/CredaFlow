@@ -9,7 +9,7 @@ import { pollTenantInbox } from "@/lib/email/inbound-poll"
  *
  * Sweeps every tenant with an active EmailConfig and matches customer email
  * replies (identified by the X-Lms-Ref header) back to their loan —
- * marking the EmailLog REPLIED + dropping a LoanNote. Replaces the previously
+ * marking the EmailLog REPLIED + dropping a LoanNote. Runs in place of a
  * manual "Poll Inbox" button so replies are captured without a human.
  *
  * Cadence: every few minutes via the systemd timer that hits /api/cron/* with
@@ -44,9 +44,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   })
 
   // A per-tenant poll failure must surface as ok:false AND as a non-2xx status.
-  // A hardcoded ok:true here reported 1,966 consecutive IMAP TLS failures as
-  // successful runs, so inbound email was dead in production for weeks without
-  // any alert firing. The body alone is not enough: the systemd wrapper invokes
+  // A hardcoded ok:true would report repeated IMAP TLS failures as successful
+  // runs, so inbound email could be dead for weeks without any alert firing.
+  // The body alone is not enough: the systemd wrapper invokes
   // this with `curl -fsS`, which only fails the unit on HTTP >= 400 and never
   // parses the JSON. Returning 200 with ok:false would still exit 0 and keep the
   // outage invisible.

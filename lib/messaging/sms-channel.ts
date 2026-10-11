@@ -1,7 +1,7 @@
 /**
  * The single source of truth for "is the SMS channel usable right now".
  *
- * Prod runs `BULKSMS_DRY_RUN=true` — a supported operating mode (see
+ * A deployment may run `BULKSMS_DRY_RUN=true` — a supported operating mode (see
  * lib/integrations/simulation-guard.ts): nothing is fabricated, sends land as
  * status `SIMULATED`. But a simulated send is not a send, so every dispatch
  * path must skip its SMS leg rather than write a `SIMULATED` Message row and a

@@ -29,7 +29,7 @@ export function backoff(retryCount: number): number | null {
 /**
  * Per-provider error classification. Default: TRANSIENT (over-retry rather
  * than silently drop). Per-provider 4xx signatures captured here are based
- * on observed prod failures + each provider's documented permanent errors.
+ * on observed failures + each provider's documented permanent errors.
  *
  * EXPIRED is NOT returned here — it's an age-based decision the cron sweep
  * makes by inspecting message.createdAt. classifyError only looks at the

@@ -31,8 +31,7 @@ const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 const MAX_ATTACHMENT_COUNT = 5
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  // READONLY floor is DELIBERATE (spec Decision 1 of #334, reaffirmed by Hein
-  // 2026-07-13 after blind-review challenge): any staff who can view the
+  // READONLY floor is DELIBERATE (a standing product decision): any staff who can view the
   // record may message it. Consent/blocked/audit gates live in
   // sendAgentMessage → sendMessage. Do not tighten to isCommsAgent (the
   // /inbox gate) without a new product decision.

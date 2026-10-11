@@ -136,7 +136,7 @@ describe("ReferralAgentField impact preview", () => {
     expect(rendered).toMatch(/clawed back|written off|defaulted/i)
   })
 
-  // FIX-E. INELIGIBLE_LOAN_STATUS fires for DEFAULTED, WRITTEN_OFF,
+  // INELIGIBLE_LOAN_STATUS fires for DEFAULTED, WRITTEN_OFF,
   // PENDING_WRITE_OFF and CANCELLED alike — every LoanStatus outside the
   // backfill allow-list. Naming only two of them stated something untrue about
   // the other two on a screen an operator acts on.
@@ -156,7 +156,7 @@ describe("ReferralAgentField impact preview", () => {
     expect(rendered).toMatch(/does not earn commission|not eligible/i)
   })
 
-  // FIX-3. NO_CLAWBACK_PATH and UNKNOWN_ROW_STATUS are reasons this change
+  // NO_CLAWBACK_PATH and UNKNOWN_ROW_STATUS are reasons this change
   // introduced, so they are exactly the ones a phrasing table forgets.
   it.each(["NO_CLAWBACK_PATH", "UNKNOWN_ROW_STATUS"])(
     "phrases %s for staff rather than showing the enum",

@@ -7,9 +7,8 @@
 // so it is deliberately STRICTER: dedup matches on phone OR email; this matches
 // on phone AND name.
 //
-// Why stricter — measured on prod 2026-08-15. Six phone clusters covered 23 of
-// 43 leads. Five were one person. The sixth held THREE identities on one phone:
-// two members of one household, and a test account. A phone-only rule
+// Why stricter — one phone can carry several identities (two members of one
+// household, or a test account). A phone-only rule
 // would treat a household's second applicant as the first one. That is why
 // there is no phone-only fallback anywhere below, not even when the name is
 // missing — see leadIdentityKey.
@@ -38,9 +37,8 @@ export type LeadIdentityFields = {
  * A person's name reduced to a comparable form: lowercase, internal whitespace
  * collapsed, trimmed. `""` means "no usable name".
  *
- * The collapse is not cosmetic. Prod stores one lead as `"nhlanhla  mocktest "`
- * — double space, trailing space — alongside `"nhlanhla mocktest"`, and the same
- * variance appears on "ngwedi  mabilo". Without it those are different people
+ * The collapse is not cosmetic. One lead may be stored as `"nhlanhla  mocktest "`
+ * — double space, trailing space — alongside `"nhlanhla mocktest"`. Without it those are different people
  * and the whole rule silently stops matching the cases it exists for.
  *
  * Deliberately NOT doing more than this. Fuzzy matching (initials, nicknames,

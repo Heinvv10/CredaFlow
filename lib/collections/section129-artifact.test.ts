@@ -1116,8 +1116,8 @@ describe("Section 129 private artifact lifecycle", () => {
   // Regression: this read runs from Server Component pages (loan detail,
   // collections) that never wrap in runWithTenant, so the tenant-scope
   // Prisma extension has no ALS context. The where clause MUST carry an
-  // explicit tenantId or every one of those page loads 500s in prod
-  // (TenantScopeError: missing-context — see prod incident 2026-07-23).
+  // explicit tenantId or every one of those page loads 500s
+  // (TenantScopeError: missing-context).
   it("scopes the idempotency lookup with an explicit tenantId (no ALS context available)", async () => {
     findUniqueMock.mockResolvedValue(null)
     findFirstMock.mockResolvedValue(null)

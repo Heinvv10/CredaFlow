@@ -9,7 +9,7 @@
  *
  * REFUSES to run unless DATABASE_URL points at localhost, NODE_ENV is not
  * production, and --i-am-local is passed: a local hostname alone is also true
- * of a tunnel, or of running on the staging or production box. Every person
+ * of a tunnel, or of running on a shared or production box. Every person
  * here is invented; the ID numbers are generated.
  *
  *   npx tsx scripts/bureau-submission-seed-local.ts --i-am-local [--month-end YYYY-MM-DD]
