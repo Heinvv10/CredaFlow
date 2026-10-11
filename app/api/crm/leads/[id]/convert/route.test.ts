@@ -114,6 +114,8 @@ const product = {
   id: "product-1",
   name: "Staff Product",
   active: true,
+  minAmount: 100_000,
+  maxAmount: 1_000_000,
   minTermDays: 30,
   maxTermDays: 90,
   interestRatePm: 0.03,
@@ -957,6 +959,120 @@ describe("POST /api/crm/leads/[id]/convert term bounds", () => {
     const response = await POST(termRequest(90), context)
 
     expect(response.status).toBe(500)
+    expect(applicationCreateMock).not.toHaveBeenCalled()
+    expect(leadUpdateMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/crm/leads/[id]/convert amount bounds", () => {
+  function amountRequest(appliedAmount: unknown) {
+    return new NextRequest("http://localhost/api/crm/leads/lead-1/convert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        idNumber: "8001015000086",
+        firstName: "Jane",
+        lastName: "Doe",
+        email: "jane@example.test",
+        phone: "+27821234567",
+        employmentStatus: "EMPLOYED",
+        employerName: "Test Employer",
+        monthlyIncome: 15_000,
+        monthlyExpenses: 8_000,
+        appliedAmount,
+        appliedTermDays: 30,
+        productId: "product-1",
+        purpose: "Household costs",
+      }),
+    })
+  }
+
+  function expectNothingWritten() {
+    expect(txClientCreateMock).not.toHaveBeenCalled()
+    expect(applicationCreateMock).not.toHaveBeenCalled()
+    expect(leadUpdateMock).not.toHaveBeenCalled()
+    expect(auditLogCreateMock).not.toHaveBeenCalled()
+    expect(activityCreateMock).not.toHaveBeenCalled()
+  }
+
+  it.each([
+    ["above max", 10_000.01],
+    ["below min", 999.99],
+  ])("refuses an amount %s with the bounds in the message and writes nothing", async (_label, amount) => {
+    const response = await POST(amountRequest(amount), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toBe("Amount must be between R1,000 and R10,000 for Staff Product.")
+    expectNothingWritten()
+  })
+
+  it.each([
+    ["zero", 0],
+    ["negative", -5_000],
+    ["non-numeric", "abc"],
+    ["missing", undefined],
+    ["null", null],
+    ["three decimals", 5_000.123],
+  ])("refuses an amount that is %s with 422 and writes nothing", async (_label, amount) => {
+    const response = await POST(amountRequest(amount), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/valid loan amount/)
+    expectNothingWritten()
+  })
+
+  it.each([
+    ["exactly min", 1_000, 100_000],
+    ["exactly max", 10_000, 1_000_000],
+    ["two decimals", 1_999.99, 199_999],
+    ["numeric string", "5000", 500_000],
+  ])("accepts an amount %s and carries the cents to the application, snapshot and audit", async (_label, amount, cents) => {
+    const response = await POST(amountRequest(amount), context)
+
+    expect(response.status).toBe(200)
+    const data = applicationCreateMock.mock.calls[0][0].data
+    expect(data.appliedAmount).toBe(cents)
+    expect(data.affordabilityResult.submission.inputs.principalCents).toBe(cents)
+    expect(auditLogCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "APPLICATION_SUBMITTED_BY_STAFF",
+        newValue: expect.objectContaining({ appliedAmount: cents }),
+      }),
+    })
+  })
+
+  it("re-checks the amount against the authoritative locked product read", async () => {
+    productFindUniqueMock
+      .mockResolvedValueOnce(product)
+      .mockResolvedValueOnce({ ...product, minAmount: 100_000, maxAmount: 400_000 })
+
+    const response = await POST(amountRequest(5_000), context)
+
+    expect(response.status).toBe(500)
+    expect(applicationCreateMock).not.toHaveBeenCalled()
+    expect(leadUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it("applies the bounds to the recovery path that creates a replacement application", async () => {
+    queryRawMock
+      .mockReset()
+      .mockResolvedValueOnce([{
+        id: "lead-1",
+        status: "CONVERTED",
+        convertedToClientId: "client-1",
+        convertedToApplicationId: null,
+        conversionRecoveryRequired: true,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ id: "locked" }])
+    txClientFindUniqueMock
+      .mockResolvedValueOnce(client)
+      .mockResolvedValueOnce(snapshotClient)
+
+    const response = await POST(recoveryRequest({ appliedAmount: 50_000 }), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/^Amount must be between/)
     expect(applicationCreateMock).not.toHaveBeenCalled()
     expect(leadUpdateMock).not.toHaveBeenCalled()
   })

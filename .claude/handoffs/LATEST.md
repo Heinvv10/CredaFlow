@@ -15,7 +15,7 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Thirteen stacked PRs, none merged.** Merge them in order; each is based on the
+**Fourteen stacked PRs, none merged.** Merge them in order; each is based on the
 previous one's branch. Every one has green CI and three blind reviewers'
 SHIP/CLEAN on its final commit.
 
@@ -34,6 +34,7 @@ SHIP/CLEAN on its final commit.
 | #13 | `test/db-baseline-helper-forms` → #12 | `lib/db-baseline.test-helpers.ts` splits migrations into SQL statements (comments, strings, `$tag$` bodies) and reads multi-line, unqualified and multi-object DDL; identical results on every existing migration |
 | #14 | `fix/crm-convert-term-bounds` → #13 | CRM lead conversion refuses a term outside the product's min/max (422, nothing written), as the staff wizard and portal already did |
 | #15 | `feat/crm-convert-term-field` → #14 | The CRM convert form gets a "Term (days)" field like the portal's (product-bounded, defaults to the maximum, hidden for fixed-term products) |
+| #16 | `fix/crm-convert-amount-bounds` → #15 | CRM lead conversion refuses a missing, non-positive, over-precise or out-of-range amount (422, nothing written), as the portal does |
 
 (#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
 closed and their branches deleted.)
@@ -65,7 +66,7 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15, rebasing each onto `main` as the one
+1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16, rebasing each onto `main` as the one
    below lands.
 2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
@@ -130,8 +131,6 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
     (not behind a `RUN_*_IT` gate) and its fixture creates an
     APPROVED application without a PASQ document, which the
     `lockLoanApplicationPasqDocument` trigger refuses on a migrated database. CI's quality job sets no `DATABASE_URL`, so it skips there.
-  - CRM lead conversion does not check `appliedAmount` against the product's
-    min/max, nor that it is a positive number (the staff wizard and portal do).
   - The page background's indigo radial glow (`app/globals.css`) is not
     tenant-themed on any page.
   - The baseline helpers do not tell function overloads apart, nor scope
