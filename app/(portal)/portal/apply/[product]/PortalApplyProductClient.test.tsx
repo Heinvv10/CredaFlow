@@ -323,6 +323,18 @@ describe("PortalApplyProductClient with no credit-life offer", () => {
       expect(JSON.parse(fetchMock.mock.calls[0][1].body).amount).toBe(5000.5)
     })
 
+    it("keeps submit disabled for a blank or out-of-range amount and enables it for a valid one", async () => {
+      await fillAllButAmount()
+      const setAmount = (value: string) =>
+        act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value } }))
+      for (const bad of ["", "1999"]) {
+        await setAmount(bad)
+        expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
+      }
+      await setAmount("5000")
+      expect(findSubmitButton(renderer.root).props.disabled).toBe(false)
+    })
+
     it("sends nothing when the amount is empty", async () => {
       await fillAllButAmount()
       await submit()
