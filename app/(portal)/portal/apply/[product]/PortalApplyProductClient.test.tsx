@@ -124,31 +124,43 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
   it("starts the amount empty and blocks submit until it is within the product range", async () => {
     const amountInput = () => renderer.root.findByProps({ id: "amount" })
     expect(amountInput().props.value).toBe("")
+    const radios = () => renderer.root.findAllByType("input").filter(
+      (i) => i.props.type === "radio" && i.props.name === "creditLifeElection",
+    )
+    const labelByText = (text: string) => renderer.root.findAllByType("label").find((l) =>
+      l.findAllByType("span").some((sp) => sp.children.filter((c) => typeof c === "string").join("").includes(text)),
+    )
+    const checkboxByText = (text: string) => labelByText(text)!.findByProps({ type: "checkbox" })
 
     await act(async () => renderer.root.findByProps({ id: "purpose" }).props.onChange({ target: { value: "stock purchase" } }))
     await act(async () => renderer.root.findByProps({ id: "termDays" }).props.onChange({ target: { value: "45" } }))
-    await act(async () => renderer.root.findAllByType("input").filter(
-      (i) => i.props.type === "radio" && i.props.name === "creditLifeElection",
-    )[1].props.onChange())
-    const checkboxByText = (text: string) => renderer.root.findAllByType("label").find((l) =>
-      l.findAllByType("span").some((sp) => sp.children.filter((c) => typeof c === "string").join("").includes(text)),
-    )!.findByProps({ type: "checkbox" })
     await act(async () => checkboxByText("income, expenses and debt").props.onChange({ target: { checked: true } }))
+
+    // No amount: the credit-life block must not render at all (no election
+    // radios, no "not available" disclosure).
+    expect(radios()).toHaveLength(0)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("not available")
+    expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
+
     const setAmount = async (value: string) => {
       await act(async () => amountInput().props.onChange({ target: { value } }))
+      if (radios().length === 0) return
+      await act(async () => radios()[1].props.onChange())
       await act(async () => checkboxByText("before PASQ generation").props.onChange({ target: { checked: true } }))
       await act(async () => findPasqCheckbox(renderer.root).props.onChange({ target: { checked: true } }))
     }
 
-    await setAmount("")
-    expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
-    // Every other field is complete: only the amount decides.
+    // Valid eligible amount: the offer renders.
     await setAmount("5000")
+    expect(radios()).toHaveLength(2)
+    expect(JSON.stringify(renderer.toJSON())).toContain("exact monthly")
     expect(findSubmitButton(renderer.root).props.disabled).toBe(false)
 
     // Below range, above range, and absurd (used to throw a RangeError in render).
-    for (const bad of ["1999", "100001", "3000000000000000", "1e300"]) {
+    for (const bad of ["", "1999", "100001", "3000000000000000", "1e300"]) {
       await setAmount(bad)
+      expect(radios()).toHaveLength(0)
+      expect(JSON.stringify(renderer.toJSON())).not.toContain("not available")
       expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
     }
   })
@@ -186,6 +198,7 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
     // With an offer on screen and no acknowledgement yet, the PASQ-delivery
     // checkbox must stay disabled — the fix for the no-offer case must not
     // remove the gate when cover IS offered.
+    await act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value: "5000" } }))
     expect(findPasqCheckbox(renderer.root).props.disabled).toBe(true)
 
     const declineElection = renderer.root.findAllByType("input").filter(
@@ -278,5 +291,42 @@ describe("PortalApplyProductClient with no credit-life offer", () => {
     })
 
     expect(findSubmitButton(renderer.root).props.disabled).toBe(false)
+  })
+
+  describe("submit", () => {
+    const fetchMock = vi.fn()
+
+    beforeEach(() => {
+      fetchMock.mockReset()
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: "app-1" }) })
+      vi.stubGlobal("fetch", fetchMock)
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    async function fillAllButAmount() {
+      await act(async () => renderer.root.findByProps({ id: "purpose" }).props.onChange({ target: { value: "stock purchase" } }))
+      const affordability = renderer.root.findAllByType("input").find(
+        (input) => input.props.type === "checkbox" && input !== findPasqCheckbox(renderer.root),
+      )!
+      await act(async () => affordability.props.onChange({ target: { checked: true } }))
+      await act(async () => findPasqCheckbox(renderer.root).props.onChange({ target: { checked: true } }))
+    }
+    const submit = () => act(async () => {
+      await renderer.root.findByType("form").props.onSubmit({ preventDefault: () => {} })
+    })
+
+    it("posts the amount as amountCents / 100 for a typed value", async () => {
+      await fillAllButAmount()
+      await act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value: "5000.50" } }))
+      await submit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).amount).toBe(5000.5)
+    })
+
+    it("sends nothing when the amount is empty", async () => {
+      await fillAllButAmount()
+      await submit()
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 })

@@ -22,6 +22,13 @@ describe("validAmountCents", () => {
     expect(validAmountCents({ minAmount: 0, maxAmount: 10_000_000 }, "  ")).toBeNull()
   })
 
+  it("rejects zero and negative-zero even when the product minimum is 0", () => {
+    const zeroMin = { minAmount: 0, maxAmount: 10_000_000 }
+    expect(validAmountCents(zeroMin, "0")).toBeNull()
+    expect(validAmountCents(zeroMin, "-0")).toBeNull()
+    expect(validAmountCents(zeroMin, "-1")).toBeNull()
+  })
+
   it("rejects an absurd amount even when the product range is also absurd", () => {
     const wide = { minAmount: 1, maxAmount: Number.MAX_SAFE_INTEGER }
     expect(validAmountCents(wide, "1e300")).toBeNull()

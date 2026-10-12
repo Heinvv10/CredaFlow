@@ -13,6 +13,7 @@ export function validAmountCents(product: AmountBounds, input: string): number |
   if (!Number.isFinite(rand)) return null
   const cents = Math.round(rand * 100)
   if (!Number.isSafeInteger(cents)) return null
+  if (cents <= 0) return null
   if (cents < product.minAmount || cents > product.maxAmount) return null
   return cents
 }

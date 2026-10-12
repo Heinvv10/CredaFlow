@@ -247,7 +247,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         </div>
 
         <div className="space-y-3 pt-2 border-t border-gray-100">
-          {creditLifeOffer && (
+          {creditLifeOffer && amountCents !== null && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
             <div>
               <p className="text-sm font-semibold text-gray-900">Credit life election</p>
