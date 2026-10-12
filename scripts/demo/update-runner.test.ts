@@ -5,10 +5,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 // update-runner.sh against a throwaway repo and a detached worktree of it. npm
-// and npx are stubs on PATH that only log their arguments (FAIL_NPM=1 makes
-// npm fail); git and flock are real.
+// and npx are stubs on PATH that only log their arguments; the one whose
+// "tool args" equals $FAIL exits 3 (only once when $FAIL_ONCE names a file
+// that exists: the stub deletes it). git and flock are real.
 
 const SCRIPT = join(__dirname, 'update-runner.sh')
+const NPM_CI = 'npm ci --legacy-peer-deps'
+const GENERATE = 'npx prisma generate'
+const FETCH = 'npm run face-models:fetch'
 
 let root: string
 let repo: string
@@ -24,14 +28,17 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function commit(name: string, files: Record<string, string>): void {
-  for (const [file, content] of Object.entries(files)) writeFileSync(join(repo, file), content)
+  for (const [file, content] of Object.entries(files)) {
+    mkdirSync(join(repo, file, '..'), { recursive: true })
+    writeFileSync(join(repo, file), content)
+  }
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', name)
   commits[name] = git(repo, 'rev-parse', 'HEAD')
 }
 
-function run(target: string, env: Record<string, string> = {}) {
-  const r = spawnSync('bash', [SCRIPT, target], {
+function run(target: string, env: Record<string, string> = {}, script = SCRIPT) {
+  const r = spawnSync('bash', [script, target], {
     env: { PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: root, DEMO_DATA_DIR: data, DEMO_RUNNER_DIR: runner, ...env },
     encoding: 'utf8',
   })
@@ -39,8 +46,14 @@ function run(target: string, env: Record<string, string> = {}) {
 }
 
 const logged = (): string[] => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : [])
+const clearLog = (): void => rmSync(calls, { force: true })
 const head = (): string => git(runner, 'rev-parse', 'HEAD')
-const state = (): unknown => JSON.parse(readFileSync(join(data, 'runner.json'), 'utf8'))
+const state = (): { commit: string; previous: string; updatedAt: string } => JSON.parse(readFileSync(join(data, 'runner.json'), 'utf8'))
+const failOnce = (): string => {
+  const flag = join(root, 'fail-once')
+  writeFileSync(flag, '')
+  return flag
+}
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'update-runner-'))
@@ -51,12 +64,26 @@ beforeEach(() => {
   mkdirSync(repo)
   mkdirSync(join(root, 'bin'))
   for (const tool of ['npm', 'npx']) {
-    writeFileSync(join(root, 'bin', tool), `#!/bin/sh\necho "${tool} $*" >> "${calls}"\n[ "${tool}" = npm ] && [ "$FAIL_NPM" = 1 ] && exit 3\nexit 0\n`)
+    writeFileSync(join(root, 'bin', tool), [
+      '#!/bin/sh',
+      `echo "${tool} $*" >> "${calls}"`,
+      `if [ "${tool} $*" = "$FAIL" ]; then`,
+      '  if [ -z "$FAIL_ONCE" ] || [ -e "$FAIL_ONCE" ]; then rm -f "$FAIL_ONCE"; exit 3; fi',
+      'fi',
+      'exit 0',
+      '',
+    ].join('\n'))
     chmodSync(join(root, 'bin', tool), 0o755)
   }
   git(repo, 'init', '-q', '-b', 'main')
   const pkg = (scripts: Record<string, string>) => JSON.stringify({ name: 'runner-test', scripts })
-  commit('c1', { 'package.json': pkg({ 'face-models:fetch': 'true' }), 'package-lock.json': '{"v":1}', '.gitignore': '.env.demo-sim\n', 'README': 'one' })
+  commit('c1', {
+    'package.json': pkg({ 'face-models:fetch': 'true' }), 'package-lock.json': '{"v":1}',
+    '.gitignore': '.env.demo-sim\nnode_modules/\n', README: 'one',
+    // The runner carries its own copy of the tooling, as the real one does.
+    'scripts/demo/update-runner.sh': readFileSync(SCRIPT, 'utf8'),
+    'scripts/demo/lib.sh': readFileSync(join(__dirname, 'lib.sh'), 'utf8'),
+  })
   commit('c2', { README: 'two' })
   commit('c3', { 'package-lock.json': '{"v":2}' })
   commit('c4', { 'package.json': pkg({}) })
@@ -68,27 +95,65 @@ afterEach(() => {
 })
 
 describe('update-runner.sh', () => {
-  it('moves the runner to a branch commit and records it; no npm ci when the lockfile is unchanged', () => {
+  it('moves the runner to a branch commit and records it; installs the first time, not again for the same lockfile', () => {
     expect(run(commits.c2!)).toMatchObject({ status: 0 })
     expect(head()).toBe(commits.c2)
-    expect(logged()).toEqual(['npx prisma generate', 'npm run face-models:fetch'])
+    expect(logged()).toEqual([NPM_CI, GENERATE, FETCH])
     expect(state()).toMatchObject({ commit: commits.c2, previous: commits.c1, updatedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/) })
+    clearLog()
+    expect(run(commits.c1!)).toMatchObject({ status: 0 })
+    expect(logged()).toEqual([GENERATE, FETCH])
   })
 
-  it('runs npm ci --legacy-peer-deps when package-lock.json changed', () => {
+  it('reinstalls when package-lock.json changed', () => {
+    expect(run(commits.c2!)).toMatchObject({ status: 0 })
+    clearLog()
     expect(run(commits.c3!)).toMatchObject({ status: 0 })
-    expect(logged()).toEqual(['npm ci --legacy-peer-deps', 'npx prisma generate', 'npm run face-models:fetch'])
+    expect(logged()).toEqual([NPM_CI, GENERATE, FETCH])
+  })
+
+  it('reinstalls when node_modules does not match the lockfile', () => {
+    expect(run(commits.c2!)).toMatchObject({ status: 0 })
+    writeFileSync(join(runner, 'node_modules', '.update-runner-lockfile.sha256'), 'not this lockfile\n')
+    clearLog()
+    expect(run(commits.c1!)).toMatchObject({ status: 0 })
+    expect(logged()).toEqual([NPM_CI, GENERATE, FETCH])
   })
 
   it('skips face-models:fetch when the new commit has no such script', () => {
-    git(runner, 'checkout', '-q', '--detach', commits.c3!)
     expect(run(commits.c4!)).toMatchObject({ status: 0 })
-    expect(logged()).toEqual(['npx prisma generate'])
+    expect(logged()).toEqual([NPM_CI, GENERATE])
   })
 
-  it('records nothing when a step fails', () => {
-    const r = run(commits.c3!, { FAIL_NPM: '1' })
-    expect(r.status).not.toBe(0)
+  it('rolls back to the previous commit and its install when a step fails, and the retry reinstalls', () => {
+    expect(run(commits.c2!)).toMatchObject({ status: 0 })
+    clearLog()
+    const r = run(commits.c3!, { FAIL: GENERATE, FAIL_ONCE: failOnce() })
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/back at/)
+    expect(head()).toBe(commits.c2)
+    expect(state().commit).toBe(commits.c2)
+    // c3's install, its failed generate, then c2's install again.
+    expect(logged()).toEqual([NPM_CI, GENERATE, NPM_CI, GENERATE, FETCH])
+    clearLog()
+    expect(run(commits.c3!)).toMatchObject({ status: 0 })
+    expect(head()).toBe(commits.c3)
+    expect(logged()).toEqual([NPM_CI, GENERATE, FETCH])
+  })
+
+  it('a failed npm ci leaves no install marker, so the rollback reinstalls the previous lockfile', () => {
+    expect(run(commits.c2!)).toMatchObject({ status: 0 })
+    clearLog()
+    expect(run(commits.c3!, { FAIL: NPM_CI, FAIL_ONCE: failOnce() })).toMatchObject({ status: 1 })
+    expect(head()).toBe(commits.c2)
+    expect(state().commit).toBe(commits.c2)
+    expect(logged()).toEqual([NPM_CI, NPM_CI, GENERATE, FETCH])
+  })
+
+  it('says so when the rollback fails too', () => {
+    const r = run(commits.c2!, { FAIL: GENERATE })
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/ROLLBACK FAILED/)
     expect(existsSync(join(data, 'runner.json'))).toBe(false)
   })
 
@@ -116,8 +181,20 @@ describe('update-runner.sh', () => {
     expect(head()).toBe(commits.c1)
   })
 
+  it('refuses an argument that starts with "-"', () => {
+    expect(run('--orphan')).toMatchObject({ status: 1, out: expect.stringMatching(/must not start with "-"/) })
+    expect(head()).toBe(commits.c1)
+  })
+
   it('refuses a path that is not a checkout', () => {
     expect(run(commits.c2!, { DEMO_RUNNER_DIR: data })).toMatchObject({ status: 1, out: expect.stringMatching(/not the top of a git checkout/) })
+  })
+
+  it('refuses to update the checkout it is running from', () => {
+    const r = run(commits.c2!, {}, join(runner, 'scripts', 'demo', 'update-runner.sh'))
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/the checkout this script runs from/)
+    expect(head()).toBe(commits.c1)
   })
 
   describe('while a job holds its lock', () => {
