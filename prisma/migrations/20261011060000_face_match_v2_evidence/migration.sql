@@ -7,28 +7,37 @@
 --
 -- 1. subject_has_composite_kyc: biometric evidence counts only when it is the
 --    v2 verdict with every judgement consistent with a pass and both raw
---    confidences within 0.7..1. The VLM-unavailable marker no longer
---    exempts evidence from that verdict (no writer produces a pass on it).
---    Mirrors assessBiometricEvidence in lib/kyc/biometric-evidence.ts.
+--    confidences within 0.7..1, compared against the client's newest verified
+--    ID copy (idDocumentId and idDocumentSha256). Booleans and the face count
+--    compare as JSON values. The VLM-unavailable marker no longer exempts
+--    evidence from that verdict (no writer produces a pass on it). Mirrors
+--    assessBiometricEvidence in lib/kyc/biometric-evidence.ts.
 -- 2. subject_has_manual_kyc_exception: recognise the two new failure reasons
 --    (id_document_portrait_invalid, selfie_not_real_photograph) and keep them
 --    OFF the exceptionable list, mirroring
 --    MANUAL_KYC_EXCEPTIONABLE_FAILURE_REASONS in
 --    lib/kyc/manual-exception-policy.ts.
--- 3. Demote every client still VERIFIED on evidence the new rule refuses
---    (v1/untagged selfie evidence). Client_enforce_composite_kyc re-checks
---    subject_has_composite_kyc on every Client write, so such a row would
---    otherwise reject every later update. Mirrors revoke_client_composite_kyc:
---    PENDING, provenance cleared, one KYC_STATUS_CHANGED audit row each.
+--    subject_has_in_person_kyc_verification: closed over an ID copy while the
+--    latest selfie attempt was refused as id_document_portrait_invalid
+--    against it, mirroring lib/kyc/in-person-verification.ts.
+-- 3. Snapshot the clients VERIFIED before any evidence changes.
 -- 4. Un-verify every live SELFIE row whose verified biometric evidence lacks
 --    the v2 verdict. Left verified=true with biometricVerifiedAt set, it is a
 --    "live biometric candidate" to subject_has_in_person_kyc_verification and
 --    would close the in-person route for good. Mirrors
 --    lib/kyc/identity-revocation.ts; the evidence JSON is kept unchanged.
+-- 5. Demote every client still VERIFIED on evidence the new rules refuse
+--    (v1/untagged selfie evidence, or a match not bound to the verified ID).
+--    Client_enforce_composite_kyc re-checks subject_has_composite_kyc on
+--    every Client write, so such a row would otherwise reject every later
+--    update. Mirrors revoke_client_composite_kyc: PENDING, provenance
+--    cleared, one KYC_STATUS_CHANGED audit row each from this migration.
 --
--- Both function bodies are the baseline definitions with only the marked
--- lines added. Order matters: the functions are replaced before step 3 reads
--- them, all within this migration's single transaction.
+-- The function bodies are the baseline definitions with only the marked
+-- lines changed or added; every changed line is strictly narrower than the
+-- one it replaces. Order matters: the functions are replaced before steps 4
+-- and 5 read them, and step 4 runs before step 5, all within this
+-- migration's single transaction.
 
 CREATE OR REPLACE FUNCTION public.subject_has_composite_kyc(p_tenant_id text, p_client_id text, p_id_number text, p_first_name text, p_last_name text, p_date_of_birth timestamp without time zone)
  RETURNS boolean
@@ -71,20 +80,30 @@ AS $function$
           AND selfie."biometricLiveness" >= 70
           AND selfie."biometricVerifiedAt" IS NOT NULL
           AND jsonb_typeof(selfie."extractionResult") = 'object'
+          -- Booleans and the face count compare as JSON values, as
+          -- assessBiometricEvidence reads them: the string "true" and "1" no
+          -- longer pass, and 1.0 counts as one face. Each is strictly
+          -- narrower than the baseline text comparison it replaces. quality
+          -- keeps lower(trim()); trim() strips spaces only, and the TS parser
+          -- now does exactly the same.
           AND (
-            selfie."extractionResult" ->> 'vlmUnavailable' = 'true'
+            selfie."extractionResult" -> 'vlmUnavailable' = 'true'::jsonb
             OR (
-              selfie."extractionResult" #>> '{faceDetected,value}' = 'true'
-              AND selfie."extractionResult" #>> '{facesCount,value}' = '1'
-              AND selfie."extractionResult" #>> '{isLive,value}' = 'true'
+              selfie."extractionResult" #> '{faceDetected,value}' = 'true'::jsonb
+              AND CASE
+                WHEN jsonb_typeof(selfie."extractionResult" #> '{facesCount,value}') = 'number'
+                THEN (selfie."extractionResult" #>> '{facesCount,value}')::numeric = 1
+                ELSE false
+              END
+              AND selfie."extractionResult" #> '{isLive,value}' = 'true'::jsonb
               AND lower(
                 trim(selfie."extractionResult" #>> '{quality,value}')
               ) IN ('good', 'poor')
             )
           )
           AND jsonb_typeof(selfie."biometricResult") = 'object'
-          AND selfie."biometricResult" ->> 'ok' = 'true'
-          AND selfie."biometricResult" ->> 'verified' = 'true'
+          AND selfie."biometricResult" -> 'ok' = 'true'::jsonb
+          AND selfie."biometricResult" -> 'verified' = 'true'::jsonb
           -- The VLM is the only provider, so evidence verifies only as the
           -- v2 verdict with every separate judgement agreeing with the pass
           -- (assessBiometricEvidence mirrors this). v1 carried one faceMatch
@@ -118,6 +137,11 @@ AS $function$
             selfie."biometricResult" ->> 'simulated',
             'false'
           ) <> 'true'
+          -- Absent or exactly false, as assessBiometricEvidence requires.
+          AND (
+            selfie."biometricResult" -> 'simulated' IS NULL
+            OR selfie."biometricResult" -> 'simulated' = 'false'::jsonb
+          )
           AND coalesce(
             selfie."biometricResult" ->> 'subjectFingerprint',
             ''
@@ -130,6 +154,35 @@ AS $function$
               p_last_name,
               p_date_of_birth
             )
+          -- The selfie was compared against the ID copy the KYC rests on: the
+          -- newest verified one, chosen exactly as
+          -- subject_has_in_person_kyc_verification chooses it. A match
+          -- against a newer unverified (even rejected) upload, or one since
+          -- replaced, proves nothing about the verified identity. jsonb
+          -- equality, so only strings equal to the row's values pass.
+          AND EXISTS (
+            SELECT 1
+            FROM (
+              SELECT
+                id_document."id",
+                id_document."contentSha256"
+              FROM "ClientDocument" AS id_document
+              WHERE id_document."tenantId" = p_tenant_id
+                AND id_document."clientId" = p_client_id
+                AND id_document."docType" = 'ID_COPY'
+                AND id_document."deletedAt" IS NULL
+                AND id_document."verified" = true
+              ORDER BY
+                id_document."createdAt" DESC,
+                id_document."id" DESC
+              LIMIT 1
+            ) AS id_document
+            WHERE id_document."contentSha256" ~ '^[a-f0-9]{64}$'
+              AND selfie."biometricResult" -> 'idDocumentId' =
+                to_jsonb(id_document."id")
+              AND selfie."biometricResult" -> 'idDocumentSha256' =
+                to_jsonb(id_document."contentSha256")
+          )
           AND jsonb_typeof(
             selfie."biometricResult" -> 'matchScore'
           ) = 'number'
@@ -298,80 +351,184 @@ AS $function$
   );
 $function$;
 
--- 3. Demote clients the replaced rule no longer verifies. The UPDATE sets a
--- non-VERIFIED status, so Client_enforce_composite_kyc does not re-check the
--- composite for these rows. No personal data in the audit payload. The audit
--- id is deterministic per client and has no ON CONFLICT: a clash aborts the
--- migration rather than demoting a client without its audit row.
-WITH stale AS (
-  SELECT
-    client."id",
-    client."tenantId",
-    jsonb_build_object(
-      'kycStatus', client."kycStatus"::text,
-      'kycVerifiedAt', client."kycVerifiedAt",
-      'kycVerifiedById', client."kycVerifiedById",
-      'kycVerificationMethod', client."kycVerificationMethod"::text
-    ) AS previous_kyc
-  FROM "Client" AS client
-  WHERE client."kycStatus" = 'VERIFIED'
-    AND NOT "subject_has_composite_kyc"(
-      client."tenantId",
-      client."id",
-      client."idNumber",
-      client."firstName",
-      client."lastName",
-      client."dateOfBirth"
-    )
-  FOR UPDATE
-),
-demoted AS (
-  UPDATE "Client" AS client
-  SET
-    "kycStatus" = 'PENDING',
-    "kycVerifiedAt" = NULL,
-    "kycVerifiedById" = NULL,
-    "kycVerificationMethod" = NULL,
-    "updatedAt" = CURRENT_TIMESTAMP
-  FROM stale
-  WHERE client."id" = stale."id"
-    AND client."tenantId" = stale."tenantId"
-  RETURNING client."id", client."tenantId", stale.previous_kyc
-)
-INSERT INTO "AuditLog" (
-  "id", "tenantId", "userEmail", "action", "entity", "entityId",
-  "oldValue", "newValue", "createdAt"
-)
+CREATE OR REPLACE FUNCTION public.subject_has_in_person_kyc_verification(p_tenant_id text, p_client_id text, p_id_number text, p_first_name text, p_last_name text, p_date_of_birth timestamp without time zone)
+ RETURNS boolean
+ LANGUAGE sql
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM LATERAL (
+      SELECT
+        record."id",
+        record."completedAt",
+        record."data"
+      FROM "ComplianceRecord" AS record
+      WHERE record."tenantId" = p_tenant_id
+        AND record."type" = 'KYC_EXCEPTION'
+        AND record."referenceId" = p_client_id
+        AND record."status" = 'COMPLETED'
+        AND record."completedAt" IS NOT NULL
+      ORDER BY
+        record."completedAt" DESC,
+        record."createdAt" DESC,
+        record."id" DESC
+      LIMIT 1
+    ) AS attestation
+    CROSS JOIN LATERAL (
+      SELECT
+        id_document."id",
+        id_document."contentSha256"
+      FROM "ClientDocument" AS id_document
+      WHERE id_document."tenantId" = p_tenant_id
+        AND id_document."clientId" = p_client_id
+        AND id_document."docType" = 'ID_COPY'
+        AND id_document."deletedAt" IS NULL
+        AND id_document."verified" = true
+      ORDER BY
+        id_document."createdAt" DESC,
+        id_document."id" DESC
+      LIMIT 1
+    ) AS id_document
+    WHERE NOT EXISTS (
+        -- Only a selfie that is a LIVE biometric candidate takes the human
+        -- fallback out of scope: an attempt still processing, or one whose
+        -- provider-verified evidence passed. A failed or soft-deleted attempt
+        -- must NOT permanently close the in-person route (2026-07-28
+        -- remediation, report S3 F) - the previous "any selfie row at all"
+        -- rule stranded clients whose one failed attempt removed every path
+        -- to payout-grade KYC.
+        SELECT 1
+        FROM "ClientDocument" AS selfie
+        WHERE selfie."tenantId" = p_tenant_id
+          AND selfie."clientId" = p_client_id
+          AND selfie."docType" = 'SELFIE'
+          AND selfie."deletedAt" IS NULL
+          AND (
+            selfie."extractionStatus" = 'processing'
+            OR (
+              selfie."verified" = true
+              AND selfie."biometricVerifiedAt" IS NOT NULL
+            )
+          )
+      )
+      -- Added by 20261011060000_face_match_v2_evidence: while the latest
+      -- selfie attempt (deleted or not) was refused because THIS ID copy has
+      -- no real photograph, no one may attest a face against it. A newer
+      -- verified ID copy re-opens the route; a refusal naming no ID copy is
+      -- taken to be about this one. Mirrors
+      -- latestSelfieRefusedIdDocumentPortrait in
+      -- lib/kyc/in-person-verification.ts.
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "ClientDocument" AS latest_selfie
+        WHERE latest_selfie."id" = (
+          SELECT latest."id"
+          FROM "ClientDocument" AS latest
+          WHERE latest."tenantId" = p_tenant_id
+            AND latest."clientId" = p_client_id
+            AND latest."docType" = 'SELFIE'
+          ORDER BY
+            latest."biometricAttemptSequence" DESC,
+            latest."createdAt" DESC,
+            latest."id" DESC
+          LIMIT 1
+        )
+          AND latest_selfie."biometricResult" ->> 'biometricFailureReason' =
+            'id_document_portrait_invalid'
+          AND NOT coalesce(
+            jsonb_typeof(latest_selfie."biometricResult" -> 'idDocumentId') = 'string'
+            AND latest_selfie."biometricResult" ->> 'idDocumentId' <> id_document."id",
+            false
+          )
+      )
+      AND id_document."contentSha256" ~ '^[a-f0-9]{64}$'
+      AND jsonb_typeof(attestation."data") = 'object'
+      AND attestation."data" ->> 'kind' = 'KYC_IN_PERSON_VERIFICATION'
+      AND attestation."data" ->> 'version' = 'kyc-in-person-verification-v1'
+      AND "trim_manual_kyc_exception_text"(
+        attestation."data" ->> 'clientId'
+      ) = p_client_id
+      AND "trim_manual_kyc_exception_text"(
+        attestation."data" ->> 'idDocumentId'
+      ) = id_document."id"
+      AND "trim_manual_kyc_exception_text"(
+        attestation."data" ->> 'idDocumentSha256'
+      ) = id_document."contentSha256"
+      AND "trim_manual_kyc_exception_text"(
+        attestation."data" ->> 'subjectFingerprint'
+      ) = "biometric_subject_fingerprint"(
+        p_client_id,
+        p_id_number,
+        p_first_name,
+        p_last_name,
+        p_date_of_birth
+      )
+      AND attestation."data" ->> 'method' IN (
+        'IN_PERSON_BRANCH',
+        'KNOWN_EXISTING_CLIENT',
+        'AGENT_VERIFIED'
+      )
+      AND length(
+        "trim_manual_kyc_exception_text"(
+          attestation."data" ->> 'note'
+        )
+      ) >= 20
+      AND nullif(
+        "trim_manual_kyc_exception_text"(
+          attestation."data" ->> 'approvedById'
+        ),
+        ''
+      ) IS NOT NULL
+      AND nullif(
+        "trim_manual_kyc_exception_text"(
+          attestation."data" ->> 'approvedByEmail'
+        ),
+        ''
+      ) IS NOT NULL
+      AND "trim_manual_kyc_exception_text"(
+        attestation."data" ->> 'approvedAt'
+      ) = to_char(
+        -- Prisma stores DateTime as TIMESTAMP(3) without time zone. Formatting
+        -- that value directly is session-time-zone invariant; AT TIME ZONE
+        -- would convert it to timestamptz and shift it in non-UTC sessions.
+        attestation."completedAt",
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+      )
+  );
+$function$;
+
+-- 3. Snapshot the clients VERIFIED before any evidence changes, so step 5 can
+-- audit every one this migration demotes, including those the composite-KYC
+-- revoke trigger demotes during step 4. A session temp table, dropped below.
+CREATE TEMP TABLE face_match_v2_verified_before AS
 SELECT
-  'kyc-face-match-v2-reset-' || demoted."id",
-  demoted."tenantId",
-  'migration@face-match-v2-evidence',
-  'KYC_STATUS_CHANGED',
-  'Client',
-  demoted."id",
-  demoted.previous_kyc,
+  client."id",
+  client."tenantId",
   jsonb_build_object(
-    'kycStatus', 'PENDING',
-    'kycVerifiedAt', NULL,
-    'kycVerifiedById', NULL,
-    'kycVerificationMethod', NULL,
-    'reason', 'face_match_v2_evidence_required',
-    'migration', '20261011060000_face_match_v2_evidence',
-    'databaseEnforced', true
-  ),
-  CURRENT_TIMESTAMP
-FROM demoted;
+    'kycStatus', client."kycStatus"::text,
+    'kycVerifiedAt', client."kycVerifiedAt",
+    'kycVerifiedById', client."kycVerifiedById",
+    'kycVerificationMethod', client."kycVerificationMethod"::text
+  ) AS previous_kyc
+FROM "Client" AS client
+WHERE client."kycStatus" = 'VERIFIED';
 
 -- 4. Un-verify selfie rows whose verified evidence lacks the v2 verdict (the
--- biometricResult lines step 1 added to subject_has_composite_kyc). Runs after
--- step 3, so ClientDocument_revoke_stale_composite_kyc finds demoted clients
--- already PENDING, and a client still VERIFIED keeps its composite: a row
--- without the v2 verdict cannot be its passing selfie, a manual exception
--- needs a failed latest selfie, and fewer live candidates only open the
--- in-person route. No ClientDocument guard refuses this write: they freeze
--- only rows bound to an application as agreement, PASQ or debit-mandate
--- evidence, or typed EXECUTED_CREDIT_AGREEMENT / DEBIT_MANDATE, and the
--- attempt-sequence trigger fires only on tenant/client/type/sequence changes.
+-- biometricResult lines step 1 added to subject_has_composite_kyc). Runs BEFORE
+-- the demotion: un-verified, such a row stops being a live biometric
+-- candidate, so a client with a valid in-person attestation and an old v1
+-- selfie keeps its VERIFIED status instead of being demoted on a composite
+-- that only failed because the v1 row still blocked the attestation.
+-- ClientDocument_revoke_stale_composite_kyc fires on each row and demotes any
+-- client whose composite now fails (its own audit row, reason
+-- composite_kyc_evidence_changed); step 5 adds this migration's row for it. A
+-- row without the v2 verdict cannot be a passing selfie, and a manual
+-- exception needs a failed latest selfie, so only the in-person route can
+-- change, and only towards open. No ClientDocument guard refuses this write:
+-- they freeze only rows bound to an application as agreement, PASQ or
+-- debit-mandate evidence, or typed EXECUTED_CREDIT_AGREEMENT / DEBIT_MANDATE,
+-- and the attempt-sequence trigger fires only on tenant/client/type/sequence
+-- changes.
 WITH stale_selfie AS (
   SELECT
     selfie."id",
@@ -445,3 +602,60 @@ SELECT
   ),
   CURRENT_TIMESTAMP
 FROM unverified;
+
+-- 5. Demote clients the replaced rules no longer verify. The UPDATE sets a
+-- non-VERIFIED status, so Client_enforce_composite_kyc does not re-check the
+-- composite for these rows. One audit row for every client VERIFIED before
+-- this migration and not after it, whether demoted here or by the revoke
+-- trigger in step 4. No personal data in the audit payload. The audit id is
+-- deterministic per client and has no ON CONFLICT: a clash aborts the
+-- migration rather than demoting a client without its audit row.
+WITH demoted AS (
+  UPDATE "Client" AS client
+  SET
+    "kycStatus" = 'PENDING',
+    "kycVerifiedAt" = NULL,
+    "kycVerifiedById" = NULL,
+    "kycVerificationMethod" = NULL,
+    "updatedAt" = CURRENT_TIMESTAMP
+  WHERE client."kycStatus" = 'VERIFIED'
+    AND NOT "subject_has_composite_kyc"(
+      client."tenantId",
+      client."id",
+      client."idNumber",
+      client."firstName",
+      client."lastName",
+      client."dateOfBirth"
+    )
+  RETURNING client."id"
+)
+INSERT INTO "AuditLog" (
+  "id", "tenantId", "userEmail", "action", "entity", "entityId",
+  "oldValue", "newValue", "createdAt"
+)
+SELECT
+  'kyc-face-match-v2-reset-' || before."id",
+  before."tenantId",
+  'migration@face-match-v2-evidence',
+  'KYC_STATUS_CHANGED',
+  'Client',
+  before."id",
+  before.previous_kyc,
+  jsonb_build_object(
+    'kycStatus', 'PENDING',
+    'kycVerifiedAt', NULL,
+    'kycVerifiedById', NULL,
+    'kycVerificationMethod', NULL,
+    'reason', 'face_match_v2_evidence_required',
+    'migration', '20261011060000_face_match_v2_evidence',
+    'databaseEnforced', true
+  ),
+  CURRENT_TIMESTAMP
+FROM face_match_v2_verified_before AS before
+-- The statement's own snapshot still shows the clients `demoted` updates as
+-- VERIFIED; those the trigger demoted in step 4 already read PENDING.
+JOIN "Client" AS client ON client."id" = before."id"
+WHERE before."id" IN (SELECT demoted."id" FROM demoted)
+  OR client."kycStatus" <> 'VERIFIED';
+
+DROP TABLE face_match_v2_verified_before;

@@ -69,9 +69,17 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     idDocument: idDocument(),
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
+    latestSelfie: null,
     ...over,
   })
 }
+
+const refusedSelfie = (reason: string, idDocumentId?: unknown) => ({
+  biometricResult: {
+    biometricFailureReason: reason,
+    ...(idDocumentId === undefined ? {} : { idDocumentId }),
+  },
+})
 
 describe("parseInPersonKycVerificationEvidence", () => {
   it("accepts a well-formed attestation", () => {
@@ -145,7 +153,25 @@ describe("currentInPersonKycVerification", () => {
       idDocument: idDocument(),
       blockingBiometricAttempt: false,
       biometricAssessment: MISSING,
+      latestSelfie: null,
     })).toBeNull()
+  })
+
+  it.each([
+    ["that names this ID copy", refusedSelfie("id_document_portrait_invalid", "doc-id-copy")],
+    ["that names no ID copy", refusedSelfie("id_document_portrait_invalid")],
+    ["that names an ID copy as a non-string", refusedSelfie("id_document_portrait_invalid", 7)],
+  ])("lapses while the latest selfie refused the ID portrait, in a refusal %s", (_label, latestSelfie) => {
+    expect(current({ latestSelfie })).toBeNull()
+  })
+
+  it.each([
+    ["the refusal was of another ID copy", refusedSelfie("id_document_portrait_invalid", "doc-older-copy")],
+    ["the selfie was refused as not a real photograph", refusedSelfie("selfie_not_real_photograph", "doc-id-copy")],
+    ["the selfie failed for an exceptionable reason", refusedSelfie("face_not_detected", "doc-id-copy")],
+    ["the latest selfie carries no evidence object", { biometricResult: null }],
+  ])("holds when %s", (_label, latestSelfie) => {
+    expect(current({ latestSelfie })).not.toBeNull()
   })
 
   it("does not accept a senior biometric exception in its place", () => {

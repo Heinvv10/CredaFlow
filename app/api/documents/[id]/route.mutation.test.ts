@@ -42,6 +42,8 @@ const passingSelfieDocument = {
     faceMatch: true,
     matchConfidence: 0.98,
     livenessConfidence: 0.97,
+    idDocumentId: "id-doc-1",
+    idDocumentSha256: "c".repeat(64),
     subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
   },
 }
@@ -131,7 +133,7 @@ describe("document evidence mutations", () => {
       .mockResolvedValue(passingSelfieDocument)
     clientDocumentUpdateManyMock.mockResolvedValue({ count: 1 })
     clientDocumentFindManyMock.mockResolvedValue([
-      { docType: "ID_COPY", verified: true, verificationNote: null },
+      { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
       { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
       { docType: "PAYSLIP", verified: true, verificationNote: null },
     ])
@@ -307,7 +309,7 @@ describe("document evidence mutations", () => {
   it("preserves Smile provenance when deleting redundant core evidence leaves composite KYC complete", async () => {
     const smileVerifiedAt = new Date("2026-07-20T08:00:00.000Z")
     clientDocumentFindManyMock.mockResolvedValueOnce([
-      { docType: "ID_COPY", verified: true, verificationNote: null },
+      { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
       { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
       { docType: "PAYSLIP", verified: true, verificationNote: null },
       { docType: "BANK_STATEMENT", verified: true, verificationNote: null },

@@ -31,6 +31,7 @@ export type SamePersonVerdict = (typeof SAME_PERSON_VERDICTS)[number]
  */
 export type VlmFaceMatchRejectionReason = Extract<
   BiometricEvidenceFailureReason,
+  | "extraction_incomplete"
   | "id_document_portrait_invalid"
   | "selfie_not_real_photograph"
   | "provider_verification_failed"
@@ -170,6 +171,17 @@ export function readVlmFaceMatchSideRejection(
     selfieIsRealPhotograph: flag("selfieIsRealPhotograph"),
   }
   const refuse = (reason: VlmFaceMatchRejectionReason, message: string) => ({ reason, message, judgement })
+  // A reply that judged neither photo is a fault in the check, not in the ID:
+  // telling the client to upload a new ID would be the wrong remedy. It is
+  // still not exceptionable, so it cannot fall through to a selfie-side reason.
+  if (
+    judgement.idPhotoKind === null
+    && judgement.idPhotoIsRealPhotograph === null
+    && judgement.idPhotoFaceDetected === null
+    && judgement.selfieIsRealPhotograph === null
+  ) {
+    return refuse("extraction_incomplete", "The face match check gave no answer about either photo")
+  }
   if (judgement.idPhotoKind !== null && judgement.idPhotoKind !== "photograph" && judgement.idPhotoKind !== "unrecognised") {
     return refuse("id_document_portrait_invalid", `ID document portrait is not a photograph (${judgement.idPhotoKind})`)
   }

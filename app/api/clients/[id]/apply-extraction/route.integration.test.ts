@@ -108,6 +108,7 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
           fileName: "id.pdf",
           verified: true,
           verifiedAt,
+          contentSha256: "c".repeat(64),
         },
         {
           id: `address_bank_extract_${token}`,
@@ -215,6 +216,8 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
           faceMatch: true,
           matchConfidence: 0.98,
           livenessConfidence: 0.97,
+          idDocumentId: `id_bank_extract_${token}`,
+          idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint(subject),
         },
       },

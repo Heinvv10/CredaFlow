@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { readVlmFaceMatchSideRejection, readVlmFaceMatchVerdict } from "./vlm-face-match"
+import { isManualKycExceptionableFailureReason } from "./manual-exception-policy"
 
 // A mocked VLM extraction (ExtractedFields shape: { field: { value } }).
 const fullVerdict = {
@@ -225,11 +226,31 @@ describe("readVlmFaceMatchSideRejection", () => {
     }
   })
 
-  it("refuses an answer with no side judgements at all, ID side first", () => {
-    expect(readVlmFaceMatchSideRejection({ faceDetected: { value: true }, isLive: { value: false } })).toEqual({
+  // Judging neither photo is a fault in the check's reply, not in the ID: the
+  // client is not told to upload a new ID, and no senior may except it.
+  it.each([
+    ["omitted", { faceDetected: { value: true }, isLive: { value: false } }],
+    ["null", {
+      faceDetected: { value: true },
+      idPhotoKind: { value: null },
+      idPhotoIsRealPhotograph: { value: null },
+      idPhotoFaceDetected: { value: null },
+      selfieIsRealPhotograph: { value: null },
+    }],
+  ])("records an answer whose side judgements are all %s as incomplete", (_label, extraction) => {
+    expect(readVlmFaceMatchSideRejection(extraction)).toEqual({
+      reason: "extraction_incomplete",
+      message: "The face match check gave no answer about either photo",
+      judgement: { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: null, selfieIsRealPhotograph: null },
+    })
+    expect(isManualKycExceptionableFailureReason("extraction_incomplete")).toBe(false)
+  })
+
+  it("still refuses the ID portrait when only the selfie side was judged", () => {
+    expect(readVlmFaceMatchSideRejection({ faceDetected: { value: true }, selfieIsRealPhotograph: { value: true } })).toEqual({
       reason: "id_document_portrait_invalid",
       message: NO_ANSWER_ID,
-      judgement: { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: null, selfieIsRealPhotograph: null },
+      judgement: { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: null, selfieIsRealPhotograph: true },
     })
   })
 

@@ -13,21 +13,24 @@
 --    (pinned model names and SHA-256s, exactly one selfie face, one dominant
 --    ID face, similarity >= the pinned 0.363). Mirrors
 --    faceModelEvidenceRefusal in lib/kyc/face-model/evidence.ts.
--- 2. subject_has_composite_kyc: the v2 body with only the provider tag
---    changed to v3 and the face-model check added. Every v2 condition is
+-- 2. subject_has_composite_kyc: the v2 body (20261011060000) with only the
+--    provider tag changed to v3 and the face-model check added. Every other
+--    v2 condition, including the binding to the newest verified ID copy, is
 --    kept (lib/kyc/face-match-v3-migration.test.ts compares them).
---    subject_has_manual_kyc_exception is NOT redefined: v3 adds no failure
---    reason (the face model's refusals reuse existing ones), so its v2 body
---    is still exact.
--- 3. Demote every client still VERIFIED on evidence the new rule refuses
---    (v2 or older selfie evidence), exactly as the v2 migration did for v1:
---    PENDING, provenance cleared, one KYC_STATUS_CHANGED audit row each.
--- 4. Un-verify every live SELFIE row whose verified biometric evidence lacks
---    the v3 verdict, exactly as the v2 migration did; the evidence JSON is
---    kept unchanged.
+--    subject_has_manual_kyc_exception and
+--    subject_has_in_person_kyc_verification are NOT redefined: v3 adds no
+--    failure reason (the face model's refusals reuse existing ones) and
+--    neither reads the provider tag, so their v2 bodies are still exact.
+-- 3-5. The v2 migration's data steps, applied to v2 (and older) evidence:
+--    snapshot the clients VERIFIED, un-verify every live SELFIE row whose
+--    verified evidence lacks the v3 verdict, then demote every client still
+--    VERIFIED on evidence the new rule refuses, with one audit row each for
+--    every client demoted here or by the revoke trigger during step 4. The
+--    evidence JSON is kept unchanged.
 --
--- Order matters: the functions are replaced before step 3 reads them, all
--- within this migration's single transaction.
+-- Order matters: the functions are replaced before steps 4 and 5 read them,
+-- and step 4 runs before step 5, all within this migration's single
+-- transaction.
 
 CREATE OR REPLACE FUNCTION public.face_model_evidence_holds(p_evidence jsonb)
  RETURNS boolean
@@ -111,27 +114,38 @@ AS $function$
           AND selfie."biometricLiveness" >= 70
           AND selfie."biometricVerifiedAt" IS NOT NULL
           AND jsonb_typeof(selfie."extractionResult") = 'object'
+          -- Booleans and the face count compare as JSON values, as
+          -- assessBiometricEvidence reads them: the string "true" and "1" no
+          -- longer pass, and 1.0 counts as one face. Each is strictly
+          -- narrower than the baseline text comparison it replaces. quality
+          -- keeps lower(trim()); trim() strips spaces only, and the TS parser
+          -- now does exactly the same.
           AND (
-            selfie."extractionResult" ->> 'vlmUnavailable' = 'true'
+            selfie."extractionResult" -> 'vlmUnavailable' = 'true'::jsonb
             OR (
-              selfie."extractionResult" #>> '{faceDetected,value}' = 'true'
-              AND selfie."extractionResult" #>> '{facesCount,value}' = '1'
-              AND selfie."extractionResult" #>> '{isLive,value}' = 'true'
+              selfie."extractionResult" #> '{faceDetected,value}' = 'true'::jsonb
+              AND CASE
+                WHEN jsonb_typeof(selfie."extractionResult" #> '{facesCount,value}') = 'number'
+                THEN (selfie."extractionResult" #>> '{facesCount,value}')::numeric = 1
+                ELSE false
+              END
+              AND selfie."extractionResult" #> '{isLive,value}' = 'true'::jsonb
               AND lower(
                 trim(selfie."extractionResult" #>> '{quality,value}')
               ) IN ('good', 'poor')
             )
           )
           AND jsonb_typeof(selfie."biometricResult") = 'object'
-          AND selfie."biometricResult" ->> 'ok' = 'true'
-          AND selfie."biometricResult" ->> 'verified' = 'true'
+          AND selfie."biometricResult" -> 'ok' = 'true'::jsonb
+          AND selfie."biometricResult" -> 'verified' = 'true'::jsonb
           -- Evidence verifies only as the v3 verdict: every VLM judgement
           -- agreeing with the pass AND the face model's comparison
           -- (assessBiometricEvidence mirrors this). v1 carried one faceMatch
           -- boolean that once passed a selfie against a silhouette
           -- placeholder, and v2 let the VLM decide same-person; neither
-          -- counts, and the VLM-unavailable marker exempts nothing. Booleans
-          -- compare as jsonb so the string "true" does not pass.
+          -- counts. The VLM-unavailable marker above stands in for the
+          -- extraction checks only; it does not exempt this provider result.
+          -- Booleans compare as jsonb so the string "true" does not pass.
           AND selfie."biometricResult" ->> 'provider' = 'vlm-face-match-v3'
           AND "face_model_evidence_holds"(selfie."biometricResult" -> 'faceModel')
           AND selfie."biometricResult" ->> 'idPhotoKind' = 'photograph'
@@ -158,6 +172,11 @@ AS $function$
             selfie."biometricResult" ->> 'simulated',
             'false'
           ) <> 'true'
+          -- Absent or exactly false, as assessBiometricEvidence requires.
+          AND (
+            selfie."biometricResult" -> 'simulated' IS NULL
+            OR selfie."biometricResult" -> 'simulated' = 'false'::jsonb
+          )
           AND coalesce(
             selfie."biometricResult" ->> 'subjectFingerprint',
             ''
@@ -170,6 +189,35 @@ AS $function$
               p_last_name,
               p_date_of_birth
             )
+          -- The selfie was compared against the ID copy the KYC rests on: the
+          -- newest verified one, chosen exactly as
+          -- subject_has_in_person_kyc_verification chooses it. A match
+          -- against a newer unverified (even rejected) upload, or one since
+          -- replaced, proves nothing about the verified identity. jsonb
+          -- equality, so only strings equal to the row's values pass.
+          AND EXISTS (
+            SELECT 1
+            FROM (
+              SELECT
+                id_document."id",
+                id_document."contentSha256"
+              FROM "ClientDocument" AS id_document
+              WHERE id_document."tenantId" = p_tenant_id
+                AND id_document."clientId" = p_client_id
+                AND id_document."docType" = 'ID_COPY'
+                AND id_document."deletedAt" IS NULL
+                AND id_document."verified" = true
+              ORDER BY
+                id_document."createdAt" DESC,
+                id_document."id" DESC
+              LIMIT 1
+            ) AS id_document
+            WHERE id_document."contentSha256" ~ '^[a-f0-9]{64}$'
+              AND selfie."biometricResult" -> 'idDocumentId' =
+                to_jsonb(id_document."id")
+              AND selfie."biometricResult" -> 'idDocumentSha256' =
+                to_jsonb(id_document."contentSha256")
+          )
           AND jsonb_typeof(
             selfie."biometricResult" -> 'matchScore'
           ) = 'number'
@@ -202,80 +250,38 @@ AS $function$
     );
 $function$;
 
--- 3. Demote clients the replaced rule no longer verifies. The UPDATE sets a
--- non-VERIFIED status, so Client_enforce_composite_kyc does not re-check the
--- composite for these rows. No personal data in the audit payload. The audit
--- id is deterministic per client and has no ON CONFLICT: a clash aborts the
--- migration rather than demoting a client without its audit row.
-WITH stale AS (
-  SELECT
-    client."id",
-    client."tenantId",
-    jsonb_build_object(
-      'kycStatus', client."kycStatus"::text,
-      'kycVerifiedAt', client."kycVerifiedAt",
-      'kycVerifiedById', client."kycVerifiedById",
-      'kycVerificationMethod', client."kycVerificationMethod"::text
-    ) AS previous_kyc
-  FROM "Client" AS client
-  WHERE client."kycStatus" = 'VERIFIED'
-    AND NOT "subject_has_composite_kyc"(
-      client."tenantId",
-      client."id",
-      client."idNumber",
-      client."firstName",
-      client."lastName",
-      client."dateOfBirth"
-    )
-  FOR UPDATE
-),
-demoted AS (
-  UPDATE "Client" AS client
-  SET
-    "kycStatus" = 'PENDING',
-    "kycVerifiedAt" = NULL,
-    "kycVerifiedById" = NULL,
-    "kycVerificationMethod" = NULL,
-    "updatedAt" = CURRENT_TIMESTAMP
-  FROM stale
-  WHERE client."id" = stale."id"
-    AND client."tenantId" = stale."tenantId"
-  RETURNING client."id", client."tenantId", stale.previous_kyc
-)
-INSERT INTO "AuditLog" (
-  "id", "tenantId", "userEmail", "action", "entity", "entityId",
-  "oldValue", "newValue", "createdAt"
-)
+-- 3. Snapshot the clients VERIFIED before any evidence changes, so step 5 can
+-- audit every one this migration demotes, including those the composite-KYC
+-- revoke trigger demotes during step 4. A session temp table, dropped below.
+CREATE TEMP TABLE face_match_v3_verified_before AS
 SELECT
-  'kyc-face-match-v3-reset-' || demoted."id",
-  demoted."tenantId",
-  'migration@face-match-v3-evidence',
-  'KYC_STATUS_CHANGED',
-  'Client',
-  demoted."id",
-  demoted.previous_kyc,
+  client."id",
+  client."tenantId",
   jsonb_build_object(
-    'kycStatus', 'PENDING',
-    'kycVerifiedAt', NULL,
-    'kycVerifiedById', NULL,
-    'kycVerificationMethod', NULL,
-    'reason', 'face_match_v3_evidence_required',
-    'migration', '20261011080000_face_match_v3_evidence',
-    'databaseEnforced', true
-  ),
-  CURRENT_TIMESTAMP
-FROM demoted;
+    'kycStatus', client."kycStatus"::text,
+    'kycVerifiedAt', client."kycVerifiedAt",
+    'kycVerifiedById', client."kycVerifiedById",
+    'kycVerificationMethod', client."kycVerificationMethod"::text
+  ) AS previous_kyc
+FROM "Client" AS client
+WHERE client."kycStatus" = 'VERIFIED';
 
 -- 4. Un-verify selfie rows whose verified evidence lacks the v3 verdict (the
--- biometricResult lines step 2 changed in subject_has_composite_kyc). Runs after
--- step 3, so ClientDocument_revoke_stale_composite_kyc finds demoted clients
--- already PENDING, and a client still VERIFIED keeps its composite: a row
--- without the v3 verdict cannot be its passing selfie, a manual exception
--- needs a failed latest selfie, and fewer live candidates only open the
--- in-person route. No ClientDocument guard refuses this write: they freeze
--- only rows bound to an application as agreement, PASQ or debit-mandate
--- evidence, or typed EXECUTED_CREDIT_AGREEMENT / DEBIT_MANDATE, and the
--- attempt-sequence trigger fires only on tenant/client/type/sequence changes.
+-- biometricResult lines step 2 changed in subject_has_composite_kyc). Runs BEFORE
+-- the demotion: un-verified, such a row stops being a live biometric
+-- candidate, so a client with a valid in-person attestation and an old v2
+-- selfie keeps its VERIFIED status instead of being demoted on a composite
+-- that only failed because the v2 row still blocked the attestation.
+-- ClientDocument_revoke_stale_composite_kyc fires on each row and demotes any
+-- client whose composite now fails (its own audit row, reason
+-- composite_kyc_evidence_changed); step 5 adds this migration's row for it. A
+-- row without the v3 verdict cannot be a passing selfie, and a manual
+-- exception needs a failed latest selfie, so only the in-person route can
+-- change, and only towards open. No ClientDocument guard refuses this write:
+-- they freeze only rows bound to an application as agreement, PASQ or
+-- debit-mandate evidence, or typed EXECUTED_CREDIT_AGREEMENT / DEBIT_MANDATE,
+-- and the attempt-sequence trigger fires only on tenant/client/type/sequence
+-- changes.
 WITH stale_selfie AS (
   SELECT
     selfie."id",
@@ -350,3 +356,60 @@ SELECT
   ),
   CURRENT_TIMESTAMP
 FROM unverified;
+
+-- 5. Demote clients the replaced rules no longer verify. The UPDATE sets a
+-- non-VERIFIED status, so Client_enforce_composite_kyc does not re-check the
+-- composite for these rows. One audit row for every client VERIFIED before
+-- this migration and not after it, whether demoted here or by the revoke
+-- trigger in step 4. No personal data in the audit payload. The audit id is
+-- deterministic per client and has no ON CONFLICT: a clash aborts the
+-- migration rather than demoting a client without its audit row.
+WITH demoted AS (
+  UPDATE "Client" AS client
+  SET
+    "kycStatus" = 'PENDING',
+    "kycVerifiedAt" = NULL,
+    "kycVerifiedById" = NULL,
+    "kycVerificationMethod" = NULL,
+    "updatedAt" = CURRENT_TIMESTAMP
+  WHERE client."kycStatus" = 'VERIFIED'
+    AND NOT "subject_has_composite_kyc"(
+      client."tenantId",
+      client."id",
+      client."idNumber",
+      client."firstName",
+      client."lastName",
+      client."dateOfBirth"
+    )
+  RETURNING client."id"
+)
+INSERT INTO "AuditLog" (
+  "id", "tenantId", "userEmail", "action", "entity", "entityId",
+  "oldValue", "newValue", "createdAt"
+)
+SELECT
+  'kyc-face-match-v3-reset-' || before."id",
+  before."tenantId",
+  'migration@face-match-v3-evidence',
+  'KYC_STATUS_CHANGED',
+  'Client',
+  before."id",
+  before.previous_kyc,
+  jsonb_build_object(
+    'kycStatus', 'PENDING',
+    'kycVerifiedAt', NULL,
+    'kycVerifiedById', NULL,
+    'kycVerificationMethod', NULL,
+    'reason', 'face_match_v3_evidence_required',
+    'migration', '20261011080000_face_match_v3_evidence',
+    'databaseEnforced', true
+  ),
+  CURRENT_TIMESTAMP
+FROM face_match_v3_verified_before AS before
+-- The statement's own snapshot still shows the clients `demoted` updates as
+-- VERIFIED; those the trigger demoted in step 4 already read PENDING.
+JOIN "Client" AS client ON client."id" = before."id"
+WHERE before."id" IN (SELECT demoted."id" FROM demoted)
+  OR client."kycStatus" <> 'VERIFIED';
+
+DROP TABLE face_match_v3_verified_before;

@@ -122,6 +122,9 @@ same-person answer:
 `extraction_incomplete` and `id_document_portrait_invalid` are not on the
 manual-exception allow-list; the others are, as before. No new borrower-facing
 copy: each condition maps onto an existing reason and its approved wording.
+As with the VLM's refusal, a latest selfie refused as
+`id_document_portrait_invalid` (including "no face found on the ID") also
+closes the in-person route over that ID copy until a newer copy is verified.
 
 ## Evidence (v3)
 
@@ -130,7 +133,11 @@ counts, the second-face ratio, the similarity, the threshold and
 `samePerson`. `assessBiometricEvidence` (TypeScript) and
 `subject_has_composite_kyc` / `face_model_evidence_holds` (SQL, migration
 `20261011080000_face_match_v3_evidence`) re-prove the pass from those fields
-against the pinned constants. v1 and v2 evidence no longer verifies; the
+against the pinned constants, on top of every v2 condition, including that
+the match was run against the client's newest verified ID copy
+(`idDocumentId` / `idDocumentSha256`). Capture compares against the newest
+uploaded copy, verified or not; the match counts only once that copy is the
+newest verified one. v1 and v2 evidence no longer verifies; the
 migration demotes clients VERIFIED only on it to PENDING and un-verifies the
 stale selfies, with an audit row each, as the v2 migration did for v1.
 Changing a model or the threshold is an evidence change: a new tag and a new

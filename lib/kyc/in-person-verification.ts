@@ -210,6 +210,30 @@ export function matchesBlockingSelfie(row: {
 }
 
 /**
+ * Whether the client's latest selfie attempt (deleted or not) was refused
+ * because the given ID copy has no real photograph on it. While it stands, the
+ * in-person route is closed over THAT copy: staff can compare a person to a
+ * photo, but not to a silhouette or a blank box, and the reason is
+ * deliberately non-exceptionable. A newer verified ID copy re-opens it. A
+ * refusal that names no ID copy is taken to be about this one.
+ *
+ * selfie_not_real_photograph does not close it: a person standing at a branch
+ * answers a fake selfie, but nothing answers an ID with no photo.
+ *
+ * Mirrors the latest-selfie NOT EXISTS added to
+ * subject_has_in_person_kyc_verification by migration
+ * 20261011060000_face_match_v2_evidence.
+ */
+export function latestSelfieRefusedIdDocumentPortrait(
+  latestSelfie: { biometricResult: unknown } | null,
+  idDocumentId: string,
+): boolean {
+  const result = jsonRecord(latestSelfie?.biometricResult)
+  if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
+  return !(typeof result.idDocumentId === "string" && result.idDocumentId !== idDocumentId)
+}
+
+/**
  * Valid only while the exact circumstances the approver attested to still hold.
  *
  * A live biometric attempt — processing or passed — takes this out of scope:
@@ -225,6 +249,7 @@ export function currentInPersonKycVerification(
     idDocument: InspectedIdDocument | null
     blockingBiometricAttempt: boolean
     biometricAssessment: BiometricEvidenceAssessment
+    latestSelfie: { biometricResult: unknown } | null
   },
 ): InPersonKycVerificationEvidence | null {
   if (
@@ -235,7 +260,9 @@ export function currentInPersonKycVerification(
     args.biometricAssessment.ok ||
     !args.idDocument ||
     args.idDocument.deletedAt !== null ||
-    !args.idDocument.verified
+    !args.idDocument.verified ||
+    // ...except a refusal of this very ID copy's portrait.
+    latestSelfieRefusedIdDocumentPortrait(args.latestSelfie, args.idDocument.id)
   ) {
     return null
   }

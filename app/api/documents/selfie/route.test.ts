@@ -97,7 +97,7 @@ function request() {
 }
 
 const verifiedCoreDocuments = [
-  { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null },
+  { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
   { id: "poa-doc-1", docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
   { id: "pay-doc-1", docType: "PAYSLIP", verified: true, verificationNote: null },
   { id: "bank-doc-1", docType: "BANK_STATEMENT", verified: true, verificationNote: null },
@@ -139,7 +139,7 @@ describe("POST /api/documents/selfie", () => {
       role: "CREDIT_OFFICER",
       tenantId: "tenant-1",
     })
-    outsideDocumentFindFirstMock.mockResolvedValue({ id: "id-doc-1" })
+    outsideDocumentFindFirstMock.mockResolvedValue({ id: "id-doc-1", contentSha256: "c".repeat(64) })
     outsideClientFindUniqueMock.mockResolvedValue({
       idNumber: "9001015000086",
       firstName: "Synthetic",
@@ -1332,8 +1332,10 @@ describe("POST /api/documents/selfie", () => {
       biometricVerifiedAt: null,
       biometricMatchScore: null,
     }))
-    // No provider result at all: only the binding and the reason are stored.
+    // No provider result at all: only the bindings and the reason are stored.
     expect(update.data.biometricResult).toEqual({
+      idDocumentId: ID_DOCUMENT_ROW.id,
+      idDocumentSha256: ID_DOCUMENT_ROW.contentSha256,
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       biometricFailureReason: reason,
     })
@@ -1404,6 +1406,13 @@ describe("POST /api/documents/selfie", () => {
         verified: false,
         biometricMatchScore: null,
         biometricVerifiedAt: null,
+        // The reply judged neither photo: a fault in the check, not the ID,
+        // and not exceptionable either.
+        biometricResult: expect.objectContaining({
+          biometricFailureReason: "extraction_incomplete",
+          idDocumentId: "id-doc-1",
+          idDocumentSha256: "c".repeat(64),
+        }),
       }),
     }))
     expect(auditCreateMock.mock.calls[1][0]).toEqual({
@@ -1414,7 +1423,8 @@ describe("POST /api/documents/selfie", () => {
   it("does not bind provider evidence to an ID document replaced during the callback", async () => {
     // The persist gate re-reads the CURRENT ID document inside the money
     // transaction; the evidence names id-doc-1, but a newer ID landed.
-    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED" }])
+    // Same digest, so only the row comparison can refuse it.
+    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED", contentSha256: "c".repeat(64) }])
 
     const response = await POST(request() as never)
 
@@ -1430,6 +1440,65 @@ describe("POST /api/documents/selfie", () => {
         }),
       }),
     }))
+  })
+
+  it("re-checks the bound ID copy against the newest uploaded one, digest included", async () => {
+    // Same row, different bytes: the compared copy is no longer what is on file.
+    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-1", contentSha256: "d".repeat(64) }])
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    // Verified or not: whether the copy is verified is the composite gate's call.
+    expect(txDocumentFindManyMock.mock.calls[0][0]).toEqual(expect.objectContaining({
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }))
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        verified: false,
+        biometricResult: expect.objectContaining({ biometricFailureReason: "subject_identity_changed" }),
+      }),
+    }))
+  })
+
+  it("compares the selfie against the newest uploaded ID copy, verified or not", async () => {
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    const newestIdCopy = {
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }
+    expect(outsideDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
+    expect(txDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
+  })
+
+  it.each([
+    ["there is no ID copy at all", null],
+    ["the newest copy has no digest", { contentSha256: null }],
+  ])("refuses capture when %s", async (_label, newestCopy) => {
+    outsideDocumentFindFirstMock.mockReset()
+    outsideDocumentFindFirstMock.mockResolvedValueOnce(newestCopy)
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: "Please upload your ID document before taking a selfie." })
+    expect(saveFileMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses inside the evidence lock when the ID copy lost its digest", async () => {
+    txDocumentFindFirstMock.mockReset()
+    txDocumentFindFirstMock.mockResolvedValueOnce({ ...ID_DOCUMENT_ROW, contentSha256: null })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(422)
+    expect(txDocumentCreateMock).not.toHaveBeenCalled()
+    expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/selfie.jpg")
   })
 
     it("fails the attempt without calling the VLM when the stored ID bytes are unavailable", async () => {

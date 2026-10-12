@@ -14,11 +14,13 @@ import { VLM_FACE_MATCH_PROVIDER } from "@/lib/kyc/biometric-evidence"
 const MIGRATIONS = path.join(__dirname, "..", "..", "prisma", "migrations")
 const read = (dir: string) => fs.readFileSync(path.join(MIGRATIONS, dir, "migration.sql"), "utf8")
 
-/** The `subject_has_composite_kyc` definition in one migration file. */
-function compositeIn(sql: string): string {
-  const start = sql.indexOf("CREATE OR REPLACE FUNCTION public.subject_has_composite_kyc(")
+/** One function's definition in one migration file. */
+function functionIn(sql: string, name: string): string {
+  const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`)
+  expect(start).toBeGreaterThanOrEqual(0)
   return sql.slice(start, sql.indexOf("$function$;", start) + "$function$;".length)
 }
+const compositeIn = (sql: string) => functionIn(sql, "subject_has_composite_kyc")
 
 /** Each non-comment line, trimmed: the conditions, as written. */
 const codeLines = (sql: string) =>
@@ -44,6 +46,15 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
       `AND "face_model_evidence_holds"(selfie."biometricResult" -> 'faceModel')`,
     ]))
   })
+
+  // Neither reads the provider tag, and v3 adds no failure reason.
+  it.each(["subject_has_in_person_kyc_verification", "subject_has_manual_kyc_exception"])(
+    "leaves %s at its v2 body",
+    (name) => {
+      expect(baselineFunctionSql(name)).toBe(functionIn(read("20261011060000_face_match_v2_evidence"), name))
+      expect(baselineFunctionSql(name)).not.toContain("'provider'")
+    },
+  )
 
   it("pins the same models, threshold and ghost-face ratio as the TypeScript gate", () => {
     const holds = baselineFunctionSql("face_model_evidence_holds")

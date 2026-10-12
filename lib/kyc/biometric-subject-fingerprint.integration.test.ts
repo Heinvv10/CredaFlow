@@ -123,6 +123,7 @@ suite("biometric subject fingerprint parity", () => {
         fileName: `${docType.toLowerCase()}.pdf`,
         verified: true,
         verifiedAt,
+        contentSha256: "c".repeat(64),
       })),
     })
     await db.clientDocument.create({
@@ -162,6 +163,8 @@ suite("biometric subject fingerprint parity", () => {
           faceMatch: true,
           matchConfidence: 0.98,
           livenessConfidence: 0.97,
+          idDocumentId: `fingerprint_core_0_${token}`,
+          idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint(unicodeSubject),
         },
       },

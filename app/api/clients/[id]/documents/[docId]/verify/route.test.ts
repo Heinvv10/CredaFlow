@@ -45,12 +45,14 @@ const passingSelfieDocument = {
     faceMatch: true,
     matchConfidence: 0.98,
     livenessConfidence: 0.97,
+    idDocumentId: "id-doc-1",
+    idDocumentSha256: "c".repeat(64),
     subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
   },
 }
 
 const verifiedCoreDocuments = [
-  { docType: "ID_COPY", verified: true, verificationNote: null },
+  { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
   { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
   { docType: "PAYSLIP", verified: true, verificationNote: null },
   { docType: "BANK_STATEMENT", verified: true, verificationNote: null },
@@ -491,10 +493,14 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
           faceMatch: true,
           matchConfidence: 0.98,
           livenessConfidence: 0.97,
+          idDocumentId: "id-doc-1",
+          idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
         },
       })
       .mockResolvedValueOnce({ id: "doc-1" })
+      // The newest verified ID copy, which the selfie was compared against.
+      .mockResolvedValueOnce({ id: "id-doc-1", contentSha256: "c".repeat(64) })
       .mockResolvedValueOnce({ ...passingSelfieDocument, id: "doc-1" })
       .mockResolvedValueOnce({ ...passingSelfieDocument, id: "doc-1" })
     documentFindManyMock.mockResolvedValueOnce(verifiedCoreDocuments)
@@ -520,6 +526,36 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
         kycVerificationMethod: "BIOMETRIC",
       },
     }))
+  })
+
+  it("refuses a selfie matched against an ID copy that is not the newest verified one", async () => {
+    documentFindFirstMock.mockReset()
+      .mockResolvedValueOnce({
+        ...passingSelfieDocument,
+        id: "doc-1",
+        clientId: "client-1",
+        docType: "SELFIE",
+        verified: false,
+        verifiedAt: null,
+        verifiedById: null,
+      })
+      .mockResolvedValueOnce({ id: "doc-1" })
+      // A newer copy has since been verified; the match names id-doc-1.
+      .mockResolvedValueOnce({ id: "id-doc-2", contentSha256: "d".repeat(64) })
+
+    const response = await PATCH(
+      verificationRequest({ verified: true }),
+      { params: Promise.resolve({ id: "client-1", docId: "doc-1" }) },
+    )
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).biometricEvidence).toBe("subject_identity_changed")
+    expect(documentFindFirstMock.mock.calls[2][0]).toEqual({
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verified: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, contentSha256: true },
+    })
+    expect(documentUpdateManyMock).not.toHaveBeenCalled()
   })
 
   it("cannot approve an older selfie after a newer attempt superseded it", async () => {
@@ -562,6 +598,8 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
           faceMatch: true,
           matchConfidence: 0.98,
           livenessConfidence: 0.97,
+          idDocumentId: "id-doc-1",
+          idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
         },
       })

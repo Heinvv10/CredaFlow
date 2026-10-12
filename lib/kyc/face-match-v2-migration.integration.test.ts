@@ -95,7 +95,11 @@ function seedClient(label: string) {
 
 /** A selfie row that passed the biometric check on the given evidence. */
 function seedPassedSelfie(label: string, selfieId: string, biometricResult: Record<string, unknown>) {
-  const evidence = JSON.stringify({ ...biometricResult, subjectFingerprint: fingerprintOf(label) })
+  const evidence = JSON.stringify({
+    // Compared against the client's verified ID copy, unless the case says otherwise.
+    idDocumentId: `core_${label}_ID_COPY`, idDocumentSha256: ID_SHA,
+    ...biometricResult, subjectFingerprint: fingerprintOf(label),
+  })
   sql(`
     INSERT INTO "ClientDocument" (
       "id", "tenantId", "clientId", "docType", "fileUrl", "fileName", "verified", "verifiedAt",
@@ -149,6 +153,31 @@ function seedInPersonVerifiedClient(label: string) {
   return clientId
 }
 
+/**
+ * VERIFIED with an in-person attestation recorded first and a v1 selfie that
+ * passed afterwards: the attestation counts once that selfie is un-verified.
+ */
+function seedInPersonThenV1Client(label: string) {
+  const clientId = seedClient(label)
+  seedInPersonRecord(label)
+  seedPassedSelfie(label, `selfie_${label}`, v1Pass)
+  setVerified(clientId, "BIOMETRIC")
+  return clientId
+}
+
+/** VERIFIED on v2 evidence compared against a newer ID copy nobody verified. */
+function seedUnverifiedIdV2Client(label: string) {
+  const clientId = seedClient(label)
+  sql(`INSERT INTO "ClientDocument" ("id", "tenantId", "clientId", "docType", "fileUrl", "fileName", "verified", "contentSha256", "createdAt")
+    VALUES ('substitute_${label}', 'tenant_fm_v2_mig', '${clientId}', 'ID_COPY', '', 'other.jpg', false, '${"b".repeat(64)}',
+      CURRENT_TIMESTAMP + interval '1 minute');`)
+  seedPassedSelfie(label, `selfie_${label}`, {
+    ...v2Pass, idDocumentId: `substitute_${label}`, idDocumentSha256: "b".repeat(64),
+  })
+  setVerified(clientId, "BIOMETRIC")
+  return clientId
+}
+
 /** VERIFIED by a senior exception over a failed latest selfie; an older v1 selfie had passed. */
 function seedExceptionVerifiedClient(label: string) {
   const clientId = seedClient(label)
@@ -175,6 +204,8 @@ suite("face match v2 migration on a database verified under v1", () => {
   let v2ClientId = ""
   let inPersonClientId = ""
   let exceptionClientId = ""
+  let inPersonV1ClientId = ""
+  let unverifiedIdClientId = ""
   let clashAbortedMigration = false
   let statusAfterClash = ""
 
@@ -191,6 +222,8 @@ suite("face match v2 migration on a database verified under v1", () => {
     v2ClientId = seedVerifiedClient("v2", v2Pass)
     inPersonClientId = seedInPersonVerifiedClient("inperson")
     exceptionClientId = seedExceptionVerifiedClient("exception")
+    inPersonV1ClientId = seedInPersonThenV1Client("ipv1")
+    unverifiedIdClientId = seedUnverifiedIdV2Client("subst")
     // A pre-existing row with a demotion audit id must abort the whole
     // migration, not demote that client silently. Rolled back as one unit.
     try {
@@ -266,7 +299,9 @@ suite("face match v2 migration on a database verified under v1", () => {
       biometricVerifiedAt: null,
       extractionStatus: "done",
       extractionResult: JSON.parse(passedExtraction),
-      biometricResult: { ...v1Pass, subjectFingerprint: fingerprintOf("v1") },
+      biometricResult: {
+        idDocumentId: "core_v1_ID_COPY", idDocumentSha256: ID_SHA, ...v1Pass, subjectFingerprint: fingerprintOf("v1"),
+      },
     })
   })
 
@@ -289,6 +324,20 @@ suite("face match v2 migration on a database verified under v1", () => {
   it("leaves a client verified in person VERIFIED and unaudited", () => {
     expect(sql(`SELECT "kycStatus" FROM "Client" WHERE "id" = '${inPersonClientId}';`)).toBe("VERIFIED")
     expect(migrationAudits(inPersonClientId)).toBe("0")
+  })
+
+  it("keeps a client with an in-person attestation VERIFIED once its passed v1 selfie is un-verified", () => {
+    expect(sql(`SELECT "kycStatus" FROM "Client" WHERE "id" = '${inPersonV1ClientId}';`)).toBe("VERIFIED")
+    expect(migrationAudits(inPersonV1ClientId)).toBe("0")
+    expect(sql(`SELECT count(*) FROM "AuditLog" WHERE "entityId" = '${inPersonV1ClientId}';`)).toBe("0")
+    expect(sql(`SELECT "verified" FROM "ClientDocument" WHERE "id" = 'selfie_ipv1';`)).toBe("f")
+    expect(migrationAudits("selfie_ipv1")).toBe("1")
+  })
+
+  it("demotes a client verified on v2 evidence compared against an unverified ID copy", () => {
+    expect(sql(`SELECT "kycStatus" FROM "Client" WHERE "id" = '${unverifiedIdClientId}';`)).toBe("PENDING")
+    expect(sql(`SELECT "newValue" ->> 'reason' FROM "AuditLog"
+      WHERE "id" = 'kyc-face-match-v2-reset-${unverifiedIdClientId}';`)).toBe("face_match_v2_evidence_required")
   })
 
   it("leaves a client verified by a manual exception VERIFIED, though its older v1 selfie is un-verified", () => {
