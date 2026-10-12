@@ -24,7 +24,7 @@ function git(...args: string[]): string {
 
 function status(env: Record<string, string> = {}) {
   const r = spawnSync('bash', [SCRIPT], {
-    env: { PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, HOME: root, DEMO_DATA_DIR: data, DEMO_RUNNER_DIR: runner, ...env },
+    env: { PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: root, DEMO_DATA_DIR: data, DEMO_RUNNER_DIR: runner, ...env },
     encoding: 'utf8',
   })
   return { status: r.status, out: `${r.stdout}${r.stderr}` }
