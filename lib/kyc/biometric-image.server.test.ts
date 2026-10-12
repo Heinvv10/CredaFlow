@@ -27,6 +27,15 @@ beforeEach(() => {
   documentImageMock.mockImplementation(async (buffer: Buffer, mimeType: string) => ({ ok: true, buffer, mimeType }))
 })
 
+// libvips's operation cache kept ~180 MB per large decode, so steady 48 MP
+// uploads settled RSS near 1.5 GB. Loading the module turns it off.
+describe("the libvips cache", () => {
+  it("is off once the module has loaded", () => {
+    const { memory, files, items } = sharp.cache() as { memory: { max: number }; files: { max: number }; items: { max: number } }
+    expect([memory.max, files.max, items.max]).toEqual([0, 0, 0])
+  })
+})
+
 describe("canonicalBiometricImage", () => {
   it("re-encodes as JPEG and reports the SHA-256 of exactly those bytes", async () => {
     const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: "#336699" } }).png().toBuffer()

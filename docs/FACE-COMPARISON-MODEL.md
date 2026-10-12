@@ -269,6 +269,13 @@ unpinned, against 140 / 162 / 159 ms when the 640 pass finds the face, so
 the extra pass costs about 115-165 ms and runs only when the first finds
 nothing.
 
+Memory: uploads above 50 MP are refused from their header, and at most two
+canonicalisations run at once (a caller waits at most 30 s). libvips's
+operation cache is turned off (`sharp.cache(false)`, process-wide): over 16
+sequential canonicalisations of a synthetic 48 MP JPEG, RSS went from 281 to
+508 MiB with the cache on, and from 267 MiB to a plateau near 330 MiB with it
+off (peak 472, final 338).
+
 ## Why both judges stay
 
 Each catches what the other misses. On canonical bytes (2026-10-12, 3 runs

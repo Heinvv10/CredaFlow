@@ -10,6 +10,12 @@ import { createHash } from "node:crypto"
 import sharp from "sharp"
 import { documentImage } from "@/lib/vlm-extract"
 
+// libvips caches operations by default: about 180 MB per large decode, so
+// steady 48 MP uploads settled RSS near 1.5 GB. Uploads are decoded once and
+// never repeated, so the cache only costs memory. Process-wide: the only
+// other direct user of sharp is the face model's decode.
+sharp.cache(false)
+
 export type CanonicalBiometricImage = { fileBuffer: Buffer; mimeType: "image/jpeg"; sha256: string }
 
 /**
