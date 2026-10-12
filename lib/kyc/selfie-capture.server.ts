@@ -39,34 +39,15 @@ export type CaptureSelfieResult =
   | { ok: false; status: number; error: string }
 
 /**
- * The ID copy a selfie is compared against, as subject_has_composite_kyc
- * selects it: verified, not deleted, createdAt DESC then id DESC. The caller
- * also requires a usable digest, as selectUsableIdDocument does.
+ * The ID copy a selfie is compared against: the newest non-deleted upload,
+ * createdAt DESC then id DESC (the gates' tiebreak). Callers also require a
+ * usable digest.
  */
-const VERIFIED_ID_DOCUMENT = {
+const CURRENT_ID_DOCUMENT = {
   docType: "ID_COPY" as DocType,
   deletedAt: null,
-  verified: true,
 }
 const NEWEST_FIRST = [{ createdAt: "desc" as const }, { id: "desc" as const }]
-
-/** No ID copy at all, or none verified with intact stored content yet. */
-async function refuseWithoutUsableIdDocument(
-  tenantId: string,
-  clientId: string,
-): Promise<CaptureSelfieResult> {
-  const anyIdDocument = await prisma.clientDocument.findFirst({
-    where: { tenantId, clientId, docType: "ID_COPY" as DocType, deletedAt: null },
-    select: { id: true },
-  })
-  return {
-    ok: false,
-    status: 422,
-    error: anyIdDocument
-      ? "Please upload and process an ID document before taking a selfie."
-      : "Please upload your ID document before taking a selfie.",
-  }
-}
 
 function sanitiseDoc(doc: Record<string, unknown>) {
   const { storagePath: _sp, ...safe } = doc
@@ -131,16 +112,22 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     // A selfie needs an ID document on file, but must not depend on AI extraction.
     // A deployment can run with VLM disabled and staff can review/verify the ID manually.
     //
-    // It is compared against the newest VERIFIED copy only, the row the KYC
-    // gates bind it to: matching a newer unverified (even staff-rejected)
-    // upload proved the face of a document nobody accepted.
+    // Compared against the newest uploaded copy, verified or not, so a
+    // borrower need not wait for staff. The KYC gates count the match only
+    // while that copy is the newest VERIFIED one (subject_has_composite_kyc),
+    // so a match against an unverified or rejected upload proves nothing
+    // until staff verify it. The digest is what the gates bind to.
     const idDoc = await prisma.clientDocument.findFirst({
-      where: { tenantId, clientId, ...VERIFIED_ID_DOCUMENT },
+      where: { tenantId, clientId, ...CURRENT_ID_DOCUMENT },
       orderBy: NEWEST_FIRST,
       select: { contentSha256: true },
     })
     if (!isSha256Digest(idDoc?.contentSha256)) {
-      return await refuseWithoutUsableIdDocument(tenantId, clientId)
+      return {
+        ok: false,
+        status: 422,
+        error: "Please upload your ID document before taking a selfie.",
+      }
     }
 
     const buffer = Buffer.from(await image.arrayBuffer())
@@ -156,7 +143,7 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
       // The optimistic read above avoids storing a file in the common error
       // case; this read closes the ID-delete/upload race.
       const currentIdDocument = await tx.clientDocument.findFirst({
-        where: { tenantId, clientId, ...VERIFIED_ID_DOCUMENT },
+        where: { tenantId, clientId, ...CURRENT_ID_DOCUMENT },
         select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
         orderBy: NEWEST_FIRST,
       })
@@ -265,7 +252,11 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     })
     if (!outcome) {
       await discardUncommittedSelfie()
-      return await refuseWithoutUsableIdDocument(tenantId, clientId)
+      return {
+        ok: false,
+        status: 422,
+        error: "Please upload your ID document before taking a selfie.",
+      }
     }
     const doc = outcome.created
     // The database now owns the storage reference. Only failures before this

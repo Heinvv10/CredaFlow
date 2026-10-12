@@ -1251,7 +1251,8 @@ describe("POST /api/documents/selfie", () => {
   it("does not bind provider evidence to an ID document replaced during the callback", async () => {
     // The persist gate re-reads the CURRENT ID document inside the money
     // transaction; the evidence names id-doc-1, but a newer ID landed.
-    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED" }])
+    // Same digest, so only the row comparison can refuse it.
+    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED", contentSha256: "c".repeat(64) }])
 
     const response = await POST(request() as never)
 
@@ -1269,7 +1270,7 @@ describe("POST /api/documents/selfie", () => {
     }))
   })
 
-  it("re-checks the bound ID copy against the newest VERIFIED one, digest included", async () => {
+  it("re-checks the bound ID copy against the newest uploaded one, digest included", async () => {
     // Same row, different bytes: the compared copy is no longer what is on file.
     txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-1", contentSha256: "d".repeat(64) }])
 
@@ -1277,8 +1278,9 @@ describe("POST /api/documents/selfie", () => {
 
     expect(response.status).toBe(201)
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    // Verified or not: whether the copy is verified is the composite gate's call.
     expect(txDocumentFindManyMock.mock.calls[0][0]).toEqual(expect.objectContaining({
-      where: expect.objectContaining({ docType: "ID_COPY", deletedAt: null, verified: true }),
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }))
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -1289,37 +1291,34 @@ describe("POST /api/documents/selfie", () => {
     }))
   })
 
-  it("compares the selfie only against the newest verified ID copy", async () => {
+  it("compares the selfie against the newest uploaded ID copy, verified or not", async () => {
     const response = await POST(request() as never)
 
     expect(response.status).toBe(201)
-    const verifiedIdCopy = {
-      where: expect.objectContaining({ docType: "ID_COPY", deletedAt: null, verified: true }),
+    const newestIdCopy = {
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }
-    expect(outsideDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(verifiedIdCopy))
-    expect(txDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(verifiedIdCopy))
+    expect(outsideDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
+    expect(txDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
   })
 
   it.each([
-    ["no ID copy is verified yet", null, { id: "id-doc-unverified" }, "Please upload and process an ID document before taking a selfie."],
-    ["the newest verified copy has no digest", { contentSha256: null }, { id: "id-doc-1" }, "Please upload and process an ID document before taking a selfie."],
-    ["there is no ID copy at all", null, null, "Please upload your ID document before taking a selfie."],
-  ])("refuses capture when %s", async (_label, verifiedCopy, anyCopy, error) => {
+    ["there is no ID copy at all", null],
+    ["the newest copy has no digest", { contentSha256: null }],
+  ])("refuses capture when %s", async (_label, newestCopy) => {
     outsideDocumentFindFirstMock.mockReset()
-    outsideDocumentFindFirstMock
-      .mockResolvedValueOnce(verifiedCopy)
-      .mockResolvedValueOnce(anyCopy)
+    outsideDocumentFindFirstMock.mockResolvedValueOnce(newestCopy)
 
     const response = await POST(request() as never)
 
     expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({ error })
+    expect(await response.json()).toEqual({ error: "Please upload your ID document before taking a selfie." })
     expect(saveFileMock).not.toHaveBeenCalled()
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
-  it("refuses inside the evidence lock when the verified ID copy went away", async () => {
+  it("refuses inside the evidence lock when the ID copy lost its digest", async () => {
     txDocumentFindFirstMock.mockReset()
     txDocumentFindFirstMock.mockResolvedValueOnce({ ...ID_DOCUMENT_ROW, contentSha256: null })
 

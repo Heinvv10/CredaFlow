@@ -234,8 +234,8 @@ export async function runBiometricVerification(
             : null,
         }, {
           subject,
-          // The copy capture selected as the newest verified one;
-          // persistBiometricOutcome re-checks that it still is.
+          // The copy capture compared against. This decides only whether the
+          // match itself passed; the composite gate decides whether it counts.
           idDocument,
           requireDocumentVerified: false,
         })
@@ -384,12 +384,14 @@ async function persistBiometricOutcome(args: {
       biometricSubjectFingerprint(clientBefore) === args.subjectFingerprint
     // The provider evidence names the exact ID document the selfie was
     // compared against. That binding is a live gate, not metadata: unless it
-    // is still the client's newest VERIFIED ID copy, with the same digest
-    // (the row subject_has_composite_kyc selects), the attempt fails closed.
-    // A newer upload, verified or not, an un-verification or a deletion
-    // while the callback ran all fail it. Post-verification replacement is
-    // separately covered by the composite-KYC revoke trigger, which lapses
-    // the client's KYC when ID_COPY evidence changes.
+    // is still the client's newest ID copy, with the same digest, the
+    // attempt fails closed, so a newer upload or a deletion while the
+    // callback ran fails it. Whether that copy is VERIFIED is the KYC gates'
+    // question (subject_has_composite_kyc): an attempt against an unverified
+    // copy is stored, and counts once staff verify that copy. Post-
+    // verification replacement is separately covered by the composite-KYC
+    // revoke trigger, which lapses the client's KYC when ID_COPY evidence
+    // changes.
     const boundIdDocumentId = args.biometricResult?.idDocumentId ?? null
     let idDocumentUnchanged = true
     if (boundIdDocumentId) {
@@ -399,7 +401,6 @@ async function persistBiometricOutcome(args: {
           clientId: args.clientId,
           docType: "ID_COPY" as DocType,
           deletedAt: null,
-          verified: true,
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 1,
