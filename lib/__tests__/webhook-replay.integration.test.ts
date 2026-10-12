@@ -16,6 +16,7 @@ const SECRET = "test-webhook-secret"
 let originalSecret: string | undefined
 let originalTenantSlug: string | undefined
 let tenantId = ""
+let decoyTenantId = ""
 let clientId = ""
 let loanId = ""
 let stitchPaymentId = ""
@@ -38,7 +39,6 @@ function sign(body: string): string {
 
 d("Stitch webhook — replay protection (integration)", () => {
   beforeAll(async () => {
-    // Patch env vars before seeding so webhook handler resolves the right tenant
     originalSecret = process.env.STITCH_WEBHOOK_SECRET
     originalTenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG
     process.env.STITCH_WEBHOOK_SECRET = SECRET
@@ -51,11 +51,16 @@ d("Stitch webhook — replay protection (integration)", () => {
     clientId = scenario.clientId
     loanId = await bookLoan(scenario)
 
-    // The webhook resolves its tenant from NEXT_PUBLIC_TENANT_SLUG.
-    const tenant = await withoutTenantScope(async () =>
-      prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { slug: true } })
+    // Point the default tenant at a DIFFERENT tenant. The webhook must take
+    // its tenant from the loan; if it ever falls back to the default tenant,
+    // the tenant assertions below go red instead of passing by coincidence.
+    const decoy = await withoutTenantScope(async () =>
+      prisma.tenant.create({
+        data: { slug: `wh-decoy-${STAMP}`, name: "Webhook default-tenant decoy" },
+      })
     )
-    process.env.NEXT_PUBLIC_TENANT_SLUG = tenant.slug
+    decoyTenantId = decoy.id
+    process.env.NEXT_PUBLIC_TENANT_SLUG = decoy.slug
 
     // StitchPaymentRequest has no tenantId — use withoutTenantScope
     await withoutTenantScope(async () => {
@@ -84,15 +89,14 @@ d("Stitch webhook — replay protection (integration)", () => {
     if (originalTenantSlug === undefined) delete process.env.NEXT_PUBLIC_TENANT_SLUG
     else process.env.NEXT_PUBLIC_TENANT_SLUG = originalTenantSlug
 
+    // Only the throwaway rows we own are removed; the fixture tenant, loan,
+    // Payment and signed PASQ evidence are left on the throwaway DB.
     await withoutTenantScope(async () => {
       if (stitchPaymentId) {
-        await prisma.stitchPaymentRequest.delete({ where: { id: stitchPaymentId } }).catch(() => {})
+        await prisma.stitchPaymentRequest.delete({ where: { id: stitchPaymentId } })
       }
-      if (loanId) {
-        await prisma.payment.deleteMany({ where: { loanId } }).catch(() => {})
-      }
+      if (decoyTenantId) await prisma.tenant.delete({ where: { id: decoyTenantId } })
     })
-    // The fixture tenant, loan and signed PASQ evidence are immutable; left in place.
   })
 
   it("first webhook POST creates exactly one Payment row and marks request COMPLETED", async () => {
