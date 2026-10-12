@@ -137,8 +137,10 @@ export type VlmFaceMatchSideJudgement = {
  * The ID/selfie-side refusal, read field by field. readVlmFaceMatchVerdict
  * returns null when ANY field is malformed, so an unrelated bad confidence
  * hid a silhouette ID behind an exceptionable selfie-side reason. This reads
- * only the side judgements and fails closed: an absent or null field says
- * nothing, and any other value refuses unless it is exactly true (or, for
+ * only the side judgements and fails closed: once the model has answered, an
+ * absent or null judgement refuses (mapExtractedFields drops null, so "no
+ * answer about the portrait" must not read as "no objection"), and any other
+ * value refuses unless it is exactly true (or, for
  * idPhotoKind, "photograph" after normalisation). A "false" string, a 0 or a
  * value nested inside the one { value } wrapper mapExtractedFields writes is
  * a refusal, not silence. ID side first, as in rejectionFor; within a side an
@@ -152,6 +154,7 @@ export function readVlmFaceMatchSideRejection(
     return null
   }
   const extraction = extractionResult as Record<string, unknown>
+  if (extraction.vlmUnavailable === true) return null
   const rawKind = extractedValue(extraction, "idPhotoKind")
   const flag = (field: string): VlmFaceMatchSideFlag => {
     const value = extractedValue(extraction, field)
@@ -183,11 +186,17 @@ export function readVlmFaceMatchSideRejection(
   ) {
     return refuse("id_document_portrait_invalid", "ID document portrait could not be verified: the check's answer about it was unreadable")
   }
+  if (judgement.idPhotoKind === null || judgement.idPhotoIsRealPhotograph === null || judgement.idPhotoFaceDetected === null) {
+    return refuse("id_document_portrait_invalid", "ID document portrait could not be verified: the check gave no answer about it")
+  }
   if (judgement.selfieIsRealPhotograph === false) {
     return refuse("selfie_not_real_photograph", "Selfie is not a real photograph of a live person")
   }
   if (judgement.selfieIsRealPhotograph === "unrecognised") {
     return refuse("selfie_not_real_photograph", "Selfie could not be verified as a real photograph: the check's answer about it was unreadable")
+  }
+  if (judgement.selfieIsRealPhotograph === null) {
+    return refuse("selfie_not_real_photograph", "Selfie could not be verified as a real photograph: the check gave no answer about it")
   }
   return null
 }
