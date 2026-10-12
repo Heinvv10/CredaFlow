@@ -141,7 +141,13 @@ docker run -d --name cf-it -e POSTGRES_PASSWORD=it -p 55432:5432 postgres:16-alp
 export DATABASE_URL=postgresql://postgres:it@127.0.0.1:55432/postgres
 npx prisma migrate deploy
 bash scripts/run-integration-tests.sh
+docker rm -fv cf-it
 ```
+
+Tear down with `docker rm -fv`, never plain `docker rm -f`: the image keeps its
+data dir in an anonymous volume, and without `-v` every run leaves 45–90 MB
+behind (leaks like this reached 99 volumes, 7 GB, on velo-server in 1.5 days;
+2026-10-12).
 
 The script refuses a `DATABASE_URL` whose host is not this machine or a
 docker-compose service named `db` or `postgres` (or whose query sets `host=`)
