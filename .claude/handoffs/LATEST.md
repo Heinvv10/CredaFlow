@@ -21,9 +21,9 @@ merge commits in this order). They were stacked, each on the previous one's
 branch, and each had green CI and three blind reviewers' SHIP/CLEAN on its
 final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 
-Follow-ups #30–#34 carry Hein's 2026-10-12 decisions. Each was branched from
-`main`, had three blind reviewers' SHIP/CLEAN on its final commit, and is merged
-before the PR that added this paragraph:
+Follow-ups #30–#34 and #36 carry Hein's 2026-10-12 decisions. Each was
+branched from `main` and had three blind reviewers' SHIP/CLEAN on its final
+commit; all are merged (#36 after this paragraph was first written):
 
 | PR | Branch | What |
 |---|---|---|
@@ -32,6 +32,7 @@ before the PR that added this paragraph:
 | #32 | `feat/portal-amount-starts-empty` | The portal apply amount starts empty; the credit-life block is hidden until the amount is valid |
 | #33 | `fix/website-apply-requires-term` | The website apply route refuses a missing or invalid term (400, nothing written) when the request would create an application on a variable-term product, instead of storing 30 days; lead-only submissions still need no term; the website form gains a required term field and sends the catalogue's fixed term for fixed-term products |
 | #34 | `test/webhook-replay-on-migrated-db` | The Stitch payment webhook runs in the loan's tenant (it 500'd on every webhook and stamped the default tenant); `webhook-replay` is a gated integration suite (`RUN_WEBHOOK_REPLAY_IT`) |
+| #36 | `fix/website-term-out-of-range` | The website apply route refuses an out-of-range term for a variable-term product (400 with the product's `termRange`, nothing written) instead of clamping it; the form then shows the term field with that range, even for a product the catalogue treated as fixed-term |
 
 | PR | Branch → base at the time | What |
 |---|---|---|
@@ -120,9 +121,6 @@ fresh Postgres 16:
   tenant creates its own legally approved template.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
-- **Out-of-range terms on the website apply route** are still clamped into the
-  product's range (#33 refuses only a missing or invalid term; the form
-  validates the range). Confirm that clamping stays.
 - **Default-tenant stamping.** These handlers write the default tenant rather
   than the record's own: `app/api/clients/[id]/consent/route.ts` (POPIA consent
   records), five actions in `app/actions/crm.ts`, `app/actions/lead-activities.ts`,
