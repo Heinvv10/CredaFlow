@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { Prisma } from "@prisma/client"
 import type { DsarStatus } from "@prisma/client"
+
+// What a DSAR_UPDATED audit row records, old and new. The response's words
+// stay on the request; the audit row only says they changed.
+const AUDITED_FIELDS = ["status", "completedAt"] as const
+const auditValue = (value: unknown) => (value instanceof Date ? value.toISOString() : value ?? null)
 
 export async function PATCH(
   req: NextRequest,
@@ -29,24 +36,51 @@ export async function PATCH(
       updateData.completedAt = new Date()
     }
 
-    // Switch to updateMany so tenantId can be included in the where clause
-    const result = await prisma.dataSubjectRequest.updateMany({
-      where: { id, tenantId: tenant.id },
-      data: updateData,
+    // Lock, read, update and audit in one transaction: the change and its
+    // audit row commit together, and the audited old values are exactly what
+    // this write replaced even when two updates race.
+    const dsar = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "DataSubjectRequest" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR UPDATE`)
+      const existing = await tx.dataSubjectRequest.findFirst({
+        where: { id, tenantId: tenant.id },
+        select: { status: true, completedAt: true },
+      })
+      if (!existing) return null
+
+      // updateMany so tenantId can be included in the where clause
+      await tx.dataSubjectRequest.updateMany({
+        where: { id, tenantId: tenant.id },
+        data: updateData,
+      })
+
+      const changed = AUDITED_FIELDS.filter((field) => field in updateData)
+      await logAuditStrict({
+        tenantId: tenant.id,
+        userId: guard.user.id,
+        userEmail: guard.user.email,
+        action: AuditAction.DSAR_UPDATED,
+        entity: "DataSubjectRequest",
+        entityId: id,
+        oldValue: Object.fromEntries(changed.map((field) => [field, auditValue(existing[field])])),
+        newValue: {
+          ...Object.fromEntries(changed.map((field) => [field, auditValue(updateData[field])])),
+          ...("response" in updateData && { responseChanged: true }),
+        },
+      }, tx)
+
+      return tx.dataSubjectRequest.findFirst({
+        where: { id, tenantId: tenant.id },
+        include: {
+          client: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+        },
+      })
     })
 
-    if (result.count === 0) {
+    if (!dsar) {
       return NextResponse.json({ error: "DSAR not found" }, { status: 404 })
     }
-
-    const dsar = await prisma.dataSubjectRequest.findFirst({
-      where: { id, tenantId: tenant.id },
-      include: {
-        client: {
-          select: { id: true, firstName: true, lastName: true },
-        },
-      },
-    })
 
     return NextResponse.json(dsar)
   })
