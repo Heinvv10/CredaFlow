@@ -26,6 +26,10 @@ export const ROLE_HIERARCHY: UserRole[] = [
   "SUPER_ADMIN",
 ]
 
+// Who may be a branch's manager: the roles the branch settings picker offers
+// and the only ones POST /api/branches accepts.
+export const BRANCH_MANAGER_ROLES: UserRole[] = ["BRANCH_MANAGER", "LOAN_ADMIN", "SUPER_ADMIN", "ADMIN"]
+
 export function hasMinRole(userRole: UserRole, minRole: UserRole): boolean {
   const userIdx = ROLE_HIERARCHY.indexOf(userRole)
   const minIdx = ROLE_HIERARCHY.indexOf(minRole)

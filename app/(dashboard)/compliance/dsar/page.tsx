@@ -1,12 +1,16 @@
+import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { DsarClient } from "@/components/compliance/DsarClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getResolvedTenantId } from "@/lib/tenant"
 
 export default async function DsarPage() {
-  await requireMinRole("ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const user = await requireMinRole("ADMIN")
+  const tenantId = await getResolvedTenantId()
+  // withTenantContext's binding, for a page: a session never reads another
+  // tenant's rows because the host resolved to it.
+  if (user.tenantId !== tenantId) notFound()
   const [dsars, clients] = await Promise.all([
     prisma.dataSubjectRequest.findMany({
       where: { tenantId },
