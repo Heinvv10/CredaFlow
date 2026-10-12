@@ -21,6 +21,17 @@ merge commits in this order). They were stacked, each on the previous one's
 branch, and each had green CI and three blind reviewers' SHIP/CLEAN on its
 final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 
+Follow-ups #30–#34 (each based on `main`, three blind reviewers' SHIP/CLEAN and
+green CI on its final commit) carry Hein's 2026-10-12 decisions:
+
+| PR | Branch | What |
+|---|---|---|
+| #30 | `fix/loan-product-amount-check` | Migration `20261012090000_loan_product_amount_bounds`: validated CHECK `LoanProduct_amount_bounds` (`minAmount > 0 AND maxAmount >= minAmount`); real-PG suite `RUN_LOAN_PRODUCT_AMOUNT_CHECK_IT` |
+| #31 | `fix/approve-with-loan-409` | Approving an application that already has a loan answers 409 (the approve transaction flushes deferred constraints), like decline |
+| #32 | `feat/portal-amount-starts-empty` | The portal apply amount starts empty; the credit-life block is hidden until the amount is valid |
+| #33 | `fix/website-apply-requires-term` | The website apply route refuses a missing or invalid term for a variable-term product (400, nothing written) instead of storing 30 days; the website form gains a required term field and sends the catalogue's fixed term for fixed-term products |
+| #34 | `test/webhook-replay-on-migrated-db` | The Stitch payment webhook runs in the loan's tenant (it 500'd on every webhook and stamped the default tenant); `webhook-replay` is a gated integration suite (`RUN_WEBHOOK_REPLAY_IT`) |
+
 | PR | Branch → base at the time | What |
 |---|---|---|
 | #1 | `fix/ci-green-and-quality` → `main` | Integration gate green (9 stale fixtures fixed, register 5 → 2, lead-convert PASQ-stamp bug), lint 0 errors (exports are downloads), undefined `--cf-*` tokens and duplicate selectors removed with a test, demo passwords out of source |
@@ -48,7 +59,8 @@ final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 - **Schema:** baseline + `20261009120000_neutral_tenant_palette` +
   `20261009150000_remove_outage_disbursement_exception` (with #3) +
   `20261010120000_application_amount_positive` (with #19) +
-  `20261010180000_attach_credit_life_guards` (with #21).
+  `20261010180000_attach_credit_life_guards` (with #21) +
+  `20261012090000_loan_product_amount_bounds` (with #30).
   `prisma migrate diff` migrations → schema is empty.
 - **Seed:** neutral demo tenant "Acme". Demo passwords are generated on first
   creation or set by `SEED_ADMIN_PASSWORD` / `SEED_OFFICER_PASSWORD` /
@@ -94,7 +106,7 @@ fresh Postgres 16:
   credit-life product and insurer: disburse one by hand on a seeded database
   before any client goes live. The demo seed's loan
   sits on a DRAFT application, which therefore can never be approved or
-  declined: decline answers 409, approval still fails as a 500.
+  declined: both answer 409 (#21, #31).
 - **Legal sign-off before any client goes live:** each client's legal team
   approves the rendered NCA documents and the website's legal pages. Render
   hashes are pinned in tests; a pin proves the render has not moved, not that
@@ -107,11 +119,14 @@ fresh Postgres 16:
   tenant creates its own legally approved template.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
-- **Term and amount defaults.** The portal apply form pre-fills the amount
-  with the client's qualified maximum, clamped into the product's range (the
-  product minimum when there is no qualification). The public website apply route
-  (`app/api/website/apply/route.ts`) stores 30 days, clamped into the product's
-  range, when no term is sent.
+- **Out-of-range terms on the website apply route** are still clamped into the
+  product's range (#33 refuses only a missing or invalid term; the form
+  validates the range). Confirm that clamping stays.
+- **Default-tenant stamping.** These handlers write the default tenant rather
+  than the record's own: `app/api/clients/[id]/consent/route.ts` (POPIA consent
+  records), five actions in `app/actions/crm.ts`, `app/actions/lead-activities.ts`,
+  and `app/api/loans/[id]/debit-mandate/route.ts` (fallback only). Harmless with
+  one database per lender; wrong if a database ever holds several tenants.
 - **TOTP enrolment policy** for new staff, and the `ncrStatus` wording on the
   website.
 - **History left in UI copy and names.** The string pass changed no customer-facing
@@ -135,10 +150,9 @@ fresh Postgres 16:
     stored bytes). Nothing caps instalments: the seeded PERSONAL product allows
     1,800 days (60 instalments); the portal, the CRM convert form and the staff
     wizard start the term empty (#20).
-  - `lib/__tests__/webhook-replay.test.ts` runs whenever `DATABASE_URL` is set
-    (not behind a `RUN_*_IT` gate) and its fixture creates an
-    APPROVED application without a PASQ document, which the
-    `lockLoanApplicationPasqDocument` trigger refuses on a migrated database. CI's quality job sets no `DATABASE_URL`, so it skips there.
+  - `lib/__tests__/runtime-tenant-isolation.test.ts` runs whenever
+    `DATABASE_URL` is set rather than behind a `RUN_*_IT` gate (it passes on a
+    migrated database).
   - The page background's indigo radial glow (`app/globals.css`) is not
     tenant-themed on any page.
   - The baseline helpers do not tell function overloads apart, nor scope
