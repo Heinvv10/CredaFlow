@@ -1,12 +1,16 @@
+import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { ComplaintsClient } from "@/components/compliance/ComplaintsClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getResolvedTenantId } from "@/lib/tenant"
 
 export default async function ComplaintsPage() {
-  await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const user = await requireMinRole("LOAN_ADMIN")
+  const tenantId = await getResolvedTenantId()
+  // withTenantContext's binding, for a page: a session never reads another
+  // tenant's rows because the host resolved to it.
+  if (user.tenantId !== tenantId) notFound()
   const [complaints, clients] = await Promise.all([
     prisma.complaint.findMany({
       where: { tenantId },
