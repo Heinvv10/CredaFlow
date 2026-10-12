@@ -147,6 +147,7 @@ const validBody = {
   phone: "+27821234567",
   productType: "PERSONAL",
   amount: 5000,
+  termDays: 60,
   turnstileToken: "any-token",
 }
 
@@ -1549,5 +1550,130 @@ describe("returning-applicant duplicate notice", () => {
     await afterCallbacks[0]()
     expect(notifyPriorLeadDuplicatesMock).toHaveBeenCalledTimes(1)
     expect(response.status).toBe(200)
+  })
+})
+
+describe("POST /api/website/apply — loan term is required, never defaulted", () => {
+  const applying = {
+    ...validBody,
+    email: "real.client@example.com",
+    idNumber: "8001015000086",
+    productType: "PERSONAL",
+    amount: 5000,
+  }
+  const { termDays: _omitted, ...applyingNoTerm } = applying
+  const fixedTermProduct = { ...personalProduct, minTermDays: 30, maxTermDays: 30 }
+
+  function expectNothingWritten() {
+    expect(createLeadMock).not.toHaveBeenCalled()
+    expect(createCrmActivityMock).not.toHaveBeenCalled()
+    expect(createClientMock).not.toHaveBeenCalled()
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  }
+
+  function readyToApply(product: typeof personalProduct) {
+    findUniqueClientMock.mockResolvedValue(snapshotReadyClient)
+    updateClientMock.mockResolvedValue(snapshotReadyClient)
+    findFirstLoanProductMock.mockResolvedValue(product)
+    findFirstLoanApplicationMock.mockResolvedValue(null)
+    createLoanApplicationMock.mockResolvedValue({ id: "app_1", reference: "APP-TEST-0001" })
+  }
+
+  it("refuses a missing term for a variable-term product and writes nothing", async () => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq(applyingNoTerm))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.success).toBe(false)
+    expect(json.error).toMatch(/loan term/i)
+    expectNothingWritten()
+  })
+
+  it.each([
+    ["non-numeric text", "abc"],
+    ["zero", 0],
+    ["a negative number", -5],
+    ["a fraction", 30.5],
+    ["a fractional string", "30.5"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a boolean", true],
+  ])("refuses %s as the term and writes nothing", async (_label, termDays) => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(400)
+    expectNothingWritten()
+  })
+
+  it("accepts a fixed-term product without a term and applies the product's term", async () => {
+    readyToApply(fixedTermProduct)
+
+    const res = await POST(buildReq(applyingNoTerm))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("accepts a fixed-term product given an invalid term, still using the product's term", async () => {
+    readyToApply(fixedTermProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays: "abc" }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("does not default the term if the product became variable-term after the pre-check", async () => {
+    readyToApply(fixedTermProduct)
+    findFirstLoanProductMock.mockReset()
+    findFirstLoanProductMock.mockResolvedValueOnce(fixedTermProduct).mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq(applyingNoTerm))
+
+    expect(res.status).toBe(422)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  })
+
+  it("stores the submitted term for a variable-term product", async () => {
+    readyToApply(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays: "60" }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(60)
+  })
+
+  it("still clamps an out-of-range term into the product's range", async () => {
+    readyToApply(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays: 5000 }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(personalProduct.maxTermDays)
+  })
+
+  it("still captures a lead-only enquiry (no ID number) without a term", async () => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq({ ...applyingNoTerm, idNumber: undefined }))
+
+    expect(res.status).toBe(200)
+    expect(createLeadMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  })
+
+  it("still captures a lead when the amount is outside the product range, without a term", async () => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq({ ...applyingNoTerm, amount: 1 }))
+
+    expect(res.status).toBe(200)
+    expect(createLeadMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
   })
 })

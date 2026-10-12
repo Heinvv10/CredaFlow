@@ -166,7 +166,17 @@ export async function POST(req: NextRequest) {
       monthlyIncome !== null && monthlyIncome !== undefined && monthlyIncome !== ""
     const declaredExpensesProvided = Object.prototype.hasOwnProperty.call(body, "monthlyExpenses") &&
       monthlyExpenses !== null && monthlyExpenses !== undefined && monthlyExpenses !== ""
-    const appliedTermDays = Number.isInteger(Number(termDays)) && Number(termDays) > 0 ? Number(termDays) : 30
+    // A term counts only when the client sent a whole, positive number of days.
+    // Number(true) === 1 and Number("") === 0, so check the type first. A
+    // missing/invalid term is never defaulted: variable-term products refuse it
+    // below; fixed-term products clamp any value to their own single term.
+    const submittedTermDays =
+      typeof termDays === "number" || (typeof termDays === "string" && termDays.trim() !== "")
+        ? Number(termDays)
+        : null
+    const hasValidTerm =
+      submittedTermDays !== null && Number.isInteger(submittedTermDays) && submittedTermDays > 0
+    const appliedTermDays = hasValidTerm ? submittedTermDays : 0
     // Financial evidence is one declaration. Accepting one side and silently
     // combining it with a stored/default value allowed a rejected public
     // request to zero an existing client's approved affordability inputs.
@@ -197,6 +207,27 @@ export async function POST(req: NextRequest) {
     }
 
     return await runWithTenant(tenant.id, async () => {
+    // Refuse before the Lead is written, so a rejected request leaves nothing
+    // behind. Only a request that would go on to create an application needs a
+    // term: lead-only captures (no email/ID/amount, no matching product, amount
+    // outside the product range) are still accepted without one.
+    if (!hasValidTerm && email && idNumber && productTypeNormalised && requestedAmountCents > 0) {
+      const termProduct = await prisma.loanProduct.findFirst({
+        where: { tenantId: tenant.id, productType: productTypeNormalised, active: true },
+        orderBy: { createdAt: "asc" },
+      })
+      if (
+        termProduct &&
+        requestedAmountCents >= termProduct.minAmount &&
+        requestedAmountCents <= termProduct.maxAmount &&
+        termProduct.minTermDays !== termProduct.maxTermDays
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Please choose a loan term (a whole number of days) and try again." },
+          { status: 400 },
+        )
+      }
+    }
     const rawSource = String(source || "WEBSITE").toUpperCase()
     const matchedReferralCode = await resolveReferralCode(prisma, {
       tenantId: tenant.id,
@@ -867,6 +898,12 @@ export async function POST(req: NextRequest) {
                   requestedAmountCents < snapshotProduct.minAmount ||
                   requestedAmountCents > snapshotProduct.maxAmount
                 ) {
+                  throw new Error("WEBSITE_APPLICATION_PRICING_CHANGED")
+                }
+
+                // The pre-check above ran before this transaction; if the product
+                // became variable-term since, a missing term must not be defaulted.
+                if (!hasValidTerm && snapshotProduct.minTermDays !== snapshotProduct.maxTermDays) {
                   throw new Error("WEBSITE_APPLICATION_PRICING_CHANGED")
                 }
 

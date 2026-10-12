@@ -12,6 +12,8 @@ import {
   qualifyTerm,
   productForAmount,
   applyProductLimitsRands,
+  applyProductTermDays,
+  applyTermError,
   qualifyApplyHref,
   formatRandsWhole,
   formatProductRange,
@@ -508,5 +510,30 @@ describe("marketing-copy formatters", () => {
     // Period decimal, NOT the en-ZA comma ("2,8") — every public page renders a
     // fractional admin-set rate through this one helper so they can't diverge.
     expect(formatInterestLabel(personal)).toBe("2.8%/mo reducing")
+  })
+})
+
+describe("applyProductTermDays / applyTermError — apply form term requirement", () => {
+  it("static catalogue: short-term is fixed at 30 days; personal and PO are ranges in days", () => {
+    expect(applyProductTermDays(applyLivePricing({}))).toEqual({
+      MICRO: { min: 30, max: 30, fixed: true },
+      PERSONAL: { min: 90, max: 1800, fixed: false },
+      PO_FUNDING: expect.objectContaining({ fixed: false }),
+    })
+  })
+
+  it("rejects an empty, non-numeric, fractional, zero or negative term", () => {
+    const range = { min: 90, max: 1800 }
+    for (const bad of ["", "  ", "abc", "30.5", "0", "-5"]) {
+      expect(applyTermError(bad, range), bad).toBe("Please enter your loan term in days")
+    }
+  })
+
+  it("rejects a term outside the product range and accepts one inside it", () => {
+    const range = { min: 90, max: 1800 }
+    expect(applyTermError("89", range)).toBe("Term must be between 90 and 1800 days")
+    expect(applyTermError("1801", range)).toBe("Term must be between 90 and 1800 days")
+    expect(applyTermError("90", range)).toBeNull()
+    expect(applyTermError("360", range)).toBeNull()
   })
 })
