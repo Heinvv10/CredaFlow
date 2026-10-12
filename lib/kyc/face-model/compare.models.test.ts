@@ -58,9 +58,13 @@ function pattern(width: number, height: number): RgbImage {
   return { data, width, height }
 }
 
-/** Within 0.1% (or 0.001 absolute, for the near-zero sums): kernel noise, not a preprocessing change. */
+/**
+ * Within 0.1% of the pinned value, relatively for every output: CPU-kernel
+ * noise, not a preprocessing change. (An absolute floor let the near-zero
+ * objectness sums pass whatever they were.)
+ */
 const near = (actual: number, expected: number) =>
-  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(Math.max(1e-3 * Math.abs(expected), 1e-3))
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1e-3 * Math.abs(expected))
 
 suite("compareFaces with the real models", () => {
   it("loads both models after verifying their checksums", async () => {
@@ -97,11 +101,12 @@ suite("compareFaces with the real models", () => {
   // identical at 1 and 32 threads.
   it("produces the pinned YuNet outputs for a fixed synthetic image", async () => {
     const outputs = await (await loadFaceModelRuntime()).detect(yunetInputTensor(pattern(320, 240)))
+    // Six significant figures each.
     const golden: Record<string, number> = {
-      bbox_8: 17876.0701, bbox_16: 1644.9988, bbox_32: 2385.6177,
-      cls_8: 4839.4983, cls_16: 862.8916, cls_32: 280.0263,
-      kps_8: 35036.9951, kps_16: 8144.6963, kps_32: 3443.0362,
-      obj_8: 0.0003, obj_16: 0.0032, obj_32: 0.2672,
+      bbox_8: 17876.1, bbox_16: 1645.00, bbox_32: 2385.62,
+      cls_8: 4839.50, cls_16: 862.892, cls_32: 280.026,
+      kps_8: 35037.0, kps_16: 8144.70, kps_32: 3443.04,
+      obj_8: 0.000324070, obj_16: 0.00321588, obj_32: 0.267197,
     }
     expect(Object.keys(outputs).sort()).toEqual(Object.keys(golden).sort())
     for (const [name, sum] of Object.entries(golden)) near(outputs[name].reduce((a, b) => a + b, 0), sum)
