@@ -188,6 +188,12 @@ are one person's.
   different photos of one person.
 - **Printed and blurred real faces are unmeasured** beyond one card blurred
   synthetically (still 0.71-0.83 to the selfie) and the sharpness floor.
+- **An ID card scanned at true size on an A4 page is refused.** The PDF
+  renders to 1448x2048 after the cap (about 175 DPI), the card is about
+  590 px wide, and the detector shrinks the page to fit 640 px, leaving the
+  face about 20 px across: YuNet finds none, 3 of 3 runs, so a genuine ID
+  submitted that way fails closed as `extraction_incomplete` every time (the
+  in-person route stays open). The VLM judged the same scan correctly.
 - **The threshold therefore rests on OpenCV's published 0.363 alone**, not on
   observed data. Confirming it needs consented photos of real people: a
   genuine pair from two different photos, and pairs of different people
@@ -266,6 +272,18 @@ per cell, `face-model-eval/2026-10-12T05-57-40-009Z/matrix.md`):
 | Blank card | FAIL 3/3 | silhouette_placeholder / false / false | same 1/3 | no ID face | VLM and model |
 | Covered-face card | FAIL 3/3 | photograph / true / true | same 3/3 (0.90) | no ID face | model only |
 | Drawn synthetic face card | FAIL 3/3 | illustration / false / false | uncertain 3/3 | no ID face | VLM and model |
+
+Two more cells (2026-10-12, `face-model-eval/2026-10-12T06-34-32-707Z/matrix.md`,
+synthetic drawn faces only, vLLM restarts 0 before and after):
+
+| Cell | Outcome | VLM portrait kind / real photo / selfie real | VLM samePerson | Face model | Refused by |
+|---|---|---|---|---|---|
+| The 15 drawn-vs-drawn pairs YuNet detects (each once) | FAIL 15/15 | illustration / false / false | uncertain 15/15 | PASS 15/15, cosine 0.373-0.802 | VLM only |
+| Silhouette card, A4 PDF scan at true size (3 runs) | FAIL 3/3 | silhouette_placeholder / false / true | uncertain 3/3 | no ID face | VLM and model |
+| Presenter card, A4 PDF scan at true size (3 runs) | FAIL 3/3 (expected PASS) | photograph / true / true | same 3/3 (0.98) | no ID face | model only |
+
+The VLM's photo-kind judgement holds on a PDF at about 175 DPI after the
+2048 px cap. The face model does not: see "Open".
 
 The VLM's same-person answer alone would have passed 5 of the 15
 placeholder runs and all 3 covered-face runs; its photograph gates caught
