@@ -100,14 +100,15 @@ demo is prospect-visible, so the branch keeps a human gate before it reaches
 
 ## Product findings from the bake (2026-10-10)
 
-Security (fix before any real client):
-- **Selfie face match passes without a real face on the ID.** `lib/vlm-extract.ts` selfie prompt scored 0.85 PASS for a selfie against a card with a grey silhouette placeholder and against a cartoon face (3/3 runs); a blank card fails. KYC bypass risk. Two different real faces not yet tested.
-- `POST /api/settings/users` has no role ceiling: a BRANCH_MANAGER or LOAN_ADMIN can create a SUPER_ADMIN.
-- `BreachLog` has no `tenantId`; list/edit routes work across tenants.
-- Complaint and DSAR creation don't check the `clientId` belongs to the caller's tenant; no audit rows for complaint/DSAR/breach/branch writes.
+Security (fix before any real client). All four are fixed on `feat/face-comparison-model` (c225f95), the base of this branch:
+- **Selfie face match passes without a real face on the ID.** `lib/vlm-extract.ts` selfie prompt scored 0.85 PASS for a selfie against a card with a grey silhouette placeholder and against a cartoon face (3/3 runs); a blank card fails. KYC bypass risk. Two different real faces not yet tested. *Fixed:* face-match evidence v3 (`lib/kyc/selfie-biometric.server.ts`): both sides are reduced to one canonical image, a face model (YuNet + SFace, `lib/kyc/face-model/`) decides same-person, and the VLM's gates (the ID portrait must be a real photograph, liveness, its own match verdict) can only refuse.
+- `POST /api/settings/users` has no role ceiling: a BRANCH_MANAGER or LOAN_ADMIN can create a SUPER_ADMIN. *Fixed:* staff-user writes have a role ceiling (nobody assigns or edits a role above their own) and need a TOTP-verified sign-in.
+- `BreachLog` has no `tenantId`; list/edit routes work across tenants. *Fixed:* the breach log belongs to a tenant, its input is validated, its status moves are OPEN → CONTAINED or RESOLVED and CONTAINED → RESOLVED, and its writes are audited.
+- Complaint and DSAR creation don't check the `clientId` belongs to the caller's tenant; no audit rows for complaint/DSAR/breach/branch writes. *Fixed:* complaints, DSARs and branches check foreign ids against the tenant and audit every write; a branch manager must hold a branch-manager role.
 
 Functional:
-- Lead conversion 500s on CHECK `LoanApplication_acknowledgement_requires_pasq_document` (fixed by e85cc90 on `fix/ci-green-and-quality`, not on this branch).
+- Lead conversion 500s on CHECK `LoanApplication_acknowledgement_requires_pasq_document`. *Fixed* on the base; the bake converts leads L07–L09 into a client and a submitted application through `POST /api/crm/leads/[id]/convert`.
+- No path creates a platform operator (SUPER_ADMIN): the role ceiling now refuses one from Settings → Users, the seed creates only ADMIN and CREDIT_OFFICER, and `/api/admin/tenants` needs a SUPER_ADMIN to begin with. The CRM and bureau-submission modules can only be switched on by one.
 - Payment arrangement marked BROKEN at 06:00 on its first due date, before a same-day payment can land.
 - ADMIN (and INSURANCE_OFFICER, READONLY) can't view client documents (`lib/document-auth.ts`).
 - No tenant-facing setting for `defaultChargesEnabled`, CRM or bureau submission; `featureCrm` change not audited.
@@ -123,7 +124,7 @@ Functional:
 ## Dress rehearsal findings (2026-10-10, build 0c362f0)
 
 All three live personas ran end to end through the real UI (headless Chromium, fake camera). Product bugs found:
-- **Portal signing packet 404 (blocker):** `lib/proxy/shared-client-api.ts` does not allow `/api/applications/[id]/signing-packet` on the client host, so the borrower signs a packet they cannot view or download.
+- **Portal signing packet 404 (blocker):** `lib/proxy/shared-client-api.ts` does not allow `/api/applications/[id]/signing-packet` on the client host, so the borrower signs a packet they cannot view or download. *Fixed* on the base: the client host admits it for GET only.
 - A DECLINED application's decision rail reads "Approved … Repayment method missing".
 - Portal sign-in "Are you staff?" links to `/login` on the client host (404).
 - Debit-mandate bank is never pre-selected (client stores the code, dropdown holds names).
