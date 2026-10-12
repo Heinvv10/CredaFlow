@@ -57,25 +57,55 @@ deps stage, which does not copy `.npmrc`.
 
 ## Pipeline
 
-1. Decode each image with EXIF orientation applied, transparency flattened on
-   white, long edge at most 2048 px. A PDF ID is rendered to its first page by
-   the same code that renders it for the VLM.
+0. Prepare one canonical image per side (`lib/kyc/biometric-image.server.ts`):
+   a PDF ID rendered once to its first page, EXIF orientation applied and the
+   tag dropped, transparency flattened on white, sRGB, JPEG (quality 95, 4:4:4).
+   The VLM and the face model receive exactly these bytes; their SHA-256s are
+   recorded on the attempt as `comparedImageSha256`. A side that cannot be
+   prepared refuses the attempt before either judge runs.
+1. Decode each canonical image, long edge at most 2048 px.
 2. YuNet on a 640x640 input (the image shrunk to fit, zero-padded bottom and
    right, BGR, raw 0-255): anchor-free decoding over strides 8/16/32,
    score = sqrt(cls x obj) >= 0.9, NMS at IoU 0.3, as `cv::FaceDetectorYN`.
 3. Face-count rule (below).
-4. Align each chosen face to SFace's 112x112 template with the 5-point
-   similarity transform of `cv::FaceRecognizerSF::alignCrop` (ArcFace
-   landmarks), bilinear, zero border.
+4. Each chosen face must be usable (below), then is aligned to SFace's 112x112
+   template with the 5-point similarity transform of
+   `cv::FaceRecognizerSF::alignCrop` (ArcFace landmarks), bilinear, zero
+   border.
 5. SFace embedding (128 values) of each; cosine similarity.
 6. Same person iff similarity >= 0.363.
 
 The VLM still runs, in parallel, and all of its v2 gates stay mandatory: the
 ID portrait must be a real photograph with a visible face, the selfie a real
 live photograph, liveness and both confidences >= 0.7. Its own same-person
-answer (`samePerson`, `faceMatch`, `matchConfidence`) can only refuse: a VLM
-"different" or "uncertain" still fails the attempt, and a VLM "same" never
-rescues a face-model refusal.
+answer (`samePerson`, `faceMatch`, `matchConfidence`) is a veto: a VLM
+"different" or "uncertain" fails the attempt, and a VLM "same" never rescues
+a face-model refusal. Both are required; neither decides alone.
+
+## Usable faces
+
+SFace embeds whatever it is handed, so each compared face must first clear
+three model-side floors that do not depend on the VLM (`lib/kyc/face-model/quality.ts`,
+floors in `models.ts`). Each is stored in the evidence and re-checked by both
+gates; a failure records `extraction_incomplete`.
+
+| Measure | Floor | Presenter card / selfie | Refused below the floor |
+|---|---|---|---|
+| Eye distance in the image | 24 px | 100.2 / 244.2 | card shrunk to an 80 px photo box: 17.5 |
+| Landmark geometry margin (eye-axis tilt under a quarter turn, nose below the eyes, mouth below the nose, mouth corners in eye order; in eye-distances) | 0.15 | 0.404 / 0.519 | collinear, inverted or swapped landmarks: <= 0 |
+| Sharpness: variance of the Laplacian of the aligned crop's luma, inside 8 px | 100 | 1115.8 / 1251.5 | grey, beige, zero crops: 0; blurred noise: 65; card blurred at sigma 3: 68 |
+
+What they do not refuse: drawn faces YuNet detects. Six hill-climbed cartoons
+measured like real faces (eye distance 97-123 px, geometry 0.35-0.45,
+sharpness 860-1552), and SFace scored all 15 cartoon pairs as the same
+person (0.373-0.802). Against the real selfie they scored -0.06 to 0.05, so
+a drawn face does not match a real one; but a drawn ID compared with a drawn
+selfie passes the face model, and only the VLM's illustration and
+real-photograph gates refuse it. OpenCV's reference implementation gives the
+same scores (below), so this is the model's property, not a preprocessing
+fault. Face-free 112x112 crops also score high (noise vs noise 0.808, grey vs
+beige 0.884, zero vs zero 1.0); the detector and the sharpness floor keep
+them from reaching the comparison.
 
 ## Reference parity
 
@@ -97,6 +127,12 @@ demo data's `face-model-eval/2026-10-12T05-03-09Z/reference-parity.md`):
   and finds no face at all in the full-size 1200x1600 selfie, whose face
   exceeds YuNet's 10-300 px range. Shrinking to fit 640 is what makes it
   detectable.
+- The breaker's classes (rerun 2026-10-12 on canonical images,
+  `face-model-eval/2026-10-12T05-25-47Z/reference-parity.md`): the 15
+  hill-climbed cartoon pairs score 0.373-0.802 here and 0.373-0.802 in OpenCV
+  (largest difference 0.0019, 15/15 above 0.363 in both); the face-free crop
+  pairs agree to four decimals and their embeddings to cosine 1.000000. On
+  canonical bytes the presenter pair scores 0.8760 here, 0.8755 in OpenCV.
 
 ## Face-count rule
 
@@ -135,11 +171,20 @@ below for why that does not confirm the threshold.
 
 ## Open
 
-- **No impostor similarity has been measured.** YuNet found no face on any
-  negative card, so no pair of different faces ever reached the comparison.
+**The face model is not production-safe until impostor pairs of real people,
+and printed and blurred classes, have been measured.** What has been measured
+does not show it can tell two real people apart: the only real faces tested
+are one person's.
+
+- **No impostor similarity between real people has been measured.** YuNet
+  found no face on any negative card; the only impostor scores observed are
+  between drawn faces (all "same") and between drawn faces and the one real
+  selfie (all near 0).
 - **The only genuine pair shares its source photo.** The specimen card prints
-  the same photograph as the selfie, so 0.8776 says nothing about two
+  the same photograph as the selfie, so 0.8760-0.8776 says nothing about two
   different photos of one person.
+- **Printed and blurred real faces are unmeasured** beyond one card blurred
+  synthetically (still 0.71-0.83 to the selfie) and the sharpness floor.
 - **The threshold therefore rests on OpenCV's published 0.363 alone**, not on
   observed data. Confirming it needs consented photos of real people: a
   genuine pair from two different photos, and pairs of different people
@@ -156,8 +201,9 @@ same-person answer:
 | Model file missing, checksum mismatch, runtime will not load | `extraction_incomplete` |
 | Inference throws, or the comparison (model load included) exceeds 30 s | `extraction_incomplete` |
 | Similarity not a finite number (e.g. a zero embedding) | `extraction_incomplete` |
-| Selfie will not decode | `extraction_incomplete` |
-| ID will not decode or render, no ID face, two comparable ID faces | `extraction_incomplete` |
+| ID or selfie cannot be prepared (will not decode, PDF will not render) | `extraction_incomplete` |
+| No ID face, two comparable ID faces, more than 64 ID faces | `extraction_incomplete` |
+| A compared face too small, not laid out as a face, or too blurred | `extraction_incomplete` |
 | No selfie face / more than one | `face_not_detected` / `face_count_invalid` |
 | Similarity below 0.363 | `match_score_below_threshold` |
 
@@ -177,8 +223,12 @@ route against the physical ID.
 ## Evidence (v3)
 
 `biometricResult.faceModel` holds the model names and SHA-256s, both face
-counts, the second-face ratio, the similarity, the threshold and
-`samePerson`. `assessBiometricEvidence` (TypeScript) and
+counts, the second-face ratio, each compared face's eye distance, geometry
+margin and sharpness, the similarity, the threshold and `samePerson`. Both
+gates bound what they accept: an ID face count of 1, or 2-64 with a
+second-face ratio in (0, 0.5]; each measure between its floor and a ceiling
+no real face reaches. (Without the bounds SQL accepted a count of 1e400,
+which Prisma cannot read back.) `assessBiometricEvidence` (TypeScript) and
 `subject_has_composite_kyc` / `face_model_evidence_holds` (SQL, migration
 `20261011080000_face_match_v3_evidence`) re-prove the pass from those fields
 against the pinned constants, on top of every v2 condition, including that
@@ -199,12 +249,12 @@ each, with a Docker build running alongside: model load 122-151 ms; one check
 (two decodes, two detections, two embeddings) median 147 ms pinned to 1 or 2
 cores, 213 ms unpinned; process RSS about 340 MB.
 
-## Open product decision: does the VLM's "different" still refuse?
+## Why both judges stay
 
-As built, the VLM's same-person answer can refuse but never pass. In the
-evaluation the face model accepted 3 genuine-pair runs and the VLM refused 0
-of them, while the VLM answered "same" for 8 of 9 silhouette and blank card
-runs and passed all of its gates on the covered-face card in 3 of 3 runs
-(the face model refused all of these). Letting only the face model decide
-would remove any VLM false refusals of genuine pairs (0 observed so far) at
-the cost of dropping the VLM's same-person conditions from both gates.
+Each catches what the other misses. In the evaluation the VLM answered "same"
+for 8 of 9 silhouette and blank card runs and passed every one of its gates
+on the covered-face card in 3 of 3 runs; the face model refused all of
+these. The face model calls any two drawn faces the same person; the VLM
+refuses them as illustrations. The VLM's same-person veto therefore stays,
+and so do its photograph gates. On the genuine pair the VLM refused 0 of 6
+runs (2026-10-12, before and after the canonical images).
