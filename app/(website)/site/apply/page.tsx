@@ -15,7 +15,7 @@ import {
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
 import { FaqAccordion } from "@/components/website/FaqAccordion"
-import { applyLivePricing, applyProductLimitsRands, productForAmount } from "@/lib/public-loan-products"
+import { applyLivePricing, applyProductLimitsRands, applyProductTermDays, planApplyTerm, productForAmount } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
 import { APPLY_DRAFT_KEY, QUALIFY_DRAFT_KEY, isDraftFresh } from "@/lib/draft-keys"
 import { trackApplyStart, trackApplySubmit } from "@/lib/analytics/events"
@@ -27,6 +27,7 @@ import {
   type WebsiteSubmissionAttempt,
 } from "@/lib/applications/website-submission-attempt"
 import { APPLY_FAQS } from "./faqs"
+import { buildApplyMaterialPayload } from "./payload"
 
 type Step1 = {
   firstName: string
@@ -338,6 +339,10 @@ export default function ApplyPage() {
     () => applyProductLimitsRands(applyLivePricing(pricing)) as Record<string, [number, number]>,
     [pricing],
   )
+  const liveTermDays = useMemo(() => applyProductTermDays(applyLivePricing(pricing)), [pricing])
+  const termRange = (productType: string): { min: number; max: number; fixed: boolean } | undefined =>
+    (liveTermDays as Record<string, { min: number; max: number; fixed: boolean } | undefined>)[productType]
+  const termPlan = (productType: string, termDays: string) => planApplyTerm(termDays, termRange(productType))
 
   useEffect(() => {
     if (!hydrated) return
@@ -388,6 +393,8 @@ export default function ApplyPage() {
         e.amount = `Amount must be between R${min.toLocaleString()} and R${max.toLocaleString()}`
       }
     }
+    const termError = termPlan(step3.productType, step3.termDays).error
+    if (step3.productType && termError) e.termDays = termError
     if (!step3.purpose.trim()) e.purpose = "Please describe the purpose of the loan"
     if (!consentGiven) e.consent = "Please confirm your consent to continue"
     setErrors(e)
@@ -412,13 +419,14 @@ export default function ApplyPage() {
     }
     submitInFlightRef.current = true
     setLoading(true)
-    const materialPayload = {
-      ...step1,
-      ...step2,
-      ...step3,
-      ...readAttributionParams(),
+    const materialPayload = buildApplyMaterialPayload({
+      step1,
+      step2,
+      step3,
+      attribution: readAttributionParams(),
       popiaConsent: consentGiven,
-    }
+      termRange: termRange(step3.productType),
+    })
     try {
       const payloadFingerprint = await fingerprintWebsiteSubmissionMaterial(materialPayload)
       if (submissionAttemptRef.current?.fingerprint !== payloadFingerprint) {
@@ -477,7 +485,7 @@ export default function ApplyPage() {
               applicationId: data.applicationId ?? null,
               productType: step3.productType,
               amount: step3.amount,
-              termDays: step3.termDays,
+              termDays: termPlan(step3.productType, step3.termDays).sendTermDays,
               updatedAt: new Date().toISOString(),
             }),
           )
@@ -766,6 +774,25 @@ export default function ApplyPage() {
                   </div>
                   {errors.amount && <p className="mt-1 text-xs text-red-300">{errors.amount}</p>}
                 </div>
+              )}
+              {step3.productType && termPlan(step3.productType, step3.termDays).showField && (
+                <Field label="Loan Term (days) *" error={errors.termDays}>
+                  <input
+                    className={inputClass}
+                    type="number"
+                    inputMode="numeric"
+                    min={termRange(step3.productType)?.min ?? 1}
+                    max={termRange(step3.productType)?.max}
+                    step={1}
+                    value={step3.termDays}
+                    onChange={(e) => setStep3({ ...step3, termDays: e.target.value })}
+                    placeholder={
+                      termRange(step3.productType)
+                        ? `${termRange(step3.productType)?.min} to ${termRange(step3.productType)?.max} days`
+                        : "Number of days"
+                    }
+                  />
+                </Field>
               )}
               <Field label="Loan Purpose *" error={errors.purpose}>
                 <textarea className={`${inputClass} min-h-24 resize-none`} value={step3.purpose} onChange={(e) => setStep3({ ...step3, purpose: e.target.value })} placeholder="Briefly describe what the loan will be used for..." />

@@ -406,6 +406,52 @@ export function applyProductLimitsRands(
   }
 }
 
+// Per-apply-product term bounds in DAYS (what the apply API takes), from the live
+// products (fail-open to static). A fixed-term product needs no term from the
+// client, so `fixed` is set and min === max.
+export function applyProductTermDays(
+  products: PublicLoanProduct[],
+): Record<ApplyProductType, { min: number; max: number; fixed: boolean }> {
+  const rangeFor = (type: ApplyProductType) => {
+    const code = APPLY_PRODUCT_PUBLIC_CODE[type]
+    const product = products.find((p) => p.code === code) ?? getPublicLoanProduct(code)
+    const min = getTermDays(product, product.fixedTerm ?? product.minTerm)
+    const max = getTermDays(product, product.fixedTerm ?? product.maxTerm)
+    return { min, max, fixed: product.fixedTerm !== undefined }
+  }
+  return {
+    MICRO: rangeFor("MICRO"),
+    PERSONAL: rangeFor("PERSONAL"),
+    PO_FUNDING: rangeFor("PO_FUNDING"),
+  }
+}
+
+// Apply-form term check: a whole number of days, inside the product's range when
+// that range is known. Returns the message to show, or null if valid.
+export function applyTermError(termDays: string, range?: { min: number; max: number }): string | null {
+  const value = Number(termDays)
+  if (termDays.trim() === "" || !Number.isInteger(value) || value <= 0) {
+    return "Please enter your loan term in days"
+  }
+  if (range && (value < range.min || value > range.max)) {
+    return `Term must be between ${range.min} and ${range.max} days`
+  }
+  return null
+}
+
+// What the apply form does about the term, given the catalogue's range for the
+// chosen product (undefined when unknown). The catalogue can disagree with the
+// product the server resolves, so the form never sends an empty term: a
+// catalogue-fixed product sends its fixed term (the server clamps it into the
+// real product's range), and an unknown range shows the field.
+export function planApplyTerm(
+  termDays: string,
+  range: { min: number; max: number; fixed: boolean } | undefined,
+): { showField: boolean; error: string | null; sendTermDays: string } {
+  if (range?.fixed) return { showField: false, error: null, sendTermDays: String(range.min) }
+  return { showField: true, error: applyTermError(termDays, range), sendTermDays: termDays.trim() }
+}
+
 export function clampPublicLoanAmount(product: PublicLoanProduct, amount: number) {
   if (!Number.isFinite(amount)) return product.defaultAmount
   return Math.max(product.minAmount, Math.min(product.maxAmount, amount))
