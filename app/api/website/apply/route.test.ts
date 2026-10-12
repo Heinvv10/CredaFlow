@@ -1628,6 +1628,13 @@ describe("POST /api/website/apply — loan term is required, never defaulted", (
     expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
   })
 
+  it("records a valid submitted term in the lead notes and referral metadata", async () => {
+    findFirstLoanProductMock.mockResolvedValue(null)
+    await POST(buildReq({ ...validBody, termDays: "60", referralCode: "REF1" }))
+    expect(createLeadMock.mock.calls[0][0].data.notes).toContain("Term: 60 days")
+    expect(recordReferralEventMock.mock.calls[0][1].metadata.termDays).toBe(60)
+  })
+
   it("records only a valid submitted term in the lead notes and referral metadata", async () => {
     findFirstLoanProductMock.mockResolvedValue(null)
     await POST(buildReq({ ...validBody, termDays: "abc", referralCode: "REF1" }))

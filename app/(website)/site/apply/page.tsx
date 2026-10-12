@@ -27,6 +27,7 @@ import {
   type WebsiteSubmissionAttempt,
 } from "@/lib/applications/website-submission-attempt"
 import { APPLY_FAQS } from "./faqs"
+import { buildApplyMaterialPayload } from "./payload"
 
 type Step1 = {
   firstName: string
@@ -418,13 +419,14 @@ export default function ApplyPage() {
     }
     submitInFlightRef.current = true
     setLoading(true)
-    const materialPayload = {
-      ...step1,
-      ...step2,
-      ...step3,
-      ...readAttributionParams(),
+    const materialPayload = buildApplyMaterialPayload({
+      step1,
+      step2,
+      step3,
+      attribution: readAttributionParams(),
       popiaConsent: consentGiven,
-    }
+      termRange: termRange(step3.productType),
+    })
     try {
       const payloadFingerprint = await fingerprintWebsiteSubmissionMaterial(materialPayload)
       if (submissionAttemptRef.current?.fingerprint !== payloadFingerprint) {
