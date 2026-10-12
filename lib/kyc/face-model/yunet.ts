@@ -5,9 +5,10 @@
  * Follows cv::FaceDetectorYN (opencv/modules/objdetect/src/face_detect.cpp):
  * BGR planes of raw 0-255 values, zero padding on the bottom and right,
  * anchor-free decoding over strides 8/16/32, score = sqrt(cls * obj), then
- * NMS over integer boxes. The one difference is forced by the ONNX file, whose
- * input is fixed at 640x640: the caller shrinks the image to fit and passes
- * the scale, where OpenCV reshapes the network to the image.
+ * NMS over integer boxes. The one difference: the caller normally shrinks the
+ * image to fit 640x640 and passes the scale, where OpenCV reshapes the network
+ * to the image. The ID side's full-resolution pass runs at the image's own
+ * size, padded to a multiple of 32 (onnx-shape.ts makes that possible).
  */
 export const YUNET_INPUT_SIZE = 640
 const STRIDES = [8, 16, 32] as const
@@ -36,22 +37,36 @@ export interface DetectedFace {
 /** The model's twelve outputs by name: cls_8 .. kps_32, each flattened. */
 export type YunetOutputs = Record<string, Float32Array>
 
-/** The 1x3x640x640 input for an image no larger than 640x640. */
-export function yunetInputTensor(image: RgbImage): Float32Array {
+const LARGEST_STRIDE = 32
+
+/** Width and height must be multiples of the largest stride. */
+function checkInputSize(inputWidth: number, inputHeight: number) {
+  if (!(inputWidth > 0 && inputHeight > 0 && inputWidth % LARGEST_STRIDE === 0 && inputHeight % LARGEST_STRIDE === 0)) {
+    throw new Error(`YuNet input size must be a positive multiple of ${LARGEST_STRIDE}`)
+  }
+}
+
+/** The 1x3xHxW input (640x640 by default) for an image no larger than that. */
+export function yunetInputTensor(
+  image: RgbImage,
+  inputWidth = YUNET_INPUT_SIZE,
+  inputHeight = YUNET_INPUT_SIZE,
+): Float32Array {
+  checkInputSize(inputWidth, inputHeight)
   const { data, width, height } = image
   if (
     !Number.isInteger(width) || !Number.isInteger(height) ||
-    width < 1 || height < 1 || width > YUNET_INPUT_SIZE || height > YUNET_INPUT_SIZE ||
+    width < 1 || height < 1 || width > inputWidth || height > inputHeight ||
     data.length !== width * height * 3
   ) {
-    throw new Error(`YuNet input must be RGB of at most ${YUNET_INPUT_SIZE}x${YUNET_INPUT_SIZE}`)
+    throw new Error(`YuNet input must be RGB of at most ${inputWidth}x${inputHeight}`)
   }
-  const plane = YUNET_INPUT_SIZE * YUNET_INPUT_SIZE
+  const plane = inputWidth * inputHeight
   const tensor = new Float32Array(3 * plane)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const source = (y * width + x) * 3
-      const target = y * YUNET_INPUT_SIZE + x
+      const target = y * inputWidth + x
       tensor[target] = data[source + 2]
       tensor[plane + target] = data[source + 1]
       tensor[2 * plane + target] = data[source]
@@ -70,14 +85,21 @@ function output(outputs: YunetOutputs, name: string, length: number): Float32Arr
 
 /**
  * Faces in ORIGINAL image coordinates, strongest first. `scale` is the factor
- * the image was shrunk by to fit the input (1 when it was not).
+ * the image was shrunk by to fit the input (1 when it was not); the input
+ * size is 640x640 unless given.
  */
-export function decodeYunetOutputs(outputs: YunetOutputs, scale: number): DetectedFace[] {
+export function decodeYunetOutputs(
+  outputs: YunetOutputs,
+  scale: number,
+  inputWidth = YUNET_INPUT_SIZE,
+  inputHeight = YUNET_INPUT_SIZE,
+): DetectedFace[] {
   if (!(scale > 0) || !Number.isFinite(scale)) throw new Error("YuNet scale must be a positive number")
+  checkInputSize(inputWidth, inputHeight)
   const faces: DetectedFace[] = []
   for (const stride of STRIDES) {
-    const cols = YUNET_INPUT_SIZE / stride
-    const cells = cols * cols
+    const cols = inputWidth / stride
+    const cells = cols * (inputHeight / stride)
     const cls = output(outputs, `cls_${stride}`, cells)
     const obj = output(outputs, `obj_${stride}`, cells)
     const bbox = output(outputs, `bbox_${stride}`, cells * 4)

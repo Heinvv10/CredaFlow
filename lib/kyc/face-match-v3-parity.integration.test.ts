@@ -40,7 +40,7 @@ const FM = (change = "") =>
   `"detectorSha256":"8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",` +
   `"recognizer":"face_recognition_sface_2021dec",` +
   `"recognizerSha256":"0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",` +
-  `"selfieFaceCount":1,"idFaceCount":1,"idSecondFaceAreaRatio":null,` +
+  `"selfieFaceCount":1,"idFaceCount":1,"idSecondFaceAreaRatio":null,"idDetectPass":"fit640",` +
   `"idInterOcularPx":100,"selfieInterOcularPx":240,"idGeometryMargin":0.4,"selfieGeometryMargin":0.5,` +
   `"idSharpness":1100,"selfieSharpness":1200,"similarity":0.71,` +
   `"threshold":0.363,"samePerson":true${change ? "," + change : ""}}`
@@ -161,6 +161,13 @@ const cases: Case[] = [
   { name: "face model: a second-face ratio of 1e-400", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":1e-400`)}`) },
   { name: "face model: a second-face ratio exactly 1e-9", expected: true, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":1e-9`)}`) },
   { name: "face model: a second-face ratio of 9e-10", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":9e-10`)}`) },
+  // Which detector pass found the ID face: an enum, compared as a JSON string.
+  { name: "face model: found on the full-resolution pass", expected: true, br: BR(`"faceModel":${FM(`"idDetectPass":"full"`)}`) },
+  { name: "face model: an unknown detector pass", expected: false, br: BR(`"faceModel":${FM(`"idDetectPass":"tiles"`)}`) },
+  { name: "face model: a detector pass in upper case", expected: false, br: BR(`"faceModel":${FM(`"idDetectPass":"FULL"`)}`) },
+  { name: "face model: a detector pass in an array", expected: false, br: BR(`"faceModel":${FM(`"idDetectPass":["full"]`)}`) },
+  { name: "face model: a detector pass as a number", expected: false, br: BR(`"faceModel":${FM(`"idDetectPass":640`)}`) },
+  { name: "face model: no detector pass", expected: false, br: BR(`"faceModel":${FM().replace(`"idDetectPass":"fit640",`, "")}`) },
   // The quality floors and ceilings on each compared face.
   { name: "face model: eyes exactly 24 px apart on both", expected: true, br: BR(`"faceModel":${FM(`"idInterOcularPx":24,"selfieInterOcularPx":24`)}`) },
   { name: "face model: ID eyes 23.9 px apart", expected: false, br: BR(`"faceModel":${FM(`"idInterOcularPx":23.9`)}`) },

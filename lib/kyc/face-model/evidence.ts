@@ -25,6 +25,8 @@ export type FaceModelEvidence = {
   idFaceCount: number
   /** Largest other ID face's box area over the compared face's; null with one face. */
   idSecondFaceAreaRatio: number | null
+  /** Which detector pass found the ID face: the 640-fit pass, or the full-resolution fallback. */
+  idDetectPass: "fit640" | "full"
   /** Each compared face's measures (quality.ts), re-checked against the floors. */
   idInterOcularPx: number
   selfieInterOcularPx: number
@@ -69,6 +71,7 @@ export function faceModelEvidenceRefusal(
     evidence.recognizerSha256 !== FACE_MODELS.recognizer.sha256 ||
     evidence.selfieFaceCount !== 1 ||
     !idFaceRuleHolds ||
+    (evidence.idDetectPass !== "fit640" && evidence.idDetectPass !== "full") ||
     !facesUsable ||
     evidence.threshold !== FACE_SIMILARITY_THRESHOLD ||
     !isNumber(similarity) || similarity < -1 || similarity > 1

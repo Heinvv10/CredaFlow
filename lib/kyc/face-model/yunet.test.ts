@@ -152,6 +152,36 @@ describe("decodeYunetOutputs", () => {
   })
 })
 
+// The ID side's full-resolution pass runs the same network at the image's
+// own size, padded to a multiple of 32 (the largest stride).
+describe("at other input sizes", () => {
+  it("lays the tensor out for the given width and height", () => {
+    const tensor = yunetInputTensor({ data: Uint8Array.from([10, 20, 30]), width: 1, height: 1 }, 64, 32)
+    expect(tensor.length).toBe(3 * 64 * 32)
+    expect([tensor[0], tensor[64 * 32], tensor[2 * 64 * 32]]).toEqual([30, 20, 10])
+    expect(() => yunetInputTensor({ data: new Uint8Array(65 * 3), width: 65, height: 1 }, 64, 32)).toThrow()
+    expect(() => yunetInputTensor({ data: new Uint8Array(3), width: 1, height: 1 }, 60, 32)).toThrow()
+  })
+
+  it("decodes rows and columns from the given width and height", () => {
+    // A 64x32 input: stride 32 gives 2 columns and 1 row; the cell at column 1.
+    const outputs: YunetOutputs = {}
+    for (const stride of [8, 16, 32]) {
+      const cells = (64 / stride) * (32 / stride)
+      outputs[`cls_${stride}`] = new Float32Array(cells)
+      outputs[`obj_${stride}`] = new Float32Array(cells)
+      outputs[`bbox_${stride}`] = new Float32Array(cells * 4)
+      outputs[`kps_${stride}`] = new Float32Array(cells * 10)
+    }
+    outputs.cls_32[1] = 1
+    outputs.obj_32[1] = 1
+    const [found] = decodeYunetOutputs(outputs, 1, 64, 32)
+    // Centre at the cell's corner (col 1 x 32, row 0), a 32 px box around it.
+    expect([found.x, found.y, found.width, found.height]).toEqual([16, -16, 32, 32])
+    expect(() => decodeYunetOutputs(emptyOutputs(), 1, 64, 32)).toThrow()
+  })
+})
+
 describe("nonMaxSuppression", () => {
   it("keeps the highest score first and drops boxes overlapping a kept one", () => {
     const kept = nonMaxSuppression([

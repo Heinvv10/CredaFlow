@@ -12,6 +12,7 @@ describe("faceModelEvidenceRefusal", () => {
     expect(faceModelEvidenceRefusal({ ...passing, idFaceCount: 2, idSecondFaceAreaRatio: 0.5 })).toBeNull()
     expect(faceModelEvidenceRefusal({ ...passing, idFaceCount: 64, idSecondFaceAreaRatio: 0.01 })).toBeNull()
     expect(faceModelEvidenceRefusal({ ...passing, idFaceCount: 2, idSecondFaceAreaRatio: 1e-9 })).toBeNull()
+    expect(faceModelEvidenceRefusal({ ...passing, idDetectPass: "full" })).toBeNull()
     expect(faceModelEvidenceRefusal({
       ...passing, idInterOcularPx: 24, selfieInterOcularPx: 24, idGeometryMargin: 0.15, selfieGeometryMargin: 0.15,
       idSharpness: 100, selfieSharpness: 100,
@@ -42,6 +43,10 @@ describe("faceModelEvidenceRefusal", () => {
     ["a negative ratio", { ...passing, idFaceCount: 2, idSecondFaceAreaRatio: -0.1 }],
     ["a zero ratio", { ...passing, idFaceCount: 2, idSecondFaceAreaRatio: 0 }],
     ["a ratio below 1e-9", { ...passing, idFaceCount: 2, idSecondFaceAreaRatio: 9e-10 }],
+    ["an unknown detector pass", { ...passing, idDetectPass: "tiles" }],
+    ["a detector pass in upper case", { ...passing, idDetectPass: "FULL" }],
+    ["no detector pass", { ...passing, idDetectPass: undefined }],
+    ["a detector pass in an array", { ...passing, idDetectPass: ["full"] }],
     ["65 ID faces", { ...passing, idFaceCount: 65, idSecondFaceAreaRatio: 0.1 }],
     ["an ID face count of 1e400", { ...passing, idFaceCount: Number.POSITIVE_INFINITY, idSecondFaceAreaRatio: 0.1 }],
     ["ID eyes 23.9 px apart", { ...passing, idInterOcularPx: 23.9 }],

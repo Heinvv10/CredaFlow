@@ -11,7 +11,8 @@
 --
 -- 1. face_model_evidence_holds: the stored face-model result re-proves a pass
 --    (pinned model names and SHA-256s, exactly one selfie face, one dominant
---    ID face among at most 64, each compared face's eye distance, landmark
+--    ID face among at most 64 (found by the 640-fit pass or the ID side's
+--    full-resolution fallback), each compared face's eye distance, landmark
 --    geometry and sharpness within the pinned floors and ceilings, similarity
 --    >= the pinned 0.363). Mirrors faceModelEvidenceRefusal in
 --    lib/kyc/face-model/evidence.ts.
@@ -51,6 +52,9 @@ AS $function$
     AND p_evidence -> 'selfieFaceCount' = '1'::jsonb
     AND p_evidence -> 'threshold' = '0.363'::jsonb
     AND p_evidence -> 'samePerson' = 'true'::jsonb
+    -- Which detector pass found the ID face: the 640-fit pass, or the ID
+    -- side's one full-resolution fallback. jsonb, so only those strings pass.
+    AND p_evidence -> 'idDetectPass' IN ('"fit640"'::jsonb, '"full"'::jsonb)
     AND CASE
       WHEN jsonb_typeof(p_evidence -> 'similarity') = 'number'
       THEN (p_evidence ->> 'similarity')::numeric BETWEEN 0.363 AND 1

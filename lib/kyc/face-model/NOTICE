@@ -1,8 +1,11 @@
 CredaFlow face comparison: third-party components
 
-The files in this directory are not CredaFlow's own work. They are used
+The files in this directory are not CredaFlow's own work. They are stored
 unmodified, fetched by `npm run face-models:fetch` and checked against pinned
-SHA-256 digests (lib/kyc/face-model/models.ts).
+SHA-256 digests (lib/kyc/face-model/models.ts). At load, after that check,
+the detector's declared input and output shapes are made symbolic in memory
+(lib/kyc/face-model/onnx-shape.ts) so it can run at sizes other than
+640x640; its weights and operators are not changed.
 
 face_detection_yunet_2023mar.onnx
   YuNet face detector. OpenCV Zoo, https://github.com/opencv/opencv_zoo,

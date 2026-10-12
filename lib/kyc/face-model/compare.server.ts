@@ -76,6 +76,20 @@ export async function decodeImage(bytes: Buffer): Promise<RgbImage> {
   return { data: new Uint8Array(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height }
 }
 
+/**
+ * The ID side only, and only when the 640-fit pass found no face in an image
+ * larger than 640: one more pass at the image's own size (at most 2048 px,
+ * padded to a multiple of 32). An ID card scanned at true size on A4 renders
+ * about 590 px wide at the 2048 px cap; fitted to 640 its face is ~20 px and
+ * YuNet misses it. Boxes and landmarks come back in source pixels (scale 1),
+ * and the face-count and usable-face rules apply unchanged.
+ */
+async function detectFacesFullResolution(image: RgbImage, runtime: FaceModelRuntime): Promise<DetectedFace[]> {
+  const width = Math.ceil(image.width / 32) * 32
+  const height = Math.ceil(image.height / 32) * 32
+  return decodeYunetOutputs(await runtime.detect(yunetInputTensor(image, width, height), height, width), 1, width, height)
+}
+
 async function detectFaces(image: RgbImage, runtime: FaceModelRuntime): Promise<DetectedFace[]> {
   const scale = Math.min(1, YUNET_INPUT_SIZE / image.width, YUNET_INPUT_SIZE / image.height)
   let input = image
@@ -129,7 +143,12 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
     return refuse("extraction_incomplete", "The selfie image could not be read for the face comparison", counts)
   }
   try {
-    const idFaces = await detectFaces(idImage, runtime)
+    let idFaces = await detectFaces(idImage, runtime)
+    let idDetectPass: FaceModelEvidence["idDetectPass"] = "fit640"
+    if (idFaces.length === 0 && Math.max(idImage.width, idImage.height) > YUNET_INPUT_SIZE) {
+      idFaces = await detectFacesFullResolution(idImage, runtime)
+      idDetectPass = "full"
+    }
     const selfieFaces = await detectFaces(selfieImage, runtime)
     counts = { idFaceCount: idFaces.length, selfieFaceCount: selfieFaces.length }
     const idFace = selectIdFace(idFaces)
@@ -165,6 +184,7 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
         selfieFaceCount: selfieFace.count,
         idFaceCount: idFace.count,
         idSecondFaceAreaRatio: idFace.secondFaceAreaRatio,
+        idDetectPass,
         idInterOcularPx: id.interOcularPx,
         selfieInterOcularPx: self.interOcularPx,
         idGeometryMargin: id.geometryMargin,

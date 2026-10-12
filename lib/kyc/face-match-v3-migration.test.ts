@@ -78,6 +78,7 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
     expect(holds).toContain(`::numeric <= ${ID_SECOND_FACE_MAX_AREA_RATIO}`)
     expect(holds).toContain(`'idSecondFaceAreaRatio')::numeric >= ${ID_SECOND_FACE_MIN_AREA_RATIO}`)
     expect(holds).toContain(`BETWEEN 2 AND ${ID_MAX_FACE_COUNT}`)
+    expect(holds).toContain(`p_evidence -> 'idDetectPass' IN ('"fit640"'::jsonb, '"full"'::jsonb)`)
     for (const side of ["id", "selfie"]) {
       expect(holds).toContain(`'${side}InterOcularPx')::numeric BETWEEN ${MIN_INTER_OCULAR_PX} AND ${MAX_INTER_OCULAR_PX}`)
       expect(holds).toContain(`'${side}GeometryMargin')::numeric BETWEEN ${MIN_LANDMARK_GEOMETRY_MARGIN} AND 1`)

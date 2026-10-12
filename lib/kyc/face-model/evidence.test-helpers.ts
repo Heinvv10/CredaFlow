@@ -13,6 +13,7 @@ export const PASSING_FACE_MODEL_EVIDENCE: FaceModelEvidence = {
   selfieFaceCount: 1,
   idFaceCount: 1,
   idSecondFaceAreaRatio: null,
+  idDetectPass: "fit640",
   idInterOcularPx: 100,
   selfieInterOcularPx: 240,
   idGeometryMargin: 0.4,
