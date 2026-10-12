@@ -740,10 +740,15 @@ export function isFullPageRender(jpeg: Buffer, target: { widthPx: number; height
 }
 
 
-async function toVlmImageDataUrl(
+/**
+ * The document as an image: a PDF's first page rendered to JPEG, an image as
+ * it is. The face comparison reads a PDF ID through this too, so it sees the
+ * page the VLM sees.
+ */
+export async function documentImage(
   fileBuffer: Buffer,
   mimeType: string,
-): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; buffer: Buffer; mimeType: string } | { ok: false; error: string }> {
   let imageBuffer = fileBuffer
   let imageMime = mimeType
   if (mimeType === 'application/pdf') {
@@ -815,7 +820,16 @@ async function toVlmImageDataUrl(
       return { ok: false, error: `PDF conversion failed: ${err instanceof Error ? err.message : String(err)}` }
     }
   }
-  return { ok: true, dataUrl: `data:${imageMime};base64,${imageBuffer.toString('base64')}` }
+  return { ok: true, buffer: imageBuffer, mimeType: imageMime }
+}
+
+async function toVlmImageDataUrl(
+  fileBuffer: Buffer,
+  mimeType: string,
+): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
+  const image = await documentImage(fileBuffer, mimeType)
+  if (!image.ok) return image
+  return { ok: true, dataUrl: `data:${image.mimeType};base64,${image.buffer.toString('base64')}` }
 }
 
 /**

@@ -16,7 +16,8 @@
     "audit:security": "npm audit --audit-level=moderate",
     "db:drift": "node scripts/ops/check-db-enforcement-drift.mjs",
     "test:tz": "for z in UTC Africa/Johannesburg America/New_York Pacific/Kiritimati; do echo \"-- TZ=$z\"; TZ=$z vitest run --config vitest.tz.config.ts lib/date/ || exit 1; done",
-    "dates:check": "tsx scripts/check-date-boundaries.ts"
+    "dates:check": "tsx scripts/check-date-boundaries.ts",
+    "face-models:fetch": "tsx scripts/fetch-face-models.ts"
   },
   "prisma": {
     "seed": "npm run --silent seed:staging"
@@ -51,11 +52,13 @@
     "next-auth": "^5.0.0-beta.32",
     "node-cron": "^4.2.1",
     "nodemailer": "^9.0.3",
+    "onnxruntime-node": "^1.30.0",
     "pdf-lib": "^1.17.1",
     "puppeteer": "^24.40.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.8.1",
+    "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0"
   },
@@ -73,7 +76,6 @@
     "jsdom": "^29.1.1",
     "prisma": "^5.22.0",
     "react-test-renderer": "^19.2.3",
-    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "tsx": "^4.20.6",
     "typescript": "^5",
