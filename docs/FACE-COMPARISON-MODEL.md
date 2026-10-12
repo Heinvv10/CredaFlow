@@ -307,6 +307,17 @@ The A4 face clears the 24 px eye-distance floor by a factor of 1.33 only: a
 card scanned smaller than true size, or a page rendered below about 130 DPI,
 would be refused as too small.
 
+Why a full-resolution pass and not "trim the page, then the same 640 pass"
+(which would leave the model file's declared shapes alone): trimming finds
+the card on a clean page (trim threshold 30: 591x372 px, face found) and on
+a noisy off-white one (threshold 10 fails, 30 works), and on a certified
+copy with the card's back, a stamp and a signature (1158x1397, face found at
+scale 0.46). But a certified copy with a scanner header and an address
+footer at the page edges trims to 1273x1985, the face stays too small at
+640, and it is refused at every threshold tried (10, 30, 60). The
+full-resolution pass found the face on all four (eye distance 31.9-32.1 px,
+cosine 0.85-0.88 to the selfie). The real-model suite pins that case.
+
 The VLM's same-person answer alone would have passed 5 of the 15
 placeholder runs and all 3 covered-face runs; its photograph gates caught
 the placeholders and only the face model caught the covered card. The face

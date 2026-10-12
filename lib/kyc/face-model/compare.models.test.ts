@@ -159,6 +159,28 @@ suite("compareFaces with the real models", () => {
     }))
   })
 
+  // Why the fallback is a full-resolution pass and not trim-then-640: on a
+  // certified copy with text near the page edges, trimming the page removes
+  // almost nothing, and the face stays too small at 640.
+  it("finds the ID face on a certified-copy page with header and footer text, on the full pass", async () => {
+    const face = await sharp(drawnFace(DRAWN)).png().toBuffer()
+    const line = (y: number) => `<rect x="40" y="${y}" width="1368" height="10" fill="#333"/>`
+    const furniture = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1448" height="2048">
+      ${line(20)}${line(2010)}
+      <rect x="140" y="560" width="590" height="372" fill="#d8e0dc" stroke="#666" stroke-width="3"/>
+      <circle cx="1030" cy="1300" r="150" fill="none" stroke="#1a3399" stroke-width="8"/>
+      <rect x="760" y="1520" width="560" height="6" fill="#222"/></svg>`)
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#f7f7f5" } })
+      .composite([{ input: furniture }, { input: await sharp(face).resize(240).png().toBuffer(), left: 140, top: 160 }])
+      .png().toBuffer()
+    const trimmed = await sharp(page).trim({ threshold: 30 }).toBuffer({ resolveWithObject: true })
+    expect(trimmed.info.width * trimmed.info.height).toBeGreaterThan(0.85 * 1448 * 2048)
+    const result = await compareFaces({ fileBuffer: page, mimeType: "image/png" }, { fileBuffer: face, mimeType: "image/png" })
+    expect(result).toEqual(expect.objectContaining({
+      ok: true, evidence: expect.objectContaining({ idDetectPass: "full", idFaceCount: 1 }),
+    }))
+  })
+
   it("is deterministic", async () => {
     const image = { fileBuffer: await noise(), mimeType: "image/jpeg" }
     expect(await compareFaces(image, image)).toEqual(await compareFaces(image, image))
