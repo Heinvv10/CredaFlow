@@ -21,15 +21,16 @@ merge commits in this order). They were stacked, each on the previous one's
 branch, and each had green CI and three blind reviewers' SHIP/CLEAN on its
 final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 
-Follow-ups #30–#34 (each based on `main`, three blind reviewers' SHIP/CLEAN and
-green CI on its final commit) carry Hein's 2026-10-12 decisions:
+Follow-ups #30–#34 carry Hein's 2026-10-12 decisions. Each was branched from
+`main`, had three blind reviewers' SHIP/CLEAN on its final commit, and is merged
+before the PR that added this paragraph:
 
 | PR | Branch | What |
 |---|---|---|
 | #30 | `fix/loan-product-amount-check` | Migration `20261012090000_loan_product_amount_bounds`: validated CHECK `LoanProduct_amount_bounds` (`minAmount > 0 AND maxAmount >= minAmount`); real-PG suite `RUN_LOAN_PRODUCT_AMOUNT_CHECK_IT` |
 | #31 | `fix/approve-with-loan-409` | Approving an application that already has a loan answers 409 (the approve transaction flushes deferred constraints), like decline |
 | #32 | `feat/portal-amount-starts-empty` | The portal apply amount starts empty; the credit-life block is hidden until the amount is valid |
-| #33 | `fix/website-apply-requires-term` | The website apply route refuses a missing or invalid term for a variable-term product (400, nothing written) instead of storing 30 days; the website form gains a required term field and sends the catalogue's fixed term for fixed-term products |
+| #33 | `fix/website-apply-requires-term` | The website apply route refuses a missing or invalid term (400, nothing written) when the request would create an application on a variable-term product, instead of storing 30 days; lead-only submissions still need no term; the website form gains a required term field and sends the catalogue's fixed term for fixed-term products |
 | #34 | `test/webhook-replay-on-migrated-db` | The Stitch payment webhook runs in the loan's tenant (it 500'd on every webhook and stamped the default tenant); `webhook-replay` is a gated integration suite (`RUN_WEBHOOK_REPLAY_IT`) |
 
 | PR | Branch → base at the time | What |
@@ -70,7 +71,7 @@ green CI on its final commit) carry Hein's 2026-10-12 decisions:
 - **No deploy path.** No production or staging environment exists; hosting is
   an open decision.
 
-## Verification (at the top of the stack, now `main`)
+## Verification (measured at #23, the top of the merged stack)
 
 CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 `date-boundaries`. `main` after the merge has the same tree as #23's head and
@@ -151,8 +152,7 @@ fresh Postgres 16:
     1,800 days (60 instalments); the portal, the CRM convert form and the staff
     wizard start the term empty (#20).
   - `lib/__tests__/runtime-tenant-isolation.test.ts` runs whenever
-    `DATABASE_URL` is set rather than behind a `RUN_*_IT` gate (it passes on a
-    migrated database).
+    `DATABASE_URL` is set rather than behind a `RUN_*_IT` gate.
   - The page background's indigo radial glow (`app/globals.css`) is not
     tenant-themed on any page.
   - The baseline helpers do not tell function overloads apart, nor scope
