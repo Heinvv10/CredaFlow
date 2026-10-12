@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
 import type { UserRole } from "@prisma/client"
-import { AuditAction, logAudit } from "@/lib/audit"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 
 export type { AppRole }
 
@@ -191,6 +191,9 @@ export function staffUserWriteRefusal(
  *
  * A refusal by either ceiling is an escalation attempt, and is audited: the
  * trail must show who reached above their role, not only who was allowed to.
+ * The write is strict: if the row cannot be written this throws, so the
+ * request fails (500) rather than refusing with no record. Either way nothing
+ * is written to the user.
  */
 export async function refuseStaffUserWrite(
   caller: StaffUser,
@@ -199,7 +202,7 @@ export async function refuseStaffUserWrite(
   const refusal = staffUserWriteRefusal(caller, write)
   if (!refusal) return null
   if (refusal.reason === "target_outranks_caller" || refusal.reason === "role_above_caller") {
-    await logAudit({
+    await logAuditStrict({
       tenantId: write.tenantId,
       userId: caller.id,
       userEmail: caller.email,

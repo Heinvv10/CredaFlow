@@ -7,11 +7,11 @@ const requireApiRoleMock = vi.fn()
 const listStaffMock = vi.fn()
 const setAgentMock = vi.fn()
 const userFindFirstMock = vi.fn()
-const logAuditMock = vi.fn()
+const logAuditStrictMock = vi.fn()
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: { user: { findFirst: (a: unknown) => userFindFirstMock(a) } } }))
-vi.mock("@/lib/audit", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/audit")>()), logAudit: (a: unknown) => logAuditMock(a) }))
+vi.mock("@/lib/audit", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/audit")>()), logAuditStrict: (a: unknown) => logAuditStrictMock(a) }))
 vi.mock("@/lib/inbox/authz", () => ({ requireCommsAgent: () => requireCommsAgentMock() }))
 // Only the session guard is mocked: the staff-user write gate is the real one.
 vi.mock("@/lib/auth-guards", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/auth-guards")>()), requireApiRole: () => requireApiRoleMock() }))
@@ -68,7 +68,7 @@ it("PATCH refuses a member who outranks the caller, audits the attempt and toggl
   const res = await toggle()
   expect(res.status).toBe(403)
   expect(setAgentMock).not.toHaveBeenCalled()
-  expect(logAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+  expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
     tenantId: "t1", userId: "admin1", action: "USER_WRITE_REFUSED", entityId: "u2",
     newValue: expect.objectContaining({ reason: "target_outranks_caller", targetRole: "SUPER_ADMIN" }),
   }))
@@ -103,5 +103,12 @@ it.each([{ startsWith: "" }, { not: "admin1" }, ["u2"], 7])("PATCH rejects a use
   const res = await PATCH(new NextRequest("http://x/api/inbox/roster", { method: "PATCH", body: JSON.stringify({ userId, isCommsAgent: true }) }))
   expect(res.status).toBe(400)
   expect(userFindFirstMock).not.toHaveBeenCalled()
+  expect(setAgentMock).not.toHaveBeenCalled()
+})
+
+it("PATCH toggles nothing when the refused attempt cannot be audited", async () => {
+  userFindFirstMock.mockResolvedValue({ role: "SUPER_ADMIN" })
+  logAuditStrictMock.mockRejectedValue(new Error("audit table unavailable"))
+  await expect(toggle()).rejects.toThrow("audit table unavailable")
   expect(setAgentMock).not.toHaveBeenCalled()
 })

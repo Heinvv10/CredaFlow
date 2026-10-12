@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   userCreate: vi.fn(),
   branchFindFirst: vi.fn(),
   logAudit: vi.fn(),
+  logAuditStrict: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -28,6 +29,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/audit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit")>()),
   logAudit: (...args: unknown[]) => h.logAudit(...args),
+  logAuditStrict: (...args: unknown[]) => h.logAuditStrict(...args),
 }))
 vi.mock("bcryptjs", () => ({ default: { hash: async (value: string) => `hashed:${value}` } }))
 
@@ -69,8 +71,8 @@ describe("POST /api/settings/users", () => {
     expect(h.userCreate).not.toHaveBeenCalled()
     // Refused before the email probe: no 409 oracle for an unauthorised caller.
     expect(h.userFindUnique).not.toHaveBeenCalled()
-    expect(h.logAudit).toHaveBeenCalledTimes(1)
-    expect(h.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(h.logAuditStrict).toHaveBeenCalledTimes(1)
+    expect(h.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: "tenant-a",
       userId: "caller-1",
       action: "USER_WRITE_REFUSED",
@@ -136,6 +138,14 @@ describe("POST /api/settings/users", () => {
     expect(res.status).toBe(400)
     expect(h.userFindUnique).not.toHaveBeenCalled()
     expect(h.branchFindFirst).not.toHaveBeenCalled()
+    expect(h.userCreate).not.toHaveBeenCalled()
+  })
+
+  it("creates nothing when the refused attempt cannot be audited", async () => {
+    signedIn("ADMIN")
+    h.logAuditStrict.mockRejectedValue(new Error("audit table unavailable"))
+
+    await expect(post({ role: "SUPER_ADMIN" })).rejects.toThrow("audit table unavailable")
     expect(h.userCreate).not.toHaveBeenCalled()
   })
 

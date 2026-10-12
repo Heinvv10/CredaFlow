@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   transaction: vi.fn(),
   branchFindFirst: vi.fn(),
   logAudit: vi.fn(),
+  logAuditStrict: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -36,6 +37,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/audit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit")>()),
   logAudit: (...args: unknown[]) => h.logAudit(...args),
+  logAuditStrict: (...args: unknown[]) => h.logAuditStrict(...args),
 }))
 vi.mock("bcryptjs", () => ({ default: { hash: async (value: string) => `hashed:${value}` } }))
 
@@ -96,8 +98,8 @@ describe("PATCH /api/settings/users/[id] — role ceiling", () => {
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "You cannot assign a role above your own" })
     expect(h.userUpdate).not.toHaveBeenCalled()
-    expect(h.logAudit).toHaveBeenCalledTimes(1)
-    expect(h.logAudit).toHaveBeenCalledWith(refusedAudit("role_above_caller"))
+    expect(h.logAuditStrict).toHaveBeenCalledTimes(1)
+    expect(h.logAuditStrict).toHaveBeenCalledWith(refusedAudit("role_above_caller"))
   })
 
   it.each([
@@ -120,8 +122,17 @@ describe("PATCH /api/settings/users/[id] — role ceiling", () => {
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "You cannot modify a user whose role is above your own" })
     expect(h.userUpdate).not.toHaveBeenCalled()
-    expect(h.logAudit).toHaveBeenCalledTimes(1)
-    expect(h.logAudit).toHaveBeenCalledWith(refusedAudit("target_outranks_caller"))
+    expect(h.logAuditStrict).toHaveBeenCalledTimes(1)
+    expect(h.logAuditStrict).toHaveBeenCalledWith(refusedAudit("target_outranks_caller"))
+  })
+
+  it("writes nothing when the refused attempt cannot be audited", async () => {
+    signedIn("BRANCH_MANAGER")
+    target("ADMIN")
+    h.logAuditStrict.mockRejectedValue(new Error("audit table unavailable"))
+
+    await expect(patch({ password: "synthetic-pass-2" })).rejects.toThrow("audit table unavailable")
+    expect(h.userUpdate).not.toHaveBeenCalled()
   })
 
   // Refused BEFORE the email-uniqueness probe, so the 409 cannot tell an

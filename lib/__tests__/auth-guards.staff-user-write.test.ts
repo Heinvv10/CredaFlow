@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const { logAuditMock } = vi.hoisted(() => ({ logAuditMock: vi.fn() }))
+const { logAuditMock, logAuditStrictMock } = vi.hoisted(() => ({ logAuditMock: vi.fn(), logAuditStrictMock: vi.fn() }))
 
 // Mock Next.js modules that next-auth pulls in at import time.
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -9,6 +9,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(), AppRole: undefined }))
 vi.mock("@/lib/audit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit")>()),
   logAudit: (...args: unknown[]) => logAuditMock(...args),
+  logAuditStrict: (...args: unknown[]) => logAuditStrictMock(...args),
 }))
 
 import { refuseStaffUserWrite, staffUserWriteRefusal, type StaffUser } from "../auth-guards"
@@ -119,19 +120,19 @@ describe("staffUserWriteRefusal — TOTP", () => {
 describe("refuseStaffUserWrite", () => {
   const admin: StaffUser = { id: "admin-1", email: "admin@acme-lending.example", name: "Admin", role: "ADMIN", tenantId: "tenant-a", totpVerified: true }
 
-  beforeEach(() => { logAuditMock.mockReset() })
+  beforeEach(() => { logAuditMock.mockReset(); logAuditStrictMock.mockReset() })
 
   it("returns null and writes no audit row when the write is allowed", async () => {
     expect(await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetId: "u2", targetRole: "LOAN_ADMIN", assignedRole: "ADMIN" })).toBeNull()
-    expect(logAuditMock).not.toHaveBeenCalled()
+    expect(logAuditStrictMock).not.toHaveBeenCalled()
   })
 
   it("answers 403 and audits a refused role assignment with who tried and what", async () => {
     const res = await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetId: "u2", targetRole: "LOAN_ADMIN", assignedRole: "SUPER_ADMIN" })
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: "You cannot assign a role above your own" })
-    expect(logAuditMock).toHaveBeenCalledTimes(1)
-    expect(logAuditMock).toHaveBeenCalledWith({
+    expect(logAuditStrictMock).toHaveBeenCalledTimes(1)
+    expect(logAuditStrictMock).toHaveBeenCalledWith({
       tenantId: "tenant-a",
       userId: "admin-1",
       userEmail: "admin@acme-lending.example",
@@ -147,7 +148,7 @@ describe("refuseStaffUserWrite", () => {
 
   it("audits a refused create (no target) and a refused edit of a senior user", async () => {
     await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetRole: null, assignedRole: "SUPER_ADMIN" })
-    expect(logAuditMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(logAuditStrictMock).toHaveBeenLastCalledWith(expect.objectContaining({
       action: "USER_WRITE_REFUSED",
       entityId: undefined,
       newValue: expect.objectContaining({ reason: "role_above_caller", targetRole: null, assignedRole: "SUPER_ADMIN" }),
@@ -157,7 +158,7 @@ describe("refuseStaffUserWrite", () => {
     const res = await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetId: "root-1", targetRole: "SUPER_ADMIN", assignedRole: { junk: "x".repeat(10_000) } })
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: "You cannot modify a user whose role is above your own" })
-    expect(logAuditMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(logAuditStrictMock).toHaveBeenLastCalledWith(expect.objectContaining({
       entityId: "root-1",
       newValue: { refused: true, reason: "target_outranks_caller", httpStatus: 403, callerRole: "ADMIN", targetRole: "SUPER_ADMIN" },
     }))
@@ -170,6 +171,15 @@ describe("refuseStaffUserWrite", () => {
     const noTotp = await refuseStaffUserWrite({ ...admin, totpVerified: false }, { tenantId: "tenant-a", targetRole: null, assignedRole: "READONLY" })
     expect(noTotp?.status).toBe(403)
     expect((await noTotp?.json()).error).toMatch(/two-factor/)
+    expect(logAuditStrictMock).not.toHaveBeenCalled()
+  })
+
+  // logAudit swallows a failed write; a refusal must never be the thing that
+  // goes unrecorded. If the row cannot be written the request fails (500).
+  it("fails rather than refusing silently when the refusal cannot be audited", async () => {
+    logAuditStrictMock.mockRejectedValue(new Error("audit table unavailable"))
+    await expect(refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetRole: null, assignedRole: "SUPER_ADMIN" }))
+      .rejects.toThrow("audit table unavailable")
     expect(logAuditMock).not.toHaveBeenCalled()
   })
 })
