@@ -155,10 +155,11 @@ AS $function$
           AND jsonb_typeof(selfie."extractionResult") = 'object'
           -- Booleans and the face count compare as JSON values, as
           -- assessBiometricEvidence reads them: the string "true" and "1" no
-          -- longer pass, and 1.0 counts as one face. Each is strictly
-          -- narrower than the baseline text comparison it replaces. quality
-          -- keeps lower(trim()); trim() strips spaces only, and the TS parser
-          -- now does exactly the same.
+          -- longer pass. The booleans are strictly narrower than the baseline
+          -- text comparisons they replace; the face count is not: 1.0 and 1e0
+          -- now count as one face, a deliberate widening to match the TS gate
+          -- (which reads them as the number 1). quality keeps lower(trim());
+          -- trim() strips spaces only, and the TS parser now does the same.
           AND (
             selfie."extractionResult" -> 'vlmUnavailable' = 'true'::jsonb
             OR (
