@@ -141,6 +141,8 @@ export const AuditAction = {
   USER_UPDATED: "USER_UPDATED",
   USER_DEACTIVATED: "USER_DEACTIVATED",
   USER_DELETED: "USER_DELETED",
+  // A staff-user write stopped by the role ceiling (lib/auth-guards.ts).
+  USER_WRITE_REFUSED: "USER_WRITE_REFUSED",
 
   // KYC
   KYC_APPROVED: "KYC_APPROVED",
@@ -392,6 +394,10 @@ export const AuditAction = {
   BUREAU_SUBMISSION_DOWNLOADED: "BUREAU_SUBMISSION_DOWNLOADED",
   BUREAU_ADVERSE_LISTING_CONFIRMED: "BUREAU_ADVERSE_LISTING_CONFIRMED",
   BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED",
+  // Breach log (the POPIA security-compromise register). The row keeps no
+  // history of its own, so an edit's old values exist only in the audit row.
+  BREACH_LOG_CREATED: "BREACH_LOG_CREATED",
+  BREACH_LOG_UPDATED: "BREACH_LOG_UPDATED",
   // Tenant administration (app/api/admin/tenants).
   TENANT_CREATED: "TENANT_CREATED",
   TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED",
@@ -401,4 +407,14 @@ export const AuditAction = {
   // Letterhead logo (lib/config/lender-logo.ts): the file's sha256, never the bytes.
   LENDER_LOGO_UPDATED: "LENDER_LOGO_UPDATED",
   LENDER_LOGO_REMOVED: "LENDER_LOGO_REMOVED",
+
+  // Complaints and POPIA data subject requests (app/api/complaints,
+  // app/api/dsar). Identifiers, statuses and dates only: the description,
+  // resolution and response stay on the row and are never copied here.
+  COMPLAINT_CREATED: "COMPLAINT_CREATED",
+  COMPLAINT_UPDATED: "COMPLAINT_UPDATED",
+  DSAR_CREATED: "DSAR_CREATED",
+  DSAR_UPDATED: "DSAR_UPDATED",
+  // Branches (app/api/branches).
+  BRANCH_CREATED: "BRANCH_CREATED",
 } as const

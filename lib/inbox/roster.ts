@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
+import { logAuditStrict } from "@/lib/audit"
 
 export type RosterMember = {
   id: string
@@ -33,18 +33,20 @@ export function listActiveCommsAgents(tenantId: string): Promise<RosterMember[]>
   }) as Promise<RosterMember[]>
 }
 
+// Pass the transaction as `db` to write the flag and its audit row in it; the
+// audit write is strict so neither commits without the other.
 export async function setCommsAgent(a: {
   tenantId: string; userId: string; isCommsAgent: boolean; actorUserId: string; actorEmail?: string
-}): Promise<{ ok: boolean }> {
-  const res = await prisma.user.updateMany({
+}, db: Pick<typeof prisma, "user" | "auditLog"> = prisma): Promise<{ ok: boolean }> {
+  const res = await db.user.updateMany({
     where: { id: a.userId, tenantId: a.tenantId },
     data: { isCommsAgent: a.isCommsAgent },
   })
   if (res.count === 0) return { ok: false }
-  await logAudit({
+  await logAuditStrict({
     tenantId: a.tenantId, userId: a.actorUserId, userEmail: a.actorEmail,
     action: "USER_UPDATED", entity: "User", entityId: a.userId,
     newValue: { isCommsAgent: a.isCommsAgent },
-  })
+  }, db)
   return { ok: true }
 }

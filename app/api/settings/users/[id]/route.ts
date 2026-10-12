@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import { Prisma, type UserRole } from "@prisma/client"
-import { logAudit } from "@/lib/audit"
+import { logAuditStrict } from "@/lib/audit"
 
 const ADMIN_ROLES: UserRole[] = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"]
 
@@ -24,6 +24,16 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       name?: string; email?: string; role?: UserRole; active?: boolean
       password?: string; phone?: string; branchId?: string | null
     }
+    // Body values reach Prisma as-is, where an object is a filter. The role is
+    // checked by the write gate below.
+    const optional = (value: unknown, type: "string" | "boolean") => value === undefined || typeof value === type
+    const nullable = (value: unknown) => value === null || optional(value, "string")
+    if (
+      !nullable(name) || !optional(email, "string") || !optional(active, "boolean") ||
+      !optional(password, "string") || !nullable(phone) || !nullable(branchId)
+    ) {
+      return NextResponse.json({ error: "Invalid user details" }, { status: 400 })
+    }
 
     if (id === guard.user.id && active === false) {
       return NextResponse.json({ error: "You cannot deactivate your own account" }, { status: 400 })
@@ -41,12 +51,14 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     })
     if (!existing) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
-    // Prevent changing a SUPER_ADMIN unless you are one. Checked BEFORE the
-    // email-uniqueness probe so an unauthorised caller can't use the 409 to
-    // learn whether an email is already registered on a Super Admin account.
-    if (existing.role === "SUPER_ADMIN" && guard.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Only Super Admins can modify Super Admin accounts" }, { status: 403 })
-    }
+    // The role ceiling: nobody edits a user who outranks them, or assigns a
+    // role above their own. Checked BEFORE the email-uniqueness probe so an
+    // unauthorised caller can't use the 409 to learn whether an email is
+    // already registered.
+    const refused = await refuseStaffUserWrite(guard.user, {
+      tenantId: tenant.id, targetId: id, targetRole: existing.role, assignedRole: role,
+    })
+    if (refused) return refused
 
     // Email change is an identity change: normalise, validate shape, and
     // guard the global @unique constraint with a friendly 409 before hitting
@@ -110,17 +122,49 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       data.tokenVersion = { increment: 1 }
     }
 
-    let user
+    let result
     try {
-      user = await prisma.user.update({
-        where: { id },
-        data,
-        select: {
-          id: true, name: true, email: true, role: true,
-          active: true, phone: true, branchId: true,
-          branch: { select: { id: true, name: true } },
-          lastLoginAt: true, createdAt: true,
-        },
+      result = await prisma.$transaction(async (tx) => {
+        // The check above is stale by the probes and hash since: re-run it on
+        // the rows as they are now, locked until this commits.
+        const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, targetId: id, assignedRole: role })
+        if (locked.refused) return { refused: locked.refused }
+
+        const user = await tx.user.update({
+          where: { id },
+          data,
+          select: {
+            id: true, name: true, email: true, role: true,
+            active: true, phone: true, branchId: true,
+            branch: { select: { id: true, name: true } },
+            lastLoginAt: true, createdAt: true,
+          },
+        })
+
+        const roleChanged = role !== undefined && role !== locked.targetRole
+        // In the transaction: the change never commits without its record.
+        await logAuditStrict({
+          tenantId: tenant.id,
+          action: "USER_UPDATED",
+          entity: "User",
+          entityId: id,
+          userId: guard.user.id,
+          // Capture the email and role transitions explicitly — identity and
+          // privilege changes auditors will want to trace, not just a
+          // changed-key name.
+          oldValue: normalizedEmail !== undefined || roleChanged
+            ? {
+                ...(normalizedEmail !== undefined ? { email: existing.email } : {}),
+                ...(roleChanged ? { role: locked.targetRole } : {}),
+              }
+            : undefined,
+          newValue: {
+            changed: Object.keys(data).filter(k => k !== "password" && k !== "tokenVersion"),
+            ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
+            ...(roleChanged ? { role: user.role } : {}),
+          },
+        }, tx)
+        return { user }
       })
     } catch (err) {
       // The findUnique pre-check above is racy: a concurrent rename to the same
@@ -129,26 +173,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         return NextResponse.json({ error: "A user with this email already exists" }, { status: 409 })
       }
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return conflict
       throw err
     }
+    if (result.refused) return result.refused
 
-    await logAudit({
-      tenantId: tenant.id,
-      action: "USER_UPDATED",
-      entity: "User",
-      entityId: id,
-      userId: guard.user.id,
-      // Capture the email transition explicitly — an identity change auditors
-      // will want to trace, not just a changed-key name.
-      oldValue: normalizedEmail !== undefined ? { email: existing.email } : undefined,
-      newValue: {
-        changed: Object.keys(data).filter(k => k !== "password" && k !== "tokenVersion"),
-        ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
-      },
-    })
-
-    return NextResponse.json(user)
+    return NextResponse.json(result.user)
   })
+}
+
+function onlySuperAdmins() {
+  return NextResponse.json({ error: "Only Super Admins can delete users" }, { status: 403 })
 }
 
 // Smart delete: physically remove a staff account that has NO operator-identity
@@ -158,12 +194,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const guard = await requireApiRole("BRANCH_MANAGER")
   if (guard.error) return guard.error
-  if (guard.user.role !== "SUPER_ADMIN") {
-    return NextResponse.json({ error: "Only Super Admins can delete users" }, { status: 403 })
-  }
+  if (guard.user.role !== "SUPER_ADMIN") return onlySuperAdmins()
   // Capture while `guard` is narrowed — TS widens it back inside the nested
   // deactivate() closure below.
-  const actorId = guard.user.id
+  const actor = guard.user
+  const actorId = actor.id
 
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
@@ -179,6 +214,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       where: { id, tenantId: tenant.id },
       select: {
         id: true,
+        role: true,
         // FAIS Fit & Proper (RE exam, licence, CPD hours) is itself a
         // regulatory record — its mere presence is operator-identity history,
         // so a user who has one is deactivated, never hard-deleted (which would
@@ -208,27 +244,51 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     })
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
+    const refused = await refuseStaffUserWrite(guard.user, {
+      tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined,
+    })
+    if (refused) return refused
+
     const hasHistory =
       target.fitAndProper !== null ||
       Object.values(target._count).some((n) => n > 0)
 
-    async function deactivate() {
-      await prisma.user.update({
-        where: { id },
-        data: { active: false, tokenVersion: { increment: 1 } },
-        select: { id: true },
-      })
-      await logAudit({
-        tenantId: tenant.id,
-        action: "USER_DEACTIVATED",
-        entity: "User",
-        entityId: id,
-        userId: actorId,
+    // Both removals re-check on the locked rows first (see PATCH): the caller
+    // must still be a SUPER_ADMIN, and the target still in reach, as they
+    // commit. Returns the refusal, or null once done.
+    async function lockedCheck(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) {
+      const locked = await refuseLockedStaffUserWrite(tx, actor, { tenantId: tenant.id, targetId: id, assignedRole: undefined })
+      if (locked.refused) return locked.refused
+      return locked.callerRole === "SUPER_ADMIN" ? null : onlySuperAdmins()
+    }
+
+    function deactivate() {
+      return prisma.$transaction(async (tx): Promise<NextResponse | null> => {
+        const refused = await lockedCheck(tx)
+        if (refused) return refused
+        await tx.user.update({
+          where: { id },
+          data: { active: false, tokenVersion: { increment: 1 } },
+          select: { id: true },
+        })
+        await logAuditStrict({
+          tenantId: tenant.id,
+          action: "USER_DEACTIVATED",
+          entity: "User",
+          entityId: id,
+          userId: actorId,
+        }, tx)
+        return null
+      }).catch((err: unknown) => {
+        const conflict = staffUserWriteConflict(err)
+        if (conflict) return conflict
+        throw err
       })
     }
 
     if (hasHistory) {
-      await deactivate()
+      const refused = await deactivate()
+      if (refused) return refused
       return NextResponse.json({
         mode: "deactivated",
         message: "User has loan, audit or advisory history — deactivated instead of deleted.",
@@ -241,9 +301,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     // irreversible delete can never commit untraced — logAudit swallows its own
     // errors, which is acceptable for reversible actions but not a hard delete.
     try {
-      await prisma.$transaction([
-        prisma.user.delete({ where: { id } }),
-        prisma.auditLog.create({
+      const refused = await prisma.$transaction(async (tx) => {
+        const refused = await lockedCheck(tx)
+        if (refused) return refused
+        await tx.user.delete({ where: { id } })
+        await tx.auditLog.create({
           data: {
             tenantId: tenant.id,
             userId: actorId,
@@ -251,18 +313,23 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
             entity: "User",
             entityId: id,
           },
-        }),
-      ])
+        })
+        return null
+      })
+      if (refused) return refused
     } catch (err) {
       // Belt-and-braces: any un-enumerated Restrict relation would throw a
       // foreign-key error (P2003). Never 500 — fall back to deactivation.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
-        await deactivate()
+        const refused = await deactivate()
+        if (refused) return refused
         return NextResponse.json({
           mode: "deactivated",
           message: "User has linked records — deactivated instead of deleted.",
         })
       }
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return conflict
       throw err
     }
 

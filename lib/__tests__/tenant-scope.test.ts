@@ -82,6 +82,9 @@ describe("tenant-scope — ALS primitives", () => {
       "BureauSubmission",
       "BureauSubmissionRecord",
       "BureauAdverseConfirmation",
+      // POPIA security-compromise register — non-null tenantId, passed
+      // explicitly by its routes and page.
+      "BreachLog",
     ])
   })
 

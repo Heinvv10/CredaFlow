@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
 import { Plus, X, ChevronDown } from "lucide-react"
+import { BREACH_LOG_TRANSITIONS as STATUS_TRANSITIONS } from "@/lib/compliance/breach-log"
 
 type BreachLog = {
   id: string
@@ -25,12 +26,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   OPEN: { bg: "#FEE2E2", text: "#991B1B" },
   CONTAINED: { bg: "#FEF3C7", text: "#92400E" },
   RESOLVED: { bg: "#D1FAE5", text: "#065F46" },
-}
-
-const STATUS_TRANSITIONS: Record<string, string[]> = {
-  OPEN: ["CONTAINED", "RESOLVED"],
-  CONTAINED: ["RESOLVED"],
-  RESOLVED: [],
 }
 
 const STATUS_LABELS: Record<string, string> = {

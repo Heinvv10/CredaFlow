@@ -69,9 +69,9 @@ export default auth((req) => {
   // one.
   const isSelfieLinkPage = path.startsWith("/selfie/")
   // Shared client+staff APIs the portal calls (documents, statement, PASQ,
-  // agreement).
+  // agreement, debit mandate, signing packet).
   // Reachable on the client host and by CLIENT sessions; handlers self-gate.
-  const isSharedClientApi = isSharedClientApiPath(req.nextUrl.pathname)
+  const isSharedClientApi = isSharedClientApiPath(req.nextUrl.pathname, req.method)
   const isPublicWebsiteRoot = path === "/"
   // SEO/AI-crawler assets must reach robots/sitemap/llms.txt without redirecting
   // to the login page — these three paths are intentionally always public.
@@ -272,7 +272,8 @@ export default auth((req) => {
   const isClient = role === "CLIENT"
 
   // API: staff-by-default. /api/portal/* and the shared client APIs
-  // (documents, statement, PASQ, agreement) are the carve-outs for CLIENT sessions.
+  // (documents, statement, PASQ, agreement, debit mandate, signing packet) are
+  // the carve-outs for CLIENT sessions.
   // Individual route guards (requireApiRole / requireOwnerOrStaff /
   // getDocumentCaller) remain the authoritative enforcement layer; this is
   // defense-in-depth.

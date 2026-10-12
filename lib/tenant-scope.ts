@@ -61,6 +61,10 @@ export const TENANT_SCOPED_MODELS = [
   "BureauSubmission",
   "BureauSubmissionRecord",
   "BureauAdverseConfirmation",
+  // POPIA security-compromise register. Non-null tenantId; its routes and
+  // page pass it explicitly, so the rewriter is the backstop for a query that
+  // forgets to.
+  "BreachLog",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

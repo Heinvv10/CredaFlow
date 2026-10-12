@@ -6,7 +6,7 @@
  * new portal step from working in APP_MODE=all while being silently 404'd by
  * the real APP_MODE=client container.
  */
-export function isSharedClientApiPath(pathname: string): boolean {
+export function isSharedClientApiPath(pathname: string, method: string): boolean {
   if (
     pathname === "/api/documents" ||
     (pathname.startsWith("/api/documents/") && !pathname.endsWith("/extract"))
@@ -26,6 +26,13 @@ export function isSharedClientApiPath(pathname: string): boolean {
     return true
   }
   if (/^\/api\/applications\/[^/]+\/debit-mandate(\/sign)?$/.test(pathname)) {
+    return true
+  }
+  // The packet the borrower signs, framed on the portal signing page. GET only:
+  // its POST records a returned signed packet and is staff-only, as is the
+  // /email sibling, and HEAD would run the GET handler and log a read that
+  // served nothing.
+  if (method === "GET" && /^\/api\/applications\/[^/]+\/signing-packet$/.test(pathname)) {
     return true
   }
   return false

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import { loadUsers } from "./settings-users"
+import { assignableRoles, loadUsers } from "./settings-users"
 
 describe("loadUsers", () => {
   afterEach(() => {
@@ -23,5 +23,21 @@ describe("loadUsers", () => {
   it("rejects when the network request itself fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")))
     await expect(loadUsers()).rejects.toThrow()
+  })
+})
+
+describe("assignableRoles", () => {
+  // Highest first, the order the Users form lists them in.
+  const roles = ["SUPER_ADMIN", "ADMIN", "LOAN_ADMIN", "BRANCH_MANAGER", "CREDIT_OFFICER", "READONLY"].map(value => ({ value }))
+  const offered = (callerRole: string) => assignableRoles(roles, callerRole).map(r => r.value)
+
+  it("offers a caller their own role and every role below it, never one above", () => {
+    expect(offered("SUPER_ADMIN")).toEqual(["SUPER_ADMIN", "ADMIN", "LOAN_ADMIN", "BRANCH_MANAGER", "CREDIT_OFFICER", "READONLY"])
+    expect(offered("ADMIN")).toEqual(["ADMIN", "LOAN_ADMIN", "BRANCH_MANAGER", "CREDIT_OFFICER", "READONLY"])
+    expect(offered("BRANCH_MANAGER")).toEqual(["LOAN_ADMIN", "BRANCH_MANAGER", "CREDIT_OFFICER", "READONLY"])
+  })
+
+  it("offers nothing to a role the hierarchy does not rank", () => {
+    expect(offered("CLIENT")).toEqual([])
   })
 })
