@@ -777,7 +777,8 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     expect(res.status).toBe(200)
     expect(body.applicationId).toBeNull()
     expect(createLoanApplicationMock).not.toHaveBeenCalled()
-    expect(findFirstLoanProductMock).not.toHaveBeenCalled()
+    // Only the term pre-check reads the product; the blocked path does no second lookup.
+    expect(findFirstLoanProductMock).toHaveBeenCalledTimes(1)
     const auditActions = createAuditLogMock.mock.calls.map((c) => c[0].data.action)
     expect(auditActions).toContain("APPLICATION_SUBMISSION_BLOCKED")
   })
@@ -950,6 +951,7 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
       .mockResolvedValueOnce(lockedClient)
     updateClientMock.mockResolvedValue(lockedClient)
     findFirstLoanProductMock
+      .mockResolvedValueOnce(personalProduct) // term pre-check
       .mockResolvedValueOnce(personalProduct)
       .mockResolvedValueOnce(personalProduct)
       .mockResolvedValueOnce(lockedProduct)
@@ -1673,13 +1675,64 @@ describe("POST /api/website/apply — loan term is required, never defaulted", (
     expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(60)
   })
 
-  it("still clamps an out-of-range term into the product's range", async () => {
+  it.each([
+    ["below the minimum", 5],
+    ["above the maximum", 5000],
+  ])("refuses a term %s with the product's range and writes nothing", async (_label, termDays) => {
     readyToApply(personalProduct)
 
-    const res = await POST(buildReq({ ...applying, termDays: 5000 }))
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json).toEqual({
+      success: false,
+      error: "Please choose a term between 30 and 90 days for this loan.",
+      termRange: { minTermDays: 30, maxTermDays: 90 },
+    })
+    expectNothingWritten()
+  })
+
+  it.each([30, 90])("stores the boundary term %i exactly", async (termDays) => {
+    readyToApply(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
 
     expect(res.status).toBe(200)
-    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(personalProduct.maxTermDays)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(termDays)
+  })
+
+  it.each([5, 5000])("uses the product's own term for a fixed-term product given %i", async (termDays) => {
+    readyToApply(fixedTermProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("guides the user when the form sent the catalogue's fixed 30 days but the route's product is 60-90", async () => {
+    readyToApply({ ...personalProduct, minTermDays: 60, maxTermDays: 90 })
+
+    const res = await POST(buildReq({ ...applying, termDays: "30" }))
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).termRange).toEqual({ minTermDays: 60, maxTermDays: 90 })
+    expectNothingWritten()
+  })
+
+  it("refuses inside the transaction if the range narrowed past the term after the pre-check", async () => {
+    readyToApply(personalProduct)
+    findFirstLoanProductMock.mockReset()
+    findFirstLoanProductMock
+      .mockResolvedValueOnce(personalProduct) // pre-check
+      .mockResolvedValueOnce(personalProduct) // product lookup
+      .mockResolvedValue({ ...personalProduct, minTermDays: 60, maxTermDays: 90 }) // in the transaction
+
+    const res = await POST(buildReq({ ...applying, termDays: "30" }))
+
+    expect(res.status).toBe(422)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
   })
 
   it("still captures a lead-only enquiry (no ID number) without a term", async () => {

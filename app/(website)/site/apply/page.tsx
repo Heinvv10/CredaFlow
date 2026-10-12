@@ -15,7 +15,7 @@ import {
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
 import { FaqAccordion } from "@/components/website/FaqAccordion"
-import { applyLivePricing, applyProductLimitsRands, applyProductTermDays, planApplyTerm, productForAmount } from "@/lib/public-loan-products"
+import { applyLivePricing, applyProductLimitsRands, applyProductTermDays, effectiveApplyTermRange, planApplyTerm, productForAmount, serverTermRangeFromResponse, type ServerTermRange } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
 import { APPLY_DRAFT_KEY, QUALIFY_DRAFT_KEY, isDraftFresh } from "@/lib/draft-keys"
 import { trackApplyStart, trackApplySubmit } from "@/lib/analytics/events"
@@ -294,6 +294,7 @@ export default function ApplyPage() {
   const [applicationId, setApplicationId] = useState<string | null>(null)
   const [portalAccountStatus, setPortalAccountStatus] = useState<"ready" | "activation_required" | "unavailable">("unavailable")
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [serverTermRange, setServerTermRange] = useState<ServerTermRange | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [consentGiven, setConsentGiven] = useState(false)
@@ -341,7 +342,11 @@ export default function ApplyPage() {
   )
   const liveTermDays = useMemo(() => applyProductTermDays(applyLivePricing(pricing)), [pricing])
   const termRange = (productType: string): { min: number; max: number; fixed: boolean } | undefined =>
-    (liveTermDays as Record<string, { min: number; max: number; fixed: boolean } | undefined>)[productType]
+    effectiveApplyTermRange(
+      productType,
+      (liveTermDays as Record<string, { min: number; max: number; fixed: boolean } | undefined>)[productType],
+      serverTermRange,
+    )
   const termPlan = (productType: string, termDays: string) => planApplyTerm(termDays, termRange(productType))
 
   useEffect(() => {
@@ -506,7 +511,14 @@ export default function ApplyPage() {
         // extra failed retry before the widget refreshed.
         setTurnstileToken(null)
         setTurnstileResetKey((key) => key + 1)
-        setErrors({ submit: data.error ?? "Something went wrong. Please try again." })
+        const guidedRange = res.status === 400 ? serverTermRangeFromResponse(step3.productType, data) : null
+        if (guidedRange) {
+          // Show the term field with the server's range, next to the message.
+          setServerTermRange(guidedRange)
+          setErrors({ termDays: data.error })
+        } else {
+          setErrors({ submit: data.error ?? "Something went wrong. Please try again." })
+        }
       }
     } catch {
       // The request may have committed even though its response was lost.

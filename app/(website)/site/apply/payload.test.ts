@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { effectiveApplyTermRange } from "@/lib/public-loan-products"
 import { buildApplyMaterialPayload } from "./payload"
 
 const base = {
@@ -25,6 +26,15 @@ describe("buildApplyMaterialPayload — term in the POST body", () => {
       termRange: { min: 30, max: 30, fixed: true },
     })
     expect(payload.termDays).toBe("30")
+  })
+
+  it("server-guided range turns a catalogue-fixed product into a typed-term payload", () => {
+    const payload = buildApplyMaterialPayload({
+      ...base,
+      step3: { productType: "MICRO", amount: "1000", termDays: "75", purpose: "x" },
+      termRange: effectiveApplyTermRange("MICRO", { min: 30, max: 30, fixed: true }, { productType: "MICRO", min: 60, max: 90 }),
+    })
+    expect(payload.termDays).toBe("75")
   })
 
   it("variable product sends the typed term, trimmed", () => {
