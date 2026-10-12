@@ -77,6 +77,27 @@ answer (`samePerson`, `faceMatch`, `matchConfidence`) can only refuse: a VLM
 "different" or "uncertain" still fails the attempt, and a VLM "same" never
 rescues a face-model refusal.
 
+## Reference parity
+
+Checked once (2026-10-12) against OpenCV 5.0.0's own `FaceDetectorYN` and
+`FaceRecognizerSF` on the same ONNX files, over the presenter card and selfie
+and the six synthetic cards (scratch script outside the repo; numbers in the
+demo data's `face-model-eval/2026-10-12T05-03-09Z/reference-parity.md`):
+
+- Identical 640x640 network input: face counts agree on all 8 images; boxes
+  within 0.00002 px, landmarks within 0.00003 px, scores exact. The decoding
+  and NMS match the reference.
+- Alignment and embedding: OpenCV's `alignCrop` + `feature` on this
+  implementation's landmarks gives an embedding at cosine >= 0.99991 to this
+  implementation's.
+- End to end on the presenter pair: cosine 0.8776 here, 0.8780 from OpenCV
+  (difference 0.0004).
+- OpenCV at the image's full size (its usual use) differs by up to 4.3% of
+  the box width in landmarks and 0.014 in score, from the 640 px downscale,
+  and finds no face at all in the full-size 1200x1600 selfie, whose face
+  exceeds YuNet's 10-300 px range. Shrinking to fit 640 is what makes it
+  detectable.
+
 ## Face-count rule
 
 - Selfie: exactly one detected face. None is `face_not_detected`, more is
