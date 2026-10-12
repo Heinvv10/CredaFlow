@@ -65,6 +65,18 @@ describe("selectIdFace", () => {
     })
   })
 
+  // Both gates refuse a ratio below 1e-9; selection must agree, or the
+  // comparison runs and then refuses as the exceptionable
+  // provider_verification_failed.
+  it("refuses a second face below a 1e-9 area ratio as a check that did not complete", () => {
+    expect(selectIdFace([face(100_000, 100_000), face(1, 1, 300)])).toEqual({
+      ok: false, reason: "extraction_incomplete", count: 2,
+    })
+    expect(selectIdFace([face(100_000, 10_000), face(1, 1, 300)])).toEqual(expect.objectContaining({
+      ok: true, secondFaceAreaRatio: 1e-9,
+    }))
+  })
+
   // Bounds the count both gates accept (2..64 with a second face).
   it("refuses more than 64 detected faces, however small the others", () => {
     const many = [face(200, 200), ...Array.from({ length: 64 }, (_, i) => face(5, 5, 300 + i * 10))]

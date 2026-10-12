@@ -9,7 +9,7 @@
  * in-person route over a genuine but poorly scanned ID for good.
  */
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
-import { ID_MAX_FACE_COUNT, ID_SECOND_FACE_MAX_AREA_RATIO } from "./models"
+import { ID_MAX_FACE_COUNT, ID_SECOND_FACE_MAX_AREA_RATIO, ID_SECOND_FACE_MIN_AREA_RATIO } from "./models"
 import type { DetectedFace } from "./yunet"
 
 type Refusal<R extends BiometricEvidenceFailureReason> = { ok: false; reason: R; count: number }
@@ -24,7 +24,11 @@ export function selectSelfieFace(
 
 const area = (face: DetectedFace) => face.width * face.height
 
-/** The largest face, if every other one is at most ID_SECOND_FACE_MAX_AREA_RATIO of its area. */
+/**
+ * The largest face, if every other one is at most ID_SECOND_FACE_MAX_AREA_RATIO
+ * of its area and at least ID_SECOND_FACE_MIN_AREA_RATIO (the floor both
+ * evidence gates apply).
+ */
 export function selectIdFace(
   faces: DetectedFace[],
 ):
@@ -36,7 +40,7 @@ export function selectIdFace(
   const [largest, ...others] = [...faces].sort((a, b) => area(b) - area(a))
   if (others.length === 0) return { ok: true, face: largest, count: 1, secondFaceAreaRatio: null }
   const secondFaceAreaRatio = area(others[0]) / area(largest)
-  if (!(secondFaceAreaRatio <= ID_SECOND_FACE_MAX_AREA_RATIO)) {
+  if (!(secondFaceAreaRatio >= ID_SECOND_FACE_MIN_AREA_RATIO && secondFaceAreaRatio <= ID_SECOND_FACE_MAX_AREA_RATIO)) {
     return { ok: false, reason: "extraction_incomplete", count: faces.length }
   }
   return { ok: true, face: largest, count: faces.length, secondFaceAreaRatio }
