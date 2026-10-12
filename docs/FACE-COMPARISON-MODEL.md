@@ -76,13 +76,15 @@ deps stage, which does not copy `.npmrc`.
    detections are merged before the face-count rule: a full-pass box
    overlapping a 640-pass box by more than IoU 0.3 is the same face, and the
    640 pass's box is kept (it also sees faces too large for the full pass).
-   The comparable-faces rule, the 64 cap and the 1e-9 floor then apply to
-   the merged list, and the compared face, the count and the second-face
-   ratio all come from it; `idDetectPass` (`fit640` or `full`) names the pass
-   that produced the compared box. Counting each pass on its own let two
-   comparable faces, one seen only by each pass, look like one face to both;
-   real-model tests pin that split case and the breaker's REPRO 8 (one pass
-   seeing both faces, the other only one). This is what finds the face on an ID card scanned at true size on
+   The comparable-faces rule, the 64 cap and the 1e-9 floor must hold on
+   each pass on its own AND on the merged list; only then is the merged
+   list's dominant face compared, with the count and the second-face ratio
+   from it. `idDetectPass` (`fit640` or `full`) names the pass that produced
+   the compared box. Each check closes a case the others miss: counted per
+   pass only, two comparable faces seen one by each pass look like one face
+   to both; merged only, a large face one pass alone sees makes two
+   comparable faces the other pass alone sees look like ghosts. Real-model
+   tests pin the split case and the breaker's REPRO 8. This is what finds the face on an ID card scanned at true size on
    A4. The file declares a fixed 640x640 input, so after the checksum check
    `onnx-shape.ts` rewrites only its declared shapes as symbolic (weights and
    operators untouched; at 640 the outputs are bit-identical). The selfie side
@@ -205,6 +207,12 @@ are one person's.
   different photos of one person.
 - **Printed and blurred real faces are unmeasured** beyond one card blurred
   synthetically (still 0.71-0.83 to the selfie) and the sharpness floor.
+- **An ID face larger than YuNet's range is invisible to both passes.** At
+  640 px a face filling most of a 2048 px ID image is still above the
+  ~300 px the detector was trained on, and the full pass sees it larger
+  still. If a second, smaller face is also on the image, only that one is
+  detected and compared; the face-count rule cannot see the large one. No
+  third (smaller) pass is run; recorded as a known limit (breaker, LOW 1).
 - **An ID card scanned on A4 passes with little margin.** At true size the
   face's eye distance is 32 px against the 24 px floor (see above).
 - **The threshold therefore rests on OpenCV's published 0.363 alone**, not on
