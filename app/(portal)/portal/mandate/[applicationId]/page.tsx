@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getResolvedTenantId } from "@/lib/tenant"
 import { PortalDebitMandateClient } from "./PortalDebitMandateClient"
 
 export default async function PortalDebitMandatePage({
@@ -14,9 +14,12 @@ export default async function PortalDebitMandatePage({
     redirect("/portal/login")
   }
   const { applicationId } = await params
-  const tenantId = await getDefaultTenantId()
+  // Same rule as the signing page: the request's tenant, bound to the session,
+  // and the session's client id, never its possibly stale email.
+  const tenantId = await getResolvedTenantId()
+  if (session.user.tenantId !== tenantId) notFound()
   const application = await prisma.loanApplication.findUnique({
-    where: { id: applicationId, tenantId },
+    where: { id: applicationId, tenantId, clientId: session.user.id },
     select: {
       id: true,
       reference: true,
@@ -28,8 +31,6 @@ export default async function PortalDebitMandatePage({
       debitMandateSignedAt: true,
       client: {
         select: {
-          id: true,
-          email: true,
           firstName: true,
           lastName: true,
           bankName: true,
@@ -40,13 +41,7 @@ export default async function PortalDebitMandatePage({
       },
     },
   })
-  if (
-    !application
-    || application.client.id !== session.user.id
-    || application.client.email !== session.user.email
-  ) {
-    redirect("/portal")
-  }
+  if (!application) notFound()
   if (
     application.status !== "APPROVED"
     || application.repaymentMethod !== "DEBIT_ORDER"
