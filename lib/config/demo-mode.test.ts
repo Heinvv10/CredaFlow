@@ -24,11 +24,11 @@ describe("applyDemoHeaders", () => {
 describe("demoBannerText", () => {
   it("names the tenant brand when known", () => {
     expect(demoBannerText("Acme Lending")).toBe(
-      "Demo environment — Acme Lending is a fictional lender. Do not enter real personal information.",
+      "Acme Lending demo — all data shown is sample data. Do not enter real personal information.",
     )
   })
   it("falls back to generic wording", () => {
-    expect(demoBannerText(null)).toContain("fictional lender")
+    expect(demoBannerText(null)).toContain("sample data")
     expect(demoBannerText(null)).not.toContain("null")
   })
 })
