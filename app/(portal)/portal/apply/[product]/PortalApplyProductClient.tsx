@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
@@ -10,7 +10,6 @@ import type { QualificationResult } from "@/lib/qualify"
 import type { ProductType } from "@prisma/client"
 import {
   CREDIT_LIFE_DISCLOSURE_VERSION,
-  calculateCreditLifeMonthlyPremiumCents,
   creditLifePrincipalIsEligible,
   type CreditLifeElection,
   type CreditLifePresentedOffer,
@@ -21,6 +20,7 @@ import {
   PURPOSE_CATEGORIES,
   type ClientInfo,
 } from "./parts"
+import { creditLifePremiumForAmount, validAmountCents } from "./amount"
 
 interface ProductInfo {
   id: string
@@ -46,27 +46,12 @@ interface Props {
   creditLifeOffer: CreditLifePresentedOffer | null
 }
 
-export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, product, client, qualification, creditLifeOffer }: Props) {
+export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, product, client, creditLifeOffer }: Props) {
   const router = useRouter()
 
   const fixedTerm = product.minTermDays === product.maxTermDays
 
-  // Default amount: the qualification-derived max for the product, clamped
-  // to the product range. Falls back to product.minAmount.
-  const defaultAmountCents = useMemo(() => {
-    if (qualification) {
-      const productMax =
-        product.productType === "MICRO" ? qualification.microLoan.maxAmount
-        : product.productType === "PERSONAL" ? qualification.personalLoan.maxAmount
-        : qualification.poFunding.maxAmount
-      if (productMax > 0) {
-        return Math.min(Math.max(productMax, product.minAmount), product.maxAmount)
-      }
-    }
-    return product.minAmount
-  }, [qualification, product])
-
-  const [amount, setAmount] = useState<string>(String(Math.round(defaultAmountCents / 100)))
+  const [amount, setAmount] = useState<string>("")
   const [termDays, setTermDays] = useState<string>(fixedTerm ? String(product.minTermDays) : "")
   const [purpose, setPurpose] = useState("")
   const [category, setCategory] = useState<string>("")
@@ -80,17 +65,12 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
   const profileIncomplete =
     !client.idNumber || !client.phone || client.monthlyIncome <= 0
 
-  const amountRand = Number(amount)
-  const amountCents = Number.isFinite(amountRand) ? Math.round(amountRand * 100) : 0
-  const amountOutOfRange =
-    !Number.isFinite(amountRand)
-    || amountCents < product.minAmount
-    || amountCents > product.maxAmount
-  const creditLifeMonthlyPremiumCents = amountCents > 0
-    ? calculateCreditLifeMonthlyPremiumCents(amountCents)
-    : 0
+  const amountCents = validAmountCents(product, amount)
+  const amountOutOfRange = amountCents === null
+  const creditLifeMonthlyPremiumCents = creditLifePremiumForAmount(amountCents)
   const creditLifeAvailable =
     creditLifeOffer?.autoBundleEnabled === true
+    && amountCents !== null
     && creditLifePrincipalIsEligible(amountCents)
 
   const termNum = Number(termDays)
@@ -123,7 +103,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!canSubmit) return
+    if (!canSubmit || amountCents === null) return
     setSubmitting(true)
 
     try {
@@ -132,7 +112,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productCode: product.code,
-          amount: amountRand,
+          amount: amountCents / 100,
           termDays: fixedTerm ? undefined : termNum,
           purpose: purpose.trim(),
           loanPurposeCategory: category || null,
@@ -267,7 +247,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         </div>
 
         <div className="space-y-3 pt-2 border-t border-gray-100">
-          {creditLifeOffer && (
+          {creditLifeOffer && amountCents !== null && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
             <div>
               <p className="text-sm font-semibold text-gray-900">Credit life election</p>
