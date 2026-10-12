@@ -196,9 +196,13 @@ describe("compareFaces", () => {
 
   // A certified ID copy is often an A4 scan: shrunk to fit 640, its face is
   // too small to detect, so a large ID image also gets a full-resolution
-  // pass. BOTH passes always run on it: the face-count rule must hold on
-  // each, or a page whose 640 pass sees one of two comparable faces would
-  // verify a selfie of either (the breaker's REPRO 8).
+  // pass. Both passes always run, and their detections are MERGED before the
+  // face-count rule: counting each pass on its own let two comparable faces,
+  // one seen only by each pass, look like one face to both.
+  //
+  // In source pixels (the 1280x960 image is shrunk by 0.5 for the 640 pass):
+  // ONE_FACE is a 192 px box centred at (320, 320); on the full pass, a cell
+  // of size 6 at (10, 10) is the same box, and size 3 is a 96 px box.
   describe("an ID image larger than 640: both passes", () => {
     let largePng: Buffer
     beforeEach(async () => {
@@ -225,8 +229,8 @@ describe("compareFaces", () => {
       selfieFaceCount: 1,
     })
 
-    it("runs the full pass too when the 640 pass finds the face, and compares the 640 pass's face", async () => {
-      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 3 }]))
+    it("runs the full pass too, merging the same face from both passes into one", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }]))
       const result = await runLarge(runtime)
       expect(runtime.detect).toHaveBeenCalledTimes(3)
       expect(vi.mocked(runtime.detect).mock.calls[1].slice(1)).toEqual([960, 1280])
@@ -252,29 +256,48 @@ describe("compareFaces", () => {
     })
 
     it("refuses when the full pass sees two comparable faces, though the 640 pass saw one", async () => {
-      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 3 }, { row: 20, col: 30, size: 3 }]))
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }, { row: 20, col: 30, size: 6 }]))
       expect(await runLarge(runtime)).toEqual(comparable(2))
       expect(runtime.embed).not.toHaveBeenCalled()
     })
 
     it("refuses when the 640 pass sees two comparable faces, though the full pass saw one", async () => {
       const fit = outputsWithFaces([{ row: 5, col: 5, size: 3 }, { row: 12, col: 12, size: 3 }])
-      expect(await runLarge(runtimeFor(fit, full([{ row: 10, col: 10, size: 3 }])))).toEqual(comparable(2))
+      expect(await runLarge(runtimeFor(fit, full([{ row: 10, col: 10, size: 6 }])))).toEqual(comparable(2))
     })
 
-    it("refuses more than 64 faces on either pass", async () => {
-      const many = Array.from({ length: 65 }, (_, i) => ({ row: 1 + (i % 25), col: 1 + Math.floor(i / 25) * 10, size: 1 }))
-      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 15, col: 20, size: 6 }, ...many])))
+    it("refuses more than 64 faces in the merged list", async () => {
+      const many = Array.from({ length: 65 }, (_, i) => ({ row: 1 + (i % 25), col: 22 + Math.floor(i / 25) * 8, size: 1 }))
+      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }, ...many])))
       expect(result).toEqual(expect.objectContaining({ ok: false, idFaceCount: 66, rejection: expect.objectContaining({ reason: "extraction_incomplete" }) }))
     })
 
-    it("records the larger count, and that pass's ratio, beside the 640 pass's face", async () => {
-      // The full pass also sees a small ghost portrait (1/9 of the area).
-      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 3 }, { row: 25, col: 35, size: 1 }])))
+    // The reviewer's case: two comparable faces, A seen only by the 640 pass
+    // and B only by the full pass. Each pass alone sees one face.
+    it("refuses two comparable faces that each pass sees only one of", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 20, col: 30, size: 6 }]))
+      expect(await runLarge(runtime)).toEqual(comparable(2))
+      expect(runtime.embed).not.toHaveBeenCalled()
+    })
+
+    it("accepts a big face only the 640 pass sees beside a small one only the full pass sees, recording the ratio", async () => {
+      // 32 px against 192 px: 1/36 of the area, a ghost portrait.
+      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 25, col: 35, size: 1 }])))
       expect(result).toEqual(expect.objectContaining({
         ok: true,
         evidence: expect.objectContaining({
-          idDetectPass: "fit640", idFaceCount: 2, idSecondFaceAreaRatio: expect.closeTo(1 / 9, 6),
+          idDetectPass: "fit640", idFaceCount: 2, idSecondFaceAreaRatio: expect.closeTo(1 / 36, 6),
+        }),
+      }))
+    })
+
+    it("keeps the 640 pass's box for a face both passes found, and its ratio against the merged list", async () => {
+      // The same face on both passes, plus a ghost only the full pass sees.
+      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }, { row: 25, col: 35, size: 1 }])))
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        evidence: expect.objectContaining({
+          idDetectPass: "fit640", idFaceCount: 2, idSecondFaceAreaRatio: expect.closeTo(1 / 36, 6),
         }),
       }))
     })

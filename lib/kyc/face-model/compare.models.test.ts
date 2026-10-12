@@ -209,6 +209,26 @@ suite("compareFaces with the real models", () => {
     }
   })
 
+  // The reviewer's split case: two comparable drawn faces, one the 640 pass
+  // sees and the full pass does not (560 px, too large for it), the other
+  // the full pass sees and the 640 pass does not (380 px). Counted per pass,
+  // each saw one face; merged, they are two.
+  it("refuses two comparable faces that each pass sees only one of", async () => {
+    const reshaped = DRAWN.map((v, i) => ([0, 1, 3, 7].includes(i) ? Math.min(1, v + 0.3) : v))
+    const face = async (p: number[], width: number) => sharp(await sharp(drawnFace(p)).png().toBuffer()).resize(width).png().toBuffer()
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#ffffff" } })
+      .composite([{ input: await face(DRAWN, 560), left: 40, top: 60 }, { input: await face(reshaped, 380), left: 780, top: 1100 }])
+      .png().toBuffer()
+    for (const p of [DRAWN, reshaped]) {
+      const selfie = { fileBuffer: await sharp(drawnFace(p)).png().toBuffer(), mimeType: "image/png" }
+      expect(await compareFaces({ fileBuffer: page, mimeType: "image/png" }, selfie)).toEqual(expect.objectContaining({
+        ok: false,
+        idFaceCount: 2,
+        rejection: expect.objectContaining({ reason: "extraction_incomplete", message: expect.stringMatching(/comparable size/) }),
+      }))
+    }
+  })
+
   it("is deterministic", async () => {
     const image = { fileBuffer: await noise(), mimeType: "image/jpeg" }
     expect(await compareFaces(image, image)).toEqual(await compareFaces(image, image))

@@ -72,20 +72,22 @@ deps stage, which does not copy `.npmrc`.
    score = sqrt(cls x obj) >= 0.9, NMS at IoU 0.3, as `cv::FaceDetectorYN`.
    On the ID side only, for every ID image larger than 640, YuNet also runs
    on the full canonical image (at most 2048 px, padded to a multiple of 32),
-   boxes and landmarks in source pixels. Both passes always run: the
-   face-count rule must hold on each, or a page whose 640 pass sees only one
-   of two comparable faces would verify a selfie of either (the breaker's
-   REPRO 8, now a real-model test). Either pass seeing comparable faces or
-   more than 64 refuses; otherwise the 640 pass's face is compared when it
-   found one (it also sees faces too large for the full pass), else the full
-   pass's. The evidence records which pass the compared face came from
-   (`idDetectPass`: `fit640` or `full`) and the larger of the two counts, with
-   that pass's second-face ratio. This is what finds the face on an ID card scanned at true size on
+   boxes and landmarks in source pixels. Both passes always run, and their
+   detections are merged before the face-count rule: a full-pass box
+   overlapping a 640-pass box by more than IoU 0.3 is the same face, and the
+   640 pass's box is kept (it also sees faces too large for the full pass).
+   The comparable-faces rule, the 64 cap and the 1e-9 floor then apply to
+   the merged list, and the compared face, the count and the second-face
+   ratio all come from it; `idDetectPass` (`fit640` or `full`) names the pass
+   that produced the compared box. Counting each pass on its own let two
+   comparable faces, one seen only by each pass, look like one face to both;
+   real-model tests pin that split case and the breaker's REPRO 8 (one pass
+   seeing both faces, the other only one). This is what finds the face on an ID card scanned at true size on
    A4. The file declares a fixed 640x640 input, so after the checksum check
    `onnx-shape.ts` rewrites only its declared shapes as symbolic (weights and
    operators untouched; at 640 the outputs are bit-identical). The selfie side
    has no second pass.
-3. Face-count rule (below), applied to each pass.
+3. Face-count rule (below), applied to the merged detections.
 4. Each chosen face must be usable (below), then is aligned to SFace's 112x112
    template with the 5-point similarity transform of
    `cv::FaceRecognizerSF::alignCrop` (ArcFace landmarks), bilinear, zero

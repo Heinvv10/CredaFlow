@@ -144,7 +144,7 @@ export function decodeYunetOutputs(
 }
 
 /** Intersection over union of two boxes truncated to whole pixels (cv::Rect2i). */
-function overlap(a: DetectedFace, b: DetectedFace): number {
+export function overlap(a: DetectedFace, b: DetectedFace): number {
   const [ax, ay, aw, ah] = [a.x, a.y, a.width, a.height].map(Math.trunc)
   const [bx, by, bw, bh] = [b.x, b.y, b.width, b.height].map(Math.trunc)
   const w = Math.min(ax + aw, bx + bw) - Math.max(ax, bx)
