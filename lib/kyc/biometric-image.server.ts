@@ -40,16 +40,32 @@ export const MAX_INPUT_PIXELS = 50_000_000
  * at once would take a small container down for every tenant.
  */
 export const MAX_CONCURRENT_CANONICALISATIONS = 2
+/** A caller that cannot get a slot in this long is refused rather than queued without bound. */
+export const CANONICALISATION_WAIT_TIMEOUT_MS = 30_000
 let active = 0
 const waiting: Array<() => void> = []
 
-/** A slot; a released slot passes straight to the next waiter, so no third caller slips in. */
-function acquire(): Promise<void> {
+/**
+ * A slot, or false after the wait timeout. A released slot passes straight
+ * to the next waiter, so no third caller slips in; a waiter that times out
+ * leaves the queue.
+ */
+function acquire(): Promise<boolean> {
   if (active < MAX_CONCURRENT_CANONICALISATIONS) {
     active++
-    return Promise.resolve()
+    return Promise.resolve(true)
   }
-  return new Promise((resolve) => waiting.push(resolve))
+  return new Promise((resolve) => {
+    const granted = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      waiting.splice(waiting.indexOf(granted), 1)
+      resolve(false)
+    }, CANONICALISATION_WAIT_TIMEOUT_MS)
+    waiting.push(granted)
+  })
 }
 
 function release(): void {
@@ -63,10 +79,11 @@ type CanonicalResult = { ok: true; image: CanonicalBiometricImage } | { ok: fals
 /**
  * EXIF orientation applied (and the tag dropped), long edge at most 2048 px,
  * flattened on white, sRGB, JPEG; at most 8 MiB. Inputs above 50 MP are
- * refused, and at most two run at once (a PDF render included).
+ * refused, and at most two run at once (a PDF render included); a caller
+ * waits at most 30 s for a slot.
  */
 export async function canonicalBiometricImage(fileBuffer: Buffer, mimeType: string): Promise<CanonicalResult> {
-  await acquire()
+  if (!(await acquire())) return { ok: false, error: "The image check is busy; no slot came free within 30 s" }
   try {
     return await canonicalise(fileBuffer, mimeType)
   } finally {

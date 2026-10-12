@@ -10,6 +10,7 @@ vi.mock("@/lib/vlm-extract", () => ({
 import {
   CANONICAL_IMAGE_MAX_BYTES,
   CANONICAL_IMAGE_MAX_EDGE_PX,
+  CANONICALISATION_WAIT_TIMEOUT_MS,
   MAX_CONCURRENT_CANONICALISATIONS,
   canonicalBiometricImage,
 } from "./biometric-image.server"
@@ -147,6 +148,48 @@ describe("canonicalBiometricImage", () => {
       releases[1]()
       releases[2]()
       expect((await Promise.all(calls)).every((result) => result.ok)).toBe(true)
+    })
+  })
+
+  describe("slots", () => {
+    const page = () => sharp({ create: { width: 20, height: 20, channels: 3, background: "#ffffff" } }).jpeg().toBuffer()
+
+    it("gives up waiting for a slot after 30 s, refusing rather than queueing forever", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      const releases: Array<() => void> = []
+      const jpeg = await page()
+      documentImageMock.mockImplementation(() => new Promise((resolve) => {
+        releases.push(() => resolve({ ok: true, buffer: jpeg, mimeType: "image/jpeg" }))
+      }))
+      try {
+        const busy = [1, 2].map((n) => canonicalBiometricImage(Buffer.from(`pdf-${n}`), "application/pdf"))
+        const waiting = canonicalBiometricImage(Buffer.from("pdf-3"), "application/pdf")
+        await vi.advanceTimersByTimeAsync(CANONICALISATION_WAIT_TIMEOUT_MS)
+        expect(await waiting).toEqual({ ok: false, error: "The image check is busy; no slot came free within 30 s" })
+        expect(documentImageMock).toHaveBeenCalledTimes(2)
+        releases.forEach((release) => release())
+        expect((await Promise.all(busy)).every((result) => result.ok)).toBe(true)
+        // The timed-out waiter left the queue: both slots are free again, so
+        // two new calls both start (a stale waiter would swallow one slot).
+        const again = [4, 5].map((n) => canonicalBiometricImage(Buffer.from(`pdf-${n}`), "application/pdf"))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(documentImageMock).toHaveBeenCalledTimes(4)
+        releases.slice(2).forEach((release) => release())
+        expect((await Promise.all(again)).every((result) => result.ok)).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("frees the slot when canonicalisation throws", async () => {
+      documentImageMock.mockRejectedValue(new Error("render crashed"))
+      await expect(canonicalBiometricImage(Buffer.from("a"), "application/pdf")).rejects.toThrow("render crashed")
+      await expect(canonicalBiometricImage(Buffer.from("b"), "application/pdf")).rejects.toThrow("render crashed")
+      await expect(canonicalBiometricImage(Buffer.from("c"), "application/pdf")).rejects.toThrow("render crashed")
+      // With a slot leaked per throw, this one would wait out the 30 s timeout.
+      const jpeg = await page()
+      documentImageMock.mockResolvedValue({ ok: true, buffer: jpeg, mimeType: "image/jpeg" })
+      expect((await canonicalBiometricImage(Buffer.from("d"), "application/pdf")).ok).toBe(true)
     })
   })
 
