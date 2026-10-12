@@ -21,9 +21,9 @@ merge commits in this order). They were stacked, each on the previous one's
 branch, and each had green CI and three blind reviewers' SHIP/CLEAN on its
 final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 
-Follow-ups #30–#34 carry Hein's 2026-10-12 decisions. Each was branched from
-`main`, had three blind reviewers' SHIP/CLEAN on its final commit, and is merged
-before the PR that added this paragraph:
+Follow-ups #30–#34 and #36 carry Hein's 2026-10-12 decisions. Each was
+branched from `main` and had three blind reviewers' SHIP/CLEAN on its final
+commit; all are merged (#36 after this paragraph was first written):
 
 | PR | Branch | What |
 |---|---|---|
