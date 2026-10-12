@@ -149,8 +149,9 @@ bash scripts/run-integration-tests.sh
 docker rm -fv cf-it
 ```
 
-Tear down with `docker rm -fv`, never plain `docker rm -f`: the image keeps its
-data dir in an anonymous volume, and without `-v` every run leaves 45–90 MB
+Run the teardown even when an earlier step fails, against the name you gave
+`docker run`. Use `docker rm -fv`, never plain `docker rm -f`: the image keeps
+its data dir in an anonymous volume, and without `-v` every run leaves 45–90 MB
 behind (leaks like this reached 99 volumes, 7 GB, on velo-server in 1.5 days;
 2026-10-12).
 
