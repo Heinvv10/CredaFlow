@@ -6,7 +6,10 @@
 #                  snapshots/   bake output, one dir per UTC timestamp + `latest`
 #                  logs/        cron logs (cron-run.sh)
 #                  logs/LAST_FAILURE-<job>, last-bake, last-restore  results (status.sh)
+#                  bake.lock, restore.lock, cron-run.lock  the jobs' flock files
+#                  runner.json  the runner's last update (update-runner.sh)
 #   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
+#   DEMO_RUNNER_DIR  the clean checkout cron runs from; default ~/Workspace/CredaFlow-demo-runner
 #
 # Every Docker name the demo scripts touch is defined once, below. The live
 # project name can be overridden (DEMO_LIVE_PROJECT) only to point restore.sh
@@ -22,6 +25,11 @@ LIVE_DIR="${LIVE_DIR:-$HOME/Workspace/CredaFlow-demo}"
 SHARED_SECRETS="$DEMO_DATA_DIR/secrets.env"
 SNAP_DIR="$DEMO_DATA_DIR/snapshots"
 LOG_DIR="$DEMO_DATA_DIR/logs"
+BAKE_LOCK="$DEMO_DATA_DIR/bake.lock"
+RESTORE_LOCK="$DEMO_DATA_DIR/restore.lock"
+CRON_RUN_LOCK="$DEMO_DATA_DIR/cron-run.lock"
+DEMO_RUNNER_DIR="${DEMO_RUNNER_DIR:-$HOME/Workspace/CredaFlow-demo-runner}"
+RUNNER_STATE="$DEMO_DATA_DIR/runner.json"
 export DEMO_DATA_DIR
 
 # The live demo stack (docker-compose.demo.yml in $LIVE_DIR).

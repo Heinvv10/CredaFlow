@@ -80,7 +80,7 @@ if [ "$snap_image" != "$image" ]; then
 fi
 
 mkdir -p "$DEMO_DATA_DIR"
-exec 9>"$DEMO_DATA_DIR/restore.lock"
+exec 9>"$RESTORE_LOCK"
 flock -w 600 9 || die "another restore holds the lock"
 
 uploads_volume="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Name}}{{end}}{{end}}' "$LIVE_APP")"

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # One-screen health of the demo schedules: latest snapshot (age, image), the
-# image the live demo runs, the last bake and restore results, LAST_FAILURE.
+# image the live demo runs, the runner's commit, the last bake and restore
+# results, LAST_FAILURE.
 #
 #   scripts/demo/status.sh
 #
 # Exits 1 when something needs attention: a LAST_FAILURE, no snapshot, a
 # snapshot older than 35 days (the monthly bake missed), or a snapshot baked
-# on another image than live runs (every nightly restore then refuses).
+# on another image than live runs (every nightly restore then refuses), or a
+# runner that is dirty, missing, or not at the commit update-runner.sh recorded.
 set -euo pipefail
 # shellcheck source=scripts/demo/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -35,6 +37,22 @@ if live="$(docker inspect -f '{{.Config.Image}}' "$LIVE_APP" 2>/dev/null)"; then
   fi
 else
   flag "$LIVE_APP not found"
+fi
+
+if git -C "$DEMO_RUNNER_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "runner: $DEMO_RUNNER_DIR at $(git -C "$DEMO_RUNNER_DIR" log -1 --format='%h %s')"
+  if [ -s "$RUNNER_STATE" ]; then
+    echo "  last update: $(jq -r '"\(.commit[0:7]) at \(.updatedAt) (from \(.previous[0:7]))"' "$RUNNER_STATE")"
+    [ "$(jq -r .commit "$RUNNER_STATE")" = "$(git -C "$DEMO_RUNNER_DIR" rev-parse HEAD)" ] \
+      || flag "the runner is not at the commit update-runner.sh last recorded"
+  else
+    echo "  last update: (no record in $RUNNER_STATE)"
+  fi
+  [ -z "$(git -C "$DEMO_RUNNER_DIR" status --porcelain)" ] || flag "the runner has uncommitted or untracked changes"
+elif [ -s "$RUNNER_STATE" ]; then
+  flag "runner $DEMO_RUNNER_DIR not found (update-runner.sh recorded $(jq -r .commit "$RUNNER_STATE"))"
+else
+  echo "runner: none at $DEMO_RUNNER_DIR"
 fi
 
 for job in bake restore; do

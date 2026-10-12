@@ -65,7 +65,7 @@ if [ -n "$missing" ]; then
   record_failure 127
   exit 127
 fi
-exec 8>"$DEMO_DATA_DIR/cron-run.lock"
+exec 8>"$CRON_RUN_LOCK"
 if ! flock -w 10800 8; then
   echo "cron-run.sh: another demo job held cron-run.lock for 3 h; $job not run" > "$log"
   echo "exit 1" >> "$log"

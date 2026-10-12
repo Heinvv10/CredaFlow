@@ -38,7 +38,7 @@ done
 docker image inspect "$image" >/dev/null 2>&1 || die "image $image not found"
 
 mkdir -p "$SNAP_DIR"
-exec 9>"$DEMO_DATA_DIR/bake.lock"
+exec 9>"$BAKE_LOCK"
 flock -n 9 || die "another bake is running"
 
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
