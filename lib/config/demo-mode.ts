@@ -18,11 +18,11 @@ export function applyDemoHeaders<T extends Response>(
 }
 
 export const DEMO_BANNER_FALLBACK =
-  "Demo environment — this is a fictional lender. Do not enter real personal information."
+  "Demo environment — all data shown is sample data. Do not enter real personal information."
 
 export function demoBannerText(brandName: string | null): string {
   return brandName
-    ? `Demo environment — ${brandName} is a fictional lender. Do not enter real personal information.`
+    ? `${brandName} demo — all data shown is sample data. Do not enter real personal information.`
     : DEMO_BANNER_FALLBACK
 }
 

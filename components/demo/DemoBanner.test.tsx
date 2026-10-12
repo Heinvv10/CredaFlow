@@ -56,7 +56,7 @@ describe("DemoBanner", () => {
   it("names the tenant's brand and publishes its height when DEMO_MODE=true", async () => {
     vi.stubEnv("DEMO_MODE", "true")
     const html = await render()
-    expect(html).toContain("Demo environment — Acme Lending is a fictional lender.")
+    expect(html).toContain("Acme Lending demo — all data shown is sample data.")
     expect(html).toContain("--cf-demo-banner-h:3rem")
     expect(html).toContain("data-demo-banner")
   })
