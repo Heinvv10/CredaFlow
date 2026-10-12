@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { beforeAll, describe, expect, it } from "vitest"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 
 const RUN = process.env.RUN_BIOMETRIC_SEQUENCE_MIGRATION_IT === "1"
 const databaseUrl = process.env.DATABASE_URL
@@ -151,7 +152,7 @@ suite("biometric attempt sequence migration", () => {
         'valid-selfie.jpg', true, CURRENT_TIMESTAMP, 'done',
         '{"faceDetected":{"value":true},"facesCount":{"value":1},"isLive":{"value":true},"quality":{"value":"good"}}'::jsonb,
         false, 98, 98, 97, CURRENT_TIMESTAMP,
-        '{"ok":true,"verified":true,"matchScore":98,"livenessScore":97,"provider":"vlm-face-match-v2","idPhotoKind":"photograph","idPhotoIsRealPhotograph":true,"idPhotoFaceDetected":true,"selfieIsRealPhotograph":true,"samePerson":"same","faceMatch":true,"matchConfidence":0.98,"livenessConfidence":0.97,"subjectFingerprint":"${validSubjectFingerprint}"}'::jsonb,
+        '{"ok":true,"verified":true,"matchScore":98,"livenessScore":97,"provider":"vlm-face-match-v3","faceModel":${JSON.stringify(PASSING_FACE_MODEL_EVIDENCE)},"idPhotoKind":"photograph","idPhotoIsRealPhotograph":true,"idPhotoFaceDetected":true,"selfieIsRealPhotograph":true,"samePerson":"same","faceMatch":true,"matchConfidence":0.98,"livenessConfidence":0.97,"subjectFingerprint":"${validSubjectFingerprint}"}'::jsonb,
         CURRENT_TIMESTAMP
       );
 

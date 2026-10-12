@@ -1,31 +1,37 @@
 /**
- * Database proof for migration 20261011060000_face_match_v2_evidence.
+ * Database proof for migration 20261011080000_face_match_v3_evidence.
+ *
+ * Supersedes face-match-v2-evidence.integration.test.ts: every case it held
+ * is here on v3 evidence (v2 evidence no longer verifies, so its positive
+ * cases stopped being true), plus the face model's own fields.
  *
  * Run against a throwaway fully migrated PostgreSQL database:
  *
- *   RUN_FACE_MATCH_V2_IT=1 DATABASE_URL=postgresql://... \
- *     npx vitest run lib/kyc/face-match-v2-evidence.integration.test.ts
+ *   RUN_FACE_MATCH_V3_IT=1 DATABASE_URL=postgresql://... \
+ *     npx vitest run lib/kyc/face-match-v3-evidence.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
 import { afterAll, describe, expect, it } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 import {
   MANUAL_KYC_EXCEPTION_KIND,
   MANUAL_KYC_EXCEPTION_VERSION,
 } from "@/lib/kyc/manual-exception"
 
-const RUN = process.env.RUN_FACE_MATCH_V2_IT === "1"
+const RUN = process.env.RUN_FACE_MATCH_V3_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
 const db = new PrismaClient()
 const token = randomUUID().replaceAll("-", "")
 const NOT_VERIFIED = "Client KYC cannot be VERIFIED without current composite evidence"
 const approvedAt = new Date("2026-10-10T12:00:00.000Z")
 
-const v2Pass = {
+const v3Pass = {
   ok: true,
   verified: true,
-  provider: "vlm-face-match-v2",
+  provider: "vlm-face-match-v3",
+  faceModel: PASSING_FACE_MODEL_EVIDENCE,
   matchScore: 95,
   livenessScore: 97,
   idPhotoKind: "photograph",
@@ -43,33 +49,33 @@ let sequence = 0
 /** A client with four verified core documents and one SELFIE row. */
 async function clientWithSelfie(selfie: Record<string, unknown>) {
   sequence += 1
-  const tenantId = `tenant_fm_v2_${sequence}_${token}`
-  const clientId = `client_fm_v2_${sequence}_${token}`
-  const selfieId = `selfie_fm_v2_${sequence}_${token}`
+  const tenantId = `tenant_fm_v3_${sequence}_${token}`
+  const clientId = `client_fm_v3_${sequence}_${token}`
+  const selfieId = `selfie_fm_v3_${sequence}_${token}`
   const subject = {
     id: clientId,
-    idNumber: `FMV2-${sequence}-${token}`,
+    idNumber: `FMV3-${sequence}-${token}`,
     firstName: "Synthetic",
     lastName: "FaceMatch",
     dateOfBirth: new Date("1990-04-05T00:00:00.000Z"),
   }
   const subjectFingerprint = biometricSubjectFingerprint(subject)
   await db.tenant.create({
-    data: { id: tenantId, slug: `fm-v2-${sequence}-${token}`, name: "Face match v2 integration" },
+    data: { id: tenantId, slug: `fm-v3-${sequence}-${token}`, name: "Face match v3 integration" },
   })
   await db.client.create({
     data: {
       ...subject,
       tenantId,
-      reference: `CLI-FMV2-${sequence}-${token}`,
-      email: `fm-v2-${sequence}-${token}@test.invalid`,
+      reference: `CLI-FMV3-${sequence}-${token}`,
+      email: `fm-v3-${sequence}-${token}@test.invalid`,
       phone: "+27820000088",
     },
   })
   await db.clientDocument.createMany({
     data: (["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] as const).map(
       (docType, index) => ({
-        id: `fm_v2_core_${sequence}_${index}_${token}`,
+        id: `fm_v3_core_${sequence}_${index}_${token}`,
         tenantId,
         clientId,
         docType,
@@ -111,7 +117,7 @@ function failedSelfie(biometricFailureReason: string) {
     validationScore: 85,
     biometricMatchScore: 85,
     biometricLiveness: 95,
-    biometricResult: { ...v2Pass, verified: false, error: message, biometricFailureReason },
+    biometricResult: { ...v3Pass, verified: false, error: message, biometricFailureReason },
   }
 }
 
@@ -158,7 +164,7 @@ async function recordException(
         reason: "Synthetic integration exception after a controlled failed biometric attempt.",
         supportingEvidence: "Four verified synthetic core documents and the exact failed selfie were reviewed.",
         approvedAt: approvedAt.toISOString(),
-        approvedById: `reviewer_fm_v2_${token}`,
+        approvedById: `reviewer_fm_v3_${token}`,
         approvedByEmail: "reviewer@test.invalid",
       },
     },
@@ -171,14 +177,14 @@ function verify(clientId: string, method: "PHYSICAL" | "BIOMETRIC") {
     data: {
       kycStatus: "VERIFIED",
       kycVerifiedAt: approvedAt,
-      kycVerifiedById: method === "PHYSICAL" ? `reviewer_fm_v2_${token}` : null,
+      kycVerifiedById: method === "PHYSICAL" ? `reviewer_fm_v3_${token}` : null,
       kycVerificationMethod: method,
     },
     select: { kycStatus: true },
   })
 }
 
-suite("face match v2 evidence in the database", () => {
+suite("face match v3 evidence in the database", () => {
   afterAll(async () => {
     await db.$disconnect()
   })
@@ -214,13 +220,15 @@ suite("face match v2 evidence in the database", () => {
     await expect(verify(fixture.clientId, "PHYSICAL")).resolves.toEqual({ kycStatus: "VERIFIED" })
   })
 
-  it("verifies a client on consistent v2 biometric evidence", async () => {
-    const fixture = await clientWithSelfie(passedSelfie(v2Pass))
+  it("verifies a client on consistent v3 biometric evidence", async () => {
+    const fixture = await clientWithSelfie(passedSelfie(v3Pass))
     await expect(verify(fixture.clientId, "BIOMETRIC")).resolves.toEqual({ kycStatus: "VERIFIED" })
   })
 
   it.each([
     ["v1 evidence", { provider: "vlm-face-match-v1" }],
+    ["v2 evidence", { provider: "vlm-face-match-v2" }],
+    ["v2-shaped evidence tagged v3 with no face model", { faceModel: undefined }],
     ["untagged evidence", { provider: undefined }],
     ["a silhouette ID portrait", { idPhotoKind: "silhouette_placeholder" }],
     ["an ID photo that is not real", { idPhotoIsRealPhotograph: false }],
@@ -238,13 +246,13 @@ suite("face match v2 evidence in the database", () => {
     ["a raw match confidence of 95", { matchConfidence: 95 }],
     ["a raw liveness confidence of 95", { livenessConfidence: 95 }],
   ])("does not verify a client on verified:true %s", async (_label, change) => {
-    const fixture = await clientWithSelfie(passedSelfie({ ...v2Pass, ...change }))
+    const fixture = await clientWithSelfie(passedSelfie({ ...v3Pass, ...change }))
     await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
   })
 
   it("does not verify legacy provider evidence behind the VLM-unavailable marker", async () => {
     const fixture = await clientWithSelfie({
-      // Scores and raw confidences all pass; only the v2 verdict is absent.
+      // Scores and raw confidences all pass; only the v3 verdict is absent.
       ...passedSelfie({
         ok: true, verified: true, matchScore: 95, livenessScore: 97,
         matchConfidence: 0.95, livenessConfidence: 0.97,
@@ -254,16 +262,58 @@ suite("face match v2 evidence in the database", () => {
     await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
   })
 
+  // The VLM's confident "same" cannot verify a client the face model did not
+  // confirm, however the stored face-model fields were edited.
+  it.each([
+    ["a similarity below the threshold", { similarity: 0.2 }],
+    ["a similarity just below the threshold", { similarity: 0.36299999999999993 }],
+    ["a similarity above 1", { similarity: 1.0001 }],
+    ["a string similarity", { similarity: "0.71" }],
+    ["samePerson false", { samePerson: false }],
+    ["samePerson as the string true", { samePerson: "true" }],
+    ["a lowered threshold", { threshold: 0.2, similarity: 0.3 }],
+    ["a tampered detector checksum", { detectorSha256: "f".repeat(64) }],
+    ["a tampered recognizer checksum", { recognizerSha256: "f".repeat(64) }],
+    ["an int8 detector", { detector: "face_detection_yunet_2023mar_int8" }],
+    ["two selfie faces", { selfieFaceCount: 2 }],
+    ["no ID face", { idFaceCount: 0 }],
+    ["a fractional ID face count", { idFaceCount: 1.5 }],
+    ["a string ID face count", { idFaceCount: "1" }],
+    ["one ID face carrying a second-face ratio", { idSecondFaceAreaRatio: 0.2 }],
+    ["two ID faces without a ratio", { idFaceCount: 2 }],
+    ["two comparable ID faces", { idFaceCount: 2, idSecondFaceAreaRatio: 0.51 }],
+    ["a string second-face ratio", { idFaceCount: 2, idSecondFaceAreaRatio: "0.1" }],
+  ])("does not verify a client on v3 evidence with %s", async (_label, change) => {
+    const fixture = await clientWithSelfie(passedSelfie({
+      ...v3Pass,
+      faceModel: { ...PASSING_FACE_MODEL_EVIDENCE, ...change },
+    }))
+    await expect(verify(fixture.clientId, "BIOMETRIC")).rejects.toThrow(NOT_VERIFIED)
+  })
+
+  it.each([
+    ["a similarity exactly at the threshold", { similarity: 0.363 }],
+    ["a similarity of exactly 1", { similarity: 1 }],
+    ["a small ghost face on the ID", { idFaceCount: 2, idSecondFaceAreaRatio: 0.1 }],
+    ["a second ID face at exactly half the area", { idFaceCount: 3, idSecondFaceAreaRatio: 0.5 }],
+  ])("verifies a client on v3 evidence with %s", async (_label, change) => {
+    const fixture = await clientWithSelfie(passedSelfie({
+      ...v3Pass,
+      faceModel: { ...PASSING_FACE_MODEL_EVIDENCE, ...change },
+    }))
+    await expect(verify(fixture.clientId, "BIOMETRIC")).resolves.toEqual({ kycStatus: "VERIFIED" })
+  })
+
   it("verifies raw confidences of exactly 1", async () => {
     const fixture = await clientWithSelfie(
-      passedSelfie({ ...v2Pass, matchConfidence: 1, livenessConfidence: 1 }),
+      passedSelfie({ ...v3Pass, matchConfidence: 1, livenessConfidence: 1 }),
     )
     await expect(verify(fixture.clientId, "BIOMETRIC")).resolves.toEqual({ kycStatus: "VERIFIED" })
   })
 
   it("verifies raw confidences exactly at 0.7", async () => {
     const fixture = await clientWithSelfie(
-      passedSelfie({ ...v2Pass, matchConfidence: 0.7, livenessConfidence: 0.7 }),
+      passedSelfie({ ...v3Pass, matchConfidence: 0.7, livenessConfidence: 0.7 }),
     )
     await expect(verify(fixture.clientId, "BIOMETRIC")).resolves.toEqual({ kycStatus: "VERIFIED" })
   })

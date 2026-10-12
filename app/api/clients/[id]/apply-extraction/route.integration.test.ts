@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { PrismaClient } from "@prisma/client"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 
 const testState = vi.hoisted(() => ({
   tenantId: "",
@@ -204,7 +205,8 @@ suite("bank extraction KYC projection with database evidence trigger", () => {
           verified: true,
           matchScore: 98,
           livenessScore: 97,
-          provider: "vlm-face-match-v2",
+          provider: "vlm-face-match-v3",
+          faceModel: PASSING_FACE_MODEL_EVIDENCE,
           idPhotoKind: "photograph",
           idPhotoIsRealPhotograph: true,
           idPhotoFaceDetected: true,
