@@ -29,9 +29,11 @@ The weights are not committed. `npm run face-models:fetch` downloads them into
 refuses a file whose SHA-256 differs. The app checks the same SHA-256s on the
 bytes it hands to the runtime. The Dockerfile fetches them in the build stage;
 `next.config.ts` traces them, and the `libonnxruntime.so.1` the native binding
-links, into the standalone output. `ONNXRUNTIME_NODE_INSTALL=skip` in the image
-skips the ~270 MB of CUDA providers onnxruntime-node's postinstall otherwise
-downloads on linux/x64 (a local `npm ci` still downloads them; they are unused).
+links, into the standalone output. onnxruntime-node's postinstall otherwise
+downloads ~270 MB of CUDA providers on linux/x64 that nothing loads: the
+project `.npmrc` (`onnxruntime-node-install=skip`) skips them for a local or
+CI `npm ci`, and `ONNXRUNTIME_NODE_INSTALL=skip` does the same in the image's
+deps stage, which does not copy `.npmrc`.
 
 ## Pipeline
 
@@ -86,13 +88,21 @@ Observed (2026-10-12, 3 runs per cell; the model is deterministic, the VLM is no
 | Presenter card with the face covered | 0 / 1 | none | FAIL 3/3 |
 | Card with a drawn synthetic face | 0 / 1 | none | FAIL 3/3 |
 
-The margin above 0.363 on the one genuine pair is 0.51, but that pair is weak
-evidence: the specimen card prints the same photograph as the selfie. No
-impostor similarity was observed at all, because YuNet found no face on any
-negative card. **Not yet proven:** a genuine pair from two different photos of
-one person, and pairs of different real people. Both need consented photos
-(`private/faces/` in the demo data, absent at the time of writing) before the
-threshold is confirmed for production.
+The one genuine pair scored 0.8776, 0.51 above the threshold. See "Open"
+below for why that does not confirm the threshold.
+
+## Open
+
+- **No impostor similarity has been measured.** YuNet found no face on any
+  negative card, so no pair of different faces ever reached the comparison.
+- **The only genuine pair shares its source photo.** The specimen card prints
+  the same photograph as the selfie, so 0.8776 says nothing about two
+  different photos of one person.
+- **The threshold therefore rests on OpenCV's published 0.363 alone**, not on
+  observed data. Confirming it needs consented photos of real people: a
+  genuine pair from two different photos, and pairs of different people
+  (`private/faces/` in the demo data, absent at the time of writing). Until
+  then it is not confirmed for production.
 
 ## Fails closed
 
