@@ -10,6 +10,7 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run app/api/settings/users/route.integration.test.ts
  */
+import { AsyncLocalStorage } from "node:async_hooks"
 import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
@@ -26,13 +27,17 @@ const h = vi.hoisted(() => ({
   session: null as null | { user: Record<string, unknown> },
   /** Runs once, right after the route's first read of the target. */
   afterTargetRead: null as null | (() => Promise<unknown>),
+  /** Runs after every raw query a route's transaction makes (its row lock). */
+  afterLock: null as null | (() => Promise<unknown>),
 }))
+// Per-request sessions, for requests that run concurrently.
+const sessions = new AsyncLocalStorage<{ user: Record<string, unknown> }>()
 
 // The session is the only seam mocked. requireApiRole, the write gate,
 // withTenantContext (which binds the session's tenant to the request's) and
 // the audit writer are the real ones, against the real database.
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
-vi.mock("@/lib/auth", () => ({ auth: async () => h.session }))
+vi.mock("@/lib/auth", () => ({ auth: async () => sessions.getStore() ?? h.session }))
 // The real client, with a hook after `user.findFirst` — the read the route's
 // first role check is made on. A change injected there lands after that check
 // and before the write: the window a concurrent promotion or demotion has.
@@ -47,7 +52,20 @@ vi.mock("@/lib/prisma", async (importOriginal) => {
       return row
     },
   })
-  return { prisma: new Proxy(prisma, { get: (target, key) => key === "user" ? user : Reflect.get(target, key) }) }
+  // And a hook after the transaction's lock query, to hold two writes' locks open at once.
+  const $transaction = (fn: (tx: unknown) => Promise<unknown>, options?: unknown) =>
+    (prisma.$transaction as (fn: (tx: unknown) => Promise<unknown>, options?: unknown) => Promise<unknown>)(async (tx) => fn(new Proxy(tx as object, {
+      get: (target, key) => key !== "$queryRaw" ? Reflect.get(target, key) : async (...args: unknown[]) => {
+        const rows = await (target as { $queryRaw: (...a: unknown[]) => Promise<unknown> }).$queryRaw(...args)
+        await h.afterLock?.()
+        return rows
+      },
+    })), options)
+  return {
+    prisma: new Proxy(prisma, {
+      get: (target, key) => key === "user" ? user : key === "$transaction" ? $transaction : Reflect.get(target, key),
+    }),
+  }
 })
 
 import { POST } from "./route"
@@ -65,6 +83,8 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     officer: `user_rc_officer_${token}`,
     foreign: `user_rc_foreign_${token}`,
     root: `user_rc_root_${token}`,
+    peerA: `user_rc_peer_a_${token}`,
+    peerB: `user_rc_peer_b_${token}`,
     raceAdmin: `user_rc_race_admin_${token}`,
     raceTarget: `user_rc_race_target_${token}`,
     raceOfficer: `user_rc_race_officer_${token}`,
@@ -72,7 +92,11 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
   }
 
   function signIn(id: string, role: UserRole, tenantId = tenantA) {
-    h.session = { user: { id, email: emailOf(id), name: null, role, tenantId, totpVerified: true } }
+    h.session = session(id, role, tenantId)
+  }
+
+  function session(id: string, role: UserRole, tenantId = tenantA) {
+    return { user: { id, email: emailOf(id), name: null, role, tenantId, totpVerified: true, tokenVersion: 0 } }
   }
 
   function post(body: Record<string, unknown>) {
@@ -115,6 +139,8 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
         user(ids.officer, tenantA, "CREDIT_OFFICER"),
         user(ids.foreign, tenantB, "CREDIT_OFFICER"),
         user(ids.root, tenantA, "SUPER_ADMIN"),
+        user(ids.peerA, tenantA, "ADMIN"),
+        user(ids.peerB, tenantA, "ADMIN"),
         user(ids.raceAdmin, tenantA, "ADMIN"),
         user(ids.raceTarget, tenantA, "LOAN_ADMIN"),
         user(ids.raceOfficer, tenantA, "CREDIT_OFFICER"),
@@ -253,6 +279,19 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
       await setRole(ids.raceAdmin, "ADMIN")()
     })
 
+    // A password reset, deactivation or role change of the caller bumps its
+    // tokenVersion: the session that started the request is no longer valid.
+    it("refuses an edit by an admin whose session was invalidated meanwhile", async () => {
+      signIn(ids.raceAdmin, "ADMIN")
+      const before = await stored(ids.raceOfficer)
+      h.afterTargetRead = () => db.user.update({ where: { id: ids.raceAdmin }, data: { tokenVersion: { increment: 1 } } })
+      const res = await patch(ids.raceOfficer, { password: "synthetic-pass-4" })
+
+      expect(res.status).toBe(403)
+      expect(await stored(ids.raceOfficer)).toEqual(before)
+      await db.user.update({ where: { id: ids.raceAdmin }, data: { tokenVersion: 0 } })
+    })
+
     it("refuses a delete by a SUPER_ADMIN demoted meanwhile, and the user still exists", async () => {
       signIn(ids.root, "SUPER_ADMIN")
       h.afterTargetRead = setRole(ids.root, "ADMIN")
@@ -279,7 +318,7 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     // from another connection cannot slip in between the re-check and the write.
     it("holds the caller's and the target's rows against a concurrent role change until the transaction ends", async () => {
       const other = new PrismaClient()
-      const caller: StaffUser = { id: ids.raceAdmin, email: emailOf(ids.raceAdmin), name: null, role: "ADMIN", tenantId: tenantA, totpVerified: true }
+      const caller: StaffUser = { id: ids.raceAdmin, email: emailOf(ids.raceAdmin), name: null, role: "ADMIN", tenantId: tenantA, totpVerified: true, tokenVersion: 0 }
       const tryPromote = (id: string) => other.$transaction([
         other.$executeRaw`SET LOCAL lock_timeout = '200ms'`,
         other.user.update({ where: { id }, data: { role: "SUPER_ADMIN" } }),
@@ -297,6 +336,31 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
       } finally {
         await other.$disconnect()
       }
+    })
+
+    // Every path locks the caller's and target's rows in one statement, in id
+    // order. Two admins editing each other at once therefore queue rather than
+    // each holding one row and waiting for the other (a deadlock). The barrier
+    // holds the first lock open until the second write has tried for its own.
+    it("lets two admins edit each other at the same time without a deadlock", async () => {
+      let arrived = 0
+      let release!: () => void
+      const both = new Promise<void>((resolve) => { release = resolve })
+      h.afterLock = async () => {
+        if (++arrived === 2) release()
+        await Promise.race([both, new Promise((resolve) => setTimeout(resolve, 500))])
+      }
+      try {
+        const [a, b] = await Promise.all([
+          sessions.run(session(ids.peerA, "ADMIN"), () => patch(ids.peerB, { name: "Edited By A" })),
+          sessions.run(session(ids.peerB, "ADMIN"), () => patch(ids.peerA, { name: "Edited By B" })),
+        ])
+        expect([a.status, b.status]).toEqual([200, 200])
+      } finally {
+        h.afterLock = null
+      }
+      expect(await db.user.findMany({ where: { id: { in: [ids.peerA, ids.peerB] } }, select: { id: true, name: true }, orderBy: { id: "asc" } }))
+        .toEqual([{ id: ids.peerA, name: "Edited By B" }, { id: ids.peerB, name: "Edited By A" }])
     })
 
     it("still lets a SUPER_ADMIN delete a user with no history", async () => {

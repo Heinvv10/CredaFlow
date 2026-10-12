@@ -109,3 +109,20 @@ describe("totpVerified claim — jwt/session callbacks", () => {
     expect(session.user.totpVerified).toBe(true)
   })
 })
+
+// Staff-user writes compare it with the caller's locked row
+// (refuseLockedStaffUserWrite), so a session invalidated mid-request — a role
+// change, deactivation or password reset bumps the version — cannot finish one.
+describe("tokenVersion — session callback", () => {
+  it("copies the token's version onto the session", async () => {
+    const session = await h.config!.callbacks.session({ session: { user: {} }, token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 4 } })
+    expect(session.user.tokenVersion).toBe(4)
+  })
+
+  it("leaves it unset when the token carries no number, so the write gate fails closed", async () => {
+    for (const tokenVersion of [undefined, "4", null]) {
+      const session = await h.config!.callbacks.session({ session: { user: {} }, token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion } })
+      expect(session.user.tokenVersion).toBeUndefined()
+    }
+  })
+})

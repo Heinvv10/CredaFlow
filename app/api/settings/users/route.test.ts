@@ -50,9 +50,9 @@ import { POST } from "./route"
 const URL = "https://app.example.test/api/settings/users"
 
 function signedIn(role: string, extra: Record<string, unknown> = {}) {
-  h.lockedRows.mockResolvedValue([{ id: "caller-1", role, active: true }])
+  h.lockedRows.mockResolvedValue([{ id: "caller-1", role, active: true, tokenVersion: 2 }])
   h.auth.mockResolvedValue({
-    user: { id: "caller-1", email: "caller@acme-lending.example", name: "Caller", role, tenantId: "tenant-a", totpVerified: true, ...extra },
+    user: { id: "caller-1", email: "caller@acme-lending.example", name: "Caller", role, tenantId: "tenant-a", totpVerified: true, tokenVersion: 2, ...extra },
   })
 }
 
@@ -167,8 +167,9 @@ describe("POST /api/settings/users", () => {
   // The first check uses the session's role; the create re-checks the
   // caller's row, locked, in its own transaction.
   it.each([
-    ["demoted below the role being assigned", [{ id: "caller-1", role: "BRANCH_MANAGER", active: true }]],
-    ["deactivated", [{ id: "caller-1", role: "ADMIN", active: false }]],
+    ["demoted below the role being assigned", [{ id: "caller-1", role: "BRANCH_MANAGER", active: true, tokenVersion: 2 }]],
+    ["deactivated", [{ id: "caller-1", role: "ADMIN", active: false, tokenVersion: 2 }]],
+    ["signed out elsewhere (tokenVersion bumped)", [{ id: "caller-1", role: "ADMIN", active: true, tokenVersion: 3 }]],
     ["removed from the tenant", []],
   ])("refuses a caller %s after the first check, and creates nothing", async (_label, rows) => {
     signedIn("ADMIN")

@@ -185,8 +185,8 @@ describe("refuseStaffUserWrite", () => {
 })
 
 describe("refuseLockedStaffUserWrite", () => {
-  const admin: StaffUser = { id: "admin-1", email: "admin@acme-lending.example", name: "Admin", role: "ADMIN", tenantId: "tenant-a", totpVerified: true }
-  const row = (id: string, role: string, active = true) => ({ id, role, active })
+  const admin: StaffUser = { id: "admin-1", email: "admin@acme-lending.example", name: "Admin", role: "ADMIN", tenantId: "tenant-a", totpVerified: true, tokenVersion: 3 }
+  const row = (id: string, role: string, active = true, tokenVersion = 3) => ({ id, role, active, tokenVersion })
   const txWith = (rows: unknown[]) => ({ $queryRaw: vi.fn().mockResolvedValue(rows), auditLog: {} }) as never as Parameters<typeof refuseLockedStaffUserWrite>[0]
   const write = { tenantId: "tenant-a", targetId: "u2", assignedRole: undefined }
 
@@ -215,6 +215,20 @@ describe("refuseLockedStaffUserWrite", () => {
     ["missing (another tenant, or deleted)", [row("u2", "CREDIT_OFFICER")]],
   ])("refuses a caller whose row is %s with 403", async (_label, rows) => {
     const result = await refuseLockedStaffUserWrite(txWith(rows), admin, write)
+    expect(result.refused?.status).toBe(403)
+  })
+
+  // A role change, deactivation or password reset of the caller bumps the
+  // version: whatever it was, the session that started this request is stale.
+  it("refuses a caller whose row's tokenVersion no longer matches the session", async () => {
+    const result = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN", true, 4), row("u2", "CREDIT_OFFICER")]), admin, write)
+    expect(result.refused?.status).toBe(403)
+    expect(logAuditStrictMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a session that carries no tokenVersion", async () => {
+    const { tokenVersion: _omit, ...noVersion } = admin
+    const result = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "CREDIT_OFFICER")]), noVersion, write)
     expect(result.refused?.status).toBe(403)
   })
 

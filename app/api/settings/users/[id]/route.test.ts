@@ -53,15 +53,15 @@ vi.mock("bcryptjs", () => ({ default: { hash: async (value: string) => `hashed:$
 
 import { DELETE, PATCH } from "./route"
 
-type Row = { id: string; role: string; active: boolean }
+type Row = { id: string; role: string; active: boolean; tokenVersion?: number }
 let locked: { caller?: Row; target?: Row } = {}
 
 const URL = "https://app.example.test/api/settings/users/target-1"
 
 function signedIn(role: string, extra: Record<string, unknown> = {}) {
-  locked.caller = { id: "caller-1", role, active: true }
+  locked.caller = { id: "caller-1", role, active: true, tokenVersion: 7 }
   h.auth.mockResolvedValue({
-    user: { id: "caller-1", email: "caller@acme-lending.example", name: "Caller", role, tenantId: "tenant-a", totpVerified: true, ...extra },
+    user: { id: "caller-1", email: "caller@acme-lending.example", name: "Caller", role, tenantId: "tenant-a", totpVerified: true, tokenVersion: 7, ...extra },
   })
 }
 
@@ -348,7 +348,7 @@ describe("PATCH /api/settings/users/[id] — the locked re-check", () => {
   it("refuses when the caller was demoted below the target after the first check", async () => {
     signedIn("ADMIN")
     target("CREDIT_OFFICER")
-    locked.caller = { id: "caller-1", role: "READONLY", active: true }
+    locked.caller = { id: "caller-1", role: "READONLY", active: true, tokenVersion: 7 }
     const res = await patch({ email: "renamed@acme-lending.example" })
 
     expect(res.status).toBe(403)
@@ -358,7 +358,7 @@ describe("PATCH /api/settings/users/[id] — the locked re-check", () => {
   it("refuses when the caller was demoted below the role being assigned", async () => {
     signedIn("ADMIN")
     target("CREDIT_OFFICER")
-    locked.caller = { id: "caller-1", role: "BRANCH_MANAGER", active: true }
+    locked.caller = { id: "caller-1", role: "BRANCH_MANAGER", active: true, tokenVersion: 7 }
     const res = await patch({ role: "ADMIN" })
 
     expect(res.status).toBe(403)
@@ -367,7 +367,8 @@ describe("PATCH /api/settings/users/[id] — the locked re-check", () => {
   })
 
   it.each([
-    ["deactivated", { id: "caller-1", role: "ADMIN", active: false }],
+    ["deactivated", { id: "caller-1", role: "ADMIN", active: false, tokenVersion: 7 }],
+    ["signed out elsewhere (tokenVersion bumped)", { id: "caller-1", role: "ADMIN", active: true, tokenVersion: 8 }],
     ["removed from the tenant", undefined],
   ])("refuses when the caller was %s after the first check", async (_label, caller) => {
     signedIn("ADMIN")
@@ -443,7 +444,7 @@ describe("DELETE /api/settings/users/[id]", () => {
   ])("refuses a SUPER_ADMIN demoted after the first check, for a target %s", async (_label, fitAndProper) => {
     signedIn("SUPER_ADMIN")
     target("ADMIN", { fitAndProper })
-    locked.caller = { id: "caller-1", role: "ADMIN", active: true }
+    locked.caller = { id: "caller-1", role: "ADMIN", active: true, tokenVersion: 7 }
     const res = await del()
 
     expect(res.status).toBe(403)

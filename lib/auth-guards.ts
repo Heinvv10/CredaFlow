@@ -16,6 +16,8 @@ export type StaffUser = {
   tenantId: string
   /** This session's sign-in verified a TOTP code. */
   totpVerified?: boolean
+  /** The User row's tokenVersion when this session was issued. */
+  tokenVersion?: number
 }
 
 /**
@@ -239,8 +241,10 @@ export async function refuseStaffUserWrite(
  * waits; unlike FOR UPDATE it does not block an insert that only references
  * a row (an audit row naming the caller).
  *
- * A caller whose row is gone, inactive or in another tenant is refused (403).
- * Returns the locked roles for the caller's own checks and audit.
+ * A caller whose row is gone, inactive, in another tenant, or at a different
+ * tokenVersion than the session (a role change, deactivation or password
+ * reset since sign-in) is refused (403). Returns the locked roles for the
+ * caller's own checks and audit.
  */
 export async function refuseLockedStaffUserWrite(
   tx: Pick<typeof prisma, "$queryRaw" | "auditLog">,
@@ -248,15 +252,17 @@ export async function refuseLockedStaffUserWrite(
   write: { tenantId: string; targetId?: string; assignedRole: unknown },
 ): Promise<{ refused: NextResponse } | { refused: null; callerRole: UserRole; targetRole: UserRole | null }> {
   const ids = write.targetId ? [caller.id, write.targetId] : [caller.id]
-  const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean }>>(Prisma.sql`
-    SELECT "id", "role"::text AS "role", "active"
+  const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean; tokenVersion: number }>>(Prisma.sql`
+    SELECT "id", "role"::text AS "role", "active", "tokenVersion"
     FROM "User"
     WHERE "id" IN (${Prisma.join(ids)}) AND "tenantId" = ${write.tenantId}
     ORDER BY "id"
     FOR NO KEY UPDATE
   `)
   const fresh = rows.find(r => r.id === caller.id)
-  if (!fresh?.active) return { refused: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  if (!fresh?.active || fresh.tokenVersion !== caller.tokenVersion) {
+    return { refused: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  }
   let targetRole: UserRole | null = null
   if (write.targetId) {
     const target = rows.find(r => r.id === write.targetId)

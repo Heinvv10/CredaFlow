@@ -33,7 +33,7 @@ const h = vi.hoisted(() => ({
 // withTenantContext and the audit writer are the real ones.
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({
-  auth: async () => ({ user: { id: ids.admin, email: `${ids.admin}@test.invalid`, name: null, role: "ADMIN", tenantId, totpVerified: true } }),
+  auth: async () => ({ user: { id: ids.admin, email: `${ids.admin}@test.invalid`, name: null, role: "ADMIN", tenantId, totpVerified: true, tokenVersion: 0 } }),
 }))
 
 // The real client, with a hook after `user.findFirst` — the read the route's

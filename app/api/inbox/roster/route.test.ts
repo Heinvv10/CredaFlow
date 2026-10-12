@@ -25,10 +25,10 @@ import { GET, PATCH } from "./route"
 beforeEach(() => {
   vi.clearAllMocks()
   requireCommsAgentMock.mockResolvedValue({ user: { id: "u1", email: "a@b.c", role: "ADMIN" } })
-  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN", totpVerified: true } })
+  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN", totpVerified: true, tokenVersion: 1 } })
   userFindFirstMock.mockResolvedValue({ role: "CREDIT_OFFICER" })
   logAuditStrictMock.mockReset()
-  lockedRowsMock.mockImplementation(async () => [{ id: "admin1", role: "ADMIN", active: true }, { id: "u2", role: (await userFindFirstMock.mock.results.at(-1)?.value)?.role, active: true }])
+  lockedRowsMock.mockImplementation(async () => [{ id: "admin1", role: "ADMIN", active: true, tokenVersion: 1 }, { id: "u2", role: (await userFindFirstMock.mock.results.at(-1)?.value)?.role, active: true }])
 })
 
 const toggle = () => PATCH(new NextRequest("http://x/api/inbox/roster", { method: "PATCH", body: JSON.stringify({ userId: "u2", isCommsAgent: true }) }))
@@ -88,7 +88,7 @@ it("PATCH lets an ADMIN toggle a fellow ADMIN", async () => {
 })
 
 it.each([false, undefined])("PATCH refuses a session whose sign-in did not verify TOTP (%j) and toggles nothing", async (totpVerified) => {
-  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN", totpVerified } })
+  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN", totpVerified, tokenVersion: 1 } })
   const res = await toggle()
   expect(res.status).toBe(403)
   expect((await res.json()).error).toMatch(/two-factor/)
@@ -122,7 +122,7 @@ it("PATCH toggles nothing when the refused attempt cannot be audited", async () 
 // The first check reads the member's role; the toggle re-checks it on the row
 // its transaction has locked, so a promotion in between cannot be carried over.
 it("PATCH refuses a member promoted above the caller after the first check, audits it in the transaction and toggles nothing", async () => {
-  lockedRowsMock.mockResolvedValue([{ id: "admin1", role: "ADMIN", active: true }, { id: "u2", role: "SUPER_ADMIN", active: true }])
+  lockedRowsMock.mockResolvedValue([{ id: "admin1", role: "ADMIN", active: true, tokenVersion: 1 }, { id: "u2", role: "SUPER_ADMIN", active: true }])
   const res = await toggle()
   expect(res.status).toBe(403)
   expect(setAgentMock).not.toHaveBeenCalled()
@@ -132,7 +132,7 @@ it("PATCH refuses a member promoted above the caller after the first check, audi
 })
 
 it("PATCH refuses a caller deactivated after the first check and toggles nothing", async () => {
-  lockedRowsMock.mockResolvedValue([{ id: "admin1", role: "ADMIN", active: false }, { id: "u2", role: "CREDIT_OFFICER", active: true }])
+  lockedRowsMock.mockResolvedValue([{ id: "admin1", role: "ADMIN", active: false, tokenVersion: 1 }, { id: "u2", role: "CREDIT_OFFICER", active: true }])
   expect((await toggle()).status).toBe(403)
   expect(setAgentMock).not.toHaveBeenCalled()
 })
