@@ -46,8 +46,13 @@ suite("signing packet ownership and access log", () => {
     outsider: `client_packet_outsider_${token}`,
     product: `product_packet_${token}`,
     application: `application_packet_${token}`,
+    product2: `product_packet_2_${token}`,
+    crossPasq: `application_packet_cross_pasq_${token}`,
+    crossAgreement: `application_packet_cross_agreement_${token}`,
     pasq: `document_packet_pasq_${token}`,
     agreement: `document_packet_agreement_${token}`,
+    neighbourPasq: `document_packet_neighbour_pasq_${token}`,
+    neighbourAgreement: `document_packet_neighbour_agreement_${token}`,
   }
   const slugs = { lender: `packet-a-${token}`, otherLender: `packet-b-${token}` }
   let storageDir: string
@@ -57,18 +62,19 @@ suite("signing packet ownership and access log", () => {
   })
 
   /** `slug` is the lender whose deployment the request arrives at. */
-  function read(session: Session, slug = slugs.lender): Promise<Response> {
+  function read(session: Session, slug = slugs.lender, applicationId = ids.application): Promise<Response> {
     authState.session = session
     const req = new NextRequest(
-      `http://portal.test.invalid/api/applications/${ids.application}/signing-packet`,
+      `http://portal.test.invalid/api/applications/${applicationId}/signing-packet`,
       { headers: { "x-tenant-slug": slug } },
     )
-    return GET(req, { params: Promise.resolve({ id: ids.application }) }) as Promise<Response>
+    return GET(req, { params: Promise.resolve({ id: applicationId }) }) as Promise<Response>
   }
 
+  const documentIds = [ids.pasq, ids.agreement, ids.neighbourPasq, ids.neighbourAgreement]
   const accessRows = () =>
     db.documentAccessLog.findMany({
-      where: { documentId: { in: [ids.pasq, ids.agreement] } },
+      where: { documentId: { in: documentIds } },
       select: { documentId: true, accessorType: true, accessorId: true, action: true },
       orderBy: { documentId: "asc" },
     })
@@ -104,12 +110,13 @@ suite("signing packet ownership and access log", () => {
         phone: `+2782000003${n}`,
       })),
     })
-    await db.loanProduct.create({
-      data: {
-        id: ids.product,
+    // Two products: one open application per client and product.
+    await db.loanProduct.createMany({
+      data: [[ids.product, "1"], [ids.product2, "2"]].map(([id, n]) => ({
+        id,
         tenantId: ids.lender,
-        code: `PACKET-${token}`,
-        name: "Packet product",
+        code: `PACKET-${n}-${token}`,
+        name: `Packet product ${n}`,
         productType: "PERSONAL",
         minAmount: 100_000,
         maxAmount: 1_000_000,
@@ -117,76 +124,79 @@ suite("signing packet ownership and access log", () => {
         maxTermDays: 90,
         interestRatePm: 0.03,
         interestModel: "DAILY_ACCRUAL",
-      },
+      })),
     })
     const generatedAt = new Date("2026-10-01T08:00:00.000Z")
     const evidenceSha256 = "b".repeat(64)
-    await db.loanApplication.create({
-      data: {
-        id: ids.application,
-        tenantId: ids.lender,
-        reference: `APP-PACKET-${token}`,
-        clientId: ids.owner,
-        productId: ids.product,
-        appliedAmount: 500_000,
-        appliedTermDays: 30,
-        status: "UNDER_REVIEW",
-        pasqVersion: "pasq-v3",
-        pasqGeneratedAt: generatedAt,
-        pasqDocumentId: ids.pasq,
-        pasqDocumentSha256: sha(pasq),
-        pasqEvidence: {
-          version: "pasq-v3",
+    // The other two are the neighbour's OWN applications, each with one
+    // pointer at the owner's document and the other at the neighbour's own.
+    // The database binds the PASQ pointer to its client only once an
+    // application is APPROVED (guardLoanApplicationTenantBinding), and the
+    // agreement pointer not at all, so these rows are writable; the route is
+    // what must refuse to serve them.
+    for (const [applicationId, clientId, productId, pasqId, agreementId, n] of [
+      [ids.application, ids.owner, ids.product, ids.pasq, ids.agreement, "1"],
+      [ids.crossPasq, ids.neighbour, ids.product, ids.pasq, ids.neighbourAgreement, "2"],
+      [ids.crossAgreement, ids.neighbour, ids.product2, ids.neighbourPasq, ids.agreement, "3"],
+    ]) {
+      await db.loanApplication.create({
+        data: {
+          id: applicationId,
           tenantId: ids.lender,
-          applicationId: ids.application,
-          clientId: ids.owner,
-          productId: ids.product,
-          evidenceSha256,
+          reference: `APP-PACKET-${n}-${token}`,
+          clientId,
+          productId,
+          appliedAmount: 500_000,
+          appliedTermDays: 30,
+          status: "UNDER_REVIEW",
+          pasqVersion: "pasq-v3",
+          pasqGeneratedAt: generatedAt,
+          pasqDocumentId: pasqId,
+          pasqDocumentSha256: sha(pasq),
+          pasqEvidence: {
+            version: "pasq-v3",
+            tenantId: ids.lender,
+            applicationId,
+            clientId,
+            productId,
+            evidenceSha256,
+          },
+          pasqEvidenceSha256: evidenceSha256,
+          agreementGeneratedAt: generatedAt,
+          agreementDocumentId: agreementId,
+          agreementDocumentSha256: sha(agreement),
         },
-        pasqEvidenceSha256: evidenceSha256,
-        agreementGeneratedAt: generatedAt,
-        agreementDocumentId: ids.agreement,
-        agreementDocumentSha256: sha(agreement),
-      },
-    })
+      })
+    }
     await db.clientDocument.createMany({
       data: [
-        {
-          id: ids.pasq,
-          tenantId: ids.lender,
-          clientId: ids.owner,
-          docType: "FORM_20_PRE_AGREEMENT",
-          fileUrl: `/api/applications/${ids.application}/pasq`,
-          fileName: "pasq.pdf",
-          mimeType: "application/pdf",
-          storagePath: pasqPath,
-          contentSha256: sha(pasq),
-          extractionStatus: "skipped",
-        },
-        {
-          id: ids.agreement,
-          tenantId: ids.lender,
-          clientId: ids.owner,
-          docType: "CREDIT_AGREEMENT",
-          fileUrl: `/api/applications/${ids.application}/agreement`,
-          fileName: "agreement.pdf",
-          mimeType: "application/pdf",
-          storagePath: agreementPath,
-          contentSha256: sha(agreement),
-          extractionStatus: "skipped",
-        },
-      ],
+        [ids.pasq, ids.owner, "FORM_20_PRE_AGREEMENT", pasqPath, sha(pasq)],
+        [ids.agreement, ids.owner, "CREDIT_AGREEMENT", agreementPath, sha(agreement)],
+        [ids.neighbourPasq, ids.neighbour, "FORM_20_PRE_AGREEMENT", pasqPath, sha(pasq)],
+        [ids.neighbourAgreement, ids.neighbour, "CREDIT_AGREEMENT", agreementPath, sha(agreement)],
+      ].map(([id, clientId, docType, storagePath, contentSha256]) => ({
+        id,
+        tenantId: ids.lender,
+        clientId,
+        docType: docType as "FORM_20_PRE_AGREEMENT" | "CREDIT_AGREEMENT",
+        fileUrl: "",
+        fileName: path.basename(storagePath),
+        mimeType: "application/pdf",
+        storagePath,
+        contentSha256,
+        extractionStatus: "skipped",
+      })),
     })
   })
 
   afterAll(async () => {
     await rm(storageDir, { recursive: true, force: true })
-    await db.documentAccessLog.deleteMany({
-      where: { documentId: { in: [ids.pasq, ids.agreement] } },
+    await db.documentAccessLog.deleteMany({ where: { documentId: { in: documentIds } } })
+    await db.loanApplication.deleteMany({
+      where: { id: { in: [ids.application, ids.crossPasq, ids.crossAgreement] } },
     })
-    await db.loanApplication.deleteMany({ where: { id: ids.application } })
-    await db.clientDocument.deleteMany({ where: { id: { in: [ids.pasq, ids.agreement] } } })
-    await db.loanProduct.deleteMany({ where: { id: ids.product } })
+    await db.clientDocument.deleteMany({ where: { id: { in: documentIds } } })
+    await db.loanProduct.deleteMany({ where: { id: { in: [ids.product, ids.product2] } } })
     await db.client.deleteMany({
       where: { id: { in: [ids.owner, ids.neighbour, ids.outsider] } },
     })
@@ -202,6 +212,16 @@ suite("signing packet ownership and access log", () => {
       [await read(null), 401],
     ] as const
     for (const [res, status] of refused) expect(res.status).toBe(status)
+    expect(await accessRows()).toEqual([])
+  })
+
+  it.each([
+    ["PASQ", () => ids.crossPasq],
+    ["credit agreement", () => ids.crossAgreement],
+  ])("refuses a client's own application whose %s is another client's", async (_which, applicationId) => {
+    const res = await read(client(ids.neighbour, ids.lender), slugs.lender, applicationId())
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: "One or more signing-packet documents are unavailable." })
     expect(await accessRows()).toEqual([])
   })
 
