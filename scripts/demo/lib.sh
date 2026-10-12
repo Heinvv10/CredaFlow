@@ -66,6 +66,19 @@ SELECT json_build_object(
 SQL
 )"
 
+# Turns TOTP off for every staff user but SUPER_ADMIN and prints how many rows
+# changed. restore.sh runs it on the staged demo db when the live app runs with
+# DEMO_CLEAR_STAFF_TOTP=true (the CLAUDE.md TOTP exception for demo stacks).
+# Tested by staff-totp-off.integration.test.ts.
+STAFF_TOTP_OFF_SQL="$(cat <<'SQL'
+WITH c AS (
+  UPDATE "User" SET "totpEnabled" = false, "totpSecret" = NULL, "lastTotpCounter" = NULL
+  WHERE role <> 'SUPER_ADMIN'
+  RETURNING 1)
+SELECT count(*) FROM c
+SQL
+)"
+
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 note() { echo "[${0##*/} $(date -u +%H:%M:%S)] $*" >&2; }
 

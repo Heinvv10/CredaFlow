@@ -49,7 +49,9 @@ obligations, not style:
 - **Audit trail.** Every state-changing user action runs through
   `lib/audit.ts`. Don't bypass it for "just this one path".
 - **TOTP 2FA is mandatory for staff.** Don't add staff-write paths that skip
-  2FA. See `lib/totp.ts`, `lib/auth.ts`.
+  2FA. See `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic
+  demo stacks: `scripts/demo/restore.sh` turns staff TOTP off when the demo
+  app runs with `DEMO_CLEAR_STAFF_TOTP=true`. Never set it on a real lender.
 - **Document access is logged.** `ClientDocument` access goes through
   `lib/document-auth.ts`, which writes a `DocumentAccessLog` row — POPIA
   compliance depends on it.
