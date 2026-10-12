@@ -156,6 +156,11 @@ const cases: Case[] = [
   { name: "face model: idFaceCount 64 with a small second face", expected: true, br: BR(`"faceModel":${FM(`"idFaceCount":64,"idSecondFaceAreaRatio":0.01`)}`) },
   { name: "face model: idFaceCount 65", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":65,"idSecondFaceAreaRatio":0.01`)}`) },
   { name: "face model: a second-face ratio of 0", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":0`)}`) },
+  // JS parses 1e-400 as 0 and refused it; SQL read a positive numeric and
+  // accepted it. The 1e-9 floor makes both refuse.
+  { name: "face model: a second-face ratio of 1e-400", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":1e-400`)}`) },
+  { name: "face model: a second-face ratio exactly 1e-9", expected: true, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":1e-9`)}`) },
+  { name: "face model: a second-face ratio of 9e-10", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":9e-10`)}`) },
   // The quality floors and ceilings on each compared face.
   { name: "face model: eyes exactly 24 px apart on both", expected: true, br: BR(`"faceModel":${FM(`"idInterOcularPx":24,"selfieInterOcularPx":24`)}`) },
   { name: "face model: ID eyes 23.9 px apart", expected: false, br: BR(`"faceModel":${FM(`"idInterOcularPx":23.9`)}`) },

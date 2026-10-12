@@ -13,6 +13,7 @@ import {
   FACE_SIMILARITY_THRESHOLD,
   ID_MAX_FACE_COUNT,
   ID_SECOND_FACE_MAX_AREA_RATIO,
+  ID_SECOND_FACE_MIN_AREA_RATIO,
   MAX_ALIGNED_CROP_SHARPNESS,
   MAX_INTER_OCULAR_PX,
   MIN_ALIGNED_CROP_SHARPNESS,
@@ -75,6 +76,7 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
     expect(holds).toContain(`p_evidence -> 'threshold' = '${FACE_SIMILARITY_THRESHOLD}'::jsonb`)
     expect(holds).toContain(`BETWEEN ${FACE_SIMILARITY_THRESHOLD} AND 1`)
     expect(holds).toContain(`::numeric <= ${ID_SECOND_FACE_MAX_AREA_RATIO}`)
+    expect(holds).toContain(`'idSecondFaceAreaRatio')::numeric >= ${ID_SECOND_FACE_MIN_AREA_RATIO}`)
     expect(holds).toContain(`BETWEEN 2 AND ${ID_MAX_FACE_COUNT}`)
     for (const side of ["id", "selfie"]) {
       expect(holds).toContain(`'${side}InterOcularPx')::numeric BETWEEN ${MIN_INTER_OCULAR_PX} AND ${MAX_INTER_OCULAR_PX}`)

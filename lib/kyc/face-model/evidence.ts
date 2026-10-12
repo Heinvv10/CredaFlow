@@ -8,6 +8,7 @@ import {
   FACE_SIMILARITY_THRESHOLD,
   ID_MAX_FACE_COUNT,
   ID_SECOND_FACE_MAX_AREA_RATIO,
+  ID_SECOND_FACE_MIN_AREA_RATIO,
   MAX_ALIGNED_CROP_SHARPNESS,
   MAX_INTER_OCULAR_PX,
   MIN_ALIGNED_CROP_SHARPNESS,
@@ -55,7 +56,7 @@ export function faceModelEvidenceRefusal(
     idFaceCount === 1
       ? ratio === null
       : idFaceCount > 1 && idFaceCount <= ID_MAX_FACE_COUNT &&
-        isNumber(ratio) && ratio > 0 && ratio <= ID_SECOND_FACE_MAX_AREA_RATIO
+        within(ratio, ID_SECOND_FACE_MIN_AREA_RATIO, ID_SECOND_FACE_MAX_AREA_RATIO)
   )
   const facesUsable = (["id", "selfie"] as const).every((side) =>
     within(evidence[`${side}InterOcularPx`], MIN_INTER_OCULAR_PX, MAX_INTER_OCULAR_PX) &&

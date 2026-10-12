@@ -57,9 +57,10 @@ AS $function$
       ELSE false
     END
     -- One ID face with no ratio, or 2..64 where every other face's box is
-    -- more than nothing and at most half the compared face's (the smart ID
+    -- at least 1e-9 and at most half the compared face's (the smart ID
     -- card's ghost portrait). Bounded so no stored count is beyond what the
-    -- application can read back (1e400 is a valid numeric, not a double).
+    -- application can read back (1e400 is a valid numeric, not a double), and
+    -- floored so a ratio JS reads as 0 (1e-400) is refused here too.
     AND CASE
       WHEN jsonb_typeof(p_evidence -> 'idFaceCount') IS DISTINCT FROM 'number' THEN false
       WHEN (p_evidence ->> 'idFaceCount')::numeric = 1
@@ -68,7 +69,7 @@ AS $function$
         AND (p_evidence ->> 'idFaceCount')::numeric = trunc((p_evidence ->> 'idFaceCount')::numeric)
       THEN CASE
         WHEN jsonb_typeof(p_evidence -> 'idSecondFaceAreaRatio') = 'number'
-        THEN (p_evidence ->> 'idSecondFaceAreaRatio')::numeric > 0
+        THEN (p_evidence ->> 'idSecondFaceAreaRatio')::numeric >= 1e-9
           AND (p_evidence ->> 'idSecondFaceAreaRatio')::numeric <= 0.5
         ELSE false
       END

@@ -81,6 +81,13 @@ export const FACE_SIMILARITY_THRESHOLD = 0.363
  */
 export const ID_SECOND_FACE_MAX_AREA_RATIO = 0.5
 
+/**
+ * A positive floor on that ratio, below any real detected box: JS parses
+ * 1e-400 as 0 while SQL reads it as a positive numeric, so "> 0" alone let
+ * the two gates disagree.
+ */
+export const ID_SECOND_FACE_MIN_AREA_RATIO = 1e-9
+
 /** More detected faces than this on an ID is not a document with a portrait. */
 export const ID_MAX_FACE_COUNT = 64
 
