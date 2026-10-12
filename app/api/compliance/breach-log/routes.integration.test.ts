@@ -19,6 +19,26 @@ const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
 }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
+// The real audit writer, behind an optional one-shot gate: an armed gate holds
+// the next edit after it has read and updated the row, before its audit row.
+const { auditGate } = vi.hoisted(() => ({
+  auditGate: { armed: null as null | { reached: () => void; release: Promise<void> } },
+}))
+vi.mock("@/lib/audit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/audit")>()
+  return {
+    ...actual,
+    logAuditStrict: async (...args: Parameters<typeof actual.logAuditStrict>) => {
+      const gate = auditGate.armed
+      if (gate) {
+        auditGate.armed = null
+        gate.reached()
+        await gate.release
+      }
+      return actual.logAuditStrict(...args)
+    },
+  }
+})
 
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, TenantScopeError } from "@/lib/tenant-scope"
@@ -159,27 +179,28 @@ suite.sequential("breach log routes are tenant-scoped (real Postgres)", () => {
   it("serialises concurrent edits, so each audit row's old value is the one it replaced", async () => {
     const id = await logIncident(a, "Synthetic incident edited twice at once.")
     signIn(a)
-    // Hold the row so both edits start before either can commit. Read outside
-    // a lock, both would see OPEN and audit OPEN as the value they replaced.
-    const responses = await db.$transaction(async (holder) => {
-      await holder.$queryRaw`SELECT "id" FROM "BreachLog" WHERE "id" = ${id} FOR UPDATE`
-      const pending = [editOne(a, id, { status: "CONTAINED" }), editOne(a, id, { status: "RESOLVED" })]
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      return pending
-    })
-    const statuses = (await Promise.all(responses)).map((r) => r.status).sort()
+    let reached!: () => void
+    let release!: () => void
+    const atGate = new Promise<void>((resolve) => { reached = resolve })
+    auditGate.armed = { reached, release: new Promise<void>((resolve) => { release = resolve }) }
 
+    // A reads OPEN and moves the row to CONTAINED, then waits at the gate.
+    const first = editOne(a, id, { status: "CONTAINED" })
+    await atGate
+    // B must wait for A. Read outside a lock, B would see OPEN too and audit
+    // OPEN as the value it replaced once A committed.
+    let secondSettled = false
+    const second = editOne(a, id, { status: "RESOLVED" }).finally(() => { secondSettled = true })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(secondSettled).toBe(false)
+    release()
+
+    expect((await first).status).toBe(200)
+    expect((await second).status).toBe(200)
     const rows = await db.auditLog.findMany({ where: { action: "BREACH_LOG_UPDATED", entityId: id }, orderBy: { createdAt: "asc" } })
-    const chain = rows.map((r) => [(r.oldValue as { status: string }).status, (r.newValue as { status: string }).status])
-    const final = (await db.breachLog.findUniqueOrThrow({ where: { id } })).status
-    // Either order is legal; a stale read is not.
-    if (statuses.join() === "200,200") {
-      expect(chain).toEqual([["OPEN", "CONTAINED"], ["CONTAINED", "RESOLVED"]])
-    } else {
-      expect(statuses).toEqual([200, 409])
-      expect(chain).toEqual([["OPEN", "RESOLVED"]])
-    }
-    expect(final).toBe("RESOLVED")
+    expect(rows.map((r) => [(r.oldValue as { status: string }).status, (r.newValue as { status: string }).status]))
+      .toEqual([["OPEN", "CONTAINED"], ["CONTAINED", "RESOLVED"]])
+    expect((await db.breachLog.findUniqueOrThrow({ where: { id } })).status).toBe("RESOLVED")
   })
 
   it("keeps the containment action's text out of the audit trail", async () => {
