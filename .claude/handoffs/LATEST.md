@@ -21,7 +21,7 @@ merge commits in this order). They were stacked, each on the previous one's
 branch, and each had green CI and three blind reviewers' SHIP/CLEAN on its
 final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 
-| PR | Branch | What |
+| PR | Branch → base at the time | What |
 |---|---|---|
 | #1 | `fix/ci-green-and-quality` → `main` | Integration gate green (9 stale fixtures fixed, register 5 → 2, lead-convert PASQ-stamp bug), lint 0 errors (exports are downloads), undefined `--cf-*` tokens and duplicate selectors removed with a test, demo passwords out of source |
 | #2 | `feat/tenant-colour-validation` → #1 | Tenant colours refused with 422 per field when any text/surface pair falls below WCAG AA; maths in `lib/theme/`, runtime token copy tested against `app/globals.css`; tenant creation and colour changes audited; sign-in pages themed |
@@ -107,8 +107,9 @@ fresh Postgres 16:
   tenant creates its own legally approved template.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
-- **Term and amount defaults.** The portal apply form still defaults the
-  amount to the product maximum. The public website apply route
+- **Term and amount defaults.** The portal apply form pre-fills the amount
+  with the client's qualified maximum, clamped into the product's range (the
+  product minimum when there is no qualification). The public website apply route
   (`app/api/website/apply/route.ts`) stores 30 days, clamped into the product's
   range, when no term is sent.
 - **TOTP enrolment policy** for new staff, and the `ncrStatus` wording on the
