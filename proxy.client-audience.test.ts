@@ -20,9 +20,10 @@ const clientHost = await proxyIn("client")
 const singleHost = await proxyIn("all")
 
 const CLIENT = { user: { id: "client-1", role: "CLIENT", tenantId: "tenant-1" } }
+const OFFICER = { user: { id: "user-1", role: "CREDIT_OFFICER", tenantId: "tenant-1" } }
 
-function visit(handler: Handler, pathname: string, session: typeof CLIENT | null) {
-  const req = new NextRequest(`http://localhost${pathname}`) as NextRequest & { auth: unknown }
+function visit(handler: Handler, pathname: string, session: typeof CLIENT | null, method = "GET") {
+  const req = new NextRequest(`http://localhost${pathname}`, { method }) as NextRequest & { auth: unknown }
   req.auth = session
   return handler(req)
 }
@@ -56,6 +57,22 @@ describe("the signing packet on the client host (APP_MODE=client)", () => {
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: "Not found" })
   })
+
+  // Recording a returned signed packet (POST) is a staff action, and the
+  // client host serves no staff actions.
+  it("keeps a staff upload to the packet a 404", async () => {
+    const res = await visit(clientHost, PACKET, OFFICER, "POST")
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "Not found" })
+  })
+
+  it.each(["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])(
+    "answers a CLIENT %s to the packet with 404",
+    async (method) => {
+      const res = await visit(clientHost, PACKET, CLIENT, method)
+      expect(res.status).toBe(404)
+    },
+  )
 })
 
 describe("the signing packet on a single host (APP_MODE=all)", () => {
@@ -68,6 +85,17 @@ describe("the signing packet on a single host (APP_MODE=all)", () => {
   it("answers 401 without a session", async () => {
     const res = await visit(singleHost, PACKET, null)
     expect(res.status).toBe(401)
+  })
+
+  it("lets staff upload a returned packet", async () => {
+    const res = await visit(singleHost, PACKET, OFFICER, "POST")
+    expect(res.status).toBe(200)
+    expect(res.headers.get("x-middleware-next")).toBe("1")
+  })
+
+  it("refuses a CLIENT session the upload", async () => {
+    const res = await visit(singleHost, PACKET, CLIENT, "POST")
+    expect(res.status).toBe(403)
   })
 
   it.each(STAFF_SIBLINGS)("refuses a CLIENT session the staff-only sibling %s", async (pathname) => {

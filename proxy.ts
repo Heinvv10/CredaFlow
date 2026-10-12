@@ -71,7 +71,7 @@ export default auth((req) => {
   // Shared client+staff APIs the portal calls (documents, statement, PASQ,
   // agreement, debit mandate, signing packet).
   // Reachable on the client host and by CLIENT sessions; handlers self-gate.
-  const isSharedClientApi = isSharedClientApiPath(req.nextUrl.pathname)
+  const isSharedClientApi = isSharedClientApiPath(req.nextUrl.pathname, req.method)
   const isPublicWebsiteRoot = path === "/"
   // SEO/AI-crawler assets must reach robots/sitemap/llms.txt without redirecting
   // to the login page — these three paths are intentionally always public.
