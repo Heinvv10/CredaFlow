@@ -14,7 +14,6 @@
  */
 import sharp from "sharp"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
-import { documentImage } from "@/lib/vlm-extract"
 import { alignedFaceTensor, cosineSimilarity } from "./align"
 import type { FaceModelEvidence } from "./evidence"
 import { selectIdFace, selectSelfieFace } from "./face-count"
@@ -75,14 +74,6 @@ export async function decodeImage(bytes: Buffer): Promise<RgbImage> {
   return { data: new Uint8Array(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height }
 }
 
-async function decodeDocument(image: ImageInput): Promise<RgbImage | null> {
-  const page = image.mimeType === "application/pdf"
-    ? await documentImage(image.fileBuffer, image.mimeType)
-    : { ok: true as const, buffer: image.fileBuffer }
-  if (!page.ok) return null
-  return decodeImage(page.buffer).catch(() => null)
-}
-
 async function detectFaces(image: RgbImage, runtime: FaceModelRuntime): Promise<DetectedFace[]> {
   const scale = Math.min(1, YUNET_INPUT_SIZE / image.width, YUNET_INPUT_SIZE / image.height)
   let input = image
@@ -127,7 +118,7 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
     console.error("Face comparison models unavailable:", error)
     return refuse("extraction_incomplete", "Face comparison could not run: the face models are unavailable", counts)
   }
-  const idImage = await decodeDocument(id)
+  const idImage = await decodeImage(id.fileBuffer).catch(() => null)
   if (!idImage) {
     return refuse("extraction_incomplete", "The ID document image could not be read for the face comparison", counts)
   }

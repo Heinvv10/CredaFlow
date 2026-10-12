@@ -28,6 +28,7 @@ import {
 } from "@/lib/kyc/vlm-face-match"
 import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
 import { compareFaces, type FaceComparison } from "@/lib/kyc/face-model/compare.server"
+import { canonicalBiometricImage } from "@/lib/kyc/biometric-image.server"
 import type { FaceModelEvidence } from "@/lib/kyc/face-model/evidence"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 
@@ -119,21 +120,37 @@ export async function runBiometricVerification(
       idImageError = "Stored ID document has no retained bytes for the face match"
     }
 
+    // Step A1: one canonical image per side (EXIF applied, flattened on
+    // white, sRGB JPEG; a PDF rendered once), and both judges get exactly
+    // those bytes. A side that cannot be prepared refuses the attempt as a
+    // check that did not complete, before either judge runs: a decode or
+    // render failure says nothing about the ID's photograph.
+    const canonicalId = idImage ? await canonicalBiometricImage(idImage.fileBuffer, idImage.mimeType) : null
+    const canonicalSelfie = await canonicalBiometricImage(fileBuffer, mimeType)
+    const preparationRejection = canonicalId && !canonicalId.ok
+      ? { reason: "extraction_incomplete" as const, message: `The ID document image could not be prepared for the identity check (${canonicalId.error})` }
+      : !canonicalSelfie.ok
+      ? { reason: "extraction_incomplete" as const, message: `The selfie image could not be prepared for the identity check (${canonicalSelfie.error})` }
+      : null
+    const images = canonicalId?.ok && canonicalSelfie.ok
+      ? { id: canonicalId.image, selfie: canonicalSelfie.image }
+      : null
+
     // Step A2: the face model (YuNet + SFace) compares the same two images
     // beside the VLM request. It never throws: every failure is a refusal.
     const [vlmResult, faceComparison] = await Promise.all([
-      idImage
+      images
         ? extractDocumentData({
-            fileBuffer,
-            mimeType,
+            fileBuffer: images.selfie.fileBuffer,
+            mimeType: images.selfie.mimeType,
             docType: "SELFIE",
-            referenceImage: idImage,
+            referenceImage: images.id,
           })
         : Promise.resolve<Awaited<ReturnType<typeof extractDocumentData>>>({
             ok: false,
-            error: idImageError ?? "ID document unavailable",
+            error: preparationRejection?.message ?? idImageError ?? "ID document unavailable",
           }),
-      idImage ? compareFaces(idImage, { fileBuffer, mimeType }) : Promise.resolve(null),
+      images ? compareFaces(images.id, images.selfie) : Promise.resolve(null),
     ])
 
     const extractionUnavailable = !vlmResult.ok && vlmResult.error?.includes('AI document extraction is not configured')
@@ -188,7 +205,7 @@ export async function runBiometricVerification(
     const sideRejection = extractionUnavailable
       ? null
       : readVlmFaceMatchSideRejection(extractionResult)
-    const strictRejection = (matchVerdict?.rejection &&
+    const strictRejection = preparationRejection ?? (matchVerdict?.rejection &&
       !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
       ? matchVerdict.rejection
       : sideRejection)
@@ -303,6 +320,7 @@ export async function runBiometricVerification(
       subjectFingerprint,
       strictJudgement,
       faceComparison,
+      comparedImageSha256: images ? { idDocument: images.id.sha256, selfie: images.selfie.sha256 } : null,
     })
   } catch (err) {
     console.error("Biometric verification error:", err)
@@ -321,6 +339,7 @@ export async function runBiometricVerification(
       subjectFingerprint,
       strictJudgement: null,
       faceComparison: null,
+      comparedImageSha256: null,
     })
   }
 }
@@ -340,6 +359,8 @@ async function persistBiometricOutcome(args: {
   subjectFingerprint: string | null
   strictJudgement: StrictRejectionJudgement | null
   faceComparison: FaceComparison | null
+  /** The canonical bytes both judges saw; null when they never ran. */
+  comparedImageSha256: { idDocument: string; selfie: string } | null
 }): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     await lockAffordabilityClientEvidence(tx, {
@@ -490,6 +511,7 @@ async function persistBiometricOutcome(args: {
       // closes the in-person route only over the ID copy it was judged on.
       idDocumentId: args.idDocument.id,
       idDocumentSha256: args.idDocument.contentSha256,
+      comparedImageSha256: args.comparedImageSha256,
       subjectFingerprint: args.subjectFingerprint,
       biometricFailureReason,
     } as Prisma.InputJsonValue

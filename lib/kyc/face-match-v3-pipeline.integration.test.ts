@@ -5,7 +5,9 @@
  * Client composite-KYC trigger. Only the VLM HTTP call (fetch), the face
  * model's comparison (compareFaces: the stored "ID bytes" here are not an
  * image), file storage and session/tenant resolution are stubbed. The stubbed
- * comparison's evidence is still re-proved by both real gates.
+ * comparison's evidence is still re-proved by both real gates. Stored files
+ * are small synthetic JPEGs, so the real canonicalisation runs; a stored path
+ * containing "pdf" holds a PDF that will not render.
  *
  * Supersedes face-match-v2-pipeline.integration.test.ts: after migration
  * 20261011080000_face_match_v3_evidence a v2 pass no longer verifies anyone,
@@ -19,25 +21,34 @@ import { randomUUID } from "node:crypto"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
+import sharp from "sharp"
 
 const ctx = vi.hoisted(() => ({
   tenantId: "", adminId: "", readPaths: [] as string[],
   comparison: null as unknown,
+  compared: [] as Array<{ id: { fileBuffer: Buffer; mimeType: string }; selfie: { fileBuffer: Buffer; mimeType: string } }>,
 }))
 vi.mock("@/lib/kyc/face-model/compare.server", async () => {
   const { PASSING_FACE_MODEL_EVIDENCE } = await import("@/lib/kyc/face-model/evidence.test-helpers")
   return {
-    compareFaces: vi.fn(async () => ctx.comparison ?? { ok: true, evidence: PASSING_FACE_MODEL_EVIDENCE, rejection: null }),
+    compareFaces: vi.fn(async (id: { fileBuffer: Buffer; mimeType: string }, selfie: { fileBuffer: Buffer; mimeType: string }) => {
+      ctx.compared.push({ id, selfie })
+      return ctx.comparison ?? { ok: true, evidence: PASSING_FACE_MODEL_EVIDENCE, rejection: null }
+    }),
   }
 })
-vi.mock("@/lib/storage", () => ({
-  readFile: vi.fn(async (storagePath: string) => {
-    ctx.readPaths.push(storagePath)
-    return Buffer.from("id-image-bytes")
-  }),
-  saveFile: vi.fn(async () => ({ storagePath: `stub/selfie-${Math.random()}`, fileSize: 12 })),
-  deleteFile: vi.fn(async () => undefined),
-}))
+vi.mock("@/lib/storage", async () => {
+  const sharp = (await import("sharp")).default
+  const idJpeg = await sharp({ create: { width: 48, height: 32, channels: 3, background: "#d0c8b0" } }).jpeg().toBuffer()
+  return {
+    readFile: vi.fn(async (storagePath: string) => {
+      ctx.readPaths.push(storagePath)
+      return storagePath.includes("pdf") ? Buffer.from("%PDF-1.7\nnot a renderable document") : idJpeg
+    }),
+    saveFile: vi.fn(async () => ({ storagePath: `stub/selfie-${Math.random()}`, fileSize: 12 })),
+    deleteFile: vi.fn(async () => undefined),
+  }
+})
 // lib/document-auth (the selfie magic-byte check) imports the NextAuth config.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/auth-guards", () => ({
@@ -118,13 +129,13 @@ async function seedClient() {
 async function addIdCopy(
   fixture: { tenantId: string; clientId: string },
   label: string,
-  fields: { verified: boolean; contentSha256: string; rejected?: boolean },
+  fields: { verified: boolean; contentSha256: string; rejected?: boolean; mimeType?: string },
 ) {
   const id = `fm_pipe_ID_${label}_${sequence}_${token}`
   await db.clientDocument.create({
     data: {
       id, tenantId: fixture.tenantId, clientId: fixture.clientId, docType: "ID_COPY", fileUrl: "",
-      fileName: `${label}.jpg`, mimeType: "image/jpeg", storagePath: `stub/${label}-${sequence}`,
+      fileName: `${label}.jpg`, mimeType: fields.mimeType ?? "image/jpeg", storagePath: `stub/${label}-${sequence}`,
       contentSha256: fields.contentSha256, uploadedByType: "client", verified: fields.verified,
       verifiedAt: fields.verified ? new Date() : null,
       ...(fields.rejected
@@ -139,9 +150,9 @@ async function addIdCopy(
   return id
 }
 
-const jpeg = () => new File([Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])], "selfie.jpg", {
-  type: "image/jpeg",
-})
+// A real (synthetic) JPEG: the selfie is canonicalised before either judge sees it.
+const SELFIE_JPEG = await sharp({ create: { width: 40, height: 52, channels: 3, background: "#b08060" } }).jpeg().toBuffer()
+const jpeg = () => new File([new Uint8Array(SELFIE_JPEG)], "selfie.jpg", { type: "image/jpeg" })
 
 /** Capture through the real entry point and wait for the async face match. */
 async function capture(fixture: { tenantId: string; clientId: string }) {
@@ -180,7 +191,7 @@ async function attemptAgainst(fixture: { tenantId: string; clientId: string }, i
     },
   })
   await runWithTenant(fixture.tenantId, () => runBiometricVerification(
-    selfieId, fixture.clientId, fixture.tenantId, generation, Buffer.from("selfie-bytes"), "image/jpeg", idDocument,
+    selfieId, fixture.clientId, fixture.tenantId, generation, SELFIE_JPEG, "image/jpeg", idDocument,
   ))
   return db.clientDocument.findUniqueOrThrow({
     where: { id: selfieId },
@@ -232,6 +243,7 @@ suite("face match v3 through the real pipeline", () => {
     vi.unstubAllGlobals()
     ctx.readPaths = []
     ctx.comparison = null
+    ctx.compared = []
   })
   afterAll(async () => {
     await db.$disconnect()
@@ -466,6 +478,44 @@ suite("face match v3 through the real pipeline", () => {
       expect(response.status).toBe(422)
       expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
     })
+  })
+
+  // The breaker's case: at cd3e463 a PDF ID that would not render was recorded
+  // as id_document_portrait_invalid (in-person 422). Rendering is preparation,
+  // not a judgement of the photograph.
+  it("refuses as extraction_incomplete, with neither judge run, a PDF ID copy that will not render", async () => {
+    const fixture = await seedClient()
+    await addIdCopy(fixture, "pdf", { verified: true, contentSha256: "b".repeat(64), mimeType: "application/pdf" })
+    stubVlm(passingReply())
+    const { selfie } = await capture(fixture)
+
+    expect(ctx.readPaths).toEqual([`stub/pdf-${sequence}`])
+    expect(selfie?.verified).toBe(false)
+    expect(reasonOf(selfie)).toBe("extraction_incomplete")
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(ctx.compared).toEqual([])
+    expect((await recordException(fixture.clientId)).status).toBe(422)
+    const response = await recordInPerson(fixture.clientId)
+    expect(response.status).toBe(200)
+    expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
+  })
+
+  it("hands both judges the same canonical JPEG", async () => {
+    const fixture = await seedClient()
+    stubVlm(passingReply())
+    const { selfie } = await capture(fixture)
+    expect(selfie?.verified).toBe(true)
+    expect(ctx.compared.map((c) => [c.id.mimeType, c.selfie.mimeType])).toEqual([["image/jpeg", "image/jpeg"]])
+    const sent = JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0][1]?.body)) as {
+      messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }>
+    }
+    const urls = sent.messages[0].content.filter((part) => part.type === "image_url").map((part) => part.image_url!.url)
+    const recorded = (selfie?.biometricResult as { comparedImageSha256: { selfie: string; idDocument: string } }).comparedImageSha256
+    const { createHash } = await import("node:crypto")
+    const digest = (url: string) => createHash("sha256").update(Buffer.from(url.split(",")[1], "base64")).digest("hex")
+    expect(urls.map(digest)).toEqual([recorded.selfie, recorded.idDocument])
+    const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
+    expect([sha(ctx.compared[0].selfie.fileBuffer), sha(ctx.compared[0].id.fileBuffer)]).toEqual([recorded.selfie, recorded.idDocument])
   })
 
   it("records extraction_incomplete, which no senior may except, when the reply judges neither photo", async () => {

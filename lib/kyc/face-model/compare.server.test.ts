@@ -11,11 +11,6 @@ import {
 import type { FaceModelRuntime } from "./runtime.server"
 import { YUNET_INPUT_SIZE, type YunetOutputs } from "./yunet"
 
-const documentImageMock = vi.fn()
-vi.mock("@/lib/vlm-extract", () => ({
-  documentImage: (...args: unknown[]) => documentImageMock(...args),
-}))
-
 import { compareFaces, decodeImage, isSamePerson } from "./compare.server"
 
 // Landmark offsets in cells, before scaling by the face size: eyes, nose,
@@ -244,23 +239,6 @@ describe("compareFaces", () => {
     expect(result).toEqual(unavailable("The selfie image could not be read for the face comparison"))
   })
 
-  it("reads a PDF ID through the same page render the VLM uses", async () => {
-    documentImageMock.mockResolvedValue({ ok: true, buffer: png, mimeType: "image/jpeg" })
-    const pdf = Buffer.from("%PDF-1.7 synthetic")
-    const result = await compareFaces({ fileBuffer: pdf, mimeType: "application/pdf" }, image(), {
-      loadRuntime: () => Promise.resolve(fakeRuntime(ONE_FACE, ONE_FACE, [[1, 0], [1, 0]])), timeoutMs: 5000,
-    })
-    expect(documentImageMock).toHaveBeenCalledWith(pdf, "application/pdf")
-    expect(result.ok).toBe(true)
-  })
-
-  it("refuses a PDF ID whose page cannot be rendered", async () => {
-    documentImageMock.mockResolvedValue({ ok: false, error: "PDF conversion failed" })
-    const result = await compareFaces({ fileBuffer: Buffer.from("%PDF"), mimeType: "application/pdf" }, image(), {
-      loadRuntime: () => Promise.resolve(fakeRuntime(ONE_FACE, ONE_FACE, [[1, 0], [1, 0]])), timeoutMs: 5000,
-    })
-    expect(result).toEqual(refusal("extraction_incomplete", "The ID document image could not be read for the face comparison", null, null))
-  })
 })
 
 describe("decodeImage", () => {

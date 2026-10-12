@@ -28,6 +28,7 @@ const deleteFileMock = vi.fn()
 const readFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const compareFacesMock = vi.fn()
+const canonicalImageMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -74,6 +75,9 @@ vi.mock("@/lib/storage", () => ({
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (...args: unknown[]) => extractDocumentDataMock(...args),
+}))
+vi.mock("@/lib/kyc/biometric-image.server", () => ({
+  canonicalBiometricImage: (...args: unknown[]) => canonicalImageMock(...args),
 }))
 vi.mock("@/lib/kyc/face-model/compare.server", () => ({
   compareFaces: (...args: unknown[]) => compareFacesMock(...args),
@@ -193,6 +197,15 @@ describe("POST /api/documents/selfie", () => {
     deleteFileMock.mockResolvedValue(undefined)
     readFileMock.mockResolvedValue(Buffer.from("id-document-bytes"))
     compareFacesMock.mockResolvedValue({ ok: true, evidence: PASSING_FACE_MODEL_EVIDENCE, rejection: null })
+    // The canonical bytes are marked, so a test can tell them from the originals.
+    canonicalImageMock.mockImplementation(async (fileBuffer: Buffer) => ({
+      ok: true,
+      image: {
+        fileBuffer: Buffer.concat([Buffer.from("canonical:"), fileBuffer]),
+        mimeType: "image/jpeg",
+        sha256: fileBuffer.equals(Buffer.from("id-document-bytes")) ? "1".repeat(64) : "2".repeat(64),
+      },
+    }))
     extractDocumentDataMock.mockResolvedValue({
       ok: true,
       data: {
@@ -254,6 +267,7 @@ describe("POST /api/documents/selfie", () => {
           verified: true,
           faceMatch: true,
           faceModel: PASSING_FACE_MODEL_EVIDENCE,
+          comparedImageSha256: { idDocument: "1".repeat(64), selfie: "2".repeat(64) },
           idDocumentId: "id-doc-1",
           idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
@@ -267,10 +281,18 @@ describe("POST /api/documents/selfie", () => {
       docType: "SELFIE",
       referenceImage: expect.objectContaining({ mimeType: "image/jpeg" }),
     }))
-    // The face model compares the same stored ID bytes against the selfie.
+    // Both judges see the same canonical bytes, for the ID and the selfie.
+    const canonicalId = Buffer.from("canonical:id-document-bytes")
+    expect(extractDocumentDataMock).toHaveBeenCalledWith(expect.objectContaining({
+      fileBuffer: expect.objectContaining({ length: expect.any(Number) }),
+      mimeType: "image/jpeg",
+      referenceImage: expect.objectContaining({ fileBuffer: canonicalId, mimeType: "image/jpeg" }),
+    }))
+    const vlmSelfie = (extractDocumentDataMock.mock.calls[0][0] as { fileBuffer: Buffer }).fileBuffer
+    expect(vlmSelfie.subarray(0, 10).toString()).toBe("canonical:")
     expect(compareFacesMock).toHaveBeenCalledWith(
-      { fileBuffer: Buffer.from("id-document-bytes"), mimeType: "image/jpeg" },
-      expect.objectContaining({ mimeType: "image/jpeg" }),
+      expect.objectContaining({ fileBuffer: canonicalId, mimeType: "image/jpeg" }),
+      expect.objectContaining({ fileBuffer: vlmSelfie, mimeType: "image/jpeg" }),
     )
     const persistedBiometric = (txDocumentUpdateManyMock.mock.calls[0][0] as {
       data: { biometricResult: Record<string, unknown> }
@@ -1336,6 +1358,7 @@ describe("POST /api/documents/selfie", () => {
     expect(update.data.biometricResult).toEqual({
       idDocumentId: ID_DOCUMENT_ROW.id,
       idDocumentSha256: ID_DOCUMENT_ROW.contentSha256,
+      comparedImageSha256: { idDocument: "1".repeat(64), selfie: "2".repeat(64) },
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       biometricFailureReason: reason,
     })
@@ -1383,6 +1406,31 @@ describe("POST /api/documents/selfie", () => {
     expect(update.data.biometricResult.biometricFailureReason).toBe("extraction_incomplete")
     expect(isManualKycExceptionableFailureReason("extraction_incomplete")).toBe(false)
     expect(isManualKycExceptionableFailureReason("vlm_liveness_failed")).toBe(true)
+  })
+
+  // A decode or render failure is a fault in preparing the check, not a
+  // judgement of the ID: extraction_incomplete, and neither judge runs on
+  // anything but the canonical bytes (the breaker's non-rendering PDF ID).
+  it.each([
+    ["the ID image", 0, "The ID document image could not be prepared for the identity check (PDF conversion failed: synthetic)"],
+    ["the selfie", 1, "The selfie image could not be prepared for the identity check (PDF conversion failed: synthetic)"],
+  ])("refuses as extraction_incomplete, without calling either judge, when %s cannot be prepared", async (_label, failing, message) => {
+    let call = 0
+    canonicalImageMock.mockImplementation(async (fileBuffer: Buffer) => (call++ === failing
+      ? { ok: false, error: "PDF conversion failed: synthetic" }
+      : { ok: true, image: { fileBuffer, mimeType: "image/jpeg", sha256: "3".repeat(64) } }))
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(extractDocumentDataMock).not.toHaveBeenCalled()
+    expect(compareFacesMock).not.toHaveBeenCalled()
+    const update = latestDocumentUpdate()
+    expect(update.data).toEqual(expect.objectContaining({
+      extractionStatus: "failed", extractionError: message, verified: false, biometricVerifiedAt: null,
+    }))
+    expect(update.data.biometricResult.biometricFailureReason).toBe("extraction_incomplete")
+    expect(isManualKycExceptionableFailureReason("extraction_incomplete")).toBe(false)
   })
 
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {
