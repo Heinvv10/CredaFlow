@@ -181,10 +181,10 @@ async function main() {
     },
   })
   await ensureOne(
-    // BreachLog has no tenantId; the Acme admin who logs the drill scopes it.
-    () => prisma.breachLog.findFirst({ where: { createdBy: admin.id, description: "Demo mailbox exposure drill." } }),
+    () => prisma.breachLog.findFirst({ where: { tenantId: tenant.id, description: "Demo mailbox exposure drill." } }),
     () => prisma.breachLog.create({
       data: {
+        tenantId: tenant.id,
         incidentDate: daysAgo(6), discoveredDate: daysAgo(5), description: "Demo mailbox exposure drill.",
         affectedClients: 0, dataCategories: "Contact details", containmentAction: "Drill only; no client data involved.",
         status: "OPEN", createdBy: admin.id,
