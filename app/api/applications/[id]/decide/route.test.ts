@@ -478,8 +478,17 @@ it("checks the deferred constraints inside the approve transaction, after its au
 
   expect(res.status).toBe(200)
   expect(txExecuteRawUnsafeMock).toHaveBeenCalledWith("SET CONSTRAINTS ALL IMMEDIATE")
-  expect(txExecuteRawUnsafeMock.mock.invocationCallOrder[0])
-    .toBeGreaterThan(txAuditLogCreateMock.mock.invocationCallOrder[0])
+  // The flush must be the LAST call on tx: every approve write precedes it.
+  const flushOrder = txExecuteRawUnsafeMock.mock.invocationCallOrder[0]
+  const otherTxCalls = [
+    ...txUpdateManyMock.mock.invocationCallOrder,
+    ...txDocumentUpdateManyMock.mock.invocationCallOrder,
+    ...txAuditLogCreateMock.mock.invocationCallOrder,
+    ...txCreditLifeOfferFindFirstMock.mock.invocationCallOrder,
+  ]
+  expect(otherTxCalls.length).toBeGreaterThan(0)
+  for (const order of otherTxCalls) expect(flushOrder).toBeGreaterThan(order)
+  expect(txExecuteRawUnsafeMock).toHaveBeenCalledTimes(1)
 })
 
 it("409s an approval of an application that already has a loan, and does not notify", async () => {

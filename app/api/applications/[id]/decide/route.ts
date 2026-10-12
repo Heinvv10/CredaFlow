@@ -1054,195 +1054,195 @@ export async function POST(
         // Product edit because those rows have independent revisions.
         let approvalWrite
         try {
-        approvalWrite = await prisma.$transaction(async (tx) => {
-          const locked = await verifyLockedApprovalCandidate(tx, {
-            tenantId: tenant.id,
-            applicationId: id,
-            expectedApplicationUpdatedAt: application.updatedAt,
-            expectedApproval: approvalSnapshot,
-            capturedAt: decisionAt,
-            calculationStartDate,
-            capturedById: guard.user.id,
-            bureauOverrideReason,
-            // No PASQ exists at approval by design — it is minted at the
-            // signing ceremony. Downstream gates (agreement generation, sign,
-            // countersign, disburse, debit mandate) still pin the exact
-            // acknowledged document.
-            expectedPasqDocumentSha256: null,
-          })
-          if (!locked.ok) return locked
-          const lockedKyc = await readCompositeKycState(
-            tx as unknown as CompositeKycReader,
-            {
+          approvalWrite = await prisma.$transaction(async (tx) => {
+            const locked = await verifyLockedApprovalCandidate(tx, {
               tenantId: tenant.id,
-              clientId: locked.application.client.id,
-              subject: locked.application.client,
-              existing: locked.application.client,
-              preserveVerifiedProvenance: true,
-            },
-          )
-          // Origination-grade, matching the pre-transaction gate. Approval must
-          // not demand biometrics; sign and disburse still do.
-          if (!lockedKyc.okForOrigination) {
-            return { ok: false as const, reason: "kyc_changed" as const }
-          }
-          const approved = await tx.loanApplication.updateMany({
-            where: {
-              id,
-              tenantId: tenant.id,
-              status: "UNDER_REVIEW",
-              updatedAt: locked.application.updatedAt,
-            },
-            data: {
-              status: "APPROVED",
-              repaymentMethod,
-              approvedById: guard.user.id,
-              approvedAt: decisionAt,
-              approvedAmount: approvalPrincipal,
-              approvedTermDays: approvalTermDays,
-              approvedRate: locked.application.product.interestRatePm,
-              decisionReason: reason || "Approved",
-              // Re-approval always starts a new agreement lifecycle. Clear any
-              // stale artefacts defensively even if this UNDER_REVIEW row came
-              // from legacy/manual data rather than the return-to-review route.
-              agreementGeneratedAt: null,
-              agreementDocumentId: null,
-              agreementDocumentSha256: null,
-              agreementSignedAt: null,
-              agreementSignedMethod: null,
-              agreementSignedByIp: null,
-              agreementSignedByUserId: null,
-              agreementSignatureData: null,
-              agreementCountersignedAt: null,
-              agreementCountersignedById: null,
-              agreementCountersignedByName: null,
-              agreementCountersignedByEmail: null,
-              agreementCountersignatureData: null,
-              agreementCountersignatureSha256: null,
-              agreementCountersignatureEnvelopeSha256: null,
-              agreementCountersignedDocumentSha256: null,
-              // The EXECUTED artifact belongs to the agreement lifecycle being
-              // torn down. Leaving it set makes the application permanently
-              // un-countersignable: the countersign preflight refuses on it, and
-              // its updateMany predicate requires it to be null. That blocks
-              // disbursement with no in-app remedy.
-              agreementExecutedDocumentId: null,
-              agreementExecutedDocumentSha256: null,
-              // Same reason, for the RETURNED packet: a binding left pointing at
-              // a signed packet after its agreement lifecycle is torn down
-              // outlives the truth it recorded. The card would surface it again
-              // the moment a new agreement is generated.
-              signedPacketDocumentId: null,
-              signedPacketDocumentSha256: null,
-              debitMandatePreparedAt: null,
-              debitMandateReference: null,
-              debitMandateDraftSha256: null,
-              debitMandateEvidence: Prisma.DbNull,
-              debitMandateEvidenceSha256: null,
-              debitMandateSignedAt: null,
-              debitMandateSignedMethod: null,
-              debitMandateSignedByIp: null,
-              debitMandateSignatureData: null,
-              debitMandateSignatureSha256: null,
-              debitMandateDocumentId: null,
-              debitMandateDocumentSha256: null,
-              // Every approval starts a fresh signing ceremony, so it also
-              // starts a fresh quotation. Clearing these guarantees the PASQ
-              // the consumer acknowledges is minted AFTER this decision and is
-              // still inside its s.92(3) binding window at signature — and
-              // stops an in-flight application carrying a PASQ generated under
-              // the previous pre-approval sequencing into its ceremony.
-              pasqVersion: null,
-              pasqGeneratedAt: null,
-              pasqDocumentId: null,
-              pasqDocumentSha256: null,
-              pasqEvidence: Prisma.DbNull,
-              pasqEvidenceSha256: null,
-              pasqAcknowledgedAt: null,
-              pasqAcknowledgedBy: null,
-              pasqAcknowledgedSha256: null,
-              approvedPasqDocumentSha256: null,
-              totalExistingDebt: declaredDebt,
-              netDisposableIncome: afford.ndi,
-              affordabilityNDI: afford.ndi - instalment,
-              affordabilityResult: withAffordabilitySnapshot(
-                application.affordabilityResult,
-                approvalSnapshot,
-              ) as unknown as Prisma.InputJsonValue,
+              applicationId: id,
+              expectedApplicationUpdatedAt: application.updatedAt,
+              expectedApproval: approvalSnapshot,
+              capturedAt: decisionAt,
+              calculationStartDate,
+              capturedById: guard.user.id,
               bureauOverrideReason,
-              bureauOverrideById: bureauOverrideReason ? guard.user.id : null,
-              bureauOverrideAt: bureauOverrideReason ? decisionAt : null,
-              // Persist bureau override into dedicated columns so the disburse
-              // gate has a first-class boolean to read (not a forgeable text
-              // prefix on `recklessLendingNote`, which LOAN_ADMIN can write
-              // freely via `/api/applications/[id]/compliance`). Also stamp
-              // the broader reckless-lending assessment columns for ops
-              // dashboards and NCR audit queries.
-              ...(bureauOverrideReason && {
-                recklessLendingAssessed: true,
-                recklessLendingAssessedById: guard.user.id,
-                recklessLendingAssessedAt: decisionAt,
-              }),
-            },
-          })
-          if (approved.count !== 1) {
-            return { ok: false as const, reason: "application_changed" as const }
-          }
-
-          // Both in-app routes into UNDER_REVIEW already clear and retire the
-          // executed artifact, so this only fires for a legacy or manually
-          // edited row. Left behind, such a document is visible in the client's
-          // list, refused by documents/[id]/view (its binding is now gone), and
-          // undeletable via the locked-statutory guard — permanently stuck. It
-          // must be retired here or never, exactly as in the sibling blocks.
-          if (application.agreementExecutedDocumentId) {
-            await tx.clientDocument.updateMany({
-              where: {
-                id: application.agreementExecutedDocumentId,
+              // No PASQ exists at approval by design — it is minted at the
+              // signing ceremony. Downstream gates (agreement generation, sign,
+              // countersign, disburse, debit mandate) still pin the exact
+              // acknowledged document.
+              expectedPasqDocumentSha256: null,
+            })
+            if (!locked.ok) return locked
+            const lockedKyc = await readCompositeKycState(
+              tx as unknown as CompositeKycReader,
+              {
                 tenantId: tenant.id,
-                clientId: application.clientId,
-                docType: "EXECUTED_CREDIT_AGREEMENT",
-                deletedAt: null,
+                clientId: locked.application.client.id,
+                subject: locked.application.client,
+                existing: locked.application.client,
+                preserveVerifiedProvenance: true,
+              },
+            )
+            // Origination-grade, matching the pre-transaction gate. Approval must
+            // not demand biometrics; sign and disburse still do.
+            if (!lockedKyc.okForOrigination) {
+              return { ok: false as const, reason: "kyc_changed" as const }
+            }
+            const approved = await tx.loanApplication.updateMany({
+              where: {
+                id,
+                tenantId: tenant.id,
+                status: "UNDER_REVIEW",
+                updatedAt: locked.application.updatedAt,
               },
               data: {
-                deletedAt: decisionAt,
-                deletedByType: "staff",
-                deletedById: guard.user.id,
-              },
-            })
-          }
-
-          await tx.auditLog.create({
-            data: {
-              tenantId: tenant.id,
-              userId: guard.user.id,
-              userEmail: guard.user.email,
-              action: AuditAction.LOAN_APPROVED,
-              entity: "LoanApplication",
-              entityId: id,
-              oldValue: { status: application.status },
-              newValue: {
                 status: "APPROVED",
                 repaymentMethod,
-                reason: reason || "Approved",
+                approvedById: guard.user.id,
+                approvedAt: decisionAt,
                 approvedAmount: approvalPrincipal,
                 approvedTermDays: approvalTermDays,
                 approvedRate: locked.application.product.interestRatePm,
-                // The quotation is issued at the signing ceremony, so an
-                // approval records the instalment it actually gated on rather
-                // than a PASQ digest. PASQ_GENERATED / PASQ_ACKNOWLEDGED audit
-                // rows carry the document evidence.
-                approvedInstalmentCents: instalment,
-                creditLifePremiumCents,
-                ...(bureauOverrideReason ? { bureauOverride: bureauOverrideReason } : {}),
+                decisionReason: reason || "Approved",
+                // Re-approval always starts a new agreement lifecycle. Clear any
+                // stale artefacts defensively even if this UNDER_REVIEW row came
+                // from legacy/manual data rather than the return-to-review route.
+                agreementGeneratedAt: null,
+                agreementDocumentId: null,
+                agreementDocumentSha256: null,
+                agreementSignedAt: null,
+                agreementSignedMethod: null,
+                agreementSignedByIp: null,
+                agreementSignedByUserId: null,
+                agreementSignatureData: null,
+                agreementCountersignedAt: null,
+                agreementCountersignedById: null,
+                agreementCountersignedByName: null,
+                agreementCountersignedByEmail: null,
+                agreementCountersignatureData: null,
+                agreementCountersignatureSha256: null,
+                agreementCountersignatureEnvelopeSha256: null,
+                agreementCountersignedDocumentSha256: null,
+                // The EXECUTED artifact belongs to the agreement lifecycle being
+                // torn down. Leaving it set makes the application permanently
+                // un-countersignable: the countersign preflight refuses on it, and
+                // its updateMany predicate requires it to be null. That blocks
+                // disbursement with no in-app remedy.
+                agreementExecutedDocumentId: null,
+                agreementExecutedDocumentSha256: null,
+                // Same reason, for the RETURNED packet: a binding left pointing at
+                // a signed packet after its agreement lifecycle is torn down
+                // outlives the truth it recorded. The card would surface it again
+                // the moment a new agreement is generated.
+                signedPacketDocumentId: null,
+                signedPacketDocumentSha256: null,
+                debitMandatePreparedAt: null,
+                debitMandateReference: null,
+                debitMandateDraftSha256: null,
+                debitMandateEvidence: Prisma.DbNull,
+                debitMandateEvidenceSha256: null,
+                debitMandateSignedAt: null,
+                debitMandateSignedMethod: null,
+                debitMandateSignedByIp: null,
+                debitMandateSignatureData: null,
+                debitMandateSignatureSha256: null,
+                debitMandateDocumentId: null,
+                debitMandateDocumentSha256: null,
+                // Every approval starts a fresh signing ceremony, so it also
+                // starts a fresh quotation. Clearing these guarantees the PASQ
+                // the consumer acknowledges is minted AFTER this decision and is
+                // still inside its s.92(3) binding window at signature — and
+                // stops an in-flight application carrying a PASQ generated under
+                // the previous pre-approval sequencing into its ceremony.
+                pasqVersion: null,
+                pasqGeneratedAt: null,
+                pasqDocumentId: null,
+                pasqDocumentSha256: null,
+                pasqEvidence: Prisma.DbNull,
+                pasqEvidenceSha256: null,
+                pasqAcknowledgedAt: null,
+                pasqAcknowledgedBy: null,
+                pasqAcknowledgedSha256: null,
+                approvedPasqDocumentSha256: null,
+                totalExistingDebt: declaredDebt,
+                netDisposableIncome: afford.ndi,
+                affordabilityNDI: afford.ndi - instalment,
+                affordabilityResult: withAffordabilitySnapshot(
+                  application.affordabilityResult,
+                  approvalSnapshot,
+                ) as unknown as Prisma.InputJsonValue,
+                bureauOverrideReason,
+                bureauOverrideById: bureauOverrideReason ? guard.user.id : null,
+                bureauOverrideAt: bureauOverrideReason ? decisionAt : null,
+                // Persist bureau override into dedicated columns so the disburse
+                // gate has a first-class boolean to read (not a forgeable text
+                // prefix on `recklessLendingNote`, which LOAN_ADMIN can write
+                // freely via `/api/applications/[id]/compliance`). Also stamp
+                // the broader reckless-lending assessment columns for ops
+                // dashboards and NCR audit queries.
+                ...(bureauOverrideReason && {
+                  recklessLendingAssessed: true,
+                  recklessLendingAssessedById: guard.user.id,
+                  recklessLendingAssessedAt: decisionAt,
+                }),
               },
-            },
+            })
+            if (approved.count !== 1) {
+              return { ok: false as const, reason: "application_changed" as const }
+            }
+
+            // Both in-app routes into UNDER_REVIEW already clear and retire the
+            // executed artifact, so this only fires for a legacy or manually
+            // edited row. Left behind, such a document is visible in the client's
+            // list, refused by documents/[id]/view (its binding is now gone), and
+            // undeletable via the locked-statutory guard — permanently stuck. It
+            // must be retired here or never, exactly as in the sibling blocks.
+            if (application.agreementExecutedDocumentId) {
+              await tx.clientDocument.updateMany({
+                where: {
+                  id: application.agreementExecutedDocumentId,
+                  tenantId: tenant.id,
+                  clientId: application.clientId,
+                  docType: "EXECUTED_CREDIT_AGREEMENT",
+                  deletedAt: null,
+                },
+                data: {
+                  deletedAt: decisionAt,
+                  deletedByType: "staff",
+                  deletedById: guard.user.id,
+                },
+              })
+            }
+
+            await tx.auditLog.create({
+              data: {
+                tenantId: tenant.id,
+                userId: guard.user.id,
+                userEmail: guard.user.email,
+                action: AuditAction.LOAN_APPROVED,
+                entity: "LoanApplication",
+                entityId: id,
+                oldValue: { status: application.status },
+                newValue: {
+                  status: "APPROVED",
+                  repaymentMethod,
+                  reason: reason || "Approved",
+                  approvedAmount: approvalPrincipal,
+                  approvedTermDays: approvalTermDays,
+                  approvedRate: locked.application.product.interestRatePm,
+                  // The quotation is issued at the signing ceremony, so an
+                  // approval records the instalment it actually gated on rather
+                  // than a PASQ digest. PASQ_GENERATED / PASQ_ACKNOWLEDGED audit
+                  // rows carry the document evidence.
+                  approvedInstalmentCents: instalment,
+                  creditLifePremiumCents,
+                  ...(bureauOverrideReason ? { bureauOverride: bureauOverrideReason } : {}),
+                },
+              },
+            })
+            // The credit-life commit invariant is deferred: run it here so a
+            // refusal reaches the catch below instead of failing the commit.
+            await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+            return { ok: true as const }
           })
-          // The credit-life commit invariant is deferred: run it here so a
-          // refusal reaches the catch below instead of failing the commit.
-          await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
-          return { ok: true as const }
-        })
         } catch (error) {
           // A loan booked on a never-approved application (the demo seed does
           // this) cannot be approved without being disbursed in the same commit.
