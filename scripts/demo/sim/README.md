@@ -86,7 +86,8 @@ queue (`breadth/index.ts`), through the routes the screens call:
 - **Setup** (first business day, 08:15): three staff (second credit officer,
   insurance officer, branch manager), all TOTP-enrolled through Settings →
   Users; two branches; a platform operator (SUPER_ADMIN, which no route can
-  create; `fresh-stack.sh` bootstraps it with `provision-operator.ts`) turns
+  create; `fresh-stack.sh` bootstraps it with `provision-operator.ts`, and
+  `bake.sh` deactivates it and drops its credentials before the snapshot) turns
   on the CRM and bureau-submission modules and the bureau supplier details
   (`/api/admin/tenants/[id]` with `ADMIN_SECRET`, from the shared secrets
   file); Settings → Insurance on; referral commission 2%; the

@@ -87,6 +87,11 @@ note "verify-pages"
 npx tsx scripts/demo/sim/verify-pages.ts > "$work/verify-pages.txt" \
   || { grep -v '^200 ok' "$work/verify-pages.txt" >&2 || true; die "verify-pages failed"; }
 
+# The operator's row goes into the PUBLIC demo with ADMIN_SECRET: deactivate it
+# first (sim/operator.ts); the next bake's fresh-stack.sh re-activates it.
+note "retire the platform operator"
+scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts --retire
+
 note "snapshot"
 docker exec "$SIM_DB" \
   sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' > "$work/db.dump"
@@ -95,6 +100,7 @@ upload_files="$(tar -tzf "$work/uploads.tar.gz" | grep -vc '/$' || true)"
 # The seed's TOTP secrets are fresh per bake: these are the staff logins that
 # work on the live demo after this snapshot is restored.
 cp scripts/demo/.sim-credentials.txt scripts/demo/.sim-staff.json scripts/demo/.sim-breadth-staff.json "$work/"
+npx tsx scripts/demo/sim/provision-operator.ts --forget "$work/.sim-breadth-staff.json"
 
 tenant_id="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = 'acme'")"
 [ -n "$tenant_id" ] || die "no acme tenant in the sim database"

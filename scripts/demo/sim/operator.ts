@@ -18,6 +18,13 @@
  * writes when it creates it (a database comment; pg_dump without --create
  * leaves it out of every snapshot, so a restored live database never has it).
  *
+ * The operator is needed only while the bake runs (breadth/setup.ts switches
+ * the modules on), and its row is dumped into the snapshot the PUBLIC demo
+ * restores, which also holds ADMIN_SECRET. So bake.sh retires it before the
+ * dump (retireOperator: inactive, sessions ended, a password nobody holds)
+ * and drops its credentials from the snapshot's copy (withoutOperator). The
+ * next bake's provisioning re-activates the same row.
+ *
  * No AuditLog row: upsertStaff writes none for the staff the seed creates, and
  * this mirrors it. A bootstrap has no signed-in user to attribute a row to.
  */
@@ -50,7 +57,12 @@ export function targetRefusal(env: Record<string, string | undefined>): string |
     : `refused: DATABASE_URL points at ${address}, not the sim db service ${SIM_DB_SERVICE_ADDRESS}`
 }
 
-export async function provisionOperator(db: OperatorDb): Promise<StoredStaff> {
+/**
+ * The acme tenant's id and the operator's row, if any, once the database is
+ * known to be the sim's. Refuses an operator email held by another role or
+ * tenant.
+ */
+async function operatorTarget(db: OperatorDb) {
   const [database] = await db.$queryRaw<Array<{ marker: string | null }>>`
     SELECT shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = current_database()`
   if (database?.marker !== SIM_DATABASE_MARKER) {
@@ -63,6 +75,11 @@ export async function provisionOperator(db: OperatorDb): Promise<StoredStaff> {
   if (existing && (existing.tenantId !== tenant.id || existing.role !== spec.role)) {
     throw new Error(`refused: ${spec.email} exists as ${existing.role} in tenant ${existing.tenantId ?? "none"}`)
   }
+  return { spec, tenant, existing }
+}
+
+export async function provisionOperator(db: OperatorDb): Promise<StoredStaff> {
+  const { spec, tenant, existing } = await operatorTarget(db)
   const others = await db.user.count({ where: { tenantId: tenant.id, role: spec.role, email: { not: spec.email } } })
   if (others > 0) throw new Error(`refused: the ${OPERATOR_TENANT_SLUG} tenant already has another ${spec.role}`)
 
@@ -76,6 +93,24 @@ export async function provisionOperator(db: OperatorDb): Promise<StoredStaff> {
     select: { id: true },
   })
   return { userId: user.id, email: spec.email, password, totpSecret }
+}
+
+/** Deactivates the operator, ends its sessions and sets a password that is never stored. */
+export async function retireOperator(db: OperatorDb): Promise<void> {
+  const { spec, existing } = await operatorTarget(db)
+  if (!existing) throw new Error(`no platform operator to retire (${spec.email})`)
+  await db.user.update({
+    where: { email: spec.email },
+    data: { active: false, password: await bcrypt.hash(randomBytes(32).toString("base64url"), 12), tokenVersion: { increment: 1 } },
+    select: { id: true },
+  })
+}
+
+/** Stored staff credentials without the operator's. */
+export function withoutOperator(stored: Readonly<Record<string, StoredStaff | undefined>>): Record<string, StoredStaff | undefined> {
+  const rest = { ...stored }
+  delete rest[STAFF.operator.email]
+  return rest
 }
 
 /** The operator's credentials from the provisioning output (its last line). */
