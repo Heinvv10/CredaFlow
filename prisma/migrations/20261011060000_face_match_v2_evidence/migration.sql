@@ -418,10 +418,14 @@ AS $function$
               -- rejected or deleted it, or it is gone). It no longer counts
               -- as biometric evidence, and blocking the human route over it
               -- stranded the client. One that names no copy still blocks.
-              -- Mirrors selfieBlocksInPersonVerification in
+              -- The release holds only for an attestation completed AFTER the
+              -- selfie was captured: otherwise deleting or rejecting a
+              -- doctored copy revived an attestation recorded before the
+              -- episode. Mirrors selfieBlocksInPersonVerification in
               -- lib/kyc/in-person-verification.ts.
               AND (
                 jsonb_typeof(selfie."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
+                OR attestation."completedAt" <= selfie."createdAt"
                 OR EXISTS (
                   SELECT 1
                   FROM "ClientDocument" AS named_copy

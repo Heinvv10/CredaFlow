@@ -52,6 +52,10 @@ type Case = {
   inPerson?: { br: string; deleted?: boolean; older?: string; olderDeleted?: boolean }
   /** Also record an in-person attestation over the seeded ID copy. */
   attest?: boolean
+  /** The attestation was completed a day BEFORE the selfie (default: an hour after). */
+  attestBefore?: boolean
+  /** The selfie was captured at the attestation's exact completion instant. */
+  attestAtSelfie?: boolean
 }
 type Ids = { tenantId: string; clientId: string; idCopyId: string }
 
@@ -180,6 +184,19 @@ const cases: Case[] = [
     before: (ids) => [newerIdCopy(ids, "gone_by", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'gone_by_${ids.clientId}'`],
     br: BR(`"idDocumentId":"gone_by___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`),
     cols: `"extractionStatus" = 'processing'` },
+  // Released only for an attestation completed AFTER the selfie was captured.
+  { name: "in person: a passed selfie bound to a rejected copy still blocks an earlier attestation", expected: false,
+    attest: true, attestBefore: true,
+    before: (ids) => [newerIdCopy(ids, "late_rejected", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'late_rejected_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"late_rejected___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`) },
+  { name: "in person: a passed selfie bound to a rejected copy still blocks an attestation at the same instant", expected: false,
+    attest: true, attestAtSelfie: true,
+    before: (ids) => [newerIdCopy(ids, "same_instant", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'same_instant_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"same_instant___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`) },
+  { name: "in person: a passed selfie bound to a deleted copy still blocks an earlier attestation", expected: false,
+    attest: true, attestBefore: true,
+    before: (ids) => [newerIdCopy(ids, "late_deleted", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "deletedAt" = CURRENT_TIMESTAMP WHERE "id" = 'late_deleted_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"late_deleted___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`) },
   { name: "in person: a passed selfie naming no ID copy keeps blocking", expected: false, attest: true,
     br: BR().replace(`"idDocumentId":"${ID}",`, "").replace(`"idDocumentSha256":"${ID_SHA}",`, "") },
   { name: "in person: latest selfie refused this ID copy's portrait", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid") } },
@@ -284,7 +301,7 @@ async function run(c: Case) {
     await insertSelfie(ids, selfieId, c.er ?? ER(), fill(c.br ?? BR()))
   }
   if (c.inPerson || c.attest) {
-    const completedAt = new Date("2026-10-12T08:00:00.000Z")
+    const completedAt = new Date(Date.now() + (c.attestBefore ? -86_400_000 : 3_600_000))
     await db.complianceRecord.create({
       data: {
         tenantId, type: "KYC_EXCEPTION", referenceId: clientId, status: "COMPLETED", completedAt,
@@ -296,6 +313,12 @@ async function run(c: Case) {
         },
       },
     })
+  }
+  if (c.attestAtSelfie) {
+    const [{ completedAt }] = await db.$queryRawUnsafe<Array<{ completedAt: Date }>>(
+      `SELECT "completedAt" FROM "ComplianceRecord" WHERE "referenceId" = $1`, clientId,
+    )
+    await db.$executeRawUnsafe(`UPDATE "ClientDocument" SET "createdAt" = $1 WHERE "id" = $2`, completedAt, selfieId)
   }
   if (c.cols) await db.$executeRawUnsafe(`UPDATE "ClientDocument" SET ${c.cols} WHERE "id" = $1`, selfieId)
 

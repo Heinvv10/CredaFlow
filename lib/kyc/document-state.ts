@@ -184,8 +184,8 @@ export interface CompositeKycReader {
       }) => Promise<Array<{ biometricResult: unknown }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof BLOCKING_SELFIE_CONDITIONS
-        select: { extractionStatus: true; biometricResult: true }
-      }) => Promise<Array<{ extractionStatus: string | null; biometricResult: unknown }>>)
+        select: { extractionStatus: true; biometricResult: true; createdAt: true }
+      }) => Promise<Array<{ extractionStatus: string | null; biometricResult: unknown; createdAt: Date }>>)
     findFirst: (args: {
       where: { tenantId: string; clientId: string; docType: "SELFIE" }
       orderBy: LatestSelfieOrder
@@ -485,7 +485,7 @@ export async function readCompositeKycState(
         clientId: args.clientId,
         ...BLOCKING_SELFIE_CONDITIONS,
       },
-      select: { extractionStatus: true, biometricResult: true },
+      select: { extractionStatus: true, biometricResult: true, createdAt: true },
     }),
     reader.complianceRecord?.findFirst({
       where: {
@@ -553,8 +553,13 @@ export async function readCompositeKycState(
     latestSelfie,
     biometricAssessment,
   })
+  // Judged against the attestation on file for the record being read, and
+  // against one written now for the route's offer.
+  const blocksAttestationOnFile = blockingCandidates.some((selfie) =>
+    selfieBlocksInPersonVerification(selfie, idDocumentCopies, exceptionRecord?.completedAt ?? null))
+  const now = new Date()
   const blockingBiometricAttempt = blockingCandidates.some((selfie) =>
-    selfieBlocksInPersonVerification(selfie, idDocumentCopies))
+    selfieBlocksInPersonVerification(selfie, idDocumentCopies, now))
   const inPersonVerification = manualException
     ? null
     : currentInPersonKycVerification(
@@ -563,7 +568,7 @@ export async function readCompositeKycState(
           clientId: args.clientId,
           subject: args.subject,
           idDocument,
-          blockingBiometricAttempt,
+          blockingBiometricAttempt: blocksAttestationOnFile,
           biometricAssessment,
           portraitRefusals,
         },

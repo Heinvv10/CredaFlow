@@ -194,20 +194,31 @@ export const BLOCKING_SELFIE_CONDITIONS: {
  * still blocks (fail closed). The ID-portrait refusal closure applies
  * independently.
  *
+ * The release holds only for an attestation completed AFTER the selfie was
+ * captured (`attestationCompletedAt`), by staff who could see the attempt.
+ * Otherwise deleting a doctored copy, or having it rejected, revived an
+ * attestation recorded before the episode: VERIFIED with no staff action.
+ * Pass the completion time of the attestation being judged, or of the one
+ * about to be written; null releases nothing.
+ *
  * Mirrors the blocking NOT EXISTS in subject_has_in_person_kyc_verification
  * (migration 20261011060000_face_match_v2_evidence).
  */
 export function selfieBlocksInPersonVerification(
-  selfie: { extractionStatus: string | null; biometricResult: unknown },
+  selfie: { extractionStatus: string | null; biometricResult: unknown; createdAt: Date },
   currentIdCopies: readonly {
     id: string
     verificationRejectedAt?: Date | null
     verificationRejectedById?: string | null
   }[],
+  attestationCompletedAt: Date | null,
 ): boolean {
   if (selfie.extractionStatus === "processing") return true
   const namedCopy = jsonRecord(selfie.biometricResult)?.idDocumentId
   if (typeof namedCopy !== "string") return true
+  if (attestationCompletedAt === null || attestationCompletedAt.getTime() <= selfie.createdAt.getTime()) {
+    return true
+  }
   return currentIdCopies.some((copy) =>
     copy.id === namedCopy &&
     (copy.verificationRejectedAt ?? null) === null &&
@@ -367,11 +378,15 @@ export interface InPersonRouteState {
  * Not gated on the viewer's role. A credit officer who cannot grant it still
  * needs to be told the route exists, so they can fetch someone who can.
  *
- * True exactly when POST /api/clients/[id]/kyc-in-person-verification would
- * grant (save its idempotency key): every evidence precondition the route
- * checks is an input here. It used to follow "a selfie attempt failed", which
- * offered the form over a passed selfie the route then refused, and over
- * incomplete core documents.
+ * Mirrors the preconditions POST /api/clients/[id]/kyc-in-person-verification
+ * checks on the evidence: verified core documents, no manual rejection, no
+ * selfie that still governs, an admissible ID copy. It used to follow "a
+ * selfie attempt failed", which offered the form over a passed selfie the
+ * route then refused, and over incomplete core documents. Two documented
+ * differences from the route: an active senior exception hides the form
+ * although the route itself would still record an attestation, and the
+ * route's idempotency refusal (an identical attestation already on file but
+ * no longer current) is not modelled here.
  */
 export function inPersonKycVerificationOffered(state: {
   /** A senior exception is already recorded — it supersedes this route. */

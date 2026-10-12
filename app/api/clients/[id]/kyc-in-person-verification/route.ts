@@ -10,6 +10,7 @@ import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import {
   CORE_KYC_DOCUMENT_TYPES,
   clientKycAuditValue,
+  latestSelfieOrder,
 } from "@/lib/kyc/document-state"
 import {
   BLOCKING_SELFIE_CONDITIONS,
@@ -106,7 +107,7 @@ export async function POST(
           return { kind: "manual_rejection_active" as const }
         }
 
-        const [coreDocuments, blockingCandidates, portraitRefusals] = await Promise.all([
+        const [coreDocuments, blockingCandidates, portraitRefusals, latestAttempt] = await Promise.all([
           tx.clientDocument.findMany({
             where: {
               tenantId: tenant.id,
@@ -131,12 +132,18 @@ export async function POST(
           }),
           tx.clientDocument.findMany({
             where: { tenantId: tenant.id, clientId, ...BLOCKING_SELFIE_CONDITIONS },
-            select: { extractionStatus: true, biometricResult: true },
+            select: { extractionStatus: true, biometricResult: true, createdAt: true },
           }),
           // Every attempt, deleted or not, that refused an ID portrait.
           tx.clientDocument.findMany({
             where: { tenantId: tenant.id, clientId, ...ID_PORTRAIT_REFUSAL_CONDITIONS },
             select: { biometricResult: true },
+          }),
+          // The newest attempt of any outcome, part of the circumstances attested to.
+          tx.clientDocument.findFirst({
+            where: { tenantId: tenant.id, clientId, docType: "SELFIE" },
+            orderBy: latestSelfieOrder(),
+            select: { id: true },
           }),
         ])
 
@@ -156,8 +163,12 @@ export async function POST(
         // or soft-deleted attempt must not close the human fallback; the
         // senior exception remains available in parallel for the failed
         // evidence.
+        // Judged against the attestation this writes: completed now, after
+        // every attempt on file, by staff who can see them.
+        const approvedAt = new Date()
         const idDocumentCopies = coreDocuments.filter((d) => d.docType === "ID_COPY")
-        if (blockingCandidates.some((selfie) => selfieBlocksInPersonVerification(selfie, idDocumentCopies))) {
+        if (blockingCandidates.some((selfie) =>
+          selfieBlocksInPersonVerification(selfie, idDocumentCopies, approvedAt))) {
           return { kind: "biometric_attempt_exists" as const }
         }
 
@@ -175,7 +186,6 @@ export async function POST(
         }
 
         const subjectFingerprint = biometricSubjectFingerprint(client)
-        const approvedAt = new Date()
         const evidence: InPersonKycVerificationEvidence = {
           kind: IN_PERSON_KYC_VERIFICATION_KIND,
           version: IN_PERSON_KYC_VERIFICATION_VERSION,
@@ -191,12 +201,17 @@ export async function POST(
         }
         // Keyed to the exact circumstances attested to, so the same admin
         // cannot stack duplicate attestations over one identity + ID pair.
+        // The newest selfie attempt is one of those circumstances: an
+        // attestation from before a later attempt no longer counts once that
+        // attempt is released (selfieBlocksInPersonVerification), so staff
+        // must be able to attest afresh after it.
         const idempotencyKey = [
           "kyc-in-person",
           clientId,
           idDocument.id,
           idDocument.contentSha256,
           subjectFingerprint,
+          latestAttempt?.id ?? "no-selfie",
         ].join(":")
         const existing = await tx.complianceRecord.findUnique({
           where: { idempotencyKey },

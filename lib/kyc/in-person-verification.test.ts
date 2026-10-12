@@ -6,6 +6,7 @@ import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
   idDocumentPortraitRefused,
+  selfieBlocksInPersonVerification,
   matchesBlockingSelfie,
   parseInPersonKycVerificationEvidence,
   IN_PERSON_KYC_VERIFICATION_KIND,
@@ -103,6 +104,36 @@ describe("parseInPersonKycVerificationEvidence", () => {
     expect(
       parseInPersonKycVerificationEvidence({ ...evidence(), ...over }),
     ).toBeNull()
+  })
+})
+
+describe("selfieBlocksInPersonVerification", () => {
+  const captured = new Date("2026-10-12T08:00:00.000Z")
+  const after = new Date("2026-10-12T09:00:00.000Z")
+  const passed = (idDocumentId?: unknown) => ({
+    extractionStatus: "done",
+    createdAt: captured,
+    biometricResult: idDocumentId === undefined ? {} : { idDocumentId },
+  })
+  const currentCopies = [{ id: "doc-a", verificationRejectedAt: null, verificationRejectedById: null }]
+
+  it.each([
+    ["still processing", { ...passed("doc-gone"), extractionStatus: "processing" }, after],
+    ["passed against a current copy", passed("doc-a"), after],
+    ["passed naming no copy", passed(), after],
+    ["passed against a gone copy, judged for an attestation from before it", passed("doc-gone"), new Date("2026-10-12T07:00:00.000Z")],
+    ["passed against a gone copy, judged for an attestation at the same instant", passed("doc-gone"), captured],
+    ["passed against a gone copy, judged for no attestation", passed("doc-gone"), null],
+  ])("blocks a selfie %s", (_label, selfie, attestedAt) => {
+    expect(selfieBlocksInPersonVerification(selfie, currentCopies, attestedAt)).toBe(true)
+  })
+
+  it.each([
+    ["gone", "doc-gone", currentCopies],
+    ["rejected", "doc-a", [{ ...currentCopies[0], verificationRejectedAt: captured }]],
+    ["rejected by a named reviewer", "doc-a", [{ ...currentCopies[0], verificationRejectedById: "officer-1" }]],
+  ])("releases a passed selfie whose copy is %s, for an attestation completed after it", (_label, named, copies) => {
+    expect(selfieBlocksInPersonVerification(passed(named), copies, after)).toBe(false)
   })
 })
 

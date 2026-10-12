@@ -131,6 +131,7 @@ export const readinessCoreDocumentSelect =
 export const readinessSelfieSelect = Prisma.validator<Prisma.ClientDocumentSelect>()({
   clientId: true,
   id: true,
+  createdAt: true,
   contentSha256: true,
   deletedAt: true,
   verified: true,

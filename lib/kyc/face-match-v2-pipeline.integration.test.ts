@@ -507,6 +507,38 @@ suite("face match v2 through the real pipeline", () => {
     })
 
     it.each([
+      ["deletes the doctored copy", "delete"],
+      ["has staff reject the doctored copy", "reject"],
+    ] as const)("does not revive an attestation recorded before the selfie when the borrower %s", async (_label, release) => {
+      const fixture = await seedClient()
+      // Staff attest in person over A while no selfie exists.
+      expect((await recordInPerson(fixture.clientId)).status).toBe(200)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
+
+      // A doctored B and a selfie that passes against it.
+      const doctored = await addIdCopy(fixture, "doctored", { verified: false, contentSha256: "b".repeat(64) })
+      stubVlm(passingReply())
+      await capture(fixture)
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("FAILED")
+
+      if (release === "delete") {
+        await db.clientDocument.update({ where: { id: doctored }, data: { deletedAt: new Date(), deletedByType: "client" } })
+      } else {
+        expect((await rejectDocument(fixture.clientId, doctored)).status).toBe(200)
+      }
+      // The old attestation predates the selfie: it does not count again.
+      expect(await layers(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
+      await expect(db.client.update({
+        where: { id: fixture.clientId },
+        data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerifiedById: ctx.adminId, kycVerificationMethod: "PHYSICAL" },
+      })).rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
+
+      // Staff who can see the failed attempt attest afresh: that one counts.
+      expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: true, status: 200 })
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
+    })
+
+    it.each([
       ["L1: the substitute copy stays on file", false],
       ["L2: the fraudster then deletes the substitute", true],
     ])("blocks origination after a face mismatch against the verified ID and a pass against a substitute (%s)", async (_label, deleteSubstitute) => {

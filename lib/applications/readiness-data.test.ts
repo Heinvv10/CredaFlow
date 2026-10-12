@@ -48,6 +48,8 @@ function selfie(overrides: Partial<ReadinessSelfieRow> = {}): ReadinessSelfieRow
   return {
     clientId: CLIENT_ID,
     id: "selfie-1",
+    // Before ATTESTED_AT: an attestation recorded after the attempt.
+    createdAt: new Date("2026-07-19T09:00:00.000Z"),
     contentSha256: "b".repeat(64),
     deletedAt: null,
     verified: true,
@@ -262,6 +264,18 @@ describe("inMemoryKycReader", () => {
       }),
     },
     {
+      name: "an in-person attestation recorded BEFORE a passed selfie bound to a copy staff rejected",
+      // Releasing the selfie must not revive an attestation from before it.
+      data: rows({
+        coreDocuments: [...allCoreDocuments(), rejectedIdCopy()],
+        selfies: [selfie({
+          createdAt: new Date("2026-07-19T13:00:00.000Z"),
+          biometricResult: { idDocumentId: "doc-ID-rejected" },
+        })],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
       name: "an in-person attestation behind a passed selfie bound to a copy awaiting review",
       data: rows({
         coreDocuments: [...allCoreDocuments(), coreDocument({ docType: "ID_COPY", id: "doc-ID-awaiting", verified: false })],
@@ -323,6 +337,7 @@ describe("inMemoryKycReader", () => {
   it.each([
     ["a passed selfie's copy was rejected", "an in-person attestation behind a passed selfie bound to a copy staff rejected", true],
     ["a passed selfie's copy awaits review", "an in-person attestation behind a passed selfie bound to a copy awaiting review", false],
+    ["the attestation predates a released selfie", "an in-person attestation recorded BEFORE a passed selfie bound to a copy staff rejected", false],
     ["an OLDER attempt refused", "an in-person attestation over an ID copy an OLDER attempt refused", false],
     ["the only refusal was of another copy", "an in-person attestation whose only refusal was of another ID copy", true],
   ])("closes the in-person route on the board when %s", async (_label, name, ok) => {
