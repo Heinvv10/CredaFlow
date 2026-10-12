@@ -22,16 +22,37 @@ const slugA = `role-ceiling-a-${token}`
 const slugB = `role-ceiling-b-${token}`
 const emailOf = (name: string) => `${name}-${token}@test.invalid`
 
-const h = vi.hoisted(() => ({ session: null as null | { user: Record<string, unknown> } }))
+const h = vi.hoisted(() => ({
+  session: null as null | { user: Record<string, unknown> },
+  /** Runs once, right after the route's first read of the target. */
+  afterTargetRead: null as null | (() => Promise<unknown>),
+}))
 
 // The session is the only seam mocked. requireApiRole, the write gate,
 // withTenantContext (which binds the session's tenant to the request's) and
 // the audit writer are the real ones, against the real database.
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: async () => h.session }))
+// The real client, with a hook after `user.findFirst` — the read the route's
+// first role check is made on. A change injected there lands after that check
+// and before the write: the window a concurrent promotion or demotion has.
+vi.mock("@/lib/prisma", async (importOriginal) => {
+  const { prisma } = await importOriginal<typeof import("@/lib/prisma")>()
+  const user = new Proxy(prisma.user, {
+    get: (target, key) => key !== "findFirst" ? Reflect.get(target, key) : async (args: Parameters<typeof target.findFirst>[0]) => {
+      const row = await target.findFirst(args)
+      const hook = h.afterTargetRead
+      h.afterTargetRead = null
+      await hook?.()
+      return row
+    },
+  })
+  return { prisma: new Proxy(prisma, { get: (target, key) => key === "user" ? user : Reflect.get(target, key) }) }
+})
 
 import { POST } from "./route"
-import { PATCH } from "./[id]/route"
+import { DELETE, PATCH } from "./[id]/route"
+import { refuseLockedStaffUserWrite, type StaffUser } from "@/lib/auth-guards"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -43,6 +64,11 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     admin: `user_rc_admin_${token}`,
     officer: `user_rc_officer_${token}`,
     foreign: `user_rc_foreign_${token}`,
+    root: `user_rc_root_${token}`,
+    raceAdmin: `user_rc_race_admin_${token}`,
+    raceTarget: `user_rc_race_target_${token}`,
+    raceOfficer: `user_rc_race_officer_${token}`,
+    victim: `user_rc_victim_${token}`,
   }
 
   function signIn(id: string, role: UserRole, tenantId = tenantA) {
@@ -88,6 +114,11 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
         user(ids.admin, tenantA, "ADMIN"),
         user(ids.officer, tenantA, "CREDIT_OFFICER"),
         user(ids.foreign, tenantB, "CREDIT_OFFICER"),
+        user(ids.root, tenantA, "SUPER_ADMIN"),
+        user(ids.raceAdmin, tenantA, "ADMIN"),
+        user(ids.raceTarget, tenantA, "LOAN_ADMIN"),
+        user(ids.raceOfficer, tenantA, "CREDIT_OFFICER"),
+        user(ids.victim, tenantA, "READONLY"),
       ],
     })
   })
@@ -185,6 +216,97 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
       userId: ids.admin,
       oldValue: { role: "CREDIT_OFFICER" },
       newValue: { changed: ["role"], role: "LOAN_ADMIN" },
+    })
+  })
+
+  // The write re-checks on the rows its transaction locks. Without that, each
+  // of these lands: the first check passed on roles that changed before the
+  // write.
+  describe("a role change between the check and the write", () => {
+    const setRole = (id: string, role: UserRole) => () => db.user.update({ where: { id }, data: { role } })
+    const del = (id: string) => DELETE(
+      new NextRequest(`http://localhost/api/settings/users/${id}`, { method: "DELETE", headers: { "x-tenant-slug": slugA } }),
+      { params: Promise.resolve({ id }) },
+    )
+
+    it("refuses an admin's password reset on a user promoted to SUPER_ADMIN meanwhile, and audits the refusal", async () => {
+      signIn(ids.raceAdmin, "ADMIN")
+      const before = await stored(ids.raceTarget)
+      h.afterTargetRead = setRole(ids.raceTarget, "SUPER_ADMIN")
+      const res = await patch(ids.raceTarget, { password: "synthetic-pass-3", email: emailOf("race-takeover") })
+
+      expect(res.status).toBe(403)
+      expect(await stored(ids.raceTarget)).toEqual({ ...before, role: "SUPER_ADMIN" })
+      const refusals = await db.auditLog.findMany({ where: { tenantId: tenantA, action: "USER_WRITE_REFUSED", entityId: ids.raceTarget } })
+      expect(refusals).toHaveLength(1)
+      expect(refusals[0]!.newValue).toMatchObject({ reason: "target_outranks_caller", callerRole: "ADMIN", targetRole: "SUPER_ADMIN" })
+    })
+
+    it("refuses an edit by an admin demoted meanwhile", async () => {
+      signIn(ids.raceAdmin, "ADMIN")
+      const before = await stored(ids.raceOfficer)
+      h.afterTargetRead = setRole(ids.raceAdmin, "READONLY")
+      const res = await patch(ids.raceOfficer, { role: "ADMIN" })
+
+      expect(res.status).toBe(403)
+      expect(await stored(ids.raceOfficer)).toEqual(before)
+      await setRole(ids.raceAdmin, "ADMIN")()
+    })
+
+    it("refuses a delete by a SUPER_ADMIN demoted meanwhile, and the user still exists", async () => {
+      signIn(ids.root, "SUPER_ADMIN")
+      h.afterTargetRead = setRole(ids.root, "ADMIN")
+      const res = await del(ids.victim)
+
+      expect(res.status).toBe(403)
+      expect(await db.user.findUnique({ where: { id: ids.victim }, select: { id: true, active: true } }))
+        .toEqual({ id: ids.victim, active: true })
+      await setRole(ids.root, "SUPER_ADMIN")()
+    })
+
+    it("records the role the row had when it was locked as the old role", async () => {
+      signIn(ids.raceAdmin, "ADMIN")
+      h.afterTargetRead = setRole(ids.raceOfficer, "LOAN_ADMIN")
+      const res = await patch(ids.raceOfficer, { role: "BRANCH_MANAGER" })
+
+      expect(res.status).toBe(200)
+      const updates = await db.auditLog.findMany({ where: { tenantId: tenantA, action: "USER_UPDATED", entityId: ids.raceOfficer } })
+      expect(updates).toHaveLength(1)
+      expect(updates[0]).toMatchObject({ oldValue: { role: "LOAN_ADMIN" }, newValue: { changed: ["role"], role: "BRANCH_MANAGER" } })
+    })
+
+    // The re-check's rows stay locked until the write commits: a role change
+    // from another connection cannot slip in between the re-check and the write.
+    it("holds the caller's and the target's rows against a concurrent role change until the transaction ends", async () => {
+      const other = new PrismaClient()
+      const caller: StaffUser = { id: ids.raceAdmin, email: emailOf(ids.raceAdmin), name: null, role: "ADMIN", tenantId: tenantA, totpVerified: true }
+      const tryPromote = (id: string) => other.$transaction([
+        other.$executeRaw`SET LOCAL lock_timeout = '200ms'`,
+        other.user.update({ where: { id }, data: { role: "SUPER_ADMIN" } }),
+      ])
+      try {
+        await db.$transaction(async (tx) => {
+          // The routes pass the app's extended client; this vanilla one exposes
+          // the same $queryRaw and auditLog at runtime.
+          const locked = await refuseLockedStaffUserWrite(tx as never, caller, { tenantId: tenantA, targetId: ids.raceOfficer, assignedRole: undefined })
+          expect(locked.refused).toBeNull()
+          await expect(tryPromote(ids.raceOfficer)).rejects.toThrow(/lock/i)
+          await expect(tryPromote(ids.raceAdmin)).rejects.toThrow(/lock/i)
+        })
+        expect((await stored(ids.raceOfficer)).role).not.toBe("SUPER_ADMIN")
+      } finally {
+        await other.$disconnect()
+      }
+    })
+
+    it("still lets a SUPER_ADMIN delete a user with no history", async () => {
+      signIn(ids.root, "SUPER_ADMIN")
+      const res = await del(ids.victim)
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ mode: "deleted" })
+      expect(await db.user.findUnique({ where: { id: ids.victim } })).toBeNull()
+      expect(await db.auditLog.count({ where: { tenantId: tenantA, action: "USER_DELETED", entityId: ids.victim, userId: ids.root } })).toBe(1)
     })
   })
 })

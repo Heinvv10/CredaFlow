@@ -12,7 +12,7 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
   logAuditStrict: (...args: unknown[]) => logAuditStrictMock(...args),
 }))
 
-import { refuseStaffUserWrite, staffUserWriteRefusal, type StaffUser } from "../auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, staffUserWriteRefusal, type StaffUser } from "../auth-guards"
 import type { UserRole } from "@prisma/client"
 
 // Lowest to highest — the order ROLE_HIERARCHY ranks them in.
@@ -143,7 +143,7 @@ describe("refuseStaffUserWrite", () => {
         refused: true, reason: "role_above_caller", httpStatus: 403,
         callerRole: "ADMIN", targetRole: "LOAN_ADMIN", assignedRole: "SUPER_ADMIN",
       },
-    })
+    }, undefined)
   })
 
   it("audits a refused create (no target) and a refused edit of a senior user", async () => {
@@ -152,7 +152,7 @@ describe("refuseStaffUserWrite", () => {
       action: "USER_WRITE_REFUSED",
       entityId: undefined,
       newValue: expect.objectContaining({ reason: "role_above_caller", targetRole: null, assignedRole: "SUPER_ADMIN" }),
-    }))
+    }), undefined)
 
     // The body's role was never validated on this path, so it is not recorded.
     const res = await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetId: "root-1", targetRole: "SUPER_ADMIN", assignedRole: { junk: "x".repeat(10_000) } })
@@ -161,7 +161,7 @@ describe("refuseStaffUserWrite", () => {
     expect(logAuditStrictMock).toHaveBeenLastCalledWith(expect.objectContaining({
       entityId: "root-1",
       newValue: { refused: true, reason: "target_outranks_caller", httpStatus: 403, callerRole: "ADMIN", targetRole: "SUPER_ADMIN" },
-    }))
+    }), undefined)
   })
 
   // Not escalation attempts: nothing above the caller was reached for.
@@ -181,5 +181,52 @@ describe("refuseStaffUserWrite", () => {
     await expect(refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetRole: null, assignedRole: "SUPER_ADMIN" }))
       .rejects.toThrow("audit table unavailable")
     expect(logAuditMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("refuseLockedStaffUserWrite", () => {
+  const admin: StaffUser = { id: "admin-1", email: "admin@acme-lending.example", name: "Admin", role: "ADMIN", tenantId: "tenant-a", totpVerified: true }
+  const row = (id: string, role: string, active = true) => ({ id, role, active })
+  const txWith = (rows: unknown[]) => ({ $queryRaw: vi.fn().mockResolvedValue(rows), auditLog: {} }) as never as Parameters<typeof refuseLockedStaffUserWrite>[0]
+  const write = { tenantId: "tenant-a", targetId: "u2", assignedRole: undefined }
+
+  beforeEach(() => { logAuditStrictMock.mockReset() })
+
+  it("judges the locked roles, not the session's, and audits a refusal through the transaction", async () => {
+    const tx = txWith([row("admin-1", "ADMIN"), row("u2", "SUPER_ADMIN")])
+    const result = await refuseLockedStaffUserWrite(tx, admin, write)
+
+    expect(result.refused?.status).toBe(403)
+    expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: "USER_WRITE_REFUSED", newValue: expect.objectContaining({ targetRole: "SUPER_ADMIN" }),
+    }), tx)
+  })
+
+  it("uses the caller's locked role, so a demotion since sign-in counts", async () => {
+    const result = await refuseLockedStaffUserWrite(txWith([row("admin-1", "READONLY"), row("u2", "CREDIT_OFFICER")]), admin, write)
+    expect(result.refused?.status).toBe(403)
+    expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
+      newValue: expect.objectContaining({ callerRole: "READONLY", targetRole: "CREDIT_OFFICER" }),
+    }), expect.anything())
+  })
+
+  it.each([
+    ["inactive", [row("admin-1", "ADMIN", false), row("u2", "CREDIT_OFFICER")]],
+    ["missing (another tenant, or deleted)", [row("u2", "CREDIT_OFFICER")]],
+  ])("refuses a caller whose row is %s with 403", async (_label, rows) => {
+    const result = await refuseLockedStaffUserWrite(txWith(rows), admin, write)
+    expect(result.refused?.status).toBe(403)
+  })
+
+  it("answers 404 when the target's row is gone", async () => {
+    const result = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN")]), admin, write)
+    expect(result.refused?.status).toBe(404)
+  })
+
+  it("returns the locked roles when the write may proceed", async () => {
+    expect(await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "LOAN_ADMIN")]), admin, { ...write, assignedRole: "ADMIN" }))
+      .toEqual({ refused: null, callerRole: "ADMIN", targetRole: "LOAN_ADMIN" })
+    expect(await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN")]), admin, { tenantId: "tenant-a", assignedRole: "ADMIN" }))
+      .toEqual({ refused: null, callerRole: "ADMIN", targetRole: null })
   })
 })

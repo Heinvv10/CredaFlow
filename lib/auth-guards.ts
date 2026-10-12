@@ -2,8 +2,9 @@ import { redirect } from "next/navigation"
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
-import type { UserRole } from "@prisma/client"
+import { Prisma, type UserRole } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import type { prisma } from "@/lib/prisma"
 
 export type { AppRole }
 
@@ -193,11 +194,12 @@ export function staffUserWriteRefusal(
  * trail must show who reached above their role, not only who was allowed to.
  * The write is strict: if the row cannot be written this throws, so the
  * request fails (500) rather than refusing with no record. Either way nothing
- * is written to the user.
+ * is written to the user. Pass `db` to write the row in a transaction.
  */
 export async function refuseStaffUserWrite(
   caller: StaffUser,
   write: StaffUserWrite & { tenantId: string; targetId?: string },
+  db?: Pick<typeof prisma, "auditLog">,
 ): Promise<NextResponse | null> {
   const refusal = staffUserWriteRefusal(caller, write)
   if (!refusal) return null
@@ -219,9 +221,54 @@ export async function refuseStaffUserWrite(
         // value was never checked and is not recorded.
         ...(refusal.reason === "role_above_caller" ? { assignedRole: write.assignedRole } : {}),
       },
-    })
+    }, db)
   }
   return NextResponse.json({ error: refusal.error }, { status: refusal.status })
+}
+
+/**
+ * refuseStaffUserWrite again, inside the write's own transaction, on the
+ * caller's and the target's rows as they are now. Call it first in the
+ * transaction, then write and audit through the same `tx`.
+ *
+ * The route's first check reads the target, then it probes and hashes before
+ * writing: a promotion of the target or a demotion of the caller in that
+ * window would otherwise carry the write onto an account the caller may no
+ * longer touch. The rows stay locked until the write commits. FOR NO KEY
+ * UPDATE is the lock an UPDATE of them takes, so a concurrent role change
+ * waits; unlike FOR UPDATE it does not block an insert that only references
+ * a row (an audit row naming the caller).
+ *
+ * A caller whose row is gone, inactive or in another tenant is refused (403).
+ * Returns the locked roles for the caller's own checks and audit.
+ */
+export async function refuseLockedStaffUserWrite(
+  tx: Pick<typeof prisma, "$queryRaw" | "auditLog">,
+  caller: StaffUser,
+  write: { tenantId: string; targetId?: string; assignedRole: unknown },
+): Promise<{ refused: NextResponse } | { refused: null; callerRole: UserRole; targetRole: UserRole | null }> {
+  const ids = write.targetId ? [caller.id, write.targetId] : [caller.id]
+  const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean }>>(Prisma.sql`
+    SELECT "id", "role"::text AS "role", "active"
+    FROM "User"
+    WHERE "id" IN (${Prisma.join(ids)}) AND "tenantId" = ${write.tenantId}
+    ORDER BY "id"
+    FOR NO KEY UPDATE
+  `)
+  const fresh = rows.find(r => r.id === caller.id)
+  if (!fresh?.active) return { refused: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  let targetRole: UserRole | null = null
+  if (write.targetId) {
+    const target = rows.find(r => r.id === write.targetId)
+    if (!target) return { refused: NextResponse.json({ error: "User not found" }, { status: 404 }) }
+    targetRole = target.role
+  }
+  const refused = await refuseStaffUserWrite(
+    { ...caller, role: fresh.role },
+    { tenantId: write.tenantId, targetId: write.targetId, targetRole, assignedRole: write.assignedRole },
+    tx,
+  )
+  return refused ? { refused } : { refused: null, callerRole: fresh.role, targetRole }
 }
 
 // Permissions map: action → minimum required role

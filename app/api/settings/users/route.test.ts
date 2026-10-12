@@ -3,14 +3,24 @@ import { NextRequest } from "next/server"
 
 // The session is the only auth seam mocked: the real requireApiRole and the
 // real staff-user write gate (lib/auth-guards.ts) run against it.
-const h = vi.hoisted(() => ({
-  auth: vi.fn(),
-  userFindUnique: vi.fn(),
-  userCreate: vi.fn(),
-  branchFindFirst: vi.fn(),
-  logAudit: vi.fn(),
-  logAuditStrict: vi.fn(),
-}))
+const h = vi.hoisted(() => {
+  const m = {
+    auth: vi.fn(),
+    userFindUnique: vi.fn(),
+    userCreate: vi.fn(),
+    branchFindFirst: vi.fn(),
+    logAudit: vi.fn(),
+    logAuditStrict: vi.fn(),
+    /** The caller's row as the write's transaction locks it. */
+    lockedRows: vi.fn(),
+  }
+  const tx = {
+    $queryRaw: (...args: unknown[]) => m.lockedRows(...args),
+    user: { create: (args: unknown) => m.userCreate(args) },
+    auditLog: { create: vi.fn() },
+  }
+  return { ...m, tx }
+})
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: () => h.auth() }))
@@ -21,9 +31,11 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: (args: unknown) => h.userFindUnique(args),
-      create: (args: unknown) => h.userCreate(args),
+      // The create goes through the locked transaction's client.
+      create: () => { throw new Error("user.create outside the transaction") },
     },
     branch: { findFirst: (args: unknown) => h.branchFindFirst(args) },
+    $transaction: (fn: (tx: unknown) => unknown) => fn(h.tx),
   },
 }))
 vi.mock("@/lib/audit", async (importOriginal) => ({
@@ -38,6 +50,7 @@ import { POST } from "./route"
 const URL = "https://app.example.test/api/settings/users"
 
 function signedIn(role: string, extra: Record<string, unknown> = {}) {
+  h.lockedRows.mockResolvedValue([{ id: "caller-1", role, active: true }])
   h.auth.mockResolvedValue({
     user: { id: "caller-1", email: "caller@acme-lending.example", name: "Caller", role, tenantId: "tenant-a", totpVerified: true, ...extra },
   })
@@ -78,7 +91,7 @@ describe("POST /api/settings/users", () => {
       action: "USER_WRITE_REFUSED",
       entity: "User",
       newValue: expect.objectContaining({ refused: true, reason: "role_above_caller", callerRole, assignedRole: role }),
-    }))
+    }), undefined)
   })
 
   it.each([
@@ -96,9 +109,11 @@ describe("POST /api/settings/users", () => {
     expect(h.userCreate.mock.calls[0][0].data).toMatchObject({
       tenantId: "tenant-a", role, email: "new.staff@acme-lending.example", password: "hashed:synthetic-pass-1",
     })
-    expect(h.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+    // In the transaction: the user never exists without its record.
+    expect(h.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "USER_CREATED", userId: "caller-1", newValue: expect.objectContaining({ role }),
-    }))
+    }), h.tx)
+    expect(h.logAudit).not.toHaveBeenCalled()
   })
 
   it.each(["OWNER", "CLIENT", "super_admin", 8, ["SUPER_ADMIN"]])("rejects a role that is not a staff role (%j) with 400 and writes nothing", async (role) => {
@@ -146,6 +161,21 @@ describe("POST /api/settings/users", () => {
     h.logAuditStrict.mockRejectedValue(new Error("audit table unavailable"))
 
     await expect(post({ role: "SUPER_ADMIN" })).rejects.toThrow("audit table unavailable")
+    expect(h.userCreate).not.toHaveBeenCalled()
+  })
+
+  // The first check uses the session's role; the create re-checks the
+  // caller's row, locked, in its own transaction.
+  it.each([
+    ["demoted below the role being assigned", [{ id: "caller-1", role: "BRANCH_MANAGER", active: true }]],
+    ["deactivated", [{ id: "caller-1", role: "ADMIN", active: false }]],
+    ["removed from the tenant", []],
+  ])("refuses a caller %s after the first check, and creates nothing", async (_label, rows) => {
+    signedIn("ADMIN")
+    h.lockedRows.mockResolvedValue(rows)
+    const res = await post({ role: "ADMIN" })
+
+    expect(res.status).toBe(403)
     expect(h.userCreate).not.toHaveBeenCalled()
   })
 

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import type { UserRole } from "@prisma/client"
-import { logAudit } from "@/lib/audit"
+import { logAuditStrict } from "@/lib/audit"
 
 const ADMIN_ROLES: UserRole[] = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"]
 
@@ -97,33 +97,42 @@ export async function POST(req: NextRequest) {
 
     const hashed = await bcrypt.hash(password, 12)
 
-    const user = await prisma.user.create({
-      data: {
+    const result = await prisma.$transaction(async (tx) => {
+      // Re-checked on the caller's row as it is now, locked until this commits:
+      // a caller demoted since the check above cannot complete the create.
+      const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, assignedRole: role })
+      if (locked.refused) return { refused: locked.refused }
+
+      const user = await tx.user.create({
+        data: {
+          tenantId: tenant.id,
+          name,
+          email,
+          role,
+          password: hashed,
+          phone: phone ?? null,
+          branchId: branchId ?? null,
+        },
+        select: {
+          id: true, name: true, email: true, role: true,
+          active: true, phone: true, branchId: true,
+          branch: { select: { id: true, name: true } },
+          lastLoginAt: true, createdAt: true,
+        },
+      })
+
+      await logAuditStrict({
         tenantId: tenant.id,
-        name,
-        email,
-        role,
-        password: hashed,
-        phone: phone ?? null,
-        branchId: branchId ?? null,
-      },
-      select: {
-        id: true, name: true, email: true, role: true,
-        active: true, phone: true, branchId: true,
-        branch: { select: { id: true, name: true } },
-        lastLoginAt: true, createdAt: true,
-      },
+        action: "USER_CREATED",
+        entity: "User",
+        entityId: user.id,
+        userId: guard.user.id,
+        newValue: { email: user.email, role: user.role, branchId: user.branchId },
+      }, tx)
+      return { user }
     })
+    if (result.refused) return result.refused
 
-    await logAudit({
-      tenantId: tenant.id,
-      action: "USER_CREATED",
-      entity: "User",
-      entityId: user.id,
-      userId: guard.user.id,
-      newValue: { email: user.email, role: user.role, branchId: user.branchId },
-    })
-
-    return NextResponse.json(user, { status: 201 })
+    return NextResponse.json(result.user, { status: 201 })
   })
 }
