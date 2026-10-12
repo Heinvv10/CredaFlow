@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 
 const biometricSubject = {
   id: "client-1",
@@ -26,6 +27,7 @@ const saveFileMock = vi.fn()
 const deleteFileMock = vi.fn()
 const readFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
+const compareFacesMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -72,6 +74,9 @@ vi.mock("@/lib/storage", () => ({
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (...args: unknown[]) => extractDocumentDataMock(...args),
+}))
+vi.mock("@/lib/kyc/face-model/compare.server", () => ({
+  compareFaces: (...args: unknown[]) => compareFacesMock(...args),
 }))
 vi.mock("@/lib/audit", () => ({
   AuditAction: new Proxy({}, { get: (_target, key) => String(key) }),
@@ -178,6 +183,7 @@ describe("POST /api/documents/selfie", () => {
     })
     deleteFileMock.mockResolvedValue(undefined)
     readFileMock.mockResolvedValue(Buffer.from("id-document-bytes"))
+    compareFacesMock.mockResolvedValue({ ok: true, evidence: PASSING_FACE_MODEL_EVIDENCE, rejection: null })
     extractDocumentDataMock.mockResolvedValue({
       ok: true,
       data: {
@@ -233,11 +239,12 @@ describe("POST /api/documents/selfie", () => {
         validationMismatch: false,
         biometricMatchScore: 95,
         biometricLiveness: 97,
-        verificationNote: "Automatically verified by VLM face match against the ID document photograph",
+        verificationNote: "Automatically verified by face comparison against the ID document photograph",
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v2",
+          provider: "vlm-face-match-v3",
           verified: true,
           faceMatch: true,
+          faceModel: PASSING_FACE_MODEL_EVIDENCE,
           idDocumentId: "id-doc-1",
           idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
@@ -251,6 +258,11 @@ describe("POST /api/documents/selfie", () => {
       docType: "SELFIE",
       referenceImage: expect.objectContaining({ mimeType: "image/jpeg" }),
     }))
+    // The face model compares the same stored ID bytes against the selfie.
+    expect(compareFacesMock).toHaveBeenCalledWith(
+      { fileBuffer: Buffer.from("id-document-bytes"), mimeType: "image/jpeg" },
+      expect.objectContaining({ mimeType: "image/jpeg" }),
+    )
     const persistedBiometric = (txDocumentUpdateManyMock.mock.calls[0][0] as {
       data: { biometricResult: Record<string, unknown> }
     }).data.biometricResult
@@ -304,6 +316,7 @@ describe("POST /api/documents/selfie", () => {
     expect(deleteFileMock).toHaveBeenCalledOnce()
     expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/selfie.jpg")
     expect(extractDocumentDataMock).not.toHaveBeenCalled()
+    expect(compareFacesMock).not.toHaveBeenCalled()
   })
 
   it("does not let a stale callback overwrite a later manual document decision", async () => {
@@ -848,7 +861,7 @@ describe("POST /api/documents/selfie", () => {
         biometricVerifiedAt: null,
         biometricMatchScore: 10,
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v2",
+          provider: "vlm-face-match-v3",
           verified: false,
           faceMatch: false,
           // The verdict's own refusal (not the score gate) names the reason.
@@ -917,7 +930,7 @@ describe("POST /api/documents/selfie", () => {
         validationMismatch: true,
         biometricVerifiedAt: null,
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v2",
+          provider: "vlm-face-match-v3",
           verified: false,
           error: message,
           biometricFailureReason: reason,
@@ -938,7 +951,7 @@ describe("POST /api/documents/selfie", () => {
       matchScore: 85,
       livenessScore: 95,
       faceMatchVerdict: {
-        provider: "vlm-face-match-v2",
+        provider: "vlm-face-match-v3",
         rejection: message,
         idPhotoKind: judged.idPhotoKind,
         idPhotoIsRealPhotograph: true,
@@ -1139,7 +1152,7 @@ describe("POST /api/documents/selfie", () => {
     }
     expect(audit.data.action).toBe("KYC_REJECTED")
     expect(audit.data.newValue.document.faceMatchVerdict).toEqual({
-      provider: "vlm-face-match-v2",
+      provider: "vlm-face-match-v3",
       rejection,
       ...judgement,
     })
@@ -1189,6 +1202,163 @@ describe("POST /api/documents/selfie", () => {
     expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
     expect(update.data.extractionError).toBe(message)
     expect(update.data.verificationNote).toBe(message)
+  })
+
+  // The face model (YuNet + SFace) decides same-person. The VLM said "same"
+  // at 0.85-0.90 against placeholder cards; its confident "same" must never
+  // carry an attempt the model refused.
+  function latestDocumentUpdate() {
+    return txDocumentUpdateManyMock.mock.calls.at(-1)?.[0] as {
+      data: {
+        extractionStatus: string
+        extractionError: string | null
+        verified: boolean
+        biometricVerifiedAt: Date | null
+        biometricResult: Record<string, unknown>
+      }
+    }
+  }
+
+  it("refuses a confident VLM \"same\" when the face model's similarity is below the threshold", async () => {
+    const belowThreshold = { ...PASSING_FACE_MODEL_EVIDENCE, similarity: 0.12, samePerson: false }
+    compareFacesMock.mockResolvedValueOnce({
+      ok: true,
+      evidence: belowThreshold,
+      rejection: { reason: "match_score_below_threshold", message: "Face comparison similarity below threshold" },
+    })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = latestDocumentUpdate()
+    expect(update.data).toEqual(expect.objectContaining({
+      extractionStatus: "failed",
+      extractionError: "Face comparison similarity below threshold",
+      verified: false,
+      biometricVerifiedAt: null,
+    }))
+    expect(update.data.biometricResult).toEqual(expect.objectContaining({
+      provider: "vlm-face-match-v3",
+      verified: false,
+      samePerson: "same",
+      faceMatch: true,
+      faceModel: belowThreshold,
+      biometricFailureReason: "match_score_below_threshold",
+    }))
+    expect(txClientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+    const audit = auditCreateMock.mock.calls[1][0] as { data: { action: string; newValue: { document: Record<string, unknown> } } }
+    expect(audit.data.action).toBe("KYC_REJECTED")
+    expect(audit.data.newValue.document.faceComparison).toEqual(expect.objectContaining({ evidence: belowThreshold }))
+  })
+
+  it("keeps the VLM's \"different\" as a refusal even when the face model passes", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: true },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
+        faceMatch: { value: false },
+        matchConfidence: { value: 0.2 },
+      },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = latestDocumentUpdate()
+    expect(update.data.verified).toBe(false)
+    expect(update.data.biometricResult).toEqual(expect.objectContaining({
+      verified: false,
+      faceModel: PASSING_FACE_MODEL_EVIDENCE,
+      biometricFailureReason: "provider_verification_failed",
+      error: "VLM face match did not confirm the selfie against the ID photograph",
+    }))
+  })
+
+  it.each([
+    ["the face model is unavailable", "extraction_incomplete",
+      "Face comparison could not run: the face models are unavailable", null, null],
+    ["the face comparison timed out", "extraction_incomplete", "Face comparison timed out", null, null],
+    ["the face model finds no face on the ID", "id_document_portrait_invalid",
+      "No face found in the ID document photograph by the face comparison", 0, 1],
+    ["the face model finds two comparable faces on the ID", "id_document_portrait_invalid",
+      "The ID document shows 2 faces of comparable size; the face comparison cannot tell whose it is", 2, 1],
+    ["the face model finds no face in the selfie", "face_not_detected",
+      "No face found in the selfie by the face comparison", 1, 0],
+    ["the face model finds two faces in the selfie", "face_count_invalid",
+      "The selfie shows 2 faces; the face comparison needs exactly one", 1, 2],
+  ])("fails closed, writing no provider evidence, when %s", async (_label, reason, message, idFaceCount, selfieFaceCount) => {
+    const comparison = { ok: false, rejection: { reason, message }, idFaceCount, selfieFaceCount }
+    compareFacesMock.mockResolvedValueOnce(comparison)
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = latestDocumentUpdate()
+    expect(update.data).toEqual(expect.objectContaining({
+      extractionStatus: "failed",
+      verified: false,
+      biometricVerifiedAt: null,
+      biometricMatchScore: null,
+    }))
+    // No provider result at all: only the binding and the reason are stored.
+    expect(update.data.biometricResult).toEqual({
+      subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
+      biometricFailureReason: reason,
+    })
+    expect(update.data.extractionError).toBe(message)
+    const audit = auditCreateMock.mock.calls[1][0] as { data: { action: string; newValue: { document: Record<string, unknown> } } }
+    expect(audit.data.action).toBe("KYC_REJECTED")
+    expect(audit.data.newValue.document.faceComparison).toEqual(comparison)
+  })
+
+  // The strictest reason wins across both checks: a VLM liveness failure is
+  // exceptionable, so recording it over the face model's "no face on the ID"
+  // would let a senior except a match against an ID with no usable face.
+  it("records the face model's ID refusal over an exceptionable VLM liveness failure", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: false },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "same" },
+        faceMatch: { value: true },
+        matchConfidence: { value: 0.9 },
+      },
+    })
+    const message = "No face found in the ID document photograph by the face comparison"
+    compareFacesMock.mockResolvedValueOnce({
+      ok: false,
+      rejection: { reason: "id_document_portrait_invalid", message },
+      idFaceCount: 0,
+      selfieFaceCount: 1,
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = latestDocumentUpdate()
+    expect(update.data.extractionError).toBe(message)
+    expect(update.data.biometricResult.biometricFailureReason).toBe("id_document_portrait_invalid")
+    expect(isManualKycExceptionableFailureReason("vlm_liveness_failed")).toBe(true)
   })
 
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {
@@ -1250,6 +1420,7 @@ describe("POST /api/documents/selfie", () => {
     expect(response.status).toBe(201)
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
     expect(extractDocumentDataMock).not.toHaveBeenCalled()
+    expect(compareFacesMock).not.toHaveBeenCalled()
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         extractionStatus: "failed",

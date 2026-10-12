@@ -20,6 +20,7 @@ import {
   verifyLockedCurrentAffordabilityApproval,
 } from "@/lib/affordability/current-approval"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 import {
   createCreditLifeDisclosureSha256,
   createCreditLifeNoOfferDisclosureSha256,
@@ -76,7 +77,8 @@ function validSelfie(subject = client) {
       verified: true,
       matchScore: 98,
       livenessScore: 97,
-      provider: "vlm-face-match-v2",
+      provider: "vlm-face-match-v3",
+      faceModel: PASSING_FACE_MODEL_EVIDENCE,
       idPhotoKind: "photograph",
       idPhotoIsRealPhotograph: true,
       idPhotoFaceDetected: true,

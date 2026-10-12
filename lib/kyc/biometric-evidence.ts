@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { Buffer } from "node:buffer"
+import { faceModelEvidenceRefusal } from "@/lib/kyc/face-model/evidence"
 
 // Minimum face-match and liveness scores (0–100) for payout-grade biometric
 // KYC. The provider is the VLM comparing the live selfie against the printed
@@ -17,10 +18,13 @@ export const BIOMETRIC_SUBJECT_FINGERPRINT_VERSION = "biometric-subject-v2" as c
 /**
  * The only provider whose result can verify a selfie. v1 carried a single
  * faceMatch boolean that passed a selfie against a silhouette placeholder
- * (2026-10-10), so v1 evidence never verifies. Mirrored in SQL by
- * subject_has_composite_kyc (migration 20261011060000_face_match_v2_evidence).
+ * (2026-10-10). v2 let the VLM decide same-person, and it said "same" against
+ * placeholder cards in 7 of 12 runs; v3 adds the face model's comparison
+ * (lib/kyc/face-model/), which alone can confirm the match. Neither v1 nor v2
+ * evidence verifies. Mirrored in SQL by subject_has_composite_kyc (migration
+ * 20261011080000_face_match_v3_evidence).
  */
-export const VLM_FACE_MATCH_PROVIDER = "vlm-face-match-v2" as const
+export const VLM_FACE_MATCH_PROVIDER = "vlm-face-match-v3" as const
 
 export type BiometricEvidenceFailureReason =
   | "extraction_incomplete"
@@ -270,11 +274,11 @@ export function assessBiometricEvidence(
   ) {
     return { ok: false, reason: "provider_verification_failed" }
   }
-  // The VLM is the only provider, so passing evidence is always the v2
-  // verdict. There is no VLM-unavailable exemption: with the VLM unavailable
-  // the producer writes no provider result at all.
+  // Passing evidence is always the v3 verdict. There is no VLM-unavailable
+  // exemption: with the VLM unavailable the producer writes no provider
+  // result at all.
   if (providerResult.provider !== VLM_FACE_MATCH_PROVIDER) {
-    // No v2 check stands behind these scores (v1, untagged or unknown).
+    // No v3 check stands behind these scores (v1, v2, untagged or unknown).
     return { ok: false, reason: "provider_verification_missing" }
   }
   if (
@@ -298,6 +302,10 @@ export function assessBiometricEvidence(
   if (livenessScore < BIOMETRIC_LIVENESS_THRESHOLD || livenessConfidence < BIOMETRIC_LIVENESS_THRESHOLD / 100) {
     return { ok: false, reason: "liveness_score_below_threshold" }
   }
+  // The same-person decision is the face model's; the VLM's "same" above can
+  // only have refused. Its stored fields must re-prove the pass.
+  const faceModelRefusal = faceModelEvidenceRefusal(providerResult.faceModel)
+  if (faceModelRefusal) return { ok: false, reason: faceModelRefusal }
   if (options.requireDocumentVerified !== false && !evidence.verified) {
     return { ok: false, reason: "document_not_verified" }
   }

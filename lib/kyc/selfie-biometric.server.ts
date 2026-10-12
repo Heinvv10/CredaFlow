@@ -27,6 +27,8 @@ import {
   type VlmFaceMatchSideJudgement,
 } from "@/lib/kyc/vlm-face-match"
 import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
+import { compareFaces, type FaceComparison } from "@/lib/kyc/face-model/compare.server"
+import type { FaceModelEvidence } from "@/lib/kyc/face-model/evidence"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -56,6 +58,11 @@ type VlmFaceMatchProviderResult = {
   idPhotoIsRealPhotograph: boolean
   selfieIsRealPhotograph: boolean
   samePerson: SamePersonVerdict
+  /**
+   * The face model's comparison. It alone decides same-person: the VLM's own
+   * samePerson/faceMatch/matchConfidence above can only refuse.
+   */
+  faceModel: FaceModelEvidence
   /** Which stored ID document the selfie was compared against. */
   idDocumentId: string
   idDocumentSha256: string | null
@@ -111,14 +118,22 @@ export async function runBiometricVerification(
       idImageError = "Stored ID document has no retained bytes for the face match"
     }
 
-    const vlmResult = idImage
-      ? await extractDocumentData({
-          fileBuffer,
-          mimeType,
-          docType: "SELFIE",
-          referenceImage: idImage,
-        })
-      : { ok: false as const, error: idImageError ?? "ID document unavailable" }
+    // Step A2: the face model (YuNet + SFace) compares the same two images
+    // beside the VLM request. It never throws: every failure is a refusal.
+    const [vlmResult, faceComparison] = await Promise.all([
+      idImage
+        ? extractDocumentData({
+            fileBuffer,
+            mimeType,
+            docType: "SELFIE",
+            referenceImage: idImage,
+          })
+        : Promise.resolve<Awaited<ReturnType<typeof extractDocumentData>>>({
+            ok: false,
+            error: idImageError ?? "ID document unavailable",
+          }),
+      idImage ? compareFaces(idImage, { fileBuffer, mimeType }) : Promise.resolve(null),
+    ])
 
     const extractionUnavailable = !vlmResult.ok && vlmResult.error?.includes('AI document extraction is not configured')
 
@@ -158,13 +173,36 @@ export async function runBiometricVerification(
     const matchVerdict = extractionUnavailable
       ? null
       : readVlmFaceMatchVerdict(extractionResult)
+    const modelRejection = faceComparison?.rejection ?? null
+    // A refusal that can never be excepted (ID portrait or selfie not a real
+    // photograph). It outranks every other failure, whichever side failed
+    // first: a liveness or face-count failure is exceptionable, and recording
+    // it instead let a senior except a match against a silhouette ID. When
+    // the full verdict is unreadable (any one malformed field) or names only
+    // an exceptionable refusal, the side judgements are read on their own.
+    // The side reader refuses on exactly the fields the strict verdict's
+    // non-exceptionable refusals read, so it also supplies their judgements.
+    // The face model's own strict refusals (no usable ID face, the model
+    // unavailable) come after the VLM's.
+    const sideRejection = extractionUnavailable
+      ? null
+      : readVlmFaceMatchSideRejection(extractionResult)
+    const strictRejection = (matchVerdict?.rejection &&
+      !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
+      ? matchVerdict.rejection
+      : sideRejection)
+      ?? (modelRejection && !isManualKycExceptionableFailureReason(modelRejection.reason)
+        ? modelRejection
+        : null)
     let biometricResult: VlmFaceMatchProviderResult | null = null
-    if (vlmAssessment.ok && matchVerdict && client?.idNumber) {
+    if (vlmAssessment.ok && matchVerdict && client?.idNumber && faceComparison?.ok) {
+      const refusal = strictRejection ?? modelRejection ?? matchVerdict.rejection
       biometricResult = {
         ok: true,
-        // Every gate in readVlmFaceMatchVerdict must hold — faceMatch alone
-        // once verified a selfie against a silhouette placeholder.
-        verified: matchVerdict.rejection === null,
+        // Every VLM gate in readVlmFaceMatchVerdict AND the face model must
+        // hold. faceMatch alone once verified a selfie against a silhouette
+        // placeholder, and the VLM's "same" cannot outvote the model.
+        verified: matchVerdict.rejection === null && faceComparison.rejection === null,
         provider: VLM_FACE_MATCH_PROVIDER,
         matchScore: matchVerdict.matchScore,
         livenessScore: matchVerdict.livenessScore,
@@ -176,26 +214,12 @@ export async function runBiometricVerification(
         idPhotoIsRealPhotograph: matchVerdict.idPhotoIsRealPhotograph,
         selfieIsRealPhotograph: matchVerdict.selfieIsRealPhotograph,
         samePerson: matchVerdict.samePerson,
+        faceModel: faceComparison.evidence,
         idDocumentId: idDocument.id,
         idDocumentSha256: idDocument.contentSha256,
-        ...(matchVerdict.rejection === null ? {} : { error: matchVerdict.rejection.message }),
+        ...(refusal === null ? {} : { error: refusal.message }),
       }
     }
-    // A refusal that can never be excepted (ID portrait or selfie not a real
-    // photograph). It outranks every other failure, whichever side failed
-    // first: a liveness or face-count failure is exceptionable, and recording
-    // it instead let a senior except a match against a silhouette ID. When
-    // the full verdict is unreadable (any one malformed field) or names only
-    // an exceptionable refusal, the side judgements are read on their own.
-    // The side reader refuses on exactly the fields the strict verdict's
-    // non-exceptionable refusals read, so it also supplies their judgements.
-    const sideRejection = extractionUnavailable
-      ? null
-      : readVlmFaceMatchSideRejection(extractionResult)
-    const strictRejection = matchVerdict?.rejection &&
-      !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
-      ? matchVerdict.rejection
-      : sideRejection
     // The judgements behind a strict refusal, for the audit row when no
     // provider result carries them.
     const strictJudgement: StrictRejectionJudgement | null =
@@ -210,12 +234,22 @@ export async function runBiometricVerification(
     // with no provider result falls back to the VLM/transport error.
     const extractionError = biometricResult
       ? biometricResult.error ?? null
-      : strictRejection?.message ?? vlmResult.error ?? "Biometric verification did not run"
+      : strictRejection?.message
+        // A face-model refusal is the assessment below whenever the VLM's own
+        // liveness gates passed, so its message is the one that is true.
+        ?? (vlmAssessment.ok && faceComparison && !faceComparison.ok ? faceComparison.rejection.message : null)
+        ?? vlmResult.error
+        ?? "Biometric verification did not run"
 
     const biometricCompleted = biometricResult?.ok === true
     const extractionStatus = biometricCompleted ? "done" as const : "failed" as const
     const prospectiveAssessment = !vlmAssessment.ok
       ? vlmAssessment
+      // A face model that refused before computing a similarity left no
+      // provider result; its reason, not "extraction incomplete", is the
+      // assessment.
+      : faceComparison && !faceComparison.ok
+      ? { ok: false as const, reason: faceComparison.rejection.reason }
       : subject && subjectFingerprint
       ? assessBiometricEvidence({
           deletedAt: null,
@@ -241,12 +275,13 @@ export async function runBiometricVerification(
     // The strictest reason is the one recorded: a non-exceptionable refusal
     // from either source wins. Otherwise a completed check names its own
     // refusal (not the generic provider_verification_failed or score gate),
-    // and an attempt stopped on the selfie side keeps that gate's reason.
+    // the face model's ahead of the VLM's, and an attempt stopped on the
+    // selfie side keeps that gate's reason.
     const biometricFailureReason = strictRejection?.reason
       ?? (assessedReason && !isManualKycExceptionableFailureReason(assessedReason)
         ? assessedReason
         : null)
-      ?? (biometricResult ? matchVerdict?.rejection?.reason : null)
+      ?? (biometricResult ? (modelRejection ?? matchVerdict?.rejection)?.reason : null)
       ?? assessedReason
 
     await persistBiometricOutcome({
@@ -262,6 +297,7 @@ export async function runBiometricVerification(
       biometricFailureReason,
       subjectFingerprint,
       strictJudgement,
+      faceComparison,
     })
   } catch (err) {
     console.error("Biometric verification error:", err)
@@ -278,6 +314,7 @@ export async function runBiometricVerification(
       biometricFailureReason: "extraction_incomplete",
       subjectFingerprint,
       strictJudgement: null,
+      faceComparison: null,
     })
   }
 }
@@ -295,6 +332,7 @@ async function persistBiometricOutcome(args: {
   biometricFailureReason: BiometricEvidenceFailureReason | null
   subjectFingerprint: string | null
   strictJudgement: StrictRejectionJudgement | null
+  faceComparison: FaceComparison | null
 }): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     await lockAffordabilityClientEvidence(tx, {
@@ -464,7 +502,7 @@ async function persistBiometricOutcome(args: {
         verifiedAt: biometricPassed ? completedAt : null,
         verifiedById: null,
         verificationNote: biometricPassed
-          ? "Automatically verified by VLM face match against the ID document photograph"
+          ? "Automatically verified by face comparison against the ID document photograph"
           : extractionError ?? "Biometric verification failed",
       },
     } as never)
@@ -558,6 +596,9 @@ async function persistBiometricOutcome(args: {
                   livenessConfidence: args.biometricResult.livenessConfidence,
                 }
               : args.strictJudgement,
+            // The face model's outcome: counts, similarity, threshold and
+            // model checksums, or the refusal that stopped it.
+            faceComparison: args.faceComparison,
           },
           clientKyc: clientKycAuditValue(clientAfter),
         },

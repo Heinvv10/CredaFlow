@@ -11,6 +11,7 @@ import { NextRequest } from "next/server"
 import { POST } from "./route"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 import { calculateCreditLifeMonthlyPremiumCents } from "@/lib/insurance/credit-life-election"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
 
@@ -471,7 +472,8 @@ const PASSING_BIOMETRIC_DOCUMENT = {
     verified: true,
     matchScore: 98,
     livenessScore: 97,
-    provider: "vlm-face-match-v2",
+    provider: "vlm-face-match-v3",
+    faceModel: PASSING_FACE_MODEL_EVIDENCE,
     idPhotoKind: "photograph",
     idPhotoIsRealPhotograph: true,
     idPhotoFaceDetected: true,

@@ -6,6 +6,7 @@ import {
   parseBiometricEvidenceFailureReason,
   type BiometricDocumentEvidence,
 } from "./biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "./face-model/evidence.test-helpers"
 
 const subject = {
   id: "client-1",
@@ -27,9 +28,9 @@ const passingProviderResult = {
   matchScore: 98,
   livenessScore: 97,
 }
-// The v2 VLM verdict fields a pass must carry when the VLM is the provider.
+// The v3 verdict a pass must carry: the VLM gates and the face model.
 const passingVlmVerdict = {
-  provider: "vlm-face-match-v2",
+  provider: "vlm-face-match-v3",
   idPhotoKind: "photograph",
   idPhotoIsRealPhotograph: true,
   idPhotoFaceDetected: true,
@@ -38,6 +39,7 @@ const passingVlmVerdict = {
   faceMatch: true,
   matchConfidence: 0.98,
   livenessConfidence: 0.97,
+  faceModel: PASSING_FACE_MODEL_EVIDENCE,
 }
 const boundProviderResult = {
   ...passingProviderResult,
@@ -239,9 +241,12 @@ describe("assessBiometricEvidence", () => {
     }, { subject })).toEqual({ ok: true })
   })
 
-  // v1 passed a selfie against a silhouette placeholder: it must never verify.
+  // v1 passed a selfie against a silhouette placeholder, and v2 let the VLM
+  // decide same-person (it said "same" against placeholder cards): neither
+  // verifies.
   it.each([
     ["v1 VLM evidence", "vlm-face-match-v1"],
+    ["v2 VLM evidence", "vlm-face-match-v2"],
     ["untagged VLM evidence", undefined],
     ["an unknown provider", "smile-identity"],
   ])("does not count %s as verified", (_label, provider) => {
@@ -260,11 +265,49 @@ describe("assessBiometricEvidence", () => {
     ["selfieIsRealPhotograph", false],
     ["samePerson", "uncertain"],
     ["faceMatch", false],
-  ])("refuses verified v2 evidence whose %s is %s", (field, value) => {
+  ])("refuses verified v3 evidence whose %s is %s", (field, value) => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, [field]: value },
     }, { subject })).toEqual({ ok: false, reason: "provider_verification_failed" })
+  })
+
+  it("refuses v2-shaped evidence relabelled v3 without the face model's result", () => {
+    const { faceModel: _faceModel, ...withoutModel } = boundProviderResult
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: withoutModel,
+    }, { subject })).toEqual({ ok: false, reason: "provider_verification_failed" })
+  })
+
+  // The VLM's "same" at full confidence cannot carry a face model that did
+  // not confirm the match, however the stored fields were edited.
+  it.each([
+    ["a similarity below the threshold", { similarity: 0.2 }, "match_score_below_threshold"],
+    ["a similarity just below the threshold", { similarity: 0.36299999999999993 }, "match_score_below_threshold"],
+    ["samePerson false", { samePerson: false }, "provider_verification_failed"],
+    ["a lowered threshold", { threshold: 0.1, similarity: 0.2 }, "provider_verification_failed"],
+    ["a tampered detector checksum", { detectorSha256: "f".repeat(64) }, "provider_verification_failed"],
+    ["a tampered recognizer checksum", { recognizerSha256: "f".repeat(64) }, "provider_verification_failed"],
+    ["two selfie faces", { selfieFaceCount: 2 }, "provider_verification_failed"],
+    ["no ID face", { idFaceCount: 0 }, "provider_verification_failed"],
+    ["two comparable ID faces", { idFaceCount: 2, idSecondFaceAreaRatio: 0.9 }, "provider_verification_failed"],
+    ["a non-numeric similarity", { similarity: "0.9" }, "provider_verification_failed"],
+  ])("refuses verified v3 evidence with %s", (_label, change, reason) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, faceModel: { ...PASSING_FACE_MODEL_EVIDENCE, ...change } },
+    }, { subject })).toEqual({ ok: false, reason })
+  })
+
+  it("accepts a similarity exactly at the threshold and a small ghost face on the ID", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: {
+        ...boundProviderResult,
+        faceModel: { ...PASSING_FACE_MODEL_EVIDENCE, similarity: 0.363, idFaceCount: 2, idSecondFaceAreaRatio: 0.1 },
+      },
+    }, { subject })).toEqual({ ok: true })
   })
 
   it("does not treat an arbitrary extraction error as the configured VLM exception", () => {
