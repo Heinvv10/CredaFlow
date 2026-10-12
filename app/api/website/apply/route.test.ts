@@ -147,6 +147,7 @@ const validBody = {
   phone: "+27821234567",
   productType: "PERSONAL",
   amount: 5000,
+  termDays: 60,
   turnstileToken: "any-token",
 }
 
@@ -776,7 +777,8 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     expect(res.status).toBe(200)
     expect(body.applicationId).toBeNull()
     expect(createLoanApplicationMock).not.toHaveBeenCalled()
-    expect(findFirstLoanProductMock).not.toHaveBeenCalled()
+    // Only the term pre-check reads the product; the blocked path does no second lookup.
+    expect(findFirstLoanProductMock).toHaveBeenCalledTimes(1)
     const auditActions = createAuditLogMock.mock.calls.map((c) => c[0].data.action)
     expect(auditActions).toContain("APPLICATION_SUBMISSION_BLOCKED")
   })
@@ -949,6 +951,7 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
       .mockResolvedValueOnce(lockedClient)
     updateClientMock.mockResolvedValue(lockedClient)
     findFirstLoanProductMock
+      .mockResolvedValueOnce(personalProduct) // term pre-check
       .mockResolvedValueOnce(personalProduct)
       .mockResolvedValueOnce(personalProduct)
       .mockResolvedValueOnce(lockedProduct)
@@ -1549,5 +1552,206 @@ describe("returning-applicant duplicate notice", () => {
     await afterCallbacks[0]()
     expect(notifyPriorLeadDuplicatesMock).toHaveBeenCalledTimes(1)
     expect(response.status).toBe(200)
+  })
+})
+
+describe("POST /api/website/apply — loan term is required, never defaulted", () => {
+  const applying = {
+    ...validBody,
+    email: "real.client@example.com",
+    idNumber: "8001015000086",
+    productType: "PERSONAL",
+    amount: 5000,
+  }
+  const { termDays: _omitted, ...applyingNoTerm } = applying
+  const fixedTermProduct = { ...personalProduct, minTermDays: 30, maxTermDays: 30 }
+
+  function expectNothingWritten() {
+    expect(createLeadMock).not.toHaveBeenCalled()
+    expect(createCrmActivityMock).not.toHaveBeenCalled()
+    expect(createClientMock).not.toHaveBeenCalled()
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  }
+
+  function readyToApply(product: typeof personalProduct) {
+    findUniqueClientMock.mockResolvedValue(snapshotReadyClient)
+    updateClientMock.mockResolvedValue(snapshotReadyClient)
+    findFirstLoanProductMock.mockResolvedValue(product)
+    findFirstLoanApplicationMock.mockResolvedValue(null)
+    createLoanApplicationMock.mockResolvedValue({ id: "app_1", reference: "APP-TEST-0001" })
+  }
+
+  it("refuses a missing term for a variable-term product and writes nothing", async () => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq(applyingNoTerm))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.success).toBe(false)
+    expect(json.error).toMatch(/loan term/i)
+    expectNothingWritten()
+  })
+
+  it.each([
+    ["non-numeric text", "abc"],
+    ["zero", 0],
+    ["a negative number", -5],
+    ["a fraction", 30.5],
+    ["a fractional string", "30.5"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a boolean", true],
+  ])("refuses %s as the term and writes nothing", async (_label, termDays) => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(400)
+    expectNothingWritten()
+  })
+
+  it("accepts a fixed-term product without a term and applies the product's term", async () => {
+    readyToApply(fixedTermProduct)
+
+    const res = await POST(buildReq(applyingNoTerm))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("succeeds when the form sent the catalogue's fixed 30 days but the route's product is variable-term", async () => {
+    readyToApply(personalProduct) // 30-90 days: the form's catalogue said fixed-30
+
+    const res = await POST(buildReq({ ...applying, termDays: "30" }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("records a valid submitted term in the lead notes and referral metadata", async () => {
+    findFirstLoanProductMock.mockResolvedValue(null)
+    await POST(buildReq({ ...validBody, termDays: "60", referralCode: "REF1" }))
+    expect(createLeadMock.mock.calls[0][0].data.notes).toContain("Term: 60 days")
+    expect(recordReferralEventMock.mock.calls[0][1].metadata.termDays).toBe(60)
+  })
+
+  it("records only a valid submitted term in the lead notes and referral metadata", async () => {
+    findFirstLoanProductMock.mockResolvedValue(null)
+    await POST(buildReq({ ...validBody, termDays: "abc", referralCode: "REF1" }))
+    const notes = createLeadMock.mock.calls[0][0].data.notes as string
+    expect(notes).not.toMatch(/Term:/)
+    expect(notes).not.toMatch(/NaN/)
+    expect(recordReferralEventMock.mock.calls[0][1].metadata.termDays).toBeNull()
+  })
+
+  it("accepts a fixed-term product given an invalid term, still using the product's term", async () => {
+    readyToApply(fixedTermProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays: "abc" }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("does not default the term if the product became variable-term after the pre-check", async () => {
+    readyToApply(fixedTermProduct)
+    findFirstLoanProductMock.mockReset()
+    findFirstLoanProductMock.mockResolvedValueOnce(fixedTermProduct).mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq(applyingNoTerm))
+
+    expect(res.status).toBe(422)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  })
+
+  it("stores the submitted term for a variable-term product", async () => {
+    readyToApply(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays: "60" }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(60)
+  })
+
+  it.each([
+    ["below the minimum", 5],
+    ["above the maximum", 5000],
+  ])("refuses a term %s with the product's range and writes nothing", async (_label, termDays) => {
+    readyToApply(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json).toEqual({
+      success: false,
+      error: "Please choose a term between 30 and 90 days for this loan.",
+      termRange: { minTermDays: 30, maxTermDays: 90 },
+    })
+    expectNothingWritten()
+  })
+
+  it.each([30, 90])("stores the boundary term %i exactly", async (termDays) => {
+    readyToApply(personalProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(termDays)
+  })
+
+  it.each([5, 5000])("uses the product's own term for a fixed-term product given %i", async (termDays) => {
+    readyToApply(fixedTermProduct)
+
+    const res = await POST(buildReq({ ...applying, termDays }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("guides the user when the form sent the catalogue's fixed 30 days but the route's product is 60-90", async () => {
+    readyToApply({ ...personalProduct, minTermDays: 60, maxTermDays: 90 })
+
+    const res = await POST(buildReq({ ...applying, termDays: "30" }))
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).termRange).toEqual({ minTermDays: 60, maxTermDays: 90 })
+    expectNothingWritten()
+  })
+
+  it("refuses inside the transaction if the range narrowed past the term after the pre-check", async () => {
+    readyToApply(personalProduct)
+    findFirstLoanProductMock.mockReset()
+    findFirstLoanProductMock
+      .mockResolvedValueOnce(personalProduct) // pre-check
+      .mockResolvedValueOnce(personalProduct) // product lookup
+      .mockResolvedValue({ ...personalProduct, minTermDays: 60, maxTermDays: 90 }) // in the transaction
+
+    const res = await POST(buildReq({ ...applying, termDays: "30" }))
+
+    expect(res.status).toBe(422)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  })
+
+  it("still captures a lead-only enquiry (no ID number) without a term", async () => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq({ ...applyingNoTerm, idNumber: undefined }))
+
+    expect(res.status).toBe(200)
+    expect(createLeadMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  })
+
+  it("still captures a lead when the amount is outside the product range, without a term", async () => {
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq({ ...applyingNoTerm, amount: 1 }))
+
+    expect(res.status).toBe(200)
+    expect(createLeadMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
   })
 })
