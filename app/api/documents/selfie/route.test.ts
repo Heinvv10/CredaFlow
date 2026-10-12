@@ -98,6 +98,15 @@ const verifiedCoreDocuments = [
   { id: "bank-doc-1", docType: "BANK_STATEMENT", verified: true, verificationNote: null },
 ]
 
+// Every side judged a real photograph: a fixture that tests a selfie-quality
+// reason must not also leave the portrait unjudged, which refuses first.
+const JUDGED_REAL_PHOTOS = {
+  idPhotoKind: { value: "photograph" },
+  idPhotoIsRealPhotograph: { value: true },
+  idPhotoFaceDetected: { value: true },
+  selfieIsRealPhotograph: { value: true },
+}
+
 const ID_DOCUMENT_ROW = {
   id: "id-doc-1",
   storagePath: "tenant-1/client-1/id.jpg",
@@ -363,6 +372,7 @@ describe("POST /api/documents/selfie", () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
+        ...JUDGED_REAL_PHOTOS,
         faceDetected: { value: true },
         facesCount: { value: 1 },
         isLive: { value: true },
@@ -401,6 +411,7 @@ describe("POST /api/documents/selfie", () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
+        ...JUDGED_REAL_PHOTOS,
         faceDetected: { value: true },
         facesCount: { value: 1 },
         isLive: { value: true },
@@ -506,6 +517,7 @@ describe("POST /api/documents/selfie", () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
+        ...JUDGED_REAL_PHOTOS,
         faceDetected: { value: true },
         facesCount: { value: 1 },
         isLive: { value: false },
@@ -1167,6 +1179,14 @@ describe("POST /api/documents/selfie", () => {
       { ...goodIdPair, selfieIsRealPhotograph: { value: 0 } }, "selfie_not_real_photograph", unreadableSelfie],
     ["good ID pair, selfieIsRealPhotograph \"false\"",
       { ...goodIdPair, selfieIsRealPhotograph: { value: "false" } }, "selfie_not_real_photograph", unreadableSelfie],
+    // The model answered null for every ID judgement (mapExtractedFields
+    // drops null), so nothing judged the portrait.
+    ["every ID judgement null",
+      { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: null },
+      "id_document_portrait_invalid", "ID document portrait could not be verified: the check gave no answer about it"],
+    ["good ID pair, selfie judgement omitted",
+      { ...goodIdPair, selfieIsRealPhotograph: undefined },
+      "selfie_not_real_photograph", "Selfie could not be verified as a real photograph: the check gave no answer about it"],
   ])("records isLive:false with %s under a non-exceptionable reason", async (_label, sides, reason, message) => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,

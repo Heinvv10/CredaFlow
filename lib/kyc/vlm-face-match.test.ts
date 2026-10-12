@@ -206,14 +206,36 @@ describe("readVlmFaceMatchSideRejection", () => {
     expect(readVlmFaceMatchSideRejection({ ...fullVerdict, ...change })?.reason).toBe(reason)
   })
 
-  it("reads absent and null side fields as no signal", () => {
-    const { idPhotoKind: _kind, ...withoutKind } = fullVerdict
-    expect(readVlmFaceMatchSideRejection(withoutKind)).toBeNull()
-    for (const field of ["idPhotoKind", "idPhotoIsRealPhotograph", "idPhotoFaceDetected", "selfieIsRealPhotograph"]) {
-      expect(readVlmFaceMatchSideRejection({ ...fullVerdict, [field]: { value: null } })).toBeNull()
-      expect(readVlmFaceMatchSideRejection({ ...fullVerdict, [field]: undefined })).toBeNull()
+  // An answer that leaves a side unjudged refuses: mapExtractedFields drops a
+  // null or "" value, so the model answering null for every ID judgement
+  // looked like silence, and a liveness failure beside it was recorded under
+  // an exceptionable reason over a portrait nobody judged.
+  const NO_ANSWER_ID = "ID document portrait could not be verified: the check gave no answer about it"
+  const NO_ANSWER_SELFIE = "Selfie could not be verified as a real photograph: the check gave no answer about it"
+  it.each([
+    ["idPhotoKind", "id_document_portrait_invalid", NO_ANSWER_ID],
+    ["idPhotoIsRealPhotograph", "id_document_portrait_invalid", NO_ANSWER_ID],
+    ["idPhotoFaceDetected", "id_document_portrait_invalid", NO_ANSWER_ID],
+    ["selfieIsRealPhotograph", "selfie_not_real_photograph", NO_ANSWER_SELFIE],
+  ])("refuses an answer that leaves %s unjudged", (field, reason, message) => {
+    for (const absent of [{ [field]: { value: null } }, { [field]: undefined }]) {
+      const rejection = readVlmFaceMatchSideRejection({ ...fullVerdict, ...absent })
+      expect(rejection?.reason).toBe(reason)
+      expect(rejection?.message).toBe(message)
     }
+  })
+
+  it("refuses an answer with no side judgements at all, ID side first", () => {
+    expect(readVlmFaceMatchSideRejection({ faceDetected: { value: true }, isLive: { value: false } })).toEqual({
+      reason: "id_document_portrait_invalid",
+      message: NO_ANSWER_ID,
+      judgement: { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: null, selfieIsRealPhotograph: null },
+    })
+  })
+
+  it("finds no side refusal when there is no answer to read", () => {
     expect(readVlmFaceMatchSideRejection(null)).toBeNull()
+    expect(readVlmFaceMatchSideRejection([])).toBeNull()
     expect(readVlmFaceMatchSideRejection({ vlmUnavailable: true })).toBeNull()
   })
 

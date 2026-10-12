@@ -271,8 +271,9 @@ export function assessBiometricEvidence(
     return { ok: false, reason: "provider_verification_failed" }
   }
   // The VLM is the only provider, so passing evidence is always the v2
-  // verdict. There is no VLM-unavailable exemption: with the VLM unavailable
-  // the producer writes no provider result at all.
+  // verdict. The VLM-unavailable marker stands in for the extraction checks
+  // only (assessVlmBiometricExtraction); it does not exempt the provider
+  // result, and with the VLM unavailable the producer writes none at all.
   if (providerResult.provider !== VLM_FACE_MATCH_PROVIDER) {
     // No v2 check stands behind these scores (v1, untagged or unknown).
     return { ok: false, reason: "provider_verification_missing" }

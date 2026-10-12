@@ -89,9 +89,10 @@ AS $function$
           -- v2 verdict with every separate judgement agreeing with the pass
           -- (assessBiometricEvidence mirrors this). v1 carried one faceMatch
           -- boolean that once passed a selfie against a silhouette
-          -- placeholder; its evidence no longer counts, and the
-          -- VLM-unavailable marker exempts nothing. Booleans compare as
-          -- jsonb so the string "true" does not pass.
+          -- placeholder; its evidence no longer counts. The VLM-unavailable
+          -- marker above stands in for the extraction checks only; it does
+          -- not exempt this provider result. Booleans compare as jsonb so the
+          -- string "true" does not pass.
           AND selfie."biometricResult" ->> 'provider' = 'vlm-face-match-v2'
           AND selfie."biometricResult" ->> 'idPhotoKind' = 'photograph'
           AND selfie."biometricResult" -> 'idPhotoIsRealPhotograph' = 'true'::jsonb
