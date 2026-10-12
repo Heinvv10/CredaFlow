@@ -1,9 +1,10 @@
 /**
  * Loads the two ONNX models into onnxruntime-node (CPU only) once per
  * process. Each file's SHA-256 is checked against the pinned value on the
- * exact bytes handed to the runtime, so a swapped file never loads. A failed
- * load is not cached: the next comparison tries again, and until one
- * succeeds every comparison fails closed.
+ * exact bytes handed to the runtime, so a swapped file never loads. A load
+ * that fails or overruns FACE_MODEL_LOAD_TIMEOUT_MS is not cached: the next
+ * comparison tries again, and until one succeeds every comparison fails
+ * closed.
  */
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
@@ -72,12 +73,30 @@ async function createRuntime(dir: string): Promise<FaceModelRuntime> {
   }
 }
 
+/** A cold load measured under a second; well inside FACE_COMPARISON_TIMEOUT_MS. */
+export const FACE_MODEL_LOAD_TIMEOUT_MS = 20_000
+
 let runtime: Promise<FaceModelRuntime> | null = null
 
-export function loadFaceModelRuntime(): Promise<FaceModelRuntime> {
-  runtime ??= createRuntime(faceModelDir()).catch((error: unknown) => {
-    runtime = null
-    throw error
-  })
+/**
+ * The process's runtime. A hung load would otherwise stay cached as a
+ * promise that never settles, and every later comparison would time out.
+ */
+export function loadFaceModelRuntime(
+  create: () => Promise<FaceModelRuntime> = () => createRuntime(faceModelDir()),
+  timeoutMs = FACE_MODEL_LOAD_TIMEOUT_MS,
+): Promise<FaceModelRuntime> {
+  if (!runtime) {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`Face model load timed out after ${timeoutMs} ms`)), timeoutMs)
+    })
+    runtime = Promise.race([create(), timeout])
+      .finally(() => clearTimeout(timer))
+      .catch((error: unknown) => {
+        runtime = null
+        throw error
+      })
+  }
   return runtime
 }

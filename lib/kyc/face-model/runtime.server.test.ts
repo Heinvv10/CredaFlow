@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { FACE_MODELS } from "./models"
 import { faceModelDir, loadFaceModelRuntime, readVerifiedModel } from "./runtime.server"
 
@@ -63,5 +63,35 @@ describe("loadFaceModelRuntime", () => {
     writeFileSync(path.join(process.env.FACE_MODEL_DIR, FACE_MODELS.detector.file), "tampered")
     writeFileSync(path.join(process.env.FACE_MODEL_DIR, FACE_MODELS.recognizer.file), "tampered")
     await expect(loadFaceModelRuntime()).rejects.toThrow(/checksum/)
+  })
+})
+
+describe("loadFaceModelRuntime's cache", () => {
+  // A fresh module per test: the cache is module state.
+  const freshModule = async () => {
+    vi.resetModules()
+    return import("./runtime.server")
+  }
+  const fake = () => ({ detect: vi.fn(), embed: vi.fn() })
+
+  it("does not cache a load that hangs: it times out and the next call loads again", async () => {
+    const { loadFaceModelRuntime: load } = await freshModule()
+    await expect(load(() => new Promise(() => {}), 20)).rejects.toThrow(/timed out/)
+    const runtime = fake()
+    await expect(load(async () => runtime, 20)).resolves.toBe(runtime)
+  })
+
+  it("does not cache a load that fails", async () => {
+    const { loadFaceModelRuntime: load } = await freshModule()
+    await expect(load(async () => { throw new Error("binding failed") }, 1000)).rejects.toThrow("binding failed")
+    const runtime = fake()
+    await expect(load(async () => runtime, 1000)).resolves.toBe(runtime)
+  })
+
+  it("caches a load that succeeds", async () => {
+    const { loadFaceModelRuntime: load } = await freshModule()
+    const first = fake()
+    await expect(load(async () => first, 1000)).resolves.toBe(first)
+    await expect(load(async () => fake(), 1000)).resolves.toBe(first)
   })
 })
