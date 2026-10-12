@@ -14,6 +14,7 @@
  */
 import sharp from "sharp"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
+import { CANONICAL_IMAGE_MAX_EDGE_PX } from "@/lib/kyc/biometric-image.server"
 import { alignedFaceTensor, cosineSimilarity } from "./align"
 import type { FaceModelEvidence } from "./evidence"
 import { selectIdFace, selectSelfieFace } from "./face-count"
@@ -31,8 +32,9 @@ import { YUNET_INPUT_SIZE, decodeYunetOutputs, yunetInputTensor, type DetectedFa
 /** Covers loading the models too; a cold load measured well under a second. */
 export const FACE_COMPARISON_TIMEOUT_MS = 30_000
 // Enough for alignment (the compared face is 112px) without decoding a
-// 50-megapixel upload at full size.
-const MAX_DECODE_EDGE = 2048
+// 50-megapixel upload at full size; the canonical image is already capped
+// at the same edge, so both judges see the same resolution.
+const MAX_DECODE_EDGE = CANONICAL_IMAGE_MAX_EDGE_PX
 
 export type FaceComparisonRejection = {
   reason: Extract<

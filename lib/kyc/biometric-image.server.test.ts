@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import sharp from "sharp"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -7,7 +7,7 @@ vi.mock("@/lib/vlm-extract", () => ({
   documentImage: (...args: unknown[]) => documentImageMock(...args),
 }))
 
-import { canonicalBiometricImage } from "./biometric-image.server"
+import { CANONICAL_IMAGE_MAX_BYTES, CANONICAL_IMAGE_MAX_EDGE_PX, canonicalBiometricImage } from "./biometric-image.server"
 
 const pixel = async (jpeg: Buffer, x: number, y: number) => {
   const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true })
@@ -65,6 +65,43 @@ describe("canonicalBiometricImage", () => {
     expect(await canonicalBiometricImage(Buffer.from("%PDF"), "application/pdf")).toEqual({
       ok: false, error: "PDF conversion failed: synthetic",
     })
+  })
+
+  // The canonical bytes go to the shared VLM base64-encoded: unbounded, a
+  // 1.5 MB 16000 px checkerboard PNG became a 66 MB JPEG.
+  describe("bounds", () => {
+    it("caps the long edge at 2048 px, keeping the aspect ratio, and never enlarges", async () => {
+      const wide = await sharp({ create: { width: 5000, height: 2500, channels: 3, background: "#556677" } }).png().toBuffer()
+      const result = await canonicalBiometricImage(wide, "image/png")
+      if (!result.ok) throw new Error("expected a canonical image")
+      const metadata = await sharp(result.image.fileBuffer).metadata()
+      expect([metadata.width, metadata.height]).toEqual([CANONICAL_IMAGE_MAX_EDGE_PX, 1024])
+      const small = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#556677" } }).png().toBuffer()
+      const kept = await canonicalBiometricImage(small, "image/png")
+      if (!kept.ok) throw new Error("expected a canonical image")
+      const keptMetadata = await sharp(kept.image.fileBuffer).metadata()
+      expect([keptMetadata.width, keptMetadata.height]).toEqual([300, 200])
+    })
+
+    it("keeps a large checkerboard bounded", async () => {
+      const side = 6000
+      const pixels = Buffer.alloc(side * side)
+      for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) pixels[y * side + x] = (x + y) & 1 ? 255 : 0
+      const checkerboard = await sharp(pixels, { raw: { width: side, height: side, channels: 1 } }).png().toBuffer()
+      const result = await canonicalBiometricImage(checkerboard, "image/png")
+      if (!result.ok) throw new Error("expected a canonical image")
+      const metadata = await sharp(result.image.fileBuffer).metadata()
+      expect(Math.max(metadata.width ?? 0, metadata.height ?? 0)).toBe(CANONICAL_IMAGE_MAX_EDGE_PX)
+      expect(result.image.fileBuffer.length).toBeLessThan(CANONICAL_IMAGE_MAX_BYTES)
+    }, 30_000)
+
+    it("refuses a canonical image above 8 MiB, as random noise at the cap is", async () => {
+      const side = CANONICAL_IMAGE_MAX_EDGE_PX
+      const noise = await sharp(randomBytes(side * side * 3), { raw: { width: side, height: side, channels: 3 } }).png().toBuffer()
+      expect(await canonicalBiometricImage(noise, "image/png")).toEqual({
+        ok: false, error: "The prepared image is larger than 8 MiB",
+      })
+    }, 30_000)
   })
 
   it("fails on bytes that are not an image", async () => {
