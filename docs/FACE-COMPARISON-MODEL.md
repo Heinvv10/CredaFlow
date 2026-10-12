@@ -70,16 +70,22 @@ deps stage, which does not copy `.npmrc`.
 2. YuNet on a 640x640 input (the image shrunk to fit, zero-padded bottom and
    right, BGR, raw 0-255): anchor-free decoding over strides 8/16/32,
    score = sqrt(cls x obj) >= 0.9, NMS at IoU 0.3, as `cv::FaceDetectorYN`.
-   On the ID side only, when that pass finds no face in an image larger than
-   640, YuNet runs once more on the full canonical image (at most 2048 px,
-   padded to a multiple of 32), boxes and landmarks in source pixels; the
-   evidence records which pass found the ID face (`idDetectPass`: `fit640` or
-   `full`). This is what finds the face on an ID card scanned at true size on
+   On the ID side only, for every ID image larger than 640, YuNet also runs
+   on the full canonical image (at most 2048 px, padded to a multiple of 32),
+   boxes and landmarks in source pixels. Both passes always run: the
+   face-count rule must hold on each, or a page whose 640 pass sees only one
+   of two comparable faces would verify a selfie of either (the breaker's
+   REPRO 8, now a real-model test). Either pass seeing comparable faces or
+   more than 64 refuses; otherwise the 640 pass's face is compared when it
+   found one (it also sees faces too large for the full pass), else the full
+   pass's. The evidence records which pass the compared face came from
+   (`idDetectPass`: `fit640` or `full`) and the larger of the two counts, with
+   that pass's second-face ratio. This is what finds the face on an ID card scanned at true size on
    A4. The file declares a fixed 640x640 input, so after the checksum check
    `onnx-shape.ts` rewrites only its declared shapes as symbolic (weights and
    operators untouched; at 640 the outputs are bit-identical). The selfie side
    has no second pass.
-3. Face-count rule (below), applied unchanged to whichever pass found faces.
+3. Face-count rule (below), applied to each pass.
 4. Each chosen face must be usable (below), then is aligned to SFace's 112x112
    template with the 5-point similarity transform of
    `cv::FaceRecognizerSF::alignCrop` (ArcFace landmarks), bilinear, zero
@@ -263,11 +269,13 @@ each, with a Docker build running alongside: model load 122-151 ms; one check
 (two decodes, two detections, two embeddings) median 147 ms pinned to 1 or 2
 cores, 213 ms unpinned; process RSS about 340 MB.
 
-The ID side's full-resolution pass, on a synthetic 1448x2048 page, 8 checks
-each: a whole check takes median 254 ms on 1 core, 319 ms on 2, 325 ms
-unpinned, against 140 / 162 / 159 ms when the 640 pass finds the face, so
-the extra pass costs about 115-165 ms and runs only when the first finds
-nothing.
+The ID side's full-resolution pass now runs on every ID image larger than
+640. Timed against the 640 pass in one process on a synthetic 1448x2048
+page (12 rounds, interleaved, on a host at load average ~70-95 on 32
+cores): the 640 pass took median 35 ms on 1 core and 40 ms on 2; the full
+pass 274 ms and 351 ms, 7.8-8.8x (its input has 7.4x the pixels). An
+earlier, unloaded measurement put it at about 115-165 ms. A whole check on
+such a page now takes roughly 0.4-0.6 s under that load.
 
 Memory: uploads above 50 MP are refused from their header, and at most two
 canonicalisations run at once (a caller waits at most 30 s). libvips's

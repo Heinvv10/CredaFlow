@@ -190,6 +190,25 @@ suite("compareFaces with the real models", () => {
     }))
   })
 
+  // The breaker's REPRO 8: two DIFFERENT drawn faces of comparable size on
+  // an A4-like page. The 640 pass sees only one of them, the full pass both.
+  // Running only the pass that found something verified a selfie of either.
+  it("refuses a page with two comparable faces that only the full pass sees both of", async () => {
+    const reshaped = DRAWN.map((v, i) => ([0, 1, 3, 7].includes(i) ? Math.min(1, v + 0.3) : v))
+    const face = async (p: number[]) => sharp(await sharp(drawnFace(p)).png().toBuffer()).resize(360).png().toBuffer()
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#ffffff" } })
+      .composite([{ input: await face(DRAWN), left: 100, top: 120 }, { input: await face(reshaped), left: 780, top: 1100 }])
+      .png().toBuffer()
+    for (const p of [DRAWN, reshaped]) {
+      const selfie = { fileBuffer: await sharp(drawnFace(p)).png().toBuffer(), mimeType: "image/png" }
+      expect(await compareFaces({ fileBuffer: page, mimeType: "image/png" }, selfie)).toEqual(expect.objectContaining({
+        ok: false,
+        idFaceCount: 2,
+        rejection: expect.objectContaining({ reason: "extraction_incomplete", message: expect.stringMatching(/comparable size/) }),
+      }))
+    }
+  })
+
   it("is deterministic", async () => {
     const image = { fileBuffer: await noise(), mimeType: "image/jpeg" }
     expect(await compareFaces(image, image)).toEqual(await compareFaces(image, image))

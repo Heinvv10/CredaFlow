@@ -17,7 +17,7 @@ import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidenc
 import { CANONICAL_IMAGE_MAX_EDGE_PX, MAX_INPUT_PIXELS } from "@/lib/kyc/biometric-image.server"
 import { alignedFaceTensor, cosineSimilarity } from "./align"
 import type { FaceModelEvidence } from "./evidence"
-import { selectIdFace, selectSelfieFace } from "./face-count"
+import { selectIdFaceAcrossPasses, selectSelfieFace } from "./face-count"
 import {
   FACE_MODELS,
   FACE_MODEL_DETECTOR_RUNTIME_SHA256,
@@ -78,12 +78,12 @@ export async function decodeImage(bytes: Buffer): Promise<RgbImage> {
 }
 
 /**
- * The ID side only, and only when the 640-fit pass found no face in an image
- * larger than 640: one more pass at the image's own size (at most 2048 px,
- * padded to a multiple of 32). An ID card scanned at true size on A4 renders
- * about 590 px wide at the 2048 px cap; fitted to 640 its face is ~20 px and
- * YuNet misses it. Boxes and landmarks come back in source pixels (scale 1),
- * and the face-count and usable-face rules apply unchanged.
+ * The ID side only, for every ID image larger than 640: a second pass at the
+ * image's own size (at most 2048 px, padded to a multiple of 32), beside the
+ * 640-fit pass. An ID card scanned at true size on A4 renders about 590 px
+ * wide at the 2048 px cap; fitted to 640 its face is ~20 px and YuNet misses
+ * it. Boxes and landmarks come back in source pixels (scale 1); the
+ * face-count rule holds on both passes (selectIdFaceAcrossPasses).
  */
 async function detectFacesFullResolution(image: RgbImage, runtime: FaceModelRuntime): Promise<DetectedFace[]> {
   const width = Math.ceil(image.width / 32) * 32
@@ -144,15 +144,13 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
     return refuse("extraction_incomplete", "The selfie image could not be read for the face comparison", counts)
   }
   try {
-    let idFaces = await detectFaces(idImage, runtime)
-    let idDetectPass: FaceModelEvidence["idDetectPass"] = "fit640"
-    if (idFaces.length === 0 && Math.max(idImage.width, idImage.height) > YUNET_INPUT_SIZE) {
-      idFaces = await detectFacesFullResolution(idImage, runtime)
-      idDetectPass = "full"
-    }
+    const fitFaces = await detectFaces(idImage, runtime)
+    const fullFaces = Math.max(idImage.width, idImage.height) > YUNET_INPUT_SIZE
+      ? await detectFacesFullResolution(idImage, runtime)
+      : null
     const selfieFaces = await detectFaces(selfieImage, runtime)
-    counts = { idFaceCount: idFaces.length, selfieFaceCount: selfieFaces.length }
-    const idFace = selectIdFace(idFaces)
+    const idFace = selectIdFaceAcrossPasses(fitFaces, fullFaces)
+    counts = { idFaceCount: idFace.count, selfieFaceCount: selfieFaces.length }
     if (!idFace.ok) {
       return refuse(idFace.reason, idFace.count === 0
         ? "No face found in the ID document photograph by the face comparison"
@@ -186,7 +184,7 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
         selfieFaceCount: selfieFace.count,
         idFaceCount: idFace.count,
         idSecondFaceAreaRatio: idFace.secondFaceAreaRatio,
-        idDetectPass,
+        idDetectPass: idFace.pass,
         idInterOcularPx: id.interOcularPx,
         selfieInterOcularPx: self.interOcularPx,
         idGeometryMargin: id.geometryMargin,

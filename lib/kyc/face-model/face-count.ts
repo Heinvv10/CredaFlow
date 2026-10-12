@@ -45,3 +45,38 @@ export function selectIdFace(
   }
   return { ok: true, face: largest, count: faces.length, secondFaceAreaRatio }
 }
+
+/**
+ * The ID face when the image got both detector passes (it is larger than
+ * 640): the 640-fit pass, and the full-resolution pass that finds the small
+ * face on an A4 scan. The face-count rule must hold on EACH pass: a page
+ * whose 640 pass sees only one of two comparable faces would otherwise
+ * verify a selfie of either. So either pass seeing comparable faces, or more
+ * than 64, refuses. Otherwise the 640 pass's dominant face is compared when
+ * it found one (it also sees faces too large for the full pass), else the
+ * full pass's. The recorded count is the larger of the two, with that pass's
+ * second-face ratio. Without a full pass (`full` null) this is selectIdFace.
+ */
+export function selectIdFaceAcrossPasses(
+  fit: DetectedFace[],
+  full: DetectedFace[] | null,
+):
+  | { ok: true; face: DetectedFace; pass: "fit640" | "full"; count: number; secondFaceAreaRatio: number | null }
+  | Refusal<"extraction_incomplete"> {
+  const fitPick = selectIdFace(fit)
+  const fullPick = full ? selectIdFace(full) : null
+  const count = Math.max(fit.length, full?.length ?? 0)
+  if ((!fitPick.ok && fitPick.count > 0) || (fullPick && !fullPick.ok && fullPick.count > 0)) {
+    return { ok: false, reason: "extraction_incomplete", count }
+  }
+  const chosen = fitPick.ok ? fitPick : fullPick?.ok ? fullPick : null
+  if (!chosen) return { ok: false, reason: "extraction_incomplete", count: 0 }
+  const counted = fitPick.ok && fullPick?.ok && fullPick.count > fitPick.count ? fullPick : chosen
+  return {
+    ok: true,
+    face: chosen.face,
+    pass: chosen === fitPick ? "fit640" : "full",
+    count: counted.count,
+    secondFaceAreaRatio: counted.secondFaceAreaRatio,
+  }
+}
