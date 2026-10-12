@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
 import { assignableRoles, loadUsers, type SettingsUser as User, type Branch } from "@/lib/settings-users"
+import { hasMinRole, type UserRole } from "@/lib/permissions"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import {
   Plus, Pencil, UserX, UserCheck, KeyRound, Search,
@@ -248,13 +249,18 @@ export function UserTable({ currentUserId, currentUserRole }: { currentUserId: s
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
                       <button onClick={() => setDetailUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="View details"><Activity className="h-4 w-4" /></button>
-                      <button onClick={() => setEditUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="Edit user"><Pencil className="h-4 w-4" /></button>
-                      <button onClick={() => setResetUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="Reset password"><KeyRound className="h-4 w-4" /></button>
-                      {user.id !== currentUserId && (
-                        <ToggleActiveButton user={user} onDone={() => setRefreshKey(k => k + 1)} />
-                      )}
-                      {isSuperAdmin && user.id !== currentUserId && (
-                        <DeleteUserButton user={user} onDone={() => setRefreshKey(k => k + 1)} />
+                      {/* The server refuses any write to a user who outranks the caller. */}
+                      {hasMinRole(currentUserRole as UserRole, user.role as UserRole) && (
+                        <>
+                          <button onClick={() => setEditUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="Edit user"><Pencil className="h-4 w-4" /></button>
+                          <button onClick={() => setResetUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="Reset password"><KeyRound className="h-4 w-4" /></button>
+                          {user.id !== currentUserId && (
+                            <ToggleActiveButton user={user} onDone={() => setRefreshKey(k => k + 1)} />
+                          )}
+                          {isSuperAdmin && user.id !== currentUserId && (
+                            <DeleteUserButton user={user} onDone={() => setRefreshKey(k => k + 1)} />
+                          )}
+                        </>
                       )}
                     </div>
                   </td>
