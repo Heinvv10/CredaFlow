@@ -1,24 +1,29 @@
+import { notFound } from "next/navigation"
 import { requireMinRole } from "@/lib/auth-guards"
+import { getResolvedTenantId } from "@/lib/tenant"
 import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
 import { BranchesSettingsClient } from "./BranchesSettingsClient"
 
 export default async function BranchesSettingsPage() {
-  await requireMinRole("ADMIN")
-
-  const tenant = await prisma.tenant.findFirst({ where: { status: "ACTIVE" } })
-  if (!tenant) return null
+  const user = await requireMinRole("ADMIN")
+  const tenantId = await getResolvedTenantId()
+  // withTenantContext's binding, for a page: a session never reads another
+  // tenant's rows because the host resolved to it.
+  if (user.tenantId !== tenantId) notFound()
 
   const [branches, managers] = await Promise.all([
     prisma.branch.findMany({
-      where: { tenantId: tenant.id },
+      where: { tenantId },
       orderBy: { name: "asc" },
       include: {
         _count: { select: { users: true, applications: true, clients: true } },
       },
     }),
     prisma.user.findMany({
-      where: { active: true, role: { in: ["BRANCH_MANAGER", "LOAN_ADMIN", "SUPER_ADMIN", "ADMIN"] } },
+      // User is not tenant-scoped, so the tenantId filter is manual; active
+      // matches what POST /api/branches accepts (isAssignableStaff).
+      where: { tenantId, active: true, role: { in: ["BRANCH_MANAGER", "LOAN_ADMIN", "SUPER_ADMIN", "ADMIN"] } },
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     }),
