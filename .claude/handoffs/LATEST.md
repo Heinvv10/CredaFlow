@@ -1,8 +1,9 @@
 # Handoff — CredaFlow
 
-**Repository:** `github.com/Heinvv10/CredaFlow` (private). `main` is one initial
-commit. Work branches from `main`; one branch per change, reviewed by fresh
-agents before merge.
+**Repository:** `github.com/Heinvv10/CredaFlow` (private). `main` grows from one
+orphan initial commit (`51c387e`); the old fork's history never goes to GitHub.
+Work branches from `main`; one branch per change, reviewed by fresh agents
+before merge.
 
 ## State
 
@@ -15,9 +16,10 @@ the repository: keep `~/.config/credaflow/other-lender-digests.json` on any
 machine that ports code from the old codebase. Without it the guard is off.
 Read `CLAUDE.md`, then `docs/ARCHITECTURE.md`.
 
-**Twenty-one stacked PRs, none merged.** Merge them in order; each is based on the
-previous one's branch. Every one has green CI and three blind reviewers'
-SHIP/CLEAN on its final commit.
+**Twenty-one PRs, all merged into `main` on 2026-10-11** (#1–#5 and #8–#23, as
+merge commits in this order). They were stacked, each on the previous one's
+branch, and each had green CI and three blind reviewers' SHIP/CLEAN on its
+final commit. #6 and #7 were throwaway PRs that proved the quality gate fails.
 
 | PR | Branch | What |
 |---|---|---|
@@ -43,9 +45,6 @@ SHIP/CLEAN on its final commit.
 | #22 | `fix/nca-schedule-continuation` → #21 | The credit agreement, the Form 20 quotation and the statement print every schedule, payment-history and reversed-payment row on continuation pages (no new wording; TOTAL once after the last row); documents whose tables fit one page are byte-identical and no existing render pin changed |
 | #23 | `fix/credit-life-premium-rounding` → #22 | The credit-life monthly premium is computed in exact integer cents and rounds half up like the database's `ROUND(numeric)` (it used floating point and disagreed on half-cent ties, e.g. R1,010: 454c vs 455c); real-PG suite `RUN_CREDIT_LIFE_PREMIUM_ROUNDING_IT` |
 
-(#6 and #7 were throwaway PRs used to prove the quality gate fails; both are
-closed and their branches deleted.)
-
 - **Schema:** baseline + `20261009120000_neutral_tenant_palette` +
   `20261009150000_remove_outage_disbursement_exception` (with #3) +
   `20261010120000_application_amount_positive` (with #19) +
@@ -59,10 +58,13 @@ closed and their branches deleted.)
 - **No deploy path.** No production or staging environment exists; hosting is
   an open decision.
 
-## Verification (local, at the top of the stack)
+## Verification (at the top of the stack, now `main`)
 
 CI runs `quality-gate`, `integration-tests`, `agent-docs` and
-`date-boundaries`. Local results, run against a fresh Postgres 16:
+`date-boundaries`. `main` after the merge has the same tree as #23's head and
+its CI is green; `integration-tests` runs on pull requests and nightly, not on
+push, so it was run on `main` by hand (green). Local results, run against a
+fresh Postgres 16:
 
 - `npx tsc --noEmit` 0
 - `npm run lint`: 0 errors, 0 warnings
@@ -76,10 +78,12 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
 
 ## Next steps
 
-1. Merge #1 → #2 → #3 → #4 → #5 → #8 → #9 → #10 → #11 → #12 → #13 → #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 → #23, rebasing each onto `main` as the one
-   below lands.
-2. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
+1. Reseed any database seeded before #1 with all three `SEED_*_PASSWORD` set
    (the old literals are in `main`'s public history).
+2. Migrate any existing database through #19's and #21's validated CHECKs:
+   one holding a `LoanApplication` with `appliedAmount` ≤ 0, or a CREDIT_LIFE
+   `InsuranceProduct` with a premium or sum assured ≤ 0, fails
+   `prisma migrate deploy` until that row is fixed or deleted.
 3. Decide hosting and add a deploy path with its own gates. The deployment must
    schedule the externally owned cron routes (`instrumentation.cron-census.test.ts`
    lists them); nothing in this repo does.
@@ -103,6 +107,10 @@ CI runs `quality-gate`, `integration-tests`, `agent-docs` and
   tenant creates its own legally approved template.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
+- **Term and amount defaults.** The portal apply form still defaults the
+  amount to the product maximum. The public website apply route
+  (`app/api/website/apply/route.ts`) stores 30 days, clamped into the product's
+  range, when no term is sent.
 - **TOTP enrolment policy** for new staff, and the `ncrStatus` wording on the
   website.
 - **History left in UI copy and names.** The string pass changed no customer-facing
