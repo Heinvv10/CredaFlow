@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 
 const biometricSubject = {
   id: "client-1",
@@ -31,7 +32,8 @@ const passingSelfieDocument = {
     verified: true,
     matchScore: 98,
     livenessScore: 97,
-    provider: "vlm-face-match-v2",
+    provider: "vlm-face-match-v3",
+    faceModel: PASSING_FACE_MODEL_EVIDENCE,
     idPhotoKind: "photograph",
     idPhotoIsRealPhotograph: true,
     idPhotoFaceDetected: true,

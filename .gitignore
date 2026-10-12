@@ -77,3 +77,6 @@ lib/ocr/accuracy/*.jpg
 lib/ocr/accuracy/*.jpeg
 lib/ocr/accuracy/*.png
 !.env.example
+
+# face-comparison model weights (npm run face-models:fetch)
+/face-models/

@@ -26,6 +26,7 @@ import {
   type ApplicationSubmissionTransaction,
 } from "./submission-lock"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 import {
   createApprovedPasqV3Application,
   writePasqV3Disbursement,
@@ -126,7 +127,8 @@ suite("application submission evidence locking", () => {
           verified: true,
           matchScore: 98,
           livenessScore: 97,
-          provider: "vlm-face-match-v2",
+          provider: "vlm-face-match-v3",
+          faceModel: PASSING_FACE_MODEL_EVIDENCE,
           idPhotoKind: "photograph",
           idPhotoIsRealPhotograph: true,
           idPhotoFaceDetected: true,

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 
 const requireApiRoleMock = vi.fn()
 const transactionMock = vi.fn()
@@ -198,7 +199,8 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
       biometricLiveness: 97,
       biometricVerifiedAt: new Date("2026-10-11T08:00:00.000Z"),
       biometricResult: {
-        ok: true, verified: true, provider: "vlm-face-match-v2", matchScore: 95, livenessScore: 97,
+        ok: true, verified: true, provider: "vlm-face-match-v3", matchScore: 95, livenessScore: 97,
+        faceModel: PASSING_FACE_MODEL_EVIDENCE,
         idPhotoKind: "photograph", idPhotoIsRealPhotograph: true, idPhotoFaceDetected: true,
         selfieIsRealPhotograph: true, samePerson: "same", faceMatch: true,
         matchConfidence: 0.95, livenessConfidence: 0.97,

@@ -14,3 +14,5 @@ docker-compose.staging.yml
 .codex
 *.tgz
 prisma/seed-staging.ts
+# face-model weights are fetched fresh, checksum-pinned, inside the build
+face-models

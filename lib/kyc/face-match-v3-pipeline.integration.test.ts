@@ -2,26 +2,53 @@
  * End-to-end proof, on a real migrated PostgreSQL, that the face-match gates
  * hold through the real pipeline: captureSelfie -> runBiometricVerification ->
  * persistBiometricOutcome, the in-person and senior-exception routes, and the
- * Client composite-KYC trigger. Only the VLM HTTP call (fetch), file storage
- * and session/tenant resolution are stubbed.
+ * Client composite-KYC trigger. Only the VLM HTTP call (fetch), the face
+ * model's comparison (compareFaces: the stored "ID bytes" here are not an
+ * image), file storage and session/tenant resolution are stubbed. The stubbed
+ * comparison's evidence is still re-proved by both real gates. Stored files
+ * are small synthetic JPEGs, so the real canonicalisation runs; a stored path
+ * containing "pdf" holds a PDF that will not render.
  *
- *   RUN_FACE_MATCH_V2_IT=1 DATABASE_URL=postgresql://... \
- *     npx vitest run lib/kyc/face-match-v2-pipeline.integration.test.ts
+ * Supersedes face-match-v2-pipeline.integration.test.ts: after migration
+ * 20261011080000_face_match_v3_evidence a v2 pass no longer verifies anyone,
+ * so every case it held runs here through the v3 pipeline, plus the face
+ * model's refusals.
+ *
+ *   RUN_FACE_MATCH_V3_IT=1 DATABASE_URL=postgresql://... \
+ *     npx vitest run lib/kyc/face-match-v3-pipeline.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
+import sharp from "sharp"
 
-const ctx = vi.hoisted(() => ({ tenantId: "", adminId: "", readPaths: [] as string[] }))
-vi.mock("@/lib/storage", () => ({
-  readFile: vi.fn(async (storagePath: string) => {
-    ctx.readPaths.push(storagePath)
-    return Buffer.from("id-image-bytes")
-  }),
-  saveFile: vi.fn(async () => ({ storagePath: `stub/selfie-${Math.random()}`, fileSize: 12 })),
-  deleteFile: vi.fn(async () => undefined),
+const ctx = vi.hoisted(() => ({
+  tenantId: "", adminId: "", readPaths: [] as string[],
+  comparison: null as unknown,
+  compared: [] as Array<{ id: { fileBuffer: Buffer; mimeType: string }; selfie: { fileBuffer: Buffer; mimeType: string } }>,
 }))
+vi.mock("@/lib/kyc/face-model/compare.server", async () => {
+  const { PASSING_FACE_MODEL_EVIDENCE } = await import("@/lib/kyc/face-model/evidence.test-helpers")
+  return {
+    compareFaces: vi.fn(async (id: { fileBuffer: Buffer; mimeType: string }, selfie: { fileBuffer: Buffer; mimeType: string }) => {
+      ctx.compared.push({ id, selfie })
+      return ctx.comparison ?? { ok: true, evidence: PASSING_FACE_MODEL_EVIDENCE, rejection: null }
+    }),
+  }
+})
+vi.mock("@/lib/storage", async () => {
+  const sharp = (await import("sharp")).default
+  const idJpeg = await sharp({ create: { width: 48, height: 32, channels: 3, background: "#d0c8b0" } }).jpeg().toBuffer()
+  return {
+    readFile: vi.fn(async (storagePath: string) => {
+      ctx.readPaths.push(storagePath)
+      return storagePath.includes("pdf") ? Buffer.from("%PDF-1.7\nnot a renderable document") : idJpeg
+    }),
+    saveFile: vi.fn(async () => ({ storagePath: `stub/selfie-${Math.random()}`, fileSize: 12 })),
+    deleteFile: vi.fn(async () => undefined),
+  }
+})
 // lib/document-auth (the selfie magic-byte check) imports the NextAuth config.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/auth-guards", () => ({
@@ -47,7 +74,7 @@ import { PATCH as verifyPATCH } from "@/app/api/clients/[id]/documents/[docId]/v
 import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
 import { inPersonKycVerificationOffered } from "@/lib/kyc/in-person-verification"
 
-const RUN = process.env.RUN_FACE_MATCH_V2_IT === "1"
+const RUN = process.env.RUN_FACE_MATCH_V3_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
 const db = new PrismaClient()
 const token = randomUUID().replaceAll("-", "").slice(0, 12)
@@ -109,13 +136,13 @@ async function seedClient() {
 async function addIdCopy(
   fixture: { tenantId: string; clientId: string },
   label: string,
-  fields: { verified: boolean; contentSha256: string; rejected?: boolean },
+  fields: { verified: boolean; contentSha256: string; rejected?: boolean; mimeType?: string },
 ) {
   const id = `fm_pipe_ID_${label}_${sequence}_${token}`
   await db.clientDocument.create({
     data: {
       id, tenantId: fixture.tenantId, clientId: fixture.clientId, docType: "ID_COPY", fileUrl: "",
-      fileName: `${label}.jpg`, mimeType: "image/jpeg", storagePath: `stub/${label}-${sequence}`,
+      fileName: `${label}.jpg`, mimeType: fields.mimeType ?? "image/jpeg", storagePath: `stub/${label}-${sequence}`,
       contentSha256: fields.contentSha256, uploadedByType: "client", verified: fields.verified,
       verifiedAt: fields.verified ? new Date() : null,
       ...(fields.rejected
@@ -130,9 +157,9 @@ async function addIdCopy(
   return id
 }
 
-const jpeg = () => new File([Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])], "selfie.jpg", {
-  type: "image/jpeg",
-})
+// A real (synthetic) JPEG: the selfie is canonicalised before either judge sees it.
+const SELFIE_JPEG = await sharp({ create: { width: 40, height: 52, channels: 3, background: "#b08060" } }).jpeg().toBuffer()
+const jpeg = () => new File([new Uint8Array(SELFIE_JPEG)], "selfie.jpg", { type: "image/jpeg" })
 
 /** Capture through the real entry point and wait for the async face match. */
 async function capture(fixture: { tenantId: string; clientId: string }) {
@@ -171,7 +198,7 @@ async function attemptAgainst(fixture: { tenantId: string; clientId: string }, i
     },
   })
   await runWithTenant(fixture.tenantId, () => runBiometricVerification(
-    selfieId, fixture.clientId, fixture.tenantId, generation, Buffer.from("selfie-bytes"), "image/jpeg", idDocument,
+    selfieId, fixture.clientId, fixture.tenantId, generation, SELFIE_JPEG, "image/jpeg", idDocument,
   ))
   return db.clientDocument.findUniqueOrThrow({
     where: { id: selfieId },
@@ -289,11 +316,13 @@ const recordException = (clientId: string) => exceptionPOST(new Request("http://
   }),
 }) as never, { params: Promise.resolve({ id: clientId }) })
 
-suite("face match v2 through the real pipeline", () => {
+suite("face match v3 through the real pipeline", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     ctx.readPaths = []
+    ctx.comparison = null
+    ctx.compared = []
   })
   afterAll(async () => {
     await db.$disconnect()
@@ -632,6 +661,125 @@ suite("face match v2 through the real pipeline", () => {
         reason: "composite_kyc_evidence_changed", documentId: newer, documentType: "ID_COPY",
       }))
     })
+  })
+
+  describe("the face model decides same-person", () => {
+    it("verifies the client on a VLM pass the face model confirms, in both layers", async () => {
+      const fixture = await seedClient()
+      stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+
+      expect(selfie?.verified).toBe(true)
+      expect(selfie?.biometricResult).toEqual(expect.objectContaining({
+        provider: "vlm-face-match-v3", faceModel: expect.objectContaining({ samePerson: true }),
+      }))
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "BIOMETRIC" })
+      expect(await layers(fixture.clientId)).toEqual({ app: true, appReason: null, sql: true })
+    })
+
+    it("refuses a confident VLM \"same\" the face model scored below the threshold", async () => {
+      const fixture = await seedClient()
+      const { PASSING_FACE_MODEL_EVIDENCE } = await import("@/lib/kyc/face-model/evidence.test-helpers")
+      ctx.comparison = {
+        ok: true,
+        evidence: { ...PASSING_FACE_MODEL_EVIDENCE, similarity: 0.12, samePerson: false },
+        rejection: { reason: "match_score_below_threshold", message: "Face comparison similarity below threshold" },
+      }
+      stubVlm(passingReply({ matchConfidence: 0.95 }))
+      const { selfie } = await capture(fixture)
+
+      expect(selfie?.verified).toBe(false)
+      // The stored provider result does not claim a pass the model refused.
+      expect((selfie?.biometricResult as Record<string, unknown>).verified).toBe(false)
+      expect(reasonOf(selfie)).toBe("match_score_below_threshold")
+      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+      expect((await layers(fixture.clientId)).sql).toBe(false)
+      // Written straight to the database, the stored model refusal still blocks.
+      await expect(db.client.update({
+        where: { id: fixture.clientId },
+        data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerificationMethod: "BIOMETRIC" },
+      })).rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
+    })
+
+    // The covered-face card: the VLM passed every one of its gates and only
+    // the model refused. A detector miss is not a judgement that the ID has no
+    // real photograph, and it repeats on every retry, so it must not close the
+    // in-person route: staff can look at the physical ID.
+    it("refuses, but leaves the in-person route open, when the face model finds no face on a VLM-passed ID", async () => {
+      const fixture = await seedClient()
+      ctx.comparison = {
+        ok: false,
+        rejection: { reason: "extraction_incomplete", message: "No face found in the ID document photograph by the face comparison" },
+        idFaceCount: 0, selfieFaceCount: 1,
+      }
+      stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+      expect(selfie?.verified).toBe(false)
+      expect(reasonOf(selfie)).toBe("extraction_incomplete")
+      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+      expect(await layers(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
+
+      // No senior exception over it, but the in-person route is open.
+      expect((await recordException(fixture.clientId)).status).toBe(422)
+      const response = await recordInPerson(fixture.clientId)
+      expect(response.status).toBe(200)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
+    })
+
+    it("records extraction_incomplete, which no senior may except, when the face model is unavailable", async () => {
+      const fixture = await seedClient()
+      ctx.comparison = {
+        ok: false,
+        rejection: { reason: "extraction_incomplete", message: "Face comparison could not run: the face models are unavailable" },
+        idFaceCount: null, selfieFaceCount: null,
+      }
+      stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+      expect(selfie?.verified).toBe(false)
+      expect(reasonOf(selfie)).toBe("extraction_incomplete")
+
+      const response = await recordException(fixture.clientId)
+      expect(response.status).toBe(422)
+      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+    })
+  })
+
+  // The breaker's case: at cd3e463 a PDF ID that would not render was recorded
+  // as id_document_portrait_invalid (in-person 422). Rendering is preparation,
+  // not a judgement of the photograph.
+  it("refuses as extraction_incomplete, with neither judge run, a PDF ID copy that will not render", async () => {
+    const fixture = await seedClient()
+    await addIdCopy(fixture, "pdf", { verified: true, contentSha256: "b".repeat(64), mimeType: "application/pdf" })
+    stubVlm(passingReply())
+    const { selfie } = await capture(fixture)
+
+    expect(ctx.readPaths).toEqual([`stub/pdf-${sequence}`])
+    expect(selfie?.verified).toBe(false)
+    expect(reasonOf(selfie)).toBe("extraction_incomplete")
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(ctx.compared).toEqual([])
+    expect((await recordException(fixture.clientId)).status).toBe(422)
+    const response = await recordInPerson(fixture.clientId)
+    expect(response.status).toBe(200)
+    expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
+  })
+
+  it("hands both judges the same canonical JPEG", async () => {
+    const fixture = await seedClient()
+    stubVlm(passingReply())
+    const { selfie } = await capture(fixture)
+    expect(selfie?.verified).toBe(true)
+    expect(ctx.compared.map((c) => [c.id.mimeType, c.selfie.mimeType])).toEqual([["image/jpeg", "image/jpeg"]])
+    const sent = JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0][1]?.body)) as {
+      messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }>
+    }
+    const urls = sent.messages[0].content.filter((part) => part.type === "image_url").map((part) => part.image_url!.url)
+    const recorded = (selfie?.biometricResult as { comparedImageSha256: { selfie: string; idDocument: string } }).comparedImageSha256
+    const { createHash } = await import("node:crypto")
+    const digest = (url: string) => createHash("sha256").update(Buffer.from(url.split(",")[1], "base64")).digest("hex")
+    expect(urls.map(digest)).toEqual([recorded.selfie, recorded.idDocument])
+    const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
+    expect([sha(ctx.compared[0].selfie.fileBuffer), sha(ctx.compared[0].id.fileBuffer)]).toEqual([recorded.selfie, recorded.idDocument])
   })
 
   it("records extraction_incomplete, which no senior may except, when the reply judges neither photo", async () => {
