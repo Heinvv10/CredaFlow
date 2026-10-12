@@ -17,8 +17,10 @@ import {
   IN_PERSON_KYC_VERIFICATION_KIND,
   IN_PERSON_KYC_VERIFICATION_MIN_NOTE_CHARACTERS,
   IN_PERSON_KYC_VERIFICATION_VERSION,
+  ID_PORTRAIT_REFUSAL_CONDITIONS,
+  idDocumentPortraitRefused,
   isInPersonKycVerificationMethod,
-  latestSelfieRefusedIdDocumentPortrait,
+  selfieBlocksInPersonVerification,
   type InPersonKycVerificationEvidence,
 } from "@/lib/kyc/in-person-verification"
 import {
@@ -105,7 +107,7 @@ export async function POST(
           return { kind: "manual_rejection_active" as const }
         }
 
-        const [coreDocuments, latestSelfie, latestAttempt] = await Promise.all([
+        const [coreDocuments, blockingCandidates, portraitRefusals, latestAttempt] = await Promise.all([
           tx.clientDocument.findMany({
             where: {
               tenantId: tenant.id,
@@ -122,19 +124,26 @@ export async function POST(
               verified: true,
               contentSha256: true,
               createdAt: true,
+              // Whether a passed selfie's ID copy still holds it in scope.
+              verificationRejectedAt: true,
+              verificationRejectedById: true,
             },
             orderBy: { createdAt: "desc" },
           }),
-          tx.clientDocument.findFirst({
+          tx.clientDocument.findMany({
             where: { tenantId: tenant.id, clientId, ...BLOCKING_SELFIE_CONDITIONS },
-            orderBy: latestSelfieOrder(),
-            select: { id: true, deletedAt: true },
+            select: { extractionStatus: true, biometricResult: true, createdAt: true },
           }),
-          // The latest attempt of any outcome, for the ID-portrait refusal.
+          // Every attempt, deleted or not, that refused an ID portrait.
+          tx.clientDocument.findMany({
+            where: { tenantId: tenant.id, clientId, ...ID_PORTRAIT_REFUSAL_CONDITIONS },
+            select: { biometricResult: true },
+          }),
+          // The newest attempt of any outcome, part of the circumstances attested to.
           tx.clientDocument.findFirst({
             where: { tenantId: tenant.id, clientId, docType: "SELFIE" },
             orderBy: latestSelfieOrder(),
-            select: { biometricResult: true },
+            select: { id: true },
           }),
         ])
 
@@ -150,10 +159,16 @@ export async function POST(
 
         // Only a LIVE biometric candidate takes this route out of scope: an
         // attempt still processing, or one whose provider-verified evidence
-        // passed. A failed or soft-deleted attempt must not close the human
-        // fallback; the senior
-        // exception remains available in parallel for the failed evidence.
-        if (latestSelfie) {
+        // passed against an ID copy still on file and not rejected. A failed
+        // or soft-deleted attempt must not close the human fallback; the
+        // senior exception remains available in parallel for the failed
+        // evidence.
+        // Judged against the attestation this writes: completed now, after
+        // every attempt on file, by staff who can see them.
+        const approvedAt = new Date()
+        const idDocumentCopies = coreDocuments.filter((d) => d.docType === "ID_COPY")
+        if (blockingCandidates.some((selfie) =>
+          selfieBlocksInPersonVerification(selfie, idDocumentCopies, approvedAt))) {
           return { kind: "biometric_attempt_exists" as const }
         }
 
@@ -166,12 +181,11 @@ export async function POST(
         if (!idDocument) {
           return { kind: "id_document_unusable" as const }
         }
-        if (latestSelfieRefusedIdDocumentPortrait(latestAttempt, idDocument.id)) {
+        if (idDocumentPortraitRefused(portraitRefusals, idDocument)) {
           return { kind: "id_document_portrait_invalid" as const }
         }
 
         const subjectFingerprint = biometricSubjectFingerprint(client)
-        const approvedAt = new Date()
         const evidence: InPersonKycVerificationEvidence = {
           kind: IN_PERSON_KYC_VERIFICATION_KIND,
           version: IN_PERSON_KYC_VERIFICATION_VERSION,
@@ -187,12 +201,17 @@ export async function POST(
         }
         // Keyed to the exact circumstances attested to, so the same admin
         // cannot stack duplicate attestations over one identity + ID pair.
+        // The newest selfie attempt is one of those circumstances: an
+        // attestation from before a later attempt no longer counts once that
+        // attempt is released (selfieBlocksInPersonVerification), so staff
+        // must be able to attest afresh after it.
         const idempotencyKey = [
           "kyc-in-person",
           clientId,
           idDocument.id,
           idDocument.contentSha256,
           subjectFingerprint,
+          latestAttempt?.id ?? "no-selfie",
         ].join(":")
         const existing = await tx.complianceRecord.findUnique({
           where: { idempotencyKey },
@@ -300,7 +319,7 @@ export async function POST(
       if (outcome.kind === "id_document_portrait_invalid") {
         return NextResponse.json(
           {
-            error: "The latest selfie check found no real photograph on this ID document, so an in-person verification cannot be recorded against it. A new, clear photo of the client's ID must be uploaded and verified first.",
+            error: "A selfie check found no real photograph on this ID document, so an in-person verification cannot be recorded against it. A new, clear photo of the client's ID must be uploaded and verified first.",
           },
           { status: 422 },
         )

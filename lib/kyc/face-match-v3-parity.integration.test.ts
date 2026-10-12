@@ -53,7 +53,7 @@ const BR = (change = "") =>
 const ER = (change = "") =>
   `{"faceDetected":{"value":true},"facesCount":{"value":1},"isLive":{"value":true},` +
   `"quality":{"value":"good"}${change ? "," + change : ""}}`
-const FAILED = (reason: string, change = `"idDocumentId":"${ID}"`) =>
+const FAILED = (reason: string, change = `"idDocumentId":"${ID}","idDocumentSha256":"${ID_SHA}"`) =>
   `{"biometricFailureReason":"${reason}","subjectFingerprint":"${FP}"${change ? "," + change : ""}}`
 
 type Case = {
@@ -65,7 +65,13 @@ type Case = {
   /** Rows to add before the selfie, given the seeded ID copy's id. */
   before?: (ids: Ids) => string[]
   /** A failed latest selfie and an in-person attestation instead of a pass. */
-  inPerson?: { br: string; deleted?: boolean; older?: string }
+  inPerson?: { br: string; deleted?: boolean; older?: string; olderDeleted?: boolean }
+  /** Also record an in-person attestation over the seeded ID copy. */
+  attest?: boolean
+  /** The attestation was completed a day BEFORE the selfie (default: an hour after). */
+  attestBefore?: boolean
+  /** The selfie was captured at the attestation's exact completion instant. */
+  attestAtSelfie?: boolean
 }
 type Ids = { tenantId: string; clientId: string; idCopyId: string }
 
@@ -227,13 +233,60 @@ const cases: Case[] = [
   { name: "column deletedAt set", expected: false, cols: `"deletedAt" = CURRENT_TIMESTAMP` },
 
   // The in-person route over a failed latest selfie.
+  // A PASSED selfie blocks the in-person route unless the ID copy it names is
+  // no longer a non-deleted, unrejected ID copy of this client.
+  ...([
+    ["a newer copy awaiting review", false, (ids: Ids) => [newerIdCopy(ids, "awaiting", false, "b".repeat(64))], "awaiting"],
+    ["a newer copy staff rejected", true, (ids: Ids) => [newerIdCopy(ids, "rejected", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic'
+      WHERE "id" = 'rejected_${ids.clientId}'`], "rejected"],
+    ["a newer copy rejected by a named reviewer only", true, (ids: Ids) => [newerIdCopy(ids, "named", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'named_${ids.clientId}'`], "named"],
+    ["a newer copy rejected with a timestamp only", true, (ids: Ids) => [newerIdCopy(ids, "stamped", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP WHERE "id" = 'stamped_${ids.clientId}'`], "stamped"],
+    ["a copy since deleted", true, (ids: Ids) => [newerIdCopy(ids, "deleted", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "deletedAt" = CURRENT_TIMESTAMP WHERE "id" = 'deleted_${ids.clientId}'`], "deleted"],
+    ["a copy that does not exist", true, () => [], "gone"],
+    ["an older verified copy, superseded", false, (ids: Ids) => [olderIdCopy(ids, "superseded")], "superseded"],
+  ] as const).map(([label, expected, before, prefix]): Case => ({
+    name: `in person: a passed selfie bound to ${label}`,
+    expected,
+    attest: true,
+    before,
+    br: BR(`"idDocumentId":"${prefix}___CLIENT__","idDocumentSha256":"${prefix === "superseded" ? ID_SHA : "b".repeat(64)}"`),
+  })),
+  // Processing governs whatever the row's stale evidence names.
+  { name: "in person: an attempt still processing keeps blocking, even naming a rejected copy", expected: false, attest: true,
+    before: (ids) => [newerIdCopy(ids, "gone_by", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'gone_by_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"gone_by___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`),
+    cols: `"extractionStatus" = 'processing'` },
+  // Released only for an attestation completed AFTER the selfie was captured.
+  { name: "in person: a passed selfie bound to a rejected copy still blocks an earlier attestation", expected: false,
+    attest: true, attestBefore: true,
+    before: (ids) => [newerIdCopy(ids, "late_rejected", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'late_rejected_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"late_rejected___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`) },
+  { name: "in person: a passed selfie bound to a rejected copy still blocks an attestation at the same instant", expected: false,
+    attest: true, attestAtSelfie: true,
+    before: (ids) => [newerIdCopy(ids, "same_instant", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'same_instant_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"same_instant___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`) },
+  { name: "in person: a passed selfie bound to a deleted copy still blocks an earlier attestation", expected: false,
+    attest: true, attestBefore: true,
+    before: (ids) => [newerIdCopy(ids, "late_deleted", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "deletedAt" = CURRENT_TIMESTAMP WHERE "id" = 'late_deleted_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"late_deleted___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`) },
+  { name: "in person: a passed selfie naming no ID copy keeps blocking", expected: false, attest: true,
+    br: BR().replace(`"idDocumentId":"${ID}",`, "").replace(`"idDocumentSha256":"${ID_SHA}",`, "") },
   { name: "in person: latest selfie refused this ID copy's portrait", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid") } },
   { name: "in person: the refusal names no ID copy", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", "") } },
   { name: "in person: the refusal names an ID copy as a non-string", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":7`) } },
   { name: "in person: the refused selfie is soft-deleted", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid"), deleted: true } },
   { name: "in person: the refusal was of an older ID copy", expected: true, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy"`) } },
   { name: "in person: latest selfie refused as not a real photograph", expected: true, inPerson: { br: FAILED("selfie_not_real_photograph") } },
-  { name: "in person: an older attempt refused the portrait, the latest failed otherwise", expected: true, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid") } },
+  // ANY attempt bound to this copy keeps it closed, not only the latest.
+  { name: "in person: an older attempt refused the portrait, the latest failed otherwise", expected: false, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid") } },
+  { name: "in person: a deleted older refusal, the latest not a real photograph", expected: false, inPerson: { br: FAILED("selfie_not_real_photograph"), older: FAILED("id_document_portrait_invalid"), olderDeleted: true } },
+  { name: "in person: an older refusal of another ID copy, the latest failed otherwise", expected: true, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy","idDocumentSha256":"${"b".repeat(64)}"`) } },
+  // The same bytes re-uploaded under a new row are the same photo-less ID.
+  { name: "in person: the refusal names another row with this copy's bytes", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy","idDocumentSha256":"${ID_SHA}"`) } },
+  { name: "in person: the refusal names only this copy's digest", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentSha256":"${ID_SHA}"`) } },
+  { name: "in person: the refusal names only another digest", expected: true, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentSha256":"${"b".repeat(64)}"`) } },
+  { name: "in person: the refusal names this row but other bytes", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}","idDocumentSha256":"${"b".repeat(64)}"`) } },
+  { name: "in person: the refusal names this row and no digest", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}"`) } },
 ]
 
 /**
@@ -319,12 +372,19 @@ async function run(c: Case) {
     .replaceAll("__FPUP__", fingerprint.toUpperCase())
     .replaceAll("__SUBSTITUTE__", `substitute_${clientId}`)
     .replaceAll(ID, idCopyId)
+    .replaceAll("__CLIENT__", clientId)
 
   const selfieId = `fm_par_selfie_${sequence}_${token}`
   if (c.inPerson) {
-    if (c.inPerson.older) await insertFailedSelfie(ids, `${selfieId}_older`, fill(c.inPerson.older), false)
+    if (c.inPerson.older) {
+      await insertFailedSelfie(ids, `${selfieId}_older`, fill(c.inPerson.older), c.inPerson.olderDeleted ?? false)
+    }
     await insertFailedSelfie(ids, selfieId, fill(c.inPerson.br), c.inPerson.deleted ?? false)
-    const completedAt = new Date("2026-10-12T08:00:00.000Z")
+  } else {
+    await insertSelfie(ids, selfieId, c.er ?? ER(), fill(c.br ?? BR()))
+  }
+  if (c.inPerson || c.attest) {
+    const completedAt = new Date(Date.now() + (c.attestBefore ? -86_400_000 : 3_600_000))
     await db.complianceRecord.create({
       data: {
         tenantId, type: "KYC_EXCEPTION", referenceId: clientId, status: "COMPLETED", completedAt,
@@ -336,8 +396,12 @@ async function run(c: Case) {
         },
       },
     })
-  } else {
-    await insertSelfie(ids, selfieId, c.er ?? ER(), fill(c.br ?? BR()))
+  }
+  if (c.attestAtSelfie) {
+    const [{ completedAt }] = await db.$queryRawUnsafe<Array<{ completedAt: Date }>>(
+      `SELECT "completedAt" FROM "ComplianceRecord" WHERE "referenceId" = $1`, clientId,
+    )
+    await db.$executeRawUnsafe(`UPDATE "ClientDocument" SET "createdAt" = $1 WHERE "id" = $2`, completedAt, selfieId)
   }
   if (c.cols) await db.$executeRawUnsafe(`UPDATE "ClientDocument" SET ${c.cols} WHERE "id" = $1`, selfieId)
 

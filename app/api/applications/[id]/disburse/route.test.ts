@@ -220,7 +220,10 @@ vi.mock("@/lib/prisma", () => ({
     },
     clientDocument: {
       findFirst: findFirstDocument,
-      findMany: findManyDocuments,
+      // The composite read's ID-portrait refusal query (docType SELFIE) finds
+      // none; the sequenced mock serves only the core-document reads.
+      findMany: (args: { where?: { docType?: unknown } }) =>
+        args?.where?.docType === "SELFIE" ? Promise.resolve([]) : findManyDocuments(args),
       create: createClientDocument,
     },
     insuranceProduct: { findFirst: findFirstInsuranceProduct },
@@ -684,7 +687,8 @@ function buildTxMock(opts: {
         creditBureauCheck: { findFirst: creditBureauCheckFindFirst },
         clientDocument: {
           findFirst: findFirstDocument,
-          findMany: findManyDocuments,
+          findMany: (args: { where?: { docType?: unknown } }) =>
+            args?.where?.docType === "SELFIE" ? Promise.resolve([]) : findManyDocuments(args),
         },
         complianceRecord: {
           findFirst: complianceRecordFindFirst,

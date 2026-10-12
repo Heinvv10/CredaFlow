@@ -17,9 +17,10 @@
 --    OFF the exceptionable list, mirroring
 --    MANUAL_KYC_EXCEPTIONABLE_FAILURE_REASONS in
 --    lib/kyc/manual-exception-policy.ts.
---    subject_has_in_person_kyc_verification: closed over an ID copy while the
---    latest selfie attempt was refused as id_document_portrait_invalid
---    against it, mirroring lib/kyc/in-person-verification.ts.
+--    subject_has_in_person_kyc_verification: closed over an ID copy while any
+--    selfie attempt was refused as id_document_portrait_invalid against it,
+--    and no longer blocked by a passed selfie whose ID copy staff rejected or
+--    deleted, mirroring lib/kyc/in-person-verification.ts.
 -- 3. Snapshot the clients VERIFIED before any evidence changes.
 -- 4. Un-verify every live SELFIE row whose verified biometric evidence lacks
 --    the v2 verdict. Left verified=true with biometricVerifiedAt set, it is a
@@ -34,8 +35,10 @@
 --    cleared, one KYC_STATUS_CHANGED audit row each from this migration.
 --
 -- The function bodies are the baseline definitions with only the marked
--- lines changed or added; every changed line is strictly narrower than the
--- one it replaces. Order matters: the functions are replaced before steps 4
+-- lines changed or added. Every changed line is strictly narrower than the
+-- one it replaces, with two deliberate widenings: the face count also
+-- accepts 1.0 and 1e0 (TS parity), and a passed selfie whose ID copy staff
+-- rejected or deleted no longer blocks the in-person route. Order matters: the functions are replaced before steps 4
 -- and 5 read them, and step 4 runs before step 5, all within this
 -- migration's single transaction.
 
@@ -82,10 +85,11 @@ AS $function$
           AND jsonb_typeof(selfie."extractionResult") = 'object'
           -- Booleans and the face count compare as JSON values, as
           -- assessBiometricEvidence reads them: the string "true" and "1" no
-          -- longer pass, and 1.0 counts as one face. Each is strictly
-          -- narrower than the baseline text comparison it replaces. quality
-          -- keeps lower(trim()); trim() strips spaces only, and the TS parser
-          -- now does exactly the same.
+          -- longer pass. The booleans are strictly narrower than the baseline
+          -- text comparisons they replace; the face count is not: 1.0 and 1e0
+          -- now count as one face, a deliberate widening to match the TS gate
+          -- (which reads them as the number 1). quality keeps lower(trim());
+          -- trim() strips spaces only, and the TS parser now does the same.
           AND (
             selfie."extractionResult" -> 'vlmUnavailable' = 'true'::jsonb
             OR (
@@ -408,37 +412,65 @@ AS $function$
             OR (
               selfie."verified" = true
               AND selfie."biometricVerifiedAt" IS NOT NULL
+              -- Added by 20261011060000_face_match_v2_evidence: a passed
+              -- selfie stops blocking once the ID copy it names is no longer
+              -- a non-deleted, unrejected ID copy of this client (staff
+              -- rejected or deleted it, or it is gone). It no longer counts
+              -- as biometric evidence, and blocking the human route over it
+              -- stranded the client. One that names no copy still blocks.
+              -- The release holds only for an attestation completed AFTER the
+              -- selfie was captured: otherwise deleting or rejecting a
+              -- doctored copy revived an attestation recorded before the
+              -- episode. Mirrors selfieBlocksInPersonVerification in
+              -- lib/kyc/in-person-verification.ts.
+              AND (
+                jsonb_typeof(selfie."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
+                OR attestation."completedAt" <= selfie."createdAt"
+                OR EXISTS (
+                  SELECT 1
+                  FROM "ClientDocument" AS named_copy
+                  WHERE named_copy."tenantId" = p_tenant_id
+                    AND named_copy."clientId" = p_client_id
+                    AND named_copy."docType" = 'ID_COPY'
+                    AND named_copy."deletedAt" IS NULL
+                    AND named_copy."verificationRejectedAt" IS NULL
+                    AND named_copy."verificationRejectedById" IS NULL
+                    AND named_copy."id" = selfie."biometricResult" ->> 'idDocumentId'
+                )
+              )
             )
           )
       )
-      -- Added by 20261011060000_face_match_v2_evidence: while the latest
-      -- selfie attempt (deleted or not) was refused because THIS ID copy has
-      -- no real photograph, no one may attest a face against it. A newer
-      -- verified ID copy re-opens the route; a refusal naming no ID copy is
-      -- taken to be about this one. Mirrors
-      -- latestSelfieRefusedIdDocumentPortrait in
-      -- lib/kyc/in-person-verification.ts.
+      -- Added by 20261011060000_face_match_v2_evidence: while ANY selfie
+      -- attempt (deleted or not, latest or not) was refused because THIS ID
+      -- copy has no real photograph, no one may attest a face against it; a
+      -- later attempt with another outcome does not reopen it. A refusal
+      -- closes it when it names this copy's id, OR this copy's bytes (the same
+      -- image re-uploaded as a new row is the same photo-less ID), OR no copy
+      -- at all (neither field a string; fail closed). Only a copy with
+      -- different bytes, under a different row, reopens the route. Mirrors
+      -- idDocumentPortraitRefused in lib/kyc/in-person-verification.ts.
       AND NOT EXISTS (
         SELECT 1
-        FROM "ClientDocument" AS latest_selfie
-        WHERE latest_selfie."id" = (
-          SELECT latest."id"
-          FROM "ClientDocument" AS latest
-          WHERE latest."tenantId" = p_tenant_id
-            AND latest."clientId" = p_client_id
-            AND latest."docType" = 'SELFIE'
-          ORDER BY
-            latest."biometricAttemptSequence" DESC,
-            latest."createdAt" DESC,
-            latest."id" DESC
-          LIMIT 1
-        )
-          AND latest_selfie."biometricResult" ->> 'biometricFailureReason' =
+        FROM "ClientDocument" AS refused
+        WHERE refused."tenantId" = p_tenant_id
+          AND refused."clientId" = p_client_id
+          AND refused."docType" = 'SELFIE'
+          AND refused."biometricResult" ->> 'biometricFailureReason' =
             'id_document_portrait_invalid'
-          AND NOT coalesce(
-            jsonb_typeof(latest_selfie."biometricResult" -> 'idDocumentId') = 'string'
-            AND latest_selfie."biometricResult" ->> 'idDocumentId' <> id_document."id",
-            false
+          AND (
+            (
+              jsonb_typeof(refused."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
+              AND jsonb_typeof(refused."biometricResult" -> 'idDocumentSha256') IS DISTINCT FROM 'string'
+            )
+            OR (
+              jsonb_typeof(refused."biometricResult" -> 'idDocumentId') = 'string'
+              AND refused."biometricResult" ->> 'idDocumentId' = id_document."id"
+            )
+            OR (
+              jsonb_typeof(refused."biometricResult" -> 'idDocumentSha256') = 'string'
+              AND refused."biometricResult" ->> 'idDocumentSha256' = id_document."contentSha256"
+            )
           )
       )
       AND id_document."contentSha256" ~ '^[a-f0-9]{64}$'

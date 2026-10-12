@@ -109,7 +109,16 @@ export interface BiometricSubjectClient {
 
 export type BiometricEvidenceAssessment =
   | { ok: true }
-  | { ok: false; reason: BiometricEvidenceFailureReason }
+  | {
+      ok: false
+      reason: BiometricEvidenceFailureReason
+      /**
+       * Set only when the ID-copy binding is the sole refusal: a sound match,
+       * bound to this subject, run against a copy that is not (or no longer)
+       * the client's newest verified one. Not a failed attempt.
+       */
+      idDocumentNotCurrent?: true
+    }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
@@ -205,6 +214,13 @@ export interface BiometricIdDocument {
   contentSha256: string | null
 }
 
+/** An ID copy with the staff decisions that decide whether a match against it is adverse. */
+export interface BiometricIdDocumentCopy extends BiometricIdDocument {
+  verified: boolean
+  verificationRejectedAt?: Date | null
+  verificationRejectedById?: string | null
+}
+
 export function assessBiometricEvidence(
   evidence: BiometricDocumentEvidence,
   options: {
@@ -215,6 +231,16 @@ export function assessBiometricEvidence(
      * against exactly this row.
      */
     idDocument: BiometricIdDocument | null
+    /**
+     * The client's non-deleted ID copies, verified or not, or null when the
+     * caller did not read them. Decides only whether an ID-copy binding
+     * refusal is a pending ID change (idDocumentNotCurrent): only when the
+     * copy the match ran against is a SUPERSEDED VERIFIED copy, i.e. still
+     * among them, same digest, never rejected, verified, and not the newest
+     * verified one (`idDocument`). Anything else leaves the refusal a failed
+     * attempt.
+     */
+    idDocumentCopies: readonly BiometricIdDocumentCopy[] | null
     requireDocumentVerified?: boolean
   },
 ): BiometricEvidenceAssessment {
@@ -286,16 +312,6 @@ export function assessBiometricEvidence(
   if (providerResult.subjectFingerprint !== biometricSubjectFingerprint(options.subject)) {
     return { ok: false, reason: "subject_identity_changed" }
   }
-  // A match against any other ID copy (a newer unverified or rejected upload,
-  // or one since replaced) says nothing about the verified identity.
-  if (
-    !options.idDocument ||
-    !isSha256Digest(options.idDocument.contentSha256) ||
-    providerResult.idDocumentId !== options.idDocument.id ||
-    providerResult.idDocumentSha256 !== options.idDocument.contentSha256
-  ) {
-    return { ok: false, reason: "subject_identity_changed" }
-  }
   if (
     providerResult.ok !== true ||
     providerResult.verified !== true ||
@@ -339,6 +355,37 @@ export function assessBiometricEvidence(
   if (faceModelRefusal) return { ok: false, reason: faceModelRefusal }
   if (options.requireDocumentVerified !== false && !evidence.verified) {
     return { ok: false, reason: "document_not_verified" }
+  }
+  // A match against any other ID copy (a newer unverified or rejected upload,
+  // or one since replaced) says nothing about the verified identity. Checked
+  // last, so that refusing here means every other check passed. Only one ID
+  // change is not a failed attempt, and deriveCompositeKycState projects it
+  // as pending: staff verified a new copy after a match against the copy they
+  // had verified before. A match against an unverified copy stays a failure
+  // even when it may be a borrower who did not wait for staff: it is
+  // indistinguishable from a doctored substitute uploaded after a face
+  // mismatch against the verified ID. So does one against a copy since
+  // rejected, deleted or rewritten, or not this client's.
+  if (
+    !options.idDocument ||
+    !isSha256Digest(options.idDocument.contentSha256) ||
+    providerResult.idDocumentId !== options.idDocument.id ||
+    providerResult.idDocumentSha256 !== options.idDocument.contentSha256
+  ) {
+    const boundCopy = options.idDocumentCopies?.find((copy) => copy.id === providerResult.idDocumentId)
+    // Superseded: the copies' newest verified one is `idDocument`, so a
+    // verified copy that is not it sorts after it (createdAt DESC, id DESC).
+    const pendingIdChange = boundCopy !== undefined &&
+      isSha256Digest(boundCopy.contentSha256) &&
+      boundCopy.contentSha256 === providerResult.idDocumentSha256 &&
+      (boundCopy.verificationRejectedAt ?? null) === null &&
+      (boundCopy.verificationRejectedById ?? null) === null &&
+      boundCopy.verified &&
+      options.idDocument !== null &&
+      boundCopy.id !== options.idDocument.id
+    return pendingIdChange
+      ? { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
+      : { ok: false, reason: "subject_identity_changed" }
   }
 
   return { ok: true }

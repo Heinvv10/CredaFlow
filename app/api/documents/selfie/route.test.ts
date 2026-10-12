@@ -1500,9 +1500,9 @@ describe("POST /api/documents/selfie", () => {
 
     expect(response.status).toBe(201)
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
-    // Verified or not: whether the copy is verified is the composite gate's call.
+    // Verified or not (the composite gate's call), but never one staff rejected.
     expect(txDocumentFindManyMock.mock.calls[0][0]).toEqual(expect.objectContaining({
-      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verificationRejectedAt: null },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }))
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -1513,12 +1513,12 @@ describe("POST /api/documents/selfie", () => {
     }))
   })
 
-  it("compares the selfie against the newest uploaded ID copy, verified or not", async () => {
+  it("compares the selfie against the newest ID copy staff have not rejected, verified or not", async () => {
     const response = await POST(request() as never)
 
     expect(response.status).toBe(201)
     const newestIdCopy = {
-      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verificationRejectedAt: null },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }
     expect(outsideDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))

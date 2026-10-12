@@ -1171,9 +1171,9 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     ), { params: Promise.resolve({ id: "client-1" }) })
 
     expect(response.status).toBe(200)
-    // Source read + latest-selfie read + the in-person blocking-candidate
-    // probe added by readCompositeKycState.
-    expect(documentFindFirstMock).toHaveBeenCalledTimes(3)
+    // Source read + latest-selfie read. (readCompositeKycState reads the
+    // in-person blocking candidates with findMany.)
+    expect(documentFindFirstMock).toHaveBeenCalledTimes(2)
     expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
       documentFindFirstMock.mock.invocationCallOrder[0],
     )

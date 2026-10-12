@@ -77,7 +77,10 @@ const tx = {
   clientDocument: {
     findFirst: (args: unknown) => documentFindFirstMock(args),
     updateMany: (args: unknown) => documentUpdateManyMock(args),
-    findMany: (args: unknown) => documentFindManyMock(args),
+    // The composite read's ID-portrait refusal query (docType SELFIE) finds
+    // none; the sequenced mock serves only the core-document reads.
+    findMany: (args: { where?: { docType?: unknown } }) =>
+      args?.where?.docType === "SELFIE" ? Promise.resolve([]) : documentFindManyMock(args),
   },
   auditLog: {
     create: (args: unknown) => auditCreateMock(args),

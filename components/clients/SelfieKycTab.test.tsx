@@ -60,10 +60,16 @@ function renderSelfie(deletedAt: string | null) {
       imageUrl="/api/documents/selfie-latest/view"
       biometricEvidence={deletedAt ? "document_deleted" : null}
       biometricAttemptFailed={Boolean(deletedAt)}
+      inPersonRoute={IN_PERSON_ROUTE_OPEN}
       seniorExceptionAvailable={false}
     />,
   )
 }
+
+
+// The route's evidence preconditions hold (no governing selfie, an admissible
+// ID copy); each test sets the rest through the tab's own props.
+const IN_PERSON_ROUTE_OPEN = { blockingBiometricAttempt: false, idDocumentAdmissible: true }
 
 describe("SelfieKycTab authoritative attempt display", () => {
   beforeEach(() => {
@@ -105,6 +111,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         canGrantManualException
         biometricEvidence="face_not_detected"
         biometricAttemptFailed
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable
       />,
     )
@@ -128,8 +135,11 @@ describe("SelfieKycTab authoritative attempt display", () => {
         selfieDoc={quarantinedStubAttempt}
         imageUrl="/api/documents/selfie-latest/view"
         canGrantManualException
+        // The route also needs every core document verified.
+        coreDocumentsComplete
         biometricEvidence="simulated_provider_evidence"
         biometricAttemptFailed
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
     )
@@ -141,6 +151,30 @@ describe("SelfieKycTab authoritative attempt display", () => {
     expect(html).not.toContain("Grant senior KYC exception")
     expect(html).toContain("A senior exception applies only where the check ran")
     expect(html).toContain("Test result, not a real check")
+  })
+
+  it.each([
+    ["a selfie still governs", { blockingBiometricAttempt: true, idDocumentAdmissible: true }],
+    ["the ID copy cannot be attested against", { blockingBiometricAttempt: false, idDocumentAdmissible: false }],
+  ])("does not offer the in-person form the route would refuse: %s", (_label, inPersonRoute) => {
+    const html = renderToStaticMarkup(
+      <SelfieKycTab
+        clientId="client-1"
+        currentKycStatus="FAILED"
+        currentManualRejectionActive={false}
+        currentManualRejectionReason={null}
+        selfieDoc={reviewableFailure}
+        imageUrl="/api/documents/selfie-latest/view"
+        canGrantManualException
+        coreDocumentsComplete
+        biometricEvidence="subject_identity_changed"
+        biometricAttemptFailed
+        inPersonRoute={inPersonRoute}
+        seniorExceptionAvailable={false}
+      />,
+    )
+
+    expect(html).not.toContain("ADMIN-only in-person verification")
   })
 
   it("does not claim a face match never ran, for reasons where one did", () => {
@@ -159,8 +193,11 @@ describe("SelfieKycTab authoritative attempt display", () => {
           selfieDoc={reviewableFailure}
           imageUrl="/api/documents/selfie-latest/view"
           canGrantManualException
+          // The route also needs every core document verified.
+          coreDocumentsComplete
           biometricEvidence={reason}
           biometricAttemptFailed
+          inPersonRoute={IN_PERSON_ROUTE_OPEN}
           seniorExceptionAvailable={false}
         />,
       )
@@ -185,6 +222,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         imageUrl="/api/documents/selfie-latest/view"
         biometricEvidence="simulated_provider_evidence"
         biometricAttemptFailed
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
     )
@@ -201,6 +239,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         imageUrl="/api/documents/selfie-latest/view"
         biometricEvidence={null}
         biometricAttemptFailed={false}
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
     )
@@ -228,6 +267,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
           imageUrl="/api/documents/selfie-latest/view"
           biometricEvidence="face_not_detected"
           biometricAttemptFailed
+          inPersonRoute={IN_PERSON_ROUTE_OPEN}
           seniorExceptionAvailable
         />,
       )
@@ -266,6 +306,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         canGrantManualException
         biometricEvidence="face_not_detected"
         biometricAttemptFailed={false}
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
     )
@@ -305,6 +346,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
           canGrantManualException
           biometricEvidence="face_not_detected"
           biometricAttemptFailed
+          inPersonRoute={IN_PERSON_ROUTE_OPEN}
           seniorExceptionAvailable
         />,
       )
@@ -355,6 +397,7 @@ describe("SelfieKycTab failure wording", () => {
       canGrantManualException
       biometricEvidence={reason}
       biometricAttemptFailed
+      inPersonRoute={IN_PERSON_ROUTE_OPEN}
       seniorExceptionAvailable={false}
     />,
   )

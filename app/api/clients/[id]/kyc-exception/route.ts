@@ -206,6 +206,8 @@ export async function POST(
         const biometricAssessment = assessBiometricEvidence(latestSelfie, {
           subject: client,
           idDocument,
+          // Only the refusal reason is read here, which this never changes.
+          idDocumentCopies: null,
           requireDocumentVerified: false,
         })
         if (biometricAssessment.ok) {
