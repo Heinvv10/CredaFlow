@@ -119,8 +119,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "officer@x.co" } })
   updateManyMock.mockResolvedValue({ count: 1 })
-  clientDocumentFindManyMock.mockImplementation((args: { where?: { docType?: { in?: string[] } } }) => (
-    args.where?.docType && "in" in args.where.docType
+  clientDocumentFindManyMock.mockImplementation((args: { where?: { docType?: string | { in?: string[] } } }) => (
+    typeof args.where?.docType === "object" && "in" in args.where.docType
       ? Promise.resolve(verifiedCoreDocuments)
       : Promise.resolve([])
   ))
@@ -451,7 +451,12 @@ it("gives a normal failed selfie the distinct biometric 422 before generic misma
     biometricEvidence: "extraction_incomplete",
     documentId: "selfie-failed",
   })
-  expect(clientDocumentFindManyMock).toHaveBeenCalledOnce()
+  // Only the composite read's two queries (core documents, ID-portrait
+  // refusals); the generic mismatch query never runs.
+  expect(clientDocumentFindManyMock.mock.calls.map(([args]) => args.where.docType)).toEqual([
+    { in: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] },
+    "SELFIE",
+  ])
   expect(updateManyMock).not.toHaveBeenCalled()
   expect(runBureauReviewCheckMock).not.toHaveBeenCalled()
   expect(auditLogCreateMock).toHaveBeenCalledWith({

@@ -6,6 +6,7 @@ import {
   isCoreKycDocumentType,
   latestSelfieOrder,
   readCompositeKycState,
+  type CompositeKycReader,
 } from "./document-state"
 import {
   MANUAL_KYC_EXCEPTION_KIND,
@@ -512,7 +513,10 @@ describe("composite KYC exception reader", () => {
     }
     const reader = {
       clientDocument: {
-        findMany: async () => readerCoreDocuments,
+        // No attempt refused an ID portrait.
+        findMany: (async (args: { where: { docType?: unknown } }) => (
+          args.where.docType === "SELFIE" ? [] : readerCoreDocuments
+        )) as unknown as CompositeKycReader["clientDocument"]["findMany"],
         findFirst: async () => ({
           id: "selfie-1",
           contentSha256: "a".repeat(64),

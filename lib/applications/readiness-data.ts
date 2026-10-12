@@ -9,7 +9,7 @@ import {
   readCompositeKycState,
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
-import { matchesBlockingSelfie } from "@/lib/kyc/in-person-verification"
+import { matchesBlockingSelfie, matchesIdPortraitRefusal } from "@/lib/kyc/in-person-verification"
 import {
   computeReadiness,
   type ApplicationReadiness,
@@ -198,7 +198,12 @@ export function inMemoryKycReader(
 
   const reader: CompositeKycReader = {
     clientDocument: {
-      findMany: async () => forClient(data.coreDocuments),
+      // The core-document read and the ID-portrait refusal read are told
+      // apart by docType: only the refusal read asks for SELFIE rows.
+      findMany: (async (args: { where: { docType?: unknown } }) => {
+        if (args.where.docType !== "SELFIE") return forClient(data.coreDocuments)
+        return forClient(data.selfies).filter(matchesIdPortraitRefusal)
+      }) as CompositeKycReader["clientDocument"]["findMany"],
       findFirst: (async (args: { orderBy?: unknown }) => {
         const selfies = forClient(data.selfies)
         // The latest-selfie read carries an orderBy; the blocking-selfie read

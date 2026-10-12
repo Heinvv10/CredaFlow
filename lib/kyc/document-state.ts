@@ -14,6 +14,7 @@ import {
 import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
+  ID_PORTRAIT_REFUSAL_CONDITIONS,
   type InPersonKycVerificationEvidence,
   type InPersonKycVerificationRecord,
   type InspectedIdDocument,
@@ -147,7 +148,7 @@ export function latestSelfieOrder(): LatestSelfieOrder {
 
 export interface CompositeKycReader {
   clientDocument: {
-    findMany: (args: {
+    findMany: ((args: {
       where: {
         tenantId: string
         clientId: string
@@ -163,7 +164,11 @@ export interface CompositeKycReader {
         contentSha256: true
         createdAt: true
       }
-    }) => Promise<CoreKycDocumentRow[]>
+    }) => Promise<CoreKycDocumentRow[]>) &
+      ((args: {
+        where: { tenantId: string; clientId: string } & typeof ID_PORTRAIT_REFUSAL_CONDITIONS
+        select: { biometricResult: true }
+      }) => Promise<Array<{ biometricResult: unknown }>>)
     findFirst: ((args: {
       where: { tenantId: string; clientId: string; docType: "SELFIE" }
       orderBy: LatestSelfieOrder
@@ -410,7 +415,7 @@ export async function readCompositeKycState(
     preserveVerifiedProvenance?: boolean
   },
 ): Promise<CompositeKycResult & { latestSelfieId: string | null }> {
-  const [documents, latestSelfie, blockingSelfie, exceptionRecord] = await Promise.all([
+  const [documents, latestSelfie, blockingSelfie, exceptionRecord, portraitRefusals] = await Promise.all([
     reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
@@ -476,6 +481,16 @@ export async function readCompositeKycState(
       ],
       select: { id: true, completedAt: true, data: true },
     }) ?? Promise.resolve(null),
+    // Every attempt that refused an ID portrait, deleted or not: one standing
+    // against the attested copy closes the in-person route, whatever came after.
+    reader.clientDocument.findMany({
+      where: {
+        tenantId: args.tenantId,
+        clientId: args.clientId,
+        ...ID_PORTRAIT_REFUSAL_CONDITIONS,
+      },
+      select: { biometricResult: true },
+    }),
   ])
   // Deterministic, and identical to the SQL predicate's row choice: verified
   // ID_COPY rows only (the query already excludes deleted), newest first with
@@ -521,7 +536,7 @@ export async function readCompositeKycState(
           idDocument,
           blockingBiometricAttempt: blockingSelfie !== null,
           biometricAssessment,
-          latestSelfie,
+          portraitRefusals,
         },
       )
   const result = deriveCompositeKycState({

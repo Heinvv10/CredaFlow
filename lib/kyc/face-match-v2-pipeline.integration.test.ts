@@ -67,6 +67,12 @@ function stubVlm(reply: Record<string, unknown>) {
   }), { status: 200 })))
 }
 
+function stubVlmDown() {
+  vi.stubEnv("VLM_API_URL", "http://vlm.stub.invalid")
+  vi.stubEnv("VLM_MODEL", "stub-model")
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("upstream unavailable", { status: 503 })))
+}
+
 /** A PENDING client with four verified core documents; the ID copy is hashed. */
 async function seedClient() {
   sequence += 1
@@ -185,6 +191,33 @@ const recordInPerson = (clientId: string) => inPersonPOST(new Request("http://lo
   body: JSON.stringify({ method: "IN_PERSON_BRANCH", note: "Synthetic applicant attended a branch and matched the ID photo." }),
 }) as never, { params: Promise.resolve({ id: clientId }) })
 
+/** Write an in-person attestation over the seeded ID copy directly, then try VERIFIED. */
+async function verifyOnAttestationWrittenToDatabase(fixture: { tenantId: string; clientId: string; idCopyId: string }) {
+  const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId } })
+  const [{ fingerprint }] = await db.$queryRawUnsafe<Array<{ fingerprint: string }>>(
+    `SELECT "biometric_subject_fingerprint"($1,$2,$3,$4,NULL) AS fingerprint`,
+    client.id, client.idNumber, client.firstName, client.lastName,
+  )
+  const completedAt = new Date("2026-10-12T08:00:00.000Z")
+  await db.complianceRecord.create({
+    data: {
+      tenantId: fixture.tenantId, type: "KYC_EXCEPTION", referenceId: fixture.clientId,
+      status: "COMPLETED", completedAt,
+      data: {
+        kind: "KYC_IN_PERSON_VERIFICATION", version: "kyc-in-person-verification-v1",
+        clientId: fixture.clientId, idDocumentId: fixture.idCopyId, idDocumentSha256: ID_SHA,
+        subjectFingerprint: fingerprint, method: "IN_PERSON_BRANCH",
+        note: "Synthetic attestation written straight to the database.",
+        approvedAt: completedAt.toISOString(), approvedById: "admin-synthetic", approvedByEmail: "admin@test.invalid",
+      },
+    },
+  })
+  return db.client.update({
+    where: { id: fixture.clientId },
+    data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerifiedById: "admin-synthetic", kycVerificationMethod: "PHYSICAL" },
+  })
+}
+
 const verifyDocument = (clientId: string, docId: string) => verifyPATCH(new NextRequest(
   "http://localhost/",
   { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ verified: true }) },
@@ -241,29 +274,29 @@ suite("face match v2 through the real pipeline", () => {
       const fixture = await seedClient()
       stubVlm(silhouette)
       await capture(fixture)
-      const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId } })
-      const [{ fingerprint }] = await db.$queryRawUnsafe<Array<{ fingerprint: string }>>(
-        `SELECT "biometric_subject_fingerprint"($1,$2,$3,$4,NULL) AS fingerprint`,
-        client.id, client.idNumber, client.firstName, client.lastName,
-      )
-      const completedAt = new Date("2026-10-12T08:00:00.000Z")
-      await db.complianceRecord.create({
-        data: {
-          tenantId: fixture.tenantId, type: "KYC_EXCEPTION", referenceId: fixture.clientId,
-          status: "COMPLETED", completedAt,
-          data: {
-            kind: "KYC_IN_PERSON_VERIFICATION", version: "kyc-in-person-verification-v1",
-            clientId: fixture.clientId, idDocumentId: fixture.idCopyId, idDocumentSha256: ID_SHA,
-            subjectFingerprint: fingerprint, method: "IN_PERSON_BRANCH",
-            note: "Synthetic attestation written straight to the database.",
-            approvedAt: completedAt.toISOString(), approvedById: "admin-synthetic", approvedByEmail: "admin@test.invalid",
-          },
-        },
-      })
-      await expect(db.client.update({
-        where: { id: fixture.clientId },
-        data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerifiedById: "admin-synthetic", kycVerificationMethod: "PHYSICAL" },
-      })).rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
+      await expect(verifyOnAttestationWrittenToDatabase(fixture))
+        .rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
+    })
+
+    it.each([
+      ["a selfie refused as not a real photograph", () => stubVlm(passingReply({ selfieIsRealPhotograph: false }))],
+      ["an attempt the VLM never answered", () => stubVlmDown()],
+      ["an attempt with the VLM unconfigured", () => vi.stubEnv("VLM_API_URL", "")],
+    ])("keeps the in-person route closed after a later attempt: %s", async (_label, stubLaterAttempt) => {
+      const fixture = await seedClient()
+      stubVlm(silhouette)
+      await capture(fixture)
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+      stubLaterAttempt()
+      const { selfie } = await capture(fixture)
+      expect(reasonOf(selfie)).not.toBe("id_document_portrait_invalid")
+
+      const response = await recordInPerson(fixture.clientId)
+      expect(response.status).toBe(422)
+      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+      await expect(verifyOnAttestationWrittenToDatabase(fixture))
+        .rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
     })
 
     it("re-opens the in-person route once a newer ID copy is verified", async () => {
@@ -291,20 +324,45 @@ suite("face match v2 through the real pipeline", () => {
   })
 
   describe("the ID copy a selfie is compared against", () => {
-    it("is the newest upload, but a match against a rejected copy verifies nobody, in either layer", async () => {
+    it("skips a newer copy staff rejected, so nothing is bound to it", async () => {
       // The breaker's case: verified A, a newer doctored B that staff rejected,
-      // and a selfie that matches B.
+      // and a selfie that would match B. Capture compares against A.
       const fixture = await seedClient()
-      const rejected = await addIdCopy(fixture, "rejected", { verified: false, contentSha256: "b".repeat(64), rejected: true })
+      await addIdCopy(fixture, "rejected", { verified: false, contentSha256: "b".repeat(64), rejected: true })
       stubVlm(passingReply())
       const { selfie } = await capture(fixture)
 
-      expect(ctx.readPaths).toEqual([`stub/rejected-${sequence}`])
+      expect(ctx.readPaths).toEqual([`stub/ID_COPY-${sequence}`])
       expect(selfie?.biometricResult).toEqual(expect.objectContaining({
-        idDocumentId: rejected, idDocumentSha256: "b".repeat(64), biometricFailureReason: null,
+        idDocumentId: fixture.idCopyId, idDocumentSha256: ID_SHA, biometricFailureReason: null,
       }))
-      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
-      expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "BIOMETRIC" })
+      expect(await layers(fixture.clientId)).toEqual({ app: true, appReason: null, sql: true })
+    })
+
+    it("refuses capture when the only ID copy was rejected", async () => {
+      const fixture = await seedClient()
+      await db.clientDocument.update({
+        where: { id: fixture.idCopyId },
+        data: { verified: false, verifiedAt: null, verificationRejectedAt: new Date(), verificationRejectedById: "officer-synthetic" },
+      })
+      stubVlm(passingReply())
+      const { result } = await capture(fixture)
+
+      expect(result).toEqual({ ok: false, status: 422, error: "Please upload your ID document before taking a selfie." })
+      expect(await db.clientDocument.count({ where: { clientId: fixture.clientId, docType: "SELFIE" } })).toBe(0)
+    })
+
+    it("fails a match run against a rejected copy, in either layer", async () => {
+      // A callback holding the rejected copy (capture raced the rejection).
+      const fixture = await seedClient()
+      const rejected = await addIdCopy(fixture, "rejected", { verified: false, contentSha256: "b".repeat(64), rejected: true })
+      stubVlm(passingReply())
+      const selfie = await attemptAgainst(fixture, rejected)
+
+      expect(selfie.verified).toBe(false)
+      expect(reasonOf(selfie)).toBe("subject_identity_changed")
+      expect(await layers(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
       await expect(db.client.update({
         where: { id: fixture.clientId },
         data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerificationMethod: "BIOMETRIC" },

@@ -210,27 +210,56 @@ export function matchesBlockingSelfie(row: {
 }
 
 /**
- * Whether the client's latest selfie attempt (deleted or not) was refused
- * because the given ID copy has no real photograph on it. While it stands, the
- * in-person route is closed over THAT copy: staff can compare a person to a
+ * The where-shape for the selfie attempts that can close the in-person route:
+ * any attempt, deleted or not, refused as id_document_portrait_invalid.
+ * `idDocumentPortraitRefused` then decides which ID copy each one closes.
+ */
+export const ID_PORTRAIT_REFUSAL_CONDITIONS: {
+  docType: "SELFIE"
+  biometricResult: { path: ["biometricFailureReason"]; equals: "id_document_portrait_invalid" }
+} = {
+  docType: "SELFIE",
+  biometricResult: { path: ["biometricFailureReason"], equals: "id_document_portrait_invalid" },
+}
+
+/** The same predicate, against a row already in memory (the readiness board). */
+export function matchesIdPortraitRefusal(row: { docType?: string; biometricResult: unknown }): boolean {
+  if (row.docType !== undefined && row.docType !== ID_PORTRAIT_REFUSAL_CONDITIONS.docType) return false
+  return jsonRecord(row.biometricResult)?.biometricFailureReason === "id_document_portrait_invalid"
+}
+
+/**
+ * Whether ANY selfie attempt (deleted or not, latest or not) was refused
+ * because this ID copy has no real photograph on it. While one stands, the
+ * in-person route is closed over THIS copy: staff can compare a person to a
  * photo, but not to a silhouette or a blank box, and the reason is
- * deliberately non-exceptionable. A newer verified ID copy re-opens it. A
- * refusal that names no ID copy is taken to be about this one.
+ * deliberately non-exceptionable. A later attempt with any other outcome does
+ * not reopen it; only a different ID copy becoming the one attested to does.
+ *
+ * A refusal is about another copy only when it names a different idDocumentId
+ * or a different idDocumentSha256 (as strings). One that names no copy, or
+ * names it in any other form, closes the route over EVERY copy: fail closed.
  *
  * selfie_not_real_photograph does not close it: a person standing at a branch
  * answers a fake selfie, but nothing answers an ID with no photo.
  *
- * Mirrors the latest-selfie NOT EXISTS added to
- * subject_has_in_person_kyc_verification by migration
- * 20261011060000_face_match_v2_evidence.
+ * Mirrors the NOT EXISTS added to subject_has_in_person_kyc_verification by
+ * migration 20261011060000_face_match_v2_evidence, including its NULL logic.
  */
-export function latestSelfieRefusedIdDocumentPortrait(
-  latestSelfie: { biometricResult: unknown } | null,
-  idDocumentId: string,
+export function idDocumentPortraitRefused(
+  attempts: readonly { biometricResult: unknown }[],
+  idDocument: { id: string; contentSha256: string | null },
 ): boolean {
-  const result = jsonRecord(latestSelfie?.biometricResult)
-  if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
-  return !(typeof result.idDocumentId === "string" && result.idDocumentId !== idDocumentId)
+  return attempts.some((attempt) => {
+    const result = jsonRecord(attempt.biometricResult)
+    if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
+    const otherRow = typeof result.idDocumentId === "string" && result.idDocumentId !== idDocument.id
+    // SQL's `<>` against a NULL digest is unknown, which closes; so must this.
+    const otherBytes = typeof result.idDocumentSha256 === "string"
+      && idDocument.contentSha256 !== null
+      && result.idDocumentSha256 !== idDocument.contentSha256
+    return !(otherRow || otherBytes)
+  })
 }
 
 /**
@@ -249,7 +278,8 @@ export function currentInPersonKycVerification(
     idDocument: InspectedIdDocument | null
     blockingBiometricAttempt: boolean
     biometricAssessment: BiometricEvidenceAssessment
-    latestSelfie: { biometricResult: unknown } | null
+    /** Selfie attempts matching ID_PORTRAIT_REFUSAL_CONDITIONS. */
+    portraitRefusals: readonly { biometricResult: unknown }[]
   },
 ): InPersonKycVerificationEvidence | null {
   if (
@@ -262,7 +292,7 @@ export function currentInPersonKycVerification(
     args.idDocument.deletedAt !== null ||
     !args.idDocument.verified ||
     // ...except a refusal of this very ID copy's portrait.
-    latestSelfieRefusedIdDocumentPortrait(args.latestSelfie, args.idDocument.id)
+    idDocumentPortraitRefused(args.portraitRefusals, args.idDocument)
   ) {
     return null
   }

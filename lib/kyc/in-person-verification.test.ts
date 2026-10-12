@@ -5,6 +5,7 @@ import { deriveCompositeKycState } from "@/lib/kyc/document-state"
 import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
+  idDocumentPortraitRefused,
   matchesBlockingSelfie,
   parseInPersonKycVerificationEvidence,
   IN_PERSON_KYC_VERIFICATION_KIND,
@@ -69,15 +70,16 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     idDocument: idDocument(),
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
-    latestSelfie: null,
+    portraitRefusals: [],
     ...over,
   })
 }
 
-const refusedSelfie = (reason: string, idDocumentId?: unknown) => ({
+const refusedSelfie = (reason: string, idDocumentId?: unknown, idDocumentSha256: unknown = ID_SHA) => ({
   biometricResult: {
     biometricFailureReason: reason,
     ...(idDocumentId === undefined ? {} : { idDocumentId }),
+    ...(idDocumentSha256 === undefined ? {} : { idDocumentSha256 }),
   },
 })
 
@@ -153,25 +155,39 @@ describe("currentInPersonKycVerification", () => {
       idDocument: idDocument(),
       blockingBiometricAttempt: false,
       biometricAssessment: MISSING,
-      latestSelfie: null,
+      portraitRefusals: [],
     })).toBeNull()
   })
 
   it.each([
-    ["that names this ID copy", refusedSelfie("id_document_portrait_invalid", "doc-id-copy")],
-    ["that names no ID copy", refusedSelfie("id_document_portrait_invalid")],
-    ["that names an ID copy as a non-string", refusedSelfie("id_document_portrait_invalid", 7)],
-  ])("lapses while the latest selfie refused the ID portrait, in a refusal %s", (_label, latestSelfie) => {
-    expect(current({ latestSelfie })).toBeNull()
+    ["names this ID copy and its digest", [refusedSelfie("id_document_portrait_invalid", "doc-id-copy")]],
+    ["names no ID copy (closes every copy)", [refusedSelfie("id_document_portrait_invalid", undefined, undefined)]],
+    ["names this row but no digest", [refusedSelfie("id_document_portrait_invalid", "doc-id-copy", undefined)]],
+    ["names the ID copy as a non-string", [refusedSelfie("id_document_portrait_invalid", 7, undefined)]],
+    ["sits among attempts that failed otherwise", [
+      refusedSelfie("face_not_detected", "doc-id-copy"),
+      refusedSelfie("id_document_portrait_invalid", "doc-id-copy"),
+      refusedSelfie("selfie_not_real_photograph", "doc-id-copy"),
+    ]],
+  ])("lapses while any attempt refused the ID portrait in a refusal that %s", (_label, portraitRefusals) => {
+    expect(current({ portraitRefusals })).toBeNull()
   })
 
   it.each([
-    ["the refusal was of another ID copy", refusedSelfie("id_document_portrait_invalid", "doc-older-copy")],
-    ["the selfie was refused as not a real photograph", refusedSelfie("selfie_not_real_photograph", "doc-id-copy")],
-    ["the selfie failed for an exceptionable reason", refusedSelfie("face_not_detected", "doc-id-copy")],
-    ["the latest selfie carries no evidence object", { biometricResult: null }],
-  ])("holds when %s", (_label, latestSelfie) => {
-    expect(current({ latestSelfie })).not.toBeNull()
+    ["the refusal was of another ID copy", [refusedSelfie("id_document_portrait_invalid", "doc-older-copy")]],
+    ["the refusal names this row but other bytes", [refusedSelfie("id_document_portrait_invalid", "doc-id-copy", sha("other-bytes"))]],
+    ["the selfie was refused as not a real photograph", [refusedSelfie("selfie_not_real_photograph", "doc-id-copy")]],
+    ["the selfie failed for an exceptionable reason", [refusedSelfie("face_not_detected", "doc-id-copy")]],
+    ["an attempt carries no evidence object", [{ biometricResult: null }]],
+  ])("holds when %s", (_label, portraitRefusals) => {
+    expect(current({ portraitRefusals })).not.toBeNull()
+  })
+
+  it("closes on a refusal naming a digest when this copy has none, as SQL's NULL comparison does", () => {
+    expect(idDocumentPortraitRefused(
+      [refusedSelfie("id_document_portrait_invalid", "doc-id-copy")],
+      { id: "doc-id-copy", contentSha256: null },
+    )).toBe(true)
   })
 
   it("does not accept a senior biometric exception in its place", () => {

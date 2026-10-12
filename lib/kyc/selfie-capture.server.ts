@@ -8,6 +8,7 @@ import { clientKycAuditValue } from "@/lib/kyc/document-state"
 import { isSha256Digest, sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
+import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
 
 const MAX_SELFIE_SIZE = 5 * 1024 * 1024
 
@@ -38,15 +39,6 @@ export type CaptureSelfieResult =
   | { ok: true; documentId: string; document: Record<string, unknown> }
   | { ok: false; status: number; error: string }
 
-/**
- * The ID copy a selfie is compared against: the newest non-deleted upload,
- * createdAt DESC then id DESC (the gates' tiebreak). Callers also require a
- * usable digest.
- */
-const CURRENT_ID_DOCUMENT = {
-  docType: "ID_COPY" as DocType,
-  deletedAt: null,
-}
 const NEWEST_FIRST = [{ createdAt: "desc" as const }, { id: "desc" as const }]
 
 function sanitiseDoc(doc: Record<string, unknown>) {
@@ -112,11 +104,14 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     // A selfie needs an ID document on file, but must not depend on AI extraction.
     // A deployment can run with VLM disabled and staff can review/verify the ID manually.
     //
-    // Compared against the newest uploaded copy, verified or not, so a
-    // borrower need not wait for staff. The KYC gates count the match only
-    // while that copy is the newest VERIFIED one (subject_has_composite_kyc),
-    // so a match against an unverified or rejected upload proves nothing
-    // until staff verify it. The digest is what the gates bind to.
+    // Compared against the newest copy staff have not rejected, verified or
+    // not, so a borrower need not wait for staff. The KYC gates count the
+    // match only while that copy is the newest VERIFIED one
+    // (subject_has_composite_kyc), so a match against an unverified upload
+    // proves nothing until staff verify it. A rejected copy is skipped: a
+    // passing match against it was stored as verified, blocked the in-person
+    // route, and every retake hit the same copy again. The digest is what
+    // the gates bind to.
     const idDoc = await prisma.clientDocument.findFirst({
       where: { tenantId, clientId, ...CURRENT_ID_DOCUMENT },
       orderBy: NEWEST_FIRST,

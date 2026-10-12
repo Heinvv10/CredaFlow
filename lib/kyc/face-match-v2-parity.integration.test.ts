@@ -37,7 +37,7 @@ const BR = (change = "") =>
 const ER = (change = "") =>
   `{"faceDetected":{"value":true},"facesCount":{"value":1},"isLive":{"value":true},` +
   `"quality":{"value":"good"}${change ? "," + change : ""}}`
-const FAILED = (reason: string, change = `"idDocumentId":"${ID}"`) =>
+const FAILED = (reason: string, change = `"idDocumentId":"${ID}","idDocumentSha256":"${ID_SHA}"`) =>
   `{"biometricFailureReason":"${reason}","subjectFingerprint":"${FP}"${change ? "," + change : ""}}`
 
 type Case = {
@@ -49,7 +49,7 @@ type Case = {
   /** Rows to add before the selfie, given the seeded ID copy's id. */
   before?: (ids: Ids) => string[]
   /** A failed latest selfie and an in-person attestation instead of a pass. */
-  inPerson?: { br: string; deleted?: boolean; older?: string }
+  inPerson?: { br: string; deleted?: boolean; older?: string; olderDeleted?: boolean }
 }
 type Ids = { tenantId: string; clientId: string; idCopyId: string }
 
@@ -161,7 +161,12 @@ const cases: Case[] = [
   { name: "in person: the refused selfie is soft-deleted", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid"), deleted: true } },
   { name: "in person: the refusal was of an older ID copy", expected: true, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy"`) } },
   { name: "in person: latest selfie refused as not a real photograph", expected: true, inPerson: { br: FAILED("selfie_not_real_photograph") } },
-  { name: "in person: an older attempt refused the portrait, the latest failed otherwise", expected: true, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid") } },
+  // ANY attempt bound to this copy keeps it closed, not only the latest.
+  { name: "in person: an older attempt refused the portrait, the latest failed otherwise", expected: false, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid") } },
+  { name: "in person: a deleted older refusal, the latest not a real photograph", expected: false, inPerson: { br: FAILED("selfie_not_real_photograph"), older: FAILED("id_document_portrait_invalid"), olderDeleted: true } },
+  { name: "in person: an older refusal of another ID copy, the latest failed otherwise", expected: true, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy","idDocumentSha256":"${ID_SHA}"`) } },
+  { name: "in person: the refusal names this row but other bytes", expected: true, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}","idDocumentSha256":"${"b".repeat(64)}"`) } },
+  { name: "in person: the refusal names this row and no digest", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}"`) } },
 ]
 
 /**
@@ -239,7 +244,9 @@ async function run(c: Case) {
 
   const selfieId = `fm_par_selfie_${sequence}_${token}`
   if (c.inPerson) {
-    if (c.inPerson.older) await insertFailedSelfie(ids, `${selfieId}_older`, fill(c.inPerson.older), false)
+    if (c.inPerson.older) {
+      await insertFailedSelfie(ids, `${selfieId}_older`, fill(c.inPerson.older), c.inPerson.olderDeleted ?? false)
+    }
     await insertFailedSelfie(ids, selfieId, fill(c.inPerson.br), c.inPerson.deleted ?? false)
     const completedAt = new Date("2026-10-12T08:00:00.000Z")
     await db.complianceRecord.create({

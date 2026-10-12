@@ -1,5 +1,4 @@
 import { Prisma } from "@prisma/client"
-import type { DocType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { extractDocumentData } from "@/lib/vlm-extract"
@@ -28,6 +27,7 @@ import {
 } from "@/lib/kyc/vlm-face-match"
 import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -384,8 +384,9 @@ async function persistBiometricOutcome(args: {
       biometricSubjectFingerprint(clientBefore) === args.subjectFingerprint
     // The provider evidence names the exact ID document the selfie was
     // compared against. That binding is a live gate, not metadata: unless it
-    // is still the client's newest ID copy, with the same digest, the
-    // attempt fails closed, so a newer upload or a deletion while the
+    // is still the copy capture would choose (CURRENT_ID_DOCUMENT: newest,
+    // not deleted, not rejected), with the same digest, the attempt fails
+    // closed, so a newer upload, a deletion or a staff rejection while the
     // callback ran fails it. Whether that copy is VERIFIED is the KYC gates'
     // question (subject_has_composite_kyc): an attempt against an unverified
     // copy is stored, and counts once staff verify that copy. Post-
@@ -399,8 +400,7 @@ async function persistBiometricOutcome(args: {
         where: {
           tenantId: args.tenantId,
           clientId: args.clientId,
-          docType: "ID_COPY" as DocType,
-          deletedAt: null,
+          ...CURRENT_ID_DOCUMENT,
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 1,
