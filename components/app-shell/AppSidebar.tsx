@@ -149,7 +149,7 @@ export function AppSidebar({
       <button
         type="button"
         onClick={() => setMobileOpen(v => !v)}
-        className="fixed left-3 top-3 z-[60] inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] text-[var(--cf-text)] lg:hidden"
+        className="fixed left-3 top-[calc(0.75rem+var(--cf-demo-banner-h))] z-[60] inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] text-[var(--cf-text)] lg:hidden"
         aria-label="Toggle navigation"
       >
         {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -166,7 +166,7 @@ export function AppSidebar({
 
       <aside
         className={cn(
-          "fixed bottom-0 left-0 top-14 z-50 w-[248px] transform transition-transform lg:translate-x-0",
+          "fixed bottom-0 left-0 top-[calc(3.5rem+var(--cf-demo-banner-h))] z-50 w-[248px] transform transition-transform lg:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >

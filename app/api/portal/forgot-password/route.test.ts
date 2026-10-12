@@ -218,3 +218,79 @@ describe("POST /api/portal/forgot-password", () => {
     expect(sendEmailMock).not.toHaveBeenCalled()
   })
 })
+
+// DEMO_MODE: the reset code goes to a fictional address and never arrives,
+// so a demo deployment returns it to the request that issued it — but only
+// when DEMO_MODE is exactly "true" AND the address is a `.invalid` one.
+// Every return path after the OTP is issued is covered.
+describe("POST /api/portal/forgot-password — DEMO_MODE reset code reveal", () => {
+  const DEMO_EMAIL = "thabo.pillay@acme-lending.invalid"
+  const REAL_EMAIL = "someone@example.com"
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  function issuedCode(): string {
+    return (clientOtpCreateMock.mock.calls[0][0] as { data: { otp: string } }).data.otp
+  }
+
+  // [label, MESSAGING_NEW_SEND_PORTAL_FORGOT, arrange, proof the path ran]
+  const RETURN_PATHS: Array<[string, string | undefined, () => void, () => void]> = [
+    ["legacy send", undefined, () => {}, () => expect(sendEmailMock).toHaveBeenCalledTimes(1)],
+    ["new send pipeline", "true", () => {}, () => expect(sendMessageMock).toHaveBeenCalledTimes(1)],
+    [
+      "new send, Contact missing", "true",
+      () => lookupContactMock.mockResolvedValue(null),
+      () => expect(messageTemplateFindFirstMock).not.toHaveBeenCalled(),
+    ],
+    [
+      "new send, template missing", "true",
+      () => messageTemplateFindFirstMock.mockResolvedValue(null),
+      () => {
+        expect(messageTemplateFindFirstMock).toHaveBeenCalledTimes(1)
+        expect(sendMessageMock).not.toHaveBeenCalled()
+      },
+    ],
+  ]
+
+  async function post(path: (typeof RETURN_PATHS)[number], email: string, demoMode: string | undefined) {
+    const [, newSend, arrange, ranPath] = path
+    vi.stubEnv("DEMO_MODE", demoMode)
+    vi.stubEnv("MESSAGING_NEW_SEND_PORTAL_FORGOT", newSend)
+    arrange()
+    clientFindFirstMock.mockResolvedValue({
+      id: "cl_a", email, firstName: "Thabo", lastName: "P", tenantId: "tenant_acme",
+    })
+    const res = await POST(buildReq({ email }))
+    expect(res.status).toBe(200)
+    expect(clientOtpCreateMock).toHaveBeenCalledTimes(1)
+    ranPath()
+    return (await res.json()) as Record<string, unknown>
+  }
+
+  describe.each(RETURN_PATHS.map((p) => [p[0], p] as const))("%s", (_label, path) => {
+    it("returns the issued code for a .invalid recipient when DEMO_MODE=true", async () => {
+      const data = await post(path, DEMO_EMAIL, "true")
+      expect(data.demoCode).toMatch(/^\d{6}$/)
+      expect(data.demoCode).toBe(issuedCode())
+    })
+
+    it.each([undefined, "false", "TRUE "])("never returns the code when DEMO_MODE=%j", async (value) => {
+      const data = await post(path, DEMO_EMAIL, value)
+      expect(data).toEqual({ success: true })
+    })
+
+    it("never returns the code for a deliverable address, even when DEMO_MODE=true", async () => {
+      const data = await post(path, REAL_EMAIL, "true")
+      expect(data).toEqual({ success: true })
+    })
+  })
+
+  it("returns no code for an unknown email, even in demo mode", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    clientFindFirstMock.mockResolvedValue(null)
+    const data = await (await POST(buildReq({ email: "nobody@acme-lending.invalid" }))).json()
+    expect(data).toEqual({ success: true })
+  })
+})

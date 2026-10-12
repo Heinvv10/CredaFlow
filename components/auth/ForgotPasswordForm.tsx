@@ -38,7 +38,7 @@ export default function ForgotPasswordForm({ brandName }: { brandName: string })
 
   return (
     <div className="cf-app-surface min-h-screen flex items-center justify-center px-4">
-      <ThemeToggle className="fixed right-4 top-4 z-10" />
+      <ThemeToggle className="fixed right-4 top-[calc(1rem+var(--cf-demo-banner-h))] z-10" />
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">

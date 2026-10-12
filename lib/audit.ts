@@ -299,6 +299,8 @@ export const AuditAction = {
   // and Compliance staff sections.
   IMS_MODULE_ENABLED:                "IMS_MODULE_ENABLED",
   IMS_MODULE_DISABLED:               "IMS_MODULE_DISABLED",
+  BANK_SYNC_ENABLED:                 "BANK_SYNC_ENABLED",
+  BANK_SYNC_DISABLED:                "BANK_SYNC_DISABLED",
 
   // Phase 2a: FAIS disclosure
   INSURANCE_FAIS_DISCLOSURE_RENDERED:     "INSURANCE_FAIS_DISCLOSURE_RENDERED",

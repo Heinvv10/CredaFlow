@@ -982,3 +982,9 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
 .cf-site-surface textarea::placeholder {
   color: var(--cf-text-muted) !important;
 }
+
+/* Height of the DEMO_MODE banner (components/demo/DemoBanner.tsx), which
+   raises it from 0 when it renders. Top-anchored fixed/sticky shell chrome opts
+   in by adding it to its own top offset (grep --cf-demo-banner-h); nothing else
+   moves. */
+:root { --cf-demo-banner-h: 0px; }

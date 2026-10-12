@@ -1,0 +1,98 @@
+/**
+ * The three personas a presenter drives live. Every input that decides the
+ * outcome is pinned so the storyline cannot drift with the PRNG.
+ */
+import type { PersonaSpec } from './build'
+
+export const LIVE_DEMO_SPECS: readonly PersonaSpec[] = [
+  {
+    index: 1,
+    id: 'live-clean-approve',
+    kind: 'live-demo',
+    storyline: 'live-clean-approve',
+    profile: 'affordable',
+    summary:
+      'Salaried logistics supervisor, one small clothing account, comfortable NDI. Runs the whole origination path to disbursement.',
+    fixed: {
+      firstName: 'Lerato',
+      lastName: 'Mahlangu',
+      gender: 'FEMALE',
+      dateOfBirth: '1990-08-14',
+      employerName: 'Thornveld Cobalt Logistics (Pty) Ltd',
+      occupation: 'Warehouse Supervisor',
+      city: 'Johannesburg',
+      grossRands: 32_500,
+      allowanceRands: 2_500,
+      hasPension: true,
+      medicalAidRands: 1_850,
+      salaryPaymentDay: 25,
+      bankCode: 'CAPITEC',
+      accountType: 'CHEQUE',
+      debts: [{ accountType: 'CLOTHING_ACCOUNT', instalmentRands: 450, months: 9 }],
+      expensesRands: 9_800,
+      loanRequest: { productCode: 'PERSONAL', amountCents: 15_000_00, termDays: 360 },
+    },
+  },
+  {
+    index: 2,
+    id: 'live-affordability-decline',
+    kind: 'live-demo',
+    storyline: 'live-affordability-decline',
+    profile: 'over-indebted',
+    summary:
+      'Security officer already servicing vehicle, personal, card, store and micro loans. Affordability (NDI) declines the new instalment.',
+    fixed: {
+      firstName: 'Mxolisi',
+      lastName: 'Ngcobo',
+      gender: 'MALE',
+      dateOfBirth: '1984-02-27',
+      employerName: 'Ironbark Valley Security Services (Pty) Ltd',
+      occupation: 'Site Supervisor',
+      city: 'Durban',
+      grossRands: 19_500,
+      allowanceRands: 0,
+      hasPension: false,
+      medicalAidRands: 0,
+      salaryPaymentDay: 25,
+      bankCode: 'FNB',
+      accountType: 'CHEQUE',
+      debts: [
+        { accountType: 'VEHICLE_FINANCE', instalmentRands: 3_950, months: 41 },
+        { accountType: 'PERSONAL_LOAN', instalmentRands: 2_100, months: 22 },
+        { accountType: 'CREDIT_CARD', instalmentRands: 1_250, months: 30 },
+        { accountType: 'STORE_ACCOUNT', instalmentRands: 780, months: 14 },
+        { accountType: 'MICROFINANCE', instalmentRands: 1_150, months: 3 },
+      ],
+      expensesRands: 6_200,
+      loanRequest: { productCode: 'PERSONAL', amountCents: 25_000_00, termDays: 360 },
+    },
+  },
+  {
+    index: 3,
+    id: 'live-returning-client',
+    kind: 'live-demo',
+    storyline: 'live-returning-client',
+    profile: 'affordable',
+    summary:
+      'Professional nurse who settled a first loan with the lender; applies for a second, larger loan as an existing client.',
+    fixed: {
+      firstName: 'Thembeka',
+      lastName: 'Zwane',
+      gender: 'FEMALE',
+      dateOfBirth: '1979-11-03',
+      employerName: 'Kestrel Lane Healthcare Group (Pty) Ltd',
+      occupation: 'Professional Nurse',
+      city: 'Pietermaritzburg',
+      grossRands: 38_400,
+      allowanceRands: 0,
+      hasPension: true,
+      medicalAidRands: 2_400,
+      salaryPaymentDay: 20,
+      bankCode: 'NEDBANK',
+      accountType: 'CHEQUE',
+      debts: [{ accountType: 'VEHICLE_FINANCE', instalmentRands: 3_200, months: 18 }],
+      expensesRands: 11_500,
+      loanRequest: { productCode: 'PERSONAL', amountCents: 30_000_00, termDays: 540 },
+    },
+  },
+]

@@ -8,6 +8,7 @@ import { sendEmail } from "@/lib/email/service"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { generateOtp } from "@/lib/otp"
 import { getLenderIdentity } from "@/lib/config/identity"
+import { demoCodeReveal } from "@/lib/config/demo-mode"
 import { escapeHtml } from "@/lib/utils"
 import { sendMessage, SendBlockedError } from "@/lib/messaging/send"
 import { isPortalActivationNewSendEnabled } from "@/lib/messaging/flags"
@@ -223,7 +224,7 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
           }
         })
 
-        return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE })
+        return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code, email) })
       }
 
       // Legacy path: direct sendEmail(). Kept until the new path has soaked.
@@ -261,6 +262,8 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
       })).catch((err: unknown) => {
         console.error("[portal-register] activation email failed:", err)
       })
+
+      return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code, email) })
     }
 
     return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE })

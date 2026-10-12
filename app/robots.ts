@@ -1,6 +1,11 @@
 import type { MetadataRoute } from "next"
+import { isDemoMode } from "@/lib/config/demo-mode"
 import { siteUrl } from "@/lib/seo/metadata"
 import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
+
+// DEMO_MODE is runtime env and one image runs with and without it: rendered
+// per request, or the build's value would be baked into a static robots.txt.
+export const dynamic = "force-dynamic"
 
 // Explicit allow-list of public marketing routes: the same list app/sitemap.ts
 // maps (lib/website/routes.ts). We don't blanket-disallow /site/ — that's
@@ -8,6 +13,7 @@ import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
 // Genuine non-public pages under /site/ must be added to the disallow list
 // explicitly.
 export default function robots(): MetadataRoute.Robots {
+  if (isDemoMode()) return { rules: [{ userAgent: "*", disallow: "/" }] }
   const base = siteUrl()
   return {
     rules: [

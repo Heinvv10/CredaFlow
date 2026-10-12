@@ -78,7 +78,7 @@ export default function NavBar() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#1b1d24]/95 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-md">
+    <header className="sticky top-[var(--cf-demo-banner-h)] z-50 border-b border-white/10 bg-[#1b1d24]/95 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-md">
       <div className="max-w-[88rem] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2 min-[1440px]:gap-2.5 flex-shrink-0">

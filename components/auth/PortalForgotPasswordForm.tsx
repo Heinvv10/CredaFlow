@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { DemoCodeNotice, demoCodeFrom } from "@/components/demo/DemoCodeNotice"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Mail, ArrowLeft, CheckCircle, KeyRound } from "lucide-react"
 
@@ -25,6 +26,8 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  // Set only by a DEMO_MODE deployment's response (demoCodeReveal).
+  const [demoCode, setDemoCode] = useState("")
 
   async function requestCode(e: React.FormEvent) {
     e.preventDefault()
@@ -41,6 +44,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
         body: JSON.stringify({ email, turnstileToken }),
       })
       if (res.ok) {
+        setDemoCode(demoCodeFrom(await res.json()))
         setTurnstileToken(null)
         setStep("reset")
       } else {
@@ -85,7 +89,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
 
   return (
     <div className="cf-app-surface flex min-h-screen items-center justify-center px-4">
-      <ThemeToggle className="fixed right-4 top-4 z-10" />
+      <ThemeToggle className="fixed right-4 top-[calc(1rem+var(--cf-demo-banner-h))] z-10" />
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-[var(--cf-text)]">{brandName}</h1>
@@ -149,6 +153,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
                 </p>
               </div>
               <form onSubmit={resetPassword} className="space-y-4">
+                {demoCode && <DemoCodeNotice code={demoCode} />}
                 <div>
                   <label className="mb-1 block text-sm font-medium text-[var(--cf-text-secondary)]">Reset code</label>
                   <div className="relative">

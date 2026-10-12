@@ -16,3 +16,9 @@ docker-compose.staging.yml
 prisma/seed-staging.ts
 # face-model weights are fetched fresh, checksum-pinned, inside the build
 face-models
+
+# Demo simulator: its env file (secrets) and the whole tooling dir (run
+# output, credentials, and code a lender's image never runs) stay out of the
+# build context. Dockerfile.demo-sim COPYs nothing from the context.
+.env.demo-sim
+scripts/demo

@@ -26,7 +26,7 @@ export async function PortalShell({ userName, userEmail, children }: PortalShell
         whatsappE164={identity.publicWhatsappE164}
       />
 
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 py-3 backdrop-blur md:hidden">
+      <header className="sticky top-[var(--cf-demo-banner-h)] z-30 flex items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 py-3 backdrop-blur md:hidden">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">
             Client Portal

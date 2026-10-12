@@ -491,3 +491,73 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
     warn.mockRestore()
   })
 })
+
+// DEMO_MODE: the activation code goes to a fictional address and never
+// arrives, so a demo deployment returns it to the request that issued it —
+// but only when DEMO_MODE is exactly "true" AND the address is a `.invalid`
+// one. Both return paths that issue a code are covered.
+describe("POST /api/portal/register — DEMO_MODE activation code reveal", () => {
+  const DEMO_EMAIL = "thabo.pillay@acme-lending.invalid"
+  const REAL_EMAIL = "someone@example.com"
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  function issuedCode(): string {
+    return (createClientOtp.mock.calls[0][0] as { data: { otp: string } }).data.otp
+  }
+
+  // [label, MESSAGING_NEW_SEND_PORTAL_ACTIVATION, proof the path ran]
+  const RETURN_PATHS: Array<[string, string | undefined, () => void]> = [
+    ["legacy send", undefined, () => expect(sendEmail).toHaveBeenCalledTimes(1)],
+    ["new send pipeline", "true", () => expect(resolveMessagingTarget).toHaveBeenCalledTimes(1)],
+  ]
+
+  async function post(path: (typeof RETURN_PATHS)[number], email: string, demoMode: string | undefined) {
+    const [, newSend, ranPath] = path
+    vi.stubEnv("DEMO_MODE", demoMode)
+    vi.stubEnv("MESSAGING_NEW_SEND_PORTAL_ACTIVATION", newSend)
+    resolveMessagingTarget.mockResolvedValue({ ok: false, reason: "test" })
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    findFirstClient.mockResolvedValue({ ...unactivatedClient, email })
+    const { POST } = await import("./route")
+    const res = await POST(makeRequest({ ...requestCodeBody, email }))
+    expect(res.status).toBe(200)
+    expect(createClientOtp).toHaveBeenCalledTimes(1)
+    // The sends are detached from the response; let them start.
+    await new Promise((resolve) => setImmediate(resolve))
+    ranPath()
+    return (await res.json()) as Record<string, unknown>
+  }
+
+  describe.each(RETURN_PATHS.map((p) => [p[0], p] as const))("%s", (_label, path) => {
+    it("returns the issued code for a .invalid recipient when DEMO_MODE=true", async () => {
+      const data = await post(path, DEMO_EMAIL, "true")
+      expect(data.demoCode).toMatch(/^\d{6}$/)
+      expect(data.demoCode).toBe(issuedCode())
+    })
+
+    it.each([undefined, "false", "TRUE "])("never returns the code when DEMO_MODE=%j", async (value) => {
+      const data = await post(path, DEMO_EMAIL, value)
+      expect(data).not.toHaveProperty("demoCode")
+      expect(JSON.stringify(data)).not.toContain(issuedCode())
+    })
+
+    it("never returns the code for a deliverable address, even when DEMO_MODE=true", async () => {
+      const data = await post(path, REAL_EMAIL, "true")
+      expect(data).not.toHaveProperty("demoCode")
+      expect(JSON.stringify(data)).not.toContain(issuedCode())
+    })
+  })
+
+  it("issues and returns nothing when no client matches, even in demo mode", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    findFirstClient.mockResolvedValue(null)
+    const { POST } = await import("./route")
+    const data = await (await POST(makeRequest({ ...requestCodeBody, email: DEMO_EMAIL }))).json()
+    expect(data).not.toHaveProperty("demoCode")
+    expect(createClientOtp).not.toHaveBeenCalled()
+  })
+})

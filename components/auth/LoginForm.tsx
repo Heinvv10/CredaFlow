@@ -277,7 +277,7 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
 export default function LoginForm({ variant = "staff", brandName, crossLink }: LoginFormProps) {
   return (
     <div className="cf-app-surface flex min-h-screen items-center justify-center px-4">
-      <ThemeToggle className="fixed right-4 top-4 z-10" />
+      <ThemeToggle className="fixed right-4 top-[calc(1rem+var(--cf-demo-banner-h))] z-10" />
       <div className="w-full max-w-md rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-8 shadow-2xl shadow-black/35">
         <Suspense fallback={<div className="text-center text-[var(--cf-text-muted)]">Loading...</div>}>
           <LoginFormInner variant={variant} brandName={brandName} crossLink={crossLink} />

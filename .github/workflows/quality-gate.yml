@@ -62,6 +62,14 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      # scripts/demo is excluded from the root tsconfig (a simulator type error
+      # must never fail a lender's build), so it has its own project. Its tests
+      # run in the unit-test step below.
+      - name: Typecheck demo simulator
+        run: npm run demo:typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
       - name: Lint
         run: npm run lint
 
