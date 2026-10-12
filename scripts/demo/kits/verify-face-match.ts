@@ -4,14 +4,21 @@
  *   VLM_API_URL=http://127.0.0.1:8100 VLM_MODEL=<id> \
  *     npx tsx scripts/demo/kits/verify-face-match.ts [--kit <dir>] [--as-of YYYY-MM-DD]
  *
+ * Run from the repo root with the face models fetched (npm run
+ * face-models:fetch), or set FACE_MODEL_DIR.
+ *
  * runBiometricVerification (lib/kyc/selfie-biometric.server.ts — what both
  * selfie routes call) reads the stored ID from disk and persists the outcome
  * through Prisma, so it cannot run without a database. This script runs its
- * decision chain step for step on the same functions: extractDocumentData
- * with docType SELFIE + the ID as referenceImage (one two-image VLM request),
- * assessVlmBiometricExtraction, readVlmFaceMatchVerdict, the provider result
- * built exactly as the route builds it, then assessBiometricEvidence — the
- * gate whose `ok` becomes biometricPassed.
+ * v3 decision chain step for step on the same functions:
+ * canonicalBiometricImage on each side; on those bytes, extractDocumentData
+ * with docType SELFIE + the ID as referenceImage (one two-image VLM request:
+ * liveness, the portrait gates and its own match verdict, which can only
+ * refuse) beside compareFaces (the YuNet + SFace face model, which decides
+ * same-person); assessVlmBiometricExtraction, readVlmFaceMatchVerdict and
+ * readVlmFaceMatchSideRejection; the provider result built exactly as the
+ * route builds it, then assessBiometricEvidence — the gate whose `ok` becomes
+ * biometricPassed — and the route's choice of the recorded failure reason.
  *
  * Cases (selfie = the presenter photo throughout):
  *   (a) each live persona's kit ID card (presenter photo printed)  → must pass
@@ -19,6 +26,7 @@
  *   (c) a live card whose photo slot holds a drawn synthetic face  → must fail
  * Exits non-zero when any case ends the wrong way. Never prints image bytes.
  */
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import sharp from 'sharp'
@@ -26,9 +34,14 @@ import {
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
   biometricSubjectFingerprint,
-  readVlmFaceMatchVerdict,
+  VLM_FACE_MATCH_PROVIDER,
+  type BiometricEvidenceAssessment,
   type BiometricSubjectClient,
 } from '@/lib/kyc/biometric-evidence'
+import { canonicalBiometricImage } from '@/lib/kyc/biometric-image.server'
+import { compareFaces } from '@/lib/kyc/face-model/compare.server'
+import { isManualKycExceptionableFailureReason } from '@/lib/kyc/manual-exception-policy'
+import { readVlmFaceMatchSideRejection, readVlmFaceMatchVerdict } from '@/lib/kyc/vlm-face-match'
 import { extractDocumentData } from '@/lib/vlm-extract'
 import { LIVE_DEMO_PERSONAS, getPersona } from '../personas'
 import type { Persona } from '../personas/types'
@@ -54,53 +67,97 @@ function subjectOf(p: Persona): BiometricSubjectClient {
   return { id: `kit-${p.id}`, idNumber: p.idNumber, firstName: p.firstName, lastName: p.lastName, dateOfBirth: new Date(`${p.dateOfBirth}T00:00:00.000Z`) }
 }
 
-/** Mirrors runBiometricVerification steps A–C without the database. */
+/** Mirrors runBiometricVerification steps A1–C without the database. */
 async function faceMatch(selfie: Buffer, idCard: Buffer, p: Persona): Promise<Outcome> {
-  const vlm = await extractDocumentData({
-    fileBuffer: selfie,
-    mimeType: 'image/jpeg',
-    docType: 'SELFIE',
-    referenceImage: { fileBuffer: idCard, mimeType: 'image/png' },
-  })
+  // A1: one canonical image per side; a side that cannot be prepared refuses before either judge runs.
+  const canonicalId = await canonicalBiometricImage(idCard, 'image/png')
+  const canonicalSelfie = await canonicalBiometricImage(selfie, 'image/jpeg')
+  if (!canonicalId.ok || !canonicalSelfie.ok) {
+    const error = !canonicalId.ok ? `ID: ${canonicalId.error}` : !canonicalSelfie.ok ? `selfie: ${canonicalSelfie.error}` : ''
+    return { passed: false, reason: 'extraction_incomplete', detail: `image preparation failed (${error})` }
+  }
+  const images = { id: canonicalId.image, selfie: canonicalSelfie.image }
+  // A2: the VLM and the face model judge the same two images.
+  const [vlm, faceComparison] = await Promise.all([
+    extractDocumentData({
+      fileBuffer: images.selfie.fileBuffer,
+      mimeType: images.selfie.mimeType,
+      docType: 'SELFIE',
+      referenceImage: images.id,
+    }),
+    compareFaces(images.id, images.selfie),
+  ])
+  // B–C: the kit card stands in for the stored ID copy the selfie is bound to.
+  const subject = subjectOf(p)
+  const subjectFingerprint = biometricSubjectFingerprint(subject)
+  const idDocument = { id: `kit-id-${p.id}`, contentSha256: createHash('sha256').update(idCard).digest('hex') }
   const extractionResult = vlm.data ?? null
   const vlmAssessment = assessVlmBiometricExtraction(extractionResult)
-  const verdict = vlmAssessment.ok ? readVlmFaceMatchVerdict(extractionResult) : null
-  const provider = verdict
+  const matchVerdict = readVlmFaceMatchVerdict(extractionResult)
+  const modelRejection = faceComparison.rejection
+  const sideRejection = readVlmFaceMatchSideRejection(extractionResult)
+  const strictRejection = (matchVerdict?.rejection && !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
+    ? matchVerdict.rejection
+    : sideRejection)
+    ?? (modelRejection && !isManualKycExceptionableFailureReason(modelRejection.reason) ? modelRejection : null)
+  const refusal = strictRejection ?? modelRejection ?? matchVerdict?.rejection ?? null
+  const provider = vlmAssessment.ok && matchVerdict && faceComparison.ok
     ? {
         ok: true,
-        verified: verdict.faceMatch && verdict.idPhotoFaceDetected,
-        provider: 'vlm-face-match-v1' as const,
-        matchScore: verdict.matchScore,
-        livenessScore: verdict.livenessScore,
-        faceMatch: verdict.faceMatch,
-        idPhotoFaceDetected: verdict.idPhotoFaceDetected,
+        verified: matchVerdict.rejection === null && faceComparison.rejection === null,
+        provider: VLM_FACE_MATCH_PROVIDER,
+        matchScore: matchVerdict.matchScore,
+        livenessScore: matchVerdict.livenessScore,
+        matchConfidence: matchVerdict.matchConfidence,
+        livenessConfidence: matchVerdict.livenessConfidence,
+        faceMatch: matchVerdict.faceMatch,
+        idPhotoFaceDetected: matchVerdict.idPhotoFaceDetected,
+        idPhotoKind: matchVerdict.idPhotoKind,
+        idPhotoIsRealPhotograph: matchVerdict.idPhotoIsRealPhotograph,
+        selfieIsRealPhotograph: matchVerdict.selfieIsRealPhotograph,
+        samePerson: matchVerdict.samePerson,
+        faceModel: faceComparison.evidence,
+        idDocumentId: idDocument.id,
+        idDocumentSha256: idDocument.contentSha256,
+        ...(refusal === null ? {} : { error: refusal.message }),
       }
     : null
-  const subject = subjectOf(p)
-  const completed = provider?.ok === true
-  const assessment = !vlmAssessment.ok
+  const completed = provider !== null
+  const assessment: BiometricEvidenceAssessment = !vlmAssessment.ok
     ? vlmAssessment
+    : !faceComparison.ok
+    ? { ok: false, reason: faceComparison.rejection.reason }
     : assessBiometricEvidence({
         deletedAt: null,
         verified: false,
         extractionStatus: completed ? 'done' : 'failed',
         extractionResult,
-        extractionError: completed ? null : vlm.error ?? 'Biometric verification did not run',
+        extractionError: provider?.error ?? strictRejection?.message ?? vlm.error ?? null,
         validationMismatch: false,
         validationScore: provider?.matchScore ?? 0,
         biometricMatchScore: provider?.matchScore ?? null,
         biometricLiveness: provider?.livenessScore ?? null,
         biometricVerifiedAt: completed ? new Date() : null,
-        biometricResult: provider ? { ...provider, subjectFingerprint: biometricSubjectFingerprint(subject) } : null,
-      }, { subject, requireDocumentVerified: false })
+        biometricResult: provider ? { ...provider, subjectFingerprint } : null,
+      }, { subject, idDocument, idDocumentCopies: null, requireDocumentVerified: false })
+  const assessedReason = assessment.ok ? null : assessment.reason
+  const reason = strictRejection?.reason
+    ?? (assessedReason && !isManualKycExceptionableFailureReason(assessedReason) ? assessedReason : null)
+    ?? (provider ? refusal?.reason : null)
+    ?? assessedReason
   const v = (field: string): string => JSON.stringify(extractionResult?.[field]?.value ?? null)
+  const model = faceComparison.ok
+    ? `model similarity=${faceComparison.evidence.similarity.toFixed(3)} (threshold ${faceComparison.evidence.threshold}) ` +
+      `faces id=${faceComparison.evidence.idFaceCount} selfie=${faceComparison.evidence.selfieFaceCount}`
+    : `model refused: ${faceComparison.rejection.message} (faces id=${faceComparison.idFaceCount} selfie=${faceComparison.selfieFaceCount})`
   return {
     passed: assessment.ok,
-    reason: assessment.ok ? 'biometricPassed' : assessment.reason,
-    detail: vlm.ok
-      ? `faceMatch=${v('faceMatch')} matchConfidence=${v('matchConfidence')} idPhotoFaceDetected=${v('idPhotoFaceDetected')} ` +
+    reason: assessment.ok ? 'biometricPassed' : reason ?? assessment.reason,
+    detail: `${model}; ` + (vlm.ok
+      ? `VLM idPhotoKind=${v('idPhotoKind')} idPhotoIsRealPhotograph=${v('idPhotoIsRealPhotograph')} idPhotoFaceDetected=${v('idPhotoFaceDetected')} ` +
+        `selfieIsRealPhotograph=${v('selfieIsRealPhotograph')} samePerson=${v('samePerson')} faceMatch=${v('faceMatch')} matchConfidence=${v('matchConfidence')} ` +
         `isLive=${v('isLive')} livenessConfidence=${v('livenessConfidence')} faces=${v('facesCount')} quality=${v('quality')}`
-      : `extraction error: ${vlm.error ?? 'none'}`,
+      : `VLM extraction error: ${vlm.error ?? 'none'}`),
   }
 }
 

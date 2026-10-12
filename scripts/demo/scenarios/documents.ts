@@ -17,8 +17,9 @@
  * address) is uploaded a second time as proof of address — the extraction
  * prompt for that type explicitly accepts a bank statement.
  *
- * Identity: the selfie biometric is a VLM face match against the ID photo
- * (lib/kyc/selfie-biometric.server.ts — Smile is not in that path), and the
+ * Identity: the selfie biometric compares the selfie with the ID photo (a face
+ * model decides same-person, VLM gates can refuse;
+ * lib/kyc/selfie-biometric.server.ts — Smile is not in that path), and the
  * specimen ID card has no photograph, so a selfie cannot pass. The product's
  * substitute is an in-person verification recorded by an ADMIN, which is
  * what this scenario records.

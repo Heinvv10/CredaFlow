@@ -1,7 +1,7 @@
 /**
  * The presenter's portrait for the live-demo personas' ID cards
  * (decided 2026-10-10): with it on the card, a live selfie during a demo genuinely
- * passes the VLM face match.
+ * passes the face match.
  *
  * It is a real person's face. It lives only in scripts/demo/.private/
  * (gitignored, chmod 700) and in the generated ID cards, which go to an

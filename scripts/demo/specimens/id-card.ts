@@ -16,7 +16,7 @@
  * fontconfig.
  *
  * A live-demo card may carry a photograph (the presenter's, so a live selfie
- * genuinely passes the VLM face match). It is cover-fitted into the photo box
+ * genuinely passes the face match). It is cover-fitted into the photo box
  * and drawn UNDER both watermarks: a SPECIMEN band across the photo itself and
  * the card-wide SPECIMEN — NOT A VALID DOCUMENT. Without a photo the box keeps
  * the grey silhouette and "NO PHOTOGRAPH" caption.

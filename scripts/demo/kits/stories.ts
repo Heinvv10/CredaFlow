@@ -78,7 +78,7 @@ function documentsAndSelfie(p: Persona, latestPayslip: string): Step[] {
   const upload: Step = { who: 'CLIENT', where: 'Portal > Documents > Required documents', action: `One file at a time, each on its own row: press Upload, choose the file, press Upload, and ${wait}: ${files}.`, expect: 'Four rows PENDING REVIEW and "Action needed: Selfie verification". What was read off each document shows on the staff KYC tab, not here.' }
   return [
     upload,
-    { who: 'CLIENT', where: 'Same page > Selfie verification row > Take selfie', action: 'Open Camera (allow the browser camera prompt), face in the oval, Take Photo, then Upload. See "At the selfie step" below.', expect: `Toast "Selfie uploaded"; within about 20 seconds the row reads "Identity verified at NN% match" and "VERIFIED - NN%" (needs match ${BIOMETRIC_MATCH_THRESHOLD}% and liveness ${BIOMETRIC_LIVENESS_THRESHOLD}% or more). If it could not be verified, press Retake.` },
+    { who: 'CLIENT', where: 'Same page > Selfie verification row > Take selfie', action: 'Open Camera (allow the browser camera prompt), face in the oval, Take Photo, then Upload. See "At the selfie step" below.', expect: `Toast "Selfie uploaded"; within about 20 seconds the row reads "Identity verified at NN% match" and "VERIFIED - NN%" (needs match ${BIOMETRIC_MATCH_THRESHOLD}% and liveness ${BIOMETRIC_LIVENESS_THRESHOLD}% or more, and the face-recognition model must agree it is the same person). If it could not be verified, press Retake.` },
     { who: 'CREDIT OFFICER', where: `Clients > search "${p.lastName}" > View > KYC tab`, action: 'Each of the four rows shows what was read off the document (ID number, employer and gross pay, bank account, address): compare, then press Verify on each. The selfie card shows Match Score and Liveness and needs no click. Do not press Approve KYC.', expect: 'Toast "Document verified" each time; top card "KYC Status VERIFIED, 4 / 4 verified" (the status beside the client name catches up on refresh).' },
   ]
 }
@@ -155,7 +155,8 @@ export function stepsFor(p: Persona, latestPayslip: string): Step[] {
 }
 
 export const SELFIE_SCRIPT =
-  'This is a live face match. The vision model that just read the payslips now compares this selfie with the photograph ' +
-  'printed on the ID card, and checks it is a live person, not a photo of a photo. The specimen card carries my photo so ' +
+  'This is a live face match. A face-recognition model compares this selfie with the photograph printed on the ID card, ' +
+  'and the vision model that just read the payslips checks that the ID carries a real photograph and that this is a live ' +
+  'person, not a photo of a photo; either one can refuse the match. The specimen card carries my photo so ' +
   'the match is genuine; for a real applicant it is their own ID. If it cannot confirm the match, the attempt fails and the ' +
   'client retakes it, or staff record an in-person verification instead. Every attempt is kept as KYC evidence.'
