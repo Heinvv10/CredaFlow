@@ -7,8 +7,8 @@
  * callbacks (PATCH …/callback), tasks (POST/PATCH /api/agent-tasks), e-mail to
  * the lead (POST …/messages, the "Message" drawer — WhatsApp is off in this
  * deployment, so the one-click WhatsApp outreach is not used) and lost reasons
- * (PATCH …/lost). Conversion (POST …/convert) is not driven: it fails in this
- * build (see crm-leads.ts).
+ * (PATCH …/lost) and conversion into a client plus a submitted application
+ * (POST …/convert, the Convert form's body).
  *
  * E-mail goes to the sim's SMTP sink, so the Message rows say SENT because the
  * provider accepted them; nothing claims a channel that did not carry it.
@@ -125,6 +125,21 @@ async function runStep(b: Breadth, spec: LeadSpec, who: LeadPerson, s: Step, day
       return
     case "meeting":
       await activity(c, leadId, "MEETING", "Branch visit", "Met at the branch to go through the options and the documents needed.")
+      return
+    case "convert": {
+      const products = (await c.get<Array<{ id: string; code: string }>>("/api/products/loan")).json ?? []
+      const product = products.find((row) => row.code === "PERSONAL")
+      if (!product) throw new Error("no loan product PERSONAL")
+      const res = await c.post<{ applicationId: string | null; applicationReference: string | null }>(`/api/crm/leads/${leadId}/convert`, {
+        idNumber: who.idNumber, firstName: who.firstName, lastName: who.lastName, email: who.email, phone: who.phone,
+        employmentStatus: "EMPLOYED", employerName: who.employerName,
+        monthlyIncome: who.incomeCents / 100, monthlyExpenses: who.expensesCents / 100,
+        productId: product.id, appliedAmount: spec.amountRands, appliedTermDays: 360,
+        purpose: "Household expenses", loanPurposeCategory: "HOUSEHOLD",
+      }, { expect: [200] })
+      if (!res.json?.applicationId) throw new Error(`lead conversion returned no application: ${res.text.slice(0, 200)}`)
+      log(`crm: lead ${spec.key} converted, application ${res.json.applicationReference}`)
+    }
   }
 }
 

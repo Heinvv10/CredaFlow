@@ -6,8 +6,9 @@
  * before the last full business day) so the board looks the same whenever the
  * bake runs: old leads are lost or converted, recent ones are still new.
  *
- * Identity (names, phones, e-mail) is drawn deterministically from the persona
- * catalogues and never matches a persona. Website-form leads get no Contact
+ * Identity (names, phones, e-mail, and the ID number the conversion form asks
+ * for) is drawn deterministically from the persona catalogues and never
+ * matches a persona. Website-form leads get no Contact
  * from the product, so they cannot be e-mailed from the CRM; only
  * staff-captured leads have "email" steps.
  */
@@ -15,6 +16,7 @@ import { minimumLivingExpense } from "../../../lib/affordability/mle"
 import { FEMALE_FIRST_NAMES, MALE_FIRST_NAMES, SURNAMES } from "../personas/catalog"
 import { PERSONAS } from "../personas"
 import { createRng } from "../personas/prng"
+import { buildSaIdNumber } from "../personas/sa-id"
 
 /** How the lead arrives: captured by staff, the website contact form, or the website application form (with an agent code). */
 export type Origin =
@@ -24,7 +26,7 @@ export type Origin =
 
 export type Step =
   | "assign" | "call" | "no-answer" | "callback" | "task" | "task-done" | "qualify" | "email"
-  | "proposal" | "meeting"
+  | "proposal" | "meeting" | "convert"
   | { lost: "TOO_EXPENSIVE" | "WENT_ELSEWHERE" | "NOT_QUALIFIED" | "NO_RESPONSE" | "PRODUCT_MISMATCH" }
 
 export interface LeadSpec {
@@ -54,16 +56,14 @@ export const LEADS: readonly LeadSpec[] = [
     path: [[0, "assign"], [0, "call"], [1, "meeting"], [5, L(4)]] },
   { key: "L06", origin: { kind: "website-apply", referralCode: "SOWETO-CP" }, anchor: { start: 70 }, owner: "officer2", amountRands: 7_000, incomeRands: 10_500,
     path: [[0, "assign"], [1, "call"], [2, "qualify"], [4, "proposal"], [11, L(1)]] },
-  // proposal sent. L07-L09 were meant to convert into a client and a submitted
-  // application; POST /api/crm/leads/[id]/convert fails in this build (CHECK
-  // LoanApplication_acknowledgement_requires_pasq_document; fixed by e85cc90 on
-  // fix/ci-green-and-quality), so they wait at PROPOSAL_SENT.
+  // converted into a client and a submitted application
   { key: "L07", origin: { kind: "staff", source: "WALK_IN" }, anchor: { end: 14 }, owner: "officer2", amountRands: 12_000, incomeRands: 19_000,
-    path: [[0, "assign"], [0, "call"], [1, "task"], [2, "qualify"], [3, "task-done"], [4, "proposal"], [6, "meeting"]] },
+    path: [[0, "assign"], [0, "call"], [1, "task"], [2, "qualify"], [3, "task-done"], [4, "proposal"], [6, "meeting"], [8, "convert"]] },
   { key: "L08", origin: { kind: "website-apply", referralCode: "TSHEPO-FLD" }, anchor: { end: 11 }, owner: "officer", amountRands: 9_000, incomeRands: 15_500,
-    path: [[0, "assign"], [1, "call"], [2, "qualify"], [4, "proposal"], [6, "task"]] },
+    path: [[0, "assign"], [1, "call"], [2, "qualify"], [4, "proposal"], [6, "task"], [8, "convert"]] },
   { key: "L09", origin: { kind: "staff", source: "REFERRAL" }, anchor: { end: 9 }, owner: "officer2", amountRands: 15_000, incomeRands: 22_000,
-    path: [[0, "assign"], [0, "call"], [1, "qualify"], [2, "email"], [2, "proposal"], [5, "meeting"]] },
+    path: [[0, "assign"], [0, "call"], [1, "qualify"], [2, "email"], [2, "proposal"], [5, "meeting"], [7, "convert"]] },
+  // proposal sent
   { key: "L10", origin: { kind: "staff", source: "MANUAL" }, anchor: { end: 12 }, owner: "officer", amountRands: 10_000, incomeRands: 17_000,
     path: [[0, "assign"], [1, "call"], [3, "qualify"], [4, "email"], [5, "proposal"], [8, "task"]] },
   { key: "L11", origin: { kind: "staff", source: "WHATSAPP" }, anchor: { end: 8 }, owner: "officer2", amountRands: 18_000, incomeRands: 24_000,
@@ -101,6 +101,8 @@ export interface LeadPerson {
   phone: string
   email: string
   employerName: string
+  /** Synthetic: sequence 4001+ (female) or 9001+ (male), far from the personas' 0001+/5001+. */
+  idNumber: string
   incomeCents: number
   /** Declared expenses, never below the Regulation 23A minimum for the income. */
   expensesCents: number
@@ -121,11 +123,14 @@ export function leadPerson(spec: LeadSpec, index: number): LeadPerson {
     if (!PERSONA_NAMES.has(`${firstName} ${lastName}`)) break
   }
   const incomeCents = spec.incomeRands * 100
+  const employerName = rng.pick(EMPLOYERS)
+  const dateOfBirth = `${rng.int(1970, 1999)}-${String(rng.int(1, 12)).padStart(2, "0")}-${String(rng.int(1, 28)).padStart(2, "0")}`
   return {
     firstName, lastName, gender,
     phone: `+2760002${String(index + 1).padStart(4, "0")}`,
     email: `${firstName}.${lastName}.${spec.key}`.toLowerCase().replace(/[^a-z0-9.]/g, "") + "@prospect.invalid",
-    employerName: rng.pick(EMPLOYERS),
+    employerName,
+    idNumber: buildSaIdNumber({ dateOfBirth, gender, index: 4001 + index }),
     incomeCents,
     expensesCents: Math.max(Math.round(incomeCents * 0.45 / 100) * 100, minimumLivingExpense(incomeCents) + 50_000),
   }
