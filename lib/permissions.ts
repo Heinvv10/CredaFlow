@@ -14,7 +14,7 @@ export type UserRole =
   | "BRANCH_MANAGER"
   | "READONLY"
 
-const ROLE_HIERARCHY: UserRole[] = [
+export const ROLE_HIERARCHY: UserRole[] = [
   "READONLY",
   "COLLECTIONS_OFFICER",
   "COLLECTIONS_AGENT",

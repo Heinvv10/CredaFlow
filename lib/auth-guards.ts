@@ -105,7 +105,7 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
 
 // Role hierarchy — higher index = more permissions. CLIENT is not listed; it
 // never passes a staff role gate (hasMinRole returns false for it).
-const ROLE_HIERARCHY: UserRole[] = [
+export const ROLE_HIERARCHY: UserRole[] = [
   "READONLY",
   "COLLECTIONS_OFFICER",
   "COLLECTIONS_AGENT",
