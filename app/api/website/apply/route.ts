@@ -245,7 +245,7 @@ export async function POST(req: NextRequest) {
     const notes = [
       `Product: ${productType}`,
       `Amount: R${Number(amount || 0).toLocaleString()}`,
-      termDays ? `Term: ${Number(termDays).toLocaleString()} days` : null,
+      hasValidTerm ? `Term: ${submittedTermDays.toLocaleString()} days` : null,
       `Purpose: ${purpose || "Not specified"}`,
       `Employment: ${employmentStatus || "Not specified"}`,
       `Employer: ${employerName || "N/A"}`,
@@ -387,7 +387,7 @@ export async function POST(req: NextRequest) {
           qualityFlag: referralCode && !matchedReferralCode ? "UNMATCHED_CODE" : null,
           metadata: {
             productType,
-            termDays: termDays || null,
+            termDays: hasValidTerm ? submittedTermDays : null,
             reference: responseReference,
             utmSource: utmSource || null,
             utmMedium: utmMedium || null,
@@ -766,6 +766,8 @@ export async function POST(req: NextRequest) {
           })
 
           if (product && requestedAmountCents >= product.minAmount && requestedAmountCents <= product.maxAmount) {
+            // Out-of-range terms are deliberately clamped (the form validates the range;
+            // the route refuses only a missing or invalid term).
             const term = Math.max(product.minTermDays, Math.min(product.maxTermDays, appliedTermDays))
             // A same-key retry must reach the Lead row lock below. The original
             // request may have committed its application after this retry read

@@ -426,17 +426,30 @@ export function applyProductTermDays(
   }
 }
 
-// Apply-form term check for a variable-term product: a whole number of days
-// inside the product's range. Returns the message to show, or null if valid.
-export function applyTermError(termDays: string, range: { min: number; max: number }): string | null {
+// Apply-form term check: a whole number of days, inside the product's range when
+// that range is known. Returns the message to show, or null if valid.
+export function applyTermError(termDays: string, range?: { min: number; max: number }): string | null {
   const value = Number(termDays)
   if (termDays.trim() === "" || !Number.isInteger(value) || value <= 0) {
     return "Please enter your loan term in days"
   }
-  if (value < range.min || value > range.max) {
+  if (range && (value < range.min || value > range.max)) {
     return `Term must be between ${range.min} and ${range.max} days`
   }
   return null
+}
+
+// What the apply form does about the term, given the catalogue's range for the
+// chosen product (undefined when unknown). The catalogue can disagree with the
+// product the server resolves, so the form never sends an empty term: a
+// catalogue-fixed product sends its fixed term (the server clamps it into the
+// real product's range), and an unknown range shows the field.
+export function planApplyTerm(
+  termDays: string,
+  range: { min: number; max: number; fixed: boolean } | undefined,
+): { showField: boolean; error: string | null; sendTermDays: string } {
+  if (range?.fixed) return { showField: false, error: null, sendTermDays: String(range.min) }
+  return { showField: true, error: applyTermError(termDays, range), sendTermDays: termDays.trim() }
 }
 
 export function clampPublicLoanAmount(product: PublicLoanProduct, amount: number) {

@@ -14,6 +14,7 @@ import {
   applyProductLimitsRands,
   applyProductTermDays,
   applyTermError,
+  planApplyTerm,
   qualifyApplyHref,
   formatRandsWhole,
   formatProductRange,
@@ -535,5 +536,30 @@ describe("applyProductTermDays / applyTermError — apply form term requirement"
     expect(applyTermError("1801", range)).toBe("Term must be between 90 and 1800 days")
     expect(applyTermError("90", range)).toBeNull()
     expect(applyTermError("360", range)).toBeNull()
+  })
+})
+
+describe("planApplyTerm — the apply form never sends no term where one may be required", () => {
+  const variable = { min: 90, max: 1800, fixed: false }
+  const fixed = { min: 30, max: 30, fixed: true }
+
+  it("variable product: field shown, blank or bad input is an error and nothing valid is sent", () => {
+    expect(planApplyTerm("", variable)).toEqual({ showField: true, error: "Please enter your loan term in days", sendTermDays: "" })
+    expect(planApplyTerm("abc", variable).error).not.toBeNull()
+    expect(planApplyTerm("30", variable).error).toBe("Term must be between 90 and 1800 days")
+  })
+
+  it("variable product: a valid term shows no error and is sent as typed", () => {
+    expect(planApplyTerm(" 180 ", variable)).toEqual({ showField: true, error: null, sendTermDays: "180" })
+  })
+
+  it("catalogue-fixed product: field hidden, no error, the fixed term is sent even if the draft term is blank or stale", () => {
+    expect(planApplyTerm("", fixed)).toEqual({ showField: false, error: null, sendTermDays: "30" })
+    expect(planApplyTerm("7", fixed).sendTermDays).toBe("30")
+  })
+
+  it("unknown product/range (e.g. a restored draft with an unrecognised product): field shown, required, no crash", () => {
+    expect(planApplyTerm("", undefined)).toEqual({ showField: true, error: "Please enter your loan term in days", sendTermDays: "" })
+    expect(planApplyTerm("45", undefined)).toEqual({ showField: true, error: null, sendTermDays: "45" })
   })
 })

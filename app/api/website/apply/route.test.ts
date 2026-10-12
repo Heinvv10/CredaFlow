@@ -1619,6 +1619,24 @@ describe("POST /api/website/apply — loan term is required, never defaulted", (
     expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
   })
 
+  it("succeeds when the form sent the catalogue's fixed 30 days but the route's product is variable-term", async () => {
+    readyToApply(personalProduct) // 30-90 days: the form's catalogue said fixed-30
+
+    const res = await POST(buildReq({ ...applying, termDays: "30" }))
+
+    expect(res.status).toBe(200)
+    expect(createLoanApplicationMock.mock.calls[0][0].data.appliedTermDays).toBe(30)
+  })
+
+  it("records only a valid submitted term in the lead notes and referral metadata", async () => {
+    findFirstLoanProductMock.mockResolvedValue(null)
+    await POST(buildReq({ ...validBody, termDays: "abc", referralCode: "REF1" }))
+    const notes = createLeadMock.mock.calls[0][0].data.notes as string
+    expect(notes).not.toMatch(/Term:/)
+    expect(notes).not.toMatch(/NaN/)
+    expect(recordReferralEventMock.mock.calls[0][1].metadata.termDays).toBeNull()
+  })
+
   it("accepts a fixed-term product given an invalid term, still using the product's term", async () => {
     readyToApply(fixedTermProduct)
 
