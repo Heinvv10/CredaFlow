@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import type { UserRole } from "@prisma/client"
@@ -63,6 +63,10 @@ export async function POST(req: NextRequest) {
     if (!name || !email || !role || !password) {
       return NextResponse.json({ error: "Name, email, role and password are required" }, { status: 400 })
     }
+
+    // Before the email probe below, so its 409 tells a refused caller nothing.
+    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetRole: null, assignedRole: role })
+    if (refused) return refused
 
     if (password.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })

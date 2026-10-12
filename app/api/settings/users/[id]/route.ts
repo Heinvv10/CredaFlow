@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import { Prisma, type UserRole } from "@prisma/client"
@@ -41,12 +41,14 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     })
     if (!existing) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
-    // Prevent changing a SUPER_ADMIN unless you are one. Checked BEFORE the
-    // email-uniqueness probe so an unauthorised caller can't use the 409 to
-    // learn whether an email is already registered on a Super Admin account.
-    if (existing.role === "SUPER_ADMIN" && guard.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Only Super Admins can modify Super Admin accounts" }, { status: 403 })
-    }
+    // The role ceiling: nobody edits a user who outranks them, or assigns a
+    // role above their own. Checked BEFORE the email-uniqueness probe so an
+    // unauthorised caller can't use the 409 to learn whether an email is
+    // already registered.
+    const refused = await refuseStaffUserWrite(guard.user, {
+      tenantId: tenant.id, targetId: id, targetRole: existing.role, assignedRole: role,
+    })
+    if (refused) return refused
 
     // Email change is an identity change: normalise, validate shape, and
     // guard the global @unique constraint with a friendly 409 before hitting
@@ -132,18 +134,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       throw err
     }
 
+    const roleChanged = role !== undefined && role !== existing.role
     await logAudit({
       tenantId: tenant.id,
       action: "USER_UPDATED",
       entity: "User",
       entityId: id,
       userId: guard.user.id,
-      // Capture the email transition explicitly — an identity change auditors
-      // will want to trace, not just a changed-key name.
-      oldValue: normalizedEmail !== undefined ? { email: existing.email } : undefined,
+      // Capture the email and role transitions explicitly — identity and
+      // privilege changes auditors will want to trace, not just a changed-key
+      // name.
+      oldValue: normalizedEmail !== undefined || roleChanged
+        ? {
+            ...(normalizedEmail !== undefined ? { email: existing.email } : {}),
+            ...(roleChanged ? { role: existing.role } : {}),
+          }
+        : undefined,
       newValue: {
         changed: Object.keys(data).filter(k => k !== "password" && k !== "tokenVersion"),
         ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
+        ...(roleChanged ? { role: user.role } : {}),
       },
     })
 
@@ -179,6 +189,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       where: { id, tenantId: tenant.id },
       select: {
         id: true,
+        role: true,
         // FAIS Fit & Proper (RE exam, licence, CPD hours) is itself a
         // regulatory record — its mere presence is operator-identity history,
         // so a user who has one is deactivated, never hard-deleted (which would
@@ -207,6 +218,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       },
     })
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
+
+    const refused = await refuseStaffUserWrite(guard.user, {
+      tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined,
+    })
+    if (refused) return refused
 
     const hasHistory =
       target.fitAndProper !== null ||

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
 import type { UserRole } from "@prisma/client"
+import { AuditAction, logAudit } from "@/lib/audit"
 
 export type { AppRole }
 
@@ -124,6 +125,100 @@ export function hasMinRole(userRole: AppRole, minRole: UserRole): boolean {
   // new enum value is added to the schema but not yet added to ROLE_HIERARCHY.
   if (userIdx < 0 || minIdx < 0) return false
   return userIdx >= minIdx
+}
+
+type StaffUserWrite = {
+  /** The target's CURRENT role; null when the write creates the user. */
+  targetRole: UserRole | null
+  /** The role the write assigns, as received; undefined when it leaves the role alone. */
+  assignedRole: unknown
+}
+
+type StaffUserWriteRefusal = {
+  status: 400 | 403
+  error: string
+  /** Machine-readable cause, as in lib/audit-refusals.ts. */
+  reason: "totp_required" | "target_outranks_caller" | "invalid_role" | "role_above_caller"
+}
+
+/**
+ * The one rule for a request that creates, edits or removes a staff user.
+ * Returns null when the write may proceed.
+ *
+ * - TOTP: this session's sign-in verified a code — the same claim, for the
+ *   same reason, as PUT /api/settings/identity.
+ * - Target ceiling: nobody edits a user whose current role outranks their own.
+ *   Any field counts: a new password or email on a senior account takes it over.
+ * - Assigned ceiling: nobody assigns a role above their own. A value that is
+ *   not a role in ROLE_HIERARCHY is refused, never written.
+ *
+ * Both keys of `write` are required so a caller cannot skip a half by omission.
+ */
+export function staffUserWriteRefusal(
+  caller: Pick<StaffUser, "role" | "totpVerified">,
+  write: StaffUserWrite,
+): StaffUserWriteRefusal | null {
+  if (caller.totpVerified !== true) {
+    return {
+      status: 403,
+      reason: "totp_required",
+      error: "Sign in with two-factor authentication to manage users. Enable it under Settings → Security, then sign out and back in.",
+    }
+  }
+  // A role ROLE_HIERARCHY does not rank is -1: as caller it clears nothing, and
+  // as target it is refused outright (fail closed, as hasMinRole).
+  const callerRank = ROLE_HIERARCHY.indexOf(caller.role)
+  if (write.targetRole !== null) {
+    const targetRank = ROLE_HIERARCHY.indexOf(write.targetRole)
+    if (targetRank < 0 || targetRank > callerRank) {
+      return { status: 403, reason: "target_outranks_caller", error: "You cannot modify a user whose role is above your own" }
+    }
+  }
+  if (write.assignedRole !== undefined) {
+    const assignedRank = ROLE_HIERARCHY.indexOf(write.assignedRole as UserRole)
+    if (assignedRank < 0) return { status: 400, reason: "invalid_role", error: "Invalid role" }
+    if (assignedRank > callerRank) {
+      return { status: 403, reason: "role_above_caller", error: "You cannot assign a role above your own" }
+    }
+  }
+  return null
+}
+
+/**
+ * staffUserWriteRefusal as a route response. Every route that writes a staff
+ * user calls this before its first write (and before any probe whose answer
+ * would tell a refused caller something).
+ *
+ * A refusal by either ceiling is an escalation attempt, and is audited: the
+ * trail must show who reached above their role, not only who was allowed to.
+ */
+export async function refuseStaffUserWrite(
+  caller: StaffUser,
+  write: StaffUserWrite & { tenantId: string; targetId?: string },
+): Promise<NextResponse | null> {
+  const refusal = staffUserWriteRefusal(caller, write)
+  if (!refusal) return null
+  if (refusal.reason === "target_outranks_caller" || refusal.reason === "role_above_caller") {
+    await logAudit({
+      tenantId: write.tenantId,
+      userId: caller.id,
+      userEmail: caller.email,
+      action: AuditAction.USER_WRITE_REFUSED,
+      entity: "User",
+      entityId: write.targetId,
+      newValue: {
+        refused: true,
+        reason: refusal.reason,
+        httpStatus: refusal.status,
+        callerRole: caller.role,
+        targetRole: write.targetRole,
+        // Only a role that passed validation: on a target refusal the body's
+        // value was never checked and is not recorded.
+        ...(refusal.reason === "role_above_caller" ? { assignedRole: write.assignedRole } : {}),
+      },
+    })
+  }
+  return NextResponse.json({ error: refusal.error }, { status: refusal.status })
 }
 
 // Permissions map: action → minimum required role

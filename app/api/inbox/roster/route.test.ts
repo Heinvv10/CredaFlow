@@ -6,8 +6,15 @@ const requireCommsAgentMock = vi.fn()
 const requireApiRoleMock = vi.fn()
 const listStaffMock = vi.fn()
 const setAgentMock = vi.fn()
+const userFindFirstMock = vi.fn()
+const logAuditMock = vi.fn()
+vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
+vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({ prisma: { user: { findFirst: (a: unknown) => userFindFirstMock(a) } } }))
+vi.mock("@/lib/audit", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/audit")>()), logAudit: (a: unknown) => logAuditMock(a) }))
 vi.mock("@/lib/inbox/authz", () => ({ requireCommsAgent: () => requireCommsAgentMock() }))
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+// Only the session guard is mocked: the staff-user write gate is the real one.
+vi.mock("@/lib/auth-guards", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/auth-guards")>()), requireApiRole: () => requireApiRoleMock() }))
 vi.mock("@/lib/tenant", () => ({ withTenantContext: (req: unknown, cb: (t: any) => Promise<unknown>) => cb({ id: "t1", name: "T" }) }))
 vi.mock("@/lib/inbox/roster", () => ({ listStaffForRoster: (t: unknown) => listStaffMock(t), setCommsAgent: (a: unknown) => setAgentMock(a) }))
 
@@ -15,8 +22,11 @@ import { GET, PATCH } from "./route"
 beforeEach(() => {
   vi.clearAllMocks()
   requireCommsAgentMock.mockResolvedValue({ user: { id: "u1", email: "a@b.c", role: "ADMIN" } })
-  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN" } })
+  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN", totpVerified: true } })
+  userFindFirstMock.mockResolvedValue({ role: "CREDIT_OFFICER" })
 })
+
+const toggle = () => PATCH(new NextRequest("http://x/api/inbox/roster", { method: "PATCH", body: JSON.stringify({ userId: "u2", isCommsAgent: true }) }))
 
 it("GET lists roster", async () => {
   listStaffMock.mockResolvedValue([{ id: "u1" }])
@@ -50,5 +60,39 @@ it("PATCH short-circuits on guard failure without calling setCommsAgent", async 
   requireApiRoleMock.mockResolvedValue({ error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) })
   const res = await PATCH(new NextRequest("http://x/api/inbox/roster", { method: "PATCH", body: JSON.stringify({ userId: "u2", isCommsAgent: true }) }))
   expect(res.status).toBe(403)
+  expect(setAgentMock).not.toHaveBeenCalled()
+})
+
+it("PATCH refuses a member who outranks the caller, audits the attempt and toggles nothing", async () => {
+  userFindFirstMock.mockResolvedValue({ role: "SUPER_ADMIN" })
+  const res = await toggle()
+  expect(res.status).toBe(403)
+  expect(setAgentMock).not.toHaveBeenCalled()
+  expect(logAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    tenantId: "t1", userId: "admin1", action: "USER_WRITE_REFUSED", entityId: "u2",
+    newValue: expect.objectContaining({ reason: "target_outranks_caller", targetRole: "SUPER_ADMIN" }),
+  }))
+})
+
+it("PATCH lets an ADMIN toggle a fellow ADMIN", async () => {
+  userFindFirstMock.mockResolvedValue({ role: "ADMIN" })
+  setAgentMock.mockResolvedValue({ ok: true })
+  expect((await toggle()).status).toBe(200)
+  expect(setAgentMock).toHaveBeenCalledTimes(1)
+})
+
+it.each([false, undefined])("PATCH refuses a session whose sign-in did not verify TOTP (%j) and toggles nothing", async (totpVerified) => {
+  requireApiRoleMock.mockResolvedValue({ user: { id: "admin1", email: "ad@b.c", role: "ADMIN", totpVerified } })
+  const res = await toggle()
+  expect(res.status).toBe(403)
+  expect((await res.json()).error).toMatch(/two-factor/)
+  expect(setAgentMock).not.toHaveBeenCalled()
+})
+
+it("PATCH answers 404 for a member outside the caller's tenant and toggles nothing", async () => {
+  userFindFirstMock.mockResolvedValue(null)
+  const res = await toggle()
+  expect(res.status).toBe(404)
+  expect(userFindFirstMock).toHaveBeenCalledWith({ where: { id: "u2", tenantId: "t1" }, select: { role: true } })
   expect(setAgentMock).not.toHaveBeenCalled()
 })
