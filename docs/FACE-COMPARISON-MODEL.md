@@ -59,7 +59,10 @@ deps stage, which does not copy `.npmrc`.
 
 0. Prepare one canonical image per side (`lib/kyc/biometric-image.server.ts`):
    a PDF ID rendered once to its first page, EXIF orientation applied and the
-   tag dropped, transparency flattened on white, sRGB, JPEG (quality 95, 4:4:4).
+   tag dropped, long edge capped at 2048 px (the edge the face model decodes),
+   transparency flattened on white, sRGB, JPEG (quality 95, 4:4:4), at most
+   8 MiB (a real photograph is about 1-2 MB at the cap; random noise at
+   2048x2048 is 8.07 MiB).
    The VLM and the face model receive exactly these bytes; their SHA-256s are
    recorded on the attempt as `comparedImageSha256`. A side that cannot be
    prepared refuses the attempt before either judge runs.
@@ -251,10 +254,23 @@ cores, 213 ms unpinned; process RSS about 340 MB.
 
 ## Why both judges stay
 
-Each catches what the other misses. In the evaluation the VLM answered "same"
-for 8 of 9 silhouette and blank card runs and passed every one of its gates
-on the covered-face card in 3 of 3 runs; the face model refused all of
-these. The face model calls any two drawn faces the same person; the VLM
-refuses them as illustrations. The VLM's same-person veto therefore stays,
-and so do its photograph gates. On the genuine pair the VLM refused 0 of 6
-runs (2026-10-12, before and after the canonical images).
+Each catches what the other misses. On canonical bytes (2026-10-12, 3 runs
+per cell, `face-model-eval/2026-10-12T05-57-40-009Z/matrix.md`):
+
+| Cell | Outcome | VLM portrait kind / real photo / ID face | VLM samePerson | Face model | Refused by |
+|---|---|---|---|---|---|
+| Presenter card vs selfie | PASS 3/3 | photograph / true / true | same 3/3 (0.90-0.98) | 1 / 1 faces, cosine 0.8760 | - |
+| Silhouette card | FAIL 3/3 | silhouette_placeholder / false / false | same 2/3 | no ID face | VLM and model |
+| Silhouette card, no caption | FAIL 3/3 | silhouette_placeholder / false / false | same 2/3 | no ID face | VLM and model |
+| Cartoon card | FAIL 3/3 | illustration / false / false | uncertain 3/3 | no ID face | VLM and model |
+| Blank card | FAIL 3/3 | silhouette_placeholder / false / false | same 1/3 | no ID face | VLM and model |
+| Covered-face card | FAIL 3/3 | photograph / true / true | same 3/3 (0.90) | no ID face | model only |
+| Drawn synthetic face card | FAIL 3/3 | illustration / false / false | uncertain 3/3 | no ID face | VLM and model |
+
+The VLM's same-person answer alone would have passed 5 of the 15
+placeholder runs and all 3 covered-face runs; its photograph gates caught
+the placeholders and only the face model caught the covered card. The face
+model, for its part, calls any two drawn faces it detects the same person,
+which only the VLM's illustration and real-photograph gates refuse. The
+VLM's same-person veto therefore stays, and so do its photograph gates. On
+the genuine pair the VLM refused 0 of 9 runs across the three evaluations.
