@@ -44,6 +44,8 @@ describe("faceModelEvidenceRefusal", () => {
     ["a zero ratio", { ...passing, idFaceCount: 2, idSecondFaceAreaRatio: 0 }],
     ["a ratio below 1e-9", { ...passing, idFaceCount: 2, idSecondFaceAreaRatio: 9e-10 }],
     ["an unknown detector pass", { ...passing, idDetectPass: "tiles" }],
+    ["a tampered runtime detector checksum", { ...passing, detectorRuntimeSha256: "0".repeat(64) }],
+    ["no runtime detector checksum", { ...passing, detectorRuntimeSha256: undefined }],
     ["a detector pass in upper case", { ...passing, idDetectPass: "FULL" }],
     ["no detector pass", { ...passing, idDetectPass: undefined }],
     ["a detector pass in an array", { ...passing, idDetectPass: ["full"] }],

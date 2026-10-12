@@ -5,6 +5,7 @@
  */
 import {
   FACE_MODELS,
+  FACE_MODEL_DETECTOR_RUNTIME_SHA256,
   FACE_SIMILARITY_THRESHOLD,
   ID_MAX_FACE_COUNT,
   ID_SECOND_FACE_MAX_AREA_RATIO,
@@ -19,6 +20,8 @@ import {
 export type FaceModelEvidence = {
   detector: string
   detectorSha256: string
+  /** The detector bytes onnxruntime ran: the pinned file after the shape rewrite. */
+  detectorRuntimeSha256: string
   recognizer: string
   recognizerSha256: string
   selfieFaceCount: number
@@ -67,6 +70,7 @@ export function faceModelEvidenceRefusal(
   if (
     evidence.detector !== FACE_MODELS.detector.name ||
     evidence.detectorSha256 !== FACE_MODELS.detector.sha256 ||
+    evidence.detectorRuntimeSha256 !== FACE_MODEL_DETECTOR_RUNTIME_SHA256 ||
     evidence.recognizer !== FACE_MODELS.recognizer.name ||
     evidence.recognizerSha256 !== FACE_MODELS.recognizer.sha256 ||
     evidence.selfieFaceCount !== 1 ||

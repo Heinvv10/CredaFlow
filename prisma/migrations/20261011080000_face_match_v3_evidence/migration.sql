@@ -47,6 +47,9 @@ AS $function$
     jsonb_typeof(p_evidence) = 'object'
     AND p_evidence ->> 'detector' = 'face_detection_yunet_2023mar'
     AND p_evidence ->> 'detectorSha256' = '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4'
+    -- The detector bytes onnxruntime ran: the file above after the load-time
+    -- shape rewrite (lib/kyc/face-model/onnx-shape.ts).
+    AND p_evidence ->> 'detectorRuntimeSha256' = 'c95b66a69803a457acc19433ed72572bdb62fff368306841f9ed108a65e9f1f1'
     AND p_evidence ->> 'recognizer' = 'face_recognition_sface_2021dec'
     AND p_evidence ->> 'recognizerSha256' = '0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79'
     AND p_evidence -> 'selfieFaceCount' = '1'::jsonb

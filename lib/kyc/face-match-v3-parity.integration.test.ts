@@ -38,6 +38,7 @@ const ID = "__ID__"
 const FM = (change = "") =>
   `{"detector":"face_detection_yunet_2023mar",` +
   `"detectorSha256":"8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",` +
+  `"detectorRuntimeSha256":"c95b66a69803a457acc19433ed72572bdb62fff368306841f9ed108a65e9f1f1",` +
   `"recognizer":"face_recognition_sface_2021dec",` +
   `"recognizerSha256":"0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",` +
   `"selfieFaceCount":1,"idFaceCount":1,"idSecondFaceAreaRatio":null,"idDetectPass":"fit640",` +
@@ -133,6 +134,9 @@ const cases: Case[] = [
   { name: "face model: threshold a string", expected: false, br: BR(`"faceModel":${FM(`"threshold":"0.363"`)}`) },
   { name: "face model: detector checksum upper case", expected: false, br: BR(`"faceModel":${FM(`"detectorSha256":"8F2383E4DD3CFBB4553EA8718107FC0423210DC964F9F4280604804ED2552FA4"`)}`) },
   { name: "face model: recognizer checksum of another file", expected: false, br: BR(`"faceModel":${FM(`"recognizerSha256":"${"f".repeat(64)}"`)}`) },
+  { name: "face model: a runtime detector checksum of other bytes", expected: false, br: BR(`"faceModel":${FM(`"detectorRuntimeSha256":"${"e".repeat(64)}"`)}`) },
+  { name: "face model: the pristine checksum as the runtime one", expected: false, br: BR(`"faceModel":${FM(`"detectorRuntimeSha256":"8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"`)}`) },
+  { name: "face model: no runtime detector checksum", expected: false, br: BR(`"faceModel":${FM().replace(/"detectorRuntimeSha256":"[a-f0-9]+",/, "")}`) },
   { name: "face model: the int8 detector", expected: false, br: BR(`"faceModel":${FM(`"detector":"face_detection_yunet_2023mar_int8"`)}`) },
   { name: "face model: selfieFaceCount 1.0", expected: true, br: BR(`"faceModel":${FM(`"selfieFaceCount":1.0`)}`) },
   { name: "face model: selfieFaceCount the string 1", expected: false, br: BR(`"faceModel":${FM(`"selfieFaceCount":"1"`)}`) },

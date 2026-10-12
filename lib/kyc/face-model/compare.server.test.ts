@@ -4,6 +4,7 @@ import { oversizedPng } from "@/lib/kyc/biometric-image.test-helpers"
 import { faceModelEvidenceRefusal } from "./evidence"
 import {
   FACE_MODELS,
+  FACE_MODEL_DETECTOR_RUNTIME_SHA256,
   FACE_SIMILARITY_THRESHOLD,
   MIN_ALIGNED_CROP_SHARPNESS,
   MIN_INTER_OCULAR_PX,
@@ -90,6 +91,7 @@ describe("compareFaces", () => {
       evidence: {
         detector: FACE_MODELS.detector.name,
         detectorSha256: FACE_MODELS.detector.sha256,
+        detectorRuntimeSha256: FACE_MODEL_DETECTOR_RUNTIME_SHA256,
         recognizer: FACE_MODELS.recognizer.name,
         recognizerSha256: FACE_MODELS.recognizer.sha256,
         selfieFaceCount: 1,

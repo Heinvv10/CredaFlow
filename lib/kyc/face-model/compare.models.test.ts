@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import { alignedFaceTensor, SFACE_LANDMARK_TEMPLATE } from "./align"
 import { compareFaces } from "./compare.server"
 import { loadFaceModelRuntime } from "./runtime.server"
+import { FACE_MODELS, FACE_MODEL_DETECTOR_RUNTIME_SHA256 } from "./models"
 import { yunetInputTensor, type RgbImage } from "./yunet"
 
 const suite = process.env.FACE_MODEL_TESTS === "1" ? describe : describe.skip
@@ -92,6 +93,14 @@ function drawnFace(p: number[]): Buffer {
 }
 
 suite("compareFaces with the real models", () => {
+  it("rewrites the pinned detector into exactly the pinned runtime bytes", async () => {
+    const { readVerifiedModel, faceModelDir: dir } = await import("./runtime.server")
+    const { withSymbolicDetectorShape } = await import("./onnx-shape")
+    const { createHash } = await import("node:crypto")
+    const patched = withSymbolicDetectorShape(await readVerifiedModel(dir(), FACE_MODELS.detector))
+    expect(createHash("sha256").update(patched).digest("hex")).toBe(FACE_MODEL_DETECTOR_RUNTIME_SHA256)
+  })
+
   it("loads both models after verifying their checksums", async () => {
     await expect(loadFaceModelRuntime()).resolves.toEqual(
       expect.objectContaining({ detect: expect.any(Function), embed: expect.any(Function) }),

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { FACE_MODELS } from "./models"
-import { faceModelDir, loadFaceModelRuntime, readVerifiedModel } from "./runtime.server"
+import { faceModelDir, loadFaceModelRuntime, readVerifiedModel, verifiedRuntimeDetector } from "./runtime.server"
 
 const dirs: string[] = []
 const scratch = () => {
@@ -52,6 +52,12 @@ describe("readVerifiedModel", () => {
     const { createHash } = await import("node:crypto")
     probe.sha256 = createHash("sha256").update("probe").digest("hex")
     await expect(readVerifiedModel(dir, probe)).resolves.toEqual(Buffer.from("probe"))
+  })
+})
+
+describe("verifiedRuntimeDetector", () => {
+  it("refuses patched detector bytes whose SHA-256 is not the pinned one", () => {
+    expect(() => verifiedRuntimeDetector(Buffer.from("not the patched detector"))).toThrow(/checksum/)
   })
 })
 
