@@ -239,6 +239,28 @@ suite.sequential("complaint, DSAR and branch routes across two tenants (real Pos
       expect(await db.complaint.findUniqueOrThrow({ where: { id: own.id } })).toMatchObject({ status: "CLOSED", resolvedAt })
     })
 
+    it("clears resolvedAt on reopening and stamps a new one on the next resolution, auditing each", async () => {
+      const a = await site()
+      signIn(a)
+      const own = await (await postComplaint(a, complaintBody(a.clientId))).json()
+      const resolvedAt = async () => (await db.complaint.findUniqueOrThrow({ where: { id: own.id } })).resolvedAt
+      expect((await patchComplaint(a, own.id, { status: "RESOLVED" })).status).toBe(200)
+      const first = await resolvedAt()
+      expect(first).toBeInstanceOf(Date)
+      expect((await patchComplaint(a, own.id, { status: "UNDER_INVESTIGATION" })).status).toBe(200)
+      expect(await resolvedAt()).toBeNull()
+      expect((await patchComplaint(a, own.id, { status: "RESOLVED" })).status).toBe(200)
+      const second = await resolvedAt()
+      expect(second!.getTime()).toBeGreaterThan(first!.getTime())
+
+      const updates = await db.auditLog.findMany({ where: { tenantId: a.tenantId, action: "COMPLAINT_UPDATED" }, orderBy: { createdAt: "asc" } })
+      expect(updates.map((row) => [row.oldValue, row.newValue])).toEqual([
+        [{ status: "OPEN", resolvedAt: null }, { status: "RESOLVED", resolvedAt: first!.toISOString() }],
+        [{ status: "RESOLVED", resolvedAt: first!.toISOString(), acknowledgedAt: null }, { status: "UNDER_INVESTIGATION", resolvedAt: null, acknowledgedAt: expect.any(String) }],
+        [{ status: "UNDER_INVESTIGATION", resolvedAt: null }, { status: "RESOLVED", resolvedAt: second!.toISOString() }],
+      ])
+    })
+
     it("writes neither the complaint nor the change when the audit row cannot be written", async () => {
       const a = await site()
       signIn(a)
@@ -334,6 +356,27 @@ suite.sequential("complaint, DSAR and branch routes across two tenants (real Pos
       expect(completedAt).toBeInstanceOf(Date)
       expect((await patchDsar(a, own.id, { status: "COMPLETED", response: "Synthetic follow-up" })).status).toBe(200)
       expect(await db.dataSubjectRequest.findUniqueOrThrow({ where: { id: own.id } })).toMatchObject({ status: "COMPLETED", completedAt })
+    })
+
+    it("stamps completedAt on a refusal, keeps it into completion, clears it on reopening, auditing each", async () => {
+      const a = await site()
+      signIn(a)
+      const own = await (await postDsar(a, { clientId: a.clientId, type: "ACCESS" })).json()
+      const completedAt = async () => (await db.dataSubjectRequest.findUniqueOrThrow({ where: { id: own.id } })).completedAt
+      expect((await patchDsar(a, own.id, { status: "REFUSED" })).status).toBe(200)
+      const first = await completedAt()
+      expect(first).toBeInstanceOf(Date)
+      expect((await patchDsar(a, own.id, { status: "COMPLETED" })).status).toBe(200)
+      expect(await completedAt()).toEqual(first)
+      expect((await patchDsar(a, own.id, { status: "IN_PROGRESS" })).status).toBe(200)
+      expect(await completedAt()).toBeNull()
+
+      const updates = await db.auditLog.findMany({ where: { tenantId: a.tenantId, action: "DSAR_UPDATED" }, orderBy: { createdAt: "asc" } })
+      expect(updates.map((row) => [row.oldValue, row.newValue])).toEqual([
+        [{ status: "RECEIVED", completedAt: null }, { status: "REFUSED", completedAt: first!.toISOString() }],
+        [{ status: "REFUSED" }, { status: "COMPLETED" }],
+        [{ status: "COMPLETED", completedAt: first!.toISOString() }, { status: "IN_PROGRESS", completedAt: null }],
+      ])
     })
 
     it("writes neither the request nor the change when the audit row cannot be written", async () => {

@@ -160,6 +160,53 @@ describe("PATCH /api/dsar/[id]", () => {
     expect(auditData().newValue).not.toHaveProperty("completedAt")
   })
 
+  it("stamps completedAt on a refusal, which answers the request as much as a completion does", async () => {
+    await patch("dsar-a", { status: "REFUSED" })
+
+    expect(dsars[0].completedAt).toBeInstanceOf(Date)
+    expect(auditData()).toMatchObject({ oldValue: { completedAt: null }, newValue: { status: "REFUSED", completedAt: dsars[0].completedAt?.toISOString() } })
+  })
+
+  it("keeps completedAt on a move between two final statuses", async () => {
+    const first = new Date("2026-09-01T08:00:00.000Z")
+    Object.assign(dsars[0], { status: "COMPLETED", completedAt: first })
+
+    await patch("dsar-a", { status: "REFUSED" })
+
+    expect(dsarUpdateManyMock.mock.calls[0][0].data).toEqual({ status: "REFUSED" })
+    expect(dsars[0].completedAt).toBe(first)
+  })
+
+  it("clears completedAt when a completed request is reopened, and stamps a new one when it completes again", async () => {
+    const first = new Date("2026-09-01T08:00:00.000Z")
+    Object.assign(dsars[0], { status: "COMPLETED", completedAt: first })
+
+    await patch("dsar-a", { status: "IN_PROGRESS" })
+    expect(dsars[0].completedAt).toBeNull()
+    expect(auditData()).toMatchObject({
+      oldValue: { status: "COMPLETED", completedAt: first.toISOString() },
+      newValue: { status: "IN_PROGRESS", completedAt: null },
+    })
+
+    await patch("dsar-a", { status: "COMPLETED" })
+    expect(dsars[0].completedAt).toBeInstanceOf(Date)
+    expect(dsars[0].completedAt).not.toBe(first)
+  })
+
+  it("leaves completedAt alone on a move between two open statuses", async () => {
+    await patch("dsar-a", { status: "IN_PROGRESS" })
+
+    expect(dsarUpdateManyMock.mock.calls[0][0].data).toEqual({ status: "IN_PROGRESS" })
+  })
+
+  it("stores a completedAt sent in the body, over the stamp and over the clear", async () => {
+    await patch("dsar-a", { status: "COMPLETED", completedAt: "2026-09-02T10:00:00.000Z" })
+    expect(dsars[0].completedAt).toEqual(new Date("2026-09-02T10:00:00.000Z"))
+
+    await patch("dsar-a", { status: "IN_PROGRESS", completedAt: "2026-09-03T10:00:00.000Z" })
+    expect(dsars[0].completedAt).toEqual(new Date("2026-09-03T10:00:00.000Z"))
+  })
+
   it("answers 400 to a PATCH that changes nothing, with no transaction and no audit row", async () => {
     for (const body of [{}, { unknownField: "x" }]) {
       expect((await patch("dsar-a", body)).status, JSON.stringify(body)).toBe(400)

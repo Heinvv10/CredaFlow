@@ -233,6 +233,43 @@ describe("PATCH /api/complaints/[id]", () => {
     expect(auditData().newValue).not.toHaveProperty("resolvedAt")
   })
 
+  it("clears resolvedAt when a resolved complaint is reopened, and audits the old date", async () => {
+    const first = new Date("2026-09-01T08:00:00.000Z")
+    Object.assign(complaints[0], { status: "RESOLVED", resolvedAt: first })
+
+    const response = await patch("complaint-a", { status: "UNDER_INVESTIGATION" })
+
+    expect(response.status).toBe(200)
+    expect(complaints[0].resolvedAt).toBeNull()
+    expect(auditData()).toMatchObject({
+      oldValue: { status: "RESOLVED", resolvedAt: first.toISOString() },
+      newValue: { status: "UNDER_INVESTIGATION", resolvedAt: null },
+    })
+  })
+
+  it("stamps a new resolvedAt when a reopened complaint is resolved again", async () => {
+    Object.assign(complaints[0], { status: "UNDER_INVESTIGATION", resolvedAt: null, acknowledgedAt: new Date("2026-09-01T08:00:00.000Z") })
+
+    await patch("complaint-a", { status: "RESOLVED" })
+
+    expect(complaints[0].resolvedAt).toBeInstanceOf(Date)
+    expect(auditData()).toMatchObject({ oldValue: { resolvedAt: null }, newValue: { resolvedAt: complaints[0].resolvedAt?.toISOString() } })
+  })
+
+  it("leaves resolvedAt alone on a move between two open statuses", async () => {
+    await patch("complaint-a", { status: "ESCALATED" })
+
+    expect(complaintUpdateManyMock.mock.calls[0][0].data).toEqual({ status: "ESCALATED" })
+  })
+
+  it("stores a resolvedAt sent in the body, over the stamp and over the clear", async () => {
+    await patch("complaint-a", { status: "RESOLVED", resolvedAt: "2026-09-02T10:00:00.000Z" })
+    expect(complaints[0].resolvedAt).toEqual(new Date("2026-09-02T10:00:00.000Z"))
+
+    await patch("complaint-a", { status: "ESCALATED", resolvedAt: "2026-09-03T10:00:00.000Z" })
+    expect(complaints[0].resolvedAt).toEqual(new Date("2026-09-03T10:00:00.000Z"))
+  })
+
   it("answers 400 to a PATCH that changes nothing, with no transaction and no audit row", async () => {
     for (const body of [{}, { unknownField: "x" }]) {
       expect((await patch("complaint-a", body)).status, JSON.stringify(body)).toBe(400)

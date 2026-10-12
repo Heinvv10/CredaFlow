@@ -11,6 +11,7 @@ import type { ComplaintStatus, ComplaintOutcome } from "@prisma/client"
 // words stay on the complaint; the audit row only says they changed.
 const AUDITED_FIELDS = ["status", "assignedToId", "outcome", "acknowledgedAt", "resolvedAt"] as const
 const auditValue = (value: unknown) => (value instanceof Date ? value.toISOString() : value ?? null)
+const FINAL_STATUSES: ReadonlySet<ComplaintStatus> = new Set(["RESOLVED", "CLOSED"])
 const PATCHABLE_FIELDS = ["status", "assignedToId", "resolution", "outcome", "resolvedAt"] as const
 const isDateString = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value))
 
@@ -95,15 +96,15 @@ export async function PATCH(
       })
       if (!existing) return null
 
-      // Auto-set resolvedAt if status moves to RESOLVED/CLOSED, not explicitly
-      // provided and not already resolved: closing a resolved complaint keeps
-      // the date it was resolved
-      if (
-        (body.status === "RESOLVED" || body.status === "CLOSED") &&
-        body.resolvedAt === undefined &&
-        !existing.resolvedAt
-      ) {
-        updateData.resolvedAt = new Date()
+      // resolvedAt follows the status unless the body sets it: stamped on the
+      // move into a final status, kept while it stays final (closing a
+      // resolved complaint keeps the date it was resolved), cleared when the
+      // complaint is reopened
+      if (body.status !== undefined && body.resolvedAt === undefined) {
+        const wasFinal = FINAL_STATUSES.has(existing.status)
+        const isFinal = FINAL_STATUSES.has(body.status)
+        if (isFinal && !wasFinal) updateData.resolvedAt = new Date()
+        if (!isFinal && wasFinal) updateData.resolvedAt = null
       }
 
       // Auto-set acknowledgedAt when complaint moves to UNDER_INVESTIGATION,

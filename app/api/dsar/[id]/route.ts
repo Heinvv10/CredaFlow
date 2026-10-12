@@ -10,6 +10,7 @@ import type { DsarStatus } from "@prisma/client"
 // stay on the request; the audit row only says they changed.
 const AUDITED_FIELDS = ["status", "completedAt"] as const
 const auditValue = (value: unknown) => (value instanceof Date ? value.toISOString() : value ?? null)
+const FINAL_STATUSES: ReadonlySet<DsarStatus> = new Set(["COMPLETED", "REFUSED"])
 const PATCHABLE_FIELDS = ["status", "response", "completedAt"] as const
 const isDateString = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value))
 
@@ -53,10 +54,14 @@ export async function PATCH(
       })
       if (!existing) return null
 
-      // Auto-set completedAt when status moves to COMPLETED, unless provided or
-      // already completed: completing again keeps the date it was answered
-      if (body.status === "COMPLETED" && body.completedAt === undefined && !existing.completedAt) {
-        updateData.completedAt = new Date()
+      // completedAt follows the status unless the body sets it: stamped on the
+      // move into a final status (a refusal answers the request too), kept
+      // while it stays final, cleared when the request is reopened
+      if (body.status !== undefined && body.completedAt === undefined) {
+        const wasFinal = FINAL_STATUSES.has(existing.status)
+        const isFinal = FINAL_STATUSES.has(body.status)
+        if (isFinal && !wasFinal) updateData.completedAt = new Date()
+        if (!isFinal && wasFinal) updateData.completedAt = null
       }
 
       // updateMany so tenantId can be included in the where clause
