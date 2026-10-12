@@ -9,6 +9,7 @@ describe("shared client API audience matcher", () => {
     "/api/applications/app-1/agreement/sign",
     "/api/applications/app-1/debit-mandate",
     "/api/applications/app-1/debit-mandate/sign",
+    "/api/applications/app-1/signing-packet",
     "/api/documents",
     "/api/documents/doc-1/view",
     "/api/clients/client-1/documents",
@@ -21,6 +22,10 @@ describe("shared client API audience matcher", () => {
     "/api/applications/app-1/decide",
     "/api/applications/app-1/pasq/admin",
     "/api/applications/app-1/agreement/countersign",
+    "/api/applications/app-1/signing-packet/email",
+    "/api/applications/app-1/signing-packets",
+    "/api/applications/app-1/decide/signing-packet",
+    "/api/clients/client-1/signing-packets",
     "/api/clients/client-1/documents/doc-1/verify",
     "/api/documents/doc-1/extract",
   ])("keeps the staff-only route %s out of the shared audience", (pathname) => {

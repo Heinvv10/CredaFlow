@@ -28,5 +28,10 @@ export function isSharedClientApiPath(pathname: string): boolean {
   if (/^\/api\/applications\/[^/]+\/debit-mandate(\/sign)?$/.test(pathname)) {
     return true
   }
+  // The packet the borrower signs, framed on the portal signing page. Not its
+  // staff-only /email sibling.
+  if (/^\/api\/applications\/[^/]+\/signing-packet$/.test(pathname)) {
+    return true
+  }
   return false
 }
