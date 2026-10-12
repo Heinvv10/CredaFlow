@@ -18,6 +18,7 @@ import {
   IN_PERSON_KYC_VERIFICATION_MIN_NOTE_CHARACTERS,
   IN_PERSON_KYC_VERIFICATION_VERSION,
   isInPersonKycVerificationMethod,
+  latestSelfieRefusedIdDocumentPortrait,
   type InPersonKycVerificationEvidence,
 } from "@/lib/kyc/in-person-verification"
 import {
@@ -104,7 +105,7 @@ export async function POST(
           return { kind: "manual_rejection_active" as const }
         }
 
-        const [coreDocuments, latestSelfie] = await Promise.all([
+        const [coreDocuments, latestSelfie, latestAttempt] = await Promise.all([
           tx.clientDocument.findMany({
             where: {
               tenantId: tenant.id,
@@ -128,6 +129,12 @@ export async function POST(
             where: { tenantId: tenant.id, clientId, ...BLOCKING_SELFIE_CONDITIONS },
             orderBy: latestSelfieOrder(),
             select: { id: true, deletedAt: true },
+          }),
+          // The latest attempt of any outcome, for the ID-portrait refusal.
+          tx.clientDocument.findFirst({
+            where: { tenantId: tenant.id, clientId, docType: "SELFIE" },
+            orderBy: latestSelfieOrder(),
+            select: { biometricResult: true },
           }),
         ])
 
@@ -158,6 +165,9 @@ export async function POST(
         const idDocument = selectUsableIdDocument(coreDocuments)
         if (!idDocument) {
           return { kind: "id_document_unusable" as const }
+        }
+        if (latestSelfieRefusedIdDocumentPortrait(latestAttempt, idDocument.id)) {
+          return { kind: "id_document_portrait_invalid" as const }
         }
 
         const subjectFingerprint = biometricSubjectFingerprint(client)
@@ -283,6 +293,14 @@ export async function POST(
         return NextResponse.json(
           {
             error: "A verified ID document with intact stored content is required to record an in-person verification.",
+          },
+          { status: 422 },
+        )
+      }
+      if (outcome.kind === "id_document_portrait_invalid") {
+        return NextResponse.json(
+          {
+            error: "The latest selfie check found no real photograph on this ID document, so an in-person verification cannot be recorded against it. A new, clear photo of the client's ID must be uploaded and verified first.",
           },
           { status: 422 },
         )

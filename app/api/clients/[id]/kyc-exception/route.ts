@@ -191,8 +191,21 @@ export async function POST(
           return { kind: "selfie_processing" as const }
         }
 
+        // The ID copy subject_has_composite_kyc binds the match to.
+        const idDocument = await tx.clientDocument.findFirst({
+          where: {
+            tenantId: tenant.id,
+            clientId,
+            docType: "ID_COPY",
+            deletedAt: null,
+            verified: true,
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { id: true, contentSha256: true },
+        })
         const biometricAssessment = assessBiometricEvidence(latestSelfie, {
           subject: client,
+          idDocument,
           requireDocumentVerified: false,
         })
         if (biometricAssessment.ok) {

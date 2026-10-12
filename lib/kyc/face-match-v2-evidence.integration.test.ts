@@ -21,6 +21,7 @@ const db = new PrismaClient()
 const token = randomUUID().replaceAll("-", "")
 const NOT_VERIFIED = "Client KYC cannot be VERIFIED without current composite evidence"
 const approvedAt = new Date("2026-10-10T12:00:00.000Z")
+const ID_SHA = "a".repeat(64)
 
 const v2Pass = {
   ok: true,
@@ -77,6 +78,7 @@ async function clientWithSelfie(selfie: Record<string, unknown>) {
         fileName: `${docType.toLowerCase()}.pdf`,
         verified: true,
         verifiedAt: approvedAt,
+        contentSha256: ID_SHA,
       }),
     ),
   })
@@ -92,6 +94,9 @@ async function clientWithSelfie(selfie: Record<string, unknown>) {
       contentSha256: sha,
       ...selfie,
       biometricResult: {
+        // Compared against the client's one verified ID copy.
+        idDocumentId: `fm_v2_core_${sequence}_0_${token}`,
+        idDocumentSha256: ID_SHA,
         ...(selfie.biometricResult as Record<string, unknown>),
         subjectFingerprint,
       },

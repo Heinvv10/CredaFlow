@@ -83,6 +83,8 @@ const passingSelfie = {
     faceMatch: true,
     matchConfidence: 0.98,
     livenessConfidence: 0.97,
+    idDocumentId: "id-doc-1",
+    idDocumentSha256: "c".repeat(64),
     subjectFingerprint: biometricSubjectFingerprint(previousClient),
   },
 }
@@ -144,7 +146,7 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
       if (args.where?.docType === "BANK_STATEMENT") return Promise.resolve([{ id: "doc-1" }])
       if (args.where?.docType === "SELFIE") return Promise.resolve([])
       return Promise.resolve([
-        { docType: "ID_COPY", verified: true, verificationNote: null },
+        { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
         { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
         { docType: "PAYSLIP", verified: true, verificationNote: null },
         {

@@ -27,6 +27,7 @@ import {
   type VlmFaceMatchSideJudgement,
 } from "@/lib/kyc/vlm-face-match"
 import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
+import { isSha256Digest } from "@/lib/documents/content-integrity"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -233,6 +234,9 @@ export async function runBiometricVerification(
             : null,
         }, {
           subject,
+          // The copy capture selected as the newest verified one;
+          // persistBiometricOutcome re-checks that it still is.
+          idDocument,
           requireDocumentVerified: false,
         })
       : { ok: false as const, reason: "subject_fingerprint_missing" as const }
@@ -254,6 +258,7 @@ export async function runBiometricVerification(
       clientId,
       tenantId,
       extractionGeneration,
+      idDocument,
       extractionStatus,
       extractionError,
       extractionResult,
@@ -270,6 +275,7 @@ export async function runBiometricVerification(
       clientId,
       tenantId,
       extractionGeneration,
+      idDocument,
       extractionStatus: "failed",
       extractionError: err instanceof Error ? err.message : String(err),
       extractionResult: null,
@@ -287,6 +293,7 @@ async function persistBiometricOutcome(args: {
   clientId: string
   tenantId: string
   extractionGeneration: string
+  idDocument: IdDocumentReference
   extractionStatus: "done" | "failed" | "skipped"
   extractionError: string | null
   extractionResult: unknown
@@ -376,12 +383,13 @@ async function persistBiometricOutcome(args: {
     const subjectUnchanged = args.subjectFingerprint !== null &&
       biometricSubjectFingerprint(clientBefore) === args.subjectFingerprint
     // The provider evidence names the exact ID document the selfie was
-    // compared against. That binding is a live gate, not metadata: if the
-    // client's current ID document is no longer the one compared (replaced
-    // or deleted while the callback ran), the attempt must fail closed.
-    // Post-verification replacement is separately covered by the composite-
-    // KYC revoke trigger, which lapses the client's KYC when ID_COPY
-    // evidence changes.
+    // compared against. That binding is a live gate, not metadata: unless it
+    // is still the client's newest VERIFIED ID copy, with the same digest
+    // (the row subject_has_composite_kyc selects), the attempt fails closed.
+    // A newer upload, verified or not, an un-verification or a deletion
+    // while the callback ran all fail it. Post-verification replacement is
+    // separately covered by the composite-KYC revoke trigger, which lapses
+    // the client's KYC when ID_COPY evidence changes.
     const boundIdDocumentId = args.biometricResult?.idDocumentId ?? null
     let idDocumentUnchanged = true
     if (boundIdDocumentId) {
@@ -391,12 +399,16 @@ async function persistBiometricOutcome(args: {
           clientId: args.clientId,
           docType: "ID_COPY" as DocType,
           deletedAt: null,
+          verified: true,
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 1,
-        select: { id: true },
-      } as never) as unknown as Array<{ id: string }>
-      idDocumentUnchanged = currentIdDocuments[0]?.id === boundIdDocumentId
+        select: { id: true, contentSha256: true },
+      } as never) as unknown as Array<{ id: string; contentSha256: string | null }>
+      const currentIdDocument = currentIdDocuments[0]
+      idDocumentUnchanged = currentIdDocument?.id === boundIdDocumentId
+        && isSha256Digest(currentIdDocument.contentSha256)
+        && currentIdDocument.contentSha256 === args.biometricResult?.idDocumentSha256
     }
     const latestSelfieAtCompletion = await tx.clientDocument.findFirst({
       where: {
@@ -435,6 +447,10 @@ async function persistBiometricOutcome(args: {
       ...(args.biometricResult === null
         ? {}
         : JSON.parse(JSON.stringify(args.biometricResult)) as Record<string, unknown>),
+      // Also on an attempt with no provider result: an ID-portrait refusal
+      // closes the in-person route only over the ID copy it was judged on.
+      idDocumentId: args.idDocument.id,
+      idDocumentSha256: args.idDocument.contentSha256,
       subjectFingerprint: args.subjectFingerprint,
       biometricFailureReason,
     } as Prisma.InputJsonValue

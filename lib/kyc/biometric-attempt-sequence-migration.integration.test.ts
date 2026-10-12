@@ -132,12 +132,12 @@ suite("biometric attempt sequence migration", () => {
     sql(`
       INSERT INTO "ClientDocument" (
         "id", "tenantId", "clientId", "docType", "fileUrl", "fileName",
-        "verified", "verifiedAt", "createdAt"
+        "verified", "verifiedAt", "createdAt", "contentSha256"
       ) VALUES
-        ('core_id_${token}', '${tenantId}', '${clientId}', 'ID_COPY', '', 'id.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('core_address_${token}', '${tenantId}', '${clientId}', 'PROOF_OF_ADDRESS', '', 'address.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('core_payslip_${token}', '${tenantId}', '${clientId}', 'PAYSLIP', '', 'payslip.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('core_bank_${token}', '${tenantId}', '${clientId}', 'BANK_STATEMENT', '', 'bank.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        ('core_id_${token}', '${tenantId}', '${clientId}', 'ID_COPY', '', 'id.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '${"c".repeat(64)}'),
+        ('core_address_${token}', '${tenantId}', '${clientId}', 'PROOF_OF_ADDRESS', '', 'address.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL),
+        ('core_payslip_${token}', '${tenantId}', '${clientId}', 'PAYSLIP', '', 'payslip.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL),
+        ('core_bank_${token}', '${tenantId}', '${clientId}', 'BANK_STATEMENT', '', 'bank.pdf', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL);
 
       -- This intentionally omits biometricAttemptSequence, as an old binary
       -- would, but carries the complete evidence contract used by the guard.
@@ -151,7 +151,7 @@ suite("biometric attempt sequence migration", () => {
         'valid-selfie.jpg', true, CURRENT_TIMESTAMP, 'done',
         '{"faceDetected":{"value":true},"facesCount":{"value":1},"isLive":{"value":true},"quality":{"value":"good"}}'::jsonb,
         false, 98, 98, 97, CURRENT_TIMESTAMP,
-        '{"ok":true,"verified":true,"matchScore":98,"livenessScore":97,"provider":"vlm-face-match-v2","idPhotoKind":"photograph","idPhotoIsRealPhotograph":true,"idPhotoFaceDetected":true,"selfieIsRealPhotograph":true,"samePerson":"same","faceMatch":true,"matchConfidence":0.98,"livenessConfidence":0.97,"subjectFingerprint":"${validSubjectFingerprint}"}'::jsonb,
+        '{"ok":true,"verified":true,"matchScore":98,"livenessScore":97,"provider":"vlm-face-match-v2","idPhotoKind":"photograph","idPhotoIsRealPhotograph":true,"idPhotoFaceDetected":true,"selfieIsRealPhotograph":true,"samePerson":"same","faceMatch":true,"matchConfidence":0.98,"livenessConfidence":0.97,"idDocumentId":"core_id_${token}","idDocumentSha256":"${"c".repeat(64)}","subjectFingerprint":"${validSubjectFingerprint}"}'::jsonb,
         CURRENT_TIMESTAMP
       );
 

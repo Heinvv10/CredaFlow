@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { Buffer } from "node:buffer"
+import { isSha256Digest } from "@/lib/documents/content-integrity"
 
 // Minimum face-match and liveness scores (0–100) for payout-grade biometric
 // KYC. The provider is the VLM comparing the live selfie against the printed
@@ -123,9 +124,14 @@ function extractedValue(result: Record<string, unknown>, field: string): unknown
 
 export type BiometricImageQuality = "good" | "poor" | "unusable"
 
+/**
+ * Normalised exactly as subject_has_composite_kyc does: lower(trim(value)),
+ * and PostgreSQL's trim() strips spaces only. String.prototype.trim also strips
+ * tabs and newlines, so "good\n" passed here and was refused there.
+ */
 export function parseBiometricImageQuality(value: unknown): BiometricImageQuality | null {
   if (typeof value !== "string") return null
-  const normalized = value.trim().toLowerCase()
+  const normalized = value.replace(/^ +| +$/g, "").toLowerCase()
   return normalized === "good" || normalized === "poor" || normalized === "unusable"
     ? normalized
     : null
@@ -189,10 +195,22 @@ export function biometricSubjectFingerprint(subject: BiometricSubjectClient): st
   ].join(":"), "utf8").digest("hex")
 }
 
+/** An ID copy as the selfie gate needs it: which row, and its stored digest. */
+export interface BiometricIdDocument {
+  id: string
+  contentSha256: string | null
+}
+
 export function assessBiometricEvidence(
   evidence: BiometricDocumentEvidence,
   options: {
     subject: BiometricSubjectClient
+    /**
+     * The client's newest verified, non-deleted ID_COPY (createdAt DESC, id
+     * DESC), or null if there is none. The selfie must have been compared
+     * against exactly this row.
+     */
+    idDocument: BiometricIdDocument | null
     requireDocumentVerified?: boolean
   },
 ): BiometricEvidenceAssessment {
@@ -250,7 +268,9 @@ export function assessBiometricEvidence(
   if (!providerResult) {
     return { ok: false, reason: "provider_verification_missing" }
   }
-  if (providerResult.simulated === true) {
+  // Absent or exactly false only: subject_has_composite_kyc refused the string
+  // "true" that this let through.
+  if (providerResult.simulated !== undefined && providerResult.simulated !== false) {
     return { ok: false, reason: "simulated_provider_evidence" }
   }
   if (
@@ -260,6 +280,16 @@ export function assessBiometricEvidence(
     return { ok: false, reason: "subject_fingerprint_missing" }
   }
   if (providerResult.subjectFingerprint !== biometricSubjectFingerprint(options.subject)) {
+    return { ok: false, reason: "subject_identity_changed" }
+  }
+  // A match against any other ID copy (a newer unverified or rejected upload,
+  // or one since replaced) says nothing about the verified identity.
+  if (
+    !options.idDocument ||
+    !isSha256Digest(options.idDocument.contentSha256) ||
+    providerResult.idDocumentId !== options.idDocument.id ||
+    providerResult.idDocumentSha256 !== options.idDocument.contentSha256
+  ) {
     return { ok: false, reason: "subject_identity_changed" }
   }
   if (

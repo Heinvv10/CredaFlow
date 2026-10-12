@@ -5,7 +5,7 @@ import { deleteFile, saveFile } from "@/lib/storage"
 import { matchesMagic, MAGIC_BYTE_PREFIX } from "@/lib/document-auth"
 import { AuditAction } from "@/lib/audit"
 import { clientKycAuditValue } from "@/lib/kyc/document-state"
-import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
+import { isSha256Digest, sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
 
@@ -37,6 +37,36 @@ export interface CaptureSelfieArgs {
 export type CaptureSelfieResult =
   | { ok: true; documentId: string; document: Record<string, unknown> }
   | { ok: false; status: number; error: string }
+
+/**
+ * The ID copy a selfie is compared against, as subject_has_composite_kyc
+ * selects it: verified, not deleted, createdAt DESC then id DESC. The caller
+ * also requires a usable digest, as selectUsableIdDocument does.
+ */
+const VERIFIED_ID_DOCUMENT = {
+  docType: "ID_COPY" as DocType,
+  deletedAt: null,
+  verified: true,
+}
+const NEWEST_FIRST = [{ createdAt: "desc" as const }, { id: "desc" as const }]
+
+/** No ID copy at all, or none verified with intact stored content yet. */
+async function refuseWithoutUsableIdDocument(
+  tenantId: string,
+  clientId: string,
+): Promise<CaptureSelfieResult> {
+  const anyIdDocument = await prisma.clientDocument.findFirst({
+    where: { tenantId, clientId, docType: "ID_COPY" as DocType, deletedAt: null },
+    select: { id: true },
+  })
+  return {
+    ok: false,
+    status: 422,
+    error: anyIdDocument
+      ? "Please upload and process an ID document before taking a selfie."
+      : "Please upload your ID document before taking a selfie.",
+  }
+}
 
 function sanitiseDoc(doc: Record<string, unknown>) {
   const { storagePath: _sp, ...safe } = doc
@@ -100,16 +130,17 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
 
     // A selfie needs an ID document on file, but must not depend on AI extraction.
     // A deployment can run with VLM disabled and staff can review/verify the ID manually.
+    //
+    // It is compared against the newest VERIFIED copy only, the row the KYC
+    // gates bind it to: matching a newer unverified (even staff-rejected)
+    // upload proved the face of a document nobody accepted.
     const idDoc = await prisma.clientDocument.findFirst({
-      where: { tenantId, clientId, docType: "ID_COPY" as DocType, deletedAt: null },
-      orderBy: { createdAt: "desc" },
+      where: { tenantId, clientId, ...VERIFIED_ID_DOCUMENT },
+      orderBy: NEWEST_FIRST,
+      select: { contentSha256: true },
     })
-    if (!idDoc) {
-      return {
-        ok: false,
-        status: 422,
-        error: "Please upload your ID document before taking a selfie.",
-      }
+    if (!isSha256Digest(idDoc?.contentSha256)) {
+      return await refuseWithoutUsableIdDocument(tenantId, clientId)
     }
 
     const buffer = Buffer.from(await image.arrayBuffer())
@@ -125,16 +156,11 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
       // The optimistic read above avoids storing a file in the common error
       // case; this read closes the ID-delete/upload race.
       const currentIdDocument = await tx.clientDocument.findFirst({
-        where: {
-          tenantId,
-          clientId,
-          docType: "ID_COPY" as DocType,
-          deletedAt: null,
-        },
+        where: { tenantId, clientId, ...VERIFIED_ID_DOCUMENT },
         select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
-        orderBy: { createdAt: "desc" },
+        orderBy: NEWEST_FIRST,
       })
-      if (!currentIdDocument) return null
+      if (!currentIdDocument || !isSha256Digest(currentIdDocument.contentSha256)) return null
 
       const clientBeforeAttempt = await tx.client.findUnique({
         where: { id: clientId, tenantId },
@@ -239,11 +265,7 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     })
     if (!outcome) {
       await discardUncommittedSelfie()
-      return {
-        ok: false,
-        status: 422,
-        error: "Please upload your ID document before taking a selfie.",
-      }
+      return await refuseWithoutUsableIdDocument(tenantId, clientId)
     }
     const doc = outcome.created
     // The database now owns the storage reference. Only failures before this

@@ -71,7 +71,13 @@ const verifiedCoreDocuments = [
   "PROOF_OF_ADDRESS",
   "PAYSLIP",
   "BANK_STATEMENT",
-].map((docType) => ({ docType, verified: true, verificationNote: null }))
+].map((docType) => ({
+  docType,
+  verified: true,
+  verificationNote: null,
+  // The ID copy the passing selfie was compared against.
+  ...(docType === "ID_COPY" && { id: "id-doc-1", contentSha256: "c".repeat(64) }),
+}))
 const passingSelfie = {
   id: "selfie-current",
   deletedAt: null,
@@ -103,6 +109,8 @@ const passingSelfie = {
     faceMatch: true,
     matchConfidence: 0.98,
     livenessConfidence: 0.97,
+    idDocumentId: "id-doc-1",
+    idDocumentSha256: "c".repeat(64),
     subjectFingerprint: biometricSubjectFingerprint(clientSubject),
   },
 }

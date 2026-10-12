@@ -477,15 +477,6 @@ export async function readCompositeKycState(
       select: { id: true, completedAt: true, data: true },
     }) ?? Promise.resolve(null),
   ])
-  const biometricAssessment = latestSelfie
-    ? assessBiometricEvidence(latestSelfie, { subject: args.subject })
-    : { ok: false as const, reason: "biometric_evidence_missing" as const }
-  const manualException = currentManualKycException(exceptionRecord, {
-    clientId: args.clientId,
-    subject: args.subject,
-    latestSelfie,
-    biometricAssessment,
-  })
   // Deterministic, and identical to the SQL predicate's row choice: verified
   // ID_COPY rows only (the query already excludes deleted), newest first with
   // id as the tiebreak. `find` over an unordered result could bind on one
@@ -510,6 +501,16 @@ export async function readCompositeKycState(
         deletedAt: null,
         verified: document.verified,
       }))[0] ?? null
+  // The selfie counts only against that same ID copy (subject_has_composite_kyc).
+  const biometricAssessment = latestSelfie
+    ? assessBiometricEvidence(latestSelfie, { subject: args.subject, idDocument })
+    : { ok: false as const, reason: "biometric_evidence_missing" as const }
+  const manualException = currentManualKycException(exceptionRecord, {
+    clientId: args.clientId,
+    subject: args.subject,
+    latestSelfie,
+    biometricAssessment,
+  })
   const inPersonVerification = manualException
     ? null
     : currentInPersonKycVerification(
@@ -520,6 +521,7 @@ export async function readCompositeKycState(
           idDocument,
           blockingBiometricAttempt: blockingSelfie !== null,
           biometricAssessment,
+          latestSelfie,
         },
       )
   const result = deriveCompositeKycState({

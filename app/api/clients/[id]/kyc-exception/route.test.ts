@@ -182,6 +182,49 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
     })
   })
 
+  it("will not except a passed selfie matched against an ID copy that is no longer the verified one", async () => {
+    const { biometricSubjectFingerprint } = await import("@/lib/kyc/biometric-evidence")
+    const passedSelfie = {
+      ...selfie,
+      verified: true,
+      extractionStatus: "done",
+      extractionResult: {
+        faceDetected: { value: true }, facesCount: { value: 1 }, isLive: { value: true }, quality: { value: "good" },
+      },
+      extractionError: null,
+      validationMismatch: false,
+      validationScore: 95,
+      biometricMatchScore: 95,
+      biometricLiveness: 97,
+      biometricVerifiedAt: new Date("2026-10-11T08:00:00.000Z"),
+      biometricResult: {
+        ok: true, verified: true, provider: "vlm-face-match-v2", matchScore: 95, livenessScore: 97,
+        idPhotoKind: "photograph", idPhotoIsRealPhotograph: true, idPhotoFaceDetected: true,
+        selfieIsRealPhotograph: true, samePerson: "same", faceMatch: true,
+        matchConfidence: 0.95, livenessConfidence: 0.97,
+        idDocumentId: "id-doc-1", idDocumentSha256: "c".repeat(64),
+        subjectFingerprint: biometricSubjectFingerprint(client),
+      },
+    }
+    documentFindFirstMock.mockImplementation(async (args: { where: { docType: string } }) => (
+      args.where.docType === "ID_COPY" ? { id: "id-doc-2", contentSha256: "d".repeat(64) } : passedSelfie
+    ))
+
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).biometricEvidence).toBe("subject_identity_changed")
+    expect(documentFindFirstMock).toHaveBeenCalledWith({
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verified: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, contentSha256: true },
+    })
+    expect(complianceCreateMock).not.toHaveBeenCalled()
+  })
+
   it("requires a reason and supporting evidence before touching KYC state", async () => {
     const response = await POST(request({
       reason: "too short",
