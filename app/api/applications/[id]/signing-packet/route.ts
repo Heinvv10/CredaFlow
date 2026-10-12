@@ -111,6 +111,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       )
     }
 
+    // Assembled before the read is logged, so a packet that cannot be built
+    // leaves no "viewed" row; logged before it is returned, so none is served
+    // unrecorded.
+    const packet = await createSigningPacketPdf(pasqBytes, agreementBytes)
     const accessorId = access.type === "staff" ? access.user.id : access.clientId
     await prisma.$transaction([
       prisma.documentAccessLog.create({
@@ -135,7 +139,6 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       }),
     ])
 
-    const packet = await createSigningPacketPdf(pasqBytes, agreementBytes)
     const responseBytes = new Uint8Array(packet.byteLength)
     responseBytes.set(packet)
     return new Response(responseBytes, {

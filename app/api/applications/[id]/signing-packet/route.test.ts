@@ -260,6 +260,92 @@ describe("GET signing packet — everyone else", () => {
   })
 })
 
+// The application names its two documents by id. The id alone proves nothing:
+// each row must also be this borrower's, this lender's, the right type, and
+// the bytes the application was bound to.
+describe("GET signing packet — the documents the application points at", () => {
+  beforeEach(() => authMock.mockResolvedValue(owner))
+
+  it.each([
+    ["pasq-doc", "clientId", neighbour.user.id],
+    ["pasq-doc", "tenantId", OTHER_LENDER.id],
+    ["pasq-doc", "docType", "OTHER"],
+    ["pasq-doc", "contentSha256", "f".repeat(64)],
+    ["agreement-doc", "clientId", neighbour.user.id],
+    ["agreement-doc", "tenantId", OTHER_LENDER.id],
+    ["agreement-doc", "docType", "OTHER"],
+    ["agreement-doc", "contentSha256", "f".repeat(64)],
+  ])("refuses when %s has another %s", async (documentId, field, value) => {
+    const document = rows.documents.find((row) => row.id === documentId)
+    if (!document) throw new Error(`no fixture ${documentId}`)
+    document[field] = value
+    const res = await read()
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: "One or more signing-packet documents are unavailable." })
+    expectNothingRead()
+  })
+})
+
+describe("GET signing packet — refusals after the owner is let in log nothing", () => {
+  beforeEach(() => authMock.mockResolvedValue(owner))
+
+  it("409 when the agreement has not been prepared", async () => {
+    rows.applications[0].agreementGeneratedAt = null
+    const res = await read()
+    expect(res.status).toBe(409)
+    expectNothingRead()
+  })
+
+  it("422 when a document row is gone", async () => {
+    rows.documents = rows.documents.filter((row) => row.id !== "agreement-doc")
+    const res = await read()
+    expect(res.status).toBe(422)
+    expectNothingRead()
+  })
+
+  it("422 when a file is missing from storage", async () => {
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path === "/s/agreement.pdf") throw new Error("ENOENT")
+      return pasq
+    })
+    const res = await read()
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: "One or more signing-packet files are unavailable." })
+    expect(accessLogCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("422 when the stored bytes fail their integrity check", async () => {
+    readFileMock.mockResolvedValue(agreement)
+    const res = await read()
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: "A signing-packet document failed its integrity check." })
+    expect(accessLogCreateMock).not.toHaveBeenCalled()
+  })
+})
+
+// "Viewed" is recorded only for a packet that was actually produced, and a
+// packet is never served unrecorded.
+describe("GET signing packet — the access log and the PDF", () => {
+  beforeEach(() => authMock.mockResolvedValue(owner))
+
+  it("writes no log when the packet cannot be assembled", async () => {
+    // Passes the integrity check (the binding names these bytes) but is not a PDF.
+    const notPdf = Buffer.from("not a pdf")
+    rows.applications[0].pasqDocumentSha256 = sha(notPdf)
+    rows.documents[0].contentSha256 = sha(notPdf)
+    readFileMock.mockImplementation(async (path: string) =>
+      path === "/s/pasq.pdf" ? notPdf : agreement,
+    )
+    await expect(read()).rejects.toThrow()
+    expect(accessLogCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("serves no PDF when the log cannot be written", async () => {
+    accessLogCreateMock.mockRejectedValue(new Error("access log unavailable"))
+    await expect(read()).rejects.toThrow("access log unavailable")
+  })
+})
+
 // The proxy's allow-list matches the path, not the method: a CLIENT session
 // reaches this handler too.
 describe("POST returned packet — staff only", () => {
