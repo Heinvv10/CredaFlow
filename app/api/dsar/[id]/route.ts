@@ -10,6 +10,8 @@ import type { DsarStatus } from "@prisma/client"
 // stay on the request; the audit row only says they changed.
 const AUDITED_FIELDS = ["status", "completedAt"] as const
 const auditValue = (value: unknown) => (value instanceof Date ? value.toISOString() : value ?? null)
+const PATCHABLE_FIELDS = ["status", "response", "completedAt"] as const
+const isDateString = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value))
 
 export async function PATCH(
   req: NextRequest,
@@ -26,15 +28,19 @@ export async function PATCH(
       completedAt?: string
     }
 
+    if (PATCHABLE_FIELDS.every((field) => body[field] === undefined)) {
+      return NextResponse.json({ error: `Nothing to update: send one of ${PATCHABLE_FIELDS.join(", ")}` }, { status: 400 })
+    }
+    // new Date(null) is 1970-01-01, and the UI never clears completedAt: only
+    // a real date may be stored as when the request was answered.
+    if (body.completedAt !== undefined && !isDateString(body.completedAt)) {
+      return NextResponse.json({ error: "completedAt must be a date" }, { status: 400 })
+    }
+
     const updateData: Record<string, unknown> = {}
     if (body.status !== undefined) updateData.status = body.status
     if (body.response !== undefined) updateData.response = body.response
     if (body.completedAt !== undefined) updateData.completedAt = new Date(body.completedAt)
-
-    // Auto-set completedAt when status moves to COMPLETED
-    if (body.status === "COMPLETED" && !body.completedAt) {
-      updateData.completedAt = new Date()
-    }
 
     // Lock, read, update and audit in one transaction: the change and its
     // audit row commit together, and the audited old values are exactly what
@@ -46,6 +52,12 @@ export async function PATCH(
         select: { status: true, completedAt: true },
       })
       if (!existing) return null
+
+      // Auto-set completedAt when status moves to COMPLETED, unless provided or
+      // already completed: completing again keeps the date it was answered
+      if (body.status === "COMPLETED" && body.completedAt === undefined && !existing.completedAt) {
+        updateData.completedAt = new Date()
+      }
 
       // updateMany so tenantId can be included in the where clause
       await tx.dataSubjectRequest.updateMany({

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { isAssignableStaff } from "@/lib/crm/staff"
+import { BRANCH_MANAGER_ROLES } from "@/lib/permissions"
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -43,11 +43,15 @@ export async function POST(req: NextRequest) {
     }
 
     // managerId has no FK and User is not tenant-scoped, so an unchecked value
-    // would store another tenant's user. An id from another tenant answers
-    // exactly as one that does not exist.
+    // would store another tenant's user. Only the active staff the settings
+    // page offers as managers are accepted; anyone else, in this tenant or
+    // another, answers exactly as an id that does not exist.
     if (
       body.managerId &&
-      !(await isAssignableStaff(prisma.user, { tenantId: tenant.id, userId: body.managerId }))
+      !(await prisma.user.findFirst({
+        where: { id: body.managerId, tenantId: tenant.id, active: true, role: { in: BRANCH_MANAGER_ROLES } },
+        select: { id: true },
+      }))
     ) {
       return NextResponse.json({ error: "Manager not found" }, { status: 404 })
     }

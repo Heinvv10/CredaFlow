@@ -137,6 +137,37 @@ describe("PATCH /api/dsar/[id]", () => {
     expect(JSON.stringify(auditData())).not.toContain("Synthetic response")
   })
 
+  it("answers 400 to a completedAt that is null or not a date, writing nothing", async () => {
+    // new Date(null) is 1970-01-01: stored, it would falsify the POPIA response timing.
+    for (const completedAt of [null, "not-a-date", 0]) {
+      const response = await patch("dsar-a", { completedAt })
+      expect(response.status, JSON.stringify(completedAt)).toBe(400)
+    }
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(dsars[0].completedAt).toBeNull()
+    nothingWritten()
+  })
+
+  it("keeps the first completedAt when a completed request is completed again", async () => {
+    const first = new Date("2026-09-01T08:00:00.000Z")
+    Object.assign(dsars[0], { status: "COMPLETED", completedAt: first })
+
+    const response = await patch("dsar-a", { status: "COMPLETED", response: "Synthetic follow-up" })
+
+    expect(response.status).toBe(200)
+    expect(dsarUpdateManyMock.mock.calls[0][0].data).toEqual({ status: "COMPLETED", response: "Synthetic follow-up" })
+    expect(dsars[0].completedAt).toBe(first)
+    expect(auditData().newValue).not.toHaveProperty("completedAt")
+  })
+
+  it("answers 400 to a PATCH that changes nothing, with no transaction and no audit row", async () => {
+    for (const body of [{}, { unknownField: "x" }]) {
+      expect((await patch("dsar-a", body)).status, JSON.stringify(body)).toBe(400)
+    }
+    expect(transactionMock).not.toHaveBeenCalled()
+    nothingWritten()
+  })
+
   it("locks the row before reading the values it audits as old", async () => {
     await patch("dsar-a", { status: "IN_PROGRESS" })
 

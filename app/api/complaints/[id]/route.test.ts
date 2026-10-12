@@ -209,6 +209,38 @@ describe("PATCH /api/complaints/[id]", () => {
     expect(complaints[0].acknowledgedAt).toBe(first)
   })
 
+  it("answers 400 to a resolvedAt that is null or not a date, writing nothing", async () => {
+    // new Date(null) is 1970-01-01: stored, it would falsify the complaint's timing record.
+    for (const resolvedAt of [null, "not-a-date", 0]) {
+      const response = await patch("complaint-a", { resolvedAt })
+      expect(response.status, JSON.stringify(resolvedAt)).toBe(400)
+    }
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(complaints[0].resolvedAt).toBeNull()
+    nothingWritten()
+  })
+
+  it("keeps the first resolvedAt when a resolved complaint is resolved or closed again", async () => {
+    const first = new Date("2026-09-01T08:00:00.000Z")
+    Object.assign(complaints[0], { status: "RESOLVED", resolvedAt: first })
+
+    const response = await patch("complaint-a", { status: "CLOSED" })
+
+    expect(response.status).toBe(200)
+    expect(complaintUpdateManyMock.mock.calls[0][0].data).toEqual({ status: "CLOSED" })
+    expect(complaints[0].resolvedAt).toBe(first)
+    expect(auditData()).toMatchObject({ oldValue: { status: "RESOLVED" }, newValue: { status: "CLOSED" } })
+    expect(auditData().newValue).not.toHaveProperty("resolvedAt")
+  })
+
+  it("answers 400 to a PATCH that changes nothing, with no transaction and no audit row", async () => {
+    for (const body of [{}, { unknownField: "x" }]) {
+      expect((await patch("complaint-a", body)).status, JSON.stringify(body)).toBe(400)
+    }
+    expect(transactionMock).not.toHaveBeenCalled()
+    nothingWritten()
+  })
+
   it("locks the row before reading the values it audits as old", async () => {
     await patch("complaint-a", { status: "ESCALATED" })
 

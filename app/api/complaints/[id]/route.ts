@@ -11,6 +11,8 @@ import type { ComplaintStatus, ComplaintOutcome } from "@prisma/client"
 // words stay on the complaint; the audit row only says they changed.
 const AUDITED_FIELDS = ["status", "assignedToId", "outcome", "acknowledgedAt", "resolvedAt"] as const
 const auditValue = (value: unknown) => (value instanceof Date ? value.toISOString() : value ?? null)
+const PATCHABLE_FIELDS = ["status", "assignedToId", "resolution", "outcome", "resolvedAt"] as const
+const isDateString = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value))
 
 export async function GET(
   req: NextRequest,
@@ -54,6 +56,14 @@ export async function PATCH(
       resolvedAt?: string
     }
 
+    if (PATCHABLE_FIELDS.every((field) => body[field] === undefined)) {
+      return NextResponse.json({ error: `Nothing to update: send one of ${PATCHABLE_FIELDS.join(", ")}` }, { status: 400 })
+    }
+    // new Date(null) is 1970-01-01, and the UI never clears resolvedAt: only a
+    // real date may be stored as when the complaint was resolved.
+    if (body.resolvedAt !== undefined && !isDateString(body.resolvedAt)) {
+      return NextResponse.json({ error: "resolvedAt must be a date" }, { status: 400 })
+    }
     if (body.assignedToId != null && typeof body.assignedToId !== "string") {
       return NextResponse.json({ error: "assignedToId must be a string" }, { status: 400 })
     }
@@ -74,14 +84,6 @@ export async function PATCH(
     if (body.outcome !== undefined) updateData.outcome = body.outcome
     if (body.resolvedAt !== undefined) updateData.resolvedAt = new Date(body.resolvedAt)
 
-    // Auto-set resolvedAt if status moves to RESOLVED/CLOSED and not explicitly provided
-    if (
-      (body.status === "RESOLVED" || body.status === "CLOSED") &&
-      !body.resolvedAt
-    ) {
-      updateData.resolvedAt = new Date()
-    }
-
     // Lock, read, update and audit in one transaction: the change and its
     // audit row commit together, and the audited old values are exactly what
     // this write replaced even when two updates race.
@@ -92,6 +94,17 @@ export async function PATCH(
         select: { status: true, assignedToId: true, outcome: true, acknowledgedAt: true, resolvedAt: true },
       })
       if (!existing) return null
+
+      // Auto-set resolvedAt if status moves to RESOLVED/CLOSED, not explicitly
+      // provided and not already resolved: closing a resolved complaint keeps
+      // the date it was resolved
+      if (
+        (body.status === "RESOLVED" || body.status === "CLOSED") &&
+        body.resolvedAt === undefined &&
+        !existing.resolvedAt
+      ) {
+        updateData.resolvedAt = new Date()
+      }
 
       // Auto-set acknowledgedAt when complaint moves to UNDER_INVESTIGATION,
       // only if not already acknowledged

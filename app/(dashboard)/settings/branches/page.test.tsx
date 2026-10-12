@@ -49,7 +49,9 @@ describe("/settings/branches", () => {
     const page = (await BranchesSettingsPage()) as ReactElement<{ children: ReactElement[] }>
 
     expect(branchFindMany.mock.calls[0][0].where).toEqual({ tenantId: "tenant-a" })
-    expect(userFindMany.mock.calls[0][0].where).toMatchObject({ tenantId: "tenant-a", active: true })
+    expect(userFindMany.mock.calls[0][0].where).toEqual({
+      tenantId: "tenant-a", active: true, role: { in: ["BRANCH_MANAGER", "LOAN_ADMIN", "SUPER_ADMIN", "ADMIN"] },
+    })
     const list = page.props.children.find((child) => child.type === BranchesSettingsClient) as ReactElement<{ managers: unknown }>
     expect(list.props.managers).toEqual(MANAGERS)
   })

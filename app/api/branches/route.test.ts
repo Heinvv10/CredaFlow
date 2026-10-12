@@ -36,9 +36,11 @@ vi.mock("@/lib/prisma", () => ({
 import { GET, POST } from "./route"
 
 const USERS = [
-  { id: "manager-a", tenantId: "tenant-a" },
-  { id: "manager-b", tenantId: "tenant-b" },
+  { id: "manager-a", tenantId: "tenant-a", role: "BRANCH_MANAGER" },
+  { id: "officer-a", tenantId: "tenant-a", role: "CREDIT_OFFICER" },
+  { id: "manager-b", tenantId: "tenant-b", role: "BRANCH_MANAGER" },
 ]
+type UserWhere = { id: string; tenantId?: string; role?: { in: string[] } }
 
 function post(body: unknown) {
   return POST(new NextRequest("http://localhost/api/branches", {
@@ -62,8 +64,11 @@ beforeEach(() => {
   canDoMock.mockReturnValue(true)
   // A lookup that omits the caller's tenant finds the other tenant's row, as
   // the table itself would: only the where clause keeps tenant B out.
-  userFindFirstMock.mockImplementation(async ({ where }: { where: { id: string; tenantId?: string } }) =>
-    USERS.find((row) => row.id === where.id && (where.tenantId === undefined || row.tenantId === where.tenantId)) ?? null)
+  userFindFirstMock.mockImplementation(async ({ where }: { where: UserWhere }) =>
+    USERS.find((row) =>
+      row.id === where.id &&
+      (where.tenantId === undefined || row.tenantId === where.tenantId) &&
+      (where.role === undefined || where.role.in.includes(row.role))) ?? null)
   branchFindManyMock.mockResolvedValue([])
   branchCreateMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "branch-1", ...data }))
   auditLogCreateMock.mockResolvedValue({ id: "audit-1" })
@@ -121,6 +126,14 @@ describe("POST /api/branches", () => {
     expect(foreign.status).toBe(404)
     expect(missing.status).toBe(404)
     expect(await foreign.json()).toEqual(await missing.json())
+    nothingWritten()
+  })
+
+  it("refuses as manager a staff member the page would not offer, writing nothing", async () => {
+    const response = await post({ ...VALID, managerId: "officer-a" })
+
+    expect(response.status).toBe(404)
+    expect(userFindFirstMock.mock.calls[0][0].where).toMatchObject({ tenantId: "tenant-a", active: true })
     nothingWritten()
   })
 

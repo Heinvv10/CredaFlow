@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation"
 import { requireMinRole } from "@/lib/auth-guards"
 import { getResolvedTenantId } from "@/lib/tenant"
+import { BRANCH_MANAGER_ROLES } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
 import { BranchesSettingsClient } from "./BranchesSettingsClient"
@@ -21,9 +22,9 @@ export default async function BranchesSettingsPage() {
       },
     }),
     prisma.user.findMany({
-      // User is not tenant-scoped, so the tenantId filter is manual; active
-      // matches what POST /api/branches accepts (isAssignableStaff).
-      where: { tenantId, active: true, role: { in: ["BRANCH_MANAGER", "LOAN_ADMIN", "SUPER_ADMIN", "ADMIN"] } },
+      // User is not tenant-scoped, so the tenantId filter is manual; the rest
+      // is what POST /api/branches accepts.
+      where: { tenantId, active: true, role: { in: BRANCH_MANAGER_ROLES } },
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     }),

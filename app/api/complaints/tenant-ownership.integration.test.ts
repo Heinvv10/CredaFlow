@@ -222,6 +222,23 @@ suite.sequential("complaint, DSAR and branch routes across two tenants (real Pos
       expect(JSON.stringify(updates)).not.toContain("Synthetic resolution")
     })
 
+    it("refuses a null or unparseable resolvedAt and an empty PATCH, and keeps the first resolvedAt on a re-close", async () => {
+      const a = await site()
+      signIn(a)
+      const own = await (await postComplaint(a, complaintBody(a.clientId))).json()
+      for (const body of [{ resolvedAt: null }, { resolvedAt: "not-a-date" }, {}]) {
+        expect((await patchComplaint(a, own.id, body)).status, JSON.stringify(body)).toBe(400)
+      }
+      expect(await db.complaint.findUniqueOrThrow({ where: { id: own.id } })).toMatchObject({ status: "OPEN", resolvedAt: null })
+      expect((await audits(a)).map((row) => row.action)).toEqual(["COMPLAINT_CREATED"])
+
+      expect((await patchComplaint(a, own.id, { status: "RESOLVED" })).status).toBe(200)
+      const resolvedAt = (await db.complaint.findUniqueOrThrow({ where: { id: own.id } })).resolvedAt
+      expect(resolvedAt).toBeInstanceOf(Date)
+      expect((await patchComplaint(a, own.id, { status: "CLOSED" })).status).toBe(200)
+      expect(await db.complaint.findUniqueOrThrow({ where: { id: own.id } })).toMatchObject({ status: "CLOSED", resolvedAt })
+    })
+
     it("writes neither the complaint nor the change when the audit row cannot be written", async () => {
       const a = await site()
       signIn(a)
@@ -302,6 +319,23 @@ suite.sequential("complaint, DSAR and branch routes across two tenants (real Pos
       expect((await audits(b)).map((row) => row.action)).toEqual(["DSAR_CREATED"])
     })
 
+    it("refuses a null or unparseable completedAt and an empty PATCH, and keeps the first completedAt", async () => {
+      const a = await site()
+      signIn(a)
+      const own = await (await postDsar(a, { clientId: a.clientId, type: "ACCESS" })).json()
+      for (const body of [{ completedAt: null }, { completedAt: "not-a-date" }, {}]) {
+        expect((await patchDsar(a, own.id, body)).status, JSON.stringify(body)).toBe(400)
+      }
+      expect(await db.dataSubjectRequest.findUniqueOrThrow({ where: { id: own.id } })).toMatchObject({ status: "RECEIVED", completedAt: null })
+      expect((await audits(a)).map((row) => row.action)).toEqual(["DSAR_CREATED"])
+
+      expect((await patchDsar(a, own.id, { status: "COMPLETED" })).status).toBe(200)
+      const completedAt = (await db.dataSubjectRequest.findUniqueOrThrow({ where: { id: own.id } })).completedAt
+      expect(completedAt).toBeInstanceOf(Date)
+      expect((await patchDsar(a, own.id, { status: "COMPLETED", response: "Synthetic follow-up" })).status).toBe(200)
+      expect(await db.dataSubjectRequest.findUniqueOrThrow({ where: { id: own.id } })).toMatchObject({ status: "COMPLETED", completedAt })
+    })
+
     it("writes neither the request nor the change when the audit row cannot be written", async () => {
       const a = await site()
       signIn(a)
@@ -340,6 +374,15 @@ suite.sequential("complaint, DSAR and branch routes across two tenants (real Pos
       expect(await foreign.json()).toEqual(await missing.json())
       expect(await db.branch.count({ where: { OR: [{ tenantId: { in: [a.tenantId, b.tenantId] } }, { managerId: b.userId }] } })).toBe(0)
       expect(await audits(a, b)).toEqual([])
+    })
+
+    it("refuses as manager the caller's own staff whose role the page does not offer", async () => {
+      const a = await site()
+      const officer = await db.user.create({ data: { tenantId: a.tenantId, email: `${randomUUID()}@staff.invalid`, password: "x", role: "CREDIT_OFFICER" } })
+      signIn(a)
+      expect((await postBranch(a, { name: "Synthetic Branch", code: "syn", managerId: officer.id })).status).toBe(404)
+      expect(await db.branch.count({ where: { tenantId: a.tenantId } })).toBe(0)
+      expect(await audits(a)).toEqual([])
     })
 
     it("creates one with the caller's own manager, with its audit row, and neither when the audit row cannot be written", async () => {
