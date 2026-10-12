@@ -394,6 +394,10 @@ export const AuditAction = {
   BUREAU_SUBMISSION_DOWNLOADED: "BUREAU_SUBMISSION_DOWNLOADED",
   BUREAU_ADVERSE_LISTING_CONFIRMED: "BUREAU_ADVERSE_LISTING_CONFIRMED",
   BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED",
+  // Breach log (the POPIA security-compromise register). The row keeps no
+  // history of its own, so an edit's old values exist only in the audit row.
+  BREACH_LOG_CREATED: "BREACH_LOG_CREATED",
+  BREACH_LOG_UPDATED: "BREACH_LOG_UPDATED",
   // Tenant administration (app/api/admin/tenants).
   TENANT_CREATED: "TENANT_CREATED",
   TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED",

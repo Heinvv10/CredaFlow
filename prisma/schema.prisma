@@ -101,6 +101,7 @@ model Tenant {
   clientDocuments          ClientDocument[]
   loanNotes                LoanNote[]
   tcfOutcomes              TcfOutcome[]
+  breachLogs               BreachLog[]
   coiDeclarations          CoiDeclaration[]
   insurers                 Insurer[]
   loginLogs                LoginLog[]
@@ -2656,6 +2657,8 @@ model ClientConsent {
 
 model BreachLog {
   id                String    @id @default(cuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
   incidentDate      DateTime
   discoveredDate    DateTime
   description       String
@@ -2668,6 +2671,8 @@ model BreachLog {
   createdBy         String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  @@index([tenantId])
 }
 
 // ── Advisor Commissions ───────────────────────────────────────────────────────
