@@ -2,7 +2,8 @@
  * The lender's one-off configuration before its first business day, done the
  * way its people would (every call idempotent, so a resumed bake can repeat it):
  *
- *   1. Settings → Users: the breadth staff (breadth/staff.ts), TOTP-enrolled.
+ *   1. Settings → Users: the breadth staff (breadth/staff.ts), TOTP-enrolled;
+ *      the platform operator is bootstrapped with the stack instead.
  *   2. Settings → Branches (POST /api/branches): Sandton head office and the
  *      Pretoria branch, each with its manager; staff are then placed in their
  *      branch (PATCH /api/settings/users/[id]). Branches have no edit route, so
@@ -78,9 +79,9 @@ async function placeStaff(b: Breadth, branchIds: Record<string, string>): Promis
 }
 
 /**
- * The platform operator's step. Scheduled apart from runSetup (a few minutes
- * later): the operator enrolled TOTP moments before, and a sign-in inside the
- * same 30-second window would be refused as a replayed code.
+ * The platform operator's step, its own event a few minutes after runSetup.
+ * The operator is bootstrapped with the stack (sim/provision-operator.ts), not
+ * created in runSetup.
  */
 export async function enableOperatorModules(b: Breadth): Promise<void> {
   const operator = await as(b, "operator")

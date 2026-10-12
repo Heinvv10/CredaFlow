@@ -84,8 +84,9 @@ every event in `scripts/demo/.sim-state.json`; `--resume` continues a crashed ru
 queue (`breadth/index.ts`), through the routes the screens call:
 
 - **Setup** (first business day, 08:15): three staff (second credit officer,
-  insurance officer, branch manager) plus a platform operator (SUPER_ADMIN),
-  all TOTP-enrolled through Settings → Users; two branches; the operator turns
+  insurance officer, branch manager), all TOTP-enrolled through Settings →
+  Users; two branches; a platform operator (SUPER_ADMIN, which no route can
+  create; `fresh-stack.sh` bootstraps it with `provision-operator.ts`) turns
   on the CRM and bureau-submission modules and the bureau supplier details
   (`/api/admin/tenants/[id]` with `ADMIN_SECRET`, from the shared secrets
   file); Settings → Insurance on; referral commission 2%; the
@@ -93,9 +94,8 @@ queue (`breadth/index.ts`), through the routes the screens call:
 - **CRM** (`crm.ts`, `crm-leads.ts`): 23 leads from staff capture, the website
   contact form and the website application form (with agent codes), through
   calls, callbacks, tasks, e-mail, offers and lost reasons; cross-sell
-  opportunity work. Lead conversion is NOT driven: the route fails in this
-  build (CHECK `LoanApplication_acknowledgement_requires_pasq_document`; fixed
-  by e85cc90 on `fix/ci-green-and-quality`).
+  opportunity work; three leads convert into a client and a submitted
+  application (`POST /api/crm/leads/[id]/convert`).
 - **Referral agents** (`referrals.ts`), **insurance** (`insurance*.ts`: funeral
   catalogue, FAIS quote → advice → disclosure → bind, claims, commissions; no
   credit life — with `CREDIT_LIFE_AUTO_BUNDLE_ENABLED=false` it cannot be

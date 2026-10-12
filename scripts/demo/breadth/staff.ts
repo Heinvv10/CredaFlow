@@ -10,12 +10,14 @@
  *   - the Pretoria branch manager (complaints, TCF, referral commissions);
  *   - a platform operator (SUPER_ADMIN). The CRM and bureau-submission modules
  *     are switched on per tenant only through the operator API
- *     (/api/admin/tenants, SUPER_ADMIN + x-admin-secret), and the tenant admin
- *     creates that account through Settings → Users, which offers the role.
+ *     (/api/admin/tenants, SUPER_ADMIN + x-admin-secret). Settings → Users
+ *     refuses to create a role above the caller's, and no route creates a
+ *     SUPER_ADMIN, so sim/provision-operator.ts bootstraps this account when
+ *     the stack is seeded (sim/fresh-stack.sh); it is not created here.
  *
- * Credentials are generated here and kept in scripts/demo/.sim-breadth-staff.json
- * (chmod 600, untracked), keyed by email and tagged with the user id so a fresh
- * database is detected.
+ * Credentials are generated here (the operator's by provision-operator.ts) and
+ * kept in scripts/demo/.sim-breadth-staff.json (chmod 600, untracked), keyed by
+ * email and tagged with the user id so a fresh database is detected.
  */
 import { randomBytes } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
@@ -62,6 +64,13 @@ type Stored = Partial<Record<string, StoredStaff>>
 
 const readStored = (): Stored => (existsSync(FILE) ? (JSON.parse(readFileSync(FILE, "utf8")) as Stored) : {})
 
+/** Records (or replaces) one member's credentials in the credentials file. */
+export function storeStaffCredentials(creds: StoredStaff): void {
+  const stored = readStored()
+  stored[creds.email] = creds
+  writeFileSync(FILE, JSON.stringify(stored, null, 2), { mode: 0o600 })
+}
+
 interface UserRow {
   id: string
   email: string
@@ -95,10 +104,11 @@ export async function ensureBreadthStaff(admin: SimClient): Promise<BreadthStaff
     let creds = stored[spec.email]
     if (existing) {
       if (creds?.userId !== existing.id) throw new Error(`${spec.email} exists but ${FILE} does not hold its credentials; start from a fresh stack`)
+    } else if (key === "operator") {
+      throw new Error(`no platform operator ${spec.email}; sim/fresh-stack.sh provisions it (sim/provision-operator.ts)`)
     } else {
       creds = await createAndEnrol(admin, spec)
-      stored[spec.email] = creds
-      writeFileSync(FILE, JSON.stringify(stored, null, 2), { mode: 0o600 })
+      storeStaffCredentials(creds)
     }
     if (!creds) throw new Error(`no credentials for ${spec.email}`)
     out[key] = { creds, client: new SimClient() }

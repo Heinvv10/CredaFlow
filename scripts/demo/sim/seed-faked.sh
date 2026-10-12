@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs the base seed (prisma/seed.ts) UNDER THE SIM CLOCK.
+# Runs the base seed (prisma/seed.ts), or another script given as $1 (relative
+# to the repo root; sim/provision-operator.ts), UNDER THE SIM CLOCK.
 #
 # The seed stamps rows with host-side `new Date()` values (daysAgo(), loan
 # dates) and Prisma's engine fills @default(now()) / @updatedAt itself, so a
@@ -21,6 +22,7 @@ set -euo pipefail
 ROOT="$DEMO_ROOT"
 IMAGE=credaflow-demo-sim-seed:local
 RUNTIME=node_modules/@prisma/client/runtime/library.js
+SCRIPT="${1:-prisma/seed.ts}"
 
 # Exported and handed to the container by name (-e DATABASE_URL): the URL
 # carries the password, so it never appears in an argv.
@@ -61,4 +63,4 @@ docker run --rm \
   -v "$ROOT/scripts/demo/.sim-clock":/sim-clock:ro \
   -w /w \
   "$IMAGE" \
-  node_modules/.bin/tsx prisma/seed.ts
+  node_modules/.bin/tsx "$SCRIPT"

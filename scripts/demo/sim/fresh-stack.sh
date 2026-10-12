@@ -8,7 +8,9 @@
 # Steps beyond the README's manual bring-up:
 #   - the uploads volume is created root-owned (the image has no /app/uploads),
 #     so it is chowned to the app user or every document upload 500s;
-#   - the seed runs under the fake clock (seed-faked.sh);
+#   - the seed runs under the fake clock (seed-faked.sh), and so does the
+#     platform operator's bootstrap (provision-operator.ts: no route creates a
+#     SUPER_ADMIN), whose credentials go to .sim-breadth-staff.json;
 #   - DEBIT_MANDATE_CREDITOR_TENANT_ID is rewritten to the new "acme" tenant id
 #     and the app recreated, or every debit mandate is refused (503);
 #   - the secrets shared with the live demo ($DEMO_DATA_DIR/secrets.env, see
@@ -57,6 +59,8 @@ docker exec -u root "$SIM_APP" chown nextjs:nodejs /app/uploads
 
 DATABASE_URL="$HOST_DB" NODE_ENV='' npx prisma migrate deploy >&2
 (umask 077; scripts/demo/sim/seed-faked.sh > scripts/demo/.sim-credentials.txt)
+scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts \
+  | npx tsx scripts/demo/sim/provision-operator.ts --store
 
 TENANT_ID="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = 'acme'")"
 [ -n "$TENANT_ID" ] || { echo "fresh-stack: no acme tenant after seeding" >&2; exit 1; }
