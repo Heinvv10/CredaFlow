@@ -136,7 +136,7 @@ describe("canonicalBiometricImage", () => {
     it(`runs at most ${MAX_CONCURRENT_CANONICALISATIONS} at once; the next waits for a slot`, async () => {
       const page = await sharp({ create: { width: 20, height: 20, channels: 3, background: "#ffffff" } }).jpeg().toBuffer()
       const releases: Array<() => void> = []
-      documentImageMock.mockImplementation((buffer: Buffer) => new Promise((resolve) => {
+      documentImageMock.mockImplementation(() => new Promise((resolve) => {
         releases.push(() => resolve({ ok: true, buffer: page, mimeType: "image/jpeg" }))
       }))
       const calls = [1, 2, 3].map((n) => canonicalBiometricImage(Buffer.from(`pdf-${n}`), "application/pdf"))
