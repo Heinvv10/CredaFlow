@@ -35,6 +35,30 @@ export const FACE_MODELS = {
   },
 } as const satisfies Record<string, FaceModelFile>
 
+/**
+ * Licence texts shipped beside the models, with the NOTICE in this directory.
+ * Neither opencv_zoo model directory carries a NOTICE file of its own.
+ * onnxruntime-node's package ships no LICENSE file, so its text comes from
+ * the commit that onnxruntime's v1.30.0 tag points to (the installed version).
+ */
+export const FACE_MODEL_LICENSES = [
+  {
+    file: "LICENSE-face_detection_yunet",
+    url: `https://raw.githubusercontent.com/opencv/opencv_zoo/${OPENCV_ZOO_COMMIT}/models/face_detection_yunet/LICENSE`,
+    sha256: "c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958",
+  },
+  {
+    file: "LICENSE-face_recognition_sface",
+    url: `https://raw.githubusercontent.com/opencv/opencv_zoo/${OPENCV_ZOO_COMMIT}/models/face_recognition_sface/LICENSE`,
+    sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  },
+  {
+    file: "LICENSE-onnxruntime",
+    url: "https://raw.githubusercontent.com/microsoft/onnxruntime/f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7/LICENSE",
+    sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+  },
+] as const
+
 export function faceModelUrl(model: FaceModelFile): string {
   return `https://media.githubusercontent.com/media/opencv/opencv_zoo/${OPENCV_ZOO_COMMIT}/${model.repoPath}`
 }

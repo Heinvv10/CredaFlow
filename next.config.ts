@@ -15,9 +15,10 @@ import { quickQuoteFrameAncestors } from "./lib/insurance/quickquote-config";
 // the loader's path. Both are listed so the standalone image cannot ship
 // without them; the Dockerfile fetches the models before `next build`. The
 // binding is traced for the build host's platform, so the library is too.
+// face-models/ also holds the licence texts and NOTICE that ship with them.
 const faceComparisonFiles = [
   `./node_modules/onnxruntime-node/bin/napi-v6/${process.platform}/${process.arch}/libonnxruntime.so.1`,
-  "./face-models/*.onnx",
+  "./face-models/*",
 ]
 
 const nextConfig: NextConfig = {

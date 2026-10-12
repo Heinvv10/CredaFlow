@@ -20,7 +20,27 @@ int8 variants). They are Git LFS objects, so the download URL is the
 - URL: `https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_recognition_sface/face_recognition_sface_2021dec.onnx`
 
 Runtime: [onnxruntime-node](https://www.npmjs.com/package/onnxruntime-node)
-1.30, CPU execution provider only ([MIT](https://github.com/microsoft/onnxruntime/blob/main/LICENSE)).
+1.30, CPU execution provider only ([MIT](https://github.com/microsoft/onnxruntime/blob/f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7/LICENSE)).
+
+The licence texts ship beside the models: the fetch script downloads
+`LICENSE-face_detection_yunet`, `LICENSE-face_recognition_sface` (from the
+same opencv_zoo commit) and `LICENSE-onnxruntime` (from the commit
+onnxruntime's v1.30.0 tag points to; the npm package ships none), each
+checksum-pinned in `lib/kyc/face-model/models.ts`, and copies
+`lib/kyc/face-model/NOTICE` beside them. Neither model directory carries a
+NOTICE of its own; the models are used unmodified.
+
+Training data: neither model card states terms for the training data. The
+YuNet card reports its accuracy on the WIDER Face validation set and points
+to [libfacedetection.train](https://github.com/ShiqiYu/libfacedetection.train)
+for training; the SFace card describes MobileFaceNet trained with the SFace
+loss and points to the [SFace paper](https://arxiv.org/abs/2205.12010). The
+datasets' own terms are not recorded by OpenCV and are not assessed here.
+
+The YuNet card also says it detects "faces of pixels between around 10x10 to
+300x300 due to the training scheme". The detector runs on the image shrunk to
+fit 640x640, so a selfie whose face fills most of the frame can exceed that
+range; it then fails closed as `face_not_detected`.
 Image decoding: `sharp` (Apache-2.0). No OpenCV binding, no Python, no paid
 service, no GPU.
 

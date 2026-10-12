@@ -1,0 +1,20 @@
+CredaFlow face comparison: third-party components
+
+The files in this directory are not CredaFlow's own work. They are used
+unmodified, fetched by `npm run face-models:fetch` and checked against pinned
+SHA-256 digests (lib/kyc/face-model/models.ts).
+
+face_detection_yunet_2023mar.onnx
+  YuNet face detector. OpenCV Zoo, https://github.com/opencv/opencv_zoo,
+  commit 47534e27c9851bb1128ccc0102f1145e27f23f98,
+  models/face_detection_yunet/. Copyright (c) 2020 Shiqi Yu.
+  MIT License: see LICENSE-face_detection_yunet.
+
+face_recognition_sface_2021dec.onnx
+  SFace face recognizer. OpenCV Zoo, same commit,
+  models/face_recognition_sface/.
+  Apache License 2.0: see LICENSE-face_recognition_sface.
+
+onnxruntime-node 1.30.0 (the runtime that executes both models)
+  ONNX Runtime. Copyright (c) Microsoft Corporation.
+  MIT License: see LICENSE-onnxruntime.
