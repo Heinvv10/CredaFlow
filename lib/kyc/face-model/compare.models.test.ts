@@ -1,20 +1,19 @@
 /**
  * The real ONNX models on synthetic images. No real face is used anywhere:
- * every "face" here is drawn. Skipped unless FACE_MODEL_TESTS=1 and the
- * models are fetched (npm run face-models:fetch):
+ * every "face" here is drawn or computed. Skipped unless FACE_MODEL_TESTS=1;
+ * with it set, missing models FAIL (the load test), never skip. CI runs it
+ * after `npm run face-models:fetch` (.github/workflows/quality-gate.yml):
  *
  *   FACE_MODEL_TESTS=1 npx vitest run lib/kyc/face-model/compare.models.test.ts
  */
-import { existsSync } from "node:fs"
-import path from "node:path"
 import sharp from "sharp"
 import { describe, expect, it } from "vitest"
+import { alignedFaceTensor, SFACE_LANDMARK_TEMPLATE } from "./align"
 import { compareFaces } from "./compare.server"
-import { FACE_MODELS } from "./models"
-import { faceModelDir, loadFaceModelRuntime } from "./runtime.server"
+import { loadFaceModelRuntime } from "./runtime.server"
+import { yunetInputTensor, type RgbImage } from "./yunet"
 
-const present = Object.values(FACE_MODELS).every((model) => existsSync(path.join(faceModelDir(), model.file)))
-const suite = process.env.FACE_MODEL_TESTS === "1" && present ? describe : describe.skip
+const suite = process.env.FACE_MODEL_TESTS === "1" ? describe : describe.skip
 
 // The specimen card's photo box (scripts/demo/specimens/id-card.ts) on a plain card.
 const BOX = { x: 80, y: 210, w: 440, h: 560 }
@@ -48,6 +47,21 @@ async function noise(): Promise<Buffer> {
   return sharp(data, { raw: { width: 640, height: 480, channels: 3 } }).jpeg().toBuffer()
 }
 
+/** A fixed, formula-generated RGB image: the same bytes on every machine. */
+function pattern(width: number, height: number): RgbImage {
+  const data = new Uint8Array(width * height * 3)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let c = 0; c < 3; c++) data[(y * width + x) * 3 + c] = (x * 3 + y * 5 + c * 85 + ((x * y) >> 4)) & 255
+    }
+  }
+  return { data, width, height }
+}
+
+/** Within 0.1% (or 0.001 absolute, for the near-zero sums): kernel noise, not a preprocessing change. */
+const near = (actual: number, expected: number) =>
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(Math.max(1e-3 * Math.abs(expected), 1e-3))
+
 suite("compareFaces with the real models", () => {
   it("loads both models after verifying their checksums", async () => {
     await expect(loadFaceModelRuntime()).resolves.toEqual(
@@ -75,6 +89,33 @@ suite("compareFaces with the real models", () => {
     const image = { fileBuffer: await card(box), mimeType: "image/png" }
     const result = await compareFaces(image, image)
     expect(result.ok && result.rejection === null).toBe(false)
+  })
+
+  // Golden values on fixed synthetic input, so a regression in preprocessing
+  // (channel order, padding, alignment, interpolation) goes red without
+  // needing a real face. Recorded 2026-10-12 on onnxruntime-node 1.30.0, CPU;
+  // identical at 1 and 32 threads.
+  it("produces the pinned YuNet outputs for a fixed synthetic image", async () => {
+    const outputs = await (await loadFaceModelRuntime()).detect(yunetInputTensor(pattern(320, 240)))
+    const golden: Record<string, number> = {
+      bbox_8: 17876.0701, bbox_16: 1644.9988, bbox_32: 2385.6177,
+      cls_8: 4839.4983, cls_16: 862.8916, cls_32: 280.0263,
+      kps_8: 35036.9951, kps_16: 8144.6963, kps_32: 3443.0362,
+      obj_8: 0.0003, obj_16: 0.0032, obj_32: 0.2672,
+    }
+    expect(Object.keys(outputs).sort()).toEqual(Object.keys(golden).sort())
+    for (const [name, sum] of Object.entries(golden)) near(outputs[name].reduce((a, b) => a + b, 0), sum)
+  })
+
+  it("produces the pinned SFace embedding for a fixed synthetic aligned crop", async () => {
+    const landmarks = SFACE_LANDMARK_TEMPLATE.flat().map((v, i) => v * 1.5 + (i % 2 === 0 ? 20 : 10))
+    const embedding = await (await loadFaceModelRuntime()).embed(alignedFaceTensor(pattern(200, 200), landmarks))
+    expect(embedding).toHaveLength(128)
+    const norm = Math.hypot(...embedding)
+    // Projections of the unit embedding onto fixed directions: every value counts.
+    const projections = [0, 1, 2, 3].map((k) => embedding.reduce((a, v, i) => a + v * Math.sin(i * (k + 1)), 0) / norm)
+    const golden = [-0.57479, 0.13583, -0.07412, -0.03459]
+    projections.forEach((value, k) => expect(Math.abs(value - golden[k])).toBeLessThanOrEqual(2e-3))
   })
 
   it("is deterministic", async () => {

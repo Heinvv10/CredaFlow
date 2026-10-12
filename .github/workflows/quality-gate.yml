@@ -73,6 +73,26 @@ jobs:
       - name: Unit tests
         run: npx vitest run
 
+      # The face-comparison models (lib/kyc/face-model/). Keyed on models.ts,
+      # which pins every file's SHA-256; the fetch re-checks a cached file and
+      # downloads only what is missing or wrong.
+      - name: Cache face models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: face-models
+          key: face-models-${{ hashFiles('lib/kyc/face-model/models.ts') }}
+
+      - name: Fetch face models
+        run: npm run face-models:fetch
+
+      # The real-model suite: synthetic negatives and golden detector/embedding
+      # values. Skipped by the unit step above; with FACE_MODEL_TESTS=1 a
+      # missing model fails it rather than skipping.
+      - name: Face model tests (real ONNX models)
+        run: npx vitest run lib/kyc/face-model/compare.models.test.ts
+        env:
+          FACE_MODEL_TESTS: 1
+
       - name: Build
         run: npm run build
         env:
