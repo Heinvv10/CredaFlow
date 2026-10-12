@@ -762,6 +762,32 @@ suite("bundled credit-life migration guard", () => {
         where: { id: application.id, tenantId },
         select: { status: true },
       })).toEqual({ status })
+
+      // Nor approved: the decide route maps this message to a 409 on approve too.
+      await expect(prisma.$transaction(async (tx) => {
+        await tx.loanApplication.update({
+          where: { id: application.id, tenantId },
+          data: {
+            status: "APPROVED",
+            approvedAt: new Date(),
+            approvedById: officerId,
+            repaymentMethod: "EFT",
+            // The approval guards run first and are satisfied by a recorded
+            // "no cover offered" election, so only the loan invariant is left.
+            creditLifeElection: "DECLINED",
+            creditLifeMonthlyPremiumCents: 0,
+            creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+            creditLifeDisclosureSha256: "a".repeat(64),
+            creditLifeDisclosureAcknowledgedAt: new Date(),
+            creditLifeDisclosureAcknowledgedBy: "synthetic-client",
+          },
+        })
+        await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+      })).rejects.toThrow(/loan creation and application disbursement must commit together/i)
+      expect(await prisma.loanApplication.findUniqueOrThrow({
+        where: { id: application.id, tenantId },
+        select: { status: true },
+      })).toEqual({ status })
     }
 
     // APPROVED stays in scope: a loan without the DISBURSED transition is refused.
