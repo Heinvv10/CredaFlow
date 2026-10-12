@@ -95,6 +95,7 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
     const termInput = () => renderer.root.findByProps({ id: "termDays" })
     expect(termInput().props.value).toBe("")
 
+    await act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value: "5000" } }))
     await act(async () => renderer.root.findByProps({ id: "purpose" }).props.onChange({ target: { value: "stock purchase" } }))
     await act(async () => renderer.root.findAllByType("input").filter(
       (i) => i.props.type === "radio" && i.props.name === "creditLifeElection",
@@ -105,7 +106,7 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
     await act(async () => checkboxByText("income, expenses and debt").props.onChange({ target: { checked: true } }))
     await act(async () => findPasqCheckbox(renderer.root).props.onChange({ target: { checked: true } }))
 
-    const ack = () => checkboxByText("I confirm I was shown")
+    const ack = () => checkboxByText("before PASQ generation")
     // Everything else is complete; only the term is missing.
     await act(async () => ack().props.onChange({ target: { checked: true } }))
     expect(termInput().props.value).toBe("")
@@ -120,7 +121,40 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
     expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
   })
 
+  it("starts the amount empty and blocks submit until it is within the product range", async () => {
+    const amountInput = () => renderer.root.findByProps({ id: "amount" })
+    expect(amountInput().props.value).toBe("")
+
+    await act(async () => renderer.root.findByProps({ id: "purpose" }).props.onChange({ target: { value: "stock purchase" } }))
+    await act(async () => renderer.root.findByProps({ id: "termDays" }).props.onChange({ target: { value: "45" } }))
+    await act(async () => renderer.root.findAllByType("input").filter(
+      (i) => i.props.type === "radio" && i.props.name === "creditLifeElection",
+    )[1].props.onChange())
+    const checkboxByText = (text: string) => renderer.root.findAllByType("label").find((l) =>
+      l.findAllByType("span").some((sp) => sp.children.filter((c) => typeof c === "string").join("").includes(text)),
+    )!.findByProps({ type: "checkbox" })
+    await act(async () => checkboxByText("income, expenses and debt").props.onChange({ target: { checked: true } }))
+    const setAmount = async (value: string) => {
+      await act(async () => amountInput().props.onChange({ target: { value } }))
+      await act(async () => checkboxByText("before PASQ generation").props.onChange({ target: { checked: true } }))
+      await act(async () => findPasqCheckbox(renderer.root).props.onChange({ target: { checked: true } }))
+    }
+
+    await setAmount("")
+    expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
+    // Every other field is complete: only the amount decides.
+    await setAmount("5000")
+    expect(findSubmitButton(renderer.root).props.disabled).toBe(false)
+
+    // Below range, above range, and absurd (used to throw a RangeError in render).
+    for (const bad of ["1999", "100001", "3000000000000000", "1e300"]) {
+      await setAmount(bad)
+      expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
+    }
+  })
+
   it("clears the disclosure acknowledgement when a variable term changes", async () => {
+    await act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value: "5000" } }))
     const acceptedElection = renderer.root.findAllByType("input").find(
       (input) =>
         input.props.type === "radio"
@@ -226,6 +260,7 @@ describe("PortalApplyProductClient with no credit-life offer", () => {
   it("lets the applicant reach a submittable form", async () => {
     expect(findSubmitButton(renderer.root).props.disabled).toBe(true)
 
+    await act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value: "5000" } }))
     const purpose = renderer.root.findByProps({ id: "purpose" })
     await act(async () => purpose.props.onChange({ target: { value: "stock purchase" } }))
 
