@@ -52,6 +52,7 @@ export interface CoreDocumentClassificationRow extends DocumentKycInput {
 
 export interface CoreKycDocumentRow extends CoreDocumentClassificationRow {
   contentSha256: string | null
+  verificationRejectedAt: Date | null
 }
 
 export type CoreDocumentGapState =
@@ -167,6 +168,7 @@ export interface CompositeKycReader {
         verified: true
         verificationNote: true
         verificationRejectedById: true
+        verificationRejectedAt: true
         id: true
         contentSha256: true
         createdAt: true
@@ -443,6 +445,7 @@ export async function readCompositeKycState(
         verified: true,
         verificationNote: true,
         verificationRejectedById: true,
+        verificationRejectedAt: true,
         id: true,
         contentSha256: true,
         createdAt: true,
@@ -533,7 +536,12 @@ export async function readCompositeKycState(
       }))[0] ?? null
   // The selfie counts only against that same ID copy (subject_has_composite_kyc).
   const biometricAssessment = latestSelfie
-    ? assessBiometricEvidence(latestSelfie, { subject: args.subject, idDocument })
+    ? assessBiometricEvidence(latestSelfie, {
+        subject: args.subject,
+        idDocument,
+        // Non-deleted only (the query's filter): a deleted bound copy is not pending.
+        idDocumentCopies: documents.filter((document) => document.docType === "ID_COPY"),
+      })
     : { ok: false as const, reason: "biometric_evidence_missing" as const }
   const manualException = currentManualKycException(exceptionRecord, {
     clientId: args.clientId,

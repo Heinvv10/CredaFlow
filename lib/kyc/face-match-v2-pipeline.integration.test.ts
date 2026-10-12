@@ -223,6 +223,15 @@ const verifyDocument = (clientId: string, docId: string) => verifyPATCH(new Next
   { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ verified: true }) },
 ), { params: Promise.resolve({ id: clientId, docId }) })
 
+const rejectDocument = (clientId: string, docId: string) => verifyPATCH(new NextRequest(
+  "http://localhost/",
+  {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ verified: false, rejectReason: "Synthetic: the photo does not match the ID on file" }),
+  },
+), { params: Promise.resolve({ id: clientId, docId }) })
+
 /** The origination half of the app's composite verdict. */
 async function origination(clientId: string) {
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
@@ -442,6 +451,30 @@ suite("face match v2 through the real pipeline", () => {
       expect(selfie.verified).toBe(false)
       expect(reasonOf(selfie)).toBe("subject_identity_changed")
       expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+    })
+
+    it("keeps a match against a copy staff then rejected FAILED, origination blocked (P1)", async () => {
+      const fixture = await seedClient()
+      const newer = await addIdCopy(fixture, "later-rejected", { verified: false, contentSha256: "b".repeat(64) })
+      stubVlm(passingReply())
+      await capture(fixture)
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("PENDING")
+
+      // A passing match against a copy staff rejected is an adverse signal,
+      // the same fact as a rejection that lands while the check runs.
+      const response = await rejectDocument(fixture.clientId, newer)
+      expect(response.status).toBe(200)
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("FAILED")
+      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+    })
+
+    it("keeps a match against a copy since deleted FAILED", async () => {
+      const fixture = await seedClient()
+      const newer = await addIdCopy(fixture, "later-deleted", { verified: false, contentSha256: "b".repeat(64) })
+      stubVlm(passingReply())
+      await capture(fixture)
+      await db.clientDocument.update({ where: { id: newer }, data: { deletedAt: new Date(), deletedByType: "staff" } })
+      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
     })
 
     it("re-verifies a client whose new ID copy staff verified, after a new selfie (LEGIT3)", async () => {

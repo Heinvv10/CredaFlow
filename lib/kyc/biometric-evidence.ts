@@ -210,6 +210,11 @@ export interface BiometricIdDocument {
   contentSha256: string | null
 }
 
+/** An ID copy with the staff decision that can make a match against it adverse. */
+export interface BiometricIdDocumentCopy extends BiometricIdDocument {
+  verificationRejectedAt?: Date | null
+}
+
 export function assessBiometricEvidence(
   evidence: BiometricDocumentEvidence,
   options: {
@@ -220,6 +225,15 @@ export function assessBiometricEvidence(
      * against exactly this row.
      */
     idDocument: BiometricIdDocument | null
+    /**
+     * The client's non-deleted ID copies, verified or not, or null when the
+     * caller did not read them. Decides only whether an ID-copy binding
+     * refusal is a pending ID change (idDocumentNotCurrent): it is when the
+     * copy the match ran against is still among them, with the same digest,
+     * and staff have not rejected it. A rejected, deleted or unread copy
+     * leaves the refusal unflagged, a failed attempt.
+     */
+    idDocumentCopies: readonly BiometricIdDocumentCopy[] | null
     requireDocumentVerified?: boolean
   },
 ): BiometricEvidenceAssessment {
@@ -333,16 +347,25 @@ export function assessBiometricEvidence(
   }
   // A match against any other ID copy (a newer unverified or rejected upload,
   // or one since replaced) says nothing about the verified identity. Checked
-  // last, so that refusing here means every other check passed: a legitimate
+  // last, so that refusing here means every other check passed. A legitimate
   // ID change (a new copy verified since, or one not verified yet) is not a
-  // failed attempt, and deriveCompositeKycState projects it as pending.
+  // failed attempt, and deriveCompositeKycState projects it as pending; a
+  // match against a copy staff rejected or deleted is an adverse signal, the
+  // same fact as a rejection that lands while the check runs, and stays a
+  // failure.
   if (
     !options.idDocument ||
     !isSha256Digest(options.idDocument.contentSha256) ||
     providerResult.idDocumentId !== options.idDocument.id ||
     providerResult.idDocumentSha256 !== options.idDocument.contentSha256
   ) {
-    return { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
+    const boundCopy = options.idDocumentCopies?.find((copy) => copy.id === providerResult.idDocumentId)
+    const pendingIdChange = boundCopy !== undefined &&
+      boundCopy.contentSha256 === providerResult.idDocumentSha256 &&
+      (boundCopy.verificationRejectedAt ?? null) === null
+    return pendingIdChange
+      ? { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
+      : { ok: false, reason: "subject_identity_changed" }
   }
 
   return { ok: true }

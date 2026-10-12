@@ -237,6 +237,8 @@ export async function runBiometricVerification(
           // The copy capture compared against. This decides only whether the
           // match itself passed; the composite gate decides whether it counts.
           idDocument,
+          // Bound to the compared copy by construction; nothing to flag.
+          idDocumentCopies: null,
           requireDocumentVerified: false,
         })
       : { ok: false as const, reason: "subject_fingerprint_missing" as const }

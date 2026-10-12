@@ -183,6 +183,8 @@ export async function PATCH(
             const biometricEvidence = assessBiometricEvidence(doc, {
               subject: clientCheck,
               idDocument,
+              // Only the refusal reason is read here, which this never changes.
+              idDocumentCopies: null,
               requireDocumentVerified: false,
             })
             if (!biometricEvidence.ok) {

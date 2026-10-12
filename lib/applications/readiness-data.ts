@@ -122,6 +122,7 @@ export const readinessCoreDocumentSelect =
     verified: true,
     verificationNote: true,
     verificationRejectedById: true,
+    verificationRejectedAt: true,
     id: true,
     contentSha256: true,
     createdAt: true,

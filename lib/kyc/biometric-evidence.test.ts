@@ -41,6 +41,8 @@ const passingVlmVerdict = {
 }
 // The client's newest verified ID copy, which the match was run against.
 const idDocument = { id: "id-doc-1", contentSha256: "c".repeat(64) }
+// The client's non-deleted ID copies.
+const idDocumentCopies = [{ ...idDocument, verificationRejectedAt: null }]
 const boundProviderResult = {
   ...passingProviderResult,
   ...passingVlmVerdict,
@@ -130,13 +132,13 @@ describe("biometricSubjectFingerprint", () => {
 
 describe("assessBiometricEvidence", () => {
   it("accepts one live usable face with a completed positive provider result", () => {
-    expect(assessBiometricEvidence(passingEvidence, { subject, idDocument })).toEqual({ ok: true })
+    expect(assessBiometricEvidence(passingEvidence, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
   })
 
   it("can assess provider evidence before the document acceptance write", () => {
     expect(assessBiometricEvidence(
       { ...passingEvidence, verified: false },
-      { subject, idDocument, requireDocumentVerified: false },
+      { subject, idDocument, idDocumentCopies, requireDocumentVerified: false },
     )).toEqual({ ok: true })
   })
 
@@ -158,7 +160,7 @@ describe("assessBiometricEvidence", () => {
     ["document was deleted", { deletedAt: new Date("2026-07-22T11:00:00.000Z") }, "document_deleted"],
     ["document was not accepted", { verified: false }, "document_not_verified"],
   ] as const)("rejects when %s", (_label, changes, reason) => {
-    expect(assessBiometricEvidence({ ...passingEvidence, ...changes }, { subject, idDocument })).toEqual({
+    expect(assessBiometricEvidence({ ...passingEvidence, ...changes }, { subject, idDocument, idDocumentCopies })).toEqual({
       ok: false,
       reason,
     })
@@ -171,7 +173,7 @@ describe("assessBiometricEvidence", () => {
       extractionStatus: "failed",
       extractionResult: null,
       biometricResult: { biometricFailureReason: "face_not_detected" },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "face_not_detected" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "face_not_detected" })
   })
 
   it("does not trust an unknown persisted failure reason", () => {
@@ -181,7 +183,7 @@ describe("assessBiometricEvidence", () => {
       extractionStatus: "failed",
       extractionResult: null,
       biometricResult: { biometricFailureReason: "staff_says_ok" },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "extraction_incomplete" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "extraction_incomplete" })
   })
 
   it.each([
@@ -190,7 +192,7 @@ describe("assessBiometricEvidence", () => {
     ["biometricMatchScore"],
     ["biometricLiveness"],
   ] as const)("fails closed when %s is absent", (field) => {
-    expect(assessBiometricEvidence({ ...passingEvidence, [field]: null }, { subject, idDocument })).toEqual({
+    expect(assessBiometricEvidence({ ...passingEvidence, [field]: null }, { subject, idDocument, idDocumentCopies })).toEqual({
       ok: false,
       reason: "biometric_evidence_missing",
     })
@@ -206,7 +208,7 @@ describe("assessBiometricEvidence", () => {
         idDocumentSha256: idDocument.contentSha256,
         subjectFingerprint: biometricSubjectFingerprint(subject),
       },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "provider_verification_missing" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_missing" })
   })
 
   it.each([
@@ -219,7 +221,7 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, [field]: value },
-    }, { subject, idDocument })).toEqual({ ok: false, reason })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason })
   })
 
   it.each([
@@ -231,21 +233,21 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, [field]: value },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "provider_verification_failed" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_failed" })
   })
 
   it("accepts raw confidences of exactly 1", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, matchConfidence: 1, livenessConfidence: 1 },
-    }, { subject, idDocument })).toEqual({ ok: true })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
   })
 
   it("accepts raw confidences exactly at the threshold", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, matchConfidence: 0.7, livenessConfidence: 0.7 },
-    }, { subject, idDocument })).toEqual({ ok: true })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
   })
 
   // v1 passed a selfie against a silhouette placeholder: it must never verify.
@@ -257,7 +259,7 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, provider },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "provider_verification_missing" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_missing" })
   })
 
   it.each([
@@ -273,7 +275,7 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, [field]: value },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "provider_verification_failed" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_failed" })
   })
 
   it("does not treat an arbitrary extraction error as the configured VLM exception", () => {
@@ -281,21 +283,21 @@ describe("assessBiometricEvidence", () => {
       ...passingEvidence,
       extractionResult: null,
       extractionError: "VLM timed out after dispatch",
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "biometric_evidence_missing" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "biometric_evidence_missing" })
   })
 
   it("fails closed when successful provider evidence has no subject binding", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: passingProviderResult,
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "subject_fingerprint_missing" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "subject_fingerprint_missing" })
   })
 
   it("rejects a synthetic provider success even when every score passes", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, simulated: true },
-    }, { subject, idDocument })).toEqual({
+    }, { subject, idDocument, idDocumentCopies })).toEqual({
       ok: false,
       reason: "simulated_provider_evidence",
     })
@@ -305,6 +307,7 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence(passingEvidence, {
       subject: { ...subject, idNumber: "9101015009086" },
       idDocument,
+      idDocumentCopies,
     })).toEqual({ ok: false, reason: "subject_identity_changed" })
   })
 
@@ -314,12 +317,26 @@ describe("assessBiometricEvidence", () => {
     ["the newest verified copy's digest differs", { id: "id-doc-1", contentSha256: "d".repeat(64) }],
     ["the newest verified copy has no digest", { id: "id-doc-1", contentSha256: null }],
   ])("refuses a match not run against the ID the KYC rests on: %s", (_label, current) => {
-    expect(assessBiometricEvidence(passingEvidence, { subject, idDocument: current })).toEqual({
+    // The copy the match ran against is still on file, not rejected: the only
+    // refusal is a pending ID change, not a failed attempt.
+    expect(assessBiometricEvidence(passingEvidence, { subject, idDocument: current, idDocumentCopies })).toEqual({
       ok: false,
       reason: "subject_identity_changed",
-      // The only refusal: a pending ID change, not a failed attempt.
       idDocumentNotCurrent: true,
     })
+  })
+
+  it.each([
+    ["staff rejected it", [{ ...idDocument, verificationRejectedAt: new Date("2026-10-12T09:00:00.000Z") }]],
+    ["it was deleted (absent from the non-deleted copies)", []],
+    ["its bytes are not the ones matched", [{ ...idDocument, contentSha256: "e".repeat(64), verificationRejectedAt: null }]],
+    ["the caller did not read the copies", null],
+  ])("keeps a binding refusal a failed attempt when the matched copy is not pending: %s", (_label, copies) => {
+    expect(assessBiometricEvidence(passingEvidence, {
+      subject,
+      idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+      idDocumentCopies: copies,
+    })).toEqual({ ok: false, reason: "subject_identity_changed" })
   })
 
   it.each([
@@ -330,6 +347,7 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({ ...passingEvidence, ...change }, {
       subject,
       idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+      idDocumentCopies,
     })).toEqual({ ok: false, reason })
   })
 
@@ -337,6 +355,7 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence(passingEvidence, {
       subject: { ...subject, firstName: "Changed" },
       idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+      idDocumentCopies,
     })).toEqual({ ok: false, reason: "subject_identity_changed" })
   })
 
@@ -344,7 +363,11 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, idDocumentSha256: null },
-    }, { subject, idDocument: { id: "id-doc-1", contentSha256: null } })).toEqual({
+    }, {
+      subject,
+      idDocument: { id: "id-doc-1", contentSha256: null },
+      idDocumentCopies: [{ id: "id-doc-1", contentSha256: null, verificationRejectedAt: null }],
+    })).toEqual({
       ok: false,
       reason: "subject_identity_changed",
       idDocumentNotCurrent: true,
@@ -360,14 +383,14 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, simulated },
-    }, { subject, idDocument })).toEqual({ ok: false, reason: "simulated_provider_evidence" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "simulated_provider_evidence" })
   })
 
   it("accepts simulated: false", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, simulated: false },
-    }, { subject, idDocument })).toEqual({ ok: true })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
   })
 })
 
