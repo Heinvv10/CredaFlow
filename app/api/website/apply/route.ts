@@ -75,6 +75,12 @@ function classifyAgreementType(amountCents: number): "SMALL" | "INTERMEDIATE" | 
   return "LARGE"
 }
 
+// Fixed-term products use their own single term; variable-term products use
+// the client's term exactly (range and presence are enforced by the callers).
+function productTerm(product: { minTermDays: number; maxTermDays: number }, appliedTermDays: number): number {
+  return product.minTermDays === product.maxTermDays ? product.minTermDays : appliedTermDays
+}
+
 function safeMoneyCents(value: unknown): number {
   const amount = Number(value)
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : 0
@@ -169,7 +175,8 @@ export async function POST(req: NextRequest) {
     // A term counts only when the client sent a whole, positive number of days.
     // Number(true) === 1 and Number("") === 0, so check the type first. A
     // missing/invalid term is never defaulted: variable-term products refuse it
-    // below; fixed-term products clamp any value to their own single term.
+    // below; fixed-term products use their own single term. An out-of-range term
+    // on a variable-term product is refused, never clamped.
     const submittedTermDays =
       typeof termDays === "number" || (typeof termDays === "string" && termDays.trim() !== "")
         ? Number(termDays)
@@ -211,7 +218,7 @@ export async function POST(req: NextRequest) {
     // behind. Only a request that would go on to create an application needs a
     // term: lead-only captures (no email/ID/amount, no matching product, amount
     // outside the product range) are still accepted without one.
-    if (!hasValidTerm && email && idNumber && productTypeNormalised && requestedAmountCents > 0) {
+    if (email && idNumber && productTypeNormalised && requestedAmountCents > 0) {
       const termProduct = await prisma.loanProduct.findFirst({
         where: { tenantId: tenant.id, productType: productTypeNormalised, active: true },
         orderBy: { createdAt: "asc" },
@@ -222,10 +229,22 @@ export async function POST(req: NextRequest) {
         requestedAmountCents <= termProduct.maxAmount &&
         termProduct.minTermDays !== termProduct.maxTermDays
       ) {
-        return NextResponse.json(
-          { success: false, error: "Please choose a loan term (a whole number of days) and try again." },
-          { status: 400 },
-        )
+        if (!hasValidTerm) {
+          return NextResponse.json(
+            { success: false, error: "Please choose a loan term (a whole number of days) and try again." },
+            { status: 400 },
+          )
+        }
+        if (appliedTermDays < termProduct.minTermDays || appliedTermDays > termProduct.maxTermDays) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Please choose a term between ${termProduct.minTermDays} and ${termProduct.maxTermDays} days for this loan.`,
+              termRange: { minTermDays: termProduct.minTermDays, maxTermDays: termProduct.maxTermDays },
+            },
+            { status: 400 },
+          )
+        }
       }
     }
     const rawSource = String(source || "WEBSITE").toUpperCase()
@@ -719,10 +738,7 @@ export async function POST(req: NextRequest) {
           requestedAmountCents >= existingProduct.minAmount &&
           requestedAmountCents <= existingProduct.maxAmount
         ) {
-          const requestedTerm = Math.max(
-            existingProduct.minTermDays,
-            Math.min(existingProduct.maxTermDays, appliedTermDays),
-          )
+          const requestedTerm = productTerm(existingProduct, appliedTermDays)
           const openApplication = await prisma.loanApplication.findFirst({
             where: {
               tenantId: tenant.id,
@@ -766,9 +782,8 @@ export async function POST(req: NextRequest) {
           })
 
           if (product && requestedAmountCents >= product.minAmount && requestedAmountCents <= product.maxAmount) {
-            // Out-of-range terms are deliberately clamped (the form validates the range;
-            // the route refuses only a missing or invalid term).
-            const term = Math.max(product.minTermDays, Math.min(product.maxTermDays, appliedTermDays))
+            // The pre-check above already refused a missing or out-of-range term.
+            const term = productTerm(product, appliedTermDays)
             // A same-key retry must reach the Lead row lock below. The original
             // request may have committed its application after this retry read
             // the Lead as NEW; treating that newly visible application as a
@@ -909,10 +924,15 @@ export async function POST(req: NextRequest) {
                   throw new Error("WEBSITE_APPLICATION_PRICING_CHANGED")
                 }
 
-                const lockedTerm = Math.max(
-                  snapshotProduct.minTermDays,
-                  Math.min(snapshotProduct.maxTermDays, appliedTermDays),
-                )
+                // The range may have narrowed since the pre-check: refuse, never clamp.
+                if (
+                  snapshotProduct.minTermDays !== snapshotProduct.maxTermDays &&
+                  (appliedTermDays < snapshotProduct.minTermDays ||
+                    appliedTermDays > snapshotProduct.maxTermDays)
+                ) {
+                  throw new Error("WEBSITE_APPLICATION_PRICING_CHANGED")
+                }
+                const lockedTerm = productTerm(snapshotProduct, appliedTermDays)
                 const currentOpenApplication = await tx.loanApplication.findFirst({
                   where: {
                     tenantId: tenant.id,

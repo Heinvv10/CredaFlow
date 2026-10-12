@@ -15,6 +15,8 @@ import {
   applyProductTermDays,
   applyTermError,
   planApplyTerm,
+  effectiveApplyTermRange,
+  serverTermRangeFromResponse,
   qualifyApplyHref,
   formatRandsWhole,
   formatProductRange,
@@ -561,5 +563,36 @@ describe("planApplyTerm — the apply form never sends no term where one may be 
   it("unknown product/range (e.g. a restored draft with an unrecognised product): field shown, required, no crash", () => {
     expect(planApplyTerm("", undefined)).toEqual({ showField: true, error: "Please enter your loan term in days", sendTermDays: "" })
     expect(planApplyTerm("45", undefined)).toEqual({ showField: true, error: null, sendTermDays: "45" })
+  })
+})
+
+describe("server-guided apply term range", () => {
+  const body = { success: false, error: "msg", termRange: { minTermDays: 60, maxTermDays: 90 } }
+
+  it("reads the range from the route's 400 body, tagged with the product", () => {
+    expect(serverTermRangeFromResponse("MICRO", body)).toEqual({ productType: "MICRO", min: 60, max: 90 })
+  })
+
+  it.each([null, {}, { termRange: {} }, { termRange: { minTermDays: "60", maxTermDays: 90 } }, { termRange: { minTermDays: 90, maxTermDays: 60 } }])(
+    "ignores a response without a usable range: %j",
+    (data) => {
+      expect(serverTermRangeFromResponse("MICRO", data)).toBeNull()
+    },
+  )
+
+  it("a catalogue-fixed product becomes a visible field with the server's bounds", () => {
+    const fixed = { min: 30, max: 30, fixed: true }
+    const server = serverTermRangeFromResponse("MICRO", body)
+    const range = effectiveApplyTermRange("MICRO", fixed, server)
+    expect(range).toEqual({ min: 60, max: 90, fixed: false })
+    expect(planApplyTerm("", range)).toMatchObject({ showField: true, error: "Please enter your loan term in days" })
+    expect(planApplyTerm("30", range).error).toBe("Term must be between 60 and 90 days")
+    expect(planApplyTerm("75", range)).toEqual({ showField: true, error: null, sendTermDays: "75" })
+  })
+
+  it("a server range for another product does not apply", () => {
+    const fixed = { min: 30, max: 30, fixed: true }
+    expect(effectiveApplyTermRange("PERSONAL", fixed, { productType: "MICRO", min: 60, max: 90 })).toBe(fixed)
+    expect(effectiveApplyTermRange("MICRO", fixed, null)).toBe(fixed)
   })
 })
