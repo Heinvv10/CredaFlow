@@ -222,8 +222,9 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
   })
 
   it("refuses recoveryApplicationId on an unlinked lead and writes nothing", async () => {
-    // The route zeroes the loan inputs when recoveryApplicationId is set, so
-    // only a product with minAmount 0 lets the old code reach the writes.
+    // The route zeroes the loan inputs when recoveryApplicationId is set. A
+    // product minimum of 0 is now impossible (LoanProduct_amount_bounds), so
+    // this uses the smallest legal minimum.
     const zeroMinProductId = `${productId}_zero`
     await db.loanProduct.create({
       data: {
@@ -232,7 +233,7 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
         code: `STAFF-CONVERT-ZERO-${token}`,
         name: "Staff Conversion Zero Minimum Product",
         productType: "PERSONAL",
-        minAmount: 0,
+        minAmount: 1,
         maxAmount: 1_000_000,
         minTermDays: 30,
         maxTermDays: 90,
