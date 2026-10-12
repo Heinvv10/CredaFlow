@@ -96,3 +96,12 @@ it("PATCH answers 404 for a member outside the caller's tenant and toggles nothi
   expect(userFindFirstMock).toHaveBeenCalledWith({ where: { id: "u2", tenantId: "t1" }, select: { role: true } })
   expect(setAgentMock).not.toHaveBeenCalled()
 })
+
+// A JSON object is not an id: Prisma would read {"startsWith":""} as a filter
+// and the update would flip every matching user, senior ones included.
+it.each([{ startsWith: "" }, { not: "admin1" }, ["u2"], 7])("PATCH rejects a userId that is not a string (%j) and toggles nothing", async (userId) => {
+  const res = await PATCH(new NextRequest("http://x/api/inbox/roster", { method: "PATCH", body: JSON.stringify({ userId, isCommsAgent: true }) }))
+  expect(res.status).toBe(400)
+  expect(userFindFirstMock).not.toHaveBeenCalled()
+  expect(setAgentMock).not.toHaveBeenCalled()
+})

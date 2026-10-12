@@ -162,6 +162,40 @@ describe("PATCH /api/settings/users/[id] — role ceiling", () => {
     expect(h.userUpdate).not.toHaveBeenCalled()
   })
 
+  // A body value is used as-is in Prisma queries, where an object is a filter
+  // and a non-string is a 500. Every field is type-checked before any query.
+  it.each([
+    { email: { contains: "@" } },
+    { email: 7 },
+    { name: { set: "x" } },
+    { password: ["synthetic-pass-2"] },
+    { password: { length: 12 } },
+    { phone: 27820000000 },
+    { branchId: { startsWith: "" } },
+    { active: "false" },
+    { active: 0 },
+  ])("rejects a field of the wrong type (%j) with 400 and queries nothing", async (field) => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER")
+    const res = await patch(field)
+
+    expect(res.status).toBe(400)
+    expect(h.userFindFirst).not.toHaveBeenCalled()
+    expect(h.userFindUnique).not.toHaveBeenCalled()
+    expect(h.branchFindFirst).not.toHaveBeenCalled()
+    expect(h.userUpdate).not.toHaveBeenCalled()
+  })
+
+  // The forms send these shapes; they stay accepted.
+  it("accepts null phone, branch and name", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER")
+    const res = await patch({ name: null, phone: null, branchId: null })
+
+    expect(res.status).toBe(200)
+    expect(h.userUpdate.mock.calls[0][0].data).toEqual({ name: null, phone: null, branchId: null })
+  })
+
   it.each([false, undefined])("refuses a session whose sign-in did not verify TOTP (%j), and writes nothing", async (totpVerified) => {
     signedIn("SUPER_ADMIN", { totpVerified })
     target("CREDIT_OFFICER")

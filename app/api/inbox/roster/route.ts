@@ -15,7 +15,9 @@ export async function PATCH(req: NextRequest) {
   const guard = await requireApiRole("ADMIN")
   if (guard.error) return guard.error
   const body = (await req.json()) as { userId?: string; isCommsAgent?: boolean }
-  if (!body.userId || typeof body.isCommsAgent !== "boolean") {
+  // typeof, not truthiness: an object userId is a Prisma filter that would
+  // match (and flip) many users.
+  if (typeof body.userId !== "string" || !body.userId || typeof body.isCommsAgent !== "boolean") {
     return NextResponse.json({ error: "userId and isCommsAgent required" }, { status: 400 })
   }
   return withTenantContext(req, async (tenant) => {

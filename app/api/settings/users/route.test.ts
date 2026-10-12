@@ -119,6 +119,26 @@ describe("POST /api/settings/users", () => {
     expect(h.userFindUnique).not.toHaveBeenCalled()
   })
 
+  // A body value is used as-is in Prisma queries, where an object is a filter
+  // and a non-string is a 500. Every field is type-checked before any query.
+  it.each([
+    { email: { contains: "@" } },
+    { email: ["new.staff@acme-lending.example"] },
+    { name: { set: "x" } },
+    { password: ["synthetic-pass-1"] },
+    { password: { length: 12 } },
+    { phone: 27820000000 },
+    { branchId: { startsWith: "" } },
+  ])("rejects a field of the wrong type (%j) with 400 and queries nothing", async (field) => {
+    signedIn("ADMIN")
+    const res = await post({ role: "CREDIT_OFFICER", ...field })
+
+    expect(res.status).toBe(400)
+    expect(h.userFindUnique).not.toHaveBeenCalled()
+    expect(h.branchFindFirst).not.toHaveBeenCalled()
+    expect(h.userCreate).not.toHaveBeenCalled()
+  })
+
   it("refuses a caller below BRANCH_MANAGER", async () => {
     signedIn("LOAN_ADMIN")
     expect((await post({ role: "READONLY" })).status).toBe(403)

@@ -24,6 +24,16 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       name?: string; email?: string; role?: UserRole; active?: boolean
       password?: string; phone?: string; branchId?: string | null
     }
+    // Body values reach Prisma as-is, where an object is a filter. The role is
+    // checked by the write gate below.
+    const optional = (value: unknown, type: "string" | "boolean") => value === undefined || typeof value === type
+    const nullable = (value: unknown) => value === null || optional(value, "string")
+    if (
+      !nullable(name) || !optional(email, "string") || !optional(active, "boolean") ||
+      !optional(password, "string") || !nullable(phone) || !nullable(branchId)
+    ) {
+      return NextResponse.json({ error: "Invalid user details" }, { status: 400 })
+    }
 
     if (id === guard.user.id && active === false) {
       return NextResponse.json({ error: "You cannot deactivate your own account" }, { status: 400 })

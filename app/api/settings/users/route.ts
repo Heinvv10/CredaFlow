@@ -63,6 +63,14 @@ export async function POST(req: NextRequest) {
     if (!name || !email || !role || !password) {
       return NextResponse.json({ error: "Name, email, role and password are required" }, { status: 400 })
     }
+    // Body values reach Prisma as-is, where an object is a filter. The role is
+    // checked by the write gate below.
+    if (
+      typeof name !== "string" || typeof email !== "string" || typeof password !== "string" ||
+      (phone != null && typeof phone !== "string") || (branchId != null && typeof branchId !== "string")
+    ) {
+      return NextResponse.json({ error: "Invalid user details" }, { status: 400 })
+    }
 
     // Before the email probe below, so its 409 tells a refused caller nothing.
     const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetRole: null, assignedRole: role })
