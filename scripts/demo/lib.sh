@@ -48,6 +48,10 @@ SIM_NETWORK="${SIM_PROJECT}_default"
 SIM_IMAGE=credaflow:demo-sim
 # Where SIM_HOST_DATABASE_URL must point (the sim db's published port).
 SIM_DB_HOST_PORT=127.0.0.1:5456
+# The comment fresh-stack.sh puts on the sim database, which
+# sim/provision-operator.ts requires before it writes (SIM_DATABASE_MARKER in
+# sim/operator.ts).
+SIM_DB_MARKER=credaflow-demo-sim
 
 # The row counts a snapshot records (bake.sh) and a restore verifies (restore.sh).
 SNAPSHOT_COUNTS_SQL="$(cat <<'SQL'

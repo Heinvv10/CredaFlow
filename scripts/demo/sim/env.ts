@@ -28,6 +28,12 @@ export const SIM_CLOCK_DIR = path.join(REPO_ROOT, "scripts", "demo", ".sim-clock
 /** Seed credentials captured for the simulator (chmod 600, untracked). */
 export const SIM_CREDENTIALS_FILE = path.join(REPO_ROOT, "scripts", "demo", ".sim-credentials.txt")
 
+/**
+ * The sim db as the containers on the sim network reach it: the `db` service
+ * of docker-compose.demo-sim.yml, port 5432 (DATABASE_URL in .env.demo-sim).
+ */
+export const SIM_DB_SERVICE_ADDRESS = "db:5432"
+
 /** Origin of the sim app (127.0.0.1-bound). Override with SIM_BASE_URL. */
 export function simBaseUrl(): string {
   return (process.env.SIM_BASE_URL ?? "http://localhost:3320").replace(/\/+$/, "")
