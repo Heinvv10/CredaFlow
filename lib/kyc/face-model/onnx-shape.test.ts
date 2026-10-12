@@ -34,7 +34,8 @@ describe("withSymbolicDetectorShape", () => {
     expect(before.inputs).toEqual([["input", [1, 3, 640, 640]]])
     const after = readShapes(withSymbolicDetectorShape(model()))
     expect(after.inputs).toEqual([["input", [1, 3, "h", "w"]]])
-    expect(after.outputs).toEqual([["cls_8", [1, "rows", 1]], ["kps_32", [1, "rows", 10]]])
+    // Each output gets its own name: they have different row counts at one input size.
+    expect(after.outputs).toEqual([["cls_8", [1, "rows_cls_8", 1]], ["kps_32", [1, "rows_kps_32", 10]]])
   })
 
   it("drops the value_info shape hints and keeps every other byte", () => {
@@ -55,6 +56,11 @@ describe("withSymbolicDetectorShape", () => {
     ["no graph", Buffer.from([...varint(1 << 3), 7])],
     ["a truncated length", Buffer.from([...varint((7 << 3) | 2), 50, 1, 2])],
     ["no input named input", Buffer.from(field(7, field(11, valueInfo("other", [1, 3, 640, 640]))))],
+    // An 11-byte varint: protobuf varints are at most 10.
+    // otherwise a valid model, so only the varint length can refuse it.
+    ["an overlong varint", Buffer.from([0x08, ...new Array(10).fill(0x80), 0x01, ...field(7, field(11, valueInfo("input", [1, 3, 640, 640])))])],
+    // A length far past the end of the bytes (and past 2^53).
+    ["a length beyond the buffer", Buffer.from([0x3a, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f])],
   ])("refuses a model with %s", (_label, bytes) => {
     expect(() => withSymbolicDetectorShape(bytes)).toThrow()
   })

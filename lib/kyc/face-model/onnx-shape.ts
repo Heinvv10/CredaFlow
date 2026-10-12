@@ -3,7 +3,7 @@
  * any other size. Its graph does not depend on the size (every Reshape is to
  * [1, -1, k]); only the declared shapes do. This rewrites, in the verified
  * bytes, the input's height and width and each output's row count as
- * symbolic dimensions and drops the value_info shape hints, so one session
+ * symbolic dimensions (one name per output) and drops the value_info shape hints, so one session
  * runs both the 640-fit pass and the ID-side full-resolution pass. Weights
  * and operators are untouched; at 640 the outputs are bit-identical to the
  * original file's (the golden test pins them).
@@ -16,13 +16,14 @@
  */
 type Field = { number: number; wire: number; start: number; end: number; payloadStart: number }
 
+/** A protobuf varint: at most 10 bytes. */
 function varint(bytes: Uint8Array, at: number): [number, number] {
   let value = 0
-  for (let shift = 1, i = at; i < bytes.length; i++, shift *= 128) {
+  for (let shift = 1, i = at; i < bytes.length && i < at + 10; i++, shift *= 128) {
     value += (bytes[i] & 0x7f) * shift
     if (bytes[i] < 0x80) return [value, i + 1]
   }
-  throw new Error("ONNX model: truncated varint")
+  throw new Error("ONNX model: malformed varint")
 }
 
 function fields(bytes: Uint8Array): Field[] {
@@ -40,7 +41,7 @@ function fields(bytes: Uint8Array): Field[] {
       payloadStart = afterLength
       end = afterLength + length
     } else throw new Error(`ONNX model: unsupported wire type ${wire}`)
-    if (end > bytes.length) throw new Error("ONNX model: truncated field")
+    if (!Number.isSafeInteger(end) || end > bytes.length) throw new Error("ONNX model: truncated field")
     out.push({ number: Math.floor(key / 8), wire, start: at, end, payloadStart })
     at = end
   }
@@ -88,7 +89,8 @@ export function withSymbolicDetectorShape(model: Uint8Array): Buffer {
   let inputs = 0
   const patched = rewrite(model, { 7: (graph) => rewrite(graph, {
     11: (input) => (nameOf(input) === "input" ? (inputs++, symbolic({ 2: "h", 3: "w" })(input)) : input),
-    12: symbolic({ 1: "rows" }),
+    // Each output its own row-count name: at one input size they differ.
+    12: (output) => symbolic({ 1: `rows_${nameOf(output)}` })(output),
     13: () => null,
   }) })
   if (inputs !== 1) throw new Error("ONNX model: expected one input named input")
