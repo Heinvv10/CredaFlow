@@ -10,6 +10,14 @@ import { createHash } from "node:crypto"
 import sharp from "sharp"
 import { documentImage } from "@/lib/vlm-extract"
 
+// libvips caches operations by default: about 180 MB per large decode, so
+// steady 48 MP uploads settled RSS near 1.5 GB. Uploads are decoded once and
+// never repeated, so the cache only costs memory. This setting is
+// process-wide and takes effect when this module first loads: from then on
+// every sharp user in the process runs uncached, including Next's image
+// optimiser (which keeps its own on-disk cache of optimised images).
+sharp.cache(false)
+
 export type CanonicalBiometricImage = { fileBuffer: Buffer; mimeType: "image/jpeg"; sha256: string }
 
 /**
@@ -26,17 +34,76 @@ export const CANONICAL_IMAGE_MAX_EDGE_PX = 2048
 export const CANONICAL_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 
 /**
- * EXIF orientation applied (and the tag dropped), long edge at most 2048 px,
- * flattened on white, sRGB, JPEG; at most 8 MiB.
+ * Decoding happens before the cap, so the upload's own size bounds memory:
+ * an interlaced 16383 px PNG or a progressive JPEG cost about 1 GB RSS each.
+ * Phone photos are 12-50 MP (a 48 MP one peaks near 290 MB); larger is
+ * refused from its header, in milliseconds. Shared with the face model's
+ * decode (lib/kyc/face-model/compare.server.ts).
  */
-export async function canonicalBiometricImage(
-  fileBuffer: Buffer,
-  mimeType: string,
-): Promise<{ ok: true; image: CanonicalBiometricImage } | { ok: false; error: string }> {
+export const MAX_INPUT_PIXELS = 50_000_000
+
+/**
+ * Canonicalisation runs in the background after the upload has answered, so
+ * nothing in request handling bounds how many run at once. Four 1 GB decodes
+ * at once would take a small container down for every tenant.
+ */
+export const MAX_CONCURRENT_CANONICALISATIONS = 2
+/** A caller that cannot get a slot in this long is refused rather than queued without bound. */
+export const CANONICALISATION_WAIT_TIMEOUT_MS = 30_000
+let active = 0
+const waiting: Array<() => void> = []
+
+/**
+ * A slot, or false after the wait timeout. A released slot passes straight
+ * to the next waiter, so no third caller slips in; a waiter that times out
+ * leaves the queue.
+ */
+function acquire(): Promise<boolean> {
+  if (active < MAX_CONCURRENT_CANONICALISATIONS) {
+    active++
+    return Promise.resolve(true)
+  }
+  return new Promise((resolve) => {
+    const granted = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      waiting.splice(waiting.indexOf(granted), 1)
+      resolve(false)
+    }, CANONICALISATION_WAIT_TIMEOUT_MS)
+    waiting.push(granted)
+  })
+}
+
+function release(): void {
+  const next = waiting.shift()
+  if (next) next()
+  else active--
+}
+
+type CanonicalResult = { ok: true; image: CanonicalBiometricImage } | { ok: false; error: string }
+
+/**
+ * EXIF orientation applied (and the tag dropped), long edge at most 2048 px,
+ * flattened on white, sRGB, JPEG; at most 8 MiB. Inputs above 50 MP are
+ * refused, and at most two run at once (a PDF render included); a caller
+ * waits at most 30 s for a slot.
+ */
+export async function canonicalBiometricImage(fileBuffer: Buffer, mimeType: string): Promise<CanonicalResult> {
+  if (!(await acquire())) return { ok: false, error: "The image check is busy; no slot came free within 30 s" }
+  try {
+    return await canonicalise(fileBuffer, mimeType)
+  } finally {
+    release()
+  }
+}
+
+async function canonicalise(fileBuffer: Buffer, mimeType: string): Promise<CanonicalResult> {
   const page = await documentImage(fileBuffer, mimeType)
   if (!page.ok) return { ok: false, error: page.error }
   try {
-    const jpeg = await sharp(page.buffer)
+    const jpeg = await sharp(page.buffer, { limitInputPixels: MAX_INPUT_PIXELS })
       .rotate()
       .resize(CANONICAL_IMAGE_MAX_EDGE_PX, CANONICAL_IMAGE_MAX_EDGE_PX, { fit: "inside", withoutEnlargement: true })
       .flatten({ background: "#ffffff" })
@@ -49,7 +116,9 @@ export async function canonicalBiometricImage(
       ok: true,
       image: { fileBuffer: jpeg, mimeType: "image/jpeg", sha256: createHash("sha256").update(jpeg).digest("hex") },
     }
-  } catch {
-    return { ok: false, error: "The image could not be decoded" }
+  } catch (error) {
+    return error instanceof Error && /pixel limit/.test(error.message)
+      ? { ok: false, error: "The image is larger than 50 megapixels" }
+      : { ok: false, error: "The image could not be decoded" }
   }
 }

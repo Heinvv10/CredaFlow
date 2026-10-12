@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import { alignedFaceTensor, SFACE_LANDMARK_TEMPLATE } from "./align"
 import { compareFaces } from "./compare.server"
 import { loadFaceModelRuntime } from "./runtime.server"
+import { FACE_MODELS, FACE_MODEL_DETECTOR_RUNTIME_SHA256 } from "./models"
 import { yunetInputTensor, type RgbImage } from "./yunet"
 
 const suite = process.env.FACE_MODEL_TESTS === "1" ? describe : describe.skip
@@ -66,7 +67,40 @@ function pattern(width: number, height: number): RgbImage {
 const near = (actual: number, expected: number) =>
   expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1e-3 * Math.abs(expected))
 
+/**
+ * A drawn face YuNet detects (parameters found by a seeded hill-climb), as the
+ * ID-side A4 case: on a 1448x2048 page (an A4 scan at the 2048 px cap) at
+ * 240 px wide, the 640-fit pass misses it and the full-resolution pass finds it.
+ */
+const DRAWN = [0.1059, 0.2947, 0.2704, 0.3327, 0, 0.3454, 0, 0.0765, 0.4639, 0.4661, 0.2854, 0.1019, 0.5198, 1, 0.619,
+  0.5491, 0.4834, 0.5203, 1, 0, 0.7514, 0]
+function drawnFace(p: number[]): Buffer {
+  const v = (i: number, lo: number, hi: number) => lo + Math.min(1, Math.max(0, p[i])) * (hi - lo)
+  const col = (i: number) => `rgb(${Math.round(v(i, 60, 250))},${Math.round(v(i + 1, 40, 220))},${Math.round(v(i + 2, 30, 200))})`
+  const [cx, cy, rx, ry] = [300, 330, v(0, 120, 200), v(1, 150, 240)]
+  const [ey, ex, er] = [cy - v(2, 10, 80), v(3, 40, 90), v(4, 10, 32)]
+  const [ny, my, mw] = [cy + v(5, 10, 70), cy + v(6, 80, 150), v(7, 30, 90)]
+  const eye = (x: number) => `<ellipse cx="${x}" cy="${ey}" rx="${er * 1.4}" ry="${er}" fill="#fff"/><circle cx="${x}" cy="${ey}" r="${er * v(18, 0.3, 0.8)}" fill="#222"/>`
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="700">
+  <rect width="600" height="700" fill="${col(8)}"/>
+  <path d="M ${cx - rx - 20} ${cy - 20} Q ${cx} ${cy - ry - v(11, 20, 90)} ${cx + rx + 20} ${cy - 20} Z" fill="${col(12)}"/>
+  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${col(15)}"/>${eye(cx - ex)}${eye(cx + ex)}
+  <path d="M ${cx - ex - 25} ${ey - er - v(19, 5, 25)} l 50 -${v(20, 0, 12)} M ${cx + ex - 25} ${ey - er - v(19, 5, 25) - v(20, 0, 12)} l 50 ${v(20, 0, 12)}" stroke="#332" stroke-width="7"/>
+  <path d="M ${cx} ${ey + 10} L ${cx - v(21, 8, 25)} ${ny} L ${cx + 10} ${ny + 4}" stroke="#7a4a2a" stroke-width="5" fill="none"/>
+  <path d="M ${cx - mw} ${my} Q ${cx} ${my + v(9, 0, 40)} ${cx + mw} ${my}" stroke="#8a2a2a" stroke-width="${v(10, 4, 14)}" fill="none"/>
+  <path d="M ${cx - 230} 700 C ${cx - 200} ${cy + ry} ${cx + 200} ${cy + ry} ${cx + 230} 700 Z" fill="${col(12)}"/>
+</svg>`)
+}
+
 suite("compareFaces with the real models", () => {
+  it("rewrites the pinned detector into exactly the pinned runtime bytes", async () => {
+    const { readVerifiedModel, faceModelDir: dir } = await import("./runtime.server")
+    const { withSymbolicDetectorShape } = await import("./onnx-shape")
+    const { createHash } = await import("node:crypto")
+    const patched = withSymbolicDetectorShape(await readVerifiedModel(dir(), FACE_MODELS.detector))
+    expect(createHash("sha256").update(patched).digest("hex")).toBe(FACE_MODEL_DETECTOR_RUNTIME_SHA256)
+  })
+
   it("loads both models after verifying their checksums", async () => {
     await expect(loadFaceModelRuntime()).resolves.toEqual(
       expect.objectContaining({ detect: expect.any(Function), embed: expect.any(Function) }),
@@ -121,6 +155,78 @@ suite("compareFaces with the real models", () => {
     const projections = [0, 1, 2, 3].map((k) => embedding.reduce((a, v, i) => a + v * Math.sin(i * (k + 1)), 0) / norm)
     const golden = [-0.57479, 0.13583, -0.07412, -0.03459]
     projections.forEach((value, k) => expect(Math.abs(value - golden[k])).toBeLessThanOrEqual(2e-3))
+  })
+
+  it("finds a small ID face on an A4-like page only on the full-resolution pass", async () => {
+    const face = await sharp(drawnFace(DRAWN)).png().toBuffer()
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#ffffff" } })
+      .composite([{ input: await sharp(face).resize(240).png().toBuffer(), left: 140, top: 160 }]).png().toBuffer()
+    const result = await compareFaces({ fileBuffer: page, mimeType: "image/png" }, { fileBuffer: face, mimeType: "image/png" })
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      evidence: expect.objectContaining({ idDetectPass: "full", idFaceCount: 1, selfieFaceCount: 1 }),
+    }))
+  })
+
+  // Why the fallback is a full-resolution pass and not trim-then-640: on a
+  // certified copy with text near the page edges, trimming the page removes
+  // almost nothing, and the face stays too small at 640.
+  it("finds the ID face on a certified-copy page with header and footer text, on the full pass", async () => {
+    const face = await sharp(drawnFace(DRAWN)).png().toBuffer()
+    const line = (y: number) => `<rect x="40" y="${y}" width="1368" height="10" fill="#333"/>`
+    const furniture = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1448" height="2048">
+      ${line(20)}${line(2010)}
+      <rect x="140" y="560" width="590" height="372" fill="#d8e0dc" stroke="#666" stroke-width="3"/>
+      <circle cx="1030" cy="1300" r="150" fill="none" stroke="#1a3399" stroke-width="8"/>
+      <rect x="760" y="1520" width="560" height="6" fill="#222"/></svg>`)
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#f7f7f5" } })
+      .composite([{ input: furniture }, { input: await sharp(face).resize(240).png().toBuffer(), left: 140, top: 160 }])
+      .png().toBuffer()
+    const trimmed = await sharp(page).trim({ threshold: 30 }).toBuffer({ resolveWithObject: true })
+    expect(trimmed.info.width * trimmed.info.height).toBeGreaterThan(0.85 * 1448 * 2048)
+    const result = await compareFaces({ fileBuffer: page, mimeType: "image/png" }, { fileBuffer: face, mimeType: "image/png" })
+    expect(result).toEqual(expect.objectContaining({
+      ok: true, evidence: expect.objectContaining({ idDetectPass: "full", idFaceCount: 1 }),
+    }))
+  })
+
+  // The breaker's REPRO 8: two DIFFERENT drawn faces of comparable size on
+  // an A4-like page. The 640 pass sees only one of them, the full pass both.
+  // Running only the pass that found something verified a selfie of either.
+  it("refuses a page with two comparable faces that only the full pass sees both of", async () => {
+    const reshaped = DRAWN.map((v, i) => ([0, 1, 3, 7].includes(i) ? Math.min(1, v + 0.3) : v))
+    const face = async (p: number[]) => sharp(await sharp(drawnFace(p)).png().toBuffer()).resize(360).png().toBuffer()
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#ffffff" } })
+      .composite([{ input: await face(DRAWN), left: 100, top: 120 }, { input: await face(reshaped), left: 780, top: 1100 }])
+      .png().toBuffer()
+    for (const p of [DRAWN, reshaped]) {
+      const selfie = { fileBuffer: await sharp(drawnFace(p)).png().toBuffer(), mimeType: "image/png" }
+      expect(await compareFaces({ fileBuffer: page, mimeType: "image/png" }, selfie)).toEqual(expect.objectContaining({
+        ok: false,
+        idFaceCount: 2,
+        rejection: expect.objectContaining({ reason: "extraction_incomplete", message: expect.stringMatching(/comparable size/) }),
+      }))
+    }
+  })
+
+  // The reviewer's split case: two comparable drawn faces, one the 640 pass
+  // sees and the full pass does not (560 px, too large for it), the other
+  // the full pass sees and the 640 pass does not (380 px). Counted per pass,
+  // each saw one face; merged, they are two.
+  it("refuses two comparable faces that each pass sees only one of", async () => {
+    const reshaped = DRAWN.map((v, i) => ([0, 1, 3, 7].includes(i) ? Math.min(1, v + 0.3) : v))
+    const face = async (p: number[], width: number) => sharp(await sharp(drawnFace(p)).png().toBuffer()).resize(width).png().toBuffer()
+    const page = await sharp({ create: { width: 1448, height: 2048, channels: 3, background: "#ffffff" } })
+      .composite([{ input: await face(DRAWN, 560), left: 40, top: 60 }, { input: await face(reshaped, 380), left: 780, top: 1100 }])
+      .png().toBuffer()
+    for (const p of [DRAWN, reshaped]) {
+      const selfie = { fileBuffer: await sharp(drawnFace(p)).png().toBuffer(), mimeType: "image/png" }
+      expect(await compareFaces({ fileBuffer: page, mimeType: "image/png" }, selfie)).toEqual(expect.objectContaining({
+        ok: false,
+        idFaceCount: 2,
+        rejection: expect.objectContaining({ reason: "extraction_incomplete", message: expect.stringMatching(/comparable size/) }),
+      }))
+    }
   })
 
   it("is deterministic", async () => {

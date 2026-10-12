@@ -70,7 +70,24 @@ deps stage, which does not copy `.npmrc`.
 2. YuNet on a 640x640 input (the image shrunk to fit, zero-padded bottom and
    right, BGR, raw 0-255): anchor-free decoding over strides 8/16/32,
    score = sqrt(cls x obj) >= 0.9, NMS at IoU 0.3, as `cv::FaceDetectorYN`.
-3. Face-count rule (below).
+   On the ID side only, for every ID image larger than 640, YuNet also runs
+   on the full canonical image (at most 2048 px, padded to a multiple of 32),
+   boxes and landmarks in source pixels. Both passes always run, and their
+   detections are merged before the face-count rule: a full-pass box
+   overlapping a 640-pass box by more than IoU 0.3 is the same face, and the
+   640 pass's box is kept (it also sees faces too large for the full pass).
+   The comparable-faces rule, the 64 cap and the 1e-9 floor then apply to
+   the merged list, and the compared face, the count and the second-face
+   ratio all come from it; `idDetectPass` (`fit640` or `full`) names the pass
+   that produced the compared box. Counting each pass on its own let two
+   comparable faces, one seen only by each pass, look like one face to both;
+   real-model tests pin that split case and the breaker's REPRO 8 (one pass
+   seeing both faces, the other only one). This is what finds the face on an ID card scanned at true size on
+   A4. The file declares a fixed 640x640 input, so after the checksum check
+   `onnx-shape.ts` rewrites only its declared shapes as symbolic (weights and
+   operators untouched; at 640 the outputs are bit-identical). The selfie side
+   has no second pass.
+3. Face-count rule (below), applied to the merged detections.
 4. Each chosen face must be usable (below), then is aligned to SFace's 112x112
    template with the 5-point similarity transform of
    `cv::FaceRecognizerSF::alignCrop` (ArcFace landmarks), bilinear, zero
@@ -188,6 +205,8 @@ are one person's.
   different photos of one person.
 - **Printed and blurred real faces are unmeasured** beyond one card blurred
   synthetically (still 0.71-0.83 to the selfie) and the sharpness floor.
+- **An ID card scanned on A4 passes with little margin.** At true size the
+  face's eye distance is 32 px against the 24 px floor (see above).
 - **The threshold therefore rests on OpenCV's published 0.363 alone**, not on
   observed data. Confirming it needs consented photos of real people: a
   genuine pair from two different photos, and pairs of different people
@@ -252,6 +271,21 @@ each, with a Docker build running alongside: model load 122-151 ms; one check
 (two decodes, two detections, two embeddings) median 147 ms pinned to 1 or 2
 cores, 213 ms unpinned; process RSS about 340 MB.
 
+The ID side's full-resolution pass now runs on every ID image larger than
+640. Timed against the 640 pass in one process on a synthetic 1448x2048
+page (12 rounds, interleaved, on a host at load average ~70-95 on 32
+cores): the 640 pass took median 35 ms on 1 core and 40 ms on 2; the full
+pass 274 ms and 351 ms, 7.8-8.8x (its input has 7.4x the pixels). An
+earlier, unloaded measurement put it at about 115-165 ms. A whole check on
+such a page now takes roughly 0.4-0.6 s under that load.
+
+Memory: uploads above 50 MP are refused from their header, and at most two
+canonicalisations run at once (a caller waits at most 30 s). libvips's
+operation cache is turned off (`sharp.cache(false)`, process-wide): over 16
+sequential canonicalisations of a synthetic 48 MP JPEG, RSS went from 281 to
+508 MiB with the cache on, and from 267 MiB to a plateau near 330 MiB with it
+off (peak 472, final 338).
+
 ## Why both judges stay
 
 Each catches what the other misses. On canonical bytes (2026-10-12, 3 runs
@@ -266,6 +300,40 @@ per cell, `face-model-eval/2026-10-12T05-57-40-009Z/matrix.md`):
 | Blank card | FAIL 3/3 | silhouette_placeholder / false / false | same 1/3 | no ID face | VLM and model |
 | Covered-face card | FAIL 3/3 | photograph / true / true | same 3/3 (0.90) | no ID face | model only |
 | Drawn synthetic face card | FAIL 3/3 | illustration / false / false | uncertain 3/3 | no ID face | VLM and model |
+
+Two more cells (2026-10-12, `face-model-eval/2026-10-12T06-34-32-707Z/matrix.md`,
+synthetic drawn faces only, vLLM restarts 0 before and after):
+
+| Cell | Outcome | VLM portrait kind / real photo / selfie real | VLM samePerson | Face model | Refused by |
+|---|---|---|---|---|---|
+| The 15 drawn-vs-drawn pairs YuNet detects (each once) | FAIL 15/15 | illustration / false / false | uncertain 15/15 | PASS 15/15, cosine 0.373-0.802 | VLM only |
+| Silhouette card, A4 PDF scan at true size (3 runs) | FAIL 3/3 | silhouette_placeholder / false / true | uncertain 3/3 | no ID face | VLM and model |
+| Presenter card, A4 PDF scan at true size (3 runs), before the full-resolution pass | FAIL 3/3 (expected PASS) | photograph / true / true | same 3/3 (0.98) | no ID face | model only |
+
+The VLM's photo-kind judgement holds on a PDF at about 175 DPI after the
+2048 px cap. The face model did not, until the ID side's full-resolution
+pass (`face-model-eval/2026-10-12T07-07-51-712Z/matrix.md`, restarts 0
+before and after):
+
+| Cell | Outcome | VLM portrait kind / real photo / ID face | VLM samePerson | Face model | Refused by |
+|---|---|---|---|---|---|
+| Presenter card, A4 PDF scan (3 runs) | PASS 3/3 | photograph / true / true | same 3/3 (0.98) | found on the `full` pass: eye distance 32.0 px, geometry 0.428, sharpness 274; cosine 0.8839 | - |
+| Silhouette card, A4 PDF scan (3 runs) | FAIL 3/3 | silhouette_placeholder / false / false | uncertain 3/3 | no ID face on either pass | VLM and model |
+
+The A4 face clears the 24 px eye-distance floor by a factor of 1.33 only: a
+card scanned smaller than true size, or a page rendered below about 130 DPI,
+would be refused as too small.
+
+Why a full-resolution pass and not "trim the page, then the same 640 pass"
+(which would leave the model file's declared shapes alone): trimming finds
+the card on a clean page (trim threshold 30: 591x372 px, face found) and on
+a noisy off-white one (threshold 10 fails, 30 works), and on a certified
+copy with the card's back, a stamp and a signature (1158x1397, face found at
+scale 0.46). But a certified copy with a scanner header and an address
+footer at the page edges trims to 1273x1985, the face stays too small at
+640, and it is refused at every threshold tried (10, 30, 60). The
+full-resolution pass found the face on all four (eye distance 31.9-32.1 px,
+cosine 0.85-0.88 to the selfie). The real-model suite pins that case.
 
 The VLM's same-person answer alone would have passed 5 of the 15
 placeholder runs and all 3 covered-face runs; its photograph gates caught

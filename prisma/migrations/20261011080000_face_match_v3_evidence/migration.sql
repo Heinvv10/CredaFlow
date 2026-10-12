@@ -11,7 +11,8 @@
 --
 -- 1. face_model_evidence_holds: the stored face-model result re-proves a pass
 --    (pinned model names and SHA-256s, exactly one selfie face, one dominant
---    ID face among at most 64, each compared face's eye distance, landmark
+--    ID face among at most 64 (found by the 640-fit pass or the ID side's
+--    full-resolution fallback), each compared face's eye distance, landmark
 --    geometry and sharpness within the pinned floors and ceilings, similarity
 --    >= the pinned 0.363). Mirrors faceModelEvidenceRefusal in
 --    lib/kyc/face-model/evidence.ts.
@@ -46,11 +47,17 @@ AS $function$
     jsonb_typeof(p_evidence) = 'object'
     AND p_evidence ->> 'detector' = 'face_detection_yunet_2023mar'
     AND p_evidence ->> 'detectorSha256' = '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4'
+    -- The detector bytes onnxruntime ran: the file above after the load-time
+    -- shape rewrite (lib/kyc/face-model/onnx-shape.ts).
+    AND p_evidence ->> 'detectorRuntimeSha256' = 'c95b66a69803a457acc19433ed72572bdb62fff368306841f9ed108a65e9f1f1'
     AND p_evidence ->> 'recognizer' = 'face_recognition_sface_2021dec'
     AND p_evidence ->> 'recognizerSha256' = '0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79'
     AND p_evidence -> 'selfieFaceCount' = '1'::jsonb
     AND p_evidence -> 'threshold' = '0.363'::jsonb
     AND p_evidence -> 'samePerson' = 'true'::jsonb
+    -- Which detector pass found the ID face: the 640-fit pass, or the ID
+    -- side's one full-resolution fallback. jsonb, so only those strings pass.
+    AND p_evidence -> 'idDetectPass' IN ('"fit640"'::jsonb, '"full"'::jsonb)
     AND CASE
       WHEN jsonb_typeof(p_evidence -> 'similarity') = 'number'
       THEN (p_evidence ->> 'similarity')::numeric BETWEEN 0.363 AND 1
@@ -155,10 +162,11 @@ AS $function$
           AND jsonb_typeof(selfie."extractionResult") = 'object'
           -- Booleans and the face count compare as JSON values, as
           -- assessBiometricEvidence reads them: the string "true" and "1" no
-          -- longer pass, and 1.0 counts as one face. Each is strictly
-          -- narrower than the baseline text comparison it replaces. quality
-          -- keeps lower(trim()); trim() strips spaces only, and the TS parser
-          -- now does exactly the same.
+          -- longer pass. The booleans are strictly narrower than the baseline
+          -- text comparisons they replace; the face count is not: 1.0 and 1e0
+          -- now count as one face, a deliberate widening to match the TS gate
+          -- (which reads them as the number 1). quality keeps lower(trim());
+          -- trim() strips spaces only, and the TS parser now does the same.
           AND (
             selfie."extractionResult" -> 'vlmUnavailable' = 'true'::jsonb
             OR (

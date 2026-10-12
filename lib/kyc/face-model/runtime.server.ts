@@ -9,13 +9,14 @@
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
-import { FACE_MODELS, type FaceModelFile } from "./models"
+import { FACE_MODELS, FACE_MODEL_DETECTOR_RUNTIME_SHA256, type FaceModelFile } from "./models"
 import { SFACE_INPUT_SIZE } from "./align"
+import { withSymbolicDetectorShape } from "./onnx-shape"
 import { YUNET_INPUT_SIZE, type YunetOutputs } from "./yunet"
 
 export interface FaceModelRuntime {
-  /** YuNet on a 1x3x640x640 BGR tensor: its twelve outputs by name. */
-  detect(input: Float32Array): Promise<YunetOutputs>
+  /** YuNet on a 1x3xHxW BGR tensor (640x640 unless given): its twelve outputs by name. */
+  detect(input: Float32Array, height?: number, width?: number): Promise<YunetOutputs>
   /** SFace on a 1x3x112x112 RGB tensor: the 128-value embedding. */
   embed(input: Float32Array): Promise<Float32Array>
 }
@@ -39,6 +40,15 @@ export async function readVerifiedModel(dir: string, model: FaceModelFile): Prom
   return bytes
 }
 
+/** The patched detector bytes, refused unless their SHA-256 is the pinned runtime one. */
+export function verifiedRuntimeDetector(patched: Buffer): Buffer {
+  const digest = createHash("sha256").update(patched).digest("hex")
+  if (digest !== FACE_MODEL_DETECTOR_RUNTIME_SHA256) {
+    throw new Error(`Patched face detector failed its checksum (sha256 ${digest}, expected ${FACE_MODEL_DETECTOR_RUNTIME_SHA256})`)
+  }
+  return patched
+}
+
 async function createRuntime(dir: string): Promise<FaceModelRuntime> {
   const [detectorBytes, recognizerBytes] = await Promise.all([
     readVerifiedModel(dir, FACE_MODELS.detector),
@@ -49,12 +59,14 @@ async function createRuntime(dir: string): Promise<FaceModelRuntime> {
   const ort = await import("onnxruntime-node")
   // logSeverityLevel 3: the opset-11 SFace graph warns about every initializer.
   const options = { executionProviders: ["cpu"], logSeverityLevel: 3 as const }
-  const detector = await ort.InferenceSession.create(detectorBytes, options)
+  // The checksum was verified on the pristine bytes; only then are the
+  // detector's declared shapes made symbolic (onnx-shape.ts), and the result
+  // is checked against its own pin before onnxruntime sees it.
+  const detector = await ort.InferenceSession.create(verifiedRuntimeDetector(withSymbolicDetectorShape(detectorBytes)), options)
   const recognizer = await ort.InferenceSession.create(recognizerBytes, options)
   return {
-    async detect(input) {
-      const size = YUNET_INPUT_SIZE
-      const result = await detector.run({ input: new ort.Tensor("float32", input, [1, 3, size, size]) })
+    async detect(input, height = YUNET_INPUT_SIZE, width = YUNET_INPUT_SIZE) {
+      const result = await detector.run({ input: new ort.Tensor("float32", input, [1, 3, height, width]) })
       const outputs: YunetOutputs = {}
       for (const [name, tensor] of Object.entries(result)) {
         if (tensor.data instanceof Float32Array) outputs[name] = tensor.data

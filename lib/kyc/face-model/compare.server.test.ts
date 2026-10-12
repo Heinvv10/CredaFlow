@@ -1,8 +1,10 @@
 import sharp from "sharp"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { oversizedPng } from "@/lib/kyc/biometric-image.test-helpers"
 import { faceModelEvidenceRefusal } from "./evidence"
 import {
   FACE_MODELS,
+  FACE_MODEL_DETECTOR_RUNTIME_SHA256,
   FACE_SIMILARITY_THRESHOLD,
   MIN_ALIGNED_CROP_SHARPNESS,
   MIN_INTER_OCULAR_PX,
@@ -17,18 +19,25 @@ import { compareFaces, decodeImage, isSamePerson } from "./compare.server"
 // mouth corners in YuNet's order. Upright and well proportioned.
 const UPRIGHT_KPS = [-0.3, -0.2, 0.3, -0.2, 0, 0, -0.25, 0.3, 0.25, 0.3]
 
-/** YuNet outputs holding one stride-32 face per entry, `size` cells wide, at cell (row, col). */
-function outputsWithFaces(faces: Array<{ row: number; col: number; size: number; kps?: number[] }>): YunetOutputs {
+/**
+ * YuNet outputs holding one stride-32 face per entry, `size` cells wide, at
+ * cell (row, col), for an input of width x height (640x640 by default).
+ */
+function outputsWithFaces(
+  faces: Array<{ row: number; col: number; size: number; kps?: number[] }>,
+  width = YUNET_INPUT_SIZE,
+  height = YUNET_INPUT_SIZE,
+): YunetOutputs {
   const outputs: YunetOutputs = {}
   for (const stride of [8, 16, 32]) {
-    const cells = (YUNET_INPUT_SIZE / stride) ** 2
+    const cells = (width / stride) * (height / stride)
     outputs[`cls_${stride}`] = new Float32Array(cells)
     outputs[`obj_${stride}`] = new Float32Array(cells)
     outputs[`bbox_${stride}`] = new Float32Array(cells * 4)
     outputs[`kps_${stride}`] = new Float32Array(cells * 10)
   }
   for (const { row, col, size, kps = UPRIGHT_KPS } of faces) {
-    const index = row * (YUNET_INPUT_SIZE / 32) + col
+    const index = row * (width / 32) + col
     outputs.cls_32[index] = 1
     outputs.obj_32[index] = 1
     outputs.bbox_32.set([0, 0, Math.log(size), Math.log(size)], index * 4)
@@ -82,11 +91,13 @@ describe("compareFaces", () => {
       evidence: {
         detector: FACE_MODELS.detector.name,
         detectorSha256: FACE_MODELS.detector.sha256,
+        detectorRuntimeSha256: FACE_MODEL_DETECTOR_RUNTIME_SHA256,
         recognizer: FACE_MODELS.recognizer.name,
         recognizerSha256: FACE_MODELS.recognizer.sha256,
         selfieFaceCount: 1,
         idFaceCount: 1,
         idSecondFaceAreaRatio: null,
+        idDetectPass: "fit640",
         // 0.6 cells x 3 x 32 px; the margin is the nose depth, 0.2 / 0.6.
         idInterOcularPx: expect.closeTo(57.6, 3),
         selfieInterOcularPx: expect.closeTo(57.6, 3),
@@ -183,6 +194,138 @@ describe("compareFaces", () => {
     })
   })
 
+  // A certified ID copy is often an A4 scan: shrunk to fit 640, its face is
+  // too small to detect, so a large ID image also gets a full-resolution
+  // pass. Both passes always run, and their detections are MERGED before the
+  // face-count rule: counting each pass on its own let two comparable faces,
+  // one seen only by each pass, look like one face to both.
+  //
+  // In source pixels (the 1280x960 image is shrunk by 0.5 for the 640 pass):
+  // ONE_FACE is a 192 px box centred at (320, 320); on the full pass, a cell
+  // of size 6 at (10, 10) is the same box, and size 3 is a 96 px box.
+  describe("an ID image larger than 640: both passes", () => {
+    let largePng: Buffer
+    beforeEach(async () => {
+      const data = Buffer.alloc(1280 * 960 * 3)
+      for (let i = 0; i < data.length; i++) data[i] = (i * 37 + ((i / 3840) | 0) * 11) & 255
+      largePng = await sharp(data, { raw: { width: 1280, height: 960, channels: 3 } }).png().toBuffer()
+    })
+    const large = () => ({ fileBuffer: largePng, mimeType: "image/png" })
+    const full = (faces: Array<{ row: number; col: number; size: number }>) => outputsWithFaces(faces, 1280, 960)
+    /** The ID's 640 pass, its full pass, then the selfie's (only) pass. */
+    const runtimeFor = (fit: YunetOutputs, fullPass: YunetOutputs, selfie = ONE_FACE): FaceModelRuntime => ({
+      detect: vi.fn().mockResolvedValueOnce(fit).mockResolvedValueOnce(fullPass).mockResolvedValueOnce(selfie),
+      embed: vi.fn().mockResolvedValueOnce(Float32Array.from([1, 0])).mockResolvedValueOnce(Float32Array.from([1, 0])),
+    })
+    const runLarge = (runtime: FaceModelRuntime) =>
+      compareFaces(large(), large(), { loadRuntime: () => Promise.resolve(runtime), timeoutMs: 5000 })
+    const comparable = (count: number) => ({
+      ok: false,
+      rejection: {
+        reason: "extraction_incomplete",
+        message: `The ID document shows ${count} faces of comparable size; the face comparison cannot tell whose it is`,
+      },
+      idFaceCount: count,
+      selfieFaceCount: 1,
+    })
+
+    it("runs the full pass too, merging the same face from both passes into one", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }]))
+      const result = await runLarge(runtime)
+      expect(runtime.detect).toHaveBeenCalledTimes(3)
+      expect(vi.mocked(runtime.detect).mock.calls[1].slice(1)).toEqual([960, 1280])
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        evidence: expect.objectContaining({ idDetectPass: "fit640", idFaceCount: 1, idSecondFaceAreaRatio: null }),
+      }))
+    })
+
+    it("compares the full pass's face, in source pixels, when the 640 pass finds none", async () => {
+      const result = await runLarge(runtimeFor(NO_FACE, full([{ row: 10, col: 10, size: 3 }])))
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        evidence: expect.objectContaining({ idDetectPass: "full", idFaceCount: 1, idInterOcularPx: expect.closeTo(57.6, 3) }),
+      }))
+    })
+
+    it("keeps the 640 pass's face when the full pass finds none (a face too large for it)", async () => {
+      const result = await runLarge(runtimeFor(ONE_FACE, full([])))
+      expect(result).toEqual(expect.objectContaining({
+        ok: true, evidence: expect.objectContaining({ idDetectPass: "fit640", idFaceCount: 1 }),
+      }))
+    })
+
+    it("refuses when the full pass sees two comparable faces, though the 640 pass saw one", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }, { row: 20, col: 30, size: 6 }]))
+      expect(await runLarge(runtime)).toEqual(comparable(2))
+      expect(runtime.embed).not.toHaveBeenCalled()
+    })
+
+    it("refuses when the 640 pass sees two comparable faces, though the full pass saw one", async () => {
+      const fit = outputsWithFaces([{ row: 5, col: 5, size: 3 }, { row: 12, col: 12, size: 3 }])
+      expect(await runLarge(runtimeFor(fit, full([{ row: 10, col: 10, size: 6 }])))).toEqual(comparable(2))
+    })
+
+    it("refuses more than 64 faces in the merged list", async () => {
+      const many = Array.from({ length: 65 }, (_, i) => ({ row: 1 + (i % 25), col: 22 + Math.floor(i / 25) * 8, size: 1 }))
+      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }, ...many])))
+      expect(result).toEqual(expect.objectContaining({ ok: false, idFaceCount: 66, rejection: expect.objectContaining({ reason: "extraction_incomplete" }) }))
+    })
+
+    // The reviewer's case: two comparable faces, A seen only by the 640 pass
+    // and B only by the full pass. Each pass alone sees one face.
+    it("refuses two comparable faces that each pass sees only one of", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 20, col: 30, size: 6 }]))
+      expect(await runLarge(runtime)).toEqual(comparable(2))
+      expect(runtime.embed).not.toHaveBeenCalled()
+    })
+
+    it("accepts a big face only the 640 pass sees beside a small one only the full pass sees, recording the ratio", async () => {
+      // 32 px against 192 px: 1/36 of the area, a ghost portrait.
+      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 25, col: 35, size: 1 }])))
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        evidence: expect.objectContaining({
+          idDetectPass: "fit640", idFaceCount: 2, idSecondFaceAreaRatio: expect.closeTo(1 / 36, 6),
+        }),
+      }))
+    })
+
+    it("keeps the 640 pass's box for a face both passes found, and its ratio against the merged list", async () => {
+      // The same face on both passes, plus a ghost only the full pass sees.
+      const result = await runLarge(runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 6 }, { row: 25, col: 35, size: 1 }])))
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        evidence: expect.objectContaining({
+          idDetectPass: "fit640", idFaceCount: 2, idSecondFaceAreaRatio: expect.closeTo(1 / 36, 6),
+        }),
+      }))
+    })
+
+    it("refuses when neither pass finds a face", async () => {
+      const runtime = runtimeFor(NO_FACE, full([]))
+      expect(await runLarge(runtime)).toEqual(expect.objectContaining({
+        ok: false, idFaceCount: 0,
+        rejection: { reason: "extraction_incomplete", message: "No face found in the ID document photograph by the face comparison" },
+      }))
+      expect(runtime.detect).toHaveBeenCalledTimes(3)
+    })
+
+    it("runs only the 640 pass for an ID image that already fits 640", async () => {
+      const runtime = fakeRuntime(NO_FACE, ONE_FACE, [[1, 0], [1, 0]])
+      await run(runtime)
+      expect(runtime.detect).toHaveBeenCalledTimes(2)
+    })
+
+    it("never runs a second pass on the selfie side", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 3 }]), NO_FACE)
+      expect(await runLarge(runtime)).toEqual(expect.objectContaining({
+        ok: false, rejection: expect.objectContaining({ reason: "face_not_detected" }),
+      }))
+      expect(runtime.detect).toHaveBeenCalledTimes(3)
+    })
+  })
+
   const unavailable = (message: string, idFaceCount: number | null = null, selfieFaceCount: number | null = null) =>
     refusal("extraction_incomplete", message, idFaceCount, selfieFaceCount)
 
@@ -248,6 +391,10 @@ describe("decodeImage", () => {
     const decoded = await decodeImage(rotated)
     expect([decoded.width, decoded.height]).toEqual([20, 40])
     expect(decoded.data.length).toBe(20 * 40 * 3)
+  })
+
+  it("refuses to decode an image above 50 megapixels", async () => {
+    await expect(decodeImage(oversizedPng(7072))).rejects.toThrow(/pixel limit/)
   })
 
   it("flattens transparency and shrinks a large image to at most 2048 on its long edge", async () => {

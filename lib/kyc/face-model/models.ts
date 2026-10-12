@@ -59,6 +59,14 @@ export const FACE_MODEL_LICENSES = [
   },
 ] as const
 
+/**
+ * The SHA-256 of the detector bytes actually handed to onnxruntime: the
+ * pinned file after onnx-shape.ts rewrites its declared shapes. Checked
+ * before the session is created and recorded in the evidence, so a change to
+ * the rewrite cannot run (or verify anyone) unnoticed.
+ */
+export const FACE_MODEL_DETECTOR_RUNTIME_SHA256 = "c95b66a69803a457acc19433ed72572bdb62fff368306841f9ed108a65e9f1f1"
+
 export function faceModelUrl(model: FaceModelFile): string {
   return `https://media.githubusercontent.com/media/opencv/opencv_zoo/${OPENCV_ZOO_COMMIT}/${model.repoPath}`
 }

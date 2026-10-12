@@ -294,6 +294,7 @@ suite("face match v3 evidence in the database", () => {
     ["a selfie geometry margin below 0.15", { selfieGeometryMargin: 0.1 }],
     ["an ID crop sharpness below 100", { idSharpness: 64 }],
     ["no selfie sharpness", { selfieSharpness: undefined }],
+    ["an unknown detector pass", { idDetectPass: "tiles" }],
   ])("does not verify a client on v3 evidence with %s", async (_label, change) => {
     const fixture = await clientWithSelfie(passedSelfie({
       ...v3Pass,
@@ -307,6 +308,7 @@ suite("face match v3 evidence in the database", () => {
     ["a similarity of exactly 1", { similarity: 1 }],
     ["a small ghost face on the ID", { idFaceCount: 2, idSecondFaceAreaRatio: 0.1 }],
     ["a second ID face at exactly half the area", { idFaceCount: 3, idSecondFaceAreaRatio: 0.5 }],
+    ["the ID face found on the full-resolution pass", { idDetectPass: "full" }],
   ])("verifies a client on v3 evidence with %s", async (_label, change) => {
     const fixture = await clientWithSelfie(passedSelfie({
       ...v3Pass,

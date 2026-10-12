@@ -14,12 +14,13 @@
  */
 import sharp from "sharp"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
-import { CANONICAL_IMAGE_MAX_EDGE_PX } from "@/lib/kyc/biometric-image.server"
+import { CANONICAL_IMAGE_MAX_EDGE_PX, MAX_INPUT_PIXELS } from "@/lib/kyc/biometric-image.server"
 import { alignedFaceTensor, cosineSimilarity } from "./align"
 import type { FaceModelEvidence } from "./evidence"
-import { selectIdFace, selectSelfieFace } from "./face-count"
+import { selectIdFaceAcrossPasses, selectSelfieFace } from "./face-count"
 import {
   FACE_MODELS,
+  FACE_MODEL_DETECTOR_RUNTIME_SHA256,
   FACE_SIMILARITY_THRESHOLD,
   MIN_ALIGNED_CROP_SHARPNESS,
   MIN_INTER_OCULAR_PX,
@@ -65,7 +66,7 @@ export function isSamePerson(similarity: number): boolean {
 
 /** Interleaved RGB, EXIF orientation applied, transparency on white, long edge at most 2048. */
 export async function decodeImage(bytes: Buffer): Promise<RgbImage> {
-  const { data, info } = await sharp(bytes)
+  const { data, info } = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
     .rotate()
     .resize(MAX_DECODE_EDGE, MAX_DECODE_EDGE, { fit: "inside", withoutEnlargement: true })
     .flatten({ background: "#ffffff" })
@@ -74,6 +75,20 @@ export async function decodeImage(bytes: Buffer): Promise<RgbImage> {
     .toBuffer({ resolveWithObject: true })
   if (info.channels !== 3) throw new Error(`decoded ${info.channels} channels, expected 3`)
   return { data: new Uint8Array(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height }
+}
+
+/**
+ * The ID side only, for every ID image larger than 640: a second pass at the
+ * image's own size (at most 2048 px, padded to a multiple of 32), beside the
+ * 640-fit pass. An ID card scanned at true size on A4 renders about 590 px
+ * wide at the 2048 px cap; fitted to 640 its face is ~20 px and YuNet misses
+ * it. Boxes and landmarks come back in source pixels (scale 1); the
+ * face-count rule holds on both passes (selectIdFaceAcrossPasses).
+ */
+async function detectFacesFullResolution(image: RgbImage, runtime: FaceModelRuntime): Promise<DetectedFace[]> {
+  const width = Math.ceil(image.width / 32) * 32
+  const height = Math.ceil(image.height / 32) * 32
+  return decodeYunetOutputs(await runtime.detect(yunetInputTensor(image, width, height), height, width), 1, width, height)
 }
 
 async function detectFaces(image: RgbImage, runtime: FaceModelRuntime): Promise<DetectedFace[]> {
@@ -129,10 +144,13 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
     return refuse("extraction_incomplete", "The selfie image could not be read for the face comparison", counts)
   }
   try {
-    const idFaces = await detectFaces(idImage, runtime)
+    const fitFaces = await detectFaces(idImage, runtime)
+    const fullFaces = Math.max(idImage.width, idImage.height) > YUNET_INPUT_SIZE
+      ? await detectFacesFullResolution(idImage, runtime)
+      : null
     const selfieFaces = await detectFaces(selfieImage, runtime)
-    counts = { idFaceCount: idFaces.length, selfieFaceCount: selfieFaces.length }
-    const idFace = selectIdFace(idFaces)
+    const idFace = selectIdFaceAcrossPasses(fitFaces, fullFaces)
+    counts = { idFaceCount: idFace.count, selfieFaceCount: selfieFaces.length }
     if (!idFace.ok) {
       return refuse(idFace.reason, idFace.count === 0
         ? "No face found in the ID document photograph by the face comparison"
@@ -160,11 +178,13 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
       evidence: {
         detector: FACE_MODELS.detector.name,
         detectorSha256: FACE_MODELS.detector.sha256,
+        detectorRuntimeSha256: FACE_MODEL_DETECTOR_RUNTIME_SHA256,
         recognizer: FACE_MODELS.recognizer.name,
         recognizerSha256: FACE_MODELS.recognizer.sha256,
         selfieFaceCount: selfieFace.count,
         idFaceCount: idFace.count,
         idSecondFaceAreaRatio: idFace.secondFaceAreaRatio,
+        idDetectPass: idFace.pass,
         idInterOcularPx: id.interOcularPx,
         selfieInterOcularPx: self.interOcularPx,
         idGeometryMargin: id.geometryMargin,

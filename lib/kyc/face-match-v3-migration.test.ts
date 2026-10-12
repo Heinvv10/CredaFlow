@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest"
 import { baselineFunctionSql } from "@/lib/db-baseline.test-helpers"
 import {
   FACE_MODELS,
+  FACE_MODEL_DETECTOR_RUNTIME_SHA256,
   FACE_SIMILARITY_THRESHOLD,
   ID_MAX_FACE_COUNT,
   ID_SECOND_FACE_MAX_AREA_RATIO,
@@ -71,6 +72,7 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
     const holds = baselineFunctionSql("face_model_evidence_holds")
     expect(holds).toContain(`p_evidence ->> 'detector' = '${FACE_MODELS.detector.name}'`)
     expect(holds).toContain(`p_evidence ->> 'detectorSha256' = '${FACE_MODELS.detector.sha256}'`)
+    expect(holds).toContain(`p_evidence ->> 'detectorRuntimeSha256' = '${FACE_MODEL_DETECTOR_RUNTIME_SHA256}'`)
     expect(holds).toContain(`p_evidence ->> 'recognizer' = '${FACE_MODELS.recognizer.name}'`)
     expect(holds).toContain(`p_evidence ->> 'recognizerSha256' = '${FACE_MODELS.recognizer.sha256}'`)
     expect(holds).toContain(`p_evidence -> 'threshold' = '${FACE_SIMILARITY_THRESHOLD}'::jsonb`)
@@ -78,6 +80,7 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
     expect(holds).toContain(`::numeric <= ${ID_SECOND_FACE_MAX_AREA_RATIO}`)
     expect(holds).toContain(`'idSecondFaceAreaRatio')::numeric >= ${ID_SECOND_FACE_MIN_AREA_RATIO}`)
     expect(holds).toContain(`BETWEEN 2 AND ${ID_MAX_FACE_COUNT}`)
+    expect(holds).toContain(`p_evidence -> 'idDetectPass' IN ('"fit640"'::jsonb, '"full"'::jsonb)`)
     for (const side of ["id", "selfie"]) {
       expect(holds).toContain(`'${side}InterOcularPx')::numeric BETWEEN ${MIN_INTER_OCULAR_PX} AND ${MAX_INTER_OCULAR_PX}`)
       expect(holds).toContain(`'${side}GeometryMargin')::numeric BETWEEN ${MIN_LANDMARK_GEOMETRY_MARGIN} AND 1`)
