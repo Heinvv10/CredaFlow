@@ -146,7 +146,10 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   on another image than the live staff container runs. While the demo keeps
   serving it `pg_restore`s into `<db>_restore_<ts>` (row counts checked against
   `meta.json`) and unpacks the uploads into `.restore-<ts>` in the volume (file
-  count checked). Then: stop app + portal (never the tunnel) → rename the live
+  count checked). If the live `.env.production` sets
+  `DEMO_CLEAR_STAFF_TOTP=true`, the staged db has TOTP turned off for every
+  staff user except SUPER_ADMIN, so presenters sign in with a password only;
+  the bake enrols TOTP, so without it every restore turns TOTP back on. Then: stop app + portal (never the tunnel) → rename the live
   db to `<db>_old_<ts>` and the staged one into place (one transaction) → swap
   the uploads (old ones to `.old-<ts>`) → tenant id into
   `DEBIT_MANDATE_CREDITOR_TENANT_ID` in the live `.env.production` → `up -d`

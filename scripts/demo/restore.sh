@@ -15,6 +15,11 @@
 #
 # Staged while the demo keeps serving:
 #   - pg_restore into <db>_restore_<ts>, row counts checked against meta.json;
+#   - when $LIVE_DIR/.env.production sets DEMO_CLEAR_STAFF_TOTP=true (exact
+#     string), TOTP is turned off for every staff user except SUPER_ADMIN in
+#     the staged db, so presenters sign in with a password only. The bake
+#     enrols TOTP, so without this every restore turns it back on. Demo data
+#     only: restore.sh refuses any stack that is not DEMO_MODE=true;
 #   - uploads unpacked into <volume>/.restore-<ts>, file count checked.
 # Then the swap (the only downtime): stop app + portal → rename <db> to
 # <db>_old_<ts> and the staged db to <db> (one transaction) → move the old
@@ -207,6 +212,12 @@ want="$(jq -cS '.counts | del(.uploadFiles)' "$snap/meta.json")"
 got="$(live_sql "$tmp_db" "$SNAPSHOT_COUNTS_SQL" | jq -cS .)"
 [ "$got" = "$want" ] || die "restored row counts $got differ from the snapshot's $want"
 note "database staged in $tmp_db ($got)"
+
+if [ "$(env_get "$live_dir/.env.production" DEMO_CLEAR_STAFF_TOTP)" = true ]; then
+  step="staff TOTP off"
+  cleared="$(live_sql "$tmp_db" "WITH c AS (UPDATE \"User\" SET \"totpEnabled\" = false, \"totpSecret\" = NULL, \"lastTotpCounter\" = NULL WHERE role <> 'SUPER_ADMIN' RETURNING 1) SELECT count(*) FROM c")"
+  note "staff TOTP off for $cleared users (DEMO_CLEAR_STAFF_TOTP=true)"
+fi
 
 step="uploads staging"
 uploads_staged=true
