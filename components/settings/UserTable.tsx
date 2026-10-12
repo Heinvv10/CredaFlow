@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
-import { loadUsers, type SettingsUser as User, type Branch } from "@/lib/settings-users"
+import { assignableRoles, loadUsers, type SettingsUser as User, type Branch } from "@/lib/settings-users"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import {
   Plus, Pencil, UserX, UserCheck, KeyRound, Search,
@@ -266,8 +266,8 @@ export function UserTable({ currentUserId, currentUserRole }: { currentUserId: s
       </div>
 
       {/* Modals */}
-      <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} onDone={() => setRefreshKey(k => k + 1)} branches={branches} />
-      <EditModal user={editUser} onClose={() => setEditUser(null)} onDone={() => setRefreshKey(k => k + 1)} currentUserId={currentUserId} branches={branches} />
+      <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} onDone={() => setRefreshKey(k => k + 1)} branches={branches} currentUserRole={currentUserRole} />
+      <EditModal user={editUser} onClose={() => setEditUser(null)} onDone={() => setRefreshKey(k => k + 1)} currentUserId={currentUserId} currentUserRole={currentUserRole} branches={branches} />
       <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />
       <UserDetailModal user={detailUser} onClose={() => setDetailUser(null)} />
     </div>
@@ -319,7 +319,7 @@ function DeleteUserButton({ user, onDone }: { user: User; onDone: () => void }) 
   )
 }
 
-function InviteModal({ open, onClose, onDone, branches }: { open: boolean; onClose: () => void; onDone: () => void; branches: Branch[] }) {
+function InviteModal({ open, onClose, onDone, branches, currentUserRole }: { open: boolean; onClose: () => void; onDone: () => void; branches: Branch[]; currentUserRole: string }) {
   const [name, setName] = useState(""); const [email, setEmail] = useState("")
   const [role, setRole] = useState("CREDIT_OFFICER"); const [password, setPassword] = useState("")
   const [phone, setPhone] = useState(""); const [branchId, setBranchId] = useState("")
@@ -355,7 +355,7 @@ function InviteModal({ open, onClose, onDone, branches }: { open: boolean; onClo
         </div>
         <Field label="Role *">
           <select value={role} onChange={e => setRole(e.target.value)} className={selectCls}>
-            {ALL_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            {assignableRoles(ALL_ROLES, currentUserRole).map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
           <p className="text-[11px] text-gray-400 mt-1">{ROLE_PERMISSIONS[role]?.[0]}</p>
         </Field>
@@ -372,10 +372,11 @@ function InviteModal({ open, onClose, onDone, branches }: { open: boolean; onClo
   )
 }
 
-function EditModal({ user, onClose, onDone, currentUserId, branches }: { user: User | null; onClose: () => void; onDone: () => void; currentUserId: string; branches: Branch[] }) {
+function EditModal({ user, onClose, onDone, currentUserId, currentUserRole, branches }: { user: User | null; onClose: () => void; onDone: () => void; currentUserId: string; currentUserRole: string; branches: Branch[] }) {
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [role, setRole] = useState("")
   const [phone, setPhone] = useState(""); const [branchId, setBranchId] = useState("")
   const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null)
+  const assignable = assignableRoles(ALL_ROLES, currentUserRole)
 
   useEffect(() => {
     if (!user) return
@@ -413,7 +414,8 @@ function EditModal({ user, onClose, onDone, currentUserId, branches }: { user: U
         <div className="grid grid-cols-2 gap-3">
           <Field label="Role">
             <select value={role} onChange={e => setRole(e.target.value)} className={selectCls} disabled={user?.id === currentUserId}>
-              {ALL_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              {/* The user's current role stays listed so the select shows it, even when the caller could not assign it. */}
+              {ALL_ROLES.filter(r => r.value === user?.role || assignable.includes(r)).map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
           <Field label="Branch">
