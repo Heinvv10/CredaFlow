@@ -311,6 +311,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.tenantId =
           typeof token.tenantId === "string" ? token.tenantId : null
         session.user.totpVerified = token.totpVerified === true
+        // Staff-user writes re-check it on the caller's locked row
+        // (refuseLockedStaffUserWrite in lib/auth-guards.ts).
+        session.user.tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : undefined
       }
       return session
     },

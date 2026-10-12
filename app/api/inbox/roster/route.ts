@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireCommsAgent } from "@/lib/inbox/authz"
-import { requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
+import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { listStaffForRoster, setCommsAgent } from "@/lib/inbox/roster"
 
@@ -14,11 +15,28 @@ export async function PATCH(req: NextRequest) {
   const guard = await requireApiRole("ADMIN")
   if (guard.error) return guard.error
   const body = (await req.json()) as { userId?: string; isCommsAgent?: boolean }
-  if (!body.userId || typeof body.isCommsAgent !== "boolean") {
+  // typeof, not truthiness: an object userId is a Prisma filter that would
+  // match (and flip) many users.
+  if (typeof body.userId !== "string" || !body.userId || typeof body.isCommsAgent !== "boolean") {
     return NextResponse.json({ error: "userId and isCommsAgent required" }, { status: 400 })
   }
   return withTenantContext(req, async (tenant) => {
-    const res = await setCommsAgent({ tenantId: tenant.id, userId: body.userId!, isCommsAgent: body.isCommsAgent!, actorUserId: guard.user.id, actorEmail: guard.user.email })
+    // An edit of a staff user: the same gate as Settings → Users.
+    const target = await prisma.user.findFirst({ where: { id: body.userId, tenantId: tenant.id }, select: { role: true } })
+    if (!target) return NextResponse.json({ error: "not found" }, { status: 404 })
+    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetId: body.userId, targetRole: target.role, assignedRole: undefined })
+    if (refused) return refused
+    // Re-checked on the locked rows: the member's role may have changed since.
+    const res = await prisma.$transaction(async (tx) => {
+      const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, targetId: body.userId, assignedRole: undefined })
+      if (locked.refused) return locked.refused
+      return setCommsAgent({ tenantId: tenant.id, userId: body.userId!, isCommsAgent: body.isCommsAgent!, actorUserId: guard.user.id, actorEmail: guard.user.email }, tx)
+    }).catch((err: unknown) => {
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return conflict
+      throw err
+    })
+    if (res instanceof Response) return res
     if (!res.ok) return NextResponse.json({ error: "not found" }, { status: 404 })
     return NextResponse.json({ ok: true })
   })

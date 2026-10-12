@@ -20,6 +20,8 @@ declare module "next-auth" {
       role: AppRole
       tenantId?: string | null
       totpVerified?: boolean
+      /** The User row's tokenVersion this session was issued at (staff only). */
+      tokenVersion?: number
     }
   }
 }

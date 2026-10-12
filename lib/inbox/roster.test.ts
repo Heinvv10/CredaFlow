@@ -4,11 +4,11 @@ import { it, expect, vi, beforeEach } from "vitest"
 vi.mock("@/lib/prisma", () => ({
   prisma: { user: { findMany: vi.fn(), updateMany: vi.fn() } },
 }))
-vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }))
+vi.mock("@/lib/audit", () => ({ logAudit: vi.fn(), logAuditStrict: vi.fn() }))
 
 import { listStaffForRoster, listActiveCommsAgents, setCommsAgent } from "./roster"
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditStrict } from "@/lib/audit"
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -36,12 +36,23 @@ it("toggles the flag tenant-scoped and audits", async () => {
   const r = await setCommsAgent({ tenantId: "t1", userId: "u1", isCommsAgent: true, actorUserId: "admin1" })
   expect(r).toEqual({ ok: true })
   expect(prisma.user.updateMany).toHaveBeenCalledWith({ where: { id: "u1", tenantId: "t1" }, data: { isCommsAgent: true } })
-  expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "USER_UPDATED", entity: "User", entityId: "u1", newValue: { isCommsAgent: true } }))
+  expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "USER_UPDATED", entity: "User", entityId: "u1", newValue: { isCommsAgent: true } }), prisma)
+  expect(logAudit).not.toHaveBeenCalled()
+})
+
+// The roster route runs this inside its locked transaction: the flag and its
+// audit row must both go through that transaction.
+it("writes the flag and its audit row through the client it is given", async () => {
+  const tx = { user: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, auditLog: {} }
+  await setCommsAgent({ tenantId: "t1", userId: "u1", isCommsAgent: false, actorUserId: "admin1" }, tx as any)
+  expect(tx.user.updateMany).toHaveBeenCalledWith({ where: { id: "u1", tenantId: "t1" }, data: { isCommsAgent: false } })
+  expect(prisma.user.updateMany).not.toHaveBeenCalled()
+  expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ entityId: "u1" }), tx)
 })
 
 it("returns ok:false when the user is not in the tenant", async () => {
   vi.mocked(prisma.user.updateMany).mockResolvedValue({ count: 0 } as any)
   const r = await setCommsAgent({ tenantId: "t1", userId: "uX", isCommsAgent: true, actorUserId: "admin1" })
   expect(r).toEqual({ ok: false })
-  expect(logAudit).not.toHaveBeenCalled()
+  expect(logAuditStrict).not.toHaveBeenCalled()
 })

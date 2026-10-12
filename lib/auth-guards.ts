@@ -2,7 +2,9 @@ import { redirect } from "next/navigation"
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
-import type { UserRole } from "@prisma/client"
+import { Prisma, type UserRole } from "@prisma/client"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import type { prisma } from "@/lib/prisma"
 
 export type { AppRole }
 
@@ -14,6 +16,8 @@ export type StaffUser = {
   tenantId: string
   /** This session's sign-in verified a TOTP code. */
   totpVerified?: boolean
+  /** The User row's tokenVersion when this session was issued. */
+  tokenVersion?: number
 }
 
 /**
@@ -104,7 +108,7 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
 
 // Role hierarchy — higher index = more permissions. CLIENT is not listed; it
 // never passes a staff role gate (hasMinRole returns false for it).
-const ROLE_HIERARCHY: UserRole[] = [
+export const ROLE_HIERARCHY: UserRole[] = [
   "READONLY",
   "COLLECTIONS_OFFICER",
   "COLLECTIONS_AGENT",
@@ -124,6 +128,175 @@ export function hasMinRole(userRole: AppRole, minRole: UserRole): boolean {
   // new enum value is added to the schema but not yet added to ROLE_HIERARCHY.
   if (userIdx < 0 || minIdx < 0) return false
   return userIdx >= minIdx
+}
+
+type StaffUserWrite = {
+  /** The target's CURRENT role; null when the write creates the user. */
+  targetRole: UserRole | null
+  /** The role the write assigns, as received; undefined when it leaves the role alone. */
+  assignedRole: unknown
+}
+
+type StaffUserWriteRefusal = {
+  status: 400 | 403
+  error: string
+  /** Machine-readable cause, as in lib/audit-refusals.ts. */
+  reason: "totp_required" | "target_outranks_caller" | "invalid_role" | "role_above_caller"
+}
+
+/**
+ * The one rule for a request that creates, edits or removes a staff user.
+ * Returns null when the write may proceed.
+ *
+ * - TOTP: this session's sign-in verified a code — the same claim, for the
+ *   same reason, as PUT /api/settings/identity.
+ * - Target ceiling: nobody edits a user whose current role outranks their own.
+ *   Any field counts: a new password or email on a senior account takes it over.
+ * - Assigned ceiling: nobody assigns a role above their own. A value that is
+ *   not a role in ROLE_HIERARCHY is refused, never written.
+ *
+ * Both keys of `write` are required so a caller cannot skip a half by omission.
+ */
+export function staffUserWriteRefusal(
+  caller: Pick<StaffUser, "role" | "totpVerified">,
+  write: StaffUserWrite,
+): StaffUserWriteRefusal | null {
+  if (caller.totpVerified !== true) {
+    return {
+      status: 403,
+      reason: "totp_required",
+      error: "Sign in with two-factor authentication to manage users. Enable it under Settings → Security, then sign out and back in.",
+    }
+  }
+  // A role ROLE_HIERARCHY does not rank is -1: as caller it clears nothing, and
+  // as target it is refused outright (fail closed, as hasMinRole).
+  const callerRank = ROLE_HIERARCHY.indexOf(caller.role)
+  if (write.targetRole !== null) {
+    const targetRank = ROLE_HIERARCHY.indexOf(write.targetRole)
+    if (targetRank < 0 || targetRank > callerRank) {
+      return { status: 403, reason: "target_outranks_caller", error: "You cannot modify a user whose role is above your own" }
+    }
+  }
+  if (write.assignedRole !== undefined) {
+    const assignedRank = ROLE_HIERARCHY.indexOf(write.assignedRole as UserRole)
+    if (assignedRank < 0) return { status: 400, reason: "invalid_role", error: "Invalid role" }
+    if (assignedRank > callerRank) {
+      return { status: 403, reason: "role_above_caller", error: "You cannot assign a role above your own" }
+    }
+  }
+  return null
+}
+
+/**
+ * staffUserWriteRefusal as a route response. Every route that writes a staff
+ * user calls this before its first write (and before any probe whose answer
+ * would tell a refused caller something).
+ *
+ * A refusal by either ceiling is an escalation attempt, and is audited: the
+ * trail must show who reached above their role, not only who was allowed to.
+ * The write is strict: if the row cannot be written this throws, so the
+ * request fails (500) rather than refusing with no record. Either way nothing
+ * is written to the user. Pass `db` to write the row in a transaction.
+ */
+export async function refuseStaffUserWrite(
+  caller: StaffUser,
+  write: StaffUserWrite & { tenantId: string; targetId?: string },
+  db?: Pick<typeof prisma, "auditLog">,
+): Promise<NextResponse | null> {
+  const refusal = staffUserWriteRefusal(caller, write)
+  if (!refusal) return null
+  if (refusal.reason === "target_outranks_caller" || refusal.reason === "role_above_caller") {
+    await logAuditStrict({
+      tenantId: write.tenantId,
+      userId: caller.id,
+      userEmail: caller.email,
+      action: AuditAction.USER_WRITE_REFUSED,
+      entity: "User",
+      entityId: write.targetId,
+      newValue: {
+        refused: true,
+        reason: refusal.reason,
+        httpStatus: refusal.status,
+        callerRole: caller.role,
+        targetRole: write.targetRole,
+        // Only a role that passed validation: on a target refusal the body's
+        // value was never checked and is not recorded.
+        ...(refusal.reason === "role_above_caller" ? { assignedRole: write.assignedRole } : {}),
+      },
+    }, db)
+  }
+  return NextResponse.json({ error: refusal.error }, { status: refusal.status })
+}
+
+/**
+ * refuseStaffUserWrite again, inside the write's own transaction, on the
+ * caller's and the target's rows as they are now. Call it first in the
+ * transaction, then write and audit through the same `tx`.
+ *
+ * The route's first check reads the target, then it probes and hashes before
+ * writing: a promotion of the target or a demotion of the caller in that
+ * window would otherwise carry the write onto an account the caller may no
+ * longer touch. The rows stay locked until the write commits. FOR NO KEY
+ * UPDATE is the lock an UPDATE of them takes, so a concurrent role change
+ * waits; unlike FOR UPDATE it does not block an insert that only references
+ * a row (an audit row naming the caller).
+ *
+ * A caller whose row is gone, inactive, in another tenant, or at a different
+ * tokenVersion than the session (a role change, deactivation or password
+ * reset since sign-in) is refused (403). Returns the locked roles for the
+ * caller's own checks and audit.
+ *
+ * Sets a 2 s lock_timeout for the transaction: a row held elsewhere (an FK
+ * insert's FOR KEY SHARE blocks an email change or a delete) must not keep the
+ * caller's row locked, and their own sign-in waiting, until Prisma's 5 s
+ * transaction timeout. Map the resulting error with staffUserWriteConflict.
+ */
+export async function refuseLockedStaffUserWrite(
+  tx: Pick<typeof prisma, "$executeRaw" | "$queryRaw" | "auditLog">,
+  caller: StaffUser,
+  write: { tenantId: string; targetId?: string; assignedRole: unknown },
+): Promise<{ refused: NextResponse } | { refused: null; callerRole: UserRole; targetRole: UserRole | null }> {
+  await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
+  const ids = write.targetId ? [caller.id, write.targetId] : [caller.id]
+  const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean; tokenVersion: number }>>(Prisma.sql`
+    SELECT "id", "role"::text AS "role", "active", "tokenVersion"
+    FROM "User"
+    WHERE "id" IN (${Prisma.join(ids)}) AND "tenantId" = ${write.tenantId}
+    ORDER BY "id"
+    FOR NO KEY UPDATE
+  `)
+  const fresh = rows.find(r => r.id === caller.id)
+  if (!fresh?.active) return { refused: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  if (fresh.tokenVersion !== caller.tokenVersion) {
+    return { refused: NextResponse.json({ error: "Your session is out of date. Sign in again." }, { status: 403 }) }
+  }
+  let targetRole: UserRole | null = null
+  if (write.targetId) {
+    const target = rows.find(r => r.id === write.targetId)
+    if (!target) return { refused: NextResponse.json({ error: "User not found" }, { status: 404 }) }
+    targetRole = target.role
+  }
+  const refused = await refuseStaffUserWrite(
+    { ...caller, role: fresh.role },
+    { tenantId: write.tenantId, targetId: write.targetId, targetRole, assignedRole: write.assignedRole },
+    tx,
+  )
+  return refused ? { refused } : { refused: null, callerRole: fresh.role, targetRole }
+}
+
+/**
+ * The 409 for a staff-user write transaction that could not get its locks in
+ * time: the lock_timeout above (55P03 — Prisma raises it as an unknown error
+ * from a model query, P2010 from a raw one), Prisma's own transaction timeout
+ * (P2028), or a write conflict / deadlock (P2034). The transaction, and with it
+ * the write and its audit row, has rolled back. Null for any other error.
+ */
+export function staffUserWriteConflict(err: unknown): NextResponse | null {
+  const conflict =
+    (err instanceof Prisma.PrismaClientKnownRequestError &&
+      (err.code === "P2028" || err.code === "P2034" || (err.code === "P2010" && err.meta?.code === "55P03"))) ||
+    (err instanceof Prisma.PrismaClientUnknownRequestError && err.message.includes('code: "55P03"'))
+  return conflict ? NextResponse.json({ error: "This user is being changed elsewhere. Try again." }, { status: 409 }) : null
 }
 
 // Permissions map: action → minimum required role

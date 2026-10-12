@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import type { UserRole } from "@prisma/client"
-import { logAudit } from "@/lib/audit"
+import { logAuditStrict } from "@/lib/audit"
 
 const ADMIN_ROLES: UserRole[] = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"]
 
@@ -63,6 +63,18 @@ export async function POST(req: NextRequest) {
     if (!name || !email || !role || !password) {
       return NextResponse.json({ error: "Name, email, role and password are required" }, { status: 400 })
     }
+    // Body values reach Prisma as-is, where an object is a filter. The role is
+    // checked by the write gate below.
+    if (
+      typeof name !== "string" || typeof email !== "string" || typeof password !== "string" ||
+      (phone != null && typeof phone !== "string") || (branchId != null && typeof branchId !== "string")
+    ) {
+      return NextResponse.json({ error: "Invalid user details" }, { status: 400 })
+    }
+
+    // Before the email probe below, so its 409 tells a refused caller nothing.
+    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetRole: null, assignedRole: role })
+    if (refused) return refused
 
     if (password.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
@@ -85,33 +97,46 @@ export async function POST(req: NextRequest) {
 
     const hashed = await bcrypt.hash(password, 12)
 
-    const user = await prisma.user.create({
-      data: {
+    const result = await prisma.$transaction(async (tx) => {
+      // Re-checked on the caller's row as it is now, locked until this commits:
+      // a caller demoted since the check above cannot complete the create.
+      const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, assignedRole: role })
+      if (locked.refused) return { refused: locked.refused }
+
+      const user = await tx.user.create({
+        data: {
+          tenantId: tenant.id,
+          name,
+          email,
+          role,
+          password: hashed,
+          phone: phone ?? null,
+          branchId: branchId ?? null,
+        },
+        select: {
+          id: true, name: true, email: true, role: true,
+          active: true, phone: true, branchId: true,
+          branch: { select: { id: true, name: true } },
+          lastLoginAt: true, createdAt: true,
+        },
+      })
+
+      await logAuditStrict({
         tenantId: tenant.id,
-        name,
-        email,
-        role,
-        password: hashed,
-        phone: phone ?? null,
-        branchId: branchId ?? null,
-      },
-      select: {
-        id: true, name: true, email: true, role: true,
-        active: true, phone: true, branchId: true,
-        branch: { select: { id: true, name: true } },
-        lastLoginAt: true, createdAt: true,
-      },
+        action: "USER_CREATED",
+        entity: "User",
+        entityId: user.id,
+        userId: guard.user.id,
+        newValue: { email: user.email, role: user.role, branchId: user.branchId },
+      }, tx)
+      return { user }
+    }).catch((err: unknown) => {
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return { refused: conflict }
+      throw err
     })
+    if (result.refused) return result.refused
 
-    await logAudit({
-      tenantId: tenant.id,
-      action: "USER_CREATED",
-      entity: "User",
-      entityId: user.id,
-      userId: guard.user.id,
-      newValue: { email: user.email, role: user.role, branchId: user.branchId },
-    })
-
-    return NextResponse.json(user, { status: 201 })
+    return NextResponse.json(result.user, { status: 201 })
   })
 }
