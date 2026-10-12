@@ -9,8 +9,23 @@ import type { NextConfig } from "next";
 // that caused it. The module carries a matching warning.
 import { quickQuoteFrameAncestors } from "./lib/insurance/quickquote-config";
 
+// The selfie routes run the face comparison (lib/kyc/face-model/). The trace
+// finds onnxruntime-node's binding but not the library it links at load
+// (libonnxruntime.so.1), and it finds the model files only by accident of
+// the loader's path. Both are listed so the standalone image cannot ship
+// without them; the Dockerfile fetches the models before `next build`. The
+// binding is traced for the build host's platform, so the library is too.
+const faceComparisonFiles = [
+  `./node_modules/onnxruntime-node/bin/napi-v6/${process.platform}/${process.arch}/libonnxruntime.so.1`,
+  "./face-models/*.onnx",
+]
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  outputFileTracingIncludes: {
+    "/api/documents/selfie": faceComparisonFiles,
+    "/api/selfie-link/**": faceComparisonFiles,
+  },
   experimental: {
     serverActions: {
       // Next caps Server Action bodies at 1MB by default and aborts the

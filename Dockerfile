@@ -6,6 +6,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 ENV PUPPETEER_SKIP_DOWNLOAD=1
+# The face comparison runs onnxruntime-node on the CPU only; skip the ~270MB
+# of CUDA providers its postinstall otherwise downloads on linux/x64.
+ENV ONNXRUNTIME_NODE_INSTALL=skip
 RUN npm ci --legacy-peer-deps
 
 # Stage 2: Build
@@ -42,6 +45,10 @@ RUN apt-get update && \
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
+# Face-comparison models (YuNet + SFace), downloaded at a pinned opencv_zoo
+# commit and refused unless their SHA-256s match. Before the build: next.config
+# traces face-models/ into the standalone output the runner copies.
+RUN npm run face-models:fetch
 RUN npm run build
 
 # Stage 3: Production runner
