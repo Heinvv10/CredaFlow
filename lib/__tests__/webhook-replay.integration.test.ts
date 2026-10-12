@@ -2,15 +2,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { createHmac } from "node:crypto"
 import { prisma } from "../prisma"
-import { withoutTenantScope, runWithTenant } from "../tenant-scope"
+import { withoutTenantScope } from "../tenant-scope"
+import { createApprovedPasqV3Application, bookLoan } from "../compliance/pasq-v3-application.integration-fixture"
 import { POST } from "../../app/api/portal/payment/webhook/route"
 
-const HAS_DB = !!process.env.DATABASE_URL
-const d = HAS_DB ? describe : describe.skip
+// Opt-in: needs a fully migrated database. See "Integration tests" in CLAUDE.md.
+//   RUN_WEBHOOK_REPLAY_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/__tests__/webhook-replay.integration.test.ts
+const d = process.env.RUN_WEBHOOK_REPLAY_IT === "1" ? describe : describe.skip
 
 const STAMP = `${Date.now()}-${process.pid}`
 const SECRET = "test-webhook-secret"
-const TENANT_SLUG = `test-wh-${STAMP}`
 
 let originalSecret: string | undefined
 let originalTenantSlug: string | undefined
@@ -41,89 +42,20 @@ d("Stitch webhook — replay protection (integration)", () => {
     originalSecret = process.env.STITCH_WEBHOOK_SECRET
     originalTenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG
     process.env.STITCH_WEBHOOK_SECRET = SECRET
-    process.env.NEXT_PUBLIC_TENANT_SLUG = TENANT_SLUG
 
-    // Create test tenant
-    await withoutTenantScope(async () => {
-      const tenant = await prisma.tenant.create({
-        data: { slug: TENANT_SLUG, name: "Test Webhook Tenant", status: "ACTIVE" },
-      })
-      tenantId = tenant.id
-    })
+    // An approved application needs a locked PASQ v3 document (trigger +
+    // LoanApplication_approved_status_requires_pasq CHECK), so the shared
+    // fixture builds the tenant, client, product, application and booked loan.
+    const scenario = await createApprovedPasqV3Application("webhook-replay")
+    tenantId = scenario.tenantId
+    clientId = scenario.clientId
+    loanId = await bookLoan(scenario)
 
-    let productId = ""
-    let applicationId = ""
-
-    await runWithTenant(tenantId, async () => {
-      // Client
-      const client = await prisma.client.create({
-        data: {
-          tenantId,
-          firstName: "Webhook",
-          lastName: "Test",
-          email: `wh-${STAMP}@example.com`,
-          idNumber: `WH${STAMP}`.slice(0, 13),
-          phone: "0820000099",
-        },
-      })
-      clientId = client.id
-
-      // LoanProduct — always create fresh for this test run
-      const product = await prisma.loanProduct.create({
-        data: {
-          tenantId,
-          code: `WHTEST${STAMP}`.slice(0, 20),
-          name: "Webhook Test Product",
-          productType: "MICRO",
-          minAmount: 100,
-          maxAmount: 10000,
-          minTermDays: 30,
-          maxTermDays: 365,
-          interestRatePm: 5,
-          interestModel: "FLAT",
-          active: true,
-        },
-      })
-      productId = product.id
-
-      // LoanApplication (required FK from Loan)
-      const application = await prisma.loanApplication.create({
-        data: {
-          tenantId,
-          reference: `LA-WH-${STAMP}`,
-          clientId,
-          productId,
-          appliedAmount: 1000,
-          appliedTermDays: 180,
-          status: "DISBURSED",
-          repaymentMethod: "EFT",
-        },
-      })
-      applicationId = application.id
-
-      // Loan
-      const loan = await prisma.loan.create({
-        data: {
-          tenantId,
-          reference: `LN-WH-${STAMP}`,
-          applicationId,
-          clientId,
-          productId,
-          principal: 1000,
-          totalInterest: 300,
-          initiationFee: 0,
-          totalRepayable: 1300,
-          outstandingPrincipal: 1000,
-          status: "ACTIVE",
-          startDate: new Date(),
-          maturityDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
-          interestRatePm: 5,
-          interestModel: "FLAT",
-          monthlyServiceFee: 0,
-        },
-      })
-      loanId = loan.id
-    })
+    // The webhook resolves its tenant from NEXT_PUBLIC_TENANT_SLUG.
+    const tenant = await withoutTenantScope(async () =>
+      prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { slug: true } })
+    )
+    process.env.NEXT_PUBLIC_TENANT_SLUG = tenant.slug
 
     // StitchPaymentRequest has no tenantId — use withoutTenantScope
     await withoutTenantScope(async () => {
@@ -158,30 +90,9 @@ d("Stitch webhook — replay protection (integration)", () => {
       }
       if (loanId) {
         await prisma.payment.deleteMany({ where: { loanId } }).catch(() => {})
-        await prisma.repaymentSchedule.deleteMany({ where: { loanId } }).catch(() => {})
       }
     })
-
-    await withoutTenantScope(async () => {
-      // Must delete loan before application before product before client before tenant
-      // (FK chain: loan → application → product; loan → client; application → client)
-      if (loanId) await prisma.loan.delete({ where: { id: loanId } }).catch(() => {})
-
-      // Find applicationId from stamp-unique reference and delete
-      const app = await prisma.loanApplication
-        .findUnique({ where: { reference: `LA-WH-${STAMP}` } })
-        .catch(() => null)
-      if (app) await prisma.loanApplication.delete({ where: { id: app.id } }).catch(() => {})
-
-      // Find product
-      const prod = await prisma.loanProduct
-        .findFirst({ where: { code: { startsWith: "WHTEST" }, tenantId } })
-        .catch(() => null)
-      if (prod) await prisma.loanProduct.delete({ where: { id: prod.id } }).catch(() => {})
-
-      if (clientId) await prisma.client.delete({ where: { id: clientId } }).catch(() => {})
-      if (tenantId) await prisma.tenant.delete({ where: { id: tenantId } }).catch(() => {})
-    })
+    // The fixture tenant, loan and signed PASQ evidence are immutable; left in place.
   })
 
   it("first webhook POST creates exactly one Payment row and marks request COMPLETED", async () => {
@@ -196,6 +107,11 @@ d("Stitch webhook — replay protection (integration)", () => {
       prisma.payment.count({ where: { loanId } })
     )
     expect(paymentsCount).toBe(1)
+
+    const payment = await withoutTenantScope(async () =>
+      prisma.payment.findFirstOrThrow({ where: { loanId } })
+    )
+    expect(payment.tenantId).toBe(tenantId)
 
     const spr = await withoutTenantScope(async () =>
       prisma.stitchPaymentRequest.findUnique({ where: { id: stitchPaymentId } })

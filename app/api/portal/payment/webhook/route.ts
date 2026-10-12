@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { triggerNotification } from "@/lib/notifications"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { runWithTenant } from "@/lib/tenant-scope"
 import { AuditAction } from "@/lib/audit"
 import { recomputeLoanBalances, nextPaymentDueDate } from "@/lib/loan/balances"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
@@ -21,6 +21,12 @@ class AlreadyCompletedError extends Error {
     super("StitchPaymentRequest already completed")
   }
 }
+
+const findStitchPayment = (stitchId: string) =>
+  prisma.stitchPaymentRequest.findUnique({
+    where: { stitchId },
+    include: { loan: { select: { tenantId: true } } },
+  })
 
 export async function POST(req: Request) {
   const rawBody = await req.text()
@@ -52,11 +58,22 @@ export async function POST(req: Request) {
   if (!stitchId) return NextResponse.json({ ok: true })
 
   // Fetch the request row so we have the id + parent fields for the atomic update + Payment.create.
-  const stitchPayment = await prisma.stitchPaymentRequest.findUnique({ where: { stitchId } })
+  // StitchPaymentRequest is not tenant-scoped, so this read is allowed with no
+  // tenant context; the loan it points at names the tenant that owns the money.
+  const stitchPayment = await findStitchPayment(stitchId)
   if (!stitchPayment) return NextResponse.json({ ok: true })
 
-  const tenantId = await getDefaultTenantId()
+  // Every Loan/Payment/AuditLog access below is tenant-scoped, and a webhook
+  // has no session or host to resolve a tenant from.
+  const tenantId = stitchPayment.loan.tenantId
+  return runWithTenant(tenantId, () => settleReceipt(stitchPayment, stitchId, tenantId))
+}
 
+async function settleReceipt(
+  stitchPayment: NonNullable<Awaited<ReturnType<typeof findStitchPayment>>>,
+  stitchId: string,
+  tenantId: string,
+) {
   let payment: {
     id: string
     allocationStatus: "ALLOCATED" | "UNAPPLIED" | "REFUNDED"
