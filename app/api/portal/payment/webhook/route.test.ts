@@ -9,12 +9,9 @@ const scheduleUpdateMock = vi.fn()
 const loanUpdateMock = vi.fn()
 const auditCreateMock = vi.fn()
 const triggerNotificationMock = vi.fn()
-const getDefaultTenantIdMock = vi.fn()
+const tenantSeenByLoanReadMock = vi.fn()
 const executeRawUnsafeMock = vi.fn()
 
-vi.mock("@/lib/tenant", () => ({
-  getDefaultTenantId: () => getDefaultTenantIdMock(),
-}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     stitchPaymentRequest: {
@@ -36,7 +33,10 @@ vi.mock("@/lib/prisma", () => ({
           },
         },
         loan: {
-          findUnique: (a: unknown) => loanFindUniqueMock(a),
+          findUnique: (a: unknown) => {
+            tenantSeenByLoanReadMock(getCurrentTenantId())
+            return loanFindUniqueMock(a)
+          },
           update: (a: unknown) => {
             loanUpdateMock(a)
             return Promise.resolve({})
@@ -65,6 +65,7 @@ vi.mock("@/lib/notifications", () => ({
 }))
 
 import { POST } from "./route"
+import { getCurrentTenantId } from "@/lib/tenant-scope"
 
 const SECRET = "test-secret"
 
@@ -93,6 +94,7 @@ function stitchPayment(overrides?: Partial<Record<string, unknown>>) {
     amount: 50_000,
     status: "PENDING",
     externalReference: "REF-1",
+    loan: { tenantId: "t1" },
     ...overrides,
   }
 }
@@ -139,7 +141,6 @@ function makeLoan(status: string, overrides?: Partial<Record<string, unknown>>) 
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.STITCH_WEBHOOK_SECRET = SECRET
-  getDefaultTenantIdMock.mockResolvedValue("t1")
   triggerNotificationMock.mockResolvedValue(undefined)
   stitchUpdateManyMock.mockResolvedValue({ count: 1 })
 })
@@ -384,4 +385,23 @@ it("replays idempotently: no Payment create, no allocation, no audit", async () 
   expect(scheduleUpdateMock).not.toHaveBeenCalled()
   expect(loanUpdateMock).not.toHaveBeenCalled()
   expect(auditCreateMock).not.toHaveBeenCalled()
+})
+
+it("takes the tenant from the payment request's loan and runs inside that tenant's context", async () => {
+  findUniqueStitchMock.mockResolvedValue(stitchPayment({ loan: { tenantId: "t-from-loan" } }))
+  loanFindUniqueMock.mockResolvedValue(makeLoan("ACTIVE"))
+
+  const res = await POST(makeReq({ type: "payment.completed", data: { id: "stitch-123" } }))
+
+  expect(res.status).toBe(200)
+  expect(findUniqueStitchMock).toHaveBeenCalledWith(
+    expect.objectContaining({ include: { loan: { select: { tenantId: true } } } })
+  )
+  expect(tenantSeenByLoanReadMock).toHaveBeenCalledWith("t-from-loan")
+  expect(paymentCreateMock).toHaveBeenCalledWith(
+    expect.objectContaining({ data: expect.objectContaining({ tenantId: "t-from-loan" }) })
+  )
+  expect(auditCreateMock).toHaveBeenCalledWith({
+    data: expect.objectContaining({ tenantId: "t-from-loan" }),
+  })
 })

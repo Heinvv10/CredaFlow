@@ -261,6 +261,15 @@ describe("compareFaces", () => {
       expect(runtime.embed).not.toHaveBeenCalled()
     })
 
+    // ad801fc's original fixture, kept for the per-pass check: merged, the two
+    // 96 px full-pass faces are ghosts at 0.25 of the 640 pass's 192 px face;
+    // on the full pass alone they are two comparable faces.
+    it("refuses two comparable faces the full pass alone sees, beside a larger 640-only face", async () => {
+      const runtime = runtimeFor(ONE_FACE, full([{ row: 10, col: 10, size: 3 }, { row: 20, col: 30, size: 3 }]))
+      expect(await runLarge(runtime)).toEqual(comparable(3))
+      expect(runtime.embed).not.toHaveBeenCalled()
+    })
+
     it("refuses when the 640 pass sees two comparable faces, though the full pass saw one", async () => {
       const fit = outputsWithFaces([{ row: 5, col: 5, size: 3 }, { row: 12, col: 12, size: 3 }])
       expect(await runLarge(runtimeFor(fit, full([{ row: 10, col: 10, size: 6 }])))).toEqual(comparable(2))

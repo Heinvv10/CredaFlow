@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { selectIdFace, selectSelfieFace } from "./face-count"
+import { selectIdFace, selectIdFaceAcrossPasses, selectSelfieFace } from "./face-count"
 import type { DetectedFace } from "./yunet"
 
 const face = (width: number, height: number, x = 0): DetectedFace => ({
@@ -87,5 +87,58 @@ describe("selectIdFace", () => {
   it("reports the largest other face's ratio when several small faces are present", () => {
     const result = selectIdFace([face(100, 100), face(20, 20, 300), face(40, 40, 500)])
     expect(result).toEqual(expect.objectContaining({ ok: true, count: 3, secondFaceAreaRatio: 0.16 }))
+  })
+})
+
+// An ID image larger than 640 gets two detector passes. Three checks, each
+// with a case only it refuses: each pass on its own, and the merged list.
+describe("selectIdFaceAcrossPasses", () => {
+  const box = (x: number, y: number, side: number) => face(side, side, x)
+  const at = (x: number, y: number, side: number): DetectedFace => ({ ...box(x, y, side), y })
+
+  // The breaker's case: A only on the 640 pass, B only on the full pass.
+  it("refuses two comparable faces that each pass sees only one of (the merged check)", () => {
+    expect(selectIdFaceAcrossPasses([at(100, 100, 300)], [at(900, 100, 280)])).toEqual({
+      ok: false, reason: "extraction_incomplete", count: 2,
+    })
+  })
+
+  // A large face only the 640 pass sees makes two comparable faces only the
+  // full pass sees look like ghosts in the merged list (0.36 of A each).
+  it("refuses two comparable faces the full pass alone sees, beside a larger 640-only face (the full-pass check)", () => {
+    expect(selectIdFaceAcrossPasses([at(100, 100, 500)], [at(900, 100, 300), at(900, 700, 300)])).toEqual({
+      ok: false, reason: "extraction_incomplete", count: 3,
+    })
+  })
+
+  it("refuses two comparable faces the 640 pass alone sees, beside a larger full-only face (the 640-pass check)", () => {
+    expect(selectIdFaceAcrossPasses([at(900, 100, 300), at(900, 700, 300)], [at(100, 100, 500)])).toEqual({
+      ok: false, reason: "extraction_incomplete", count: 3,
+    })
+  })
+
+  it("merges the same face from both passes, keeping the 640 pass's box", () => {
+    const fitFace = at(100, 100, 300)
+    expect(selectIdFaceAcrossPasses([fitFace], [at(110, 105, 300)])).toEqual({
+      ok: true, face: fitFace, pass: "fit640", count: 1, secondFaceAreaRatio: null,
+    })
+  })
+
+  it("accepts a ghost portrait only one pass sees, with the merged list's ratio", () => {
+    expect(selectIdFaceAcrossPasses([at(100, 100, 300)], [at(900, 100, 60)])).toEqual(expect.objectContaining({
+      ok: true, pass: "fit640", count: 2, secondFaceAreaRatio: 0.04,
+    }))
+  })
+
+  it("compares the full pass's face when the 640 pass finds none", () => {
+    expect(selectIdFaceAcrossPasses([], [at(100, 100, 120)])).toEqual(expect.objectContaining({ ok: true, pass: "full", count: 1 }))
+  })
+
+  it("refuses when neither pass finds a face", () => {
+    expect(selectIdFaceAcrossPasses([], [])).toEqual({ ok: false, reason: "extraction_incomplete", count: 0 })
+  })
+
+  it("is selectIdFace when there is no full pass", () => {
+    expect(selectIdFaceAcrossPasses([at(100, 100, 300)], null)).toEqual(expect.objectContaining({ ok: true, pass: "fit640", count: 1 }))
   })
 })

@@ -12,6 +12,11 @@ import {
   qualifyTerm,
   productForAmount,
   applyProductLimitsRands,
+  applyProductTermDays,
+  applyTermError,
+  planApplyTerm,
+  effectiveApplyTermRange,
+  serverTermRangeFromResponse,
   qualifyApplyHref,
   formatRandsWhole,
   formatProductRange,
@@ -508,5 +513,86 @@ describe("marketing-copy formatters", () => {
     // Period decimal, NOT the en-ZA comma ("2,8") — every public page renders a
     // fractional admin-set rate through this one helper so they can't diverge.
     expect(formatInterestLabel(personal)).toBe("2.8%/mo reducing")
+  })
+})
+
+describe("applyProductTermDays / applyTermError — apply form term requirement", () => {
+  it("static catalogue: short-term is fixed at 30 days; personal and PO are ranges in days", () => {
+    expect(applyProductTermDays(applyLivePricing({}))).toEqual({
+      MICRO: { min: 30, max: 30, fixed: true },
+      PERSONAL: { min: 90, max: 1800, fixed: false },
+      PO_FUNDING: expect.objectContaining({ fixed: false }),
+    })
+  })
+
+  it("rejects an empty, non-numeric, fractional, zero or negative term", () => {
+    const range = { min: 90, max: 1800 }
+    for (const bad of ["", "  ", "abc", "30.5", "0", "-5"]) {
+      expect(applyTermError(bad, range), bad).toBe("Please enter your loan term in days")
+    }
+  })
+
+  it("rejects a term outside the product range and accepts one inside it", () => {
+    const range = { min: 90, max: 1800 }
+    expect(applyTermError("89", range)).toBe("Term must be between 90 and 1800 days")
+    expect(applyTermError("1801", range)).toBe("Term must be between 90 and 1800 days")
+    expect(applyTermError("90", range)).toBeNull()
+    expect(applyTermError("360", range)).toBeNull()
+  })
+})
+
+describe("planApplyTerm — the apply form never sends no term where one may be required", () => {
+  const variable = { min: 90, max: 1800, fixed: false }
+  const fixed = { min: 30, max: 30, fixed: true }
+
+  it("variable product: field shown, blank or bad input is an error and nothing valid is sent", () => {
+    expect(planApplyTerm("", variable)).toEqual({ showField: true, error: "Please enter your loan term in days", sendTermDays: "" })
+    expect(planApplyTerm("abc", variable).error).not.toBeNull()
+    expect(planApplyTerm("30", variable).error).toBe("Term must be between 90 and 1800 days")
+  })
+
+  it("variable product: a valid term shows no error and is sent as typed", () => {
+    expect(planApplyTerm(" 180 ", variable)).toEqual({ showField: true, error: null, sendTermDays: "180" })
+  })
+
+  it("catalogue-fixed product: field hidden, no error, the fixed term is sent even if the draft term is blank or stale", () => {
+    expect(planApplyTerm("", fixed)).toEqual({ showField: false, error: null, sendTermDays: "30" })
+    expect(planApplyTerm("7", fixed).sendTermDays).toBe("30")
+  })
+
+  it("unknown product/range (e.g. a restored draft with an unrecognised product): field shown, required, no crash", () => {
+    expect(planApplyTerm("", undefined)).toEqual({ showField: true, error: "Please enter your loan term in days", sendTermDays: "" })
+    expect(planApplyTerm("45", undefined)).toEqual({ showField: true, error: null, sendTermDays: "45" })
+  })
+})
+
+describe("server-guided apply term range", () => {
+  const body = { success: false, error: "msg", termRange: { minTermDays: 60, maxTermDays: 90 } }
+
+  it("reads the range from the route's 400 body, tagged with the product", () => {
+    expect(serverTermRangeFromResponse("MICRO", body)).toEqual({ productType: "MICRO", min: 60, max: 90 })
+  })
+
+  it.each([null, {}, { termRange: {} }, { termRange: { minTermDays: "60", maxTermDays: 90 } }, { termRange: { minTermDays: 90, maxTermDays: 60 } }])(
+    "ignores a response without a usable range: %j",
+    (data) => {
+      expect(serverTermRangeFromResponse("MICRO", data)).toBeNull()
+    },
+  )
+
+  it("a catalogue-fixed product becomes a visible field with the server's bounds", () => {
+    const fixed = { min: 30, max: 30, fixed: true }
+    const server = serverTermRangeFromResponse("MICRO", body)
+    const range = effectiveApplyTermRange("MICRO", fixed, server)
+    expect(range).toEqual({ min: 60, max: 90, fixed: false })
+    expect(planApplyTerm("", range)).toMatchObject({ showField: true, error: "Please enter your loan term in days" })
+    expect(planApplyTerm("30", range).error).toBe("Term must be between 60 and 90 days")
+    expect(planApplyTerm("75", range)).toEqual({ showField: true, error: null, sendTermDays: "75" })
+  })
+
+  it("a server range for another product does not apply", () => {
+    const fixed = { min: 30, max: 30, fixed: true }
+    expect(effectiveApplyTermRange("PERSONAL", fixed, { productType: "MICRO", min: 60, max: 90 })).toBe(fixed)
+    expect(effectiveApplyTermRange("MICRO", fixed, null)).toBe(fixed)
   })
 })

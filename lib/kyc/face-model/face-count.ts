@@ -49,15 +49,17 @@ export function selectIdFace(
 /**
  * The ID face when the image got both detector passes (it is larger than
  * 640): the 640-fit pass, and the full-resolution pass that finds the small
- * face on an A4 scan. Their detections, all in source pixels, are MERGED
- * first: a full-pass box that overlaps a 640-pass box by more than the NMS
- * IoU (0.3) is the same face, and the 640 pass's box is kept (it also sees
- * faces too large for the full pass). Counting each pass on its own let two
- * comparable faces, one seen only by each pass, look like one face to both.
- * selectIdFace then applies the comparable-faces rule, the 64 cap and the
- * 1e-9 floor to the merged list, and the count, the ratio and the compared
- * face all come from it. Without a full pass (`full` null) this is
- * selectIdFace.
+ * face on an A4 scan. Three checks, all of which must be clean:
+ *   - each pass on its own (selectIdFace: comparable faces, the 64 cap, the
+ *     1e-9 floor). A large face only one pass sees can make two comparable
+ *     faces only the other pass sees look like ghosts once merged;
+ *   - the merged list: the detections, all in source pixels, merged with NMS
+ *     at IoU 0.3, the 640 pass's box kept for a duplicate (it also sees faces
+ *     too large for the full pass). Two comparable faces, one seen only by
+ *     each pass, are one face to each pass and two here.
+ * Only then is the merged list's dominant face compared, with its count and
+ * second-face ratio; `pass` names the pass that produced the compared box.
+ * Without a full pass (`full` null) this is selectIdFace.
  */
 export function selectIdFaceAcrossPasses(
   fit: DetectedFace[],
@@ -69,7 +71,13 @@ export function selectIdFaceAcrossPasses(
   for (const face of full ?? []) {
     if (merged.every((kept) => overlap(kept.face, face) <= YUNET_NMS_THRESHOLD)) merged.push({ face, pass: "full" })
   }
+  const count = Math.max(fit.length, full?.length ?? 0, merged.length)
+  const refuses = (faces: DetectedFace[]) => {
+    const pick = selectIdFace(faces)
+    return !pick.ok && pick.count > 0
+  }
+  if (refuses(fit) || (full !== null && refuses(full))) return { ok: false, reason: "extraction_incomplete", count }
   const pick = selectIdFace(merged.map((m) => m.face))
-  if (!pick.ok) return pick
+  if (!pick.ok) return { ok: false, reason: "extraction_incomplete", count: pick.count === 0 ? 0 : count }
   return { ...pick, pass: merged.find((m) => m.face === pick.face)!.pass }
 }
