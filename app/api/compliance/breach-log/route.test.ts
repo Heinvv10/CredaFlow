@@ -45,6 +45,7 @@ const incident = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(console, "error").mockImplementation(() => {})
   requireApiRoleMock.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
   findManyMock.mockResolvedValue([])
   createMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "breach-1", ...data }))
@@ -108,10 +109,48 @@ describe("POST /api/compliance/breach-log", () => {
     expect(JSON.stringify(audit)).not.toContain("Synthetic mailbox exposure drill.")
   })
 
-  it("fails closed when the audit row cannot be written", async () => {
-    auditCreateMock.mockRejectedValue(new Error("audit unavailable"))
+  it("fails closed when the audit row cannot be written, and logs it without the row's text", async () => {
+    // A database error can quote the failing row; the log must not.
+    auditCreateMock.mockRejectedValue(new Error(`Failing row contains (${incident.description})`))
     const res = await POST(post(incident))
     expect(res.status).toBe(500)
+    expect(console.error).toHaveBeenCalledWith("[breach-log] create failed", expect.objectContaining({
+      action: "BREACH_LOG_CREATED", entity: "BreachLog", tenantId: "tenant-1", error: "Error",
+    }))
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(incident.description)
+  })
+
+  it("refuses malformed fields with 400, writing nothing", async () => {
+    for (const body of [
+      { ...incident, incidentDate: "not a date" },
+      { ...incident, discoveredDate: "2026-02-30T99:00" },
+      { ...incident, incidentDate: 20260901 },
+      { ...incident, description: 7 },
+      { ...incident, dataCategories: ["Contact details"] },
+      { ...incident, affectedClients: -1 },
+      { ...incident, affectedClients: 1.5 },
+      { ...incident, affectedClients: "3" },
+      { ...incident, containmentAction: 5 },
+      { ...incident, reportedToIC: "true" },
+      { ...incident, reportedAt: "yesterday-ish" },
+    ]) {
+      const res = await POST(post(body))
+      expect(res.status, JSON.stringify(body)).toBe(400)
+    }
+    const res = await POST(new NextRequest(URL, { method: "POST", body: "{not json" }))
+    expect(res.status).toBe(400)
+    expect(createMock).not.toHaveBeenCalled()
+    expect(auditCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts the optional fields when well formed", async () => {
+    const res = await POST(post({
+      ...incident, affectedClients: 0, containmentAction: "Drill only.", reportedToIC: true, reportedAt: "2026-09-03",
+    }))
+    expect(res.status).toBe(201)
+    expect(createMock.mock.calls[0][0].data).toMatchObject({
+      affectedClients: 0, containmentAction: "Drill only.", reportedToIC: true, reportedAt: new Date("2026-09-03"),
+    })
   })
 
   it("rejects an entry with a required field missing, writing nothing", async () => {

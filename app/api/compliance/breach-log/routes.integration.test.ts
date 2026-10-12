@@ -156,6 +156,42 @@ suite.sequential("breach log routes are tenant-scoped (real Postgres)", () => {
     })
   })
 
+  it("serialises concurrent edits, so each audit row's old value is the one it replaced", async () => {
+    const id = await logIncident(a, "Synthetic incident edited twice at once.")
+    signIn(a)
+    // Hold the row so both edits start before either can commit. Read outside
+    // a lock, both would see OPEN and audit OPEN as the value they replaced.
+    const responses = await db.$transaction(async (holder) => {
+      await holder.$queryRaw`SELECT "id" FROM "BreachLog" WHERE "id" = ${id} FOR UPDATE`
+      const pending = [editOne(a, id, { status: "CONTAINED" }), editOne(a, id, { status: "RESOLVED" })]
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return pending
+    })
+    const statuses = (await Promise.all(responses)).map((r) => r.status).sort()
+
+    const rows = await db.auditLog.findMany({ where: { action: "BREACH_LOG_UPDATED", entityId: id }, orderBy: { createdAt: "asc" } })
+    const chain = rows.map((r) => [(r.oldValue as { status: string }).status, (r.newValue as { status: string }).status])
+    const final = (await db.breachLog.findUniqueOrThrow({ where: { id } })).status
+    // Either order is legal; a stale read is not.
+    if (statuses.join() === "200,200") {
+      expect(chain).toEqual([["OPEN", "CONTAINED"], ["CONTAINED", "RESOLVED"]])
+    } else {
+      expect(statuses).toEqual([200, 409])
+      expect(chain).toEqual([["OPEN", "RESOLVED"]])
+    }
+    expect(final).toBe("RESOLVED")
+  })
+
+  it("keeps the containment action's text out of the audit trail", async () => {
+    signIn(a)
+    const text = "Synthetic Person's mailbox access revoked."
+    expect((await editOne(a, aId, { containmentAction: text })).status).toBe(200)
+    expect((await db.breachLog.findUniqueOrThrow({ where: { id: aId } })).containmentAction).toBe(text)
+    const [audit] = await audits("BREACH_LOG_UPDATED", aId)
+    expect(audit.newValue).toEqual({ containmentActionChanged: true })
+    expect(JSON.stringify(audit)).not.toContain("Synthetic Person")
+  })
+
   it("refuses a tenant A session on tenant B's host before any entry is read", async () => {
     signIn(a)
     expect((await list(request(b, BASE))).status).toBe(403)
