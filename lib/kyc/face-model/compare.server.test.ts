@@ -1,5 +1,6 @@
 import sharp from "sharp"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { oversizedPng } from "@/lib/kyc/biometric-image.test-helpers"
 import { faceModelEvidenceRefusal } from "./evidence"
 import {
   FACE_MODELS,
@@ -248,6 +249,10 @@ describe("decodeImage", () => {
     const decoded = await decodeImage(rotated)
     expect([decoded.width, decoded.height]).toEqual([20, 40])
     expect(decoded.data.length).toBe(20 * 40 * 3)
+  })
+
+  it("refuses to decode an image above 50 megapixels", async () => {
+    await expect(decodeImage(oversizedPng(7072))).rejects.toThrow(/pixel limit/)
   })
 
   it("flattens transparency and shrinks a large image to at most 2048 on its long edge", async () => {

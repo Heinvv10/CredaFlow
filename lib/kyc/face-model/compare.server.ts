@@ -14,7 +14,7 @@
  */
 import sharp from "sharp"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
-import { CANONICAL_IMAGE_MAX_EDGE_PX } from "@/lib/kyc/biometric-image.server"
+import { CANONICAL_IMAGE_MAX_EDGE_PX, MAX_INPUT_PIXELS } from "@/lib/kyc/biometric-image.server"
 import { alignedFaceTensor, cosineSimilarity } from "./align"
 import type { FaceModelEvidence } from "./evidence"
 import { selectIdFace, selectSelfieFace } from "./face-count"
@@ -65,7 +65,7 @@ export function isSamePerson(similarity: number): boolean {
 
 /** Interleaved RGB, EXIF orientation applied, transparency on white, long edge at most 2048. */
 export async function decodeImage(bytes: Buffer): Promise<RgbImage> {
-  const { data, info } = await sharp(bytes)
+  const { data, info } = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
     .rotate()
     .resize(MAX_DECODE_EDGE, MAX_DECODE_EDGE, { fit: "inside", withoutEnlargement: true })
     .flatten({ background: "#ffffff" })

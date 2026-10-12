@@ -7,7 +7,14 @@ vi.mock("@/lib/vlm-extract", () => ({
   documentImage: (...args: unknown[]) => documentImageMock(...args),
 }))
 
-import { CANONICAL_IMAGE_MAX_BYTES, CANONICAL_IMAGE_MAX_EDGE_PX, canonicalBiometricImage } from "./biometric-image.server"
+import {
+  CANONICAL_IMAGE_MAX_BYTES,
+  CANONICAL_IMAGE_MAX_EDGE_PX,
+  MAX_CONCURRENT_CANONICALISATIONS,
+  canonicalBiometricImage,
+} from "./biometric-image.server"
+import { oversizedPng } from "./biometric-image.test-helpers"
+
 
 const pixel = async (jpeg: Buffer, x: number, y: number) => {
   const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true })
@@ -102,6 +109,45 @@ describe("canonicalBiometricImage", () => {
         ok: false, error: "The prepared image is larger than 8 MiB",
       })
     }, 30_000)
+  })
+
+  // Decoding happens before the 2048 px cap: an interlaced 16383 px PNG or a
+  // progressive JPEG cost ~1 GB RSS each, and four at once ~3.5 GB.
+  describe("decode limits", () => {
+    it("refuses an image above 50 megapixels from its header, quickly", async () => {
+      const started = Date.now()
+      expect(await canonicalBiometricImage(oversizedPng(16383), "image/png")).toEqual({
+        ok: false, error: "The image is larger than 50 megapixels",
+      })
+      expect(await canonicalBiometricImage(oversizedPng(7072), "image/png")).toEqual({
+        ok: false, error: "The image is larger than 50 megapixels",
+      })
+      expect(Date.now() - started).toBeLessThan(1000)
+    })
+
+    it("accepts a 48 MP phone photo", async () => {
+      const photo = await sharp({ create: { width: 8000, height: 6000, channels: 3, background: "#7a6a5a" } }).jpeg().toBuffer()
+      const result = await canonicalBiometricImage(photo, "image/jpeg")
+      if (!result.ok) throw new Error(`expected a canonical image, got: ${result.error}`)
+      const metadata = await sharp(result.image.fileBuffer).metadata()
+      expect([metadata.width, metadata.height]).toEqual([2048, 1536])
+    }, 30_000)
+
+    it(`runs at most ${MAX_CONCURRENT_CANONICALISATIONS} at once; the next waits for a slot`, async () => {
+      const page = await sharp({ create: { width: 20, height: 20, channels: 3, background: "#ffffff" } }).jpeg().toBuffer()
+      const releases: Array<() => void> = []
+      documentImageMock.mockImplementation((buffer: Buffer) => new Promise((resolve) => {
+        releases.push(() => resolve({ ok: true, buffer: page, mimeType: "image/jpeg" }))
+      }))
+      const calls = [1, 2, 3].map((n) => canonicalBiometricImage(Buffer.from(`pdf-${n}`), "application/pdf"))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(documentImageMock).toHaveBeenCalledTimes(2)
+      releases[0]()
+      await vi.waitFor(() => expect(documentImageMock).toHaveBeenCalledTimes(3))
+      releases[1]()
+      releases[2]()
+      expect((await Promise.all(calls)).every((result) => result.ok)).toBe(true)
+    })
   })
 
   it("fails on bytes that are not an image", async () => {
