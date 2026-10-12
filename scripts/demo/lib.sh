@@ -98,6 +98,23 @@ sim_sql() {
     sh -c 'psql -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$SQL"'
 }
 
+# live_sql DB SQL — SQL in database DB of the live db container, with the
+# container's own POSTGRES_* env (several statements in one SQL string run as
+# one transaction).
+live_sql() {
+  docker exec -e DB="$1" -e SQL="$2" "$LIVE_DB" \
+    sh -c 'psql -v ON_ERROR_STOP=1 -q -At -U "$POSTGRES_USER" -d "$DB" -c "$SQL"'
+}
+
+# host_addr IP PORT — a published port as an address to reach it at: a
+# wildcard or empty bind address through loopback, an IPv6 address bracketed.
+host_addr() {
+  local ip="$1"
+  case "$ip" in "" | 0.0.0.0 | "::" | "[::]") ip=127.0.0.1 ;; esac
+  case "$ip" in \[*) ;; *:*) ip="[$ip]" ;; esac
+  echo "$ip:$2"
+}
+
 # record_result NAME LINE — the one-line outcome of the last bake/restore,
 # read by status.sh ($LOG_DIR/last-<NAME>).
 record_result() {

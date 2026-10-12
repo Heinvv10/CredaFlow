@@ -85,15 +85,13 @@ flock -w 600 9 || die "another restore holds the lock"
 
 uploads_volume="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Name}}{{end}}{{end}}' "$LIVE_APP")"
 [ -n "$uploads_volume" ] || die "$LIVE_APP has no /app/uploads volume"
-# host_port CONTAINER — the published :3300 as host:port; a wildcard or empty
-# bind address is reached through loopback.
+# host_port CONTAINER — the published :3300 as host:port (host_addr in lib.sh).
 host_port() {
   local ip port
   ip="$(docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostIp}}{{end}}' "$1")"
   port="$(docker inspect -f '{{with index .HostConfig.PortBindings "3300/tcp"}}{{(index . 0).HostPort}}{{end}}' "$1")"
   [ -n "$port" ] || return 0
-  case "$ip" in "" | 0.0.0.0 | "::" | "[::]") ip=127.0.0.1 ;; esac
-  echo "$ip:$port"
+  host_addr "$ip" "$port"
 }
 staff_addr="$(host_port "$LIVE_APP")" portal_addr="$(host_port "$LIVE_PORTAL")"
 [ -n "$staff_addr" ] && [ -n "$portal_addr" ] || die "cannot read the published :3300 ports of $LIVE_APP / $LIVE_PORTAL"
@@ -102,13 +100,8 @@ ts="$(date -u +%Y%m%d%H%M%S)"
 tmp_db="${db}_restore_$ts" old_db="${db}_old_$ts"
 stage=".restore-$ts" old_uploads=".old-$ts"
 
-# All DB work runs inside the db container with its own POSTGRES_* env; no
-# credential crosses the host shell. live_sql DB SQL (several statements in
-# one SQL string run as one transaction).
-live_sql() {
-  docker exec -e DB="$1" -e SQL="$2" "$LIVE_DB" \
-    sh -c 'psql -v ON_ERROR_STOP=1 -q -At -U "$POSTGRES_USER" -d "$DB" -c "$SQL"'
-}
+# All DB work runs inside the db container with its own POSTGRES_* env
+# (live_sql in lib.sh); no credential crosses the host shell.
 db_exists() { [ "$(live_sql postgres "SELECT 1 FROM pg_database WHERE datname = '$1'")" = 1 ]; }
 kick() { live_sql postgres "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = '$1' AND pid <> pg_backend_pid()" >/dev/null; }
 # uploads_sh SCRIPT — a shell script against the uploads volume, mounted at /u
