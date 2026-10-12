@@ -65,6 +65,13 @@ describe("selectIdFace", () => {
     })
   })
 
+  // Bounds the count both gates accept (2..64 with a second face).
+  it("refuses more than 64 detected faces, however small the others", () => {
+    const many = [face(200, 200), ...Array.from({ length: 64 }, (_, i) => face(5, 5, 300 + i * 10))]
+    expect(selectIdFace(many)).toEqual({ ok: false, reason: "extraction_incomplete", count: 65 })
+    expect(selectIdFace(many.slice(0, 64))).toEqual(expect.objectContaining({ ok: true, count: 64 }))
+  })
+
   it("reports the largest other face's ratio when several small faces are present", () => {
     const result = selectIdFace([face(100, 100), face(20, 20, 300), face(40, 40, 500)])
     expect(result).toEqual(expect.objectContaining({ ok: true, count: 3, secondFaceAreaRatio: 0.16 }))

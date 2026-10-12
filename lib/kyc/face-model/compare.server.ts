@@ -18,7 +18,14 @@ import { documentImage } from "@/lib/vlm-extract"
 import { alignedFaceTensor, cosineSimilarity } from "./align"
 import type { FaceModelEvidence } from "./evidence"
 import { selectIdFace, selectSelfieFace } from "./face-count"
-import { FACE_MODELS, FACE_SIMILARITY_THRESHOLD } from "./models"
+import {
+  FACE_MODELS,
+  FACE_SIMILARITY_THRESHOLD,
+  MIN_ALIGNED_CROP_SHARPNESS,
+  MIN_INTER_OCULAR_PX,
+  MIN_LANDMARK_GEOMETRY_MARGIN,
+} from "./models"
+import { alignedCropSharpness, interOcularDistance, landmarkGeometryMargin } from "./quality"
 import { loadFaceModelRuntime, type FaceModelRuntime } from "./runtime.server"
 import { YUNET_INPUT_SIZE, decodeYunetOutputs, yunetInputTensor, type DetectedFace, type RgbImage } from "./yunet"
 
@@ -95,6 +102,22 @@ function refuse(reason: FaceComparisonRejection["reason"], message: string, coun
   return { ok: false, rejection: { reason, message }, ...counts }
 }
 
+/**
+ * The aligned crop and its measures, or why the face is not usable. Every
+ * refusal is extraction_incomplete: a detector or quality miss says nothing
+ * about whether the document carries a real photograph.
+ */
+function usableFace(image: RgbImage, face: DetectedFace, where: string) {
+  const interOcularPx = interOcularDistance(face.landmarks)
+  if (!(interOcularPx >= MIN_INTER_OCULAR_PX)) return { ok: false as const, refusal: `The face ${where} is too small for the face comparison` }
+  const geometryMargin = landmarkGeometryMargin(face.landmarks)
+  if (!(geometryMargin >= MIN_LANDMARK_GEOMETRY_MARGIN)) return { ok: false as const, refusal: `The face ${where} does not have the layout of a face` }
+  const crop = alignedFaceTensor(image, face.landmarks)
+  const sharpness = alignedCropSharpness(crop)
+  if (!(sharpness >= MIN_ALIGNED_CROP_SHARPNESS)) return { ok: false as const, refusal: `The face ${where} is too blurred for the face comparison` }
+  return { ok: true as const, crop, interOcularPx, geometryMargin, sharpness }
+}
+
 async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Promise<FaceModelRuntime>): Promise<FaceComparison> {
   let counts: Counts = { idFaceCount: null, selfieFaceCount: null }
   let runtime: FaceModelRuntime
@@ -128,8 +151,12 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
         ? "No face found in the selfie by the face comparison"
         : `The selfie shows ${selfieFace.count} faces; the face comparison needs exactly one`, counts)
     }
-    const idEmbedding = await runtime.embed(alignedFaceTensor(idImage, idFace.face.landmarks))
-    const selfieEmbedding = await runtime.embed(alignedFaceTensor(selfieImage, selfieFace.face.landmarks))
+    const id = usableFace(idImage, idFace.face, "on the ID document")
+    if (!id.ok) return refuse("extraction_incomplete", id.refusal, counts)
+    const self = usableFace(selfieImage, selfieFace.face, "in the selfie")
+    if (!self.ok) return refuse("extraction_incomplete", self.refusal, counts)
+    const idEmbedding = await runtime.embed(id.crop)
+    const selfieEmbedding = await runtime.embed(self.crop)
     const similarity = cosineSimilarity(idEmbedding, selfieEmbedding)
     if (!Number.isFinite(similarity)) {
       return refuse("extraction_incomplete", "Face comparison produced no valid similarity", counts)
@@ -145,6 +172,12 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
         selfieFaceCount: selfieFace.count,
         idFaceCount: idFace.count,
         idSecondFaceAreaRatio: idFace.secondFaceAreaRatio,
+        idInterOcularPx: id.interOcularPx,
+        selfieInterOcularPx: self.interOcularPx,
+        idGeometryMargin: id.geometryMargin,
+        selfieGeometryMargin: self.geometryMargin,
+        idSharpness: id.sharpness,
+        selfieSharpness: self.sharpness,
         similarity,
         threshold: FACE_SIMILARITY_THRESHOLD,
         samePerson,

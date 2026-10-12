@@ -288,6 +288,12 @@ suite("face match v3 evidence in the database", () => {
     ["two ID faces without a ratio", { idFaceCount: 2 }],
     ["two comparable ID faces", { idFaceCount: 2, idSecondFaceAreaRatio: 0.51 }],
     ["a string second-face ratio", { idFaceCount: 2, idSecondFaceAreaRatio: "0.1" }],
+    ["65 ID faces", { idFaceCount: 65, idSecondFaceAreaRatio: 0.01 }],
+    ["a second-face ratio of 0", { idFaceCount: 2, idSecondFaceAreaRatio: 0 }],
+    ["ID eyes closer than 24 px", { idInterOcularPx: 23 }],
+    ["a selfie geometry margin below 0.15", { selfieGeometryMargin: 0.1 }],
+    ["an ID crop sharpness below 100", { idSharpness: 64 }],
+    ["no selfie sharpness", { selfieSharpness: undefined }],
   ])("does not verify a client on v3 evidence with %s", async (_label, change) => {
     const fixture = await clientWithSelfie(passedSelfie({
       ...v3Pass,

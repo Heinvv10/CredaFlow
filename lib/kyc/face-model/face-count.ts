@@ -9,7 +9,7 @@
  * in-person route over a genuine but poorly scanned ID for good.
  */
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
-import { ID_SECOND_FACE_MAX_AREA_RATIO } from "./models"
+import { ID_MAX_FACE_COUNT, ID_SECOND_FACE_MAX_AREA_RATIO } from "./models"
 import type { DetectedFace } from "./yunet"
 
 type Refusal<R extends BiometricEvidenceFailureReason> = { ok: false; reason: R; count: number }
@@ -30,7 +30,9 @@ export function selectIdFace(
 ):
   | { ok: true; face: DetectedFace; count: number; secondFaceAreaRatio: number | null }
   | Refusal<"extraction_incomplete"> {
-  if (faces.length === 0) return { ok: false, reason: "extraction_incomplete", count: 0 }
+  if (faces.length === 0 || faces.length > ID_MAX_FACE_COUNT) {
+    return { ok: false, reason: "extraction_incomplete", count: faces.length }
+  }
   const [largest, ...others] = [...faces].sort((a, b) => area(b) - area(a))
   if (others.length === 0) return { ok: true, face: largest, count: 1, secondFaceAreaRatio: null }
   const secondFaceAreaRatio = area(others[0]) / area(largest)

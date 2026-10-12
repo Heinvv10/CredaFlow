@@ -8,7 +8,17 @@ import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { baselineFunctionSql } from "@/lib/db-baseline.test-helpers"
-import { FACE_MODELS, FACE_SIMILARITY_THRESHOLD, ID_SECOND_FACE_MAX_AREA_RATIO } from "@/lib/kyc/face-model/models"
+import {
+  FACE_MODELS,
+  FACE_SIMILARITY_THRESHOLD,
+  ID_MAX_FACE_COUNT,
+  ID_SECOND_FACE_MAX_AREA_RATIO,
+  MAX_ALIGNED_CROP_SHARPNESS,
+  MAX_INTER_OCULAR_PX,
+  MIN_ALIGNED_CROP_SHARPNESS,
+  MIN_INTER_OCULAR_PX,
+  MIN_LANDMARK_GEOMETRY_MARGIN,
+} from "@/lib/kyc/face-model/models"
 import { VLM_FACE_MATCH_PROVIDER } from "@/lib/kyc/biometric-evidence"
 
 const MIGRATIONS = path.join(__dirname, "..", "..", "prisma", "migrations")
@@ -64,7 +74,13 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
     expect(holds).toContain(`p_evidence ->> 'recognizerSha256' = '${FACE_MODELS.recognizer.sha256}'`)
     expect(holds).toContain(`p_evidence -> 'threshold' = '${FACE_SIMILARITY_THRESHOLD}'::jsonb`)
     expect(holds).toContain(`BETWEEN ${FACE_SIMILARITY_THRESHOLD} AND 1`)
-    expect(holds).toContain(`BETWEEN 0 AND ${ID_SECOND_FACE_MAX_AREA_RATIO}`)
+    expect(holds).toContain(`::numeric <= ${ID_SECOND_FACE_MAX_AREA_RATIO}`)
+    expect(holds).toContain(`BETWEEN 2 AND ${ID_MAX_FACE_COUNT}`)
+    for (const side of ["id", "selfie"]) {
+      expect(holds).toContain(`'${side}InterOcularPx')::numeric BETWEEN ${MIN_INTER_OCULAR_PX} AND ${MAX_INTER_OCULAR_PX}`)
+      expect(holds).toContain(`'${side}GeometryMargin')::numeric BETWEEN ${MIN_LANDMARK_GEOMETRY_MARGIN} AND 1`)
+      expect(holds).toContain(`'${side}Sharpness')::numeric BETWEEN ${MIN_ALIGNED_CROP_SHARPNESS} AND ${MAX_ALIGNED_CROP_SHARPNESS}`)
+    }
   })
 
   it("un-verifies stale selfies on the same v3 predicate the composite gate uses", () => {

@@ -80,3 +80,23 @@ export const FACE_SIMILARITY_THRESHOLD = 0.363
  * document does not say whose face it carries.
  */
 export const ID_SECOND_FACE_MAX_AREA_RATIO = 0.5
+
+/** More detected faces than this on an ID is not a document with a portrait. */
+export const ID_MAX_FACE_COUNT = 64
+
+/*
+ * Floors on each compared face (lib/kyc/face-model/quality.ts), chosen
+ * 2026-10-12 from the presenter specimen card / selfie (eye distance 100 /
+ * 244 px, geometry margin 0.41 / 0.52, sharpness 1114 / 1241) against what
+ * they must refuse: a card shrunk to an 80 px photo box (eyes 17.5 px
+ * apart), collinear or inverted landmarks (margin <= 0), flat crops
+ * (sharpness 0), blurred noise (64) and a card blurred at sigma 3 (68).
+ * SFace's template puts the eyes 35 px apart, so 24 px is at most a 1.5x
+ * upsample. The ceilings only bound what a gate accepts: no real face reaches
+ * them (the Laplacian of 0-255 luma cannot vary by more than 1020^2).
+ */
+export const MIN_INTER_OCULAR_PX = 24
+export const MAX_INTER_OCULAR_PX = 4096
+export const MIN_LANDMARK_GEOMETRY_MARGIN = 0.15
+export const MIN_ALIGNED_CROP_SHARPNESS = 100
+export const MAX_ALIGNED_CROP_SHARPNESS = 2_000_000

@@ -11,8 +11,10 @@
 --
 -- 1. face_model_evidence_holds: the stored face-model result re-proves a pass
 --    (pinned model names and SHA-256s, exactly one selfie face, one dominant
---    ID face, similarity >= the pinned 0.363). Mirrors
---    faceModelEvidenceRefusal in lib/kyc/face-model/evidence.ts.
+--    ID face among at most 64, each compared face's eye distance, landmark
+--    geometry and sharpness within the pinned floors and ceilings, similarity
+--    >= the pinned 0.363). Mirrors faceModelEvidenceRefusal in
+--    lib/kyc/face-model/evidence.ts.
 -- 2. subject_has_composite_kyc: the v2 body (20261011060000) with only the
 --    provider tag changed to v3 and the face-model check added. Every other
 --    v2 condition, including the binding to the newest verified ID copy, is
@@ -54,19 +56,55 @@ AS $function$
       THEN (p_evidence ->> 'similarity')::numeric BETWEEN 0.363 AND 1
       ELSE false
     END
-    -- One ID face with no ratio, or several where every other face's box is
-    -- at most half the compared face's (the smart ID card's ghost portrait).
+    -- One ID face with no ratio, or 2..64 where every other face's box is
+    -- more than nothing and at most half the compared face's (the smart ID
+    -- card's ghost portrait). Bounded so no stored count is beyond what the
+    -- application can read back (1e400 is a valid numeric, not a double).
     AND CASE
       WHEN jsonb_typeof(p_evidence -> 'idFaceCount') IS DISTINCT FROM 'number' THEN false
       WHEN (p_evidence ->> 'idFaceCount')::numeric = 1
       THEN p_evidence -> 'idSecondFaceAreaRatio' = 'null'::jsonb
-      WHEN (p_evidence ->> 'idFaceCount')::numeric > 1
+      WHEN (p_evidence ->> 'idFaceCount')::numeric BETWEEN 2 AND 64
         AND (p_evidence ->> 'idFaceCount')::numeric = trunc((p_evidence ->> 'idFaceCount')::numeric)
       THEN CASE
         WHEN jsonb_typeof(p_evidence -> 'idSecondFaceAreaRatio') = 'number'
-        THEN (p_evidence ->> 'idSecondFaceAreaRatio')::numeric BETWEEN 0 AND 0.5
+        THEN (p_evidence ->> 'idSecondFaceAreaRatio')::numeric > 0
+          AND (p_evidence ->> 'idSecondFaceAreaRatio')::numeric <= 0.5
         ELSE false
       END
+      ELSE false
+    END
+    -- Each compared face is usable (lib/kyc/face-model/quality.ts): eyes at
+    -- least 24 px apart, landmarks laid out as a face, the aligned crop not
+    -- flat or blurred. The ceilings only bound what is accepted.
+    AND CASE
+      WHEN jsonb_typeof(p_evidence -> 'idInterOcularPx') = 'number'
+      THEN (p_evidence ->> 'idInterOcularPx')::numeric BETWEEN 24 AND 4096
+      ELSE false
+    END
+    AND CASE
+      WHEN jsonb_typeof(p_evidence -> 'selfieInterOcularPx') = 'number'
+      THEN (p_evidence ->> 'selfieInterOcularPx')::numeric BETWEEN 24 AND 4096
+      ELSE false
+    END
+    AND CASE
+      WHEN jsonb_typeof(p_evidence -> 'idGeometryMargin') = 'number'
+      THEN (p_evidence ->> 'idGeometryMargin')::numeric BETWEEN 0.15 AND 1
+      ELSE false
+    END
+    AND CASE
+      WHEN jsonb_typeof(p_evidence -> 'selfieGeometryMargin') = 'number'
+      THEN (p_evidence ->> 'selfieGeometryMargin')::numeric BETWEEN 0.15 AND 1
+      ELSE false
+    END
+    AND CASE
+      WHEN jsonb_typeof(p_evidence -> 'idSharpness') = 'number'
+      THEN (p_evidence ->> 'idSharpness')::numeric BETWEEN 100 AND 2000000
+      ELSE false
+    END
+    AND CASE
+      WHEN jsonb_typeof(p_evidence -> 'selfieSharpness') = 'number'
+      THEN (p_evidence ->> 'selfieSharpness')::numeric BETWEEN 100 AND 2000000
       ELSE false
     END,
     false

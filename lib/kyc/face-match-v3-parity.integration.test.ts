@@ -40,7 +40,9 @@ const FM = (change = "") =>
   `"detectorSha256":"8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",` +
   `"recognizer":"face_recognition_sface_2021dec",` +
   `"recognizerSha256":"0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",` +
-  `"selfieFaceCount":1,"idFaceCount":1,"idSecondFaceAreaRatio":null,"similarity":0.71,` +
+  `"selfieFaceCount":1,"idFaceCount":1,"idSecondFaceAreaRatio":null,` +
+  `"idInterOcularPx":100,"selfieInterOcularPx":240,"idGeometryMargin":0.4,"selfieGeometryMargin":0.5,` +
+  `"idSharpness":1100,"selfieSharpness":1200,"similarity":0.71,` +
   `"threshold":0.363,"samePerson":true${change ? "," + change : ""}}`
 const BR = (change = "") =>
   `{"ok":true,"verified":true,"provider":"vlm-face-match-v3","faceModel":${FM()},"matchScore":95,"livenessScore":97,` +
@@ -144,6 +146,23 @@ const cases: Case[] = [
   { name: "face model: duplicate samePerson, false then true", expected: true, br: BR(`"faceModel":${FM(`"samePerson":false,"samePerson":true`)}`) },
   { name: "face model: duplicate similarity, passing then failing", expected: false, br: BR(`"faceModel":${FM(`"similarity":0.9,"similarity":0.1`)}`) },
   { name: "face model: VLM uncertain beside a passing model", expected: false, br: BR(`"samePerson":"uncertain","faceMatch":false`) },
+  // Count bounds (the breaker: 1e400 passed SQL and breaks Prisma reads).
+  { name: "face model: idFaceCount 64 with a small second face", expected: true, br: BR(`"faceModel":${FM(`"idFaceCount":64,"idSecondFaceAreaRatio":0.01`)}`) },
+  { name: "face model: idFaceCount 65", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":65,"idSecondFaceAreaRatio":0.01`)}`) },
+  { name: "face model: a second-face ratio of 0", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":0`)}`) },
+  // The quality floors and ceilings on each compared face.
+  { name: "face model: eyes exactly 24 px apart on both", expected: true, br: BR(`"faceModel":${FM(`"idInterOcularPx":24,"selfieInterOcularPx":24`)}`) },
+  { name: "face model: ID eyes 23.9 px apart", expected: false, br: BR(`"faceModel":${FM(`"idInterOcularPx":23.9`)}`) },
+  { name: "face model: selfie eyes 23.9 px apart", expected: false, br: BR(`"faceModel":${FM(`"selfieInterOcularPx":23.9`)}`) },
+  { name: "face model: eye distance a string", expected: false, br: BR(`"faceModel":${FM(`"selfieInterOcularPx":"240"`)}`) },
+  { name: "face model: geometry margins exactly 0.15", expected: true, br: BR(`"faceModel":${FM(`"idGeometryMargin":0.15,"selfieGeometryMargin":0.15`)}`) },
+  { name: "face model: ID geometry margin 0.149", expected: false, br: BR(`"faceModel":${FM(`"idGeometryMargin":0.149`)}`) },
+  { name: "face model: selfie geometry margin above 1", expected: false, br: BR(`"faceModel":${FM(`"selfieGeometryMargin":1.01`)}`) },
+  { name: "face model: sharpness exactly 100 on both", expected: true, br: BR(`"faceModel":${FM(`"idSharpness":100,"selfieSharpness":100`)}`) },
+  { name: "face model: ID sharpness 99.9", expected: false, br: BR(`"faceModel":${FM(`"idSharpness":99.9`)}`) },
+  { name: "face model: selfie sharpness 0", expected: false, br: BR(`"faceModel":${FM(`"selfieSharpness":0`)}`) },
+  { name: "face model: sharpness 3e6", expected: false, br: BR(`"faceModel":${FM(`"idSharpness":3e6`)}`) },
+  { name: "face model: no selfie sharpness", expected: false, br: BR(`"faceModel":${FM().replace(`"selfieSharpness":1200,`, "")}`) },
 
   // The ID copy the match is bound to.
   { name: "no idDocumentId", expected: false, br: BR().replace(`"idDocumentId":"${ID}",`, "") },
@@ -235,6 +254,15 @@ const doublePrecisionCases: Case[] = [
   { name: "face model second-face ratio 0.50000000000000000001", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":2,"idSecondFaceAreaRatio":0.50000000000000000001`)}`) },
 ]
 
+/**
+ * Numbers beyond a double: jsonb stores them, Prisma cannot read them back
+ * (the app's composite read throws, which refuses), and SQL must refuse too.
+ */
+const beyondDoubleCases: Case[] = [
+  { name: "face model idFaceCount 1e400", expected: false, br: BR(`"faceModel":${FM(`"idFaceCount":1e400,"idSecondFaceAreaRatio":0.1`)}`) },
+  { name: "face model eye distance 1e400", expected: false, br: BR(`"faceModel":${FM(`"idInterOcularPx":1e400`)}`) },
+]
+
 function newerIdCopy(ids: Ids, label: string, verified: boolean, sha: string) {
   return `INSERT INTO "ClientDocument" ("id","tenantId","clientId","docType","fileUrl","fileName","verified","contentSha256","createdAt")
     VALUES ('${label}_${ids.clientId}','${ids.tenantId}','${ids.clientId}','ID_COPY','','id.jpg',${verified},'${sha}',CURRENT_TIMESTAMP + interval '1 minute')`
@@ -313,16 +341,18 @@ async function run(c: Case) {
   }
   if (c.cols) await db.$executeRawUnsafe(`UPDATE "ClientDocument" SET ${c.cols} WHERE "id" = $1`, selfieId)
 
-  const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
-  const app = await readCompositeKycState(db as unknown as CompositeKycReader, {
-    tenantId, clientId, subject: client, existing: client,
-  })
   const [{ ok }] = await db.$queryRawUnsafe<Array<{ ok: boolean }>>(
     `SELECT "subject_has_composite_kyc"("tenantId","id","idNumber","firstName","lastName","dateOfBirth") AS ok
      FROM "Client" WHERE "id" = $1`,
     clientId,
   )
-  return { ts: app.ok, sql: ok, tsReason: app.biometricEvidence }
+  const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
+  const app = await readCompositeKycState(db as unknown as CompositeKycReader, {
+    tenantId, clientId, subject: client, existing: client,
+  }).catch(() => null)
+  return app === null
+    ? { ts: "read failed" as const, sql: ok, tsReason: null }
+    : { ts: app.ok, sql: ok, tsReason: app.biometricEvidence }
 }
 
 suite("face match v3: TypeScript and SQL composite gates agree", () => {
@@ -334,6 +364,13 @@ suite("face match v3: TypeScript and SQL composite gates agree", () => {
     const { ts, sql, tsReason } = await run(c)
     expect({ ts, sql }, `TS reason: ${tsReason}`).toEqual({ ts: c.expected, sql: c.expected })
   })
+
+  it.each(beyondDoubleCases.map((c) => [c.name, c] as const))(
+    "SQL refuses, and the app cannot read, %s",
+    async (_name, c) => {
+      expect(await run(c)).toEqual(expect.objectContaining({ ts: "read failed", sql: false }))
+    },
+  )
 
   it.each(doublePrecisionCases.map((c) => [c.name, c] as const))(
     "SQL alone refuses %s (beyond double precision)",

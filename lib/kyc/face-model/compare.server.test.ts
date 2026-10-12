@@ -1,7 +1,13 @@
 import sharp from "sharp"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { faceModelEvidenceRefusal } from "./evidence"
-import { FACE_MODELS, FACE_SIMILARITY_THRESHOLD } from "./models"
+import {
+  FACE_MODELS,
+  FACE_SIMILARITY_THRESHOLD,
+  MIN_ALIGNED_CROP_SHARPNESS,
+  MIN_INTER_OCULAR_PX,
+  MIN_LANDMARK_GEOMETRY_MARGIN,
+} from "./models"
 import type { FaceModelRuntime } from "./runtime.server"
 import { YUNET_INPUT_SIZE, type YunetOutputs } from "./yunet"
 
@@ -12,8 +18,12 @@ vi.mock("@/lib/vlm-extract", () => ({
 
 import { compareFaces, decodeImage, isSamePerson } from "./compare.server"
 
+// Landmark offsets in cells, before scaling by the face size: eyes, nose,
+// mouth corners in YuNet's order. Upright and well proportioned.
+const UPRIGHT_KPS = [-0.3, -0.2, 0.3, -0.2, 0, 0, -0.25, 0.3, 0.25, 0.3]
+
 /** YuNet outputs holding one stride-32 face per entry, `size` cells wide, at cell (row, col). */
-function outputsWithFaces(faces: Array<{ row: number; col: number; size: number }>): YunetOutputs {
+function outputsWithFaces(faces: Array<{ row: number; col: number; size: number; kps?: number[] }>): YunetOutputs {
   const outputs: YunetOutputs = {}
   for (const stride of [8, 16, 32]) {
     const cells = (YUNET_INPUT_SIZE / stride) ** 2
@@ -22,12 +32,12 @@ function outputsWithFaces(faces: Array<{ row: number; col: number; size: number 
     outputs[`bbox_${stride}`] = new Float32Array(cells * 4)
     outputs[`kps_${stride}`] = new Float32Array(cells * 10)
   }
-  for (const { row, col, size } of faces) {
+  for (const { row, col, size, kps = UPRIGHT_KPS } of faces) {
     const index = row * (YUNET_INPUT_SIZE / 32) + col
     outputs.cls_32[index] = 1
     outputs.obj_32[index] = 1
     outputs.bbox_32.set([0, 0, Math.log(size), Math.log(size)], index * 4)
-    outputs.kps_32.set([-0.3, -0.2, 0.3, -0.2, 0, 0, -0.25, 0.3, 0.25, 0.3].map((v) => v * size), index * 10)
+    outputs.kps_32.set(kps.map((v) => v * size), index * 10)
   }
   return outputs
 }
@@ -45,13 +55,18 @@ function fakeRuntime(id: YunetOutputs, selfie: YunetOutputs, embeddings: number[
 }
 
 let png: Buffer
+let flatPng: Buffer
 const image = () => ({ fileBuffer: png, mimeType: "image/png" })
 const run = (runtime: FaceModelRuntime | Promise<FaceModelRuntime>, timeoutMs = 5000) =>
   compareFaces(image(), image(), { loadRuntime: () => Promise.resolve(runtime), timeoutMs })
 
 beforeEach(async () => {
   vi.resetAllMocks()
-  png = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#808080" } }).png().toBuffer()
+  // Textured, so an aligned crop carries detail (a flat crop fails the sharpness floor).
+  const data = Buffer.alloc(640 * 480 * 3)
+  for (let i = 0; i < data.length; i++) data[i] = (i * 37 + ((i / 1920) | 0) * 11) & 255
+  png = await sharp(data, { raw: { width: 640, height: 480, channels: 3 } }).png().toBuffer()
+  flatPng = await sharp({ create: { width: 640, height: 480, channels: 3, background: "#808080" } }).png().toBuffer()
 })
 
 describe("isSamePerson", () => {
@@ -77,6 +92,13 @@ describe("compareFaces", () => {
         selfieFaceCount: 1,
         idFaceCount: 1,
         idSecondFaceAreaRatio: null,
+        // 0.6 cells x 3 x 32 px; the margin is the nose depth, 0.2 / 0.6.
+        idInterOcularPx: expect.closeTo(57.6, 3),
+        selfieInterOcularPx: expect.closeTo(57.6, 3),
+        idGeometryMargin: expect.closeTo(1 / 3, 6),
+        selfieGeometryMargin: expect.closeTo(1 / 3, 6),
+        idSharpness: expect.any(Number),
+        selfieSharpness: expect.any(Number),
         similarity: expect.closeTo(0.8, 6),
         threshold: FACE_SIMILARITY_THRESHOLD,
         samePerson: true,
@@ -122,6 +144,48 @@ describe("compareFaces", () => {
     const runtime = fakeRuntime(id, selfie, [[1, 0], [1, 0]])
     expect(await run(runtime)).toEqual(expected)
     expect(runtime.embed).not.toHaveBeenCalled()
+  })
+
+  // Model-side gates that do not depend on the VLM. SFace scores two
+  // different drawn faces, or face-free crops, far above the threshold.
+  describe("refuses a detected face that is not a usable real face", () => {
+    const small = outputsWithFaces([{ row: 5, col: 5, size: 1 }]) // eyes 0.6 x 32 = 19.2 px apart
+    const noseAbove = outputsWithFaces([{ row: 5, col: 5, size: 3, kps: [-0.3, 0, 0.3, 0, 0, -0.3, -0.25, 0.3, 0.25, 0.3] }])
+    const collinear = outputsWithFaces([{ row: 5, col: 5, size: 3, kps: [-0.3, 0, 0.3, 0, 0, 0, -0.25, 0, 0.25, 0] }])
+    const upsideDown = outputsWithFaces([{ row: 5, col: 5, size: 3, kps: UPRIGHT_KPS.map((v) => -v) }])
+
+    it.each([
+      ["the ID face's eyes closer than the floor", small, ONE_FACE, "The face on the ID document is too small for the face comparison"],
+      ["the selfie face's eyes closer than the floor", ONE_FACE, small, "The face in the selfie is too small for the face comparison"],
+      ["an ID face with the nose above the eyes", noseAbove, ONE_FACE, "The face on the ID document does not have the layout of a face"],
+      ["an ID face with collinear landmarks", collinear, ONE_FACE, "The face on the ID document does not have the layout of a face"],
+      ["an upside-down selfie face", ONE_FACE, upsideDown, "The face in the selfie does not have the layout of a face"],
+    ])("refuses %s", async (_label, id, selfie, message) => {
+      const runtime = fakeRuntime(id, selfie, [[1, 0], [1, 0]])
+      expect(await run(runtime)).toEqual({
+        ok: false, rejection: { reason: "extraction_incomplete", message }, idFaceCount: 1, selfieFaceCount: 1,
+      })
+      expect(runtime.embed).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ["ID", () => ({ fileBuffer: flatPng, mimeType: "image/png" }), image, "The face on the ID document is too blurred for the face comparison"],
+      ["selfie", image, () => ({ fileBuffer: flatPng, mimeType: "image/png" }), "The face in the selfie is too blurred for the face comparison"],
+    ])("refuses a flat (blurred) %s crop", async (_side, id, selfie, message) => {
+      const runtime = fakeRuntime(ONE_FACE, ONE_FACE, [[1, 0], [1, 0]])
+      const result = await compareFaces(id(), selfie(), { loadRuntime: () => Promise.resolve(runtime), timeoutMs: 5000 })
+      expect(result).toEqual({ ok: false, rejection: { reason: "extraction_incomplete", message }, idFaceCount: 1, selfieFaceCount: 1 })
+    })
+
+    it("records measures above every floor on a passing comparison", async () => {
+      const result = await run(fakeRuntime(ONE_FACE, ONE_FACE, [[1, 0], [1, 0]]))
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.evidence.idInterOcularPx).toBeGreaterThanOrEqual(MIN_INTER_OCULAR_PX)
+      expect(result.evidence.idGeometryMargin).toBeGreaterThanOrEqual(MIN_LANDMARK_GEOMETRY_MARGIN)
+      expect(result.evidence.idSharpness).toBeGreaterThanOrEqual(MIN_ALIGNED_CROP_SHARPNESS)
+      expect(result.evidence.selfieSharpness).toBeGreaterThanOrEqual(MIN_ALIGNED_CROP_SHARPNESS)
+    })
   })
 
   const unavailable = (message: string, idFaceCount: number | null = null, selfieFaceCount: number | null = null) =>
