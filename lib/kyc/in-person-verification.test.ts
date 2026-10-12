@@ -5,6 +5,8 @@ import { deriveCompositeKycState } from "@/lib/kyc/document-state"
 import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
+  idDocumentPortraitRefused,
+  selfieBlocksInPersonVerification,
   matchesBlockingSelfie,
   parseInPersonKycVerificationEvidence,
   IN_PERSON_KYC_VERIFICATION_KIND,
@@ -69,9 +71,20 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     idDocument: idDocument(),
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
+    portraitRefusals: [],
     ...over,
   })
 }
+
+// `undefined` omits idDocumentId; `null` omits idDocumentSha256 (which
+// otherwise defaults to this copy's digest).
+const refusedSelfie = (reason: string, idDocumentId?: unknown, idDocumentSha256: unknown = ID_SHA) => ({
+  biometricResult: {
+    biometricFailureReason: reason,
+    ...(idDocumentId === undefined ? {} : { idDocumentId }),
+    ...(idDocumentSha256 === null ? {} : { idDocumentSha256 }),
+  },
+})
 
 describe("parseInPersonKycVerificationEvidence", () => {
   it("accepts a well-formed attestation", () => {
@@ -91,6 +104,36 @@ describe("parseInPersonKycVerificationEvidence", () => {
     expect(
       parseInPersonKycVerificationEvidence({ ...evidence(), ...over }),
     ).toBeNull()
+  })
+})
+
+describe("selfieBlocksInPersonVerification", () => {
+  const captured = new Date("2026-10-12T08:00:00.000Z")
+  const after = new Date("2026-10-12T09:00:00.000Z")
+  const passed = (idDocumentId?: unknown) => ({
+    extractionStatus: "done",
+    createdAt: captured,
+    biometricResult: idDocumentId === undefined ? {} : { idDocumentId },
+  })
+  const currentCopies = [{ id: "doc-a", verificationRejectedAt: null, verificationRejectedById: null }]
+
+  it.each([
+    ["still processing", { ...passed("doc-gone"), extractionStatus: "processing" }, after],
+    ["passed against a current copy", passed("doc-a"), after],
+    ["passed naming no copy", passed(), after],
+    ["passed against a gone copy, judged for an attestation from before it", passed("doc-gone"), new Date("2026-10-12T07:00:00.000Z")],
+    ["passed against a gone copy, judged for an attestation at the same instant", passed("doc-gone"), captured],
+    ["passed against a gone copy, judged for no attestation", passed("doc-gone"), null],
+  ])("blocks a selfie %s", (_label, selfie, attestedAt) => {
+    expect(selfieBlocksInPersonVerification(selfie, currentCopies, attestedAt)).toBe(true)
+  })
+
+  it.each([
+    ["gone", "doc-gone", currentCopies],
+    ["rejected", "doc-a", [{ ...currentCopies[0], verificationRejectedAt: captured }]],
+    ["rejected by a named reviewer", "doc-a", [{ ...currentCopies[0], verificationRejectedById: "officer-1" }]],
+  ])("releases a passed selfie whose copy is %s, for an attestation completed after it", (_label, named, copies) => {
+    expect(selfieBlocksInPersonVerification(passed(named), copies, after)).toBe(false)
   })
 })
 
@@ -145,7 +188,45 @@ describe("currentInPersonKycVerification", () => {
       idDocument: idDocument(),
       blockingBiometricAttempt: false,
       biometricAssessment: MISSING,
+      portraitRefusals: [],
     })).toBeNull()
+  })
+
+  it.each([
+    ["names this ID copy and its digest", [refusedSelfie("id_document_portrait_invalid", "doc-id-copy")]],
+    ["names no ID copy (closes every copy)", [refusedSelfie("id_document_portrait_invalid", undefined, null)]],
+    ["names this row but no digest", [refusedSelfie("id_document_portrait_invalid", "doc-id-copy", null)]],
+    ["names the ID copy as a non-string", [refusedSelfie("id_document_portrait_invalid", 7, null)]],
+    ["names this row but other bytes", [refusedSelfie("id_document_portrait_invalid", "doc-id-copy", sha("other-bytes"))]],
+    ["names another row holding this copy's bytes", [refusedSelfie("id_document_portrait_invalid", "doc-reuploaded")]],
+    ["names only this copy's digest", [refusedSelfie("id_document_portrait_invalid", undefined)]],
+    ["sits among attempts that failed otherwise", [
+      refusedSelfie("face_not_detected", "doc-id-copy"),
+      refusedSelfie("id_document_portrait_invalid", "doc-id-copy"),
+      refusedSelfie("selfie_not_real_photograph", "doc-id-copy"),
+    ]],
+  ])("lapses while any attempt refused the ID portrait in a refusal that %s", (_label, portraitRefusals) => {
+    expect(current({ portraitRefusals })).toBeNull()
+  })
+
+  it.each([
+    ["the refusal was of another ID copy, with other bytes", [refusedSelfie("id_document_portrait_invalid", "doc-older-copy", sha("other-bytes"))]],
+    ["the refusal names only another digest", [refusedSelfie("id_document_portrait_invalid", undefined, sha("other-bytes"))]],
+    ["the selfie was refused as not a real photograph", [refusedSelfie("selfie_not_real_photograph", "doc-id-copy")]],
+    ["the selfie failed for an exceptionable reason", [refusedSelfie("face_not_detected", "doc-id-copy")]],
+    ["an attempt carries no evidence object", [{ biometricResult: null }]],
+  ])("holds when %s", (_label, portraitRefusals) => {
+    expect(current({ portraitRefusals })).not.toBeNull()
+  })
+
+  it.each([
+    ["a named digest", "doc-other-row", ID_SHA],
+    ["no digest either", "doc-other-row", null],
+  ])("matches a refusal of another row naming %s against a copy with no digest to nothing, as SQL's `=` against NULL", (_label, id, digest) => {
+    expect(idDocumentPortraitRefused(
+      [refusedSelfie("id_document_portrait_invalid", id, digest)],
+      { id: "doc-id-copy", contentSha256: null },
+    )).toBe(false)
   })
 
   it("does not accept a senior biometric exception in its place", () => {

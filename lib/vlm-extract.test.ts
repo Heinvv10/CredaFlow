@@ -77,6 +77,13 @@ describe("extractDocumentData face-match request shape", () => {
     expect(text).toContain("matchConfidence")
     expect(text).toContain("livenessConfidence")
     expect(text).toContain("idPhotoFaceDetected")
+    // The separate judgements the code-side gate in lib/kyc/vlm-face-match
+    // requires; a prompt that stops asking for one fails every attempt closed.
+    expect(text).toContain("idPhotoKind")
+    expect(text).toContain("silhouette_placeholder")
+    expect(text).toContain("idPhotoIsRealPhotograph")
+    expect(text).toContain("selfieIsRealPhotograph")
+    expect(text).toContain("samePerson")
   })
 
   it("keeps the single-image liveness prompt when no reference image is given", async () => {

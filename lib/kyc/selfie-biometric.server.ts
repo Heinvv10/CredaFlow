@@ -1,5 +1,4 @@
 import { Prisma } from "@prisma/client"
-import type { DocType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { extractDocumentData } from "@/lib/vlm-extract"
@@ -16,9 +15,19 @@ import {
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
   biometricSubjectFingerprint,
-  readVlmFaceMatchVerdict,
+  VLM_FACE_MATCH_PROVIDER,
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
+import {
+  readVlmFaceMatchSideRejection,
+  readVlmFaceMatchVerdict,
+  type IdPhotoKind,
+  type SamePersonVerdict,
+  type VlmFaceMatchSideJudgement,
+} from "@/lib/kyc/vlm-face-match"
+import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
+import { isSha256Digest } from "@/lib/documents/content-integrity"
+import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -35,15 +44,29 @@ import {
 type VlmFaceMatchProviderResult = {
   ok: boolean
   verified: boolean
-  provider: "vlm-face-match-v1"
+  provider: typeof VLM_FACE_MATCH_PROVIDER
   matchScore: number
   livenessScore: number
+  /** Raw 0–1 confidences; the thresholds are applied to these. */
+  matchConfidence: number
+  livenessConfidence: number
   faceMatch: boolean
   idPhotoFaceDetected: boolean
+  /** What the VLM saw in the ID portrait area; only "photograph" can verify. */
+  idPhotoKind: IdPhotoKind
+  idPhotoIsRealPhotograph: boolean
+  selfieIsRealPhotograph: boolean
+  samePerson: SamePersonVerdict
   /** Which stored ID document the selfie was compared against. */
   idDocumentId: string
   idDocumentSha256: string | null
   error?: string
+}
+
+/** A strict refusal's side judgements when no provider result was written. */
+type StrictRejectionJudgement = VlmFaceMatchSideJudgement & {
+  provider: typeof VLM_FACE_MATCH_PROVIDER
+  rejection: string
 }
 
 type IdDocumentReference = {
@@ -131,26 +154,64 @@ export async function runBiometricVerification(
       ? { vlmUnavailable: true }
       : vlmResult.data ?? null
     const vlmAssessment = assessVlmBiometricExtraction(extractionResult)
-    const matchVerdict = vlmAssessment.ok && !extractionUnavailable
-      ? readVlmFaceMatchVerdict(extractionResult)
-      : null
+    // Read the verdict even when the selfie side already failed: the ID-side
+    // judgement must still be able to name a reason no human may except.
+    const matchVerdict = extractionUnavailable
+      ? null
+      : readVlmFaceMatchVerdict(extractionResult)
     let biometricResult: VlmFaceMatchProviderResult | null = null
     if (vlmAssessment.ok && matchVerdict && client?.idNumber) {
       biometricResult = {
         ok: true,
-        verified: matchVerdict.faceMatch && matchVerdict.idPhotoFaceDetected,
-        provider: "vlm-face-match-v1",
+        // Every gate in readVlmFaceMatchVerdict must hold — faceMatch alone
+        // once verified a selfie against a silhouette placeholder.
+        verified: matchVerdict.rejection === null,
+        provider: VLM_FACE_MATCH_PROVIDER,
         matchScore: matchVerdict.matchScore,
         livenessScore: matchVerdict.livenessScore,
+        matchConfidence: matchVerdict.matchConfidence,
+        livenessConfidence: matchVerdict.livenessConfidence,
         faceMatch: matchVerdict.faceMatch,
         idPhotoFaceDetected: matchVerdict.idPhotoFaceDetected,
+        idPhotoKind: matchVerdict.idPhotoKind,
+        idPhotoIsRealPhotograph: matchVerdict.idPhotoIsRealPhotograph,
+        selfieIsRealPhotograph: matchVerdict.selfieIsRealPhotograph,
+        samePerson: matchVerdict.samePerson,
         idDocumentId: idDocument.id,
         idDocumentSha256: idDocument.contentSha256,
-        ...(matchVerdict.faceMatch
-          ? {}
-          : { error: "VLM face match did not confirm the selfie against the ID photograph" }),
+        ...(matchVerdict.rejection === null ? {} : { error: matchVerdict.rejection.message }),
       }
     }
+    // A refusal that can never be excepted (ID portrait or selfie not a real
+    // photograph). It outranks every other failure, whichever side failed
+    // first: a liveness or face-count failure is exceptionable, and recording
+    // it instead let a senior except a match against a silhouette ID. When
+    // the full verdict is unreadable (any one malformed field) or names only
+    // an exceptionable refusal, the side judgements are read on their own.
+    // The side reader refuses on exactly the fields the strict verdict's
+    // non-exceptionable refusals read, so it also supplies their judgements.
+    const sideRejection = extractionUnavailable
+      ? null
+      : readVlmFaceMatchSideRejection(extractionResult)
+    const strictRejection = matchVerdict?.rejection &&
+      !isManualKycExceptionableFailureReason(matchVerdict.rejection.reason)
+      ? matchVerdict.rejection
+      : sideRejection
+    // The judgements behind a strict refusal, for the audit row when no
+    // provider result carries them.
+    const strictJudgement: StrictRejectionJudgement | null =
+      strictRejection && sideRejection && !biometricResult
+        ? {
+            provider: VLM_FACE_MATCH_PROVIDER,
+            rejection: strictRejection.message,
+            ...sideRejection.judgement,
+          }
+        : null
+    // A completed check that refused carries its own message; only an attempt
+    // with no provider result falls back to the VLM/transport error.
+    const extractionError = biometricResult
+      ? biometricResult.error ?? null
+      : strictRejection?.message ?? vlmResult.error ?? "Biometric verification did not run"
 
     const biometricCompleted = biometricResult?.ok === true
     const extractionStatus = biometricCompleted ? "done" as const : "failed" as const
@@ -162,9 +223,7 @@ export async function runBiometricVerification(
           verified: false,
           extractionStatus,
           extractionResult,
-          extractionError: biometricCompleted
-            ? null
-            : biometricResult?.error ?? vlmResult.error ?? "Biometric verification did not run",
+          extractionError,
           validationMismatch: false,
           validationScore: biometricResult?.matchScore ?? 0,
           biometricMatchScore: biometricResult?.matchScore ?? null,
@@ -175,25 +234,41 @@ export async function runBiometricVerification(
             : null,
         }, {
           subject,
+          // The copy capture compared against. This decides only whether the
+          // match itself passed; the composite gate decides whether it counts.
+          idDocument,
+          // Bound to the compared copy by construction; nothing to flag.
+          idDocumentCopies: null,
           requireDocumentVerified: false,
         })
       : { ok: false as const, reason: "subject_fingerprint_missing" as const }
     const biometricPassed = prospectiveAssessment.ok
+    const assessedReason = prospectiveAssessment.ok ? null : prospectiveAssessment.reason
+    // The strictest reason is the one recorded: a non-exceptionable refusal
+    // from either source wins. Otherwise a completed check names its own
+    // refusal (not the generic provider_verification_failed or score gate),
+    // and an attempt stopped on the selfie side keeps that gate's reason.
+    const biometricFailureReason = strictRejection?.reason
+      ?? (assessedReason && !isManualKycExceptionableFailureReason(assessedReason)
+        ? assessedReason
+        : null)
+      ?? (biometricResult ? matchVerdict?.rejection?.reason : null)
+      ?? assessedReason
 
     await persistBiometricOutcome({
       docId,
       clientId,
       tenantId,
       extractionGeneration,
+      idDocument,
       extractionStatus,
-      extractionError: biometricCompleted
-        ? null
-        : biometricResult?.error ?? vlmResult.error ?? "Biometric verification did not run",
+      extractionError,
       extractionResult,
       biometricResult,
       biometricPassed,
-      biometricFailureReason: prospectiveAssessment.ok ? null : prospectiveAssessment.reason,
+      biometricFailureReason,
       subjectFingerprint,
+      strictJudgement,
     })
   } catch (err) {
     console.error("Biometric verification error:", err)
@@ -202,6 +277,7 @@ export async function runBiometricVerification(
       clientId,
       tenantId,
       extractionGeneration,
+      idDocument,
       extractionStatus: "failed",
       extractionError: err instanceof Error ? err.message : String(err),
       extractionResult: null,
@@ -209,6 +285,7 @@ export async function runBiometricVerification(
       biometricPassed: false,
       biometricFailureReason: "extraction_incomplete",
       subjectFingerprint,
+      strictJudgement: null,
     })
   }
 }
@@ -218,6 +295,7 @@ async function persistBiometricOutcome(args: {
   clientId: string
   tenantId: string
   extractionGeneration: string
+  idDocument: IdDocumentReference
   extractionStatus: "done" | "failed" | "skipped"
   extractionError: string | null
   extractionResult: unknown
@@ -225,6 +303,7 @@ async function persistBiometricOutcome(args: {
   biometricPassed: boolean
   biometricFailureReason: BiometricEvidenceFailureReason | null
   subjectFingerprint: string | null
+  strictJudgement: StrictRejectionJudgement | null
 }): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     await lockAffordabilityClientEvidence(tx, {
@@ -306,12 +385,16 @@ async function persistBiometricOutcome(args: {
     const subjectUnchanged = args.subjectFingerprint !== null &&
       biometricSubjectFingerprint(clientBefore) === args.subjectFingerprint
     // The provider evidence names the exact ID document the selfie was
-    // compared against. That binding is a live gate, not metadata: if the
-    // client's current ID document is no longer the one compared (replaced
-    // or deleted while the callback ran), the attempt must fail closed.
-    // Post-verification replacement is separately covered by the composite-
-    // KYC revoke trigger, which lapses the client's KYC when ID_COPY
-    // evidence changes.
+    // compared against. That binding is a live gate, not metadata: unless it
+    // is still the copy capture would choose (CURRENT_ID_DOCUMENT: newest,
+    // not deleted, not rejected), with the same digest, the attempt fails
+    // closed, so a newer upload, a deletion or a staff rejection while the
+    // callback ran fails it. Whether that copy is VERIFIED is the KYC gates'
+    // question (subject_has_composite_kyc): an attempt against an unverified
+    // copy is stored, and counts once staff verify that copy. Post-
+    // verification replacement is separately covered by the composite-KYC
+    // revoke trigger, which lapses the client's KYC when ID_COPY evidence
+    // changes.
     const boundIdDocumentId = args.biometricResult?.idDocumentId ?? null
     let idDocumentUnchanged = true
     if (boundIdDocumentId) {
@@ -319,14 +402,16 @@ async function persistBiometricOutcome(args: {
         where: {
           tenantId: args.tenantId,
           clientId: args.clientId,
-          docType: "ID_COPY" as DocType,
-          deletedAt: null,
+          ...CURRENT_ID_DOCUMENT,
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 1,
-        select: { id: true },
-      } as never) as unknown as Array<{ id: string }>
-      idDocumentUnchanged = currentIdDocuments[0]?.id === boundIdDocumentId
+        select: { id: true, contentSha256: true },
+      } as never) as unknown as Array<{ id: string; contentSha256: string | null }>
+      const currentIdDocument = currentIdDocuments[0]
+      idDocumentUnchanged = currentIdDocument?.id === boundIdDocumentId
+        && isSha256Digest(currentIdDocument.contentSha256)
+        && currentIdDocument.contentSha256 === args.biometricResult?.idDocumentSha256
     }
     const latestSelfieAtCompletion = await tx.clientDocument.findFirst({
       where: {
@@ -365,6 +450,10 @@ async function persistBiometricOutcome(args: {
       ...(args.biometricResult === null
         ? {}
         : JSON.parse(JSON.stringify(args.biometricResult)) as Record<string, unknown>),
+      // Also on an attempt with no provider result: an ID-portrait refusal
+      // closes the in-person route only over the ID copy it was judged on.
+      idDocumentId: args.idDocument.id,
+      idDocumentSha256: args.idDocument.contentSha256,
       subjectFingerprint: args.subjectFingerprint,
       biometricFailureReason,
     } as Prisma.InputJsonValue
@@ -472,6 +561,22 @@ async function persistBiometricOutcome(args: {
             subjectFingerprint: args.subjectFingerprint,
             biometricFailureReason,
             latestSelfie: outcomeIsCurrent,
+            // The model's judgements behind the outcome. No personal data:
+            // enums, booleans and confidences only.
+            faceMatchVerdict: args.biometricResult
+              ? {
+                  provider: args.biometricResult.provider,
+                  rejection: args.biometricResult.error ?? null,
+                  idPhotoKind: args.biometricResult.idPhotoKind,
+                  idPhotoIsRealPhotograph: args.biometricResult.idPhotoIsRealPhotograph,
+                  idPhotoFaceDetected: args.biometricResult.idPhotoFaceDetected,
+                  selfieIsRealPhotograph: args.biometricResult.selfieIsRealPhotograph,
+                  samePerson: args.biometricResult.samePerson,
+                  faceMatch: args.biometricResult.faceMatch,
+                  matchConfidence: args.biometricResult.matchConfidence,
+                  livenessConfidence: args.biometricResult.livenessConfidence,
+                }
+              : args.strictJudgement,
           },
           clientKyc: clientKycAuditValue(clientAfter),
         },

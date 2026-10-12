@@ -17,6 +17,7 @@ import {
   IN_PERSON_KYC_VERIFICATION_MIN_NOTE_CHARACTERS,
   inPersonKycVerificationOffered,
   type InPersonKycVerificationMethod,
+  type InPersonRouteState,
 } from "@/lib/kyc/in-person-verification"
 
 type KycStatus = "PENDING" | "VERIFIED" | "FAILED" | "EXPIRED"
@@ -59,6 +60,12 @@ interface Props {
   biometricEvidence: string | null
   biometricAttemptFailed: boolean
   /**
+   * The in-person route's evidence preconditions, derived on the server by
+   * readCompositeKycState, so the form is offered exactly when the route
+   * would grant.
+   */
+  inPersonRoute: InPersonRouteState
+  /**
    * Whether the senior-exception route would actually accept this attempt.
    * Derived on the server with `isManualKycExceptionableAttempt` — the same
    * helper the granting route enforces with — so the tab cannot offer an
@@ -95,6 +102,7 @@ export function SelfieKycTab({
   coreDocumentsComplete = false,
   biometricEvidence,
   biometricAttemptFailed,
+  inPersonRoute,
   seniorExceptionAvailable,
 }: Props) {
   const router = useRouter()
@@ -336,10 +344,9 @@ export function SelfieKycTab({
   const inPersonFormOffered = inPersonKycVerificationOffered({
     manualExceptionActive: Boolean(manualException),
     inPersonVerificationRecorded: Boolean(currentInPersonVerification),
-    selfieCaptured: Boolean(selfieDoc),
     coreDocumentsComplete,
     manualRejectionActive: currentManualRejectionActive,
-    biometricAttemptFailed,
+    ...inPersonRoute,
   })
 
   const inPersonVerificationForm = inPersonFormOffered ? (

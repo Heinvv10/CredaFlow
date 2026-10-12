@@ -94,6 +94,11 @@ suite("application submission evidence locking", () => {
         }),
       ),
     })
+    // The digest the passing selfie below was compared against.
+    await submissionDb.clientDocument.update({
+      where: { id: `core_snapshot_0_${token}` },
+      data: { contentSha256: "c".repeat(64) },
+    })
     await submissionDb.clientDocument.create({
       data: {
         id: ids.selfie,
@@ -121,6 +126,17 @@ suite("application submission evidence locking", () => {
           verified: true,
           matchScore: 98,
           livenessScore: 97,
+          provider: "vlm-face-match-v2",
+          idPhotoKind: "photograph",
+          idPhotoIsRealPhotograph: true,
+          idPhotoFaceDetected: true,
+          selfieIsRealPhotograph: true,
+          samePerson: "same",
+          faceMatch: true,
+          matchConfidence: 0.98,
+          livenessConfidence: 0.97,
+          idDocumentId: `core_snapshot_0_${token}`,
+          idDocumentSha256: "c".repeat(64),
           subjectFingerprint: biometricSubjectFingerprint({
             id: ids.client,
             idNumber: token.slice(0, 13),

@@ -14,6 +14,11 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { disbursementApplicationFixture } from "@/lib/affordability/__fixtures__/approval-evidence"
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import {
+  IN_PERSON_KYC_VERIFICATION_KIND,
+  IN_PERSON_KYC_VERIFICATION_VERSION,
+} from "@/lib/kyc/in-person-verification"
 
 const TENANT_ID = "tenant-1"
 const CLIENT_ID = "client-1"
@@ -43,6 +48,8 @@ function selfie(overrides: Partial<ReadinessSelfieRow> = {}): ReadinessSelfieRow
   return {
     clientId: CLIENT_ID,
     id: "selfie-1",
+    // Before ATTESTED_AT: an attestation recorded after the attempt.
+    createdAt: new Date("2026-07-19T09:00:00.000Z"),
     contentSha256: "b".repeat(64),
     deletedAt: null,
     verified: true,
@@ -57,6 +64,48 @@ function selfie(overrides: Partial<ReadinessSelfieRow> = {}): ReadinessSelfieRow
     biometricResult: null,
     ...overrides,
   } as ReadinessSelfieRow
+}
+
+const refusalOf = (idDocumentId: string, idDocumentSha256 = "a".repeat(64)) => ({
+  biometricFailureReason: "id_document_portrait_invalid",
+  idDocumentId,
+  idDocumentSha256,
+})
+
+const ATTESTED_AT = new Date("2026-07-19T12:00:00.000Z")
+
+/** A newer ID copy a reviewer refused. */
+function rejectedIdCopy(): ReadinessCoreDocumentRow {
+  return coreDocument({
+    docType: "ID_COPY",
+    id: "doc-ID-rejected",
+    verified: false,
+    verificationRejectedById: "officer-1",
+    verificationRejectedAt: new Date("2026-07-19T11:00:00.000Z"),
+    createdAt: new Date("2026-07-19T10:30:00.000Z"),
+  })
+}
+
+/** An in-person attestation over the client's seeded ID copy. */
+function inPersonAttestation(): ReadinessExceptionRow {
+  return {
+    id: "attestation-1",
+    referenceId: CLIENT_ID,
+    completedAt: ATTESTED_AT,
+    data: {
+      kind: IN_PERSON_KYC_VERIFICATION_KIND,
+      version: IN_PERSON_KYC_VERIFICATION_VERSION,
+      clientId: CLIENT_ID,
+      idDocumentId: `doc-ID_COPY-${CLIENT_ID}`,
+      idDocumentSha256: "a".repeat(64),
+      subjectFingerprint: biometricSubjectFingerprint(subject),
+      method: "IN_PERSON_BRANCH",
+      note: "Synthetic client attended a branch; face matched the ID photo.",
+      approvedAt: ATTESTED_AT.toISOString(),
+      approvedById: "admin-1",
+      approvedByEmail: "admin@example.test",
+    },
+  } as ReadinessExceptionRow
 }
 
 function rows(overrides: Partial<ReadinessKycRows> = {}): ReadinessKycRows {
@@ -76,22 +125,35 @@ function rows(overrides: Partial<ReadinessKycRows> = {}): ReadinessKycRows {
 function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKycReader {
   const reader = {
     clientDocument: {
-      findMany: async (args: { where: { docType: { in: string[] } } }) =>
-        data.coreDocuments.filter(
-          (row) => row.clientId === clientId && args.where.docType.in.includes(row.docType),
-        ),
-      findFirst: async (args: { where: Record<string, unknown>; orderBy?: unknown }) => {
-        const mine = data.selfies.filter((row) => row.clientId === clientId)
-        if (args.orderBy) return mine[0] ?? null
-        return (
-          mine.find(
-            (row) =>
-              row.deletedAt === null
-              && (row.extractionStatus === "processing"
-                || (row.verified && row.biometricVerifiedAt !== null)),
-          ) ?? null
+      findMany: async (args: {
+        where: {
+          docType: { in: string[] } | string
+          biometricResult?: { path: string[]; equals: unknown }
+        }
+      }) => {
+        const { docType, biometricResult } = args.where
+        if (typeof docType === "string") {
+          const mine = data.selfies.filter((row) => row.clientId === clientId)
+          if (!biometricResult) {
+            // The blocking-candidate read.
+            return mine.filter(
+              (row) =>
+                row.deletedAt === null
+                && (row.extractionStatus === "processing"
+                  || (row.verified && row.biometricVerifiedAt !== null)),
+            )
+          }
+          return mine.filter((row) => {
+            const result = row.biometricResult as Record<string, unknown> | null
+            return result?.[biometricResult.path[0]] === biometricResult.equals
+          })
+        }
+        return data.coreDocuments.filter(
+          (row) => row.clientId === clientId && docType.in.includes(row.docType),
         )
       },
+      // Only the latest-selfie read is a findFirst.
+      findFirst: async () => data.selfies.filter((row) => row.clientId === clientId)[0] ?? null,
     },
     complianceRecord: {
       findFirst: async () =>
@@ -166,6 +228,62 @@ describe("inMemoryKycReader", () => {
       data: rows({ selfies: [selfie({ biometricVerifiedAt: null })] }),
     },
     {
+      name: "an in-person attestation over an ID copy an OLDER attempt refused",
+      // The latest attempt failed for another reason; the older refusal of
+      // this copy's portrait must still close the route.
+      data: rows({
+        selfies: [
+          selfie({ id: "selfie-latest", verified: false, biometricVerifiedAt: null, extractionStatus: "failed",
+            biometricResult: { biometricFailureReason: "face_not_detected" } }),
+          selfie({ id: "selfie-older", verified: false, biometricVerifiedAt: null, extractionStatus: "failed",
+            deletedAt: new Date("2026-07-19T10:00:00.000Z"),
+            biometricResult: refusalOf(`doc-ID_COPY-${CLIENT_ID}`) }),
+          selfie({ id: "selfie-other-client", clientId: OTHER_CLIENT_ID, verified: false,
+            biometricVerifiedAt: null, extractionStatus: "failed", biometricResult: refusalOf("doc-x") }),
+        ],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
+      name: "an in-person attestation whose only refusal was of another ID copy",
+      data: rows({
+        selfies: [
+          selfie({ verified: false, biometricVerifiedAt: null, extractionStatus: "failed",
+            biometricResult: refusalOf("doc-an-older-id-copy", "c".repeat(64)) }),
+        ],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
+      name: "an in-person attestation behind a passed selfie bound to a copy staff rejected",
+      // The passed selfie no longer blocks: its ID copy was rejected.
+      data: rows({
+        coreDocuments: [...allCoreDocuments(), rejectedIdCopy()],
+        selfies: [selfie({ biometricResult: { idDocumentId: "doc-ID-rejected" } })],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
+      name: "an in-person attestation recorded BEFORE a passed selfie bound to a copy staff rejected",
+      // Releasing the selfie must not revive an attestation from before it.
+      data: rows({
+        coreDocuments: [...allCoreDocuments(), rejectedIdCopy()],
+        selfies: [selfie({
+          createdAt: new Date("2026-07-19T13:00:00.000Z"),
+          biometricResult: { idDocumentId: "doc-ID-rejected" },
+        })],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
+      name: "an in-person attestation behind a passed selfie bound to a copy awaiting review",
+      data: rows({
+        coreDocuments: [...allCoreDocuments(), coreDocument({ docType: "ID_COPY", id: "doc-ID-awaiting", verified: false })],
+        selfies: [selfie({ biometricResult: { idDocumentId: "doc-ID-awaiting" } })],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
       name: "a rejected core document",
       data: rows({
         coreDocuments: [
@@ -215,6 +333,17 @@ describe("inMemoryKycReader", () => {
       })
     },
   )
+
+  it.each([
+    ["a passed selfie's copy was rejected", "an in-person attestation behind a passed selfie bound to a copy staff rejected", true],
+    ["a passed selfie's copy awaits review", "an in-person attestation behind a passed selfie bound to a copy awaiting review", false],
+    ["the attestation predates a released selfie", "an in-person attestation recorded BEFORE a passed selfie bound to a copy staff rejected", false],
+    ["an OLDER attempt refused", "an in-person attestation over an ID copy an OLDER attempt refused", false],
+    ["the only refusal was of another copy", "an in-person attestation whose only refusal was of another ID copy", true],
+  ])("closes the in-person route on the board when %s", async (_label, name, ok) => {
+    const { data } = cases.find((c) => c.name === name)!
+    expect((await readWith(inMemoryKycReader(CLIENT_ID, data))).ok).toBe(ok)
+  })
 
   it("serves the LATEST selfie, trusting the caller's ordering", async () => {
     // The rows arrive pre-sorted by `latestSelfieOrder()`. First-match-wins is

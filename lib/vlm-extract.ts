@@ -121,19 +121,24 @@ CRITICAL: Return ONLY valid JSON, no other text.`,
   // document. The VLM is the biometric provider — the match verdict and both
   // confidences below become the persisted matchScore/livenessScore evidence,
   // so wording changes here change what the KYC gate measures.
-  SELFIE_FACE_MATCH: `Image 1 is a live selfie photograph taken for KYC identity verification. Image 2 is a South African identity document (Smart ID card or green ID book) that contains a printed photograph of its holder. Analyse both and return JSON with:
+  SELFIE_FACE_MATCH: `Image 1 is a selfie submitted for KYC identity verification. Image 2 is meant to be a South African identity document (Smart ID card or green ID book) carrying a printed photograph of its holder. Judge Image 2's portrait area on its own FIRST, before comparing anything. Return JSON with these keys, in this order:
+- idPhotoKind: exactly one of "photograph" | "silhouette_placeholder" | "illustration" | "blank_or_missing" | "obscured" | "other" — what occupies the portrait area of Image 2. "photograph" ONLY for a camera photograph of a real human being (natural skin texture, real lighting and shading, real hair). A grey or flat-coloured head-and-shoulders shape or avatar icon is "silhouette_placeholder". A drawing, cartoon, clip-art, emoji or computer-rendered face is "illustration". An empty, plain or missing portrait area is "blank_or_missing". A photo that is covered, scratched out or too damaged to see the face is "obscured".
+- idPhotoIsRealPhotograph: true ONLY if idPhotoKind is "photograph"
+- idPhotoFaceDetected: true ONLY if a real photographed human face is clearly visible in Image 2's portrait area. A silhouette, outline or drawn face is NOT a face.
 - faceDetected: true if a human face is clearly visible in Image 1, false otherwise
 - facesCount: number of faces detected in Image 1 (should be exactly 1)
 - quality: "good" | "poor" | "unusable" — the selfie's quality
+- selfieIsRealPhotograph: true ONLY if Image 1 is a camera photograph of a real human being (not a drawing, cartoon, rendering, mask or mannequin)
 - isLive: true if Image 1 appears to be a live person photographed directly, false if it looks like a photo of a photo, screenshot, or printed image
 - livenessConfidence: number between 0 and 1 — how confident you are in the isLive judgement
 - livenessIndicators: array of strings describing what you observe (e.g. "natural skin texture", "screen reflection visible", "natural lighting", "paper edges visible")
 - frontFacing: true if the face in Image 1 is front-facing (not profile)
 - eyesOpen: true if eyes are clearly open in Image 1
 - qualityIssues: array of any issues found in Image 1 (e.g. "too dark", "blurry", "partial face", "sunglasses", "mask")
-- idPhotoFaceDetected: true if a printed photograph of a face is clearly visible in Image 2
-- faceMatch: true ONLY if the face in Image 1 and the printed ID photograph in Image 2 are the same person. ID photos can be years old — allow for ageing, hairstyle, glasses and facial-hair changes, but the underlying facial structure must match.
-- matchConfidence: number between 0 and 1 — how confident you are that they are the same person. Use low values when either face is unclear.
+- samePerson: exactly one of "same" | "different" | "uncertain" — whether Image 1 and the photograph in Image 2 show the same person. ID photos can be years old — allow for ageing, hairstyle, glasses and facial-hair changes, but the underlying facial structure (face shape, eyes, nose, mouth, ears) must match.
+- faceMatch: true ONLY if samePerson is "same"
+- matchConfidence: number between 0 and 1 — how confident you are that Image 1 and the photograph in Image 2 show the same real person. Use low values when either face is unclear.
+Do not transcribe any text from Image 2.
 CRITICAL: Return ONLY valid JSON, no other text.`,
 
   OTHER: `Extract all visible text and data from this document. Return JSON with:
@@ -192,6 +197,10 @@ const FIELD_MAPPINGS: Record<string, Record<string, string>> = {
     eyesOpen: 'eyesOpen',
     qualityIssues: 'qualityIssues',
     idPhotoFaceDetected: 'idPhotoFaceDetected',
+    idPhotoKind: 'idPhotoKind',
+    idPhotoIsRealPhotograph: 'idPhotoIsRealPhotograph',
+    selfieIsRealPhotograph: 'selfieIsRealPhotograph',
+    samePerson: 'samePerson',
     faceMatch: 'faceMatch',
     matchConfidence: 'matchConfidence',
   },

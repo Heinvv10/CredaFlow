@@ -1,4 +1,19 @@
+import type { DocType } from "@prisma/client"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+
+/**
+ * The ID copy a selfie is compared against (lib/kyc/selfie-capture.server.ts)
+ * and re-checked against when its result is stored
+ * (lib/kyc/selfie-biometric.server.ts): the newest upload that is neither
+ * deleted nor rejected by staff, ordered createdAt DESC then id DESC. Callers
+ * also require a usable digest. Verified or not: whether the match counts is
+ * the composite gate's question.
+ */
+export const CURRENT_ID_DOCUMENT = {
+  docType: "ID_COPY" as DocType,
+  deletedAt: null,
+  verificationRejectedAt: null,
+}
 
 /** The subset of a ClientDocument this selection needs. */
 export type IdDocumentCandidate = {

@@ -219,7 +219,10 @@ vi.mock("@/lib/prisma", () => ({
     },
     clientDocument: {
       findFirst: findFirstDocument,
-      findMany: findManyDocuments,
+      // The composite read's ID-portrait refusal query (docType SELFIE) finds
+      // none; the sequenced mock serves only the core-document reads.
+      findMany: (args: { where?: { docType?: unknown } }) =>
+        args?.where?.docType === "SELFIE" ? Promise.resolve([]) : findManyDocuments(args),
       create: createClientDocument,
     },
     insuranceProduct: { findFirst: findFirstInsuranceProduct },
@@ -471,12 +474,23 @@ const PASSING_BIOMETRIC_DOCUMENT = {
     verified: true,
     matchScore: 98,
     livenessScore: 97,
+    provider: "vlm-face-match-v2",
+    idPhotoKind: "photograph",
+    idPhotoIsRealPhotograph: true,
+    idPhotoFaceDetected: true,
+    selfieIsRealPhotograph: true,
+    samePerson: "same",
+    faceMatch: true,
+    matchConfidence: 0.98,
+    livenessConfidence: 0.97,
+    idDocumentId: "id-doc-1",
+    idDocumentSha256: "c".repeat(64),
     subjectFingerprint: biometricSubjectFingerprint(BIOMETRIC_TEST_SUBJECT),
   },
 }
 
 const VERIFIED_CORE_DOCUMENTS = [
-  { docType: "ID_COPY", verified: true, verificationNote: null },
+  { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
   { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
   { docType: "PAYSLIP", verified: true, verificationNote: null },
   { docType: "BANK_STATEMENT", verified: true, verificationNote: null },
@@ -671,7 +685,8 @@ function buildTxMock(opts: {
         creditBureauCheck: { findFirst: creditBureauCheckFindFirst },
         clientDocument: {
           findFirst: findFirstDocument,
-          findMany: findManyDocuments,
+          findMany: (args: { where?: { docType?: unknown } }) =>
+            args?.where?.docType === "SELFIE" ? Promise.resolve([]) : findManyDocuments(args),
         },
         complianceRecord: {
           findFirst: complianceRecordFindFirst,
@@ -1157,7 +1172,8 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual(expect.objectContaining({
       disbursementPrecondition: "composite_kyc",
-      biometricEvidence: null,
+      // With no verified ID copy the selfie is bound to nothing on file.
+      biometricEvidence: "subject_identity_changed",
       missingDocs: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP"],
     }))
     expect(prismaTransaction).not.toHaveBeenCalled()

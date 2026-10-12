@@ -19,6 +19,7 @@ function composite(
     manualRejectionActive: false,
     okForOrigination: false,
     biometricAttemptFailed: false,
+    biometricIdDocumentNotCurrent: false,
     substituteKind: null,
     manualExceptionActive: false,
     manualException: null,

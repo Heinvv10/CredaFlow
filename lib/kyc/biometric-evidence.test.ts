@@ -4,7 +4,6 @@ import {
   assessVlmBiometricExtraction,
   biometricSubjectFingerprint,
   parseBiometricEvidenceFailureReason,
-  readVlmFaceMatchVerdict,
   type BiometricDocumentEvidence,
 } from "./biometric-evidence"
 
@@ -28,8 +27,27 @@ const passingProviderResult = {
   matchScore: 98,
   livenessScore: 97,
 }
+// The v2 VLM verdict fields a pass must carry when the VLM is the provider.
+const passingVlmVerdict = {
+  provider: "vlm-face-match-v2",
+  idPhotoKind: "photograph",
+  idPhotoIsRealPhotograph: true,
+  idPhotoFaceDetected: true,
+  selfieIsRealPhotograph: true,
+  samePerson: "same",
+  faceMatch: true,
+  matchConfidence: 0.98,
+  livenessConfidence: 0.97,
+}
+// The client's newest verified ID copy, which the match was run against.
+const idDocument = { id: "id-doc-1", contentSha256: "c".repeat(64) }
+// The client's non-deleted ID copies.
+const idDocumentCopies = [{ ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null }]
 const boundProviderResult = {
   ...passingProviderResult,
+  ...passingVlmVerdict,
+  idDocumentId: idDocument.id,
+  idDocumentSha256: idDocument.contentSha256,
   subjectFingerprint: biometricSubjectFingerprint(subject),
 }
 const passingEvidence: BiometricDocumentEvidence = {
@@ -114,13 +132,13 @@ describe("biometricSubjectFingerprint", () => {
 
 describe("assessBiometricEvidence", () => {
   it("accepts one live usable face with a completed positive provider result", () => {
-    expect(assessBiometricEvidence(passingEvidence, { subject })).toEqual({ ok: true })
+    expect(assessBiometricEvidence(passingEvidence, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
   })
 
   it("can assess provider evidence before the document acceptance write", () => {
     expect(assessBiometricEvidence(
       { ...passingEvidence, verified: false },
-      { subject, requireDocumentVerified: false },
+      { subject, idDocument, idDocumentCopies, requireDocumentVerified: false },
     )).toEqual({ ok: true })
   })
 
@@ -142,7 +160,7 @@ describe("assessBiometricEvidence", () => {
     ["document was deleted", { deletedAt: new Date("2026-07-22T11:00:00.000Z") }, "document_deleted"],
     ["document was not accepted", { verified: false }, "document_not_verified"],
   ] as const)("rejects when %s", (_label, changes, reason) => {
-    expect(assessBiometricEvidence({ ...passingEvidence, ...changes }, { subject })).toEqual({
+    expect(assessBiometricEvidence({ ...passingEvidence, ...changes }, { subject, idDocument, idDocumentCopies })).toEqual({
       ok: false,
       reason,
     })
@@ -155,7 +173,7 @@ describe("assessBiometricEvidence", () => {
       extractionStatus: "failed",
       extractionResult: null,
       biometricResult: { biometricFailureReason: "face_not_detected" },
-    }, { subject })).toEqual({ ok: false, reason: "face_not_detected" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "face_not_detected" })
   })
 
   it("does not trust an unknown persisted failure reason", () => {
@@ -165,7 +183,7 @@ describe("assessBiometricEvidence", () => {
       extractionStatus: "failed",
       extractionResult: null,
       biometricResult: { biometricFailureReason: "staff_says_ok" },
-    }, { subject })).toEqual({ ok: false, reason: "extraction_incomplete" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "extraction_incomplete" })
   })
 
   it.each([
@@ -174,17 +192,90 @@ describe("assessBiometricEvidence", () => {
     ["biometricMatchScore"],
     ["biometricLiveness"],
   ] as const)("fails closed when %s is absent", (field) => {
-    expect(assessBiometricEvidence({ ...passingEvidence, [field]: null }, { subject })).toEqual({
+    expect(assessBiometricEvidence({ ...passingEvidence, [field]: null }, { subject, idDocument, idDocumentCopies })).toEqual({
       ok: false,
       reason: "biometric_evidence_missing",
     })
   })
 
-  it("accepts Smile Identity evidence when the persisted VLM-unavailable marker is present", () => {
+  it("gives the VLM-unavailable marker no exemption from the v2 verdict", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       extractionResult: { vlmUnavailable: true },
-    }, { subject })).toEqual({ ok: true })
+      biometricResult: {
+        ...passingProviderResult,
+        idDocumentId: idDocument.id,
+        idDocumentSha256: idDocument.contentSha256,
+        subjectFingerprint: biometricSubjectFingerprint(subject),
+      },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_missing" })
+  })
+
+  it.each([
+    ["matchConfidence", 0.6951, "match_score_below_threshold"],
+    ["livenessConfidence", 0.6951, "liveness_score_below_threshold"],
+    ["matchConfidence", undefined, "provider_verification_failed"],
+    ["livenessConfidence", "0.97", "provider_verification_failed"],
+    ["matchConfidence", Number.NaN, "provider_verification_failed"],
+  ])("re-checks the raw confidence: %s %s refuses as %s", (field, value, reason) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, [field]: value },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason })
+  })
+
+  it.each([
+    ["matchConfidence", 1.0001],
+    ["livenessConfidence", 1.0001],
+    ["matchConfidence", 95],
+    ["livenessConfidence", 95],
+  ])("refuses a raw %s of %s, outside 0..1", (field, value) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, [field]: value },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_failed" })
+  })
+
+  it("accepts raw confidences of exactly 1", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, matchConfidence: 1, livenessConfidence: 1 },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
+  })
+
+  it("accepts raw confidences exactly at the threshold", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, matchConfidence: 0.7, livenessConfidence: 0.7 },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
+  })
+
+  // v1 passed a selfie against a silhouette placeholder: it must never verify.
+  it.each([
+    ["v1 VLM evidence", "vlm-face-match-v1"],
+    ["untagged VLM evidence", undefined],
+    ["an unknown provider", "smile-identity"],
+  ])("does not count %s as verified", (_label, provider) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, provider },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_missing" })
+  })
+
+  it.each([
+    ["idPhotoKind", "silhouette_placeholder"],
+    ["idPhotoKind", undefined],
+    ["idPhotoIsRealPhotograph", false],
+    ["idPhotoIsRealPhotograph", "true"],
+    ["idPhotoFaceDetected", false],
+    ["selfieIsRealPhotograph", false],
+    ["samePerson", "uncertain"],
+    ["faceMatch", false],
+  ])("refuses verified v2 evidence whose %s is %s", (field, value) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, [field]: value },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "provider_verification_failed" })
   })
 
   it("does not treat an arbitrary extraction error as the configured VLM exception", () => {
@@ -192,21 +283,21 @@ describe("assessBiometricEvidence", () => {
       ...passingEvidence,
       extractionResult: null,
       extractionError: "VLM timed out after dispatch",
-    }, { subject })).toEqual({ ok: false, reason: "biometric_evidence_missing" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "biometric_evidence_missing" })
   })
 
   it("fails closed when successful provider evidence has no subject binding", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: passingProviderResult,
-    }, { subject })).toEqual({ ok: false, reason: "subject_fingerprint_missing" })
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "subject_fingerprint_missing" })
   })
 
   it("rejects a synthetic provider success even when every score passes", () => {
     expect(assessBiometricEvidence({
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, simulated: true },
-    }, { subject })).toEqual({
+    }, { subject, idDocument, idDocumentCopies })).toEqual({
       ok: false,
       reason: "simulated_provider_evidence",
     })
@@ -215,7 +306,92 @@ describe("assessBiometricEvidence", () => {
   it("rejects provider evidence after the client identity changes", () => {
     expect(assessBiometricEvidence(passingEvidence, {
       subject: { ...subject, idNumber: "9101015009086" },
+      idDocument,
+      idDocumentCopies,
     })).toEqual({ ok: false, reason: "subject_identity_changed" })
+  })
+
+  // The match ran against id-doc-1; staff have since verified a newer id-doc-2.
+  const newerVerified = { id: "id-doc-2", contentSha256: "d".repeat(64) }
+  const supersededCopy = { ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null }
+
+  it("marks a match against a superseded verified copy as a pending ID change", () => {
+    expect(assessBiometricEvidence(passingEvidence, {
+      subject,
+      idDocument: newerVerified,
+      idDocumentCopies: [supersededCopy, { ...newerVerified, verified: true }],
+    })).toEqual({ ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true })
+  })
+
+  it.each([
+    ["the matched copy was never verified (awaiting review, or a substitute)", newerVerified, [{ ...supersededCopy, verified: false }]],
+    ["staff rejected it (verificationRejectedAt)", newerVerified, [{ ...supersededCopy, verificationRejectedAt: new Date("2026-10-12T09:00:00.000Z") }]],
+    ["a named reviewer rejected it (verificationRejectedById)", newerVerified, [{ ...supersededCopy, verificationRejectedById: "officer-1" }]],
+    ["it was deleted (absent from the non-deleted copies)", newerVerified, []],
+    ["its bytes are not the ones matched", newerVerified, [{ ...supersededCopy, contentSha256: "e".repeat(64) }]],
+    ["the caller did not read the copies", newerVerified, null],
+    ["the client has no verified ID copy", null, [supersededCopy]],
+    ["the matched copy is itself the newest verified one", { id: "id-doc-1", contentSha256: "d".repeat(64) }, [supersededCopy]],
+  ] as const)("keeps a binding refusal a failed attempt when %s", (_label, current, copies) => {
+    expect(assessBiometricEvidence(passingEvidence, {
+      subject,
+      idDocument: current,
+      idDocumentCopies: copies,
+    })).toEqual({ ok: false, reason: "subject_identity_changed" })
+  })
+
+  it.each([
+    ["a score below the threshold", { biometricMatchScore: 69 }, "match_score_below_threshold"],
+    ["an unverified selfie document", { verified: false }, "document_not_verified"],
+    ["a refusing verdict", { biometricResult: { ...boundProviderResult, faceMatch: false } }, "provider_verification_failed"],
+  ] as const)("names the other refusal, not the ID change, when the binding also fails: %s", (_label, change, reason) => {
+    expect(assessBiometricEvidence({ ...passingEvidence, ...change }, {
+      subject,
+      idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+      idDocumentCopies,
+    })).toEqual({ ok: false, reason })
+  })
+
+  it("does not mark a fingerprint mismatch as a pending ID change", () => {
+    expect(assessBiometricEvidence(passingEvidence, {
+      subject: { ...subject, firstName: "Changed" },
+      idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+      idDocumentCopies,
+    })).toEqual({ ok: false, reason: "subject_identity_changed" })
+  })
+
+  it("refuses a match whose evidence names no digest, against a copy without one", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, idDocumentSha256: null },
+    }, {
+      subject,
+      idDocument: newerVerified,
+      idDocumentCopies: [{ ...supersededCopy, contentSha256: null }],
+    })).toEqual({
+      // No digest to bind to: not a pending ID change.
+      ok: false,
+      reason: "subject_identity_changed",
+    })
+  })
+
+  it.each([
+    ["the string \"true\"", "true"],
+    ["1", 1],
+    ["null", null],
+    ["the string \"false\"", "false"],
+  ])("rejects simulated provider evidence marked %s", (_label, simulated) => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, simulated },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: false, reason: "simulated_provider_evidence" })
+  })
+
+  it("accepts simulated: false", () => {
+    expect(assessBiometricEvidence({
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, simulated: false },
+    }, { subject, idDocument, idDocumentCopies })).toEqual({ ok: true })
   })
 })
 
@@ -224,6 +400,9 @@ describe("parseBiometricEvidenceFailureReason", () => {
     expect(parseBiometricEvidenceFailureReason("vlm_liveness_failed")).toBe(
       "vlm_liveness_failed",
     )
+    for (const reason of ["id_document_portrait_invalid", "selfie_not_real_photograph"]) {
+      expect(parseBiometricEvidenceFailureReason(reason)).toBe(reason)
+    }
     expect(parseBiometricEvidenceFailureReason("bypass")).toBeNull()
     expect(parseBiometricEvidenceFailureReason(null)).toBeNull()
   })
@@ -249,54 +428,18 @@ describe("assessVlmBiometricExtraction", () => {
     })).toEqual({ ok: true })
   })
 
+  // PostgreSQL's trim() strips spaces only; subject_has_composite_kyc refused these.
+  it.each(["good\n", "\tpoor", "good\r", "\u00a0good"])("refuses quality %j", (quality) => {
+    expect(assessVlmBiometricExtraction({
+      ...passingExtractionResult,
+      quality: { value: quality },
+    })).toEqual({ ok: false, reason: "biometric_evidence_missing" })
+  })
+
   it("rejects a string face count instead of coercing it", () => {
     expect(assessVlmBiometricExtraction({
       ...passingExtractionResult,
       facesCount: { value: "1" },
     })).toEqual({ ok: false, reason: "face_count_invalid" })
-  })
-})
-
-describe("readVlmFaceMatchVerdict", () => {
-  const fullVerdict = {
-    ...passingExtractionResult,
-    livenessConfidence: { value: 0.97 },
-    idPhotoFaceDetected: { value: true },
-    faceMatch: { value: true },
-    matchConfidence: { value: 0.95 },
-  }
-
-  it("reads a complete verdict and scales confidences to 0–100 scores", () => {
-    expect(readVlmFaceMatchVerdict(fullVerdict)).toEqual({
-      faceMatch: true,
-      idPhotoFaceDetected: true,
-      matchScore: 95,
-      livenessScore: 97,
-    })
-  })
-
-  it("returns null — never a partial verdict — when any field is missing or malformed", () => {
-    expect(readVlmFaceMatchVerdict(passingExtractionResult)).toBeNull()
-    expect(readVlmFaceMatchVerdict(null)).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, faceMatch: { value: "yes" } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: "0.95" } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: 1.5 } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: -0.1 } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, matchConfidence: { value: Number.NaN } })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, livenessConfidence: {} })).toBeNull()
-    expect(readVlmFaceMatchVerdict({ ...fullVerdict, idPhotoFaceDetected: { value: 1 } })).toBeNull()
-  })
-
-  it("keeps a truthful no-match verdict readable", () => {
-    expect(readVlmFaceMatchVerdict({
-      ...fullVerdict,
-      faceMatch: { value: false },
-      matchConfidence: { value: 0.1 },
-    })).toEqual({
-      faceMatch: false,
-      idPhotoFaceDetected: true,
-      matchScore: 10,
-      livenessScore: 97,
-    })
   })
 })

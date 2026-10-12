@@ -14,6 +14,7 @@ function gate(over: Partial<CompositeKycResult>): CompositeKycResult {
     okForOrigination: true,
     coreDocumentGaps: [],
     biometricAttemptFailed: false,
+    biometricIdDocumentNotCurrent: false,
     state: {
       kycStatus: "PENDING",
       kycVerifiedAt: null,
@@ -28,6 +29,25 @@ function gate(over: Partial<CompositeKycResult>): CompositeKycResult {
     ...over,
   } as CompositeKycResult
 }
+
+describe("a selfie bound to an ID copy that is not the newest verified one", () => {
+  const pendingIdChange = gate({
+    ok: false,
+    okForOrigination: true,
+    biometricIdDocumentNotCurrent: true,
+    biometricEvidence: "subject_identity_changed",
+  })
+
+  it("does not block origination", () => {
+    expect(deriveKycBlockers(pendingIdChange, "review")).toEqual([])
+  })
+
+  it("blocks payout without claiming no selfie was captured", () => {
+    expect(deriveKycBlockers(pendingIdChange, "disbursement")).toEqual([
+      expect.objectContaining({ kind: "biometric_evidence", label: "Biometric evidence invalid" }),
+    ])
+  })
+})
 
 describe("kycGateStage", () => {
   it("covers every status whose transition the API gates on composite KYC", () => {

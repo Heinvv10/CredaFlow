@@ -108,7 +108,9 @@ export function deriveKycBlockers(
     // never happened has nothing to re-take, and its honest remedy includes
     // the in-person route. Relaxing origination made the second state
     // reachable here, which turned the old wording from terse into false.
-    blockers.push(gate.biometricAttemptFailed
+    // A selfie bound to an ID copy that is not the newest verified one was
+    // captured: "no selfie has been captured" would be false for it.
+    blockers.push(gate.biometricAttemptFailed || gate.biometricIdDocumentNotCurrent
       ? {
           kind: "biometric_evidence",
           label: "Biometric evidence invalid",

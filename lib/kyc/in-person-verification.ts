@@ -161,10 +161,11 @@ export function parseInPersonKycVerificationEvidence(
 /**
  * The Prisma where-shape for a selfie that BLOCKS the in-person route: a live
  * biometric candidate — still processing, or provider-verified and passing.
- * Failed and soft-deleted attempts do not block. This MUST stay semantically
- * aligned with the NOT EXISTS block in
- * subject_has_in_person_kyc_verification (see
- * the baseline migration).
+ * Failed and soft-deleted attempts do not block. Together with
+ * selfieBlocksInPersonVerification, which releases a passed attempt whose ID
+ * copy was rejected or deleted, this MUST stay semantically aligned with the
+ * blocking NOT EXISTS in subject_has_in_person_kyc_verification (redefined by
+ * migration 20261011060000_face_match_v2_evidence).
  */
 export const BLOCKING_SELFIE_CONDITIONS: {
   docType: "SELFIE"
@@ -180,6 +181,48 @@ export const BLOCKING_SELFIE_CONDITIONS: {
     { extractionStatus: "processing" },
     { verified: true, biometricVerifiedAt: { not: null } },
   ],
+}
+
+/**
+ * Whether a selfie matching BLOCKING_SELFIE_CONDITIONS still takes the
+ * in-person route out of scope. An attempt still processing always does. A
+ * passed one does unless the ID copy it names is no longer a non-deleted,
+ * unrejected ID copy of this client (`currentIdCopies`): staff rejected or
+ * deleted it, or it is gone. Such a match proves nothing, it no longer counts
+ * as biometric evidence, and blocking the human route over it stranded the
+ * client until the copy was verified. A passed selfie that names no copy
+ * still blocks (fail closed). The ID-portrait refusal closure applies
+ * independently.
+ *
+ * The release holds only for an attestation completed AFTER the selfie was
+ * captured (`attestationCompletedAt`), by staff who could see the attempt.
+ * Otherwise deleting a doctored copy, or having it rejected, revived an
+ * attestation recorded before the episode: VERIFIED with no staff action.
+ * Pass the completion time of the attestation being judged, or of the one
+ * about to be written; null releases nothing.
+ *
+ * Mirrors the blocking NOT EXISTS in subject_has_in_person_kyc_verification
+ * (migration 20261011060000_face_match_v2_evidence).
+ */
+export function selfieBlocksInPersonVerification(
+  selfie: { extractionStatus: string | null; biometricResult: unknown; createdAt: Date },
+  currentIdCopies: readonly {
+    id: string
+    verificationRejectedAt?: Date | null
+    verificationRejectedById?: string | null
+  }[],
+  attestationCompletedAt: Date | null,
+): boolean {
+  if (selfie.extractionStatus === "processing") return true
+  const namedCopy = jsonRecord(selfie.biometricResult)?.idDocumentId
+  if (typeof namedCopy !== "string") return true
+  if (attestationCompletedAt === null || attestationCompletedAt.getTime() <= selfie.createdAt.getTime()) {
+    return true
+  }
+  return currentIdCopies.some((copy) =>
+    copy.id === namedCopy &&
+    (copy.verificationRejectedAt ?? null) === null &&
+    (copy.verificationRejectedById ?? null) === null)
 }
 
 /**
@@ -210,6 +253,62 @@ export function matchesBlockingSelfie(row: {
 }
 
 /**
+ * The where-shape for the selfie attempts that can close the in-person route:
+ * any attempt, deleted or not, refused as id_document_portrait_invalid.
+ * `idDocumentPortraitRefused` then decides which ID copy each one closes.
+ */
+export const ID_PORTRAIT_REFUSAL_CONDITIONS: {
+  docType: "SELFIE"
+  biometricResult: { path: ["biometricFailureReason"]; equals: "id_document_portrait_invalid" }
+} = {
+  docType: "SELFIE",
+  biometricResult: { path: ["biometricFailureReason"], equals: "id_document_portrait_invalid" },
+}
+
+/** The same predicate, against a row already in memory (the readiness board). */
+export function matchesIdPortraitRefusal(row: { docType?: string; biometricResult: unknown }): boolean {
+  if (row.docType !== undefined && row.docType !== ID_PORTRAIT_REFUSAL_CONDITIONS.docType) return false
+  return jsonRecord(row.biometricResult)?.biometricFailureReason === "id_document_portrait_invalid"
+}
+
+/**
+ * Whether ANY selfie attempt (deleted or not, latest or not) was refused
+ * because this ID copy has no real photograph on it. While one stands, the
+ * in-person route is closed over THIS copy: staff can compare a person to a
+ * photo, but not to a silhouette or a blank box, and the reason is
+ * deliberately non-exceptionable. A later attempt with any other outcome does
+ * not reopen it; only a different ID copy becoming the one attested to does.
+ *
+ * A refusal closes the route over a copy when it names that copy's
+ * idDocumentId, OR that copy's bytes (idDocumentSha256 equal to its
+ * contentSha256: the same photo-less image re-uploaded as a new row is the
+ * same ID), OR names no copy at all (neither field a string), which closes it
+ * over EVERY copy: fail closed. So only a copy with different bytes, under a
+ * different row, reopens it.
+ *
+ * selfie_not_real_photograph does not close it: a person standing at a branch
+ * answers a fake selfie, but nothing answers an ID with no photo.
+ *
+ * Mirrors the NOT EXISTS added to subject_has_in_person_kyc_verification by
+ * migration 20261011060000_face_match_v2_evidence. A copy with no digest
+ * matches no named digest, as SQL's `=` against NULL does not.
+ */
+export function idDocumentPortraitRefused(
+  attempts: readonly { biometricResult: unknown }[],
+  idDocument: { id: string; contentSha256: string | null },
+): boolean {
+  return attempts.some((attempt) => {
+    const result = jsonRecord(attempt.biometricResult)
+    if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
+    const namedId = typeof result.idDocumentId === "string" ? result.idDocumentId : null
+    const namedSha = typeof result.idDocumentSha256 === "string" ? result.idDocumentSha256 : null
+    return (namedId === null && namedSha === null)
+      || namedId === idDocument.id
+      || (namedSha !== null && namedSha === idDocument.contentSha256)
+  })
+}
+
+/**
  * Valid only while the exact circumstances the approver attested to still hold.
  *
  * A live biometric attempt — processing or passed — takes this out of scope:
@@ -225,6 +324,8 @@ export function currentInPersonKycVerification(
     idDocument: InspectedIdDocument | null
     blockingBiometricAttempt: boolean
     biometricAssessment: BiometricEvidenceAssessment
+    /** Selfie attempts matching ID_PORTRAIT_REFUSAL_CONDITIONS. */
+    portraitRefusals: readonly { biometricResult: unknown }[]
   },
 ): InPersonKycVerificationEvidence | null {
   if (
@@ -235,7 +336,9 @@ export function currentInPersonKycVerification(
     args.biometricAssessment.ok ||
     !args.idDocument ||
     args.idDocument.deletedAt !== null ||
-    !args.idDocument.verified
+    !args.idDocument.verified ||
+    // ...except a refusal of this very ID copy's portrait.
+    idDocumentPortraitRefused(args.portraitRefusals, args.idDocument)
   ) {
     return null
   }
@@ -253,6 +356,14 @@ export function currentInPersonKycVerification(
   return evidence
 }
 
+/** The evidence half of the in-person route's preconditions, from readCompositeKycState. */
+export interface InPersonRouteState {
+  /** A selfie still governs: processing, or passed against a current ID copy. */
+  blockingBiometricAttempt: boolean
+  /** The newest verified ID copy has a usable digest and no portrait refusal. */
+  idDocumentAdmissible: boolean
+}
+
 /**
  * Whether the KYC tab currently offers the in-person verification form.
  *
@@ -266,28 +377,31 @@ export function currentInPersonKycVerification(
  *
  * Not gated on the viewer's role. A credit officer who cannot grant it still
  * needs to be told the route exists, so they can fetch someone who can.
+ *
+ * Mirrors the preconditions POST /api/clients/[id]/kyc-in-person-verification
+ * checks on the evidence: verified core documents, no manual rejection, no
+ * selfie that still governs, an admissible ID copy. It used to follow "a
+ * selfie attempt failed", which offered the form over a passed selfie the
+ * route then refused, and over incomplete core documents. Two documented
+ * differences from the route: an active senior exception hides the form
+ * although the route itself would still record an attestation, and the
+ * route's idempotency refusal (an identical attestation already on file but
+ * no longer current) is not modelled here.
  */
 export function inPersonKycVerificationOffered(state: {
   /** A senior exception is already recorded — it supersedes this route. */
   manualExceptionActive: boolean
   /** Already verified in person; the form is replaced by the record of it. */
   inPersonVerificationRecorded: boolean
-  /** Any selfie attempt exists against the client (failed attempts included). */
-  selfieCaptured: boolean
-  /** Every core KYC document is uploaded. */
+  /** Every core KYC document is verified. */
   coreDocumentsComplete: boolean
   /** KYC was manually rejected — nothing is offered until that is cleared. */
   manualRejectionActive: boolean
-  /** The composite gate refused the latest biometric attempt. */
-  biometricAttemptFailed: boolean
-}): boolean {
-  if (state.manualExceptionActive || state.inPersonVerificationRecorded) return false
-  if (
-    !state.selfieCaptured
-    && state.coreDocumentsComplete
-    && !state.manualRejectionActive
-  ) {
-    return true
-  }
-  return state.biometricAttemptFailed
+} & InPersonRouteState): boolean {
+  return !state.manualExceptionActive &&
+    !state.inPersonVerificationRecorded &&
+    state.coreDocumentsComplete &&
+    !state.manualRejectionActive &&
+    !state.blockingBiometricAttempt &&
+    state.idDocumentAdmissible
 }

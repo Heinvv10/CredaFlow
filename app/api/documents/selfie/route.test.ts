@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { isManualKycExceptionableFailureReason } from "@/lib/kyc/manual-exception-policy"
 
 const biometricSubject = {
   id: "client-1",
@@ -91,11 +92,20 @@ function request() {
 }
 
 const verifiedCoreDocuments = [
-  { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null },
+  { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
   { id: "poa-doc-1", docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
   { id: "pay-doc-1", docType: "PAYSLIP", verified: true, verificationNote: null },
   { id: "bank-doc-1", docType: "BANK_STATEMENT", verified: true, verificationNote: null },
 ]
+
+// Every side judged a real photograph: a fixture that tests a selfie-quality
+// reason must not also leave the portrait unjudged, which refuses first.
+const JUDGED_REAL_PHOTOS = {
+  idPhotoKind: { value: "photograph" },
+  idPhotoIsRealPhotograph: { value: true },
+  idPhotoFaceDetected: { value: true },
+  selfieIsRealPhotograph: { value: true },
+}
 
 const ID_DOCUMENT_ROW = {
   id: "id-doc-1",
@@ -124,7 +134,7 @@ describe("POST /api/documents/selfie", () => {
       role: "CREDIT_OFFICER",
       tenantId: "tenant-1",
     })
-    outsideDocumentFindFirstMock.mockResolvedValue({ id: "id-doc-1" })
+    outsideDocumentFindFirstMock.mockResolvedValue({ id: "id-doc-1", contentSha256: "c".repeat(64) })
     outsideClientFindUniqueMock.mockResolvedValue({
       idNumber: "9001015000086",
       firstName: "Synthetic",
@@ -185,7 +195,11 @@ describe("POST /api/documents/selfie", () => {
         isLive: { value: true },
         quality: { value: "good" },
         livenessConfidence: { value: 0.97 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
         idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "same" },
         faceMatch: { value: true },
         matchConfidence: { value: 0.95 },
       },
@@ -230,7 +244,7 @@ describe("POST /api/documents/selfie", () => {
         biometricLiveness: 97,
         verificationNote: "Automatically verified by VLM face match against the ID document photograph",
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v1",
+          provider: "vlm-face-match-v2",
           verified: true,
           faceMatch: true,
           idDocumentId: "id-doc-1",
@@ -358,6 +372,7 @@ describe("POST /api/documents/selfie", () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
+        ...JUDGED_REAL_PHOTOS,
         faceDetected: { value: true },
         facesCount: { value: 1 },
         isLive: { value: true },
@@ -396,6 +411,7 @@ describe("POST /api/documents/selfie", () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
+        ...JUDGED_REAL_PHOTOS,
         faceDetected: { value: true },
         facesCount: { value: 1 },
         isLive: { value: true },
@@ -501,6 +517,7 @@ describe("POST /api/documents/selfie", () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
       data: {
+        ...JUDGED_REAL_PHOTOS,
         faceDetected: { value: true },
         facesCount: { value: 1 },
         isLive: { value: false },
@@ -821,7 +838,11 @@ describe("POST /api/documents/selfie", () => {
         isLive: { value: true },
         quality: { value: "good" },
         livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
         idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
         faceMatch: { value: false },
         matchConfidence: { value: 0.1 },
       },
@@ -839,10 +860,11 @@ describe("POST /api/documents/selfie", () => {
         biometricVerifiedAt: null,
         biometricMatchScore: 10,
         biometricResult: expect.objectContaining({
-          provider: "vlm-face-match-v1",
+          provider: "vlm-face-match-v2",
           verified: false,
           faceMatch: false,
-          biometricFailureReason: "match_score_below_threshold",
+          // The verdict's own refusal (not the score gate) names the reason.
+          biometricFailureReason: "provider_verification_failed",
         }),
       }),
     }))
@@ -852,6 +874,341 @@ describe("POST /api/documents/selfie", () => {
     expect(auditCreateMock.mock.calls[1][0]).toEqual({
       data: expect.objectContaining({ action: "KYC_REJECTED" }),
     })
+  })
+
+  // 2026-10-10: the VLM said faceMatch=true at 0.85 against an ID card whose
+  // portrait box held only a grey silhouette. The model's own optimistic
+  // booleans must not carry the match once it classifies the portrait as a
+  // placeholder — and the refusal must be recorded under a reason that is NOT
+  // on the manual-exception allow-list, with the specific message persisted.
+  it.each([
+    [
+      "a silhouette placeholder ID portrait",
+      { idPhotoKind: { value: "silhouette_placeholder" } },
+      { idPhotoKind: "silhouette_placeholder", selfieIsRealPhotograph: true },
+      "id_document_portrait_invalid",
+      "ID document portrait is not a photograph (silhouette_placeholder)",
+    ],
+    [
+      "a selfie that is not a real photograph",
+      { selfieIsRealPhotograph: { value: false } },
+      { idPhotoKind: "photograph", selfieIsRealPhotograph: false },
+      "selfie_not_real_photograph",
+      "Selfie is not a real photograph of a live person",
+    ],
+  ])("rejects a confident match against %s", async (_label, change, judged, reason, message) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: true },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "same" },
+        faceMatch: { value: true },
+        matchConfidence: { value: 0.85 },
+        ...change,
+      },
+    })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        extractionStatus: "failed",
+        extractionError: message,
+        verificationNote: message,
+        verified: false,
+        validationMismatch: true,
+        biometricVerifiedAt: null,
+        biometricResult: expect.objectContaining({
+          provider: "vlm-face-match-v2",
+          verified: false,
+          error: message,
+          biometricFailureReason: reason,
+        }),
+      }),
+    }))
+    expect(isManualKycExceptionableFailureReason(reason)).toBe(false)
+    expect(txClientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+    const audit = auditCreateMock.mock.calls[1][0] as {
+      data: { action: string; newValue: { document: Record<string, unknown> } }
+    }
+    expect(audit.data.action).toBe("KYC_REJECTED")
+    expect(audit.data.newValue.document).toEqual(expect.objectContaining({
+      extractionError: message,
+      biometricFailureReason: reason,
+      matchScore: 85,
+      livenessScore: 95,
+      faceMatchVerdict: {
+        provider: "vlm-face-match-v2",
+        rejection: message,
+        idPhotoKind: judged.idPhotoKind,
+        idPhotoIsRealPhotograph: true,
+        idPhotoFaceDetected: true,
+        selfieIsRealPhotograph: judged.selfieIsRealPhotograph,
+        samePerson: "same",
+        faceMatch: true,
+        matchConfidence: 0.85,
+        livenessConfidence: 0.95,
+      },
+    }))
+  })
+
+  // A selfie-side failure (liveness, face count) used to stop the pipeline
+  // before the ID-side verdict was read, so a silhouette ID was recorded under
+  // an exceptionable selfie reason. The strictest reason must win.
+  it.each([
+    ["liveness failed", "id_document_portrait_invalid", { isLive: { value: false } },
+      { idPhotoKind: { value: "silhouette_placeholder" }, idPhotoIsRealPhotograph: { value: false }, idPhotoFaceDetected: { value: false } },
+      "ID document portrait is not a photograph (silhouette_placeholder)"],
+    ["two faces", "id_document_portrait_invalid", { facesCount: { value: 2 } },
+      { idPhotoKind: { value: "silhouette_placeholder" }, idPhotoIsRealPhotograph: { value: false }, idPhotoFaceDetected: { value: false } },
+      "ID document portrait is not a photograph (silhouette_placeholder)"],
+    ["liveness failed", "selfie_not_real_photograph", { isLive: { value: false } },
+      { selfieIsRealPhotograph: { value: false } },
+      "Selfie is not a real photograph of a live person"],
+    ["two faces", "selfie_not_real_photograph", { facesCount: { value: 2 } },
+      { selfieIsRealPhotograph: { value: false } },
+      "Selfie is not a real photograph of a live person"],
+  ])("records %s against a refused portrait as the non-exceptionable %s", async (
+    _label, reason, selfieSide, verdictSide, message,
+  ) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: true },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.95 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
+        faceMatch: { value: false },
+        matchConfidence: { value: 0.1 },
+        ...selfieSide,
+        ...verdictSide,
+      },
+    })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = txDocumentUpdateManyMock.mock.calls[0][0] as {
+      data: {
+        extractionStatus: string
+        extractionError: string
+        verified: boolean
+        biometricResult: { biometricFailureReason: string }
+      }
+    }
+    expect(update.data.extractionStatus).toBe("failed")
+    expect(update.data.extractionError).toBe(message)
+    expect(update.data.verified).toBe(false)
+    expect(update.data.biometricResult.biometricFailureReason).toBe(reason)
+    expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
+  })
+
+  it("keeps the selfie-side reason when the verdict refusal is itself exceptionable", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        faceDetected: { value: true },
+        facesCount: { value: 1 },
+        isLive: { value: false },
+        quality: { value: "good" },
+        livenessConfidence: { value: 0.2 },
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        selfieIsRealPhotograph: { value: true },
+        samePerson: { value: "different" },
+        faceMatch: { value: false },
+        matchConfidence: { value: 0.1 },
+      },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        biometricResult: expect.objectContaining({ biometricFailureReason: "vlm_liveness_failed" }),
+      }),
+    }))
+  })
+
+  // One malformed field unrelated to the portrait made the whole verdict
+  // unreadable, and a silhouette ID was again recorded under the selfie-side
+  // reason. The side judgements must be read on their own.
+  const silhouetteId = {
+    idPhotoKind: { value: "silhouette_placeholder" },
+    idPhotoIsRealPhotograph: { value: false },
+    idPhotoFaceDetected: { value: false },
+  }
+  const verdictBase = {
+    faceDetected: { value: true },
+    facesCount: { value: 1 },
+    isLive: { value: true },
+    quality: { value: "good" },
+    livenessConfidence: { value: 0.95 },
+    selfieIsRealPhotograph: { value: true },
+    samePerson: { value: "different" },
+    faceMatch: { value: false },
+    matchConfidence: { value: 0.1 },
+  }
+  const malformations: Array<[string, Record<string, unknown>]> = [
+    ["matchConfidence missing", { matchConfidence: undefined }],
+    ["livenessConfidence missing", { livenessConfidence: undefined }],
+    ["samePerson missing", { samePerson: undefined }],
+    ["matchConfidence 10", { matchConfidence: { value: 10 } }],
+    ["idPhotoKind 'Silhouette Placeholder'", { idPhotoKind: { value: "Silhouette Placeholder" } }],
+    ["idPhotoKind 'grey_avatar'", { idPhotoKind: { value: "grey_avatar" } }],
+  ]
+  const selfieFailures: Array<[string, Record<string, unknown>]> = [
+    ["isLive false", { isLive: { value: false } }],
+    ["facesCount 2", { facesCount: { value: 2 } }],
+  ]
+  it.each(selfieFailures.flatMap(([selfieLabel, selfieSide]) =>
+    malformations.map(([malformedLabel, malformed]) =>
+      [selfieLabel, malformedLabel, { ...verdictBase, ...silhouetteId, ...selfieSide, ...malformed }] as const)))(
+    "records a silhouette ID with %s and %s as id_document_portrait_invalid",
+    async (_selfieLabel, _malformedLabel, data) => {
+      extractDocumentDataMock.mockResolvedValueOnce({ ok: true, data })
+
+      await POST(request() as never)
+
+      await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+      const update = txDocumentUpdateManyMock.mock.calls[0][0] as {
+        data: { verified: boolean; biometricResult: { biometricFailureReason: string } }
+      }
+      expect(update.data.verified).toBe(false)
+      expect(update.data.biometricResult.biometricFailureReason).toBe("id_document_portrait_invalid")
+      expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
+    },
+  )
+
+  it("does not upgrade a real photo pair with a malformed confidence to a non-exceptionable reason", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        ...verdictBase,
+        idPhotoKind: { value: "photograph" },
+        idPhotoIsRealPhotograph: { value: true },
+        idPhotoFaceDetected: { value: true },
+        isLive: { value: false },
+        matchConfidence: { value: 10 },
+      },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        biometricResult: expect.objectContaining({ biometricFailureReason: "vlm_liveness_failed" }),
+      }),
+    }))
+  })
+
+  it.each([
+    ["a readable verdict", {}, "ID document portrait is not a photograph (silhouette_placeholder)", {
+      idPhotoKind: "silhouette_placeholder", idPhotoIsRealPhotograph: false,
+      idPhotoFaceDetected: false, selfieIsRealPhotograph: true,
+    }],
+    // The explicit false names the message ahead of the unrecognised kind.
+    ["an unreadable verdict", { matchConfidence: undefined, idPhotoKind: { value: "grey_avatar" } },
+      "ID document portrait is not a real photograph of a person", {
+      idPhotoKind: "unrecognised", idPhotoIsRealPhotograph: false,
+      idPhotoFaceDetected: false, selfieIsRealPhotograph: true,
+    }],
+  ])("audits the side judgements behind a strict refusal with no provider result (%s)", async (
+    _label, change, rejection, judgement,
+  ) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: { ...verdictBase, ...silhouetteId, isLive: { value: false }, ...change },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(auditCreateMock).toHaveBeenCalledTimes(2))
+    const audit = auditCreateMock.mock.calls[1][0] as {
+      data: { action: string; newValue: { document: { faceMatchVerdict: unknown } } }
+    }
+    expect(audit.data.action).toBe("KYC_REJECTED")
+    expect(audit.data.newValue.document.faceMatchVerdict).toEqual({
+      provider: "vlm-face-match-v2",
+      rejection,
+      ...judgement,
+    })
+  })
+
+  // REPRO D: a side flag present as "false", 0 or a nested object read as
+  // absent, so a silhouette ID or fake selfie behind a liveness failure was
+  // recorded under the exceptionable vlm_liveness_failed. Fail closed, with a
+  // message that claims nothing about the photo.
+  const unreadableId = "ID document portrait could not be verified: the check's answer about it was unreadable"
+  const unreadableSelfie = "Selfie could not be verified as a real photograph: the check's answer about it was unreadable"
+  const goodIdPair = {
+    idPhotoKind: { value: "photograph" },
+    idPhotoIsRealPhotograph: { value: true },
+    idPhotoFaceDetected: { value: true },
+  }
+  it.each([
+    ["silhouette ID, kind omitted, idPhotoIsRealPhotograph \"false\"",
+      { idPhotoIsRealPhotograph: { value: "false" } }, "id_document_portrait_invalid", unreadableId],
+    ["silhouette ID, kind omitted, idPhotoIsRealPhotograph {value:false}",
+      { idPhotoIsRealPhotograph: { value: { value: false } } }, "id_document_portrait_invalid", unreadableId],
+    ["silhouette ID, idPhotoFaceDetected 0, other ID flags omitted",
+      { idPhotoFaceDetected: { value: 0 } }, "id_document_portrait_invalid", unreadableId],
+    ["good ID pair, selfieIsRealPhotograph 0",
+      { ...goodIdPair, selfieIsRealPhotograph: { value: 0 } }, "selfie_not_real_photograph", unreadableSelfie],
+    ["good ID pair, selfieIsRealPhotograph \"false\"",
+      { ...goodIdPair, selfieIsRealPhotograph: { value: "false" } }, "selfie_not_real_photograph", unreadableSelfie],
+    // The model answered null for every ID judgement (mapExtractedFields
+    // drops null), so nothing judged the portrait.
+    ["every ID judgement null",
+      { idPhotoKind: null, idPhotoIsRealPhotograph: null, idPhotoFaceDetected: null },
+      "id_document_portrait_invalid", "ID document portrait could not be verified: the check gave no answer about it"],
+    ["good ID pair, selfie judgement omitted",
+      { ...goodIdPair, selfieIsRealPhotograph: undefined },
+      "selfie_not_real_photograph", "Selfie could not be verified as a real photograph: the check gave no answer about it"],
+  ])("records isLive:false with %s under a non-exceptionable reason", async (_label, sides, reason, message) => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: { ...verdictBase, isLive: { value: false }, livenessConfidence: { value: 0.2 }, ...sides },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = txDocumentUpdateManyMock.mock.calls[0][0] as {
+      data: {
+        verified: boolean
+        extractionError: string
+        verificationNote: string
+        biometricResult: { biometricFailureReason: string }
+      }
+    }
+    expect(update.data.verified).toBe(false)
+    expect(update.data.biometricResult.biometricFailureReason).toBe(reason)
+    expect(isManualKycExceptionableFailureReason(update.data.biometricResult.biometricFailureReason)).toBe(false)
+    expect(update.data.extractionError).toBe(message)
+    expect(update.data.verificationNote).toBe(message)
   })
 
   it("writes no provider evidence when the VLM response lacks the face-match verdict", async () => {
@@ -877,6 +1234,13 @@ describe("POST /api/documents/selfie", () => {
         verified: false,
         biometricMatchScore: null,
         biometricVerifiedAt: null,
+        // The reply judged neither photo: a fault in the check, not the ID,
+        // and not exceptionable either.
+        biometricResult: expect.objectContaining({
+          biometricFailureReason: "extraction_incomplete",
+          idDocumentId: "id-doc-1",
+          idDocumentSha256: "c".repeat(64),
+        }),
       }),
     }))
     expect(auditCreateMock.mock.calls[1][0]).toEqual({
@@ -887,7 +1251,8 @@ describe("POST /api/documents/selfie", () => {
   it("does not bind provider evidence to an ID document replaced during the callback", async () => {
     // The persist gate re-reads the CURRENT ID document inside the money
     // transaction; the evidence names id-doc-1, but a newer ID landed.
-    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED" }])
+    // Same digest, so only the row comparison can refuse it.
+    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED", contentSha256: "c".repeat(64) }])
 
     const response = await POST(request() as never)
 
@@ -903,6 +1268,65 @@ describe("POST /api/documents/selfie", () => {
         }),
       }),
     }))
+  })
+
+  it("re-checks the bound ID copy against the newest uploaded one, digest included", async () => {
+    // Same row, different bytes: the compared copy is no longer what is on file.
+    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-1", contentSha256: "d".repeat(64) }])
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    // Verified or not (the composite gate's call), but never one staff rejected.
+    expect(txDocumentFindManyMock.mock.calls[0][0]).toEqual(expect.objectContaining({
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verificationRejectedAt: null },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }))
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        verified: false,
+        biometricResult: expect.objectContaining({ biometricFailureReason: "subject_identity_changed" }),
+      }),
+    }))
+  })
+
+  it("compares the selfie against the newest ID copy staff have not rejected, verified or not", async () => {
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    const newestIdCopy = {
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verificationRejectedAt: null },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }
+    expect(outsideDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
+    expect(txDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
+  })
+
+  it.each([
+    ["there is no ID copy at all", null],
+    ["the newest copy has no digest", { contentSha256: null }],
+  ])("refuses capture when %s", async (_label, newestCopy) => {
+    outsideDocumentFindFirstMock.mockReset()
+    outsideDocumentFindFirstMock.mockResolvedValueOnce(newestCopy)
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: "Please upload your ID document before taking a selfie." })
+    expect(saveFileMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses inside the evidence lock when the ID copy lost its digest", async () => {
+    txDocumentFindFirstMock.mockReset()
+    txDocumentFindFirstMock.mockResolvedValueOnce({ ...ID_DOCUMENT_ROW, contentSha256: null })
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(422)
+    expect(txDocumentCreateMock).not.toHaveBeenCalled()
+    expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/selfie.jpg")
   })
 
     it("fails the attempt without calling the VLM when the stored ID bytes are unavailable", async () => {

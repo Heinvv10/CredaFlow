@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { Buffer } from "node:buffer"
+import { isSha256Digest } from "@/lib/documents/content-integrity"
 
 // Minimum face-match and liveness scores (0–100) for payout-grade biometric
 // KYC. The provider is the VLM comparing the live selfie against the printed
@@ -14,6 +15,13 @@ import { Buffer } from "node:buffer"
 export const BIOMETRIC_MATCH_THRESHOLD = 70
 export const BIOMETRIC_LIVENESS_THRESHOLD = 70
 export const BIOMETRIC_SUBJECT_FINGERPRINT_VERSION = "biometric-subject-v2" as const
+/**
+ * The only provider whose result can verify a selfie. v1 carried a single
+ * faceMatch boolean that passed a selfie against a silhouette placeholder
+ * (2026-10-10), so v1 evidence never verifies. Mirrored in SQL by
+ * subject_has_composite_kyc (migration 20261011060000_face_match_v2_evidence).
+ */
+export const VLM_FACE_MATCH_PROVIDER = "vlm-face-match-v2" as const
 
 export type BiometricEvidenceFailureReason =
   | "extraction_incomplete"
@@ -33,6 +41,14 @@ export type BiometricEvidenceFailureReason =
   | "provider_verification_missing"
   | "simulated_provider_evidence"
   | "provider_verification_failed"
+  // The VLM judged the portrait area of the ID document on file not to be a
+  // real photograph with a visible face (silhouette, illustration, blank,
+  // obscured). There is no face to compare the selfie against, so no human
+  // may grant an exception over it: the client must supply a usable ID.
+  | "id_document_portrait_invalid"
+  // The VLM judged the selfie not to be a camera photograph of a real person.
+  // Not exceptionable for the same reason: the remedy is a real selfie.
+  | "selfie_not_real_photograph"
 
 const BIOMETRIC_EVIDENCE_FAILURE_REASONS = new Set<BiometricEvidenceFailureReason>([
   "extraction_incomplete",
@@ -52,6 +68,8 @@ const BIOMETRIC_EVIDENCE_FAILURE_REASONS = new Set<BiometricEvidenceFailureReaso
   "provider_verification_missing",
   "simulated_provider_evidence",
   "provider_verification_failed",
+  "id_document_portrait_invalid",
+  "selfie_not_real_photograph",
 ])
 
 export function parseBiometricEvidenceFailureReason(
@@ -87,11 +105,25 @@ export interface BiometricSubjectClient {
 
 export type BiometricEvidenceAssessment =
   | { ok: true }
-  | { ok: false; reason: BiometricEvidenceFailureReason }
+  | {
+      ok: false
+      reason: BiometricEvidenceFailureReason
+      /**
+       * Set only when the ID-copy binding is the sole refusal: a sound match,
+       * bound to this subject, run against a copy that is not (or no longer)
+       * the client's newest verified one. Not a failed attempt.
+       */
+      idDocumentNotCurrent?: true
+    }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   return value as Record<string, unknown>
+}
+
+/** A raw VLM confidence: finite and within 0..1. */
+function isConfidence(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
 }
 
 function extractedValue(result: Record<string, unknown>, field: string): unknown {
@@ -101,9 +133,14 @@ function extractedValue(result: Record<string, unknown>, field: string): unknown
 
 export type BiometricImageQuality = "good" | "poor" | "unusable"
 
+/**
+ * Normalised exactly as subject_has_composite_kyc does: lower(trim(value)),
+ * and PostgreSQL's trim() strips spaces only. String.prototype.trim also strips
+ * tabs and newlines, so "good\n" passed here and was refused there.
+ */
 export function parseBiometricImageQuality(value: unknown): BiometricImageQuality | null {
   if (typeof value !== "string") return null
-  const normalized = value.trim().toLowerCase()
+  const normalized = value.replace(/^ +| +$/g, "").toLowerCase()
   return normalized === "good" || normalized === "poor" || normalized === "unusable"
     ? normalized
     : null
@@ -142,46 +179,6 @@ export function assessVlmBiometricExtraction(
   return { ok: true }
 }
 
-export type VlmFaceMatchVerdict = {
-  faceMatch: boolean
-  idPhotoFaceDetected: boolean
-  /** 0–100, from the VLM's matchConfidence (0–1). */
-  matchScore: number
-  /** 0–100, from the VLM's livenessConfidence (0–1). */
-  livenessScore: number
-}
-
-/**
- * Read the two-image face-match verdict out of a SELFIE extraction result.
- * Returns null — never a partial verdict — unless every field is present and
- * well-formed, so a single-image (legacy) extraction or a malformed VLM
- * response yields no provider evidence and the attempt fails closed.
- */
-export function readVlmFaceMatchVerdict(extractionResult: unknown): VlmFaceMatchVerdict | null {
-  const extraction = jsonRecord(extractionResult)
-  if (!extraction) return null
-  const faceMatch = extractedValue(extraction, "faceMatch")
-  const idPhotoFaceDetected = extractedValue(extraction, "idPhotoFaceDetected")
-  const matchConfidence = extractedValue(extraction, "matchConfidence")
-  const livenessConfidence = extractedValue(extraction, "livenessConfidence")
-  const isConfidence = (value: unknown): value is number =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
-  if (
-    typeof faceMatch !== "boolean"
-    || typeof idPhotoFaceDetected !== "boolean"
-    || !isConfidence(matchConfidence)
-    || !isConfidence(livenessConfidence)
-  ) {
-    return null
-  }
-  return {
-    faceMatch,
-    idPhotoFaceDetected,
-    matchScore: Math.round(matchConfidence * 100),
-    livenessScore: Math.round(livenessConfidence * 100),
-  }
-}
-
 function fingerprintField(value: string): string {
   return Buffer.from(String(value ?? ""), "utf8").toString("hex")
 }
@@ -207,10 +204,39 @@ export function biometricSubjectFingerprint(subject: BiometricSubjectClient): st
   ].join(":"), "utf8").digest("hex")
 }
 
+/** An ID copy as the selfie gate needs it: which row, and its stored digest. */
+export interface BiometricIdDocument {
+  id: string
+  contentSha256: string | null
+}
+
+/** An ID copy with the staff decisions that decide whether a match against it is adverse. */
+export interface BiometricIdDocumentCopy extends BiometricIdDocument {
+  verified: boolean
+  verificationRejectedAt?: Date | null
+  verificationRejectedById?: string | null
+}
+
 export function assessBiometricEvidence(
   evidence: BiometricDocumentEvidence,
   options: {
     subject: BiometricSubjectClient
+    /**
+     * The client's newest verified, non-deleted ID_COPY (createdAt DESC, id
+     * DESC), or null if there is none. The selfie must have been compared
+     * against exactly this row.
+     */
+    idDocument: BiometricIdDocument | null
+    /**
+     * The client's non-deleted ID copies, verified or not, or null when the
+     * caller did not read them. Decides only whether an ID-copy binding
+     * refusal is a pending ID change (idDocumentNotCurrent): only when the
+     * copy the match ran against is a SUPERSEDED VERIFIED copy, i.e. still
+     * among them, same digest, never rejected, verified, and not the newest
+     * verified one (`idDocument`). Anything else leaves the refusal a failed
+     * attempt.
+     */
+    idDocumentCopies: readonly BiometricIdDocumentCopy[] | null
     requireDocumentVerified?: boolean
   },
 ): BiometricEvidenceAssessment {
@@ -268,7 +294,9 @@ export function assessBiometricEvidence(
   if (!providerResult) {
     return { ok: false, reason: "provider_verification_missing" }
   }
-  if (providerResult.simulated === true) {
+  // Absent or exactly false only: subject_has_composite_kyc refused the string
+  // "true" that this let through.
+  if (providerResult.simulated !== undefined && providerResult.simulated !== false) {
     return { ok: false, reason: "simulated_provider_evidence" }
   }
   if (
@@ -288,14 +316,68 @@ export function assessBiometricEvidence(
   ) {
     return { ok: false, reason: "provider_verification_failed" }
   }
-  if (providerResult.matchScore < BIOMETRIC_MATCH_THRESHOLD) {
+  // The VLM is the only provider, so passing evidence is always the v2
+  // verdict. The VLM-unavailable marker stands in for the extraction checks
+  // only (assessVlmBiometricExtraction); it does not exempt the provider
+  // result, and with the VLM unavailable the producer writes none at all.
+  if (providerResult.provider !== VLM_FACE_MATCH_PROVIDER) {
+    // No v2 check stands behind these scores (v1, untagged or unknown).
+    return { ok: false, reason: "provider_verification_missing" }
+  }
+  if (
+    providerResult.idPhotoKind !== "photograph" ||
+    providerResult.idPhotoIsRealPhotograph !== true ||
+    providerResult.idPhotoFaceDetected !== true ||
+    providerResult.selfieIsRealPhotograph !== true ||
+    providerResult.samePerson !== "same" ||
+    providerResult.faceMatch !== true ||
+    !isConfidence(providerResult.matchConfidence) ||
+    !isConfidence(providerResult.livenessConfidence)
+  ) {
+    // `verified: true` alongside a judgement that refuses is not a pass.
+    return { ok: false, reason: "provider_verification_failed" }
+  }
+  // Rounded score AND raw confidence: 0.695 rounds to a passing 70.
+  const { matchScore, matchConfidence, livenessScore, livenessConfidence } = providerResult
+  if (matchScore < BIOMETRIC_MATCH_THRESHOLD || matchConfidence < BIOMETRIC_MATCH_THRESHOLD / 100) {
     return { ok: false, reason: "match_score_below_threshold" }
   }
-  if (providerResult.livenessScore < BIOMETRIC_LIVENESS_THRESHOLD) {
+  if (livenessScore < BIOMETRIC_LIVENESS_THRESHOLD || livenessConfidence < BIOMETRIC_LIVENESS_THRESHOLD / 100) {
     return { ok: false, reason: "liveness_score_below_threshold" }
   }
   if (options.requireDocumentVerified !== false && !evidence.verified) {
     return { ok: false, reason: "document_not_verified" }
+  }
+  // A match against any other ID copy (a newer unverified or rejected upload,
+  // or one since replaced) says nothing about the verified identity. Checked
+  // last, so that refusing here means every other check passed. Only one ID
+  // change is not a failed attempt, and deriveCompositeKycState projects it
+  // as pending: staff verified a new copy after a match against the copy they
+  // had verified before. A match against an unverified copy stays a failure
+  // even when it may be a borrower who did not wait for staff: it is
+  // indistinguishable from a doctored substitute uploaded after a face
+  // mismatch against the verified ID. So does one against a copy since
+  // rejected, deleted or rewritten, or not this client's.
+  if (
+    !options.idDocument ||
+    !isSha256Digest(options.idDocument.contentSha256) ||
+    providerResult.idDocumentId !== options.idDocument.id ||
+    providerResult.idDocumentSha256 !== options.idDocument.contentSha256
+  ) {
+    const boundCopy = options.idDocumentCopies?.find((copy) => copy.id === providerResult.idDocumentId)
+    // Superseded: the copies' newest verified one is `idDocument`, so a
+    // verified copy that is not it sorts after it (createdAt DESC, id DESC).
+    const pendingIdChange = boundCopy !== undefined &&
+      isSha256Digest(boundCopy.contentSha256) &&
+      boundCopy.contentSha256 === providerResult.idDocumentSha256 &&
+      (boundCopy.verificationRejectedAt ?? null) === null &&
+      (boundCopy.verificationRejectedById ?? null) === null &&
+      boundCopy.verified &&
+      options.idDocument !== null &&
+      boundCopy.id !== options.idDocument.id
+    return pendingIdChange
+      ? { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
+      : { ok: false, reason: "subject_identity_changed" }
   }
 
   return { ok: true }

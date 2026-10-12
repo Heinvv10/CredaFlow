@@ -205,6 +205,17 @@ beforeEach(() => {
       verified: true,
       matchScore: 98,
       livenessScore: 97,
+      provider: "vlm-face-match-v2",
+      idPhotoKind: "photograph",
+      idPhotoIsRealPhotograph: true,
+      idPhotoFaceDetected: true,
+      selfieIsRealPhotograph: true,
+      samePerson: "same",
+      faceMatch: true,
+      matchConfidence: 0.98,
+      livenessConfidence: 0.97,
+      idDocumentId: "id-doc-1",
+      idDocumentSha256: "c".repeat(64),
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
     },
   })
@@ -748,7 +759,7 @@ describe("PUT /api/clients/[id] partial-update semantics", () => {
     clientDocumentFindManyMock
       .mockResolvedValueOnce([{ id: "bank-doc-1" }])
       .mockResolvedValueOnce([
-        { docType: "ID_COPY", verified: true, verificationNote: null },
+        { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
         { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
         { docType: "PAYSLIP", verified: true, verificationNote: null },
         {
@@ -1203,6 +1214,17 @@ describe("PATCH /api/clients/[id] KYC serialization", () => {
         verified: true,
         matchScore: 98,
         livenessScore: 97,
+        provider: "vlm-face-match-v2",
+        idPhotoKind: "photograph",
+        idPhotoIsRealPhotograph: true,
+        idPhotoFaceDetected: true,
+        selfieIsRealPhotograph: true,
+        samePerson: "same",
+        faceMatch: true,
+        matchConfidence: 0.98,
+        livenessConfidence: 0.97,
+        idDocumentId: "id-doc-1",
+        idDocumentSha256: "c".repeat(64),
         subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       },
     })
@@ -1224,7 +1246,7 @@ describe("PATCH /api/clients/[id] KYC serialization", () => {
 
   it("records the requested staff verification method when composite KYC is approved", async () => {
     clientDocumentFindManyMock.mockResolvedValueOnce([
-      { docType: "ID_COPY", verified: true, verificationNote: null },
+      { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
       { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
       { docType: "PAYSLIP", verified: true, verificationNote: null },
       { docType: "BANK_STATEMENT", verified: true, verificationNote: null },
@@ -1412,7 +1434,7 @@ describe("PATCH /api/clients/[id] KYC serialization", () => {
   it("resolves a manual rejection only with explicit actor and reason provenance", async () => {
     const rejectedAt = new Date("2026-07-23T01:00:00.000Z")
     clientDocumentFindManyMock.mockResolvedValueOnce([
-      { docType: "ID_COPY", verified: true, verificationNote: null },
+      { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64) },
       { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
       { docType: "PAYSLIP", verified: true, verificationNote: null },
       { docType: "BANK_STATEMENT", verified: true, verificationNote: null },

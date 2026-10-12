@@ -100,6 +100,33 @@ describe("PortalDocumentsClient KYC status consistency", () => {
     )
   })
 
+  it.each([
+    ["id_document_portrait_invalid", "please upload a new, clear photo of your ID, then retake your selfie."],
+    ["selfie_not_real_photograph", "Your selfie could not be confirmed as a real, live photo of you."],
+  ] as const)("tells the client the specific remedy for %s", (reason, remedy) => {
+    const failedChecklist = checklist()
+    failedChecklist.selfie = { ...failedChecklist.selfie, reason }
+    const html = renderToStaticMarkup(
+      <PortalDocumentsClient
+        clientId="client-1"
+        popiaConsentGiven
+        initialDocs={[
+          document({
+            id: "selfie-failed",
+            docType: "SELFIE",
+            mimeType: "image/jpeg",
+            fileName: "selfie.jpg",
+            extractionStatus: "failed",
+          }),
+        ]}
+        initialKycChecklist={failedChecklist}
+      />,
+    )
+
+    expect(html).toContain(remedy)
+    expect(html).not.toContain("The latest selfie could not be verified. Please retake it.")
+  })
+
   it("renders a staff-rejected provider-passed selfie as customer action", () => {
     const rejectedSelfie = document({
       id: "selfie-staff-rejected",

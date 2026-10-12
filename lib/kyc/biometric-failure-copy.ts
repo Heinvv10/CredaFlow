@@ -78,6 +78,21 @@ export const BIOMETRIC_FAILURE_COPY: Record<
     label: "Test result, not a real check",
     detail: "This result came from a test run rather than a real identity check.",
   },
+  // A real check ran, but one side was not confirmed to hold a real face to
+  // compare. NOT on the exception allow-list: the remedy is new evidence, not a
+  // senior override. The same reason also records a side answer the check
+  // returned unreadable, so this copy must not claim what the photo is; the
+  // specific judgement is in the attempt's verification note.
+  id_document_portrait_invalid: {
+    label: "ID document photo could not be verified",
+    detail:
+      "The check could not confirm that the photo on the ID document on file is a real photograph of a face, so the selfie could not be compared. The client must upload a new, clear photo of their ID.",
+  },
+  selfie_not_real_photograph: {
+    label: "Selfie could not be verified as a real photograph",
+    detail:
+      "The check could not confirm that this selfie is a camera photograph of a real person, so it could not be compared. The client must retake a real, live selfie.",
+  },
 
   // --- A real check ran and returned an adverse result. These are the
   // reasons a senior may reason over (MANUAL_KYC_EXCEPTIONABLE_FAILURE_REASONS).
@@ -133,4 +148,19 @@ const COPY = new Map<string, BiometricFailureCopy>(Object.entries(BIOMETRIC_FAIL
 export function biometricFailureCopy(reason: string | null | undefined): BiometricFailureCopy | null {
   if (!reason) return null
   return COPY.get(reason) ?? null
+}
+
+/**
+ * What the CLIENT is told on the portal when their latest selfie failed. Only
+ * a refusal with a different remedy gets its own wording; everything else
+ * keeps the generic retake instruction.
+ */
+export function portalSelfieFailureMessage(reason: string | null | undefined): string {
+  if (reason === "id_document_portrait_invalid") {
+    return "We couldn't verify the photo on your ID — please upload a new, clear photo of your ID, then retake your selfie."
+  }
+  if (reason === "selfie_not_real_photograph") {
+    return "Your selfie could not be confirmed as a real, live photo of you. Please retake it with your camera, facing it directly."
+  }
+  return "The latest selfie could not be verified. Please retake it."
 }

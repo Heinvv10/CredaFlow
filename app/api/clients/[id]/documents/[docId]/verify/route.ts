@@ -168,8 +168,23 @@ export async function PATCH(
           }
 
           if (verified) {
+            // The ID copy subject_has_composite_kyc binds the match to.
+            const idDocument = await tx.clientDocument.findFirst({
+              where: {
+                tenantId: tenant.id,
+                clientId,
+                docType: "ID_COPY",
+                deletedAt: null,
+                verified: true,
+              },
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              select: { id: true, contentSha256: true },
+            })
             const biometricEvidence = assessBiometricEvidence(doc, {
               subject: clientCheck,
+              idDocument,
+              // Only the refusal reason is read here, which this never changes.
+              idDocumentCopies: null,
               requireDocumentVerified: false,
             })
             if (!biometricEvidence.ok) {

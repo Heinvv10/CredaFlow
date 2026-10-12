@@ -71,7 +71,13 @@ const verifiedCoreDocuments = [
   "PROOF_OF_ADDRESS",
   "PAYSLIP",
   "BANK_STATEMENT",
-].map((docType) => ({ docType, verified: true, verificationNote: null }))
+].map((docType) => ({
+  docType,
+  verified: true,
+  verificationNote: null,
+  // The ID copy the passing selfie was compared against.
+  ...(docType === "ID_COPY" && { id: "id-doc-1", contentSha256: "c".repeat(64) }),
+}))
 const passingSelfie = {
   id: "selfie-current",
   deletedAt: null,
@@ -94,6 +100,17 @@ const passingSelfie = {
     verified: true,
     matchScore: 98,
     livenessScore: 97,
+    provider: "vlm-face-match-v2",
+    idPhotoKind: "photograph",
+    idPhotoIsRealPhotograph: true,
+    idPhotoFaceDetected: true,
+    selfieIsRealPhotograph: true,
+    samePerson: "same",
+    faceMatch: true,
+    matchConfidence: 0.98,
+    livenessConfidence: 0.97,
+    idDocumentId: "id-doc-1",
+    idDocumentSha256: "c".repeat(64),
     subjectFingerprint: biometricSubjectFingerprint(clientSubject),
   },
 }
@@ -102,8 +119,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "officer@x.co" } })
   updateManyMock.mockResolvedValue({ count: 1 })
-  clientDocumentFindManyMock.mockImplementation((args: { where?: { docType?: { in?: string[] } } }) => (
-    args.where?.docType && "in" in args.where.docType
+  clientDocumentFindManyMock.mockImplementation((args: { where?: { docType?: string | { in?: string[] } } }) => (
+    typeof args.where?.docType === "object" && "in" in args.where.docType
       ? Promise.resolve(verifiedCoreDocuments)
       : Promise.resolve([])
   ))
@@ -434,7 +451,14 @@ it("gives a normal failed selfie the distinct biometric 422 before generic misma
     biometricEvidence: "extraction_incomplete",
     documentId: "selfie-failed",
   })
-  expect(clientDocumentFindManyMock).toHaveBeenCalledOnce()
+  // Only the composite read's three queries (core documents, in-person
+  // blocking candidates, ID-portrait refusals); the generic mismatch query
+  // never runs.
+  expect(clientDocumentFindManyMock.mock.calls.map(([args]) => args.where.docType)).toEqual([
+    { in: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] },
+    "SELFIE",
+    "SELFIE",
+  ])
   expect(updateManyMock).not.toHaveBeenCalled()
   expect(runBureauReviewCheckMock).not.toHaveBeenCalled()
   expect(auditLogCreateMock).toHaveBeenCalledWith({

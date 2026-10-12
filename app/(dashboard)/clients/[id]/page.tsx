@@ -133,10 +133,9 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
     inPersonOffered: inPersonKycVerificationOffered({
       manualExceptionActive: Boolean(manualException),
       inPersonVerificationRecorded: Boolean(inPersonVerification),
-      selfieCaptured: Boolean(selfieDoc),
       coreDocumentsComplete: compositeKyc.missingCoreDocuments.length === 0,
       manualRejectionActive: client.kycManualRejectionActive,
-      biometricAttemptFailed: compositeKyc.biometricAttemptFailed,
+      ...compositeKyc.inPersonRoute,
     }),
   }
   // The application a returned signed packet would belong to. Twin of the
@@ -423,6 +422,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 coreDocumentsComplete={compositeKyc.missingCoreDocuments.length === 0}
                 biometricEvidence={compositeKyc.biometricEvidence}
                 biometricAttemptFailed={compositeKyc.biometricAttemptFailed}
+                inPersonRoute={compositeKyc.inPersonRoute}
                 seniorExceptionAvailable={seniorExceptionAvailable}
               />
             </div>
