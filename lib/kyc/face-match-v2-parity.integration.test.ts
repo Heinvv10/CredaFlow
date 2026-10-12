@@ -50,6 +50,8 @@ type Case = {
   before?: (ids: Ids) => string[]
   /** A failed latest selfie and an in-person attestation instead of a pass. */
   inPerson?: { br: string; deleted?: boolean; older?: string; olderDeleted?: boolean }
+  /** Also record an in-person attestation over the seeded ID copy. */
+  attest?: boolean
 }
 type Ids = { tenantId: string; clientId: string; idCopyId: string }
 
@@ -155,6 +157,31 @@ const cases: Case[] = [
   { name: "column deletedAt set", expected: false, cols: `"deletedAt" = CURRENT_TIMESTAMP` },
 
   // The in-person route over a failed latest selfie.
+  // A PASSED selfie blocks the in-person route unless the ID copy it names is
+  // no longer a non-deleted, unrejected ID copy of this client.
+  ...([
+    ["a newer copy awaiting review", false, (ids: Ids) => [newerIdCopy(ids, "awaiting", false, "b".repeat(64))], "awaiting"],
+    ["a newer copy staff rejected", true, (ids: Ids) => [newerIdCopy(ids, "rejected", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic'
+      WHERE "id" = 'rejected_${ids.clientId}'`], "rejected"],
+    ["a newer copy rejected by a named reviewer only", true, (ids: Ids) => [newerIdCopy(ids, "named", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'named_${ids.clientId}'`], "named"],
+    ["a newer copy rejected with a timestamp only", true, (ids: Ids) => [newerIdCopy(ids, "stamped", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP WHERE "id" = 'stamped_${ids.clientId}'`], "stamped"],
+    ["a copy since deleted", true, (ids: Ids) => [newerIdCopy(ids, "deleted", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "deletedAt" = CURRENT_TIMESTAMP WHERE "id" = 'deleted_${ids.clientId}'`], "deleted"],
+    ["a copy that does not exist", true, () => [], "gone"],
+    ["an older verified copy, superseded", false, (ids: Ids) => [olderIdCopy(ids, "superseded")], "superseded"],
+  ] as const).map(([label, expected, before, prefix]): Case => ({
+    name: `in person: a passed selfie bound to ${label}`,
+    expected,
+    attest: true,
+    before,
+    br: BR(`"idDocumentId":"${prefix}___CLIENT__","idDocumentSha256":"${prefix === "superseded" ? ID_SHA : "b".repeat(64)}"`),
+  })),
+  // Processing governs whatever the row's stale evidence names.
+  { name: "in person: an attempt still processing keeps blocking, even naming a rejected copy", expected: false, attest: true,
+    before: (ids) => [newerIdCopy(ids, "gone_by", false, "b".repeat(64)), `UPDATE "ClientDocument" SET "verificationRejectedAt" = CURRENT_TIMESTAMP, "verificationRejectedById" = 'officer-synthetic' WHERE "id" = 'gone_by_${ids.clientId}'`],
+    br: BR(`"idDocumentId":"gone_by___CLIENT__","idDocumentSha256":"${"b".repeat(64)}"`),
+    cols: `"extractionStatus" = 'processing'` },
+  { name: "in person: a passed selfie naming no ID copy keeps blocking", expected: false, attest: true,
+    br: BR().replace(`"idDocumentId":"${ID}",`, "").replace(`"idDocumentSha256":"${ID_SHA}",`, "") },
   { name: "in person: latest selfie refused this ID copy's portrait", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid") } },
   { name: "in person: the refusal names no ID copy", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", "") } },
   { name: "in person: the refusal names an ID copy as a non-string", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":7`) } },
@@ -245,6 +272,7 @@ async function run(c: Case) {
     .replaceAll("__FPUP__", fingerprint.toUpperCase())
     .replaceAll("__SUBSTITUTE__", `substitute_${clientId}`)
     .replaceAll(ID, idCopyId)
+    .replaceAll("__CLIENT__", clientId)
 
   const selfieId = `fm_par_selfie_${sequence}_${token}`
   if (c.inPerson) {
@@ -252,6 +280,10 @@ async function run(c: Case) {
       await insertFailedSelfie(ids, `${selfieId}_older`, fill(c.inPerson.older), c.inPerson.olderDeleted ?? false)
     }
     await insertFailedSelfie(ids, selfieId, fill(c.inPerson.br), c.inPerson.deleted ?? false)
+  } else {
+    await insertSelfie(ids, selfieId, c.er ?? ER(), fill(c.br ?? BR()))
+  }
+  if (c.inPerson || c.attest) {
     const completedAt = new Date("2026-10-12T08:00:00.000Z")
     await db.complianceRecord.create({
       data: {
@@ -264,8 +296,6 @@ async function run(c: Case) {
         },
       },
     })
-  } else {
-    await insertSelfie(ids, selfieId, c.er ?? ER(), fill(c.br ?? BR()))
   }
   if (c.cols) await db.$executeRawUnsafe(`UPDATE "ClientDocument" SET ${c.cols} WHERE "id" = $1`, selfieId)
 

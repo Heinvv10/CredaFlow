@@ -161,10 +161,11 @@ export function parseInPersonKycVerificationEvidence(
 /**
  * The Prisma where-shape for a selfie that BLOCKS the in-person route: a live
  * biometric candidate — still processing, or provider-verified and passing.
- * Failed and soft-deleted attempts do not block. This MUST stay semantically
- * aligned with the NOT EXISTS block in
- * subject_has_in_person_kyc_verification (see
- * the baseline migration).
+ * Failed and soft-deleted attempts do not block. Together with
+ * selfieBlocksInPersonVerification, which releases a passed attempt whose ID
+ * copy was rejected or deleted, this MUST stay semantically aligned with the
+ * blocking NOT EXISTS in subject_has_in_person_kyc_verification (redefined by
+ * migration 20261011060000_face_match_v2_evidence).
  */
 export const BLOCKING_SELFIE_CONDITIONS: {
   docType: "SELFIE"
@@ -180,6 +181,37 @@ export const BLOCKING_SELFIE_CONDITIONS: {
     { extractionStatus: "processing" },
     { verified: true, biometricVerifiedAt: { not: null } },
   ],
+}
+
+/**
+ * Whether a selfie matching BLOCKING_SELFIE_CONDITIONS still takes the
+ * in-person route out of scope. An attempt still processing always does. A
+ * passed one does unless the ID copy it names is no longer a non-deleted,
+ * unrejected ID copy of this client (`currentIdCopies`): staff rejected or
+ * deleted it, or it is gone. Such a match proves nothing, it no longer counts
+ * as biometric evidence, and blocking the human route over it stranded the
+ * client until the copy was verified. A passed selfie that names no copy
+ * still blocks (fail closed). The ID-portrait refusal closure applies
+ * independently.
+ *
+ * Mirrors the blocking NOT EXISTS in subject_has_in_person_kyc_verification
+ * (migration 20261011060000_face_match_v2_evidence).
+ */
+export function selfieBlocksInPersonVerification(
+  selfie: { extractionStatus: string | null; biometricResult: unknown },
+  currentIdCopies: readonly {
+    id: string
+    verificationRejectedAt?: Date | null
+    verificationRejectedById?: string | null
+  }[],
+): boolean {
+  if (selfie.extractionStatus === "processing") return true
+  const namedCopy = jsonRecord(selfie.biometricResult)?.idDocumentId
+  if (typeof namedCopy !== "string") return true
+  return currentIdCopies.some((copy) =>
+    copy.id === namedCopy &&
+    (copy.verificationRejectedAt ?? null) === null &&
+    (copy.verificationRejectedById ?? null) === null)
 }
 
 /**
@@ -313,6 +345,14 @@ export function currentInPersonKycVerification(
   return evidence
 }
 
+/** The evidence half of the in-person route's preconditions, from readCompositeKycState. */
+export interface InPersonRouteState {
+  /** A selfie still governs: processing, or passed against a current ID copy. */
+  blockingBiometricAttempt: boolean
+  /** The newest verified ID copy has a usable digest and no portrait refusal. */
+  idDocumentAdmissible: boolean
+}
+
 /**
  * Whether the KYC tab currently offers the in-person verification form.
  *
@@ -326,28 +366,27 @@ export function currentInPersonKycVerification(
  *
  * Not gated on the viewer's role. A credit officer who cannot grant it still
  * needs to be told the route exists, so they can fetch someone who can.
+ *
+ * True exactly when POST /api/clients/[id]/kyc-in-person-verification would
+ * grant (save its idempotency key): every evidence precondition the route
+ * checks is an input here. It used to follow "a selfie attempt failed", which
+ * offered the form over a passed selfie the route then refused, and over
+ * incomplete core documents.
  */
 export function inPersonKycVerificationOffered(state: {
   /** A senior exception is already recorded — it supersedes this route. */
   manualExceptionActive: boolean
   /** Already verified in person; the form is replaced by the record of it. */
   inPersonVerificationRecorded: boolean
-  /** Any selfie attempt exists against the client (failed attempts included). */
-  selfieCaptured: boolean
-  /** Every core KYC document is uploaded. */
+  /** Every core KYC document is verified. */
   coreDocumentsComplete: boolean
   /** KYC was manually rejected — nothing is offered until that is cleared. */
   manualRejectionActive: boolean
-  /** The composite gate refused the latest biometric attempt. */
-  biometricAttemptFailed: boolean
-}): boolean {
-  if (state.manualExceptionActive || state.inPersonVerificationRecorded) return false
-  if (
-    !state.selfieCaptured
-    && state.coreDocumentsComplete
-    && !state.manualRejectionActive
-  ) {
-    return true
-  }
-  return state.biometricAttemptFailed
+} & InPersonRouteState): boolean {
+  return !state.manualExceptionActive &&
+    !state.inPersonVerificationRecorded &&
+    state.coreDocumentsComplete &&
+    !state.manualRejectionActive &&
+    !state.blockingBiometricAttempt &&
+    state.idDocumentAdmissible
 }

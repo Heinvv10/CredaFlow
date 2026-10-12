@@ -451,10 +451,12 @@ it("gives a normal failed selfie the distinct biometric 422 before generic misma
     biometricEvidence: "extraction_incomplete",
     documentId: "selfie-failed",
   })
-  // Only the composite read's two queries (core documents, ID-portrait
-  // refusals); the generic mismatch query never runs.
+  // Only the composite read's three queries (core documents, in-person
+  // blocking candidates, ID-portrait refusals); the generic mismatch query
+  // never runs.
   expect(clientDocumentFindManyMock.mock.calls.map(([args]) => args.where.docType)).toEqual([
     { in: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] },
+    "SELFIE",
     "SELFIE",
   ])
   expect(updateManyMock).not.toHaveBeenCalled()

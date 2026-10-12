@@ -10,7 +10,6 @@ import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import {
   CORE_KYC_DOCUMENT_TYPES,
   clientKycAuditValue,
-  latestSelfieOrder,
 } from "@/lib/kyc/document-state"
 import {
   BLOCKING_SELFIE_CONDITIONS,
@@ -20,6 +19,7 @@ import {
   ID_PORTRAIT_REFUSAL_CONDITIONS,
   idDocumentPortraitRefused,
   isInPersonKycVerificationMethod,
+  selfieBlocksInPersonVerification,
   type InPersonKycVerificationEvidence,
 } from "@/lib/kyc/in-person-verification"
 import {
@@ -106,7 +106,7 @@ export async function POST(
           return { kind: "manual_rejection_active" as const }
         }
 
-        const [coreDocuments, latestSelfie, portraitRefusals] = await Promise.all([
+        const [coreDocuments, blockingCandidates, portraitRefusals] = await Promise.all([
           tx.clientDocument.findMany({
             where: {
               tenantId: tenant.id,
@@ -123,13 +123,15 @@ export async function POST(
               verified: true,
               contentSha256: true,
               createdAt: true,
+              // Whether a passed selfie's ID copy still holds it in scope.
+              verificationRejectedAt: true,
+              verificationRejectedById: true,
             },
             orderBy: { createdAt: "desc" },
           }),
-          tx.clientDocument.findFirst({
+          tx.clientDocument.findMany({
             where: { tenantId: tenant.id, clientId, ...BLOCKING_SELFIE_CONDITIONS },
-            orderBy: latestSelfieOrder(),
-            select: { id: true, deletedAt: true },
+            select: { extractionStatus: true, biometricResult: true },
           }),
           // Every attempt, deleted or not, that refused an ID portrait.
           tx.clientDocument.findMany({
@@ -150,10 +152,12 @@ export async function POST(
 
         // Only a LIVE biometric candidate takes this route out of scope: an
         // attempt still processing, or one whose provider-verified evidence
-        // passed. A failed or soft-deleted attempt must not close the human
-        // fallback; the senior
-        // exception remains available in parallel for the failed evidence.
-        if (latestSelfie) {
+        // passed against an ID copy still on file and not rejected. A failed
+        // or soft-deleted attempt must not close the human fallback; the
+        // senior exception remains available in parallel for the failed
+        // evidence.
+        const idDocumentCopies = coreDocuments.filter((d) => d.docType === "ID_COPY")
+        if (blockingCandidates.some((selfie) => selfieBlocksInPersonVerification(selfie, idDocumentCopies))) {
           return { kind: "biometric_attempt_exists" as const }
         }
 

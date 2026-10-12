@@ -19,7 +19,8 @@
 --    lib/kyc/manual-exception-policy.ts.
 --    subject_has_in_person_kyc_verification: closed over an ID copy while any
 --    selfie attempt was refused as id_document_portrait_invalid against it,
---    mirroring lib/kyc/in-person-verification.ts.
+--    and no longer blocked by a passed selfie whose ID copy staff rejected or
+--    deleted, mirroring lib/kyc/in-person-verification.ts.
 -- 3. Snapshot the clients VERIFIED before any evidence changes.
 -- 4. Un-verify every live SELFIE row whose verified biometric evidence lacks
 --    the v2 verdict. Left verified=true with biometricVerifiedAt set, it is a
@@ -35,8 +36,9 @@
 --
 -- The function bodies are the baseline definitions with only the marked
 -- lines changed or added. Every changed line is strictly narrower than the
--- one it replaces except the face count, which deliberately also accepts
--- 1.0 and 1e0 (TS parity). Order matters: the functions are replaced before steps 4
+-- one it replaces, with two deliberate widenings: the face count also
+-- accepts 1.0 and 1e0 (TS parity), and a passed selfie whose ID copy staff
+-- rejected or deleted no longer blocks the in-person route. Order matters: the functions are replaced before steps 4
 -- and 5 read them, and step 4 runs before step 5, all within this
 -- migration's single transaction.
 
@@ -410,6 +412,28 @@ AS $function$
             OR (
               selfie."verified" = true
               AND selfie."biometricVerifiedAt" IS NOT NULL
+              -- Added by 20261011060000_face_match_v2_evidence: a passed
+              -- selfie stops blocking once the ID copy it names is no longer
+              -- a non-deleted, unrejected ID copy of this client (staff
+              -- rejected or deleted it, or it is gone). It no longer counts
+              -- as biometric evidence, and blocking the human route over it
+              -- stranded the client. One that names no copy still blocks.
+              -- Mirrors selfieBlocksInPersonVerification in
+              -- lib/kyc/in-person-verification.ts.
+              AND (
+                jsonb_typeof(selfie."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
+                OR EXISTS (
+                  SELECT 1
+                  FROM "ClientDocument" AS named_copy
+                  WHERE named_copy."tenantId" = p_tenant_id
+                    AND named_copy."clientId" = p_client_id
+                    AND named_copy."docType" = 'ID_COPY'
+                    AND named_copy."deletedAt" IS NULL
+                    AND named_copy."verificationRejectedAt" IS NULL
+                    AND named_copy."verificationRejectedById" IS NULL
+                    AND named_copy."id" = selfie."biometricResult" ->> 'idDocumentId'
+                )
+              )
             )
           )
       )

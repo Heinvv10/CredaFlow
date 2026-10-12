@@ -72,6 +72,18 @@ const refusalOf = (idDocumentId: string, idDocumentSha256 = "a".repeat(64)) => (
 
 const ATTESTED_AT = new Date("2026-07-19T12:00:00.000Z")
 
+/** A newer ID copy a reviewer refused. */
+function rejectedIdCopy(): ReadinessCoreDocumentRow {
+  return coreDocument({
+    docType: "ID_COPY",
+    id: "doc-ID-rejected",
+    verified: false,
+    verificationRejectedById: "officer-1",
+    verificationRejectedAt: new Date("2026-07-19T11:00:00.000Z"),
+    createdAt: new Date("2026-07-19T10:30:00.000Z"),
+  })
+}
+
 /** An in-person attestation over the client's seeded ID copy. */
 function inPersonAttestation(): ReadinessExceptionRow {
   return {
@@ -119,8 +131,17 @@ function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKyc
       }) => {
         const { docType, biometricResult } = args.where
         if (typeof docType === "string") {
-          return data.selfies.filter((row) => {
-            if (row.clientId !== clientId || !biometricResult) return false
+          const mine = data.selfies.filter((row) => row.clientId === clientId)
+          if (!biometricResult) {
+            // The blocking-candidate read.
+            return mine.filter(
+              (row) =>
+                row.deletedAt === null
+                && (row.extractionStatus === "processing"
+                  || (row.verified && row.biometricVerifiedAt !== null)),
+            )
+          }
+          return mine.filter((row) => {
             const result = row.biometricResult as Record<string, unknown> | null
             return result?.[biometricResult.path[0]] === biometricResult.equals
           })
@@ -129,18 +150,8 @@ function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKyc
           (row) => row.clientId === clientId && docType.in.includes(row.docType),
         )
       },
-      findFirst: async (args: { where: Record<string, unknown>; orderBy?: unknown }) => {
-        const mine = data.selfies.filter((row) => row.clientId === clientId)
-        if (args.orderBy) return mine[0] ?? null
-        return (
-          mine.find(
-            (row) =>
-              row.deletedAt === null
-              && (row.extractionStatus === "processing"
-                || (row.verified && row.biometricVerifiedAt !== null)),
-          ) ?? null
-        )
-      },
+      // Only the latest-selfie read is a findFirst.
+      findFirst: async () => data.selfies.filter((row) => row.clientId === clientId)[0] ?? null,
     },
     complianceRecord: {
       findFirst: async () =>
@@ -242,6 +253,23 @@ describe("inMemoryKycReader", () => {
       }),
     },
     {
+      name: "an in-person attestation behind a passed selfie bound to a copy staff rejected",
+      // The passed selfie no longer blocks: its ID copy was rejected.
+      data: rows({
+        coreDocuments: [...allCoreDocuments(), rejectedIdCopy()],
+        selfies: [selfie({ biometricResult: { idDocumentId: "doc-ID-rejected" } })],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
+      name: "an in-person attestation behind a passed selfie bound to a copy awaiting review",
+      data: rows({
+        coreDocuments: [...allCoreDocuments(), coreDocument({ docType: "ID_COPY", id: "doc-ID-awaiting", verified: false })],
+        selfies: [selfie({ biometricResult: { idDocumentId: "doc-ID-awaiting" } })],
+        exceptions: [inPersonAttestation()],
+      }),
+    },
+    {
       name: "a rejected core document",
       data: rows({
         coreDocuments: [
@@ -293,6 +321,8 @@ describe("inMemoryKycReader", () => {
   )
 
   it.each([
+    ["a passed selfie's copy was rejected", "an in-person attestation behind a passed selfie bound to a copy staff rejected", true],
+    ["a passed selfie's copy awaits review", "an in-person attestation behind a passed selfie bound to a copy awaiting review", false],
     ["an OLDER attempt refused", "an in-person attestation over an ID copy an OLDER attempt refused", false],
     ["the only refusal was of another copy", "an in-person attestation whose only refusal was of another ID copy", true],
   ])("closes the in-person route on the board when %s", async (_label, name, ok) => {

@@ -180,11 +180,12 @@ export interface ReadinessKycRows {
  * are fetched ONCE for every client on the board, and this hands each
  * evaluation its own client's slice.
  *
- * The two selfie reads are told apart by `orderBy`, which only the
- * latest-selfie call carries, and the blocking predicate is
- * `matchesBlockingSelfie` — the exported companion to the `where` clause the
- * real reader sends, so this cannot drift from it. `readiness-data.test.ts`
- * pins both against `readCompositeKycState`.
+ * The latest-selfie read is the only findFirst; the two selfie findMany
+ * reads are told apart by their where shapes, and their predicates are
+ * `matchesIdPortraitRefusal` and `matchesBlockingSelfie` — the exported
+ * companions to the `where` clauses the real reader sends, so this cannot
+ * drift from them. `readiness-data.test.ts` pins them against
+ * `readCompositeKycState`.
  *
  * The linear scan per card is O(cards x documents). Accepted: the board holds
  * a few dozen applications and four core documents apiece. If it ever
@@ -199,20 +200,19 @@ export function inMemoryKycReader(
 
   const reader: CompositeKycReader = {
     clientDocument: {
-      // The core-document read and the ID-portrait refusal read are told
-      // apart by docType: only the refusal read asks for SELFIE rows.
-      findMany: (async (args: { where: { docType?: unknown } }) => {
+      // Three call shapes: the core-document read (not SELFIE), the
+      // ID-portrait refusal read (SELFIE, filtered on biometricResult) and the
+      // blocking-selfie read (SELFIE, filtered on the blocking conditions).
+      findMany: (async (args: { where: { docType?: unknown; biometricResult?: unknown } }) => {
         if (args.where.docType !== "SELFIE") return forClient(data.coreDocuments)
-        return forClient(data.selfies).filter(matchesIdPortraitRefusal)
-      }) as CompositeKycReader["clientDocument"]["findMany"],
-      findFirst: (async (args: { orderBy?: unknown }) => {
         const selfies = forClient(data.selfies)
-        // The latest-selfie read carries an orderBy; the blocking-selfie read
-        // does not. That is the only difference between the two call shapes,
-        // and the reader interface's two overloads are what encode it.
-        if (args.orderBy) return selfies[0] ?? null
-        return selfies.find(matchesBlockingSelfie) ?? null
-      }) as CompositeKycReader["clientDocument"]["findFirst"],
+        return args.where.biometricResult
+          ? selfies.filter(matchesIdPortraitRefusal)
+          : selfies.filter(matchesBlockingSelfie)
+      }) as CompositeKycReader["clientDocument"]["findMany"],
+      // Only the latest-selfie read remains a findFirst; the rows arrive
+      // pre-sorted by latestSelfieOrder().
+      findFirst: (async () => forClient(data.selfies)[0] ?? null) as CompositeKycReader["clientDocument"]["findFirst"],
     },
     complianceRecord: {
       findFirst: async () =>

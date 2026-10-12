@@ -42,7 +42,7 @@ const passingVlmVerdict = {
 // The client's newest verified ID copy, which the match was run against.
 const idDocument = { id: "id-doc-1", contentSha256: "c".repeat(64) }
 // The client's non-deleted ID copies.
-const idDocumentCopies = [{ ...idDocument, verificationRejectedAt: null }]
+const idDocumentCopies = [{ ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null }]
 const boundProviderResult = {
   ...passingProviderResult,
   ...passingVlmVerdict,
@@ -311,30 +311,31 @@ describe("assessBiometricEvidence", () => {
     })).toEqual({ ok: false, reason: "subject_identity_changed" })
   })
 
-  it.each([
-    ["the client has no verified ID copy", null],
-    ["a different ID copy is the newest verified one", { id: "id-doc-2", contentSha256: "c".repeat(64) }],
-    ["the newest verified copy's digest differs", { id: "id-doc-1", contentSha256: "d".repeat(64) }],
-    ["the newest verified copy has no digest", { id: "id-doc-1", contentSha256: null }],
-  ])("refuses a match not run against the ID the KYC rests on: %s", (_label, current) => {
-    // The copy the match ran against is still on file, not rejected: the only
-    // refusal is a pending ID change, not a failed attempt.
-    expect(assessBiometricEvidence(passingEvidence, { subject, idDocument: current, idDocumentCopies })).toEqual({
-      ok: false,
-      reason: "subject_identity_changed",
-      idDocumentNotCurrent: true,
-    })
+  // The match ran against id-doc-1; staff have since verified a newer id-doc-2.
+  const newerVerified = { id: "id-doc-2", contentSha256: "d".repeat(64) }
+  const supersededCopy = { ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null }
+
+  it("marks a match against a superseded verified copy as a pending ID change", () => {
+    expect(assessBiometricEvidence(passingEvidence, {
+      subject,
+      idDocument: newerVerified,
+      idDocumentCopies: [supersededCopy, { ...newerVerified, verified: true }],
+    })).toEqual({ ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true })
   })
 
   it.each([
-    ["staff rejected it", [{ ...idDocument, verificationRejectedAt: new Date("2026-10-12T09:00:00.000Z") }]],
-    ["it was deleted (absent from the non-deleted copies)", []],
-    ["its bytes are not the ones matched", [{ ...idDocument, contentSha256: "e".repeat(64), verificationRejectedAt: null }]],
-    ["the caller did not read the copies", null],
-  ])("keeps a binding refusal a failed attempt when the matched copy is not pending: %s", (_label, copies) => {
+    ["the matched copy was never verified (awaiting review, or a substitute)", newerVerified, [{ ...supersededCopy, verified: false }]],
+    ["staff rejected it (verificationRejectedAt)", newerVerified, [{ ...supersededCopy, verificationRejectedAt: new Date("2026-10-12T09:00:00.000Z") }]],
+    ["a named reviewer rejected it (verificationRejectedById)", newerVerified, [{ ...supersededCopy, verificationRejectedById: "officer-1" }]],
+    ["it was deleted (absent from the non-deleted copies)", newerVerified, []],
+    ["its bytes are not the ones matched", newerVerified, [{ ...supersededCopy, contentSha256: "e".repeat(64) }]],
+    ["the caller did not read the copies", newerVerified, null],
+    ["the client has no verified ID copy", null, [supersededCopy]],
+    ["the matched copy is itself the newest verified one", { id: "id-doc-1", contentSha256: "d".repeat(64) }, [supersededCopy]],
+  ] as const)("keeps a binding refusal a failed attempt when %s", (_label, current, copies) => {
     expect(assessBiometricEvidence(passingEvidence, {
       subject,
-      idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+      idDocument: current,
       idDocumentCopies: copies,
     })).toEqual({ ok: false, reason: "subject_identity_changed" })
   })
@@ -365,12 +366,12 @@ describe("assessBiometricEvidence", () => {
       biometricResult: { ...boundProviderResult, idDocumentSha256: null },
     }, {
       subject,
-      idDocument: { id: "id-doc-1", contentSha256: null },
-      idDocumentCopies: [{ id: "id-doc-1", contentSha256: null, verificationRejectedAt: null }],
+      idDocument: newerVerified,
+      idDocumentCopies: [{ ...supersededCopy, contentSha256: null }],
     })).toEqual({
+      // No digest to bind to: not a pending ID change.
       ok: false,
       reason: "subject_identity_changed",
-      idDocumentNotCurrent: true,
     })
   })
 

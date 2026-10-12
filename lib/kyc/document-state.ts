@@ -5,6 +5,7 @@ import {
   type BiometricEvidenceFailureReason,
   type BiometricSubjectClient,
 } from "@/lib/kyc/biometric-evidence"
+import { isSha256Digest } from "@/lib/documents/content-integrity"
 import {
   currentManualKycException,
   type ManualKycExceptionEvidence,
@@ -15,6 +16,9 @@ import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
   ID_PORTRAIT_REFUSAL_CONDITIONS,
+  idDocumentPortraitRefused,
+  selfieBlocksInPersonVerification,
+  type InPersonRouteState,
   type InPersonKycVerificationEvidence,
   type InPersonKycVerificationRecord,
   type InspectedIdDocument,
@@ -177,8 +181,12 @@ export interface CompositeKycReader {
       ((args: {
         where: { tenantId: string; clientId: string } & typeof ID_PORTRAIT_REFUSAL_CONDITIONS
         select: { biometricResult: true }
-      }) => Promise<Array<{ biometricResult: unknown }>>)
-    findFirst: ((args: {
+      }) => Promise<Array<{ biometricResult: unknown }>>) &
+      ((args: {
+        where: { tenantId: string; clientId: string } & typeof BLOCKING_SELFIE_CONDITIONS
+        select: { extractionStatus: true; biometricResult: true }
+      }) => Promise<Array<{ extractionStatus: string | null; biometricResult: unknown }>>)
+    findFirst: (args: {
       where: { tenantId: string; clientId: string; docType: "SELFIE" }
       orderBy: LatestSelfieOrder
       select: {
@@ -196,14 +204,7 @@ export interface CompositeKycReader {
         biometricVerifiedAt: true
         biometricResult: true
       }
-    }) => Promise<CurrentBiometricDocument | null>) &
-      ((args: {
-        where: {
-          tenantId: string
-          clientId: string
-        } & typeof BLOCKING_SELFIE_CONDITIONS
-        select: { id: true }
-      }) => Promise<{ id: string } | null>)
+    }) => Promise<CurrentBiometricDocument | null>
   }
   complianceRecord?: {
     findFirst: (args: {
@@ -431,8 +432,8 @@ export async function readCompositeKycState(
     }
     preserveVerifiedProvenance?: boolean
   },
-): Promise<CompositeKycResult & { latestSelfieId: string | null }> {
-  const [documents, latestSelfie, blockingSelfie, exceptionRecord, portraitRefusals] = await Promise.all([
+): Promise<CompositeKycResult & { latestSelfieId: string | null; inPersonRoute: InPersonRouteState }> {
+  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals] = await Promise.all([
     reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
@@ -474,15 +475,17 @@ export async function readCompositeKycState(
         biometricResult: true,
       },
     }),
-    // ANY blocking selfie — not just the latest — mirrors the SQL predicate's
-    // EXISTS exactly; the two enforcement layers must reach the same verdict.
-    reader.clientDocument.findFirst({
+    // EVERY blocking candidate — not just the latest — mirrors the SQL
+    // predicate's EXISTS exactly; the two enforcement layers must reach the
+    // same verdict. selfieBlocksInPersonVerification then releases a passed
+    // one whose ID copy was rejected or deleted.
+    reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
         clientId: args.clientId,
         ...BLOCKING_SELFIE_CONDITIONS,
       },
-      select: { id: true },
+      select: { extractionStatus: true, biometricResult: true },
     }),
     reader.complianceRecord?.findFirst({
       where: {
@@ -534,13 +537,14 @@ export async function readCompositeKycState(
         deletedAt: null,
         verified: document.verified,
       }))[0] ?? null
+  // The client's non-deleted ID copies (the query's filter), verified or not.
+  const idDocumentCopies = documents.filter((document) => document.docType === "ID_COPY")
   // The selfie counts only against that same ID copy (subject_has_composite_kyc).
   const biometricAssessment = latestSelfie
     ? assessBiometricEvidence(latestSelfie, {
         subject: args.subject,
         idDocument,
-        // Non-deleted only (the query's filter): a deleted bound copy is not pending.
-        idDocumentCopies: documents.filter((document) => document.docType === "ID_COPY"),
+        idDocumentCopies,
       })
     : { ok: false as const, reason: "biometric_evidence_missing" as const }
   const manualException = currentManualKycException(exceptionRecord, {
@@ -549,6 +553,8 @@ export async function readCompositeKycState(
     latestSelfie,
     biometricAssessment,
   })
+  const blockingBiometricAttempt = blockingCandidates.some((selfie) =>
+    selfieBlocksInPersonVerification(selfie, idDocumentCopies))
   const inPersonVerification = manualException
     ? null
     : currentInPersonKycVerification(
@@ -557,7 +563,7 @@ export async function readCompositeKycState(
           clientId: args.clientId,
           subject: args.subject,
           idDocument,
-          blockingBiometricAttempt: blockingSelfie !== null,
+          blockingBiometricAttempt,
           biometricAssessment,
           portraitRefusals,
         },
@@ -578,7 +584,18 @@ export async function readCompositeKycState(
     },
     preserveVerifiedProvenance: args.preserveVerifiedProvenance,
   })
-  return { ...result, latestSelfieId: latestSelfie?.id ?? null }
+  return {
+    ...result,
+    latestSelfieId: latestSelfie?.id ?? null,
+    inPersonRoute: {
+      blockingBiometricAttempt,
+      // The copy the route would attest against: the newest verified one,
+      // with a usable digest, not closed by an ID-portrait refusal.
+      idDocumentAdmissible: idDocument !== null &&
+        isSha256Digest(idDocument.contentSha256) &&
+        !idDocumentPortraitRefused(portraitRefusals, idDocument),
+    },
+  }
 }
 
 export function isCoreKycDocumentType(docType: string): docType is CoreKycDocumentType {
