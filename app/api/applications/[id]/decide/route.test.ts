@@ -471,6 +471,42 @@ it("still approves an OTHER-account client for EFT", async () => {
   expect(res.status).not.toBe(400)
 })
 
+it("checks the deferred constraints inside the approve transaction, after its audit row", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txExecuteRawUnsafeMock).toHaveBeenCalledWith("SET CONSTRAINTS ALL IMMEDIATE")
+  expect(txExecuteRawUnsafeMock.mock.invocationCallOrder[0])
+    .toBeGreaterThan(txAuditLogCreateMock.mock.invocationCallOrder[0])
+})
+
+it("409s an approval of an application that already has a loan, and does not notify", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txExecuteRawUnsafeMock.mockRejectedValueOnce(new Error(
+    "Invalid `tx.$executeRawUnsafe()` invocation: Raw query failed. Code: `23514`. Message: `Loan creation and application disbursement must commit together with matching tenant and client evidence`",
+  ))
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({
+    error: "This application already has a loan booked against it, so it cannot be approved.",
+  })
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("still 500s an approval whose constraint check fails for any other reason", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txExecuteRawUnsafeMock.mockRejectedValueOnce(new Error("connection reset"))
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(500)
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
 it("approves an UNDER_REVIEW application (happy path)", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
 

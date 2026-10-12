@@ -1052,7 +1052,9 @@ export async function POST(
         // locks immediately before the state write. Pinning only
         // LoanApplication.updatedAt did not detect a concurrent Client/debt or
         // Product edit because those rows have independent revisions.
-        const approvalWrite = await prisma.$transaction(async (tx) => {
+        let approvalWrite
+        try {
+        approvalWrite = await prisma.$transaction(async (tx) => {
           const locked = await verifyLockedApprovalCandidate(tx, {
             tenantId: tenant.id,
             applicationId: id,
@@ -1236,8 +1238,22 @@ export async function POST(
               },
             },
           })
+          // The credit-life commit invariant is deferred: run it here so a
+          // refusal reaches the catch below instead of failing the commit.
+          await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
           return { ok: true as const }
         })
+        } catch (error) {
+          // A loan booked on a never-approved application (the demo seed does
+          // this) cannot be approved without being disbursed in the same commit.
+          if (String(error).includes("Loan creation and application disbursement must commit together")) {
+            return NextResponse.json(
+              { error: "This application already has a loan booked against it, so it cannot be approved." },
+              { status: 409 }
+            )
+          }
+          throw error
+        }
         if (!approvalWrite.ok) {
           if (approvalWrite.reason === "kyc_changed") {
             return NextResponse.json(
