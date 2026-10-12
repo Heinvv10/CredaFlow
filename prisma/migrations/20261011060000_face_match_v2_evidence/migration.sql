@@ -416,12 +416,12 @@ AS $function$
       -- Added by 20261011060000_face_match_v2_evidence: while ANY selfie
       -- attempt (deleted or not, latest or not) was refused because THIS ID
       -- copy has no real photograph, no one may attest a face against it; a
-      -- later attempt with another outcome does not reopen it. A refusal is
-      -- about another copy only when it names a different idDocumentId or
-      -- idDocumentSha256 as a string; one naming no copy closes every copy
-      -- (fail closed). Only a different ID copy becoming the attested one
-      -- reopens the route. Mirrors idDocumentPortraitRefused in
-      -- lib/kyc/in-person-verification.ts.
+      -- later attempt with another outcome does not reopen it. A refusal
+      -- closes it when it names this copy's id, OR this copy's bytes (the same
+      -- image re-uploaded as a new row is the same photo-less ID), OR no copy
+      -- at all (neither field a string; fail closed). Only a copy with
+      -- different bytes, under a different row, reopens the route. Mirrors
+      -- idDocumentPortraitRefused in lib/kyc/in-person-verification.ts.
       AND NOT EXISTS (
         SELECT 1
         FROM "ClientDocument" AS refused
@@ -430,16 +430,19 @@ AS $function$
           AND refused."docType" = 'SELFIE'
           AND refused."biometricResult" ->> 'biometricFailureReason' =
             'id_document_portrait_invalid'
-          AND NOT coalesce(
+          AND (
             (
+              jsonb_typeof(refused."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
+              AND jsonb_typeof(refused."biometricResult" -> 'idDocumentSha256') IS DISTINCT FROM 'string'
+            )
+            OR (
               jsonb_typeof(refused."biometricResult" -> 'idDocumentId') = 'string'
-              AND refused."biometricResult" ->> 'idDocumentId' <> id_document."id"
+              AND refused."biometricResult" ->> 'idDocumentId' = id_document."id"
             )
             OR (
               jsonb_typeof(refused."biometricResult" -> 'idDocumentSha256') = 'string'
-              AND refused."biometricResult" ->> 'idDocumentSha256' <> id_document."contentSha256"
-            ),
-            false
+              AND refused."biometricResult" ->> 'idDocumentSha256' = id_document."contentSha256"
+            )
           )
       )
       AND id_document."contentSha256" ~ '^[a-f0-9]{64}$'

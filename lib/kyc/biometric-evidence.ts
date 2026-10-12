@@ -105,7 +105,16 @@ export interface BiometricSubjectClient {
 
 export type BiometricEvidenceAssessment =
   | { ok: true }
-  | { ok: false; reason: BiometricEvidenceFailureReason }
+  | {
+      ok: false
+      reason: BiometricEvidenceFailureReason
+      /**
+       * Set only when the ID-copy binding is the sole refusal: a sound match,
+       * bound to this subject, run against a copy that is not (or no longer)
+       * the client's newest verified one. Not a failed attempt.
+       */
+      idDocumentNotCurrent?: true
+    }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
@@ -282,16 +291,6 @@ export function assessBiometricEvidence(
   if (providerResult.subjectFingerprint !== biometricSubjectFingerprint(options.subject)) {
     return { ok: false, reason: "subject_identity_changed" }
   }
-  // A match against any other ID copy (a newer unverified or rejected upload,
-  // or one since replaced) says nothing about the verified identity.
-  if (
-    !options.idDocument ||
-    !isSha256Digest(options.idDocument.contentSha256) ||
-    providerResult.idDocumentId !== options.idDocument.id ||
-    providerResult.idDocumentSha256 !== options.idDocument.contentSha256
-  ) {
-    return { ok: false, reason: "subject_identity_changed" }
-  }
   if (
     providerResult.ok !== true ||
     providerResult.verified !== true ||
@@ -331,6 +330,19 @@ export function assessBiometricEvidence(
   }
   if (options.requireDocumentVerified !== false && !evidence.verified) {
     return { ok: false, reason: "document_not_verified" }
+  }
+  // A match against any other ID copy (a newer unverified or rejected upload,
+  // or one since replaced) says nothing about the verified identity. Checked
+  // last, so that refusing here means every other check passed: a legitimate
+  // ID change (a new copy verified since, or one not verified yet) is not a
+  // failed attempt, and deriveCompositeKycState projects it as pending.
+  if (
+    !options.idDocument ||
+    !isSha256Digest(options.idDocument.contentSha256) ||
+    providerResult.idDocumentId !== options.idDocument.id ||
+    providerResult.idDocumentSha256 !== options.idDocument.contentSha256
+  ) {
+    return { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
   }
 
   return { ok: true }

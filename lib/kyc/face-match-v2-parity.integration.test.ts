@@ -164,8 +164,12 @@ const cases: Case[] = [
   // ANY attempt bound to this copy keeps it closed, not only the latest.
   { name: "in person: an older attempt refused the portrait, the latest failed otherwise", expected: false, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid") } },
   { name: "in person: a deleted older refusal, the latest not a real photograph", expected: false, inPerson: { br: FAILED("selfie_not_real_photograph"), older: FAILED("id_document_portrait_invalid"), olderDeleted: true } },
-  { name: "in person: an older refusal of another ID copy, the latest failed otherwise", expected: true, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy","idDocumentSha256":"${ID_SHA}"`) } },
-  { name: "in person: the refusal names this row but other bytes", expected: true, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}","idDocumentSha256":"${"b".repeat(64)}"`) } },
+  { name: "in person: an older refusal of another ID copy, the latest failed otherwise", expected: true, inPerson: { br: FAILED("face_not_detected"), older: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy","idDocumentSha256":"${"b".repeat(64)}"`) } },
+  // The same bytes re-uploaded under a new row are the same photo-less ID.
+  { name: "in person: the refusal names another row with this copy's bytes", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"an-older-id-copy","idDocumentSha256":"${ID_SHA}"`) } },
+  { name: "in person: the refusal names only this copy's digest", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentSha256":"${ID_SHA}"`) } },
+  { name: "in person: the refusal names only another digest", expected: true, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentSha256":"${"b".repeat(64)}"`) } },
+  { name: "in person: the refusal names this row but other bytes", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}","idDocumentSha256":"${"b".repeat(64)}"`) } },
   { name: "in person: the refusal names this row and no digest", expected: false, inPerson: { br: FAILED("id_document_portrait_invalid", `"idDocumentId":"${ID}"`) } },
 ]
 

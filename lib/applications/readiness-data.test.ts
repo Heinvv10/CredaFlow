@@ -64,10 +64,10 @@ function selfie(overrides: Partial<ReadinessSelfieRow> = {}): ReadinessSelfieRow
   } as ReadinessSelfieRow
 }
 
-const refusalOf = (idDocumentId: string) => ({
+const refusalOf = (idDocumentId: string, idDocumentSha256 = "a".repeat(64)) => ({
   biometricFailureReason: "id_document_portrait_invalid",
   idDocumentId,
-  idDocumentSha256: "a".repeat(64),
+  idDocumentSha256,
 })
 
 const ATTESTED_AT = new Date("2026-07-19T12:00:00.000Z")
@@ -236,7 +236,7 @@ describe("inMemoryKycReader", () => {
       data: rows({
         selfies: [
           selfie({ verified: false, biometricVerifiedAt: null, extractionStatus: "failed",
-            biometricResult: refusalOf("doc-an-older-id-copy") }),
+            biometricResult: refusalOf("doc-an-older-id-copy", "c".repeat(64)) }),
         ],
         exceptions: [inPersonAttestation()],
       }),

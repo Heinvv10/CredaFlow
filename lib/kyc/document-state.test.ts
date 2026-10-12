@@ -145,6 +145,39 @@ describe("composite KYC state", () => {
     }))
   })
 
+  it("projects a match bound to an ID copy that is not the newest verified one as PENDING, not a failure", () => {
+    expect(deriveCompositeKycState({
+      documents: verifiedCoreDocuments,
+      biometricDocumentPresent: true,
+      biometricAssessment: { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true },
+      existing: pending,
+      completion,
+    })).toEqual(expect.objectContaining({
+      ok: false,
+      okForOrigination: true,
+      biometricAttemptFailed: false,
+      biometricIdDocumentNotCurrent: true,
+      biometricEvidence: "subject_identity_changed",
+      state: expect.objectContaining({ kycStatus: "PENDING" }),
+    }))
+  })
+
+  it("still projects an identity change found by the subject fingerprint as FAILED", () => {
+    expect(deriveCompositeKycState({
+      documents: verifiedCoreDocuments,
+      biometricDocumentPresent: true,
+      biometricAssessment: { ok: false, reason: "subject_identity_changed" },
+      existing: pending,
+      completion,
+    })).toEqual(expect.objectContaining({
+      ok: false,
+      okForOrigination: false,
+      biometricAttemptFailed: true,
+      biometricIdDocumentNotCurrent: false,
+      state: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+  })
+
   it("projects VERIFIED only for the complete composite evidence set", () => {
     expect(deriveCompositeKycState({
       documents: verifiedCoreDocuments,
@@ -158,6 +191,7 @@ describe("composite KYC state", () => {
       manualRejectionActive: false,
       okForOrigination: true,
       biometricAttemptFailed: false,
+      biometricIdDocumentNotCurrent: false,
       manualExceptionActive: false,
       substituteKind: null,
       manualException: null,
@@ -193,6 +227,7 @@ describe("composite KYC state", () => {
       manualRejectionActive: true,
       okForOrigination: false,
       biometricAttemptFailed: false,
+      biometricIdDocumentNotCurrent: false,
       manualExceptionActive: false,
       substituteKind: null,
       manualException: null,
@@ -237,6 +272,7 @@ describe("composite KYC state", () => {
       manualRejectionActive: false,
       okForOrigination: true,
       biometricAttemptFailed: false,
+      biometricIdDocumentNotCurrent: false,
       manualExceptionActive: true,
       substituteKind: "senior_exception",
       manualException,

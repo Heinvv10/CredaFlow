@@ -236,15 +236,19 @@ export function matchesIdPortraitRefusal(row: { docType?: string; biometricResul
  * deliberately non-exceptionable. A later attempt with any other outcome does
  * not reopen it; only a different ID copy becoming the one attested to does.
  *
- * A refusal is about another copy only when it names a different idDocumentId
- * or a different idDocumentSha256 (as strings). One that names no copy, or
- * names it in any other form, closes the route over EVERY copy: fail closed.
+ * A refusal closes the route over a copy when it names that copy's
+ * idDocumentId, OR that copy's bytes (idDocumentSha256 equal to its
+ * contentSha256: the same photo-less image re-uploaded as a new row is the
+ * same ID), OR names no copy at all (neither field a string), which closes it
+ * over EVERY copy: fail closed. So only a copy with different bytes, under a
+ * different row, reopens it.
  *
  * selfie_not_real_photograph does not close it: a person standing at a branch
  * answers a fake selfie, but nothing answers an ID with no photo.
  *
  * Mirrors the NOT EXISTS added to subject_has_in_person_kyc_verification by
- * migration 20261011060000_face_match_v2_evidence, including its NULL logic.
+ * migration 20261011060000_face_match_v2_evidence. A copy with no digest
+ * matches no named digest, as SQL's `=` against NULL does not.
  */
 export function idDocumentPortraitRefused(
   attempts: readonly { biometricResult: unknown }[],
@@ -253,12 +257,11 @@ export function idDocumentPortraitRefused(
   return attempts.some((attempt) => {
     const result = jsonRecord(attempt.biometricResult)
     if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
-    const otherRow = typeof result.idDocumentId === "string" && result.idDocumentId !== idDocument.id
-    // SQL's `<>` against a NULL digest is unknown, which closes; so must this.
-    const otherBytes = typeof result.idDocumentSha256 === "string"
-      && idDocument.contentSha256 !== null
-      && result.idDocumentSha256 !== idDocument.contentSha256
-    return !(otherRow || otherBytes)
+    const namedId = typeof result.idDocumentId === "string" ? result.idDocumentId : null
+    const namedSha = typeof result.idDocumentSha256 === "string" ? result.idDocumentSha256 : null
+    return (namedId === null && namedSha === null)
+      || namedId === idDocument.id
+      || (namedSha !== null && namedSha === idDocument.contentSha256)
   })
 }
 

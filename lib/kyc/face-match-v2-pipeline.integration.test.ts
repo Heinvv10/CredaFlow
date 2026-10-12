@@ -223,6 +223,20 @@ const verifyDocument = (clientId: string, docId: string) => verifyPATCH(new Next
   { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ verified: true }) },
 ), { params: Promise.resolve({ id: clientId, docId }) })
 
+/** The origination half of the app's composite verdict. */
+async function origination(clientId: string) {
+  const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
+  const app = await readCompositeKycState(db as unknown as CompositeKycReader, {
+    tenantId: client.tenantId, clientId, subject: client, existing: client,
+  })
+  return { okForOrigination: app.okForOrigination, biometricAttemptFailed: app.biometricAttemptFailed }
+}
+
+async function selfieResult(id: string) {
+  const row = await db.clientDocument.findUniqueOrThrow({ where: { id }, select: { biometricResult: true } })
+  return row.biometricResult as Record<string, unknown>
+}
+
 /** The composite verdict of the app (readCompositeKycState) and of the database. */
 async function layers(clientId: string) {
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
@@ -297,6 +311,30 @@ suite("face match v2 through the real pipeline", () => {
       expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
       await expect(verifyOnAttestationWrittenToDatabase(fixture))
         .rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
+    })
+
+    it("keeps the route closed when the same bytes are re-uploaded as a new copy and verified", async () => {
+      const fixture = await seedClient()
+      stubVlm(silhouette)
+      await capture(fixture)
+      const duplicate = await addIdCopy(fixture, "duplicate", { verified: false, contentSha256: ID_SHA })
+      expect((await verifyDocument(fixture.clientId, duplicate)).status).toBe(200)
+
+      const response = await recordInPerson(fixture.clientId)
+      expect(response.status).toBe(422)
+      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+    })
+
+    it("does not leave an in-person VERIFIED standing once a selfie refuses the same ID's portrait", async () => {
+      const fixture = await seedClient()
+      expect((await recordInPerson(fixture.clientId)).status).toBe(200)
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
+
+      stubVlm(silhouette)
+      const { selfie } = await capture(fixture)
+      expect(reasonOf(selfie)).toBe("id_document_portrait_invalid")
+      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+      expect(await layers(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
     })
 
     it("re-opens the in-person route once a newer ID copy is verified", async () => {
@@ -375,10 +413,12 @@ suite("face match v2 through the real pipeline", () => {
       stubVlm(passingReply())
       const { selfie } = await capture(fixture)
 
-      // The borrower did not wait for staff; the match is stored but does not count yet.
+      // The borrower did not wait for staff; the match is stored but does not
+      // count yet. Not a failed attempt: PENDING, origination open.
       expect((selfie?.biometricResult as Record<string, unknown>).idDocumentId).toBe(newer)
       expect(selfie?.verified).toBe(true)
-      expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: true, biometricAttemptFailed: false })
       expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
 
       // Staff verify the new copy through the normal document-verify route,
@@ -402,6 +442,39 @@ suite("face match v2 through the real pipeline", () => {
       expect(selfie.verified).toBe(false)
       expect(reasonOf(selfie)).toBe("subject_identity_changed")
       expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+    })
+
+    it("re-verifies a client whose new ID copy staff verified, after a new selfie (LEGIT3)", async () => {
+      const fixture = await seedClient()
+      stubVlm(passingReply())
+      await capture(fixture)
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
+      const replacement = await addIdCopy(fixture, "replacement", { verified: false, contentSha256: "b".repeat(64) })
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
+
+      // The old match no longer describes the verified ID: PENDING, not FAILED.
+      expect((await verifyDocument(fixture.clientId, replacement)).status).toBe(200)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: true, biometricAttemptFailed: false })
+
+      await capture(fixture)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "BIOMETRIC" })
+    })
+
+    it("still projects FAILED when the subject's identity changed after the match", async () => {
+      // The fingerprint half of subject_identity_changed is a real refusal.
+      const fixture = await seedClient()
+      stubVlm(passingReply())
+      await capture(fixture)
+      const selfieRow = await db.clientDocument.findFirstOrThrow({
+        where: { clientId: fixture.clientId, docType: "SELFIE" }, select: { id: true },
+      })
+      await db.clientDocument.update({
+        where: { id: selfieRow.id },
+        data: { biometricResult: { ...(await selfieResult(selfieRow.id)), subjectFingerprint: "f".repeat(64) } },
+      })
+      expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
+      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
     })
 
     it("lapses biometric KYC when a newer ID copy is verified after the match", async () => {

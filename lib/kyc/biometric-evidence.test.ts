@@ -317,7 +317,27 @@ describe("assessBiometricEvidence", () => {
     expect(assessBiometricEvidence(passingEvidence, { subject, idDocument: current })).toEqual({
       ok: false,
       reason: "subject_identity_changed",
+      // The only refusal: a pending ID change, not a failed attempt.
+      idDocumentNotCurrent: true,
     })
+  })
+
+  it.each([
+    ["a score below the threshold", { biometricMatchScore: 69 }, "match_score_below_threshold"],
+    ["an unverified selfie document", { verified: false }, "document_not_verified"],
+    ["a refusing verdict", { biometricResult: { ...boundProviderResult, faceMatch: false } }, "provider_verification_failed"],
+  ] as const)("names the other refusal, not the ID change, when the binding also fails: %s", (_label, change, reason) => {
+    expect(assessBiometricEvidence({ ...passingEvidence, ...change }, {
+      subject,
+      idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+    })).toEqual({ ok: false, reason })
+  })
+
+  it("does not mark a fingerprint mismatch as a pending ID change", () => {
+    expect(assessBiometricEvidence(passingEvidence, {
+      subject: { ...subject, firstName: "Changed" },
+      idDocument: { id: "id-doc-2", contentSha256: "d".repeat(64) },
+    })).toEqual({ ok: false, reason: "subject_identity_changed" })
   })
 
   it("refuses a match whose evidence names no digest, against a copy without one", () => {
@@ -327,6 +347,7 @@ describe("assessBiometricEvidence", () => {
     }, { subject, idDocument: { id: "id-doc-1", contentSha256: null } })).toEqual({
       ok: false,
       reason: "subject_identity_changed",
+      idDocumentNotCurrent: true,
     })
   })
 

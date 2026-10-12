@@ -111,8 +111,15 @@ export type CompositeKycResult = {
    * exception exists for it. `ok` remains the strict, payout-grade value.
    */
   okForOrigination: boolean
-  /** A selfie exists, did not pass, and nothing covers it. */
+  /**
+   * A selfie exists, did not pass, and nothing covers it. Not set when the
+   * only refusal is that the match was run against an ID copy that is not the
+   * newest verified one (biometricIdDocumentNotCurrent): that awaits a new
+   * selfie or staff verifying the copy, like a selfie never taken.
+   */
   biometricAttemptFailed: boolean
+  /** The latest selfie's only refusal is its ID-copy binding. */
+  biometricIdDocumentNotCurrent: boolean
   manualExceptionActive: boolean
   /**
    * Which substitute is carrying the biometric requirement, so readers can say
@@ -295,10 +302,13 @@ export function deriveCompositeKycState(args: {
     (biometricEvidence === null || manualExceptionActive)
   const ok = evidenceValid && !manualRejectionActive
   // An attempt that exists and did not pass, with nothing covering it.
+  const biometricIdDocumentNotCurrent =
+    !args.biometricAssessment.ok && args.biometricAssessment.idDocumentNotCurrent === true
   const biometricAttemptFailed =
     args.biometricDocumentPresent &&
     biometricEvidence !== null &&
-    !manualExceptionActive
+    !manualExceptionActive &&
+    !biometricIdDocumentNotCurrent
   const substituteKind: "senior_exception" | "in_person" | null =
     args.manualException ? "senior_exception" : args.inPersonVerification ? "in_person" : null
   const okForOrigination =
@@ -321,6 +331,7 @@ export function deriveCompositeKycState(args: {
       // A manual rejection is authoritative over every stage, origination too.
       okForOrigination: false,
       biometricAttemptFailed,
+      biometricIdDocumentNotCurrent,
       manualRejectionActive,
       manualExceptionActive: false,
       substituteKind: null,
@@ -360,6 +371,7 @@ export function deriveCompositeKycState(args: {
       biometricEvidence,
       okForOrigination,
       biometricAttemptFailed,
+      biometricIdDocumentNotCurrent,
       manualRejectionActive,
       manualExceptionActive,
       substituteKind: manualExceptionActive ? substituteKind : null,
@@ -370,7 +382,9 @@ export function deriveCompositeKycState(args: {
     }
   }
 
-  const currentBiometricFailed = args.biometricDocumentPresent && biometricEvidence !== null
+  const currentBiometricFailed = args.biometricDocumentPresent &&
+    biometricEvidence !== null &&
+    !biometricIdDocumentNotCurrent
   // Was a CURRENT core document refused by a named reviewer? Keyed off the same
   // classification the UI renders, so the rollup and the per-document copy can
   // never tell different stories. A note with no author is excluded: the system
@@ -380,6 +394,7 @@ export function deriveCompositeKycState(args: {
   return {
     ok,
     biometricAttemptFailed,
+    biometricIdDocumentNotCurrent,
     state: {
       kycStatus: currentBiometricFailed || rejectedByReviewer ? "FAILED" : "PENDING",
       kycVerifiedAt: null,
