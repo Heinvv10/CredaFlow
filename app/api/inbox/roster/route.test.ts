@@ -10,7 +10,7 @@ const userFindFirstMock = vi.fn()
 const logAuditStrictMock = vi.fn()
 // The caller's and target's rows as the toggle's transaction locks them.
 const lockedRowsMock = vi.fn()
-const tx = { $queryRaw: (...a: unknown[]) => lockedRowsMock(...a), auditLog: { create: vi.fn() } }
+const tx = { $executeRaw: vi.fn(), $queryRaw: (...a: unknown[]) => lockedRowsMock(...a), auditLog: { create: vi.fn() } }
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: { user: { findFirst: (a: unknown) => userFindFirstMock(a) }, $transaction: (fn: (t: unknown) => unknown) => fn(tx) } }))
@@ -135,4 +135,12 @@ it("PATCH refuses a caller deactivated after the first check and toggles nothing
   lockedRowsMock.mockResolvedValue([{ id: "admin1", role: "ADMIN", active: false, tokenVersion: 1 }, { id: "u2", role: "CREDIT_OFFICER", active: true }])
   expect((await toggle()).status).toBe(403)
   expect(setAgentMock).not.toHaveBeenCalled()
+})
+
+it("PATCH answers 409 when the toggle cannot take its lock in time", async () => {
+  const { Prisma } = await import("@prisma/client")
+  setAgentMock.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("lock", { code: "P2034", clientVersion: "test" }))
+  const res = await toggle()
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({ error: "This user is being changed elsewhere. Try again." })
 })

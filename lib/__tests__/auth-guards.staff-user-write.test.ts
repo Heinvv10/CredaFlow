@@ -12,7 +12,8 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
   logAuditStrict: (...args: unknown[]) => logAuditStrictMock(...args),
 }))
 
-import { refuseLockedStaffUserWrite, refuseStaffUserWrite, staffUserWriteRefusal, type StaffUser } from "../auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, staffUserWriteConflict, staffUserWriteRefusal, type StaffUser } from "../auth-guards"
+import { Prisma } from "@prisma/client"
 import type { UserRole } from "@prisma/client"
 
 // Lowest to highest — the order ROLE_HIERARCHY ranks them in.
@@ -187,7 +188,7 @@ describe("refuseStaffUserWrite", () => {
 describe("refuseLockedStaffUserWrite", () => {
   const admin: StaffUser = { id: "admin-1", email: "admin@acme-lending.example", name: "Admin", role: "ADMIN", tenantId: "tenant-a", totpVerified: true, tokenVersion: 3 }
   const row = (id: string, role: string, active = true, tokenVersion = 3) => ({ id, role, active, tokenVersion })
-  const txWith = (rows: unknown[]) => ({ $queryRaw: vi.fn().mockResolvedValue(rows), auditLog: {} }) as never as Parameters<typeof refuseLockedStaffUserWrite>[0]
+  const txWith = (rows: unknown[]) => ({ $executeRaw: vi.fn(), $queryRaw: vi.fn().mockResolvedValue(rows), auditLog: {} }) as never as Parameters<typeof refuseLockedStaffUserWrite>[0]
   const write = { tenantId: "tenant-a", targetId: "u2", assignedRole: undefined }
 
   beforeEach(() => { logAuditStrictMock.mockReset() })
@@ -232,6 +233,22 @@ describe("refuseLockedStaffUserWrite", () => {
     expect(result.refused?.status).toBe(403)
   })
 
+  // A row held elsewhere (FOR KEY SHARE by an FK insert) must make the write
+  // give up in seconds, not hold the caller's row until Prisma's 5 s timeout.
+  it("sets a lock timeout for the transaction before it locks anything", async () => {
+    const tx = txWith([row("admin-1", "ADMIN"), row("u2", "CREDIT_OFFICER")]) as never as { $executeRaw: ReturnType<typeof vi.fn>; $queryRaw: ReturnType<typeof vi.fn> }
+    await refuseLockedStaffUserWrite(tx as never, admin, write)
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1)
+    expect((tx.$executeRaw.mock.calls[0]![0] as string[]).join("?")).toBe("SET LOCAL lock_timeout = '2s'")
+    expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]!)
+  })
+
+  it("tells a caller with a stale or missing session version to sign in again", async () => {
+    const result = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN", true, 4), row("u2", "CREDIT_OFFICER")]), admin, write)
+    expect(await result.refused?.json()).toEqual({ error: "Your session is out of date. Sign in again." })
+  })
+
   it("answers 404 when the target's row is gone", async () => {
     const result = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN")]), admin, write)
     expect(result.refused?.status).toBe(404)
@@ -242,5 +259,34 @@ describe("refuseLockedStaffUserWrite", () => {
       .toEqual({ refused: null, callerRole: "ADMIN", targetRole: "LOAN_ADMIN" })
     expect(await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN")]), admin, { tenantId: "tenant-a", assignedRole: "ADMIN" }))
       .toEqual({ refused: null, callerRole: "ADMIN", targetRole: null })
+  })
+})
+
+describe("staffUserWriteConflict", () => {
+  const known = (code: string, meta?: Record<string, unknown>) => new Prisma.PrismaClientKnownRequestError("x", { code, clientVersion: "test", meta })
+  // What Prisma raises when a model query inside the transaction hits lock_timeout.
+  const lockTimeout = new Prisma.PrismaClientUnknownRequestError(
+    'Error occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "55P03", message: "canceling statement due to lock timeout", severity: "ERROR" }) })',
+    { clientVersion: "test" },
+  )
+
+  it.each([
+    ["a lock timeout on a model query (55P03)", lockTimeout],
+    ["a lock timeout on a raw query (P2010 / 55P03)", known("P2010", { code: "55P03" })],
+    ["a transaction timeout (P2028)", known("P2028")],
+    ["a write conflict or deadlock (P2034)", known("P2034")],
+  ])("answers %s with a neutral 409", async (_label, err) => {
+    const res = staffUserWriteConflict(err)
+    expect(res?.status).toBe(409)
+    expect(await res?.json()).toEqual({ error: "This user is being changed elsewhere. Try again." })
+  })
+
+  it.each([
+    ["a unique violation", known("P2002")],
+    ["another raw-query failure", known("P2010", { code: "23505" })],
+    ["an unrelated unknown error", new Prisma.PrismaClientUnknownRequestError("connection reset", { clientVersion: "test" })],
+    ["a plain error", new Error('code: "55P03"')],
+  ])("leaves %s alone", (_label, err) => {
+    expect(staffUserWriteConflict(err)).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireCommsAgent } from "@/lib/inbox/authz"
-import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { listStaffForRoster, setCommsAgent } from "@/lib/inbox/roster"
@@ -31,6 +31,10 @@ export async function PATCH(req: NextRequest) {
       const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, targetId: body.userId, assignedRole: undefined })
       if (locked.refused) return locked.refused
       return setCommsAgent({ tenantId: tenant.id, userId: body.userId!, isCommsAgent: body.isCommsAgent!, actorUserId: guard.user.id, actorEmail: guard.user.email }, tx)
+    }).catch((err: unknown) => {
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return conflict
+      throw err
     })
     if (res instanceof Response) return res
     if (!res.ok) return NextResponse.json({ error: "not found" }, { status: 404 })

@@ -18,6 +18,7 @@ const h = vi.hoisted(() => {
     lockedRows: vi.fn(),
   }
   const tx = {
+    $executeRaw: vi.fn(),
     $queryRaw: (...args: unknown[]) => m.lockedRows(...args),
     user: { update: (args: unknown) => m.userUpdate(args), delete: (args: unknown) => m.userDelete(args) },
     auditLog: { create: (args: unknown) => m.auditLogCreate(args) },
@@ -51,7 +52,11 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 }))
 vi.mock("bcryptjs", () => ({ default: { hash: async (value: string) => `hashed:${value}` } }))
 
+import { Prisma } from "@prisma/client"
 import { DELETE, PATCH } from "./route"
+
+const busy = () => new Prisma.PrismaClientKnownRequestError("lock", { code: "P2034", clientVersion: "test" })
+const BUSY = { error: "This user is being changed elsewhere. Try again." }
 
 type Row = { id: string; role: string; active: boolean; tokenVersion?: number }
 let locked: { caller?: Row; target?: Row } = {}
@@ -427,6 +432,19 @@ describe("PATCH /api/settings/users/[id] — the locked re-check", () => {
     expect(query.values).toEqual(expect.arrayContaining(["caller-1", "target-1", "tenant-a"]))
   })
 
+  // The row is held by another transaction: the write gives up with a 409, and
+  // its transaction (the update and the audit row) is rolled back.
+  it("answers 409 when the write cannot take its lock in time", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER")
+    h.userUpdate.mockRejectedValue(busy())
+    const res = await patch({ email: "renamed@acme-lending.example" })
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual(BUSY)
+    expect(h.logAuditStrict).not.toHaveBeenCalled()
+  })
+
   // The update and its audit row commit together or not at all.
   it("fails the whole write when the USER_UPDATED row cannot be written", async () => {
     signedIn("ADMIN")
@@ -460,6 +478,19 @@ describe("DELETE /api/settings/users/[id]", () => {
 
     expect(res.status).toBe(404)
     expect(h.userDelete).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["with no history (hard delete)", null, "userDelete"],
+    ["with history (deactivation)", { id: "fp-1" }, "userUpdate"],
+  ] as const)("answers 409 when the removal of a target %s cannot take its lock in time", async (_label, fitAndProper, write) => {
+    signedIn("SUPER_ADMIN")
+    target("ADMIN", { fitAndProper })
+    h[write].mockRejectedValue(busy())
+    const res = await del()
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual(BUSY)
   })
 
   it("deactivates a user with history and audits it in the same transaction", async () => {

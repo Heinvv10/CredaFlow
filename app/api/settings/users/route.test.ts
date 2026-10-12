@@ -15,6 +15,7 @@ const h = vi.hoisted(() => {
     lockedRows: vi.fn(),
   }
   const tx = {
+    $executeRaw: vi.fn(),
     $queryRaw: (...args: unknown[]) => m.lockedRows(...args),
     user: { create: (args: unknown) => m.userCreate(args) },
     auditLog: { create: vi.fn() },
@@ -45,6 +46,7 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 }))
 vi.mock("bcryptjs", () => ({ default: { hash: async (value: string) => `hashed:${value}` } }))
 
+import { Prisma } from "@prisma/client"
 import { POST } from "./route"
 
 const URL = "https://app.example.test/api/settings/users"
@@ -178,6 +180,17 @@ describe("POST /api/settings/users", () => {
 
     expect(res.status).toBe(403)
     expect(h.userCreate).not.toHaveBeenCalled()
+  })
+
+  it("answers 409 when the create cannot take its lock in time, and audits nothing", async () => {
+    signedIn("ADMIN")
+    h.lockedRows.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("lock", { code: "P2034", clientVersion: "test" }))
+    const res = await post({ role: "CREDIT_OFFICER" })
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "This user is being changed elsewhere. Try again." })
+    expect(h.userCreate).not.toHaveBeenCalled()
+    expect(h.logAuditStrict).not.toHaveBeenCalled()
   })
 
   it("refuses a caller below BRANCH_MANAGER", async () => {

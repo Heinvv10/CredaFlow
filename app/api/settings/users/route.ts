@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import type { UserRole } from "@prisma/client"
@@ -130,6 +130,10 @@ export async function POST(req: NextRequest) {
         newValue: { email: user.email, role: user.role, branchId: user.branchId },
       }, tx)
       return { user }
+    }).catch((err: unknown) => {
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return { refused: conflict }
+      throw err
     })
     if (result.refused) return result.refused
 

@@ -245,12 +245,18 @@ export async function refuseStaffUserWrite(
  * tokenVersion than the session (a role change, deactivation or password
  * reset since sign-in) is refused (403). Returns the locked roles for the
  * caller's own checks and audit.
+ *
+ * Sets a 2 s lock_timeout for the transaction: a row held elsewhere (an FK
+ * insert's FOR KEY SHARE blocks an email change or a delete) must not keep the
+ * caller's row locked, and their own sign-in waiting, until Prisma's 5 s
+ * transaction timeout. Map the resulting error with staffUserWriteConflict.
  */
 export async function refuseLockedStaffUserWrite(
-  tx: Pick<typeof prisma, "$queryRaw" | "auditLog">,
+  tx: Pick<typeof prisma, "$executeRaw" | "$queryRaw" | "auditLog">,
   caller: StaffUser,
   write: { tenantId: string; targetId?: string; assignedRole: unknown },
 ): Promise<{ refused: NextResponse } | { refused: null; callerRole: UserRole; targetRole: UserRole | null }> {
+  await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
   const ids = write.targetId ? [caller.id, write.targetId] : [caller.id]
   const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean; tokenVersion: number }>>(Prisma.sql`
     SELECT "id", "role"::text AS "role", "active", "tokenVersion"
@@ -260,8 +266,9 @@ export async function refuseLockedStaffUserWrite(
     FOR NO KEY UPDATE
   `)
   const fresh = rows.find(r => r.id === caller.id)
-  if (!fresh?.active || fresh.tokenVersion !== caller.tokenVersion) {
-    return { refused: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  if (!fresh?.active) return { refused: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  if (fresh.tokenVersion !== caller.tokenVersion) {
+    return { refused: NextResponse.json({ error: "Your session is out of date. Sign in again." }, { status: 403 }) }
   }
   let targetRole: UserRole | null = null
   if (write.targetId) {
@@ -275,6 +282,21 @@ export async function refuseLockedStaffUserWrite(
     tx,
   )
   return refused ? { refused } : { refused: null, callerRole: fresh.role, targetRole }
+}
+
+/**
+ * The 409 for a staff-user write transaction that could not get its locks in
+ * time: the lock_timeout above (55P03 — Prisma raises it as an unknown error
+ * from a model query, P2010 from a raw one), Prisma's own transaction timeout
+ * (P2028), or a write conflict / deadlock (P2034). The transaction, and with it
+ * the write and its audit row, has rolled back. Null for any other error.
+ */
+export function staffUserWriteConflict(err: unknown): NextResponse | null {
+  const conflict =
+    (err instanceof Prisma.PrismaClientKnownRequestError &&
+      (err.code === "P2028" || err.code === "P2034" || (err.code === "P2010" && err.meta?.code === "55P03"))) ||
+    (err instanceof Prisma.PrismaClientUnknownRequestError && err.message.includes('code: "55P03"'))
+  return conflict ? NextResponse.json({ error: "This user is being changed elsewhere. Try again." }, { status: 409 }) : null
 }
 
 // Permissions map: action → minimum required role

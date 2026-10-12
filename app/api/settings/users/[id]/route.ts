@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole } from "@/lib/auth-guards"
+import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import { Prisma, type UserRole } from "@prisma/client"
@@ -173,6 +173,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         return NextResponse.json({ error: "A user with this email already exists" }, { status: 409 })
       }
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return conflict
       throw err
     }
     if (result.refused) return result.refused
@@ -261,7 +263,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     }
 
     function deactivate() {
-      return prisma.$transaction(async (tx) => {
+      return prisma.$transaction(async (tx): Promise<NextResponse | null> => {
         const refused = await lockedCheck(tx)
         if (refused) return refused
         await tx.user.update({
@@ -277,6 +279,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
           userId: actorId,
         }, tx)
         return null
+      }).catch((err: unknown) => {
+        const conflict = staffUserWriteConflict(err)
+        if (conflict) return conflict
+        throw err
       })
     }
 
@@ -322,6 +328,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
           message: "User has linked records — deactivated instead of deleted.",
         })
       }
+      const conflict = staffUserWriteConflict(err)
+      if (conflict) return conflict
       throw err
     }
 

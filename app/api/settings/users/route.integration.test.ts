@@ -85,6 +85,8 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     root: `user_rc_root_${token}`,
     peerA: `user_rc_peer_a_${token}`,
     peerB: `user_rc_peer_b_${token}`,
+    held: `user_rc_held_${token}`,
+    heldVictim: `user_rc_held_victim_${token}`,
     raceAdmin: `user_rc_race_admin_${token}`,
     raceTarget: `user_rc_race_target_${token}`,
     raceOfficer: `user_rc_race_officer_${token}`,
@@ -141,6 +143,8 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
         user(ids.root, tenantA, "SUPER_ADMIN"),
         user(ids.peerA, tenantA, "ADMIN"),
         user(ids.peerB, tenantA, "ADMIN"),
+        user(ids.held, tenantA, "CREDIT_OFFICER"),
+        user(ids.heldVictim, tenantA, "READONLY"),
         user(ids.raceAdmin, tenantA, "ADMIN"),
         user(ids.raceTarget, tenantA, "LOAN_ADMIN"),
         user(ids.raceOfficer, tenantA, "CREDIT_OFFICER"),
@@ -371,6 +375,70 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
       expect(await res.json()).toMatchObject({ mode: "deleted" })
       expect(await db.user.findUnique({ where: { id: ids.victim } })).toBeNull()
       expect(await db.auditLog.count({ where: { tenantId: tenantA, action: "USER_DELETED", entityId: ids.victim, userId: ids.root } })).toBe(1)
+    })
+  })
+
+  // An open transaction elsewhere holding FOR KEY SHARE on the target (an FK
+  // insert naming the user does) blocks a key-changing update or a delete of
+  // it. The write must give up quickly, not sit on the caller's locked row
+  // until Prisma's 5 s transaction timeout, and must leave nothing behind.
+  describe("a target row held by another transaction", () => {
+    async function whileHeld<T>(id: string, run: () => Promise<T>): Promise<T> {
+      const other = new PrismaClient()
+      let release!: () => void
+      const released = new Promise<void>((resolve) => { release = resolve })
+      let locked!: () => void
+      const isLocked = new Promise<void>((resolve) => { locked = resolve })
+      const holder = other.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${id} FOR KEY SHARE`
+        locked()
+        await released
+      }, { timeout: 15_000 })
+      try {
+        await isLocked
+        return await run()
+      } finally {
+        release()
+        await holder
+        await other.$disconnect()
+      }
+    }
+
+    it("answers an email change with 409 within about 3 s, and changes and audits nothing", async () => {
+      signIn(ids.raceAdmin, "ADMIN")
+      const before = await stored(ids.held)
+      const started = Date.now()
+      const res = await whileHeld(ids.held, () => patch(ids.held, { email: emailOf("held-new") }))
+
+      expect(Date.now() - started).toBeLessThan(3_500)
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: "This user is being changed elsewhere. Try again." })
+      expect(await stored(ids.held)).toEqual(before)
+      expect(await db.auditLog.count({ where: { tenantId: tenantA, entityId: ids.held } })).toBe(0)
+    })
+
+    it("answers a delete with 409 within about 3 s, and the user still exists", async () => {
+      signIn(ids.root, "SUPER_ADMIN")
+      const started = Date.now()
+      const res = await whileHeld(ids.heldVictim, () => DELETE(
+        new NextRequest(`http://localhost/api/settings/users/${ids.heldVictim}`, { method: "DELETE", headers: { "x-tenant-slug": slugA } }),
+        { params: Promise.resolve({ id: ids.heldVictim }) },
+      ))
+
+      expect(Date.now() - started).toBeLessThan(3_500)
+      expect(res.status).toBe(409)
+      expect(await db.user.findUnique({ where: { id: ids.heldVictim }, select: { active: true } })).toEqual({ active: true })
+      expect(await db.auditLog.count({ where: { tenantId: tenantA, entityId: ids.heldVictim } })).toBe(0)
+    })
+
+    // The caller's own row is free again at once: their sign-in bookkeeping
+    // (lastLoginAt, the TOTP counter) is not left waiting on the refused write.
+    it("releases the caller's row when it gives up", async () => {
+      signIn(ids.raceAdmin, "ADMIN")
+      await whileHeld(ids.held, () => patch(ids.held, { email: emailOf("held-newer") }))
+      const started = Date.now()
+      await db.user.update({ where: { id: ids.raceAdmin }, data: { lastLoginAt: new Date() } })
+      expect(Date.now() - started).toBeLessThan(1_000)
     })
   })
 })
