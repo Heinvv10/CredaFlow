@@ -109,15 +109,15 @@ describe("compareFaces", () => {
 
   it.each([
     ["no face on the ID", NO_FACE, ONE_FACE,
-      refusal("id_document_portrait_invalid", "No face found in the ID document photograph by the face comparison", 0, 1)],
+      refusal("extraction_incomplete", "No face found in the ID document photograph by the face comparison", 0, 1)],
     ["two comparable faces on the ID", outputsWithFaces([{ row: 5, col: 5, size: 3 }, { row: 15, col: 15, size: 3 }]), ONE_FACE,
-      refusal("id_document_portrait_invalid", "The ID document shows 2 faces of comparable size; the face comparison cannot tell whose it is", 2, 1)],
+      refusal("extraction_incomplete", "The ID document shows 2 faces of comparable size; the face comparison cannot tell whose it is", 2, 1)],
     ["no face in the selfie", ONE_FACE, NO_FACE,
       refusal("face_not_detected", "No face found in the selfie by the face comparison", 1, 0)],
     ["two faces in the selfie", ONE_FACE, outputsWithFaces([{ row: 5, col: 5, size: 3 }, { row: 15, col: 15, size: 1 }]),
       refusal("face_count_invalid", "The selfie shows 2 faces; the face comparison needs exactly one", 1, 2)],
-    ["no face on either side (the ID side is named)", NO_FACE, NO_FACE,
-      refusal("id_document_portrait_invalid", "No face found in the ID document photograph by the face comparison", 0, 0)],
+    ["no face on either side (the ID side's message is named)", NO_FACE, NO_FACE,
+      refusal("extraction_incomplete", "No face found in the ID document photograph by the face comparison", 0, 0)],
   ])("refuses %s", async (_label, id, selfie, expected) => {
     const runtime = fakeRuntime(id, selfie, [[1, 0], [1, 0]])
     expect(await run(runtime)).toEqual(expected)
@@ -164,12 +164,12 @@ describe("compareFaces", () => {
     expect(result).toEqual(unavailable("Face comparison timed out"))
   })
 
-  it("refuses an ID image that cannot be decoded as the ID side", async () => {
+  it("refuses an ID image that cannot be decoded, without judging the portrait", async () => {
     const runtime = fakeRuntime(ONE_FACE, ONE_FACE, [[1, 0], [1, 0]])
     const result = await compareFaces({ fileBuffer: Buffer.from("not an image"), mimeType: "image/jpeg" }, image(), {
       loadRuntime: () => Promise.resolve(runtime), timeoutMs: 5000,
     })
-    expect(result).toEqual(refusal("id_document_portrait_invalid", "The ID document image could not be read for the face comparison", null, null))
+    expect(result).toEqual(refusal("extraction_incomplete", "The ID document image could not be read for the face comparison", null, null))
     expect(runtime.detect).not.toHaveBeenCalled()
   })
 
@@ -195,7 +195,7 @@ describe("compareFaces", () => {
     const result = await compareFaces({ fileBuffer: Buffer.from("%PDF"), mimeType: "application/pdf" }, image(), {
       loadRuntime: () => Promise.resolve(fakeRuntime(ONE_FACE, ONE_FACE, [[1, 0], [1, 0]])), timeoutMs: 5000,
     })
-    expect(result).toEqual(refusal("id_document_portrait_invalid", "The ID document image could not be read for the face comparison", null, null))
+    expect(result).toEqual(refusal("extraction_incomplete", "The ID document image could not be read for the face comparison", null, null))
   })
 })
 

@@ -425,20 +425,29 @@ suite("face match v3 through the real pipeline", () => {
       })).rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
     })
 
-    it("closes the in-person route over an ID copy on which the face model found no face", async () => {
+    // The covered-face card: the VLM passed every one of its gates and only
+    // the model refused. A detector miss is not a judgement that the ID has no
+    // real photograph, and it repeats on every retry, so it must not close the
+    // in-person route: staff can look at the physical ID.
+    it("refuses, but leaves the in-person route open, when the face model finds no face on a VLM-passed ID", async () => {
       const fixture = await seedClient()
       ctx.comparison = {
         ok: false,
-        rejection: { reason: "id_document_portrait_invalid", message: "No face found in the ID document photograph by the face comparison" },
+        rejection: { reason: "extraction_incomplete", message: "No face found in the ID document photograph by the face comparison" },
         idFaceCount: 0, selfieFaceCount: 1,
       }
       stubVlm(passingReply())
       const { selfie } = await capture(fixture)
-      expect(reasonOf(selfie)).toBe("id_document_portrait_invalid")
-
-      const response = await recordInPerson(fixture.clientId)
-      expect(response.status).toBe(422)
+      expect(selfie?.verified).toBe(false)
+      expect(reasonOf(selfie)).toBe("extraction_incomplete")
       expect((await kyc(fixture.clientId)).kycStatus).not.toBe("VERIFIED")
+      expect(await layers(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
+
+      // No senior exception over it, but the in-person route is open.
+      expect((await recordException(fixture.clientId)).status).toBe(422)
+      const response = await recordInPerson(fixture.clientId)
+      expect(response.status).toBe(200)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
     })
 
     it("records extraction_incomplete, which no senior may except, when the face model is unavailable", async () => {

@@ -31,8 +31,11 @@ describe("selectIdFace", () => {
     expect(selectIdFace([only])).toEqual({ ok: true, face: only, count: 1, secondFaceAreaRatio: null })
   })
 
-  it("refuses no face", () => {
-    expect(selectIdFace([])).toEqual({ ok: false, reason: "id_document_portrait_invalid", count: 0 })
+  // Not id_document_portrait_invalid: only the VLM's affirmative judgement of
+  // the portrait may say the ID has no real photo (that reason closes the
+  // in-person route, and the detector would repeat a miss on every retry).
+  it("refuses no face as a check that did not complete", () => {
+    expect(selectIdFace([])).toEqual({ ok: false, reason: "extraction_incomplete", count: 0 })
   })
 
   // The smart ID card's small "ghost" portrait of the holder.
@@ -49,16 +52,16 @@ describe("selectIdFace", () => {
       ok: true, secondFaceAreaRatio: 0.5,
     }))
     expect(selectIdFace([face(100, 100), face(50.1, 100, 300)])).toEqual({
-      ok: false, reason: "id_document_portrait_invalid", count: 2,
+      ok: false, reason: "extraction_incomplete", count: 2,
     })
   })
 
   it("refuses two comparable faces, and judges every other face, not just the second", () => {
     expect(selectIdFace([face(100, 100), face(95, 95, 300)])).toEqual({
-      ok: false, reason: "id_document_portrait_invalid", count: 2,
+      ok: false, reason: "extraction_incomplete", count: 2,
     })
     expect(selectIdFace([face(100, 100), face(30, 30, 300), face(90, 90, 500)])).toEqual({
-      ok: false, reason: "id_document_portrait_invalid", count: 3,
+      ok: false, reason: "extraction_incomplete", count: 3,
     })
   })
 

@@ -7,7 +7,10 @@
  * checksum or will not load, an image that will not decode, inference that
  * throws or overruns, a face count outside the rule, or a similarity that is
  * not a number all come back as a refusal. ID-side refusals are named ahead of
- * selfie-side ones, as in the VLM gates.
+ * selfie-side ones, as in the VLM gates. None of them is
+ * id_document_portrait_invalid: that reason says the ID has no real
+ * photograph, closes the in-person route over it, and only the VLM's own
+ * judgement of the portrait may record it (see face-count.ts).
  */
 import sharp from "sharp"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
@@ -29,7 +32,6 @@ export type FaceComparisonRejection = {
   reason: Extract<
     BiometricEvidenceFailureReason,
     | "extraction_incomplete"
-    | "id_document_portrait_invalid"
     | "face_not_detected"
     | "face_count_invalid"
     | "match_score_below_threshold"
@@ -104,7 +106,7 @@ async function compare(id: ImageInput, selfie: ImageInput, loadRuntime: () => Pr
   }
   const idImage = await decodeDocument(id)
   if (!idImage) {
-    return refuse("id_document_portrait_invalid", "The ID document image could not be read for the face comparison", counts)
+    return refuse("extraction_incomplete", "The ID document image could not be read for the face comparison", counts)
   }
   const selfieImage = await decodeImage(selfie.fileBuffer).catch(() => null)
   if (!selfieImage) {

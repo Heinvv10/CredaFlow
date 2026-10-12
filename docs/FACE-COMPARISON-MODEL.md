@@ -64,7 +64,8 @@ rescues a face-model refusal.
 - ID: one dominant face. With several, the largest is compared only when
   every other detected box is at most 50% of its area (the smart ID card
   prints a small secondary portrait of the holder). Two comparable faces, or
-  none, is `id_document_portrait_invalid`.
+  none, is `extraction_incomplete` (see below for why not
+  `id_document_portrait_invalid`).
 - The counts and the second face's area ratio are stored in the evidence and
   re-checked by both gates.
 
@@ -115,16 +116,22 @@ same-person answer:
 | Inference throws, or the comparison (model load included) exceeds 30 s | `extraction_incomplete` |
 | Similarity not a finite number (e.g. a zero embedding) | `extraction_incomplete` |
 | Selfie will not decode | `extraction_incomplete` |
-| ID will not decode or render, no ID face, two comparable ID faces | `id_document_portrait_invalid` |
+| ID will not decode or render, no ID face, two comparable ID faces | `extraction_incomplete` |
 | No selfie face / more than one | `face_not_detected` / `face_count_invalid` |
 | Similarity below 0.363 | `match_score_below_threshold` |
 
-`extraction_incomplete` and `id_document_portrait_invalid` are not on the
-manual-exception allow-list; the others are, as before. No new borrower-facing
-copy: each condition maps onto an existing reason and its approved wording.
-As with the VLM's refusal, a latest selfie refused as
-`id_document_portrait_invalid` (including "no face found on the ID") also
-closes the in-person route over that ID copy until a newer copy is verified.
+`extraction_incomplete` is not on the manual-exception allow-list; the others
+are, as before. No new borrower-facing copy: each condition maps onto an
+existing reason and its approved wording.
+
+The face model never records `id_document_portrait_invalid`. That reason says
+the ID carries no real photograph and closes the in-person route over the ID
+copy, and only the VLM's affirmative judgement of the portrait may record it
+(it is ranked first). A detector miss on the ID is not such a judgement, and
+the detector is deterministic, so it would repeat on every retry and strand a
+genuine but poorly scanned ID. As `extraction_incomplete` it still refuses
+the attempt and cannot be excepted, but staff can complete the in-person
+route against the physical ID.
 
 ## Evidence (v3)
 

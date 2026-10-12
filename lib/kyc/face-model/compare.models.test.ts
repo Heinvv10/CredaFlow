@@ -59,7 +59,7 @@ suite("compareFaces with the real models", () => {
     const image = { fileBuffer: await noise(), mimeType: "image/jpeg" }
     expect(await compareFaces(image, image)).toEqual({
       ok: false,
-      rejection: expect.objectContaining({ reason: "id_document_portrait_invalid" }),
+      rejection: expect.objectContaining({ reason: "extraction_incomplete" }),
       idFaceCount: 0,
       selfieFaceCount: 0,
     })

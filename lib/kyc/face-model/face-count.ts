@@ -1,6 +1,12 @@
 /**
  * Which detected face is compared, or why none is. Fails closed: the selfie
  * must hold exactly one face, and the ID exactly one dominant face.
+ *
+ * An ID-side refusal is extraction_incomplete, never
+ * id_document_portrait_invalid: a detector miss is not a judgement that the
+ * ID carries no real photograph (only the VLM makes that one), and since the
+ * detector is deterministic it would repeat on every retry and close the
+ * in-person route over a genuine but poorly scanned ID for good.
  */
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
 import { ID_SECOND_FACE_MAX_AREA_RATIO } from "./models"
@@ -23,13 +29,13 @@ export function selectIdFace(
   faces: DetectedFace[],
 ):
   | { ok: true; face: DetectedFace; count: number; secondFaceAreaRatio: number | null }
-  | Refusal<"id_document_portrait_invalid"> {
-  if (faces.length === 0) return { ok: false, reason: "id_document_portrait_invalid", count: 0 }
+  | Refusal<"extraction_incomplete"> {
+  if (faces.length === 0) return { ok: false, reason: "extraction_incomplete", count: 0 }
   const [largest, ...others] = [...faces].sort((a, b) => area(b) - area(a))
   if (others.length === 0) return { ok: true, face: largest, count: 1, secondFaceAreaRatio: null }
   const secondFaceAreaRatio = area(others[0]) / area(largest)
   if (!(secondFaceAreaRatio <= ID_SECOND_FACE_MAX_AREA_RATIO)) {
-    return { ok: false, reason: "id_document_portrait_invalid", count: faces.length }
+    return { ok: false, reason: "extraction_incomplete", count: faces.length }
   }
   return { ok: true, face: largest, count: faces.length, secondFaceAreaRatio }
 }

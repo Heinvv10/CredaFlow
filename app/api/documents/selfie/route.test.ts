@@ -1310,9 +1310,9 @@ describe("POST /api/documents/selfie", () => {
     ["the face model is unavailable", "extraction_incomplete",
       "Face comparison could not run: the face models are unavailable", null, null],
     ["the face comparison timed out", "extraction_incomplete", "Face comparison timed out", null, null],
-    ["the face model finds no face on the ID", "id_document_portrait_invalid",
+    ["the face model finds no face on the ID", "extraction_incomplete",
       "No face found in the ID document photograph by the face comparison", 0, 1],
-    ["the face model finds two comparable faces on the ID", "id_document_portrait_invalid",
+    ["the face model finds two comparable faces on the ID", "extraction_incomplete",
       "The ID document shows 2 faces of comparable size; the face comparison cannot tell whose it is", 2, 1],
     ["the face model finds no face in the selfie", "face_not_detected",
       "No face found in the selfie by the face comparison", 1, 0],
@@ -1347,7 +1347,8 @@ describe("POST /api/documents/selfie", () => {
 
   // The strictest reason wins across both checks: a VLM liveness failure is
   // exceptionable, so recording it over the face model's "no face on the ID"
-  // would let a senior except a match against an ID with no usable face.
+  // would let a senior except a match against an ID no check could read. The
+  // model's refusal is extraction_incomplete, never id_document_portrait_invalid.
   it("records the face model's ID refusal over an exceptionable VLM liveness failure", async () => {
     extractDocumentDataMock.mockResolvedValueOnce({
       ok: true,
@@ -1369,7 +1370,7 @@ describe("POST /api/documents/selfie", () => {
     const message = "No face found in the ID document photograph by the face comparison"
     compareFacesMock.mockResolvedValueOnce({
       ok: false,
-      rejection: { reason: "id_document_portrait_invalid", message },
+      rejection: { reason: "extraction_incomplete", message },
       idFaceCount: 0,
       selfieFaceCount: 1,
     })
@@ -1379,7 +1380,8 @@ describe("POST /api/documents/selfie", () => {
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
     const update = latestDocumentUpdate()
     expect(update.data.extractionError).toBe(message)
-    expect(update.data.biometricResult.biometricFailureReason).toBe("id_document_portrait_invalid")
+    expect(update.data.biometricResult.biometricFailureReason).toBe("extraction_incomplete")
+    expect(isManualKycExceptionableFailureReason("extraction_incomplete")).toBe(false)
     expect(isManualKycExceptionableFailureReason("vlm_liveness_failed")).toBe(true)
   })
 
