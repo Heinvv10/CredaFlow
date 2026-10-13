@@ -7,6 +7,7 @@ import type { RatePoint, ScheduleRow } from "./types"
 
 /** Actual/365 fixed: every year counts 365 days, leap years included. */
 export const DAY_COUNT_BASIS = 365
+const RATE_SCALE = 1_000_000
 
 export interface AmortisationPeriod {
   dueDate: string
@@ -30,7 +31,11 @@ export interface AmortisationResult {
 
 /** A period's interest: simple, on its opening balance, rounded half-up once (the rule in ./structure.ts). */
 export function periodInterest(openingCents: number, rateDays: number): number {
-  return Math.round((openingCents * rateDays) / DAY_COUNT_BASIS)
+  const scaledRateDays = Math.round(rateDays * RATE_SCALE)
+  const numerator = BigInt(openingCents) * BigInt(scaledRateDays)
+  const denominator = BigInt(DAY_COUNT_BASIS * RATE_SCALE)
+  const two = BigInt(2)
+  return Number((numerator * two + denominator) / (denominator * two))
 }
 
 export function assertCents(value: number, label: string): void {
