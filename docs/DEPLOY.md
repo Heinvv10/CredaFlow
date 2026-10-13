@@ -31,7 +31,7 @@ directory **outside** the git checkout (the scripts refuse otherwise).
 | `restore.sh <dir> <file> [--drop-scratch]` | restore into a NEW scratch database and verify it. |
 | `restore.sh <dir> <file> --over-live --confirm <slug>` | verified restore, then swap it in. |
 | `npm run lender:bootstrap-tenant -- --config f.json [--dry-run]` | tenant + config + default templates (run in the tools image by provision). |
-| `npm run lender:bootstrap-admin -- --tenant S --email E [--break-glass] [--dry-run]` | first SUPER_ADMIN, or break-glass reset. |
+| `admin.sh <dir> --email E [--break-glass] [--dry-run]` | the first-admin CLI (`lender:bootstrap-admin`) against this lender, for break-glass. provision runs the same CLI for the first admin. |
 
 ### Two images
 
@@ -134,15 +134,15 @@ win, and audits `SUPER_ADMIN_BOOTSTRAPPED` (no credential in the row). It works 
 enrolled at creation: TOTP is mandatory for staff, and user and identity writes
 need a TOTP-verified session.
 
-If the only SUPER_ADMIN is locked out (lost password or authenticator, deactivated):
+If the only SUPER_ADMIN is locked out (lost password or authenticator, deactivated),
+on the host, from a checkout:
 
 ```bash
-docker run --rm -e DATABASE_URL --network credaflow-<slug>_default -e NODE_ENV=production \
-  credaflow-<slug>-tools:<tag> npx tsx scripts/lender/bootstrap-admin-cli.ts \
-  --tenant <slug> --email <their email> --break-glass
+scripts/lender/admin.sh /srv/lenders/<slug> --email <their email> --break-glass [--dry-run]
 ```
 
-(`DATABASE_URL` points at host `db` with the values from `.env`.) Break-glass only
+(`admin.sh` runs the CLI from the tools image of the currently deployed image on the
+lender's own network; the password reaches it by variable name, not argv.) Break-glass only
 resets an **existing** SUPER_ADMIN of that tenant: new password, new TOTP secret,
 re-activated, every session ended (`tokenVersion` bump), audited as
 `SUPER_ADMIN_BREAK_GLASS_RESET`. It never creates or promotes a user. Login rate

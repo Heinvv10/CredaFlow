@@ -9,8 +9,8 @@
  */
 import { PrismaClient } from "@prisma/client"
 import { readFileSync } from "node:fs"
-import { hostname, userInfo } from "node:os"
 import { parseArgs } from "node:util"
+import { operatorId } from "./operator"
 import { bootstrapTenant, TenantBootstrapRefusal } from "./bootstrap-tenant"
 import { parseTenantConfig } from "./tenant-config"
 
@@ -44,7 +44,7 @@ async function main(): Promise<number> {
   try {
     const result = await bootstrapTenant(db, parsed.config, {
       dryRun: values["dry-run"],
-      operator: `${userInfo().username}@${hostname()}`,
+      operator: operatorId(),
       seedTemplates: async (tenantId, brand) => {
         const { seedDocumentTemplates } = await import("../../prisma/seed-document-templates")
         const { seedDefaultMessageTemplates } = await import("@/lib/messaging/default-templates")

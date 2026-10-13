@@ -7,8 +7,8 @@
  * Exit 0 done, 2 refused by a guard, 1 any other failure.
  */
 import { PrismaClient } from "@prisma/client"
-import { hostname, userInfo } from "node:os"
 import { parseArgs } from "node:util"
+import { operatorId } from "./operator"
 import { bootstrapSuperAdmin, BootstrapRefusal, type AdminBootstrapResult } from "./bootstrap-admin"
 
 const USAGE = "usage: lender:bootstrap-admin --tenant <slug> --email <email> [--name <name>] [--break-glass] [--dry-run]"
@@ -46,7 +46,7 @@ async function main(): Promise<number> {
     const result = await bootstrapSuperAdmin(db, {
       tenantSlug: values.tenant, email: values.email, name: values.name,
       mode: values["break-glass"] ? "break-glass" : "bootstrap", dryRun: values["dry-run"],
-      operator: `${userInfo().username}@${hostname()}`,
+      operator: operatorId(),
     })
     process.stdout.write(`${render(result, values.tenant)}\n`)
     return 0

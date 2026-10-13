@@ -91,7 +91,7 @@ tools_run() {
     shift
   fi
   DATABASE_URL="postgresql://$PGUSER:$(env_get "$ENV_FILE" POSTGRES_PASSWORD)@db:5432/$PGDB?schema=public" \
-    docker run --rm -e DATABASE_URL --network "${PROJECT}_default" "${opts[@]}" "$image" "$@"
+    docker run --rm -e DATABASE_URL -e "LENDER_OPERATOR=$(id -un)@$(hostname)" --network "${PROJECT}_default" "${opts[@]}" "$image" "$@"
 }
 
 # tools_image_of REPO:TAG — the matching image that holds the CLIs (prisma, tsx, the scripts).

@@ -259,6 +259,25 @@ describe("docker-compose.lender.yml", () => {
   })
 })
 
+describe("admin.sh", () => {
+  it("runs the admin CLI from the tools image of the deployed image, scoped to this lender, with the host operator", () => {
+    writeFileSync(join(lender, "state/current-image"), "cf:new\n")
+    const r = sh("admin.sh", [lender, "--email", "a@b.example", "--break-glass"])
+    expect(r.status).toBe(0)
+    const run = r.calls.find((c) => c.startsWith("run --rm"))!
+    expect(run).toContain("--network credaflow-stub-lender_default")
+    expect(run).toMatch(/-e LENDER_OPERATOR=\S+@\S+/)
+    expect(run).toContain("cf-tools:new npx tsx scripts/lender/bootstrap-admin-cli.ts --tenant stub-lender --email a@b.example --break-glass")
+    expect(run).not.toContain("p@db") // the database password is passed by variable name, never in argv
+  })
+
+  it("refuses before anything is deployed", () => {
+    const r = sh("admin.sh", [lender, "--email", "a@b.example"])
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/nothing deployed/)
+  })
+})
+
 describe("provision-lender.sh", () => {
   it("refuses a lender directory inside the git checkout", () => {
     writeFileSync(join(root, "cfg.json"), JSON.stringify({ slug: "stub-lender" }))

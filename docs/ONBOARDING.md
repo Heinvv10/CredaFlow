@@ -130,4 +130,4 @@ image (`deploy.sh <dir> <image>`) so the container is recreated with the new val
 
 Deploy a new version: `scripts/lender/deploy.sh <dir> <image> --build` (health-checked,
 rolls back the image on failure; a migration is not reverted). Lockout:
-`--break-glass`. Remove a lender: `DEPLOY.md`, "Tearing a lender down".
+`admin.sh <dir> --email <e> --break-glass`. Remove a lender: `DEPLOY.md`, "Tearing a lender down".

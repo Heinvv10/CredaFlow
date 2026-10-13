@@ -11,7 +11,7 @@
 #   - the row counts equal the sidecar backup.sh wrote (a dump taken while
 #     writes land can differ by in-flight rows: rerun on a quiet moment).
 # A verified scratch database <db>_restore_<UTC> is left in place (inspect it,
-# then --drop-scratch or DROP DATABASE) unless --drop-scratch is given.
+# then DROP DATABASE) unless --drop-scratch is given.
 #
 # --over-live (needs --confirm <slug>, the lender's own slug) then: takes a
 # `pre-restore` backup of the live database, stops the app, renames the live
@@ -73,7 +73,7 @@ fi
 
 if ! $over_live; then
   if $drop; then drop_scratch; note "VERIFIED; scratch database $scratch dropped"
-  else note "VERIFIED; scratch database $scratch left for inspection (drop: restore.sh … --drop-scratch, or DROP DATABASE \"$scratch\")"; fi
+  else note "VERIFIED; scratch database $scratch left for inspection (drop it with DROP DATABASE \"$scratch\", or pass --drop-scratch next time)"; fi
   exit 0
 fi
 
