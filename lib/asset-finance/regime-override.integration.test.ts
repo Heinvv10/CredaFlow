@@ -141,16 +141,16 @@ suite("asset finance foundation: NCA regime and override rules", () => {
     }
     // Not in the same statement that leaves NON_NCA either: NCA first, then re-classify.
     expectRejected(
-      `UPDATE "LoanApplication" SET "ncaRegime" = 'NCA', "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`,
+      `UPDATE "LoanApplication" SET "ncaRegime" = 'NCA', "ncaClassificationRule" = 'LARGE_AGREEMENT', "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}'`,
       "snapshot is frozen while it is NON_NCA",
     )
     sql(`UPDATE "LoanApplication" SET "ncaRegime" = 'NCA' WHERE "id" = '${id}'`)
-    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`)
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT', "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}'`)
   })
 
   it("fixes the classification snapshot once decided, NCA included", () => {
     const id = ncaApplication()
-    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`)
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT', "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}'`)
     sql(`UPDATE "LoanApplication" SET "status" = 'DECLINED' WHERE "id" = '${id}'`)
     for (const set of snapshotWrites) {
       expectRejected(`UPDATE "LoanApplication" SET ${set} WHERE "id" = '${id}'`, "snapshot is frozen while it is NON_NCA and once it is decided")

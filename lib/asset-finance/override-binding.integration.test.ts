@@ -167,7 +167,7 @@ suite("asset finance foundation: override binding to users and to the applicatio
   it("will not spend an approval whose classification rule the application no longer has", () => {
     const id = ncaApplication()
     const overrideId = requested(id)
-    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`)
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT', "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}'`)
     sql(f.approve(overrideId))
     expectRejected(flip(id), NO_MATCH)
     expect(column(overrideId, "appliedAt")).toBe("null")
@@ -191,9 +191,10 @@ suite("asset finance foundation: override binding to users and to the applicatio
 
   it("freezes the classification snapshot while an approved NON_NCA override is unspent, so it applies as approved", () => {
     const id = ncaApplication()
+    // A re-classification before the request is fine; one after it makes the
+    // request stale (approvedClassifiedAt), covered elsewhere.
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-approved'], "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}'`)
     const overrideId = requested(id)
-    // While PENDING the classification may still change (a re-run does).
-    sql(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-approved'] WHERE "id" = '${id}'`)
     sql(f.approve(overrideId))
     for (const set of [
       `"ncaClassificationRule" = 'JURISTIC_OVER_THRESHOLD'`,
@@ -223,7 +224,7 @@ suite("asset finance foundation: override binding to users and to the applicatio
       if (Date.now() > deadline) throw new Error("the approval never reached its sleep")
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'] WHERE "id" = '${id}'`, AWAITS)
+    expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'], "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}'`, AWAITS)
     expect(await approvalExit).toBe(0)
     expect(column(overrideId, "status")).toBe("APPROVED")
   }, 20_000)
@@ -243,7 +244,7 @@ suite("asset finance foundation: override binding to users and to the applicatio
     writer.stdin.end(`BEGIN ISOLATION LEVEL ${isolation};
 SELECT "status" FROM "LoanApplication" WHERE "id" = '${id}';
 SELECT pg_sleep(2) AS ${marker};
-UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'] WHERE "id" = '${id}';
+UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'], "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${id}';
 COMMIT;
 `)
     const sleeping = () => sql(`SELECT count(*) FROM pg_stat_activity
@@ -266,6 +267,20 @@ COMMIT;
   ])("refuses a %s snapshot write whose snapshot predates the approval (request already open: %s)", async (isolation, requestFirst) => {
     await snapshotWriterRace(String(isolation), Boolean(requestFirst))
   }, 20_000)
+
+  it("refuses a snapshot change that keeps or rewinds the classification time, so a pending approval can't be spent on swapped inputs", () => {
+    const id = ncaApplication()
+    requested(id)
+    const at = sql(`SELECT "ncaClassifiedAt"::TEXT FROM "LoanApplication" WHERE "id" = '${id}'`)
+    const LATER = "must carry a later ncaClassifiedAt"
+    expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{"turnover":"SWAPPED"}'::jsonb WHERE "id" = '${id}'`, LATER)
+    expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['forged'], "ncaClassifiedAt" = '${at}'::timestamp WHERE "id" = '${id}'`, LATER)
+    expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{}'::jsonb, "ncaClassifiedAt" = '${at}'::timestamp - INTERVAL '1 day' WHERE "id" = '${id}'`, LATER)
+    expectRejected(
+      `UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{}'::jsonb, "ncaClassifiedAt" = TIMESTAMP '2099-01-01' WHERE "id" = '${id}'`,
+      "cannot be stamped in the future",
+    )
+  })
 
   it("never rewrites the snapshot or source of a request", () => {
     const overrideId = requested(ncaApplication())
