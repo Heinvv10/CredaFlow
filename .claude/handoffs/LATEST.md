@@ -34,6 +34,34 @@ commit; all are merged (#36 after this paragraph was first written):
 | #34 | `test/webhook-replay-on-migrated-db` | The Stitch payment webhook runs in the loan's tenant (it 500'd on every webhook and stamped the default tenant); `webhook-replay` is a gated integration suite (`RUN_WEBHOOK_REPLAY_IT`) |
 | #36 | `fix/website-term-out-of-range` | The website apply route refuses an out-of-range term for a variable-term product (400 with the product's `termRange`, nothing written) instead of clamping it; the form then shows the term field with that range, even for a product the catalogue treated as fixed-term |
 
+Tenant isolation, 2026-10-13. Each had three blind reviewers' SHIP/CLEAN on
+its final commit:
+
+| PR | Branch | What |
+|---|---|---|
+| #47 | `fix/record-tenant-not-default` | Writes stamp the session's tenant, not the default: POPIA consent, five CRM actions, lead activities, debit mandate (403 with no staff tenant), bank reconciliation, portal document access. A cross-tenant document probe logs an anonymous `tenant_scope_refused` row under the probed tenant and a `cross_tenant_access_attempt` row under the actor's own. CRM lead writes need CREDIT_OFFICER; the controls are hidden below it |
+| #53 | `fix/pages-session-tenant` | All 64 staff and portal pages read the session's tenant (`lib/session-tenant.ts`: `getStaffTenantId` / `getPortalTenantId`), not the default or the host. Fixed reads of another lender's data: `insurance/[id]` (any lender's policy), unfiltered insurance/opportunity/settings lists, settings pages including email logs, the FSCA annual export, and report export/advisor trusting the host. `lib/safe-path.ts` closes an open redirect in `LoginForm` and the expired-session route. `lib/__tests__/pages-session-tenant-fence.test.ts` fails on any new `getDefaultTenantId` in pages, or `getResolvedTenantId` outside seven guarded files |
+| #56 | `fix/insurance-tenant-scope` | **Open at the time of writing.** `InsurancePolicy`, `InsuranceClaim`, `PremiumPayment` and `CrossSellOpportunity` join `TENANT_SCOPED_MODELS`, so a missed tenant filter throws `missing-context`. The insurance-renewal cron sweeps per tenant and no longer needs `NEXT_PUBLIC_TENANT_SLUG`; cross-sell, `bindQuote`'s replay lookup and the portal overview page pass the tenant. Real-PG suite `lib/insurance/tenant-scope.integration.test.ts` (`RUN_DB_IT`) |
+
+**Credit checks v1, PR #54 (open, not merged; 2026-10-13).** Branch
+`feat/credit-checks-v1`. It reads bank statements (Capitec and FNB text
+readers, other banks and scans through the local vision model) into
+`StatementAnalysis`. Four checks plus manual-review codes raise REFER flags
+(`ApplicationCheckFlag`) with the statement rows as evidence. An open flag
+blocks approval in the decide route, under the row lock, and in the trigger
+`LoanApplication_a0_guard_open_check_flags`. Clearing needs LOAN_ADMIN, a
+TOTP-verified session and a reason of at least 15 characters (CHECK
+`ApplicationCheckFlag_clearance_complete`). Flags cannot be deleted, and a
+cleared flag cannot change. Real-PG suite: `RUN_CREDIT_CHECKS_IT`. Read
+`lib/statement-analysis/.claude.md` and `lib/credit-checks/.claude.md` first.
+Open decision for Hein: demo stacks strip TOTP, so no one can clear a flag
+there, and approving a flagged application answers 409.
+
+**CI is not running** (2026-10-13): GitHub Actions refuses to start jobs
+("recent account payments have failed or your spending limit needs to be
+increased"). #53's merge commit had the same tree as its CI-green head; #56
+was gated locally only. Fix billing, then re-run CI on `main`.
+
 | PR | Branch → base at the time | What |
 |---|---|---|
 | #1 | `fix/ci-green-and-quality` → `main` | Integration gate green (9 stale fixtures fixed, register 5 → 2, lead-convert PASQ-stamp bug), lint 0 errors (exports are downloads), undefined `--cf-*` tokens and duplicate selectors removed with a test, demo passwords out of source |
@@ -121,11 +149,19 @@ fresh Postgres 16:
   tenant creates its own legally approved template.
 - **`LoanApplication_bureauOverrideById_fkey`** is single-column
   `ON DELETE SET NULL`, unlike its tenant-composite siblings.
-- **Default-tenant stamping.** These handlers write the default tenant rather
-  than the record's own: `app/api/clients/[id]/consent/route.ts` (POPIA consent
-  records), five actions in `app/actions/crm.ts`, `app/actions/lead-activities.ts`,
-  and `app/api/loans/[id]/debit-mandate/route.ts` (fallback only). Harmless with
-  one database per lender; wrong if a database ever holds several tenants.
+- **Tenant gaps left after #47/#53/#56** (harmless with one database per
+  lender, wrong if a database ever holds several):
+  - the portal apply page's product-card amount ranges
+    (`getLivePublicProductsServer`) resolve the host's tenant, not the
+    session's;
+  - the cross-sell and dormant-clients crons sweep only the default tenant,
+    while insurance-renewal sweeps all of them;
+  - the portal payment page's EFT details come from instance-wide `STITCH_*`
+    env, not `TenantConfig`;
+  - nested includes and relation filters are not checked by the tenant-scope
+    extension, and no composite FK ties a premium's or claim's tenant to its
+    policy's;
+  - `getTenantFeatures` is unused.
 - **TOTP enrolment policy** for new staff, and the `ncrStatus` wording on the
   website.
 - **History left in UI copy and names.** The string pass changed no customer-facing

@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { saveFile } from "@/lib/storage"
+import { readStatementInBackground } from "@/lib/statement-analysis/persist"
+import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
+import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import {
@@ -244,8 +247,18 @@ export async function POST(req: NextRequest) {
             contentSha256,
             uploadedByType: caller.type,
             reason: "Password-protected PDF; encryption stripped so the document can be extracted and previewed",
+            // The rewrite erases appended revisions; the statement checks read
+            // this count instead (lib/statement-analysis/persist.ts).
+            originalIncrementalUpdates: countIncrementalUpdates(uploaded),
           },
         })
+      }
+
+      // A bank statement is also read down to its transactions for the credit
+      // checks (lib/statement-analysis), under the same consent gate.
+      if (shouldExtract && docType === "BANK_STATEMENT") {
+        // Its findings are raised as soon as it is read, before anyone opens the application.
+        readStatementInBackground(tenant.id, doc.id, { onRead: () => recomputeClientApplications(tenant.id, clientId) })
       }
 
       // Fire-and-forget VLM extraction + validation
@@ -344,6 +357,14 @@ export async function POST(req: NextRequest) {
                   },
                 } as never)
               })
+              // A payslip's figures and its name/ID check feed the credit checks:
+              // raise what they show now, not when someone next opens the application.
+              // Its own failure must not mark the finished extraction as failed.
+              if (docType === "PAYSLIP") {
+                await recomputeClientApplications(tenant.id, clientId).catch((err) => {
+                  console.error("[document-upload] credit-check recompute failed:", { documentId: doc.id, error: err instanceof Error ? err.name : "unknown" })
+                })
+              }
             } else {
               const extractionUnavailable = result.error?.includes('AI document extraction is not configured')
               await failUploadExtraction(

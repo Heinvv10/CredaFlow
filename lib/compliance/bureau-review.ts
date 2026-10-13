@@ -148,12 +148,15 @@ export async function runBureauReviewCheck(
       }
     }
 
-    const obligations = result.totalMonthlyObligations != null || scoreDropAlert
+    const accounts = result.accounts?.length ? result.accounts : undefined
+    const obligations = result.totalMonthlyObligations != null || scoreDropAlert || accounts
       ? {
           ...(result.totalMonthlyObligations != null
             ? { totalMonthly: result.totalMonthlyObligations }
             : {}),
           ...(scoreDropAlert ? { scoreDropAlert } : {}),
+          // The account list for the credit checks (lib/credit-checks/load-facts.ts).
+          ...(accounts ? { accounts: accounts as unknown as Prisma.InputJsonValue } : {}),
         }
       : undefined
     const bureauCheckData = {

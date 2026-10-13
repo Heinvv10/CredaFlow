@@ -568,8 +568,8 @@ export async function GET(req: NextRequest) {
     const year = sastParts(now).year
 
     const [policies, complaints] = await Promise.all([
-      // InsurancePolicy is not a tenant-scope model and this route opens no
-      // tenant frame: without the filter the return lists every lender's book.
+      // This route opens no tenant frame: the filter confines the return to
+      // this lender's book, and the tenant-scope extension throws without it.
       prisma.insurancePolicy.findMany({
         where: { tenantId: tenant.id },
         include: {

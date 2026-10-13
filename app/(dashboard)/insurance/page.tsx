@@ -3,8 +3,8 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { InsuranceDashboardClient } from "@/components/insurance/InsuranceDashboardClient"
 
-// None of these models is in the tenant-scope extension's list, so each query
-// carries the tenant on its own row.
+// Pages run outside a tenant frame, so each query carries the tenant itself;
+// the tenant-scope extension throws on one that does not.
 async function getInsuranceData(tenantId: string) {
   const [policies, claims, premiums] = await Promise.all([
     prisma.insurancePolicy.findMany({

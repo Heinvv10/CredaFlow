@@ -16,7 +16,14 @@
  *   5. Settings → Referral commission: the tenant's default rate.
  *   6. Inbox roster (PATCH /api/inbox/roster): the staff who answer client
  *      conversations. Below ADMIN only rostered "comms agents" may work a thread.
+ *   7. Settings → Lender identity → Logo (POST /api/settings/identity/logo,
+ *      audited, needs the TOTP-verified admin): the PNG at DEMO_LENDER_LOGO,
+ *      when set. The seed already wrote the rest of DEMO_LENDER's identity and
+ *      its colours; a logo is a brand asset, so it is never in git.
  */
+import { readFileSync } from "node:fs"
+import path from "node:path"
+import { demoLender } from "../../../prisma/demo-lender"
 import { log, simEnv } from "../sim/env"
 import { as, staffOf, type Breadth } from "./context"
 import { ensureBreadthStaff, STAFF, type StaffKey } from "./staff"
@@ -32,7 +39,7 @@ const BRANCHES = [
 ] as const
 
 /** Bureau supplier details as the lender's SACRRA membership assigns them (fictional). */
-const BUREAU = { supplierNumber: "ACME01", tradingName: "ACME LENDING" } as const
+const BUREAU = demoLender().bureau
 
 /** Tenant default referral commission: 2% of principal. */
 const REFERRAL_COMMISSION_BPS = 200
@@ -116,10 +123,18 @@ async function rosterInbox(b: Breadth): Promise<void> {
   log(`inbox roster: ${emails.length} comms agents`)
 }
 
+async function uploadLogo(b: Breadth): Promise<void> {
+  const file = process.env.DEMO_LENDER_LOGO
+  if (!file) return
+  await b.sim.actors.admin.post("/api/settings/identity/logo", new Uint8Array(readFileSync(file)), { headers: { "content-type": "image/png" }, expect: [200] })
+  log(`Settings → Lender identity: logo ${path.basename(file)}`)
+}
+
 export async function runSetup(b: Breadth): Promise<void> {
   b.staff = await ensureBreadthStaff(b.sim.actors.admin)
   const branchIds = await ensureBranches(b)
   await placeStaff(b, branchIds)
   await enableSettings(b)
   await rosterInbox(b)
+  await uploadLogo(b)
 }

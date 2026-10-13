@@ -24,6 +24,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { generateTotpCode } from "../../../lib/totp"
+import { demoLender, type DemoLender } from "../../../prisma/demo-lender"
 import { SimClient } from "../sim/api"
 import { appNow } from "../sim/clock"
 import type { StaffCredentials } from "../sim/credentials"
@@ -42,12 +43,18 @@ interface StaffSpec {
   branch?: string
 }
 
-export const STAFF: Readonly<Record<StaffKey, StaffSpec>> = {
-  officer2: { name: "Lindiwe Mahlangu", email: "lindiwe.mahlangu@acme-lending.example", role: "CREDIT_OFFICER", phone: "+27120000101", branch: "PTA" },
-  insurance: { name: "Priya Govender", email: "priya.govender@acme-lending.example", role: "INSURANCE_OFFICER", phone: "+27110000102", branch: "SAN" },
-  branchManager: { name: "Pieter Steyn", email: "pieter.steyn@acme-lending.example", role: "BRANCH_MANAGER", phone: "+27120000103", branch: "PTA" },
-  operator: { name: "CredaFlow Platform Operator", email: "operator@credaflow-platform.example", role: "SUPER_ADMIN" },
+/** The lender's staff are on its staff domain; the platform operator is not lender staff. */
+export function staffFor(lender: DemoLender): Readonly<Record<StaffKey, StaffSpec>> {
+  const d = lender.staffDomain
+  return {
+    officer2: { name: "Lindiwe Mahlangu", email: `lindiwe.mahlangu@${d}`, role: "CREDIT_OFFICER", phone: "+27120000101", branch: "PTA" },
+    insurance: { name: "Priya Govender", email: `priya.govender@${d}`, role: "INSURANCE_OFFICER", phone: "+27110000102", branch: "SAN" },
+    branchManager: { name: "Pieter Steyn", email: `pieter.steyn@${d}`, role: "BRANCH_MANAGER", phone: "+27120000103", branch: "PTA" },
+    operator: { name: "CredaFlow Platform Operator", email: "operator@credaflow-platform.example", role: "SUPER_ADMIN" },
+  }
 }
+
+export const STAFF = staffFor(demoLender())
 
 export interface StoredStaff extends StaffCredentials {
   userId: string
