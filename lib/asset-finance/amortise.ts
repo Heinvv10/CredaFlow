@@ -71,7 +71,6 @@ export function amortise(input: AmortisationInput): AmortisationResult {
   assertCents(input.openingCents, "opening balance")
   assertCents(balloonCents, "balloonCents")
   if (input.openingCents <= 0) throw new RangeError("financed amount: must be more than 0")
-  if (balloonCents >= input.openingCents) throw new RangeError("balloonCents: must be less than the financed amount")
 
   const startDay = toDayNumber(input.accrualStartDate, "accrual start date")
   const dueDays = validatePeriods(periods, startDay)

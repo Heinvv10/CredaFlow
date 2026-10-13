@@ -92,6 +92,7 @@ export function solveStructure(input: StructureInput): StructureResult {
   const financedAmountCents =
     input.cashPriceCents - input.depositCents - input.tradeInCents + input.financedFeesCents
   if (financedAmountCents <= 0) throw new RangeError("financed amount: must be more than 0")
+  if (input.balloonCents >= financedAmountCents) throw new RangeError("balloonCents: must be less than the financed amount")
 
   const n = input.weights.length
   const lumps = new Array<number>(n).fill(0)
