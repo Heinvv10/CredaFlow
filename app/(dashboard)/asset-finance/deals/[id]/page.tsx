@@ -15,10 +15,13 @@ import { CreditMemoForm } from "./CreditMemoForm"
 import { DealActionButton } from "./DealActionButton"
 import { DecidePanel } from "./DecidePanel"
 import { OverrideDecision } from "./OverrideDecision"
+import { SigningPanel } from "./SigningPanel"
+import { loadStaffSigningPanel } from "@/lib/asset-finance/signing-view"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
 const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
+const SIGNING_STATUSES = ["APPROVED", "CONTRACTED", "BOOKED"]
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { user, tenantId, canManage } = await requireAssetFinanceStaffPage()
@@ -27,6 +30,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const deal = await loadDealDetail(tenantId, id)
   if (!deal) notFound()
   const { schedule, financials } = deal
+  const signing = SIGNING_STATUSES.includes(deal.status) ? await loadStaffSigningPanel(tenantId, id) : null
 
   const submit = canManage && deal.status === "DRAFT"
     ? <DealActionButton url={`/api/asset-finance/deals/${id}/submit`} label="Submit deal" busyLabel="Classifying…" />
@@ -103,6 +107,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             )
           )}
         </DataPanel>
+
+        {signing && <SigningPanel dealId={id} panel={signing} canManage={canManage} userId={user.id} />}
       </div>
     </>
   )

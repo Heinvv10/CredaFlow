@@ -472,4 +472,14 @@ export const AuditAction = {
   ASSET_DEAL_DECISION_REFUSED: "ASSET_DEAL_DECISION_REFUSED",
   ENTITY_FINANCIALS_RECORDED: "ENTITY_FINANCIALS_RECORDED",
   ASSET_DEAL_BUREAU_CHECKED: "ASSET_DEAL_BUREAU_CHECKED",
+  // Deal documents and signing (lib/asset-finance/signing-*.ts): who prepared
+  // the documents, each e-signature, each wet-ink scan and its confirmation by
+  // a second user, and the move to CONTRACTED. Refusals (four eyes, signers
+  // outstanding) are audited too. Document reads go to DocumentAccessLog.
+  ASSET_DEAL_DOCUMENTS_PREPARED: "ASSET_DEAL_DOCUMENTS_PREPARED",
+  ASSET_DEAL_DOCUMENT_SIGNED: "ASSET_DEAL_DOCUMENT_SIGNED",
+  ASSET_DEAL_WET_INK_UPLOADED: "ASSET_DEAL_WET_INK_UPLOADED",
+  ASSET_DEAL_WET_INK_CONFIRMED: "ASSET_DEAL_WET_INK_CONFIRMED",
+  ASSET_DEAL_CONTRACTED: "ASSET_DEAL_CONTRACTED",
+  ASSET_DEAL_SIGNING_REFUSED: "ASSET_DEAL_SIGNING_REFUSED",
 } as const

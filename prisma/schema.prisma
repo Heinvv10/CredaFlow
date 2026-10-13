@@ -4174,6 +4174,7 @@ model EntityDocument {
   deletedAt          DateTime?
   deletedById        String?
   createdAt          DateTime           @default(now())
+  signerScans        DealSigner[]       @relation("DealSignerScan")
 
   @@unique([tenantId, id])
   @@index([tenantId, entityId])
@@ -4421,7 +4422,11 @@ enum SignatureMethod {
 
 // One required signature on one deal document. The required set is derived
 // from the entity's authorised signatories (agreement, resolution) and the
-// deal's sureties (one suretyship each).
+// deal's sureties (one suretyship each); lib/asset-finance/signing.ts.
+// The document is rendered once when the deal's documents are prepared and
+// stored (lib/storage) at documentStoragePath; documentSha256 binds those
+// bytes. Signing also re-renders it and refuses if the deal has changed since.
+// Hand-written guards: guardDealSigner, guardAssetDealContract.
 model DealSigner {
   id                 String           @id @default(cuid())
   tenantId           String
@@ -4432,12 +4437,18 @@ model DealSigner {
   role               DealSignerRole
   document           DealDocumentKind
   documentSha256     String?
+  documentStoragePath String?
   method             SignatureMethod?
   signedAt           DateTime?
   signatureData      String?
   signatureSha256    String?
   signedByIp         String?
+  // Wet ink: the scan (an EntityDocument SIGNED_* of this deal), who uploaded
+  // it and when; a different user confirms it (CHECK DealSigner_wet_ink_four_eyes).
   scanDocumentId     String?
+  scanDocument       EntityDocument?  @relation("DealSignerScan", fields: [tenantId, scanDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scanUploadedById   String?
+  scanUploadedAt     DateTime?
   confirmedById      String?
   confirmedAt        DateTime?
   createdAt          DateTime         @default(now())

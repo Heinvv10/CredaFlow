@@ -57,18 +57,26 @@ export function safeFileName(name: string): string {
   return cleaned.length > 0 ? cleaned : "document"
 }
 
+type EntityDocumentTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+
 export interface EntityDocumentUploader {
   type: "staff" | "client"
   id: string
   email?: string
 }
 
-/** Store the bytes, then the row and its audit entry in one transaction. */
+/**
+ * Store the bytes, then the row and its audit entry in one transaction.
+ * `withinTransaction` runs in that transaction after the row exists (the
+ * wet-ink signing flow binds the scan to its signer there); if it throws,
+ * nothing is kept.
+ */
 export async function storeEntityDocument(params: {
   tenantId: string
   entityId: string
   upload: ParsedEntityUpload
   uploader: EntityDocumentUploader
+  withinTransaction?: (tx: EntityDocumentTx, document: { id: string; contentSha256: string }) => Promise<void>
 }): Promise<EntityDocumentView> {
   const { tenantId, entityId, upload, uploader } = params
   const buffer = Buffer.from(await upload.file.arrayBuffer())
@@ -111,6 +119,7 @@ export async function storeEntityDocument(params: {
         },
         tx,
       )
+      if (params.withinTransaction) await params.withinTransaction(tx, { id: created.id, contentSha256 })
       return created
     })
     return toEntityDocumentView(row)
