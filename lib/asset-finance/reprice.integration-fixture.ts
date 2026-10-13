@@ -72,19 +72,34 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
   const { tenantId } = tenant
   const totalInterest = BOOKED.totalInterestCents
   const paidRows = BOOKED.rows.slice(0, PAID_ROWS)
-  // The application stays UNDER_REVIEW, as in the other loan fixtures: on a
-  // DISBURSED application assertDisbursedCreditLifeCoverage refuses this Loan
-  // ("Bundled credit-life policy requires the exact signed, verified,
-  // non-deleted agreement document..."), a consumer rule booking (goal 4.10)
-  // must settle for NON_NCA deals. The PASQ v3
-  // schedule guards key on pasqVersion, which is NULL here as on any NON_NCA
-  // application, so they run on every write below and pass.
+  // The application reaches NON_NCA the only way the database allows: it is
+  // classified NCA, a second person approves an NCA → NON_NCA override, and the
+  // flip consumes that approval (guardLoanApplicationNcaRegime). It is then
+  // approved, and booking and disbursement commit together
+  // (assertDisbursedCreditLifeCoverage), exactly as asset-finance booking does.
   const loan = await db.$transaction(async (tx) => {
     const app = await tx.loanApplication.create({
       data: {
         tenantId, reference: `APP-RP-${n}`, entityId: tenant.entityId, productId: tenant.productId,
-        appliedAmount: BOOKED.financedAmountCents, appliedTermDays: 1_826, ncaRegime: "NON_NCA", status: "UNDER_REVIEW",
+        appliedAmount: BOOKED.financedAmountCents, appliedTermDays: 1_826, status: "UNDER_REVIEW",
+        ncaRegime: "NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ncaClassifiedAt: new Date(),
+        ncaClassifiedById: tenant.adminId,
       },
+    })
+    const override = await tx.ncaRegimeOverride.create({
+      data: {
+        tenantId, applicationId: app.id, fromRegime: "NCA", toRegime: "NON_NCA",
+        reason: "Classifier: JURISTIC_OVER_THRESHOLD (fixture)", requestedById: tenant.adminId,
+      },
+    })
+    await tx.ncaRegimeOverride.update({
+      where: { id: override.id },
+      data: { status: "APPROVED", decidedById: `second-approver-${n}`, decidedAt: new Date() },
+    })
+    await tx.loanApplication.update({ where: { id: app.id }, data: { ncaRegime: "NON_NCA" } })
+    await tx.loanApplication.update({
+      where: { id: app.id },
+      data: { status: "APPROVED", repaymentMethod: "EFT", approvedAt: new Date(), approvedById: tenant.adminId },
     })
     const created = await tx.loan.create({
       data: {
@@ -97,6 +112,7 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
         interestRatePm: 0.1275 / 12, interestModel: "REDUCING_BALANCE", status: "ACTIVE", monthlyServiceFee: 0,
       },
     })
+    await tx.loanApplication.update({ where: { id: app.id }, data: { status: "DISBURSED", disbursedAt: new Date() } })
     await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
     return created
   })
