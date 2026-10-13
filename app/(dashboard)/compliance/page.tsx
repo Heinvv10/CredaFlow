@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { auth } from "@/lib/auth"
 import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
@@ -41,7 +41,7 @@ export default async function CompliancePage({
   const group = parseGroup(params.group)
   const type = parseType(params.type)
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const lender = await findLenderIdentity(tenantId)
   const now = new Date()
 

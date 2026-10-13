@@ -255,6 +255,7 @@ export function LeadSlideOver({ leadId, onClose, initialTab = "details", onTabCh
                     status={lead.status}
                     callbackDate={lead.callbackDate}
                     callbackNotes={lead.callbackNotes}
+                    canSchedule={bundle.permissions.canWriteActivity}
                     onChanged={refresh}
                   />
                 )}

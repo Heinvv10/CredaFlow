@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/Header"
 import { requireMinRole, hasMinRole } from "@/lib/auth-guards"
 import { logAudit } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatDateTime } from "@/lib/utils"
 import { isAmbiguousMatchPayload } from "@/lib/contact/routing"
 import { leadConversionState, leadPipelineStatus } from "@/lib/crm/lead-conversion"
@@ -52,7 +52,7 @@ export default async function ContactDetailPage({ params }: PageProps) {
   // reaches here. The ambiguous-match panel below is gated separately at
   // LOAN_ADMIN because it surfaces third-party PII from collision candidates.
   const user = await requireMinRole("READONLY")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const contact = await prisma.contact.findFirst({
     where: { id, tenantId },

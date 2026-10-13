@@ -6,7 +6,7 @@ import { cashReceivedCents } from "@/lib/payments/waiver"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/lib/auth"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { Section129Button } from "@/components/collections/Section129Button"
 import { LogContactButton } from "@/components/collections/LogContactButton"
@@ -43,7 +43,7 @@ async function getLoanDetail(loanId: string, tenantId: string) {
 
 export default async function CollectionDetailPage({ params }: { params: Promise<{ loanId: string }> }) {
   const { loanId } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const loan = await getLoanDetail(loanId, tenantId)
   const chargesLive = await chargesLiveForTenant(prisma, tenantId)
   if (!loan) notFound()

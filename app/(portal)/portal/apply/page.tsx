@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { computeQualification } from "@/lib/qualify"
 import { PortalApplyClient } from "./PortalApplyClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { formatProductRange, getPublicLoanProduct, type PublicLoanProductCode } from "@/lib/public-loan-products"
 import { getLivePublicProductsServer } from "@/lib/public-loan-products-server"
 
@@ -15,7 +15,7 @@ export default async function PortalApplyPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const dbClient = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },

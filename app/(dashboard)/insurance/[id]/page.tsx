@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { PolicyDetailClient } from "@/components/insurance/PolicyDetailClient"
+import { getStaffTenantId } from "@/lib/session-tenant"
 
 export default async function PolicyDetailPage({
   params,
@@ -9,9 +10,13 @@ export default async function PolicyDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  // InsurancePolicy is not in the tenant-scope extension's model list, and
+  // pages run outside a tenant frame: only this predicate keeps another
+  // lender's policy out.
+  const tenantId = await getStaffTenantId()
 
-  const policy = await prisma.insurancePolicy.findUnique({
-    where: { id },
+  const policy = await prisma.insurancePolicy.findFirst({
+    where: { id, tenantId },
     include: {
       client: {
         select: {

@@ -20,7 +20,7 @@ function groupBy({ by, where }: { by: (keyof App)[]; where: Record<string, unkno
 }
 
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: vi.fn(async () => ({ id: "u1" })) }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "tenant-1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "tenant-1") }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {

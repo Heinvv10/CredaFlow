@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table"
 import { prisma } from "@/lib/prisma"
 import { formatDate, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { chargesOwing, loadChargesOwingByBand } from "@/lib/reports/charges-owing"
 
 const STAGE_LABELS: Record<string, string> = {
@@ -54,7 +54,7 @@ function bucketTone(label: string) {
 }
 
 async function getAgingData() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   // The same statuses as the rows below. The total also counts loans with no
   // instalment arrears (not listed as rows); the page states that part separately.
   const charges = await loadChargesOwingByBand(prisma, tenantId, [...COLLECTIBLE_STATUSES, "WRITTEN_OFF"])

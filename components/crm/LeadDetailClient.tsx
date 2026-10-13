@@ -101,6 +101,7 @@ export function LeadDetailClient({
   canCreateTasks,
   canManageTasks,
   canWriteActivity,
+  canConvert,
   currentUserId,
   duplicateCount,
   duplicatesTruncated,
@@ -119,6 +120,9 @@ export function LeadDetailClient({
   canManageTasks: boolean
   /** May change stage / log activity — CREDIT_OFFICER and above, like the actions. */
   canWriteActivity: boolean
+  /** May convert a lead or reset a stranded conversion — mirrors the convert
+   *  route and resetStrandedConvertedLead (CREDIT_OFFICER). */
+  canConvert: boolean
   /** Session user id — the Tasks panel decides completion per row from it. */
   currentUserId: string
   /** Leads sharing this one's phone or email. 0 renders no banner. */
@@ -403,7 +407,7 @@ export function LeadDetailClient({
                   fullWidth
                 />
               )}
-              {!conversionLocked && lead.status !== "LOST" && (
+              {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (
                 <button
                   onClick={() => setShowCallbackModal(true)}
                   className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors"
@@ -412,7 +416,7 @@ export function LeadDetailClient({
                   Schedule Callback
                 </button>
               )}
-              {canConvertLead(
+              {canConvert && canConvertLead(
                 lead.status,
                 lead.convertedToClientId,
                 lead.convertedToApplicationId,
@@ -423,7 +427,7 @@ export function LeadDetailClient({
                   Convert to Client
                 </Link>
               )}
-              {strandedConversion && (
+              {canConvert && strandedConversion && (
                 <button
                   onClick={handleResetConversion}
                   disabled={resettingConversion}
@@ -436,12 +440,12 @@ export function LeadDetailClient({
               {incompleteConversion && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Conversion evidence is incomplete. The exact client/application link must be repaired before this lead can progress.{" "}
-                  <Link href={`/crm/leads/${lead.id}/convert`} className="font-semibold underline">
+                  {canConvert && <Link href={`/crm/leads/${lead.id}/convert`} className="font-semibold underline">
                     Open repair view
-                  </Link>
+                  </Link>}
                 </div>
               )}
-              {!conversionLocked && lead.status !== "LOST" && (
+              {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (
                 <button
                   onClick={() => setShowLostModal(true)}
                   className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors"

@@ -2,20 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const {
   requireMinRole,
-  getDefaultTenantId,
+  getStaffTenantId,
   auditFindMany,
   userFindMany,
   queryRaw,
 } = vi.hoisted(() => ({
   requireMinRole: vi.fn(),
-  getDefaultTenantId: vi.fn(),
+  getStaffTenantId: vi.fn(),
   auditFindMany: vi.fn(),
   userFindMany: vi.fn(),
   queryRaw: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     auditLog: { findMany: auditFindMany },
@@ -33,7 +33,7 @@ describe("audit log settings page", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireMinRole.mockResolvedValue(undefined)
-    getDefaultTenantId.mockResolvedValue("tenant-1")
+    getStaffTenantId.mockResolvedValue("tenant-1")
     auditFindMany.mockResolvedValue([{
       id: "audit-1",
       userId: "staff-1",
