@@ -118,7 +118,6 @@ export async function cleanupBookingFixture(db: PrismaClient, fx: BookingFixture
     db.documentAccessLog.deleteMany({ where: { documentId: { in: invoices.map((i) => i.id) } } }),
     db.taxInvoiceLine.deleteMany({ where: { invoice: { tenantId } } }),
     db.taxInvoice.deleteMany({ where: { tenantId } }),
-    db.taxDocumentCounter.deleteMany({ where: { tenantId } }),
     db.vatConfig.deleteMany({ where: { tenantId } }),
     db.payout.deleteMany({ where: { tenantId } }),
     db.payoutChecklistItem.deleteMany({ where: { tenantId } }),

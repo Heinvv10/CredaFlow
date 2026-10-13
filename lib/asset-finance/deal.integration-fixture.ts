@@ -48,12 +48,10 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   const adminA = await user("admin-a", "LOAN_ADMIN")
   const adminB = await user("admin-b", "LOAN_ADMIN")
   // Four-eyes: only an APPROVED rate counts, decided by a second real user.
-  await db.referenceRate.create({
-    data: {
-      tenantId, basis: "PRIME", effectiveDate: new Date("2020-01-01T00:00:00Z"), rate: "0.1075",
-      status: "APPROVED", requestedById: adminA, decidedById: adminB, decidedAt: new Date(),
-    },
+  const prime = await db.referenceRate.create({
+    data: { tenantId, basis: "PRIME", effectiveDate: new Date("2020-01-01T00:00:00Z"), rate: "0.1075", requestedById: adminA },
   })
+  await db.referenceRate.update({ where: { id: prime.id }, data: { status: "APPROVED", decidedById: adminB, decidedAt: new Date() } })
   const supplier = await db.supplier.create({ data: { tenantId, name: "TEST Plant Sales (Pty) Ltd" } })
   const assets: string[] = []
   for (let i = 1; i <= 3; i++) {
