@@ -115,7 +115,7 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
     input.recordedBaseCents ?? modalPositive(regulars.slice(0, -1)) ?? regulars[regulars.length - 1]
   if (!(referenceInstalmentCents > 0)) return { error: "unsupported_schedule" }
   let weights = deriveWeights(regulars, referenceInstalmentCents, stored.length)
-  if (input.contractualWeights !== undefined) {
+  if (input.contractualWeights != null) {
     if (!Array.isArray(input.contractualWeights)
         || input.contractualWeights.length !== stored.length
         || input.contractualWeights.some((weight) => typeof weight !== "number" || !Number.isFinite(weight) || weight < 0)
