@@ -136,7 +136,7 @@ suite("asset finance foundation: borrower XOR and entity rules", () => {
     const app = f.application({ entityId }, "NCA")
     sql(app)
     expectRejected(
-      `UPDATE "LoanApplication" SET "ncaClassifiedById" = NULL WHERE "id" = '${idOf(app)}'`,
+      `UPDATE "LoanApplication" SET "ncaClassifiedById" = NULL, "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${idOf(app)}'`,
       "LoanApplication_nca_classification_complete",
     )
   })
@@ -144,7 +144,7 @@ suite("asset finance foundation: borrower XOR and entity rules", () => {
   it("records only the classifier's rule ids, so a padded or re-cased LARGE_AGREEMENT cannot dodge the R250 000 floor", () => {
     const app = f.application({ entityId }, "NCA")
     sql(app)
-    const setRule = (value: string) => `UPDATE "LoanApplication" SET "ncaClassificationRule" = ${value} WHERE "id" = '${idOf(app)}'`
+    const setRule = (value: string) => `UPDATE "LoanApplication" SET "ncaClassificationRule" = ${value}, "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 minute' WHERE "id" = '${idOf(app)}'`
     const bogus = [`'LARGE_AGREEMENT '`, `E'LARGE_AGREEMENT\\n'`, `'large_agreement'`, `'MANUAL'`]
     for (const value of bogus) expectRejected(setRule(value), "LoanApplication_nca_classification_rule_known")
     expectRejected(
