@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest"
 // set, and named in the output so it is never silently dropped.
 
 const SCRIPT = join(process.cwd(), "scripts", "run-integration-tests.sh")
-const env = { PATH: process.env.PATH ?? "", NODE_ENV: "test", DATABASE_URL: "postgresql://u:p@127.0.0.1:55432/it" }
+const env: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? "", NODE_ENV: "test", DATABASE_URL: "postgresql://u:p@127.0.0.1:55432/it" }
 const run = (arg: string) => spawnSync("bash", [SCRIPT, arg], { env, encoding: "utf8" })
 
 describe("run-integration-tests.sh opt-in suites", () => {
