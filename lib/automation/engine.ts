@@ -12,6 +12,7 @@ import type { AutomationRule } from "@prisma/client"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { automationCooldownMs, automationOccurrenceKey } from "./occurrence"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { requireClientBorrowerId } from "@/lib/borrower"
 
 type AutomationLogResult =
   | "success"
@@ -266,13 +267,16 @@ async function evaluateLoanPaidOnTimeN(rule: AutomationRule): Promise<number> {
   let fired = 0
   for (const s of paidOnTime) {
     if (!s.paidAt || s.paidAt > s.dueDate) continue
+    // Cross-sell opportunities attach to a Client; an entity borrower has none.
+    const clientId = s.loan.clientId
+    if (clientId === null) continue
     if (await alreadyFired(rule.id, s.loanId, rule.trigger)) continue
     if (await isPaused(rule.id, s.loanId)) {
       await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: s.loanId, result: "skipped", error: "paused" })
       continue
     }
     try {
-      await actionCreateOpportunity(rule, s.loan.clientId, rule.tenantId)
+      await actionCreateOpportunity(rule, clientId, rule.tenantId)
       await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: s.loanId, result: "success" })
       fired++
     } catch (err) {
@@ -485,7 +489,7 @@ export async function replayAutomationLog(
       case "LOAN_PAID_ON_TIME_N": {
         const loan = await prisma.loan.findFirst({ where: { id: entityId, tenantId }, select: { clientId: true } })
         if (!loan) throw new Error("Loan not found")
-        await actionCreateOpportunity(rule, loan.clientId, tenantId)
+        await actionCreateOpportunity(rule, requireClientBorrowerId(loan), tenantId)
         break
       }
       case "LOAN_PAID_IN_FULL": {

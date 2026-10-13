@@ -6,6 +6,7 @@ import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -27,6 +28,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
 
     if (!loan) {
       return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    }
+    // The statement PDF renders a consumer; entity-borrower statements are not built yet.
+    if (!hasClientBorrower(loan)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
 
     const access = await requireOwnerOrStaff(loan.clientId)

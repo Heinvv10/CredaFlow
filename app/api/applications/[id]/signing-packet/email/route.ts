@@ -14,6 +14,7 @@ import { escapeHtml } from "@/lib/utils"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
 import { portalContinueUrl } from "@/lib/portal-urls"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -45,6 +46,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The signing packet holds consumer NCA documents; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (
       application.status !== "APPROVED"

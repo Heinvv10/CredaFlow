@@ -3,6 +3,7 @@ import type { prisma } from "@/lib/prisma"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import type { ChargesTx } from "@/lib/loan/charges-replay"
 import { isBalanceWaiver } from "@/lib/payments/waiver"
+import { hasClientBorrower } from "@/lib/borrower"
 import type { SubmissionKind } from "./layout"
 import type { AdverseStatus, BureauLoanInput, DataFlag } from "./map-loan"
 import { dayAsOf, dayEnd, dayToDbDate, type Day } from "./period"
@@ -63,11 +64,14 @@ const LOAN_SELECT = {
 
 export async function loadBureauLoans(db: Db, tenantId: string, loanIds: string[]) {
   if (loanIds.length === 0) return []
-  return db.loan.findMany({
+  const loans = await db.loan.findMany({
     where: { tenantId, id: { in: loanIds } },
     select: LOAN_SELECT,
     orderBy: { reference: "asc" },
   })
+  // The consumer bureau file reports natural persons; an entity borrower
+  // (asset finance) is never in it.
+  return loans.filter(hasClientBorrower)
 }
 
 export type BureauLoanRow = Awaited<ReturnType<typeof loadBureauLoans>>[number]

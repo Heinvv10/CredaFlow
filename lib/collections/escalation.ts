@@ -135,6 +135,10 @@ export async function processEscalations(): Promise<EscalationResult> {
   })
 
   for (const loan of loans) {
+    // The escalation ladder (reminders, s129, handover) is the consumer NCA
+    // process; an entity borrower (asset finance) is not escalated here.
+    const clientId = loan.clientId
+    if (clientId === null) continue
     for (const rule of RULES) {
       if (loan.daysInArrears < rule.minDays) continue
 
@@ -145,7 +149,7 @@ export async function processEscalations(): Promise<EscalationResult> {
         loanId: loan.id,
         loanRef: loan.reference,
         tenantId: tenant.id,
-        clientId: loan.clientId,
+        clientId,
         daysInArrears: loan.daysInArrears,
         arrearsAmount: loan.arrearsAmount,
         outstandingPrincipal: loan.outstandingPrincipal,

@@ -65,6 +65,11 @@ export const TENANT_SCOPED_MODELS = [
   // page pass it explicitly, so the rewriter is the backstop for a query that
   // forgets to.
   "BreachLog",
+  // Asset finance (docs/asset-finance/DESIGN.md). Non-null tenantId; the
+  // routes run inside withTenantContext and also pass it explicitly.
+  "BusinessEntity",
+  "EntityRelationship",
+  "NcaRegimeOverride",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

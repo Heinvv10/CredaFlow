@@ -25,6 +25,7 @@ import {
   lockNewApplicationSubmissionEvidence,
   type ApplicationSubmissionTransaction,
 } from "./submission-lock"
+import { requireClientBorrower } from "@/lib/borrower"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 import {
@@ -346,7 +347,7 @@ suite("application submission evidence locking", () => {
         include: { client: true, product: true },
       })
       const captured = {
-        monthlyIncomeCents: application.client.monthlyIncome,
+        monthlyIncomeCents: requireClientBorrower(application).monthlyIncome,
         interestRatePm: application.product.interestRatePm,
       }
       announceLocked()

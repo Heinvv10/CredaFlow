@@ -20,6 +20,7 @@ import {
   type ReminderChannel,
   type ReminderDelivery,
 } from "@/lib/collections/manual-reminder-outcome"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 export async function POST(
   req: NextRequest,
@@ -54,6 +55,10 @@ export async function POST(
       include: { client: { select: { id: true, phone: true, whatsapp: true, firstName: true, lastName: true } } },
     })
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    // Collections reminders address a natural person; an entity borrower is refused.
+    if (!hasClientBorrower(loan)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
 
     // Collections/dunning reminders are for accounts with arrears to collect —
     // never dun a settled R0 account. Also gate on

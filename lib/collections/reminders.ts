@@ -350,6 +350,9 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
   const companyPhone = identity.collectionsPhone
 
   for (const loan of loans) {
+    // Reminders address a natural person; an entity borrower (asset finance)
+    // is not reminded here.
+    if (!loan.client) continue
     const today = new Date()
     const dueDate = loan.nextPaymentDate!
     const daysUntil = daysBetween(today, dueDate)

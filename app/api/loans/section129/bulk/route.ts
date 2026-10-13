@@ -29,6 +29,7 @@ import {
   Section129DispatchUncertainError,
   Section129IssuanceConflictError,
 } from "@/lib/collections/section129-artifact"
+import { hasClientBorrower } from "@/lib/borrower"
 
 type BulkSection129Result = {
   loanId: string
@@ -61,7 +62,9 @@ export async function POST(req: NextRequest) {
       include: { client: true, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
     })
 
-    const eligible = loans.filter(isSection129Eligible)
+    // Section 129 is a consumer NCA notice: an entity borrower is skipped (and
+    // counted in `skipped`).
+    const eligible = loans.filter(hasClientBorrower).filter(isSection129Eligible)
     const noticeDateValue = new Date()
     const noticeDate = section129NoticeDateLabel(noticeDateValue)
     let sent = 0

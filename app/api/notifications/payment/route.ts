@@ -10,6 +10,7 @@ import {
   paymentReceivedEmail,
   paymentDueReminderEmail,
 } from "@/lib/email/templates/portal"
+import { EntityBorrowerError } from "@/lib/borrower"
 
 interface RequestBody {
   paymentId: string
@@ -61,6 +62,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!payment) {
       return NextResponse.json({ error: "Payment not found" }, { status: 404 })
     }
+    // These emails address a natural person; an entity borrower is refused.
+    if (!payment.loan.client) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
     if (isBalanceWaiver(payment.paymentMethod)) {
       return NextResponse.json({ error: "A waived balance is not a payment received" }, { status: 409 })
     }
@@ -106,6 +111,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (!schedule) {
       return NextResponse.json({ error: "Repayment schedule not found" }, { status: 404 })
+    }
+    // These emails address a natural person; an entity borrower is refused.
+    if (!schedule.loan.client) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
 
     const clientName = `${schedule.loan.client.firstName} ${schedule.loan.client.lastName}`

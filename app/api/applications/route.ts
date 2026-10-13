@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
           tenantId: tenant.id,
           event: "application_submitted",
           loanId: application.id,
-          clientId: application.clientId,
+          clientId: application.clientId ?? undefined,
         }).catch(() => {})
       }
 

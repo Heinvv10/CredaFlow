@@ -419,4 +419,12 @@ export const AuditAction = {
   DSAR_UPDATED: "DSAR_UPDATED",
   // Branches (app/api/branches).
   BRANCH_CREATED: "BRANCH_CREATED",
+  // Asset finance NCA regime (lib/asset-finance/classification.ts,
+  // app/api/asset-finance). NON_NCA switches off the consumer rules, so who
+  // classified, who asked to change it and who agreed are audit questions.
+  NCA_CLASSIFIED: "NCA_CLASSIFIED",
+  NCA_OVERRIDE_REQUESTED: "NCA_OVERRIDE_REQUESTED",
+  NCA_OVERRIDE_DECIDED: "NCA_OVERRIDE_DECIDED",
+  // A decision refused for lack of authority or by the four-eyes rule.
+  NCA_OVERRIDE_DECISION_REFUSED: "NCA_OVERRIDE_DECISION_REFUSED",
 } as const

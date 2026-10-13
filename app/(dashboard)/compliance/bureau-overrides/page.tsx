@@ -11,6 +11,7 @@ import {
   BureauOverridesTable,
   type BureauOverrideRow,
 } from "@/components/compliance/BureauOverridesTable"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 const HARD_CAP = 200
 
@@ -53,6 +54,7 @@ export default async function BureauOverridesPage({
     where: buildWhere(tenantId, filter),
     include: {
       client: { select: { firstName: true, lastName: true, idNumber: true } },
+      entity: { select: { legalName: true } },
       bureauOverrideBy: { select: { name: true, email: true } },
     },
     orderBy: { bureauOverrideAt: "desc" },
@@ -66,8 +68,8 @@ export default async function BureauOverridesPage({
     applicationId: a.id,
     reference: a.reference,
     status: a.status,
-    clientName: `${a.client.firstName} ${a.client.lastName}`.trim(),
-    clientIdMasked: maskIdNumber(a.client.idNumber),
+    clientName: borrowerDisplayName(a),
+    clientIdMasked: a.client ? maskIdNumber(a.client.idNumber) : "—",
     // Non-null by `buildWhere` invariant: `bureauOverrideAt: { not: null }`.
     overrideAt: a.bureauOverrideAt!,
     overrideByName: a.bureauOverrideBy?.name ?? a.bureauOverrideBy?.email ?? "—",

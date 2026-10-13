@@ -936,6 +936,9 @@ model LoanApplication {
   ncaClassificationEvidenceIds  String[]             @default([])
   ncaClassifiedAt               DateTime?
   ncaClassifiedById             String?
+  // Set by trigger guardLoanApplicationNcaRegime on every regime change; an
+  // override approval only authorises NCA → NON_NCA if decided after it.
+  ncaRegimeChangedAt            DateTime?
   productId                     String
   branchId                      String?
   branch                        Branch?              @relation(fields: [branchId], references: [id])

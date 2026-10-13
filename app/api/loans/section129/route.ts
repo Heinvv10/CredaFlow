@@ -29,6 +29,7 @@ import {
   Section129DispatchUncertainError,
   Section129IssuanceConflictError,
 } from "@/lib/collections/section129-artifact"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("COLLECTIONS_OFFICER")
@@ -43,6 +44,10 @@ export async function POST(req: NextRequest) {
       include: { client: true, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
     })
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    // Section 129 is a consumer NCA notice; an entity borrower is refused.
+    if (!hasClientBorrower(loan)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
 
     // The PDF endpoint uses this exact predicate too. A statutory default
     // document must never be renderable for a state the dispatch route refuses.

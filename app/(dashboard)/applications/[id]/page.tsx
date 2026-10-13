@@ -65,6 +65,8 @@ import {
   readAffordabilitySnapshotStore,
   totalAffordabilityDebt,
 } from "@/lib/affordability/snapshot"
+import { hasClientBorrower } from "@/lib/borrower"
+import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -81,6 +83,7 @@ async function getApplication(id: string, tenantId: string) {
     where: { id, tenantId },
     include: {
       client: { include: { debtObligations: true } },
+      entity: { select: { legalName: true } },
       product: true,
       assignedTo: { select: { name: true, email: true } },
       approvedBy: { select: { name: true, email: true } },
@@ -198,6 +201,15 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     getCollectionsEngineEnabled(tenantId),
   ])
   if (!application) notFound()
+  if (!hasClientBorrower(application)) {
+    return (
+      <EntityBorrowerNotice
+        crumbs={[{ label: "Applications", href: "/applications" }]}
+        reference={application.reference}
+        legalName={application.entity?.legalName ?? null}
+      />
+    )
+  }
   const userRole = session?.user?.role ?? "READONLY"
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")

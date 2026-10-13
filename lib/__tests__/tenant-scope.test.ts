@@ -85,6 +85,9 @@ describe("tenant-scope — ALS primitives", () => {
       // POPIA security-compromise register — non-null tenantId, passed
       // explicitly by its routes and page.
       "BreachLog",
+      "BusinessEntity",
+      "EntityRelationship",
+      "NcaRegimeOverride",
     ])
   })
 

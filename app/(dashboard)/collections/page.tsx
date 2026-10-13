@@ -11,6 +11,7 @@ import { CollectionsTabs } from "@/components/collections/CollectionsTabs"
 import { getDefaultTenantId } from "@/lib/tenant"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
+import { borrowerDisplayName, hasClientBorrower } from "@/lib/borrower"
 
 
 async function getCollectionsData(tenantId: string, chargesLive: boolean) {
@@ -26,7 +27,11 @@ async function getCollectionsData(tenantId: string, chargesLive: boolean) {
   })
   // Arrears as shown to staff include default charges owed (the synced
   // summary column), only while charges are live.
-  return loans.map((loan) => ({ ...loan, arrearsAmount: arrearsWithCharges(loan, chargesLive) }))
+  // The queue's actions (s129, payment plan, contact log) are the consumer NCA
+  // process; an entity-borrower loan is not queued here.
+  return loans
+    .filter(hasClientBorrower)
+    .map((loan) => ({ ...loan, arrearsAmount: arrearsWithCharges(loan, chargesLive) }))
 }
 
 async function getPendingWriteOffs(tenantId: string) {
@@ -38,6 +43,7 @@ async function getPendingWriteOffs(tenantId: string) {
     orderBy: { writeOffRequestedAt: "desc" },
     include: {
       client: { select: { firstName: true, lastName: true } },
+      entity: { select: { legalName: true } },
     },
   })
   const requesterIds = [...new Set(loans.map((l) => l.writeOffRequestedById).filter((v): v is string => !!v))]
@@ -48,7 +54,7 @@ async function getPendingWriteOffs(tenantId: string) {
   return loans.map((l) => ({
     id: l.id,
     reference: l.reference,
-    clientName: `${l.client.firstName} ${l.client.lastName}`,
+    clientName: borrowerDisplayName(l),
     outstandingPrincipal: l.outstandingPrincipal,
     writeOffReason: l.writeOffReason,
     requestedBy: l.writeOffRequestedById ? requesterName.get(l.writeOffRequestedById) ?? "Unknown" : "Unknown",

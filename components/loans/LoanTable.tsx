@@ -9,6 +9,7 @@ import { FilterSelect, FilterSummary, SearchInput } from "@/components/ui/list-f
 import { formatDate, formatZAR } from "@/lib/utils"
 import { getStatusTone } from "@/lib/status-style"
 import { matchesCentsAmount } from "@/lib/list-search"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 interface Loan {
   id: string
@@ -24,7 +25,8 @@ interface Loan {
   client: {
     firstName: string
     lastName: string
-  }
+  } | null
+  entity?: { legalName: string } | null
   product: {
     name: string
   }
@@ -73,7 +75,7 @@ export function LoanTable({ loans }: LoanTableProps) {
 
     const matchesSearch = (loan: Loan) => {
       if (!searchQuery) return true
-      const clientName = `${loan.client.firstName} ${loan.client.lastName}`.toLowerCase()
+      const clientName = borrowerDisplayName(loan).toLowerCase()
       if (
         clientName.includes(searchQuery) ||
         loan.reference.toLowerCase().includes(searchQuery) ||
@@ -192,10 +194,12 @@ export function LoanTable({ loans }: LoanTableProps) {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-[var(--cf-border-strong)] bg-[rgba(79,70,229,0.14)] text-[10px] font-semibold text-[var(--cf-brand-soft)]">
-                        {getInitials(loan.client.firstName, loan.client.lastName)}
+                        {loan.client
+                          ? getInitials(loan.client.firstName, loan.client.lastName)
+                          : borrowerDisplayName(loan).slice(0, 2).toUpperCase()}
                       </div>
                       <span className="text-[13px] font-medium text-[var(--cf-text)]">
-                        {loan.client.firstName} {loan.client.lastName}
+                        {borrowerDisplayName(loan)}
                       </span>
                     </div>
                   </td>

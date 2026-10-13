@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { borrowerDisplayName } from "@/lib/borrower"
 import type { CandidateLoan } from "./types"
 
 export async function buildCandidateLoans(tenantId: string): Promise<CandidateLoan[]> {
@@ -6,6 +7,7 @@ export async function buildCandidateLoans(tenantId: string): Promise<CandidateLo
     where: { tenantId, status: { in: ["ACTIVE", "DEFAULTED"] } },
     include: {
       client: { select: { firstName: true, lastName: true, phone: true } },
+      entity: { select: { legalName: true } },
       repaymentSchedule: { orderBy: { dueDate: "asc" } },
     },
   })
@@ -15,11 +17,11 @@ export async function buildCandidateLoans(tenantId: string): Promise<CandidateLo
       loanId: loan.id,
       loanReference: loan.reference,
       expectedInstalmentCents: nextUnpaid?.totalDue ?? loan.repaymentSchedule[0]?.totalDue ?? 0,
-      clientNameTokens: `${loan.client.firstName} ${loan.client.lastName}`
+      clientNameTokens: borrowerDisplayName(loan)
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean),
-      clientPhoneDigits: loan.client.phone?.replace(/\D/g, "") || null,
+      clientPhoneDigits: loan.client?.phone?.replace(/\D/g, "") || null,
       nextDueDate: nextUnpaid?.dueDate ?? null,
     }
   })

@@ -17,6 +17,7 @@ import { CHARGES_FLAG_INCLUDE, chargesEnabled } from "@/lib/loan/charges-replay"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { SAST_TIME_ZONE } from "@/lib/utils"
+import { requireClientBorrowerId } from "@/lib/borrower"
 
 const NOTICE_TYPE = "SECTION_129_NOTICE" as const
 export const SECTION129_STALE_RESERVATION_MS = 60 * 60 * 1000
@@ -760,13 +761,15 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
       if (!loan) {
         throw new Section129EligibilityChangedError("loan no longer exists in this tenant")
       }
+      // s129 is a consumer NCA notice; an entity borrower is refused.
+      const clientId = requireClientBorrowerId(loan)
       await tx.$queryRawUnsafe(
         `SELECT id FROM "Client" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
-        loan.clientId,
+        clientId,
         args.tenantId,
       )
       const client = await tx.client.findUnique({
-        where: { id: loan.clientId, tenantId: args.tenantId },
+        where: { id: clientId, tenantId: args.tenantId },
         select: {
           firstName: true,
           lastName: true,

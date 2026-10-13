@@ -220,12 +220,16 @@ export async function actionSendWa(
         },
       },
     })
-    if (!loan || !loan.client.branch || loan.client.branch.tenantId !== tenantId) {
+    if (!loan) return preReservationFailure("entity_not_found_or_cross_tenant")
+    // The templates address a natural person; an entity borrower is not messaged here.
+    const client = loan.client
+    if (!client) return preReservationFailure("entity_borrower")
+    if (!client.branch || client.branch.tenantId !== tenantId) {
       return preReservationFailure("entity_not_found_or_cross_tenant")
     }
-    clientId = loan.client.id
-    waPhone = loan.client.whatsapp ?? loan.client.phone
-    const name = `${loan.client.firstName} ${loan.client.lastName}`
+    clientId = client.id
+    waPhone = client.whatsapp ?? client.phone
+    const name = `${client.firstName} ${client.lastName}`
     // Arrears + default charges outstanding (0 while the flag is off).
     const charges = await chargesOutstandingAt(prisma, { tenantId, loanId: entity.id }, new Date())
     const amount = new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format((loan.arrearsAmount + charges) / 100)
@@ -258,12 +262,16 @@ export async function actionSendWa(
         },
       },
     })
-    if (!schedule || !schedule.loan.client.branch || schedule.loan.client.branch.tenantId !== tenantId) {
+    if (!schedule) return preReservationFailure("entity_not_found_or_cross_tenant")
+    // The templates address a natural person; an entity borrower is not messaged here.
+    const client = schedule.loan.client
+    if (!client) return preReservationFailure("entity_borrower")
+    if (!client.branch || client.branch.tenantId !== tenantId) {
       return preReservationFailure("entity_not_found_or_cross_tenant")
     }
-    clientId = schedule.loan.client.id
-    waPhone = schedule.loan.client.whatsapp ?? schedule.loan.client.phone
-    const name = `${schedule.loan.client.firstName} ${schedule.loan.client.lastName}`
+    clientId = client.id
+    waPhone = client.whatsapp ?? client.phone
+    const name = `${client.firstName} ${client.lastName}`
     // The unpaid instalment + default charges outstanding (0 while the flag is off).
     const charges = await chargesOutstandingAt(prisma, { tenantId, loanId: schedule.loanId }, new Date())
     const amountDue = schedule.totalDue - schedule.totalPaid + charges

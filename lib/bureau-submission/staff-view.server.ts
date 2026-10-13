@@ -138,9 +138,12 @@ export async function listHeldRecords(tenantId: string, now: Date): Promise<Held
     if (seen.has(key)) continue
     seen.add(key)
     if (clearedBy(row) > row.submission.createdAt.getTime()) continue
+    // The consumer file never carries an entity-borrower loan.
+    const clientId = row.loan.clientId
+    if (clientId === null) continue
     held.push({
       loanId: row.loanId,
-      clientId: row.loan.clientId,
+      clientId,
       reference: row.loan.reference,
       reasons: (row.heldReason ?? "").split(","),
       kind: row.kind,

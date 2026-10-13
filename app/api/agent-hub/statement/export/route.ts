@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
     const loans = loanIds.length
       ? await prisma.loan.findMany({
           where: { id: { in: loanIds }, tenantId: tenant.id },
-          select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } }, product: { select: { name: true } } },
+          select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } }, product: { select: { name: true } } },
         })
       : []
     const loansById = new Map(loans.map((l) => [l.id, l]))

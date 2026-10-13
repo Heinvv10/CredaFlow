@@ -3,12 +3,14 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { formatZAR, formatDate } from "@/lib/utils"
+import { borrowerDisplayName } from "@/lib/borrower"
 import { confirmMatchAction, ignoreMatchAction, reassignMatchAction } from "./actions"
 
 type LoanRef = {
   id: string
   reference: string
-  client: { firstName: string; lastName: string }
+  client: { firstName: string; lastName: string } | null
+  entity: { legalName: string } | null
 }
 
 type Txn = {
@@ -24,7 +26,7 @@ type Txn = {
 }
 
 function loanLabel(loan: LoanRef): string {
-  return `${loan.reference} — ${loan.client.firstName} ${loan.client.lastName}`
+  return `${loan.reference} — ${borrowerDisplayName(loan)}`
 }
 
 export function BankReconciliationClient({

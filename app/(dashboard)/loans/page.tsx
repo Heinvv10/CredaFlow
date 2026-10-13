@@ -14,6 +14,7 @@ async function getLoans(tenantId: string, branchId?: string) {
     orderBy: { createdAt: "desc" },
     include: {
       client: { select: { firstName: true, lastName: true } },
+      entity: { select: { legalName: true } },
       product: { select: { name: true } },
     },
   })

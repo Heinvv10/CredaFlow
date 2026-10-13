@@ -52,6 +52,11 @@ import {
   type BureauDecisionCheckInput,
 } from "@/lib/affordability/snapshot"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
+import {
+  requireClientBorrowerId,
+  requireClientBorrowerRow,
+  type WithClientBorrower,
+} from "@/lib/borrower"
 
 export type CurrentApprovalEvidenceReason =
   | "missing"
@@ -172,9 +177,10 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
   },
 })
 
-export type LockedApprovalApplication = Prisma.LoanApplicationGetPayload<{
+// Narrowed to a Client borrower: approval evidence is consumer-only.
+export type LockedApprovalApplication = WithClientBorrower<Prisma.LoanApplicationGetPayload<{
   include: typeof approvalEvidenceApplicationInclude
-}>
+}>>
 
 type ApprovalEvidenceTransaction = Parameters<
   Parameters<typeof ScopedPrismaClient.$transaction>[0]
@@ -207,7 +213,7 @@ async function loadLockedApprovalContext(
   await lockAffordabilityTenantPolicy(tx, { tenantId: args.tenantId })
   const applicationRows = await tx.$queryRaw<Array<{
     id: string
-    clientId: string
+    clientId: string | null
     productId: string
     bureauReviewGeneration: string | null
   }>>(Prisma.sql`
@@ -216,8 +222,9 @@ async function loadLockedApprovalContext(
     WHERE "id" = ${args.applicationId} AND "tenantId" = ${args.tenantId}
     FOR UPDATE
   `)
-  const identity = applicationRows[0]
-  if (!identity) return null
+  const lockedRow = applicationRows[0]
+  if (!lockedRow) return null
+  const identity = { ...lockedRow, clientId: requireClientBorrowerId(lockedRow) }
 
   await lockAffordabilityClientEvidence(tx, {
     tenantId: args.tenantId,
@@ -275,7 +282,7 @@ async function loadLockedApprovalContext(
     }),
   ])
   if (!application) return null
-  return { application, bureauCheck, tenantConfig }
+  return { application: requireClientBorrowerRow(application), bureauCheck, tenantConfig }
 }
 
 export type LockedCurrentApprovalResult =

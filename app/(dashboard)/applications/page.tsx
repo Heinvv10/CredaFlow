@@ -31,6 +31,7 @@ async function getApplications() {
         disbursedAt: true,
         updatedAt: true,
         client: { select: { firstName: true, lastName: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true, productType: true } },
         branch: { select: { name: true } },
         assignedTo: { select: { name: true } },

@@ -29,6 +29,7 @@ import { sastParts } from "@/lib/date/sast"
 import { cashReceivedCents } from "@/lib/payments/waiver"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { chargesOwing } from "@/lib/reports/charges-owing"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 type ExportRow = Record<string, string | number | boolean | null | undefined>
 
@@ -81,6 +82,7 @@ export async function GET(req: NextRequest) {
       where: { tenantId: tenant.id },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, email: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
         payments: { select: { amount: true, paymentMethod: true, reversed: true, allocationStatus: true } },
       },
@@ -89,10 +91,10 @@ export async function GET(req: NextRequest) {
 
     const rows = loans.map((l) => ({
       Reference: l.reference,
-      Client: `${l.client.firstName} ${l.client.lastName}`,
-      "ID Number": l.client.idNumber,
-      Phone: l.client.phone,
-      Email: l.client.email,
+      Client: borrowerDisplayName(l),
+      "ID Number": l.client?.idNumber ?? "",
+      Phone: l.client?.phone ?? "",
+      Email: l.client?.email ?? "",
       Product: l.product.name,
       Principal: l.principal / 100,
       "Total Interest": l.totalInterest / 100,
@@ -117,14 +119,15 @@ export async function GET(req: NextRequest) {
       where: { tenantId: tenant.id, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
       },
     })
 
     const rows = loans.map((l) => ({
       Reference: l.reference,
-      Client: `${l.client.firstName} ${l.client.lastName}`,
-      "ID Number": l.client.idNumber,
+      Client: borrowerDisplayName(l),
+      "ID Number": l.client?.idNumber ?? "",
       Product: l.product.name,
       "Days in Arrears": l.daysInArrears,
       Bucket: arrearsBucket(l.daysInArrears),
@@ -163,6 +166,7 @@ export async function GET(req: NextRequest) {
           select: {
             reference: true,
             client: { select: { firstName: true, lastName: true, idNumber: true } },
+            entity: { select: { legalName: true } },
           },
         },
       },
@@ -171,8 +175,8 @@ export async function GET(req: NextRequest) {
 
     const rows = payments.map((p) => ({
       "Loan Reference": p.loan.reference,
-      Client: `${p.loan.client.firstName} ${p.loan.client.lastName}`,
-      "ID Number": p.loan.client.idNumber,
+      Client: borrowerDisplayName(p.loan),
+      "ID Number": p.loan.client?.idNumber ?? "",
       "Amount (R)": p.amount / 100,
       Method: displayPaymentMethod(p.paymentMethod, (method) => method),
       Reference: p.reference ?? "",
@@ -196,6 +200,7 @@ export async function GET(req: NextRequest) {
       where: { tenantId: tenant.id, daysInArrears: { gt: 0 }, status: { in: [...COLLECTIBLE_STATUSES] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, email: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
       },
       orderBy: { daysInArrears: "desc" },
@@ -203,10 +208,10 @@ export async function GET(req: NextRequest) {
 
     const rows = loans.map((l) => ({
       Reference: l.reference,
-      Client: `${l.client.firstName} ${l.client.lastName}`,
-      "ID Number": l.client.idNumber,
-      Phone: l.client.phone,
-      Email: l.client.email,
+      Client: borrowerDisplayName(l),
+      "ID Number": l.client?.idNumber ?? "",
+      Phone: l.client?.phone ?? "",
+      Email: l.client?.email ?? "",
       Product: l.product.name,
       "Days in Arrears": l.daysInArrears,
       "Arrears Amount (R)": l.arrearsAmount / 100,
@@ -220,6 +225,7 @@ export async function GET(req: NextRequest) {
       where: { tenantId: tenant.id, status: { in: ["APPROVED", "DISBURSED", "DECLINED"] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
         approvedBy: { select: { name: true } },
       },
@@ -228,8 +234,8 @@ export async function GET(req: NextRequest) {
 
     const rows = applications.map((a) => ({
       Reference: a.reference,
-      Client: `${a.client.firstName} ${a.client.lastName}`,
-      "ID Number": a.client.idNumber,
+      Client: borrowerDisplayName(a),
+      "ID Number": a.client?.idNumber ?? "",
       Product: a.product.name,
       "Applied Amount (R)": a.appliedAmount / 100,
       "Approved Amount (R)": a.approvedAmount != null ? a.approvedAmount / 100 : "",
@@ -272,12 +278,16 @@ export async function GET(req: NextRequest) {
         where: { tenantId: tenant.id, startDate: { gte: qStart, lt: qEndExclusive } },
         include: {
           client: { select: { idNumber: true, firstName: true, lastName: true } },
+          entity: { select: { legalName: true } },
           product: { select: { name: true } },
         },
       }),
       prisma.loan.findMany({
         where: { ...parWhere(tenant.id, 1) },
-        include: { client: { select: { idNumber: true, firstName: true, lastName: true } } },
+        include: {
+          client: { select: { idNumber: true, firstName: true, lastName: true } },
+          entity: { select: { legalName: true } },
+        },
       }),
     ])
 
@@ -331,8 +341,8 @@ export async function GET(req: NextRequest) {
     // Sheet 2: Disbursements this quarter
     const disbursementRows = disbursed.map((l) => ({
       Reference: l.reference,
-      "Client ID Number": l.client.idNumber,
-      "Client Name": `${l.client.firstName} ${l.client.lastName}`,
+      "Client ID Number": l.client?.idNumber ?? "",
+      "Client Name": borrowerDisplayName(l),
       Product: l.product.name,
       "Principal (R)": l.principal / 100,
       "Interest Rate (pm %)": l.interestRatePm,
@@ -342,8 +352,8 @@ export async function GET(req: NextRequest) {
     // Sheet 3: Arrears register
     const arrearsRows = arrears.map((l) => ({
       Reference: l.reference,
-      "Client ID Number": l.client.idNumber,
-      "Client Name": `${l.client.firstName} ${l.client.lastName}`,
+      "Client ID Number": l.client?.idNumber ?? "",
+      "Client Name": borrowerDisplayName(l),
       "Days in Arrears": l.daysInArrears,
       "Arrears Amount (R)": l.arrearsAmount / 100,
       "Outstanding Principal (R)": l.outstandingPrincipal / 100,
@@ -381,6 +391,7 @@ export async function GET(req: NextRequest) {
       where: { tenantId: tenant.id, status: { in: ["ACTIVE", "COMPLETED", "DEFAULTED", "WRITTEN_OFF"] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, email: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
         application: { select: { pasqAcknowledgedAt: true, agreementSignedAt: true, appliedTermDays: true } },
       },
@@ -389,10 +400,10 @@ export async function GET(req: NextRequest) {
 
     const rows = loans.map((l) => ({
       "Agreement Number": l.reference,
-      "Client Full Name": `${l.client.firstName} ${l.client.lastName}`,
-      "ID / Passport Number": l.client.idNumber,
-      "Phone Number": l.client.phone,
-      "Email": l.client.email ?? "",
+      "Client Full Name": borrowerDisplayName(l),
+      "ID / Passport Number": l.client?.idNumber ?? "",
+      "Phone Number": l.client?.phone ?? "",
+      "Email": l.client?.email ?? "",
       "Product Type": l.product.name,
       "Principal Amount (R)": l.principal / 100,
       "Initiation Fee (R)": l.initiationFee / 100,
@@ -441,6 +452,7 @@ export async function GET(req: NextRequest) {
       where: { tenantId: tenant.id, status: { in: ["APPROVED", "DISBURSED", "DECLINED"] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
         approvedBy: { select: { name: true } },
       },
@@ -449,8 +461,8 @@ export async function GET(req: NextRequest) {
 
     const rows = applications.map((a) => ({
       "Application Reference": a.reference,
-      "Client Full Name": `${a.client.firstName} ${a.client.lastName}`,
-      "ID Number": a.client.idNumber,
+      "Client Full Name": borrowerDisplayName(a),
+      "ID Number": a.client?.idNumber ?? "",
       "Product": a.product.name,
       "Applied Amount (R)": a.appliedAmount / 100,
       "Approved Amount (R)": a.approvedAmount != null ? a.approvedAmount / 100 : "",

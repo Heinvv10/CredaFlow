@@ -33,6 +33,36 @@ export function requireClientBorrowerId(row: { clientId: string | null }): strin
   return row.clientId
 }
 
+/** A row narrowed to a `Client` borrower: `client` set, and `clientId` when selected. */
+export type WithClientBorrower<T extends { client: unknown }> = T & {
+  client: NonNullable<T["client"]>
+} & (T extends { clientId: unknown } ? { clientId: string } : unknown)
+
+/** Batch filter: keeps (and narrows) the rows whose borrower is a `Client`. */
+export function hasClientBorrower<T extends { client: unknown; clientId?: string | null }>(
+  row: T,
+): row is WithClientBorrower<T> {
+  return row.client !== null && row.client !== undefined && row.clientId !== null
+}
+
+/** `hasClientBorrower` for a row that selects `clientId` but not `client`. */
+export function hasClientBorrowerId<T extends { clientId: string | null }>(
+  row: T,
+): row is T & { clientId: string } {
+  return row.clientId !== null
+}
+
+/**
+ * The whole row narrowed to a `Client` borrower, for a consumer path that hands
+ * the row to helpers typed for a client. `EntityBorrowerError` otherwise.
+ */
+export function requireClientBorrowerRow<T extends { client: unknown; clientId?: string | null }>(
+  row: T,
+): WithClientBorrower<T> {
+  if (!hasClientBorrower(row)) throw new EntityBorrowerError()
+  return row
+}
+
 export function isEntityBorrowerError(error: unknown): error is EntityBorrowerError {
   return error instanceof EntityBorrowerError
 }

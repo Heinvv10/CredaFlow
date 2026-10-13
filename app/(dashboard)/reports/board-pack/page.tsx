@@ -11,6 +11,7 @@ import { computeCollectionsRate, computeArrearsRate } from "@/lib/reports/collec
 import { chargesOwing, loadChargesOwingByBand } from "@/lib/reports/charges-owing"
 import { boardPackChargesSummary, loadDefaultChargesReport } from "@/lib/reports/default-charges-loader"
 import { BoardPackDefaultCharges } from "@/components/reports/BoardPackDefaultCharges"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 export default async function BoardPackPage() {
   const tenantId = await getDefaultTenantId()
@@ -48,6 +49,7 @@ export default async function BoardPackPage() {
       orderBy: [{ principal: "desc" }, { reference: "asc" }], take: 10,
       include: {
         client: { select: { firstName: true, lastName: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true, productType: true } },
       },
     }),
@@ -70,7 +72,7 @@ export default async function BoardPackPage() {
       where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gte: 30 } },
       orderBy: { daysInArrears: "desc" },
       take: 5,
-      include: { client: { select: { firstName: true, lastName: true } } },
+      include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
     }),
     getPortfolioPar(tenantId),
     // Default charges owing: beside the instalment arrears, never inside them.
@@ -134,7 +136,7 @@ export default async function BoardPackPage() {
   }))
 
   const delinquentAccounts = topDelinquent.map(l => ({
-    clientName: `${l.client.firstName} ${l.client.lastName}`,
+    clientName: borrowerDisplayName(l),
     daysInArrears: l.daysInArrears,
     arrearsAmount: l.arrearsAmount,
     ...(charges.chargesLive ? { chargesOwing: chargesOwing(l, charges.chargesLive) } : {}),

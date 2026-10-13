@@ -2,12 +2,14 @@
 
 import type { ReactNode } from "react"
 import { formatZAR, formatDate } from "@/lib/utils"
+import { borrowerDisplayName } from "@/lib/borrower"
 import { Printer } from "lucide-react"
 import Link from "next/link"
 
 type Loan = {
   id: string; reference: string; principal: number; outstandingPrincipal: number; daysInArrears: number; status: string; startDate: Date | string
-  client: { firstName: string; lastName: string }
+  client: { firstName: string; lastName: string } | null
+  entity?: { legalName: string } | null
   product: { name: string; productType: string }
 }
 
@@ -144,7 +146,7 @@ export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clie
             {topLoans.map(l => (
               <tr key={l.id} className="hover:bg-gray-50">
                 <td className="px-4 py-2.5 font-mono text-xs text-[#4F46E5]">{l.reference.slice(-12)}</td>
-                <td className="px-4 py-2.5 font-medium">{l.client.firstName} {l.client.lastName}</td>
+                <td className="px-4 py-2.5 font-medium">{borrowerDisplayName(l)}</td>
                 <td className="px-4 py-2.5 text-gray-600">{l.product.name}</td>
                 <td className="px-4 py-2.5 text-right">{formatZAR(l.principal)}</td>
                 <td className="px-4 py-2.5 text-right font-semibold">{formatZAR(l.outstandingPrincipal)}</td>

@@ -17,6 +17,7 @@ import {
   type DebitMandateExpectedEvidence,
   type PayoutBankDetails,
 } from "@/lib/compliance/debit-mandate"
+import type { WithClientBorrower } from "@/lib/borrower"
 
 export const debitMandateApplicationArgs =
   Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
@@ -38,9 +39,10 @@ export const debitMandateApplicationArgs =
     },
   })
 
-export type DebitMandateApplication = Prisma.LoanApplicationGetPayload<
+// Narrowed to a Client borrower: a debit mandate is a consumer document.
+export type DebitMandateApplication = WithClientBorrower<Prisma.LoanApplicationGetPayload<
   typeof debitMandateApplicationArgs
->
+>>
 
 export const debitMandateBankStatementSelect = {
   id: true,

@@ -2,13 +2,14 @@ import { KpiCard } from "@/components/dashboard/KpiCard"
 import { DisbursementsClient } from "@/components/disbursements/DisbursementsClient"
 import { prisma } from "@/lib/prisma"
 import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
-import { getAvatarColor, getInitials } from "@/lib/avatar"
+import { getAvatarColor, getInitials, getInitialsFromName } from "@/lib/avatar"
 import { Wallet, CheckCircle2, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { getDefaultTenantId } from "@/lib/tenant"
 import { sastMonthBounds } from "@/lib/compliance/quarters"
 import { sastStartOfDay } from "@/lib/date/sast"
 import { requireMinRole } from "@/lib/auth-guards"
+import { borrowerDisplayName, hasClientBorrower } from "@/lib/borrower"
 
 async function getDisbursementsData() {
   const tenantId = await getDefaultTenantId()
@@ -72,13 +73,15 @@ async function getDisbursementsData() {
       orderBy: { startDate: "desc" },
       include: {
         client: { select: { firstName: true, lastName: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
       },
     }),
   ])
 
   return {
-    readyToDisburse,
+    // The consumer payout queue; an entity-borrower deal is booked under Asset Finance.
+    readyToDisburse: readyToDisburse.filter(hasClientBorrower),
     disbursedToday: disbursedToday._sum.principal || 0,
     disbursedTodayCount: disbursedToday._count || 0,
     disbursedThisMonth: disbursedThisMonth._sum.principal || 0,
@@ -164,8 +167,11 @@ export default async function DisbursementsPage() {
               </thead>
               <tbody>
                 {data.recentDisbursements.map((loan) => {
-                  const initials = getInitials(loan.client.firstName, loan.client.lastName)
-                  const avatarColor = getAvatarColor(loan.client.firstName + loan.client.lastName)
+                  const name = borrowerDisplayName(loan)
+                  const initials = loan.client
+                    ? getInitials(loan.client.firstName, loan.client.lastName)
+                    : getInitialsFromName(name, "?")
+                  const avatarColor = getAvatarColor(name)
                   return (
                     <tr key={loan.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                       <td className="px-5 py-3.5">
@@ -177,7 +183,7 @@ export default async function DisbursementsPage() {
                             {initials}
                           </div>
                           <Link href={`/loans/${loan.id}`} className="font-medium text-gray-900 hover:underline">
-                            {loan.client.firstName} {loan.client.lastName}
+                            {name}
                           </Link>
                         </div>
                       </td>

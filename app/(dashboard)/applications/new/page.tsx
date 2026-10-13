@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma"
 import { getDefaultTenantId } from "@/lib/tenant"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { hasClientBorrowerId } from "@/lib/borrower"
 
 async function getData(tenantId: string) {
   const [clientRows, productRows, creditLifeProduct] = await Promise.all([
@@ -93,7 +94,7 @@ async function getData(tenantId: string) {
 }
 
 async function loadDraftForResume(id: string, tenantId: string) {
-  return prisma.loanApplication.findFirst({
+  const draft = await prisma.loanApplication.findFirst({
     where: { id, tenantId, status: "DRAFT" },
     select: {
       id: true,
@@ -105,6 +106,9 @@ async function loadDraftForResume(id: string, tenantId: string) {
       loanPurposeCategory: true,
     },
   })
+  // The consumer wizard cannot resume an entity-borrower (asset finance) draft;
+  // null sends staff to the detail page.
+  return draft && hasClientBorrowerId(draft) ? draft : null
 }
 
 type DraftForResume = NonNullable<Awaited<ReturnType<typeof loadDraftForResume>>>

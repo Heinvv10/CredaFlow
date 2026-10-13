@@ -25,7 +25,8 @@ export async function generateCrossSellOpportunities() {
     distinct: ["clientId"],
   })
 
-  const clientIds = activeLoans.map((l) => l.clientId)
+  // Funeral cover is offered to natural persons; entity borrowers are skipped.
+  const clientIds = activeLoans.flatMap((l) => (l.clientId === null ? [] : [l.clientId]))
 
   const existing = await prisma.crossSellOpportunity.findMany({
     where: {

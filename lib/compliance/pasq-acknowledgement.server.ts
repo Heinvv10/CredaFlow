@@ -191,7 +191,8 @@ export async function recordPasqAcknowledgement(
         where: {
           id: document.id,
           tenantId,
-          clientId: application.clientId,
+          // Equal to application.clientId (checked above); a closure loses that narrowing.
+          clientId: args.clientId,
           docType: "FORM_20_PRE_AGREEMENT",
           deletedAt: null,
           contentSha256: documentSha256,

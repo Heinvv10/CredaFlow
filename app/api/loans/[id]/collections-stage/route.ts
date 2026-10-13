@@ -20,6 +20,7 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { collectionsStageRank } from "@/lib/collections/stages"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 const VALID_STAGES = [
   "SOFT_REMINDER",
@@ -93,6 +94,8 @@ export async function PATCH(
           },
         })
         if (!loan) return { kind: "NOT_FOUND" as const }
+        // The collections ladder is the consumer NCA process; an entity borrower is refused.
+        if (!hasClientBorrower(loan)) return { kind: "ENTITY_BORROWER" as const }
 
         const collectionsEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
         if (!collectionsEligibility.eligible) {
@@ -137,6 +140,9 @@ export async function PATCH(
 
       if (transition.kind === "NOT_FOUND") {
         return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+      }
+      if (transition.kind === "ENTITY_BORROWER") {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
       if (transition.kind === "INELIGIBLE") {
         return NextResponse.json(

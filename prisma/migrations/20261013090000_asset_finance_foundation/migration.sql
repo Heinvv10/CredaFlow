@@ -32,6 +32,7 @@ ADD COLUMN     "ncaClassificationRule" TEXT,
 ADD COLUMN     "ncaClassifiedAt" TIMESTAMP(3),
 ADD COLUMN     "ncaClassifiedById" TEXT,
 ADD COLUMN     "ncaRegime" "NcaRegime",
+ADD COLUMN     "ncaRegimeChangedAt" TIMESTAMP(3),
 ALTER COLUMN "clientId" DROP NOT NULL;
 
 -- AlterTable
@@ -160,8 +161,9 @@ ALTER TABLE "EntityRelationship" ADD CONSTRAINT "EntityRelationship_ownership_pc
 -- An override changes the regime, and its decision fields are all-or-nothing.
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_changes_regime" CHECK ("fromRegime" <> "toRegime");
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_decision_complete" CHECK (("status" = 'PENDING') = ("decidedById" IS NULL AND "decidedAt" IS NULL));
--- The approver of an override is never its requester.
-ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("decidedById" IS NULL OR "decidedById" <> "requestedById");
+-- The approver of an override that relaxes the regime (NCA → NON_NCA) is
+-- never its requester. Moving to NCA only adds protection; one person may.
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("decidedById" IS NULL OR "decidedById" <> "requestedById" OR "toRegime" = 'NCA');
 
 -- Entity borrowers (clientId NULL) pass the client-tenant check; the
 -- composite entity FK binds their tenant instead. Otherwise unchanged.
@@ -795,3 +797,297 @@ $function$;
 -- LoanApplication_approved_status_requires_pasq: unchanged for NCA; a NON_NCA (juristic) deal has no PASQ, and APPROVED/DISBURSED still needs an approver
 ALTER TABLE "LoanApplication" DROP CONSTRAINT "LoanApplication_approved_status_requires_pasq";
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_approved_status_requires_pasq" CHECK ((((((status)::text <> ALL (ARRAY['APPROVED'::text, 'DISBURSED'::text])) OR (((status)::text = 'APPROVED'::text) AND ("agreementSignedAt" IS NULL) AND ("agreementCountersignedAt" IS NULL) AND ("approvedAt" IS NOT NULL) AND ("approvedById" IS NOT NULL) AND (length(btrim("approvedById")) > 0) AND ((("pasqVersion" IS NULL) AND ("pasqGeneratedAt" IS NULL) AND ("pasqDocumentId" IS NULL) AND ("pasqDocumentSha256" IS NULL) AND ("pasqEvidence" IS NULL) AND ("pasqEvidenceSha256" IS NULL) AND ("pasqAcknowledgedAt" IS NULL) AND ("pasqAcknowledgedBy" IS NULL) AND ("pasqAcknowledgedSha256" IS NULL) AND ("approvedPasqDocumentSha256" IS NULL)) OR (("pasqVersion" = 'pasq-v3'::text) AND ("pasqGeneratedAt" IS NOT NULL) AND ("pasqDocumentId" IS NOT NULL) AND (length(btrim("pasqDocumentId")) > 0) AND ("pasqDocumentSha256" ~ '^[0-9a-f]{64}$'::text) AND ("pasqEvidence" IS NOT NULL) AND (jsonb_typeof("pasqEvidence") = 'object'::text) AND ("pasqEvidenceSha256" ~ '^[0-9a-f]{64}$'::text) AND (("pasqEvidence" ->> 'version'::text) = 'pasq-v3'::text) AND (("pasqEvidence" ->> 'tenantId'::text) = "tenantId") AND (("pasqEvidence" ->> 'applicationId'::text) = id) AND (("pasqEvidence" ->> 'clientId'::text) = "clientId") AND (("pasqEvidence" ->> 'productId'::text) = "productId") AND (("pasqEvidence" #>> '{billing,version}'::text[]) = 'credit-life-billing-v1'::text) AND (("pasqEvidence" #>> '{billing,collectionMethod}'::text[]) = 'INCLUDED_IN_LOAN_REPAYMENT'::text) AND (("pasqEvidence" ->> 'evidenceSha256'::text) = "pasqEvidenceSha256") AND ("pasqEvidenceSha256V3"("pasqEvidence") = "pasqEvidenceSha256") AND "pasqCreditLifeMatchesApplication"("pasqEvidence", ("creditLifeElection")::text, "creditLifeProductId", "creditLifeProductName", "creditLifeInsurerId", "creditLifeInsurerName", "creditLifeMonthlyPremiumCents", "creditLifeDisclosureVersion", "creditLifeDisclosureSha256", "creditLifeDisclosureAcknowledgedAt", "creditLifeDisclosureAcknowledgedBy", "clientId", "appliedAmount", "appliedTermDays", "pasqGeneratedAt") AND ((("pasqAcknowledgedAt" IS NULL) AND ("pasqAcknowledgedBy" IS NULL) AND ("pasqAcknowledgedSha256" IS NULL) AND ("approvedPasqDocumentSha256" IS NULL)) OR (("pasqAcknowledgedAt" IS NOT NULL) AND ("pasqAcknowledgedAt" >= "pasqGeneratedAt") AND ("pasqAcknowledgedBy" = "clientId") AND ("pasqAcknowledgedSha256" = "pasqDocumentSha256") AND ("approvedPasqDocumentSha256" = "pasqDocumentSha256") AND ("approvedPasqDocumentSha256" = "pasqAcknowledgedSha256")))))) OR (("approvedAt" IS NOT NULL) AND ("approvedById" IS NOT NULL) AND (length(btrim("approvedById")) > 0) AND ("pasqVersion" = 'pasq-v3'::text) AND ("pasqGeneratedAt" IS NOT NULL) AND ("pasqDocumentId" IS NOT NULL) AND (length(btrim("pasqDocumentId")) > 0) AND ("pasqDocumentSha256" ~ '^[0-9a-f]{64}$'::text) AND ("pasqEvidence" IS NOT NULL) AND (jsonb_typeof("pasqEvidence") = 'object'::text) AND ("pasqEvidenceSha256" ~ '^[0-9a-f]{64}$'::text) AND (("pasqEvidence" ->> 'version'::text) = 'pasq-v3'::text) AND (("pasqEvidence" ->> 'tenantId'::text) = "tenantId") AND (("pasqEvidence" ->> 'applicationId'::text) = id) AND (("pasqEvidence" ->> 'clientId'::text) = "clientId") AND (("pasqEvidence" ->> 'productId'::text) = "productId") AND (("pasqEvidence" #>> '{billing,version}'::text[]) = 'credit-life-billing-v1'::text) AND (("pasqEvidence" #>> '{billing,collectionMethod}'::text[]) = 'INCLUDED_IN_LOAN_REPAYMENT'::text) AND (("pasqEvidence" ->> 'evidenceSha256'::text) = "pasqEvidenceSha256") AND ("pasqEvidenceSha256V3"("pasqEvidence") = "pasqEvidenceSha256") AND ("pasqAcknowledgedAt" IS NOT NULL) AND ("pasqAcknowledgedAt" >= "pasqGeneratedAt") AND ("pasqAcknowledgedBy" = "clientId") AND ("pasqAcknowledgedSha256" = "pasqDocumentSha256") AND ("approvedPasqDocumentSha256" = "pasqDocumentSha256") AND ("approvedPasqDocumentSha256" = "pasqAcknowledgedSha256") AND "pasqCreditLifeMatchesApplication"("pasqEvidence", ("creditLifeElection")::text, "creditLifeProductId", "creditLifeProductName", "creditLifeInsurerId", "creditLifeInsurerName", "creditLifeMonthlyPremiumCents", "creditLifeDisclosureVersion", "creditLifeDisclosureSha256", "creditLifeDisclosureAcknowledgedAt", "creditLifeDisclosureAcknowledgedBy", "clientId", "appliedAmount", "appliedTermDays", "pasqGeneratedAt"))) IS TRUE)) OR ("ncaRegime" = 'NON_NCA' AND "approvedAt" IS NOT NULL AND "approvedById" IS NOT NULL AND length(btrim("approvedById")) > 0 AND "pasqVersion" IS NULL AND "pasqDocumentId" IS NULL AND "pasqAcknowledgedAt" IS NULL AND "approvedPasqDocumentSha256" IS NULL) IS TRUE) NOT VALID;
+
+-- ---------------------------------------------------------------------------
+-- Regime integrity. NON_NCA switches off consumer rules (PASQ, credit life,
+-- countersign, s129, NCA caps, consumer bureau), so the regime itself must not
+-- be writable at will.
+-- ---------------------------------------------------------------------------
+
+-- A classification is recorded whole: regime, rule, when and by whom.
+ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_nca_classification_complete" CHECK (
+  ("ncaRegime" IS NULL AND "ncaClassificationRule" IS NULL AND "ncaClassifiedAt" IS NULL AND "ncaClassifiedById" IS NULL)
+  OR ("ncaRegime" IS NOT NULL AND "ncaClassificationRule" IS NOT NULL AND length(btrim("ncaClassificationRule")) > 0
+      AND "ncaClassifiedAt" IS NOT NULL AND "ncaClassifiedById" IS NOT NULL AND length(btrim("ncaClassifiedById")) > 0)
+);
+
+-- An application's regime: set once by classification (from NULL, before a
+-- decision); changed afterwards only to NCA (stricter), or to NON_NCA through
+-- an APPROVED NcaRegimeOverride for exactly that change; frozen once the
+-- application is decided. A row inserted already decided cannot be NON_NCA.
+CREATE OR REPLACE FUNCTION "guardLoanApplicationNcaRegime"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW."ncaRegime" = 'NON_NCA' AND NEW."status"::TEXT NOT IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW') THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'A NON_NCA application must be classified before it is decided';
+    END IF;
+    -- Only this trigger writes the change timestamp.
+    NEW."ncaRegimeChangedAt" := CASE WHEN NEW."ncaRegime" IS NULL THEN NULL ELSE clock_timestamp() END;
+    RETURN NEW;
+  END IF;
+
+  IF NEW."ncaRegime" IS NOT DISTINCT FROM OLD."ncaRegime" THEN
+    IF NEW."ncaRegimeChangedAt" IS DISTINCT FROM OLD."ncaRegimeChangedAt" THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'ncaRegimeChangedAt is maintained by the database';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF OLD."status"::TEXT NOT IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'An application''s NCA regime is frozen once it is decided';
+  END IF;
+
+  IF NEW."ncaRegime" IS NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'An NCA classification cannot be removed';
+  END IF;
+
+  -- Only the most recent APPROVED override counts: an old approval does not
+  -- authorise a later flip after the regime went back to NCA.
+  IF OLD."ncaRegime" = 'NCA' AND NEW."ncaRegime" = 'NON_NCA' AND NOT EXISTS (
+    SELECT 1
+    FROM (
+      SELECT override."fromRegime", override."toRegime", override."decidedAt"
+      FROM "NcaRegimeOverride" AS override
+      WHERE override."applicationId" = NEW."id"
+        AND override."tenantId" = NEW."tenantId"
+        AND override."status" = 'APPROVED'
+      ORDER BY override."decidedAt" DESC, override."id" DESC
+      LIMIT 1
+    ) AS latest
+    WHERE latest."fromRegime" = 'NCA' AND latest."toRegime" = 'NON_NCA'
+      AND (OLD."ncaRegimeChangedAt" IS NULL OR latest."decidedAt" > OLD."ncaRegimeChangedAt")
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'NCA to NON_NCA requires an approved NcaRegimeOverride';
+  END IF;
+
+  NEW."ncaRegimeChangedAt" := clock_timestamp();
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "LoanApplication_guard_nca_regime_insert" BEFORE INSERT ON "LoanApplication"
+  FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationNcaRegime"();
+CREATE TRIGGER "LoanApplication_guard_nca_regime_update" BEFORE UPDATE OF "ncaRegime", "ncaRegimeChangedAt" ON "LoanApplication"
+  FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationNcaRegime"();
+
+-- A loan's borrower and regime are its application's, fixed at booking: a
+-- consumer loan cannot later be relabelled NON_NCA to escape s129 or the caps.
+CREATE OR REPLACE FUNCTION "guardLoanBorrowerRegime"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW."ncaRegime" IS DISTINCT FROM OLD."ncaRegime"
+      OR NEW."clientId" IS DISTINCT FROM OLD."clientId"
+      OR NEW."entityId" IS DISTINCT FROM OLD."entityId"
+      OR NEW."applicationId" IS DISTINCT FROM OLD."applicationId"
+    THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'A loan''s borrower and NCA regime are fixed at booking';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM "LoanApplication" AS application
+    WHERE application."id" = NEW."applicationId"
+      AND application."tenantId" = NEW."tenantId"
+      AND application."clientId" IS NOT DISTINCT FROM NEW."clientId"
+      AND application."entityId" IS NOT DISTINCT FROM NEW."entityId"
+      AND COALESCE(application."ncaRegime", 'NCA') = NEW."ncaRegime"
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A loan must carry its application''s tenant, borrower and NCA regime';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "Loan_guard_borrower_regime_insert" BEFORE INSERT ON "Loan"
+  FOR EACH ROW EXECUTE FUNCTION "guardLoanBorrowerRegime"();
+CREATE TRIGGER "Loan_guard_borrower_regime_update" BEFORE UPDATE OF "ncaRegime", "clientId", "entityId", "applicationId" ON "Loan"
+  FOR EACH ROW EXECUTE FUNCTION "guardLoanBorrowerRegime"();
+
+-- At most one open override request per application.
+CREATE UNIQUE INDEX "NcaRegimeOverride_one_pending_per_application" ON "NcaRegimeOverride" ("applicationId") WHERE "status" = 'PENDING';
+
+-- An override belongs to its application's tenant.
+CREATE OR REPLACE FUNCTION "guardNcaRegimeOverrideTenant"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM "LoanApplication" AS application
+    WHERE application."id" = NEW."applicationId" AND application."tenantId" = NEW."tenantId"
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'An NCA regime override must belong to its application''s tenant';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "NcaRegimeOverride_guard_tenant" BEFORE INSERT OR UPDATE OF "tenantId", "applicationId" ON "NcaRegimeOverride"
+  FOR EACH ROW EXECUTE FUNCTION "guardNcaRegimeOverrideTenant"();
+
+-- assertDisbursedCreditLifeCoverage: NON_NCA deals keep the loan/disbursement
+-- commit-together rule and skip the credit-life coverage checks.
+CREATE OR REPLACE FUNCTION public."assertDisbursedCreditLifeCoverage"(target_application_id text)
+ RETURNS void
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  application_status "AppStatus";
+  application_disbursed_at TIMESTAMP(3);
+  application_tenant_id TEXT;
+  application_client_id TEXT;
+  application_nca_regime "NcaRegime";
+  loan_id TEXT;
+  loan_tenant_id TEXT;
+  loan_client_id TEXT;
+  loan_principal INTEGER;
+  loan_start_date TIMESTAMP(3);
+  loan_maturity_date TIMESTAMP(3);
+  elected_credit_life BOOLEAN;
+  bundled_policy_count BIGINT;
+  valid_bundled_policy_count BIGINT;
+BEGIN
+  IF target_application_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT
+    application."status",
+    application."disbursedAt",
+    application."tenantId",
+    application."clientId",
+    application."ncaRegime",
+    loan."id",
+    loan."tenantId",
+    loan."clientId",
+    loan."principal",
+    loan."startDate",
+    loan."maturityDate"
+  INTO
+    application_status,
+    application_disbursed_at,
+    application_tenant_id,
+    application_client_id,
+    application_nca_regime,
+    loan_id,
+    loan_tenant_id,
+    loan_client_id,
+    loan_principal,
+    loan_start_date,
+    loan_maturity_date
+  FROM "LoanApplication" AS application
+  LEFT JOIN "Loan" AS loan
+    ON loan."applicationId" = application."id"
+  WHERE application."id" = target_application_id
+  FOR KEY SHARE OF application;
+
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  -- An application with no loan and no disbursement is outside this invariant.
+  IF loan_id IS NULL
+     AND application_status <> 'DISBURSED'::"AppStatus" THEN
+    RETURN;
+  END IF;
+
+  -- A loan on an application that never reached approval carries no signed
+  -- election; seed and fixtures book these. APPROVED stays in scope.
+  IF application_status IN ('DRAFT'::"AppStatus", 'SUBMITTED'::"AppStatus", 'UNDER_REVIEW'::"AppStatus") THEN
+    RETURN;
+  END IF;
+
+  -- A Loan row represents the money path. It and the application transition
+  -- must become visible together at commit, regardless of writer version.
+  IF loan_id IS NULL
+     OR application_status <> 'DISBURSED'::"AppStatus"
+     OR application_disbursed_at IS NULL
+     OR loan_tenant_id IS DISTINCT FROM application_tenant_id
+     OR loan_client_id IS DISTINCT FROM application_client_id THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'Loan creation and application disbursement must commit together with matching tenant and client evidence';
+  END IF;
+
+  -- Credit life attaches to NCA credit agreements only; a NON_NCA (juristic)
+  -- deal keeps the commit-together rule above and nothing after it.
+  IF application_nca_regime = 'NON_NCA' THEN
+    RETURN;
+  END IF;
+
+  elected_credit_life := "resolveCreditLifeElectionForLoan"(
+    application_tenant_id,
+    application_client_id,
+    loan_id
+  );
+
+  SELECT COUNT(*)
+  INTO bundled_policy_count
+  FROM "InsurancePolicy" AS policy
+  WHERE policy."linkedLoanId" = loan_id
+    AND policy."type" = 'CREDIT_LIFE'::"InsurancePolicyType"
+    AND policy."policySource" = 'BUNDLED_CREDIT_AGREEMENT'::"PolicySource";
+
+  SELECT COUNT(*)
+  INTO valid_bundled_policy_count
+  FROM "InsurancePolicy" AS policy
+  JOIN "InsuranceProduct" AS product
+    ON product."id" = policy."productId"
+   AND product."tenantId" = policy."tenantId"
+   AND product."type" = 'CREDIT_LIFE'::"InsurancePolicyType"
+  WHERE policy."linkedLoanId" = loan_id
+    AND policy."tenantId" = application_tenant_id
+    AND policy."clientId" = application_client_id
+    AND policy."type" = 'CREDIT_LIFE'::"InsurancePolicyType"
+    AND policy."policySource" = 'BUNDLED_CREDIT_AGREEMENT'::"PolicySource"
+    AND policy."premiumAmount" > 0
+    AND policy."sumAssured" > 0
+    AND policy."renewalDate" > policy."startDate"
+    AND policy."sumAssured" = loan_principal::NUMERIC / 100
+    AND policy."premiumAmount" = ROUND((loan_principal::NUMERIC / 100) * 0.0045, 2)
+    AND policy."startDate" = loan_start_date
+    AND policy."renewalDate" = loan_maturity_date;
+
+  IF elected_credit_life THEN
+    IF bundled_policy_count <> 1 OR valid_bundled_policy_count <> 1 THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'Disbursed loan with elected credit life requires exactly one valid bundled policy';
+    END IF;
+    PERFORM "assertBundledCreditLifeAgreement"(
+      application_tenant_id,
+      application_client_id,
+      loan_id
+    );
+  ELSIF bundled_policy_count <> 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'Disbursed loan without a credit-life election cannot have a bundled policy';
+  END IF;
+END;
+$function$;
