@@ -106,4 +106,19 @@ describe("generateTaxInvoicePdf", () => {
     expect(runs.length).toBeGreaterThan(1)
     expect(runs.every((run) => run.x + helvetica.widthOfTextAtSize(run.text, 9) <= descriptionRight)).toBe(true)
   })
+
+  it("continues long supplier and recipient details without drawing below the page", async () => {
+    const supplierLines = Array.from({ length: 70 }, (_, i) => `SUP${String(i + 1).padStart(3, "0")}`)
+    const recipientLines = Array.from({ length: 70 }, (_, i) => `REC${String(i + 1).padStart(3, "0")}`)
+    const pages = await extractPdfTextRunsByPage(await generateTaxInvoicePdf({
+      ...INVOICE,
+      supplierAddress: supplierLines.join("\n"),
+      recipientAddress: recipientLines.join("\n"),
+    }))
+    const details = pages.flat().filter((run) => /^(?:SUP|REC)\d{3}$/.test(run.text))
+
+    expect(details.map((run) => run.text)).toEqual([...supplierLines, ...recipientLines])
+    expect(details.every((run) => run.y >= 90)).toBe(true)
+    expect(pages.flat().map((run) => run.text)).toEqual(expect.arrayContaining(["SUPPLIER (CONTINUED)", "RECIPIENT (CONTINUED)"]))
+  })
 })
