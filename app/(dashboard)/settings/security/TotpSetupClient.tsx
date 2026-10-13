@@ -82,9 +82,8 @@ export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced 
         body: JSON.stringify({ code }),
       })
       if (res.ok) {
-        setEnabled(false)
-        setDisabling(false)
-        setCode("")
+        // The server ended every session a code vouched for, this one included.
+        await signOut({ callbackUrl: "/login" })
       } else {
         const data = await res.json().catch(() => ({})) as { error?: string }
         setError(data.error ?? "Verification failed")

@@ -137,6 +137,25 @@ describe("totpEnrolmentRequired claim — jwt/session callbacks", () => {
     expect(kept?.totpEnrolmentRequired).toBe(true)
   })
 
+  // A staff token minted before the claim existed says nothing about whether
+  // the user is held at enrolment. Reading that as "not held" would leave every
+  // such session free of the policy until it expires, so it is signed out.
+  it("signs out a staff token that carries no claim, and does not even consult the database", async () => {
+    h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0 })
+    for (const totpEnrolmentRequired of [undefined, "false", 0, null]) {
+      const refreshed = await h.config!.callbacks.jwt({
+        token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true, totpEnrolmentRequired },
+      })
+      expect(refreshed, String(totpEnrolmentRequired)).toBeNull()
+    }
+    expect(h.findUser).not.toHaveBeenCalled()
+  })
+
+  it("leaves a CLIENT token alone", async () => {
+    const kept = await h.config!.callbacks.jwt({ token: { id: "c1", role: "CLIENT", tenantId: "t1" } })
+    expect(kept).toMatchObject({ id: "c1", role: "CLIENT" })
+  })
+
   it("puts it on the session only when the token says true", async () => {
     for (const value of [undefined, false, "true", 1]) {
       const session = await h.config!.callbacks.session({ session: { user: {} }, token: { id: "u1", role: "ADMIN", tenantId: "t1", totpEnrolmentRequired: value } })
@@ -160,12 +179,12 @@ describe("totpVerified claim — jwt/session callbacks", () => {
   it("keeps a password-only session's claim false across token refreshes", async () => {
     h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0 })
     const refreshed = await h.config!.callbacks.jwt({
-      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false },
+      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: false },
     })
     expect(h.findUser).toHaveBeenCalled()
     expect(refreshed?.totpVerified).toBe(false)
     const kept = await h.config!.callbacks.jwt({
-      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true },
+      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true, totpEnrolmentRequired: false },
     })
     expect(kept?.totpVerified).toBe(true)
   })

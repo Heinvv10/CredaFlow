@@ -108,7 +108,8 @@ suite("staff TOTP routes (real database)", () => {
 
       const res = await DELETE(request("DELETE", { code: nextCode(now + 30_000) }))
       expect(res.status).toBe(200)
-      expect(await stored(ids.officer)).toMatchObject({ totpEnabled: false, totpSecret: null })
+      // Sessions signed in with a code do not outlive the 2FA that vouched for them.
+      expect(await stored(ids.officer)).toMatchObject({ totpEnabled: false, totpSecret: null, tokenVersion: 1 })
       const rows = await db.auditLog.findMany({ where: { tenantId, action: "TOTP_DISABLED" } })
       expect(rows).toHaveLength(1)
       expect(rows[0]).toMatchObject({
@@ -136,12 +137,33 @@ suite("staff TOTP routes (real database)", () => {
       expect(await stored(ids.forced)).toMatchObject({ totpEnabled: true, tokenVersion: 1 })
     })
 
-    it("refuses to replace the secret of an enrolled account, and keeps the old secret", async () => {
+    it("refuses to replace the secret of an enrolled account without the current code, and keeps the old secret", async () => {
       h.session = sessionOf(ids.admin, "ADMIN")
       const other = generateTotpSecret()
-      const res = await POST(request("POST", { secret: other, code: generateTotpCode(other) }))
-      expect(res.status).toBe(409)
-      expect(await stored(ids.admin)).toMatchObject({ totpSecret: secret })
+      const noCode = await POST(request("POST", { secret: other, code: generateTotpCode(other) }))
+      expect(noCode.status).toBe(409)
+      const wrong = await POST(request("POST", { secret: other, code: generateTotpCode(other), currentCode: "000000" }))
+      expect(wrong.status).toBe(422)
+      expect(await stored(ids.admin)).toMatchObject({ totpSecret: secret, tokenVersion: 0 })
+    })
+
+    it("replaces it with the current code (replay-protected): new secret, user signed out, audited without secrets", async () => {
+      h.session = sessionOf(ids.peer, "ADMIN")
+      const other = generateTotpSecret()
+      const now = Date.now()
+      await db.user.update({ where: { id: ids.peer }, data: { lastTotpCounter: Math.floor(now / 30_000) } })
+      const body = (at: number) => ({ secret: other, code: generateTotpCode(other), currentCode: generateTotpCode(secret, at) })
+      expect((await POST(request("POST", body(now)))).status).toBe(422) // the counter sign-in used
+      expect(await stored(ids.peer)).toMatchObject({ totpSecret: secret })
+
+      const res = await POST(request("POST", body(now + 30_000)))
+      expect(await res.json()).toEqual({ ok: true, signInAgain: true })
+      expect(await stored(ids.peer)).toMatchObject({ totpSecret: other, totpEnabled: true, tokenVersion: 1 })
+      const rows = await db.auditLog.findMany({ where: { tenantId, action: "TOTP_REPLACED" } })
+      expect(rows).toHaveLength(1)
+      expect(JSON.stringify(rows)).not.toContain(other)
+      expect(JSON.stringify(rows)).not.toContain(secret)
+      await db.user.update({ where: { id: ids.peer }, data: { totpSecret: secret, totpEnabled: true, tokenVersion: 0, lastTotpCounter: null } })
     })
   })
 

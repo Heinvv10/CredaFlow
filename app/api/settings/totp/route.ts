@@ -13,7 +13,10 @@ import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 // API a session held at enrolment can reach (lib/proxy/totp-enrolment.ts), so
 // they take the session as it is rather than through requireApiRole.
 
-const DISABLE_ATTEMPTS = { limit: 5, windowMs: 15 * 60 * 1000 } as const
+// Guesses at the current code, whether to turn 2FA off or to replace the secret.
+const CODE_ATTEMPTS = { limit: 5, windowMs: 15 * 60 * 1000 } as const
+const withinAttempts = (userId: string) => checkRateLimit(`totp-current-code:${userId}`, CODE_ATTEMPTS).allowed
+const tooManyAttempts = () => NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 })
 
 type StaffSession = { id: string; email: string; tenantId: string; enrolmentRequired: boolean }
 
@@ -43,16 +46,17 @@ export async function GET(req: NextRequest) {
   })
 }
 
-// POST: verify and enable TOTP. An enrolled account cannot enrol again:
-// swapping the secret would undo the code that turning 2FA off demands.
-// A session held at enrolment ends here, so the next sign-in carries a code
-// (and so can do what only a TOTP-verified session may).
+// POST: verify and enable TOTP. Replacing the secret of an enrolled account
+// needs the current code (replay-protected, rate-limited with turning 2FA off)
+// and signs the user out: whoever holds a session could otherwise rebind 2FA to
+// a secret of their own. A session held at enrolment ends here too, so the next
+// sign-in carries a code (and so can do what only a TOTP-verified session may).
 export async function POST(req: NextRequest) {
   const { staff, error } = await staffSession()
   if (error) return error
 
   return withTenantContext(req, async (tenant) => {
-    const { secret, code } = await bodyOf(req)
+    const { secret, code, currentCode } = await bodyOf(req)
     if (typeof secret !== "string" || typeof code !== "string" || !secret || !code) {
       return NextResponse.json({ error: "secret and code are required" }, { status: 400 })
     }
@@ -61,20 +65,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid verification code" }, { status: 422 })
     }
 
+    const user = await prisma.user.findFirst({
+      where: { id: staff.id, tenantId: tenant.id },
+      select: { totpEnabled: true, totpSecret: true },
+    })
+    if (!user) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    const replacing = user.totpEnabled || user.totpSecret !== null
+    if (replacing) {
+      if (typeof currentCode !== "string" || !currentCode || !user.totpSecret) {
+        return NextResponse.json({ error: "Two-factor authentication is already on for this account" }, { status: 409 })
+      }
+      if (!withinAttempts(staff.id)) return tooManyAttempts()
+      const matched = verifyTotpCode(currentCode.trim(), user.totpSecret)
+      if (matched === null || !(await claimTotpCounter(staff.id, matched))) {
+        return NextResponse.json({ error: "Invalid verification code" }, { status: 422 })
+      }
+    }
+
     const enrolled = await prisma.$transaction(async (tx) => {
+      // Compare-and-set on the state the checks above were made against.
       const { count } = await tx.user.updateMany({
-        where: { id: staff.id, tenantId: tenant.id, totpEnabled: false, totpSecret: null },
-        data: { totpSecret: secret, totpEnabled: true, ...(staff.enrolmentRequired ? { tokenVersion: { increment: 1 } } : {}) },
+        where: replacing
+          ? { id: staff.id, tenantId: tenant.id, totpEnabled: true, totpSecret: user.totpSecret }
+          : { id: staff.id, tenantId: tenant.id, totpEnabled: false, totpSecret: null },
+        data: { totpSecret: secret, totpEnabled: true, ...(replacing || staff.enrolmentRequired ? { tokenVersion: { increment: 1 } } : {}) },
       })
       if (count === 0) return false
       await logAuditStrict({
         tenantId: tenant.id,
         userId: staff.id,
         userEmail: staff.email,
-        action: AuditAction.TOTP_ENROLLED,
+        action: replacing ? AuditAction.TOTP_REPLACED : AuditAction.TOTP_ENROLLED,
         entity: "User",
         entityId: staff.id,
-        oldValue: { totpEnabled: false },
+        oldValue: { totpEnabled: replacing },
         newValue: { totpEnabled: true },
         ipAddress: callerIp(req),
       }, tx)
@@ -84,7 +108,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Two-factor authentication is already on for this account" }, { status: 409 })
     }
 
-    return NextResponse.json({ ok: true, signInAgain: staff.enrolmentRequired })
+    return NextResponse.json({ ok: true, signInAgain: replacing || staff.enrolmentRequired })
   })
 }
 
@@ -106,9 +130,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "code is required" }, { status: 400 })
     }
 
-    if (!checkRateLimit(`totp-disable:${staff.id}`, DISABLE_ATTEMPTS).allowed) {
-      return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 })
-    }
+    if (!withinAttempts(staff.id)) return tooManyAttempts()
 
     const user = await prisma.user.findFirst({
       where: { id: staff.id, tenantId: tenant.id },
@@ -122,7 +144,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: staff.id }, data: { totpSecret: null, totpEnabled: false } })
+      // The bump ends the sessions a code vouched for (totpVerified), this one included.
+      await tx.user.update({ where: { id: staff.id }, data: { totpSecret: null, totpEnabled: false, tokenVersion: { increment: 1 } } })
       await logAuditStrict({
         tenantId: tenant.id,
         userId: staff.id,

@@ -243,11 +243,12 @@ function route(req: NextAuthRequest): Response {
   // Forward tenant slug to Server Components via request header
   const requestHeaders = buildTenantHeaders(req, tenantSlug)
 
-  // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts).
+  // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts);
+  // one with no claim at all predates the policy and is held too.
   // A server action is a POST to any page URL and its id is not tied to the
   // page, so none runs for such a session, public path or not.
   const mustEnrolTotp =
-    isLoggedIn && req.auth?.user?.role !== "CLIENT" && req.auth?.user?.totpEnrolmentRequired === true
+    isLoggedIn && req.auth?.user?.role !== "CLIENT" && req.auth?.user?.totpEnrolmentRequired !== false
   if (mustEnrolTotp && req.headers.has("next-action")) {
     return enrolmentRequiredResponse()
   }

@@ -86,7 +86,8 @@ describe("DELETE /api/settings/totp — turning off your own 2FA", () => {
     const res = await DELETE(req("DELETE", { code: generateTotpCode(secret) }))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
-    expect(h.updateUser).toHaveBeenCalledWith({ where: { id: "u1" }, data: { totpSecret: null, totpEnabled: false } })
+    // Sessions signed in with a code must not outlive the 2FA that vouched for them.
+    expect(h.updateUser).toHaveBeenCalledWith({ where: { id: "u1" }, data: { totpSecret: null, totpEnabled: false, tokenVersion: { increment: 1 } } })
     expect(h.auditCreate).toHaveBeenCalledTimes(1)
     expect(h.auditCreate.mock.calls[0]![0].data).toMatchObject({
       tenantId: "t1", userId: "u1", userEmail: "officer@lender.example", action: "TOTP_DISABLED",
@@ -170,10 +171,58 @@ describe("POST /api/settings/totp — enrolling", () => {
 
   // Replacing the secret of an enrolled account would undo the code check on
   // turning 2FA off: whoever holds the session could swap in their own.
-  it("refuses with 409 to replace the secret of an account that is already enrolled", async () => {
+  describe("when the account is already enrolled (replacing the secret)", () => {
+    const old = generateTotpSecret()
+    const replace = (extra: Record<string, unknown> = {}) => POST(req("POST", { ...body(), ...extra }))
+    beforeEach(() => { h.findUser.mockResolvedValue({ id: "u1", totpEnabled: true, totpSecret: old }) })
+
+    it("refuses with 409 without the current code, and replaces nothing", async () => {
+      const res = await replace()
+      expect(res.status).toBe(409)
+      expect(h.updateManyUser).not.toHaveBeenCalled()
+      expect(h.auditCreate).not.toHaveBeenCalled()
+    })
+
+    it("refuses a wrong or replayed current code with 422, and replaces nothing", async () => {
+      expect((await replace({ currentCode: "000000" })).status).toBe(422)
+      h.claim.mockResolvedValue(false)
+      expect((await replace({ currentCode: generateTotpCode(old) })).status).toBe(422)
+      expect(h.updateManyUser).not.toHaveBeenCalled()
+      expect(h.auditCreate).not.toHaveBeenCalled()
+    })
+
+    it("counts current-code guesses against the same limit as turning 2FA off", async () => {
+      h.rate.mockReturnValue({ allowed: false, remaining: 0, retryAfterSeconds: 60 })
+      expect((await replace({ currentCode: generateTotpCode(old) })).status).toBe(429)
+      expect(h.updateManyUser).not.toHaveBeenCalled()
+    })
+
+    it("replaces the secret only if it is still the one the code was checked against, signs the user out, and audits", async () => {
+      const res = await replace({ currentCode: generateTotpCode(old) })
+      expect(await res.json()).toEqual({ ok: true, signInAgain: true })
+      expect(h.claim).toHaveBeenCalledWith("u1", expect.any(Number))
+      expect(h.updateManyUser).toHaveBeenCalledWith({
+        where: { id: "u1", tenantId: "t1", totpEnabled: true, totpSecret: old },
+        data: { totpSecret: secret, totpEnabled: true, tokenVersion: { increment: 1 } },
+      })
+      expect(h.auditCreate.mock.calls[0]![0].data).toMatchObject({
+        action: "TOTP_REPLACED", userId: "u1", entityId: "u1", oldValue: { totpEnabled: true }, newValue: { totpEnabled: true },
+      })
+      const written = JSON.stringify(h.auditCreate.mock.calls)
+      expect(written).not.toContain(secret)
+      expect(written).not.toContain(old)
+    })
+
+    it("answers 409 if the secret changed under it (a concurrent replace)", async () => {
+      h.updateManyUser.mockResolvedValue({ count: 0 })
+      expect((await replace({ currentCode: generateTotpCode(old) })).status).toBe(409)
+      expect(h.auditCreate).not.toHaveBeenCalled()
+    })
+  })
+
+  it("answers 409 if the account became enrolled between the read and the write", async () => {
     h.updateManyUser.mockResolvedValue({ count: 0 })
-    const res = await POST(req("POST", body()))
-    expect(res.status).toBe(409)
+    expect((await POST(req("POST", body()))).status).toBe(409)
     expect(h.auditCreate).not.toHaveBeenCalled()
   })
 })

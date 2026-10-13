@@ -13,7 +13,7 @@ const handler = proxy as unknown as Handler
 const base = { id: "user-1", role: "CREDIT_OFFICER", tenantId: "tenant-1" }
 const FORCED = { user: { ...base, totpEnrolmentRequired: true } }
 const FREE = { user: { ...base, totpEnrolmentRequired: false } }
-const LEGACY = { user: base } // a token issued before the claim existed
+const LEGACY = { user: base } // a token issued before the claim existed: unknown, so held
 const CLIENT = { user: { id: "client-1", role: "CLIENT", tenantId: "tenant-1", totpEnrolmentRequired: false } }
 
 function visit(pathname: string, session: { user: Record<string, unknown> } | null, init: { method?: string; headers?: Record<string, string> } = {}) {
@@ -68,15 +68,47 @@ describe("forced TOTP enrolment (session.user.totpEnrolmentRequired)", () => {
     }
   })
 
-  it.each([["a user the lender does not force", FREE], ["a token issued before the claim existed", LEGACY]])(
-    "does not touch %s",
-    async (_label, session) => {
-      for (const pathname of [...PAGES, ...APIS]) {
-        const res = await visit(pathname, session)
-        expect(res.headers.get("x-middleware-next"), pathname).toBe("1")
-      }
-    },
-  )
+  it("does not touch a user the lender does not force", async () => {
+    for (const pathname of [...PAGES, ...APIS]) {
+      const res = await visit(pathname, FREE)
+      expect(res.headers.get("x-middleware-next"), pathname).toBe("1")
+    }
+  })
+
+  // The claim is read from the cookie. A staff token without one predates the
+  // policy and says nothing: it is held, never waved through.
+  it("holds a staff token that carries no claim", async () => {
+    expect((await visit("/dashboard", LEGACY)).status).toBe(307)
+    expect((await visit("/api/loans", LEGACY)).status).toBe(403)
+  })
+
+  // Only the exact enrolment page and API are allowed; every other spelling is
+  // held (or, for a path the router would resolve elsewhere, never allowed here).
+  it.each([
+    "/settings/security/../users",
+    "/settings/security/%2e%2e/users",
+    "/settings/security%2Fx",
+    "/settings/securityx",
+    "/settings/security-policy",
+    "/settings/security/extra",
+    "/SETTINGS/security",
+    "/settings//security/users",
+    "/settings/security.json",
+  ])("holds a forced user at the look-alike page %s", async (pathname) => {
+    const res = await visit(pathname, FORCED)
+    expect(res.headers.get("x-middleware-next"), pathname).not.toBe("1")
+  })
+
+  it.each([
+    "/api/settings/totp/../users",
+    "/api/settings/totp%2F..%2Fusers",
+    "/api/settings/totpx",
+    "/api/settings/totp/extra",
+    "/API/settings/users",
+  ])("holds a forced user at the look-alike API %s", async (pathname) => {
+    const res = await visit(pathname, FORCED, { method: "POST" })
+    expect(res.headers.get("x-middleware-next"), pathname).not.toBe("1")
+  })
 
   it("does not touch a CLIENT session", async () => {
     expect((await visit("/api/portal/loans", CLIENT)).headers.get("x-middleware-next")).toBe("1")

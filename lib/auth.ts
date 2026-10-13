@@ -284,6 +284,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // skip revalidation for them. Staff (any other role) hit the User table.
       const tokenId = token.id
       if (typeof tokenId === "string" && token.role && token.role !== "CLIENT") {
+        // Minted before the enrolment claim existed: unknown, so not trusted.
+        if (typeof token.totpEnrolmentRequired !== "boolean") return null
         const tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : 0
         const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion)
         if (freshPrincipal === "error") {

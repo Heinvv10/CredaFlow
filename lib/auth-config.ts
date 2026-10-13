@@ -76,7 +76,10 @@ export const authBaseConfig = {
         session.user.tenantId =
           typeof token.tenantId === "string" ? token.tenantId : null
         // proxy.ts reads this from the cookie, so the edge session must carry it.
-        session.user.totpEnrolmentRequired = token.totpEnrolmentRequired === true
+        // Absent stays undefined (not false): a token minted before the claim
+        // existed is held at the proxy, not waved through.
+        session.user.totpEnrolmentRequired =
+          typeof token.totpEnrolmentRequired === "boolean" ? token.totpEnrolmentRequired : undefined
       }
       return session
     },
