@@ -76,7 +76,7 @@ export function FormError({ message }: { message: string | null }) {
 export type SendResult = { ok: true; body: unknown } | { ok: false; error: string; fields: Record<string, string> }
 
 /** Sends JSON to an asset-finance API route and reads the route's `{ error, fields }` refusal shape. */
-export async function sendJson(url: string, method: "POST" | "PATCH", body: unknown): Promise<SendResult> {
+export async function sendJson(url: string, method: "POST" | "PATCH" | "PUT", body: unknown): Promise<SendResult> {
   try {
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     const data = (await res.json().catch(() => ({}))) as { error?: string; fields?: Record<string, string> }

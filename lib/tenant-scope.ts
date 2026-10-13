@@ -84,6 +84,8 @@ export const TENANT_SCOPED_MODELS = [
   "AssetValuation",
   "Supplier",
   "SupplierBankAccount",
+  "AssetFinanceDeal",
+  "EntityFinancials",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

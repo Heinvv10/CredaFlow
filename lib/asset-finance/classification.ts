@@ -5,6 +5,7 @@ import { classifyNcaRegime, type NcaClassification } from "./nca-classifier"
 import { reconcileOpenOverride } from "./classifier-overrides"
 import type { SnapshotSource } from "./override-snapshot"
 import { verifiedTrusteeEvidenceIds } from "./entity-documents"
+import { nullableFigureFromDb } from "./big-cents"
 
 // Runs the NCA classifier for an entity application and snapshots the result
 // on it (DESIGN D5). Every move to NON_NCA goes through four-eyes: a classifier
@@ -128,8 +129,9 @@ export async function classifyApplication(
     entityType: entity.type,
     // CHECK EntityRelationship_trustee_kind: every TRUSTEE row has a kind.
     trustees: entity.relationships.flatMap((r) => (r.trusteeKind ? [{ kind: r.trusteeKind }] : [])),
-    annualTurnoverCents: entity.annualTurnover,
-    totalAssetValueCents: entity.totalAssetValue,
+    // BIGINT cents, validated <= 9e15 on input: Number() is exact (big-cents.ts).
+    annualTurnoverCents: nullableFigureFromDb(entity.annualTurnover),
+    totalAssetValueCents: nullableFigureFromDb(entity.totalAssetValue),
     financialsEvidenceIds: entity.financialsEvidenceIds,
     // PARTIAL: slice 1 has no separate "staff verified these figures" flag, so
     // figures with at least one evidence document count as verified. Replace

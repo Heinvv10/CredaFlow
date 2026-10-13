@@ -854,8 +854,8 @@ model BusinessEntity {
   vatNumber             String?
   // NCA classifier inputs (cents), the financial year they describe and the
   // document ids that evidence them. Unevidenced → the classifier says NCA.
-  annualTurnover        Int?
-  totalAssetValue       Int?
+  annualTurnover        BigInt?
+  totalAssetValue       BigInt?
   financialYearEnd      DateTime?            @db.Date
   financialsEvidenceIds String[]             @default([])
   addressLine1          String?
@@ -4387,12 +4387,12 @@ model EntityFinancials {
   dealId                    String           @unique
   deal                      AssetFinanceDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   periodEnd                 DateTime         @db.Date
-  turnoverCents             Int
-  ebitdaCents               Int
-  totalAssetsCents          Int
-  totalLiabilitiesCents     Int
-  existingDebtServiceCents  Int
-  avgMonthlyCreditsCents    Int
+  turnoverCents             BigInt
+  ebitdaCents               BigInt
+  totalAssetsCents          BigInt
+  totalLiabilitiesCents     BigInt
+  existingDebtServiceCents  BigInt
+  avgMonthlyCreditsCents    BigInt
   returnedDebitsCount       Int
   dscr                      Decimal?         @db.Decimal(9, 4)
   gearing                   Decimal?         @db.Decimal(9, 4)

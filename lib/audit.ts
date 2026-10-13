@@ -461,4 +461,15 @@ export const AuditAction = {
   ENTITY_DOCUMENT_VERIFIED: "ENTITY_DOCUMENT_VERIFIED",
   ENTITY_DOCUMENT_DELETED: "ENTITY_DOCUMENT_DELETED",
   ENTITY_FINANCIALS_EVIDENCE_SET: "ENTITY_FINANCIALS_EVIDENCE_SET",
+  // Asset finance deals (app/api/asset-finance/deals): origination, credit
+  // memo, director/trustee bureau checks, submission and the credit decision.
+  ASSET_DEAL_CREATED: "ASSET_DEAL_CREATED",
+  ASSET_DEAL_SUBMITTED: "ASSET_DEAL_SUBMITTED",
+  // Slice 1 finances non-NCA deals only: a deal that stays NCA is refused.
+  ASSET_DEAL_REFUSED_NCA: "ASSET_DEAL_REFUSED_NCA",
+  ASSET_DEAL_DECIDED: "ASSET_DEAL_DECIDED",
+  // A decision refused for lack of authority.
+  ASSET_DEAL_DECISION_REFUSED: "ASSET_DEAL_DECISION_REFUSED",
+  ENTITY_FINANCIALS_RECORDED: "ENTITY_FINANCIALS_RECORDED",
+  ASSET_DEAL_BUREAU_CHECKED: "ASSET_DEAL_BUREAU_CHECKED",
 } as const

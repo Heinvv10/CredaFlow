@@ -66,8 +66,14 @@ describe("parseBusinessEntityInput", () => {
     expect(errorsOf(company({ annualTurnover: 150_000_000, financialYearEnd: "2026-02-28" }))).toEqual({})
   })
 
-  it.each([[-1], [1.5], ["100"], [2_147_483_648]])("refuses turnover %j (cents, INT4)", (annualTurnover) => {
+  it.each([[-1], [1.5], ["100"], [9_000_000_000_000_001]])("refuses turnover %j (cents, BIGINT capped at 9e15)", (annualTurnover) => {
     expect(errorsOf(company({ annualTurnover, financialYearEnd: "2026-02-28" }))).toHaveProperty("annualTurnover")
+  })
+
+  it("accepts turnover above the old INT4 limit, up to 9e15 cents", () => {
+    for (const annualTurnover of [2_147_483_648, 9_000_000_000_000_000]) {
+      expect(errorsOf(company({ annualTurnover, financialYearEnd: "2026-02-28" }))).toEqual({})
+    }
   })
 
   it("refuses a malformed VAT number, postal code, type and missing name", () => {

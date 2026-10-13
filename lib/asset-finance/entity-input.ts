@@ -1,4 +1,5 @@
 import type { BusinessEntityType } from "@prisma/client"
+import { MAX_FIGURE_CENTS } from "./big-cents"
 
 // Validation of a BusinessEntity create/update body (goal §4.5). Formats are
 // checked loosely: the shape of a CIPC or Master's number, not its existence.
@@ -17,8 +18,6 @@ export const TRUST_IT_NUMBER = /^IT ?\d{1,6}\/\d{2,4}(?: ?\(?[A-Z]{1,3}\)?)?$/
 const FREE_REFERENCE = /^[A-Z0-9][A-Z0-9 /().-]{2,39}$/
 /** SA VAT vendor numbers are ten digits starting with 4. */
 const VAT_NUMBER = /^4\d{9}$/
-/** The columns are Postgres INT4 (cents). */
-export const MAX_INT4_CENTS = 2_147_483_647
 
 export interface BusinessEntityInput {
   type: BusinessEntityType
@@ -63,8 +62,9 @@ function cents(body: Body, key: string, errors: Record<string, string>): number 
     errors[key] = "Must be a whole, non-negative number of cents"
     return null
   }
-  if (raw > MAX_INT4_CENTS) {
-    errors[key] = `Cannot exceed ${MAX_INT4_CENTS} cents`
+  // BIGINT columns; the cap keeps every value exact as a JavaScript number.
+  if (raw > MAX_FIGURE_CENTS) {
+    errors[key] = `Cannot exceed ${MAX_FIGURE_CENTS} cents`
     return null
   }
   return raw

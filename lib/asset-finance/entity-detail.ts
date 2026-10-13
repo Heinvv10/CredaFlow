@@ -1,5 +1,6 @@
 import type { BusinessEntityType, EntityRole, TrusteeKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { nullableFigureFromDb } from "./big-cents"
 import { ENTITY_DOCUMENT_VIEW_SELECT, toEntityDocumentView, type EntityDocumentView } from "./entity-documents"
 
 // Read models for a BusinessEntity, shared by the API routes and the pages so
@@ -97,6 +98,8 @@ export async function loadEntityCore(tenantId: string, entityId: string): Promis
   if (!row) return null
   return {
     ...row,
+    annualTurnover: nullableFigureFromDb(row.annualTurnover),
+    totalAssetValue: nullableFigureFromDb(row.totalAssetValue),
     financialYearEnd: row.financialYearEnd?.toISOString().slice(0, 10) ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

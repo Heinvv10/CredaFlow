@@ -13,6 +13,7 @@ import {
   loadEntityRecords,
 } from "@/lib/asset-finance/entity-detail"
 import { lockBusinessEntity } from "@/lib/asset-finance/entity-documents"
+import { nullableFigureFromDb } from "@/lib/asset-finance/big-cents"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -57,8 +58,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     try {
       const outcome = await prisma.$transaction(async (tx) => {
         if (!(await lockBusinessEntity(tx, tenant.id, id))) return "not_found" as const
-        const before = await tx.businessEntity.findFirst({ where: { id, tenantId: tenant.id } })
-        if (!before) return "not_found" as const
+        const row = await tx.businessEntity.findFirst({ where: { id, tenantId: tenant.id } })
+        if (!row) return "not_found" as const
+        const before = {
+          ...row,
+          annualTurnover: nullableFigureFromDb(row.annualTurnover),
+          totalAssetValue: nullableFigureFromDb(row.totalAssetValue),
+        }
         if (before.type !== input.data.type) return "type_changed" as const
         const clearEvidence = financialsChanged(before, input.data) && before.financialsEvidenceIds.length > 0
         await tx.businessEntity.update({

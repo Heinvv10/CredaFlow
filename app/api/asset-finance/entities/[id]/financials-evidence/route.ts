@@ -6,6 +6,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { FINANCIALS_EVIDENCE_TYPES, invalidFinancialsEvidenceIds, lockBusinessEntity } from "@/lib/asset-finance/entity-documents"
 import { loadEntityCore } from "@/lib/asset-finance/entity-detail"
+import { nullableFigureFromDb } from "@/lib/asset-finance/big-cents"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -72,8 +73,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
           oldValue: { financialsEvidenceIds: entity.financialsEvidenceIds },
           newValue: {
             financialsEvidenceIds: documentIds,
-            annualTurnover: entity.annualTurnover,
-            totalAssetValue: entity.totalAssetValue,
+            annualTurnover: nullableFigureFromDb(entity.annualTurnover),
+            totalAssetValue: nullableFigureFromDb(entity.totalAssetValue),
           },
         },
         tx,

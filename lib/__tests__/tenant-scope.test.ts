@@ -102,6 +102,8 @@ describe("tenant-scope — ALS primitives", () => {
       "AssetValuation",
       "Supplier",
       "SupplierBankAccount",
+      "AssetFinanceDeal",
+      "EntityFinancials",
     ])
   })
 
