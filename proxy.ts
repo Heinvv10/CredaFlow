@@ -7,7 +7,7 @@ import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
-import { isImageRead } from "@/lib/proxy/static-image"
+import { isStaticAssetRead } from "@/lib/proxy/static-image"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -29,10 +29,11 @@ const APP_MODE: AppMode =
 // a demo deployment is never indexable; with DEMO_MODE unset it is a no-op.
 const handle = auth((req) => applyDemoHeaders(route(req)))
 
-// Reads of images are answered before the session is decoded, as when the
-// matcher skipped them. Writes to such paths reach route() (lib/proxy/static-image.ts).
+// Reads of the real files in public/ are answered before the session is decoded,
+// as when the matcher skipped images. Everything else, image-suffixed or not,
+// reaches route() (lib/proxy/static-image.ts).
 export default function proxy(...args: Parameters<typeof handle>) {
-  return isImageRead(args[0]) ? NextResponse.next() : handle(...args)
+  return isStaticAssetRead(args[0]) ? NextResponse.next() : handle(...args)
 }
 
 function route(req: NextAuthRequest): Response {
@@ -201,9 +202,14 @@ function route(req: NextAuthRequest): Response {
       !path.startsWith("/api/") &&
       !(isPortalPath || (isPublicRoute && !isStaffSignInPage))
     const isClientOnlyPage = isPortalLoginPage || isPortalPath
+    // /api/auth/* is public everywhere, but the app's own staff handlers
+    // (forgot-password, reset-password) share the prefix. The client host serves
+    // NextAuth's endpoints and the stale-session loop-breaker only.
+    const isNextAuthApi =
+      /^\/api\/auth\/(?:session|csrf|providers|signin|signout|callback|error|verify-request|webauthn-options|_log|expired)(?:\/|$)/.test(path)
     const isStaffOnlyApi =
       path.startsWith("/api/") &&
-      !isApiAuthRoute &&
+      !isNextAuthApi &&
       !isWebsiteApi &&
       !isPublicOperationalApi &&
       !isSharedClientApi &&

@@ -120,11 +120,16 @@ describe("forced TOTP enrolment (session.user.totpEnrolmentRequired)", () => {
         expect((await visit(pathname, LEGACY, urlencoded())).status).toBe(403)
       })
 
-    it("still serves a plain image read to everyone, held or not, without a session lookup", async () => {
+    it("still serves a read of a real file in public/ to everyone, held or not, without a session lookup", async () => {
       for (const session of [FORCED, FREE, LEGACY, null]) {
-        const res = await visit("/brand/logo.png", session)
+        const res = await visit("/file.svg", session)
         expect(res.headers.get("x-middleware-next")).toBe("1")
       }
+    })
+
+    it("holds a read of any other image-suffixed path: the suffix is not a static file", async () => {
+      const res = await visit("/brand/logo.png", FORCED)
+      expect(res.status).toBe(307)
     })
 
     it("does not touch a form post from a session that is not held", async () => {
