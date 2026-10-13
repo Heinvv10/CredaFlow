@@ -7,8 +7,8 @@
  * or not), so a stale runbook cannot mint a second one. Recovery from a lockout
  * is the same CLI with an explicit break-glass mode, which only ever resets an
  * EXISTING SUPER_ADMIN of the tenant. Both modes write a one-time password and a
- * fresh TOTP secret (staff 2FA is mandatory, and identity/user writes need a
- * TOTP-verified session), return them to the caller to print once, and audit
+ * fresh TOTP secret (enrolled whatever the lender's staff-2FA setting, because
+ * identity and user writes need a TOTP-verified session), return them to the caller to print once, and audit
  * the event without any credential in the audit row.
  */
 import bcrypt from "bcryptjs"

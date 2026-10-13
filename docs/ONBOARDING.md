@@ -126,7 +126,7 @@ image (`deploy.sh <dir> <image>`) so the container is recreated with the new val
       `docs/DEPLOY.md`), backups copied off the host.
 - [ ] A restore drill done once by hand and the counts compared.
 - [ ] Break-glass procedure known to a second person (`docs/DEPLOY.md`).
-- [ ] No `DEMO_MODE`, no dry-run flags, no staff TOTP switched off.
+- [ ] No `DEMO_MODE`, no dry-run flags, staff 2FA left at its default (on).
 
 ## 8. Afterwards
 

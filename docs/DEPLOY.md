@@ -154,8 +154,9 @@ kept; undo by swapping the two names back. Drop it yourself when satisfied.
 SUPER_ADMIN (active or not), takes a row lock on the tenant so two runs cannot both
 win, and audits `SUPER_ADMIN_BOOTSTRAPPED` (no credential in the row). It works under
 `NODE_ENV=production`, creates only that user and no demo data. The TOTP secret is
-enrolled at creation: TOTP is mandatory for staff, and user and identity writes
-need a TOTP-verified session.
+enrolled at creation whatever the lender's staff-2FA setting (a per-lender
+`TenantConfig` setting, on by default): user and identity writes need a
+TOTP-verified session either way.
 
 If the only SUPER_ADMIN is locked out (lost password or authenticator, deactivated),
 on the host, from a checkout:
