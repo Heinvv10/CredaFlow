@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { authBaseConfig } from "@/lib/auth-config"
+import { safeInternalPath } from "@/lib/safe-path"
 
 // Stale-session loop-breaker.
 //
@@ -20,13 +21,10 @@ import { authBaseConfig } from "@/lib/auth-config"
 // proxy.ts (isApiAuthRoute → isPublicRoute), so it is never itself gated.
 export function GET(req: NextRequest): NextResponse {
   // Preserve the original destination so re-login lands where they intended.
-  // Only accept a safe relative path (defence against open-redirect); anything
-  // else falls back to the staff dashboard.
-  const requested = req.nextUrl.searchParams.get("callbackUrl")
-  const callbackUrl =
-    requested && requested.startsWith("/") && !requested.startsWith("//")
-      ? requested
-      : "/dashboard"
+  // Only accept a safe same-origin path (defence against open-redirect: "//x"
+  // and "/\x" both leave the origin); anything else falls back to the staff
+  // dashboard.
+  const callbackUrl = safeInternalPath(req.nextUrl.searchParams.get("callbackUrl")) ?? "/dashboard"
 
   // Emit a RELATIVE Location. A route handler's `req.url` is the container's
   // internal bind address (e.g. http://0.0.0.0:3300), so an absolute URL built
