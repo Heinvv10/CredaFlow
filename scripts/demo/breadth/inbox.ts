@@ -10,6 +10,7 @@
  * through the product's send pipeline to the sim's SMTP sink and is recorded
  * SENT because the provider accepted it.
  */
+import { demoLender } from "../../../prisma/demo-lender"
 import type { SimClient } from "../sim/api"
 import { shiftBusinessDays } from "../simulate/dates"
 import { afterOrigination, as, beforeEnd, clientOf, operationId, recall, remember, step, type Breadth } from "./context"
@@ -28,19 +29,21 @@ interface Thread {
   finalStatus: "OPEN" | "PENDING_CUSTOMER" | "CLOSED"
 }
 
+const BRAND = demoLender().identity.brandName
+
 const THREADS: readonly Thread[] = [
   { personaId: "bg-08", day: (b) => afterOrigination(b, "bg-08", 20), author: "officer", subject: "Your debit order date",
-    text: "Good day,\n\nAs requested, your instalment is collected on the 25th of each month. Please keep the account funded the day before.\n\nRegards, Acme Lending",
+    text: `Good day,\n\nAs requested, your instalment is collected on the 25th of each month. Please keep the account funded the day before.\n\nRegards, ${BRAND}`,
     note: "Client asked by phone to confirm the collection date.", reassignTo: null, followUp: null, finalStatus: "CLOSED" },
   { personaId: "bg-19", day: (b) => beforeEnd(b, 18), author: "officer", subject: "Missed instalment on your loan",
-    text: "Good day,\n\nYour instalment due this month was not received. Please contact us to arrange payment so that we can avoid further collection steps.\n\nRegards, Acme Lending",
+    text: `Good day,\n\nYour instalment due this month was not received. Please contact us to arrange payment so that we can avoid further collection steps.\n\nRegards, ${BRAND}`,
     note: "First missed instalment; sent the courtesy e-mail before the formal reminder.", reassignTo: "branchManager",
-    followUp: "Good day,\n\nWe have not yet heard from you about the missed instalment. Please call us on 011 000 0001.\n\nRegards, Acme Lending", finalStatus: "PENDING_CUSTOMER" },
+    followUp: `Good day,\n\nWe have not yet heard from you about the missed instalment. Please call us on 011 000 0001.\n\nRegards, ${BRAND}`, finalStatus: "PENDING_CUSTOMER" },
   { personaId: "bg-13", day: (b) => beforeEnd(b, 3), author: "officer2", subject: "Settlement figure requested",
-    text: "Good day,\n\nThank you for your request. Your settlement figure is being prepared and a certificate of balance will follow within one business day.\n\nRegards, Acme Lending",
+    text: `Good day,\n\nThank you for your request. Your settlement figure is being prepared and a certificate of balance will follow within one business day.\n\nRegards, ${BRAND}`,
     note: "Settlement quote requested; complaint C5 logged about the delay.", reassignTo: null, followUp: null, finalStatus: "OPEN" },
   { personaId: "bg-16", day: (b) => afterOrigination(b, "bg-16", 31), author: "officer2", subject: "Your EFT payment has been allocated",
-    text: "Good day,\n\nWe found your EFT payment on our bank statement and have allocated it to your loan. Please use your loan reference on future payments.\n\nRegards, Acme Lending",
+    text: `Good day,\n\nWe found your EFT payment on our bank statement and have allocated it to your loan. Please use your loan reference on future payments.\n\nRegards, ${BRAND}`,
     note: "Linked to complaint C1 (unallocated EFT).", reassignTo: null, followUp: null, finalStatus: "CLOSED" },
 ]
 

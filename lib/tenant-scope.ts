@@ -72,6 +72,10 @@ export const TENANT_SCOPED_MODELS = [
   "InsuranceClaim",
   "PremiumPayment",
   "CrossSellOpportunity",
+  // Credit checks v1. Non-null tenantId; the statement read also runs after
+  // its upload request has returned, so every query passes it explicitly.
+  "StatementAnalysis",
+  "ApplicationCheckFlag",
   // Asset finance (docs/asset-finance/DESIGN.md). Non-null tenantId; the
   // routes run inside withTenantContext and also pass it explicitly.
   "BusinessEntity",
