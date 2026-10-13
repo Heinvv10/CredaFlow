@@ -193,6 +193,45 @@ describe("POST /api/settings/users", () => {
     expect(h.logAuditStrict).not.toHaveBeenCalled()
   })
 
+  // The findUnique probe is racy: a concurrent create of the same email passes
+  // it and meets the unique index inside the transaction.
+  it("answers 409, not 500, when the create meets the unique email index (a concurrent duplicate)", async () => {
+    signedIn("ADMIN")
+    h.userCreate.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test", meta: { target: ["email"] } }))
+    const res = await post({ role: "CREDIT_OFFICER" })
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "A user with this email already exists" })
+    expect(h.logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("answers 409 when the probe finds the email already registered", async () => {
+    signedIn("ADMIN")
+    h.userFindUnique.mockResolvedValue({ id: "other-1" })
+    const res = await post({ role: "CREDIT_OFFICER" })
+
+    expect(res.status).toBe(409)
+    expect(h.userCreate).not.toHaveBeenCalled()
+  })
+
+  it("still fails (500) on an error that is not a duplicate", async () => {
+    signedIn("ADMIN")
+    h.userCreate.mockRejectedValue(new Error("connection reset"))
+    await expect(post({ role: "CREDIT_OFFICER" })).rejects.toThrow("connection reset")
+  })
+
+  // Sign-in lowercases the email before looking it up (lib/auth.ts), and the
+  // unique index is case-sensitive: a user stored as typed could not sign in,
+  // and "A@x" and "a@x" would both be accepted.
+  it("stores the email trimmed and lower-cased, and probes for that", async () => {
+    signedIn("ADMIN")
+    const res = await post({ role: "CREDIT_OFFICER", email: "  New.Staff@Acme-Lending.example " })
+
+    expect(res.status).toBe(201)
+    expect(h.userFindUnique).toHaveBeenCalledWith({ where: { email: "new.staff@acme-lending.example" } })
+    expect(h.userCreate.mock.calls[0][0].data.email).toBe("new.staff@acme-lending.example")
+  })
+
   it("refuses a caller below BRANCH_MANAGER", async () => {
     signedIn("LOAN_ADMIN")
     expect((await post({ role: "READONLY" })).status).toBe(403)

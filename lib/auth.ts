@@ -7,6 +7,9 @@ import { authBaseConfig, type AppRole } from "./auth-config"
 import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
+import { claimTotpCounter } from "./totp-claim"
+
+export { claimTotpCounter }
 
 class TotpRequiredError extends CredentialsSignin {
   code = "totp_required"
@@ -74,22 +77,6 @@ export async function revalidatePrincipal(
   if (!fresh || !fresh.active || !fresh.tenantId) return null
   if (fresh.tokenVersion !== tokenVersion) return null
   return { role: fresh.role, tenantId: fresh.tenantId }
-}
-
-/**
- * Atomically claim a TOTP counter for replay protection.
- * Returns true if the counter was claimed (first use or later-counter login).
- * Returns false if the counter was already used (replay) or DB write failed.
- */
-export async function claimTotpCounter(userId: string, matchedCounter: number): Promise<boolean> {
-  const claimed = await prisma.user.updateMany({
-    where: {
-      id: userId,
-      OR: [{ lastTotpCounter: null }, { lastTotpCounter: { lt: matchedCounter } }],
-    },
-    data: { lastTotpCounter: matchedCounter },
-  })
-  return claimed.count > 0
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({

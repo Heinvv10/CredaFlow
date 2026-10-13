@@ -3,10 +3,12 @@ import { prisma } from "@/lib/prisma"
 import { refuseLockedStaffUserWrite, refuseStaffUserWrite, requireApiRole, staffUserWriteConflict } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
-import type { UserRole } from "@prisma/client"
+import { Prisma, type UserRole } from "@prisma/client"
 import { logAuditStrict } from "@/lib/audit"
 
 const ADMIN_ROLES: UserRole[] = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"]
+
+const duplicateEmail = () => NextResponse.json({ error: "A user with this email already exists" }, { status: 409 })
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("BRANCH_MANAGER")
@@ -80,9 +82,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } })
+    // Sign-in lowercases the email before the lookup (lib/auth.ts), as PATCH
+    // does when it stores one.
+    const normalizedEmail = email.trim().toLowerCase()
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } })
     if (existing) {
-      return NextResponse.json({ error: "A user with this email already exists" }, { status: 409 })
+      return duplicateEmail()
     }
 
     // Branch must belong to the same tenant — otherwise a caller could
@@ -107,7 +112,7 @@ export async function POST(req: NextRequest) {
         data: {
           tenantId: tenant.id,
           name,
-          email,
+          email: normalizedEmail,
           role,
           password: hashed,
           phone: phone ?? null,
@@ -131,6 +136,9 @@ export async function POST(req: NextRequest) {
       }, tx)
       return { user }
     }).catch((err: unknown) => {
+      // The probe above is racy: a concurrent create of the same email only
+      // collides at the unique index.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { refused: duplicateEmail() }
       const conflict = staffUserWriteConflict(err)
       if (conflict) return { refused: conflict }
       throw err

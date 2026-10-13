@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { PrismaClient } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
 import { applyStaffTotpRequired, getStaffTotpPolicyState, isStaffTotpRequired } from "./staff-totp-policy"
 
 const RUN = process.env.RUN_DB_IT === "1"
@@ -56,7 +57,7 @@ suite("staff two-factor policy (real database)", () => {
   })
 
   const version = async (id: string) => (await db.user.findUniqueOrThrow({ where: { id }, select: { tokenVersion: true } })).tokenVersion
-  const set = (required: boolean) => db.$transaction((tx) =>
+  const set = (required: boolean) => prisma.$transaction((tx) =>
     applyStaffTotpRequired(tx, { tenantId, actor: { id: ids.actor, email: `${ids.actor}@test.invalid` }, required }))
 
   it("is on for a config row created without a value, and for a tenant with no config row", async () => {
@@ -106,7 +107,7 @@ suite("staff two-factor policy (real database)", () => {
   })
 
   it("creates the config row when the tenant has none", async () => {
-    const result = await db.$transaction((tx) =>
+    const result = await prisma.$transaction((tx) =>
       applyStaffTotpRequired(tx, { tenantId: bareTenantId, actor: { id: ids.actor, email: "a@test.invalid" }, required: false }))
     expect(result.changed).toBe(true)
     expect(await isStaffTotpRequired(bareTenantId)).toBe(false)
