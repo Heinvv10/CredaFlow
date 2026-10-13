@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   session: { role: "ADMIN" as string },
   findUnique: vi.fn(),
   upsert: vi.fn(),
+  executeRaw: vi.fn(),
   logAuditStrict: vi.fn(),
   revalidateTag: vi.fn(),
 }))
@@ -20,7 +21,10 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantConfig: { findUnique: m.findUnique },
-    $transaction: (fn: (tx: unknown) => unknown) => fn({ tenantConfig: { findUnique: m.findUnique, upsert: m.upsert } }),
+    $transaction: (fn: (tx: unknown) => unknown) => fn({
+      $executeRaw: m.executeRaw,
+      tenantConfig: { findUnique: m.findUnique, upsert: m.upsert },
+    }),
   },
 }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
@@ -65,6 +69,8 @@ describe("/api/settings/asset-finance", () => {
     expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: "tenant-1" }, update: { featureAssetFinance: true }, create: { tenantId: "tenant-1", featureAssetFinance: true },
     }))
+    expect(m.executeRaw).toHaveBeenCalledTimes(2)
+    expect(m.executeRaw.mock.invocationCallOrder[1]).toBeLessThan(m.findUnique.mock.invocationCallOrder[0])
     expect(m.logAuditStrict).toHaveBeenCalledTimes(1)
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "ASSET_FINANCE_MODULE_ENABLED", entity: "TenantConfig", entityId: "tenant-1", userId: "admin-1",

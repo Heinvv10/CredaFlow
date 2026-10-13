@@ -19,6 +19,7 @@ import type { Channel, MessageTemplate } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { lookupContactByChannelValue, normaliseEmail, toWaJid } from "@/lib/contact/identity"
 import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
+import { getCommsSettings } from "@/lib/inbox/settings"
 import {
   MessageReconciliationRequiredError,
   sendMessage,
@@ -127,7 +128,18 @@ async function sendLeg(
 
 export async function sendEntityNotice(request: EntityNoticeRequest): Promise<EntityLegOutcome[]> {
   const outcomes: EntityLegOutcome[] = []
+  const whatsappEnabled = !request.channels.includes("WHATSAPP")
+    || (await getCommsSettings(request.tenantId)).whatsappEnabled
   for (const channel of request.channels) {
+    if (channel === "WHATSAPP" && !whatsappEnabled) {
+      outcomes.push(...request.recipients.map((recipient) => ({
+        clientId: recipient.clientId,
+        channel,
+        status: "blocked" as const,
+        reason: "WhatsApp channel is off",
+      })))
+      continue
+    }
     const key = channel === "EMAIL" ? ENTITY_EMAIL_KEY[request.facts.kind] : `${ENTITY_WA_EVENT[request.facts.kind]}_whatsapp`
     const lookup = await loadTemplate(request.tenantId, key, channel)
     for (const recipient of request.recipients) {

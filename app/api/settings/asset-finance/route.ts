@@ -43,6 +43,10 @@ export async function PATCH(req: NextRequest) {
     const actor = { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, ipAddress: recordedCallerIp(req) ?? undefined }
 
     const saved = await prisma.$transaction(async (tx) => {
+      // The advisory lock also serialises first writes, where no config row
+      // exists yet; the row lock then covers established tenants.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`asset-finance-settings:${tenant.id}`}))`
+      await tx.$executeRaw`SELECT 1 FROM "TenantConfig" WHERE "tenantId" = ${tenant.id} FOR UPDATE`
       // Read-then-write in one transaction: the audited old value is the state this write replaced.
       const prev = (await tx.tenantConfig.findUnique({ where: { tenantId: tenant.id }, select: SELECT })) ?? DEFAULTS
       const next = await tx.tenantConfig.upsert({
