@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { repriceTail } from "./reprice"
+import { toScheduleRecord } from "./schedule-records"
 import { storedScheduleForReprice, type StoredScheduleRow } from "./stored-schedule"
 import type { RatePoint, ScheduleRow, StructureResult } from "./types"
 import { expectRowIdentities } from "./__tests__/oracle-assertions"
@@ -148,5 +149,53 @@ describe("a mid-period reference change on a stored schedule", () => {
     const replay = oracleReplay(oracleDealFromInput({ ...input, ratePath: newPath }), merged.map((r) => r.totalCents - r.balloonCents))
     expect(replay.map((r) => r.interestCents)).toEqual(merged.map((r) => r.interestCents))
     expect(replay[replay.length - 1].balanceAfterPaymentCents).toBe(BASE.balloonCents)
+  })
+})
+
+describe("a paid row reopened after a backdated reprice", () => {
+  it("uses solved opening-balance snapshots instead of applying the newer rate to historical accrual", () => {
+    const result = solvePattern(PATTERNS.MONTHLY)
+    const ratePath: RatePoint[] = [...BASE.ratePath, { effectiveDate: result.rows[10].dueDate, annualRate: 0.15 }]
+    const repriced = repriceTail({
+      rows: result.rows,
+      paidThroughIndex: 11,
+      balanceAtRepriceCents: result.rows[11].closingBalanceCents,
+      repriceDate: result.rows[11].dueDate,
+      ratePath,
+      balloonCents: BASE.balloonCents,
+    })
+    const stored = storedRows(result, 11).map((row, i) => ({
+      ...row,
+      assetFinanceOpeningBalanceCents: result.rows[i].openingBalanceCents,
+    }))
+    for (let i = 12; i < stored.length; i++) {
+      stored[i] = {
+        ...stored[i],
+        ...toScheduleRecord(repriced.rows[i - 12]),
+        assetFinanceOpeningBalanceCents: repriced.rows[i - 12].openingBalanceCents,
+      }
+    }
+    stored[11] = { ...stored[11], status: "PENDING", totalPaid: 0 }
+
+    const reopened = storedScheduleForReprice({
+      stored,
+      balloonCents: BASE.balloonCents,
+      recordedBaseCents: repriced.baseInstalmentCents,
+      ratePath,
+      startDate: BASE.startDate,
+      contractualWeights: PATTERNS.MONTHLY,
+    })
+    if ("error" in reopened) throw new Error(reopened.error)
+    expect(reopened.paidThroughIndex).toBe(10)
+    expect(reopened.capitalOutstandingCents).toBe(result.rows[11].openingBalanceCents)
+    expect(reopened.rows[11].interestCents).toBe(result.rows[11].interestCents)
+    expect(() => repriceTail({
+      rows: reopened.rows,
+      paidThroughIndex: reopened.paidThroughIndex,
+      balanceAtRepriceCents: reopened.capitalOutstandingCents,
+      repriceDate: result.rows[10].dueDate,
+      ratePath: [...ratePath, { effectiveDate: result.rows[12].dueDate, annualRate: 0.16 }],
+      balloonCents: BASE.balloonCents,
+    })).not.toThrow()
   })
 })

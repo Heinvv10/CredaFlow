@@ -41,6 +41,7 @@ export interface StoredScheduleRow extends ScheduleRecordAmounts {
   id: string
   status: string
   totalPaid: number
+  assetFinanceOpeningBalanceCents?: number | null
 }
 
 export interface StoredScheduleInput {
@@ -101,14 +102,22 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
   const segments = rateSegments(input.ratePath, startDay)
   const rateDays = dueDays.map((day, i) => (i < first ? 0 : rateDaySum(segments, i === 0 ? startDay : dueDays[i - 1], day)))
 
-  let after = balloonCents
-  for (let i = last; i >= first; i--) {
-    const principal = stored[i].principalDue - balloonOf(i)
-    const opening = principal > 0 ? after + principal : openingBefore(after + payments[i], rateDays[i])
-    if (opening === null) return { error: "unsupported_schedule" }
-    after = opening
+  const snapshots = tail.map((row) => row.assetFinanceOpeningBalanceCents)
+  const hasSnapshots = snapshots.every((value) => Number.isSafeInteger(value) && (value as number) >= 0)
+  if (!hasSnapshots && snapshots.some((value) => value != null)) return { error: "unsupported_schedule" }
+  let capitalOutstandingCents: number
+  if (hasSnapshots) {
+    capitalOutstandingCents = snapshots[0] as number
+  } else {
+    let after = balloonCents
+    for (let i = last; i >= first; i--) {
+      const principal = stored[i].principalDue - balloonOf(i)
+      const opening = principal > 0 ? after + principal : openingBefore(after + payments[i], rateDays[i])
+      if (opening === null) return { error: "unsupported_schedule" }
+      after = opening
+    }
+    capitalOutstandingCents = after
   }
-  const capitalOutstandingCents = after
 
   const regulars = payments.slice(first)
   const referenceInstalmentCents =
@@ -138,7 +147,12 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
       })
       continue
     }
-    const interest = periodInterest(opening, rateDays[i])
+    if (hasSnapshots && opening !== stored[i].assetFinanceOpeningBalanceCents) return { error: "unsupported_schedule" }
+    const nextOpening = i === last ? 0 : stored[i + 1].assetFinanceOpeningBalanceCents
+    const interest = hasSnapshots
+      ? (nextOpening as number) - opening + payments[i] + balloonOf(i)
+      : periodInterest(opening, rateDays[i])
+    if (!Number.isSafeInteger(interest) || interest < 0) return { error: "unsupported_schedule" }
     const principal = payments[i] - interest
     const closing = opening - principal - balloonOf(i)
     const solverRow: ScheduleRow = {
