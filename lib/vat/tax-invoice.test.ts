@@ -114,7 +114,7 @@ describe("issueInstalmentSaleInvoice", () => {
   it("forces the deferred totals check before returning (Prisma reports a COMMIT-time rollback as success)", async () => {
     const { db, calls } = fakeDb(CONFIG)
     await issueInstalmentSaleInvoice(db, BOOKING)
-    expect(calls).toEqual(["create", "SET CONSTRAINTS ALL IMMEDIATE"])
+    expect(calls).toEqual(["create", "SET CONSTRAINTS ALL IMMEDIATE", "SET CONSTRAINTS ALL DEFERRED"])
   })
 
   it("refuses a tenant with no VAT configuration, before writing anything", async () => {

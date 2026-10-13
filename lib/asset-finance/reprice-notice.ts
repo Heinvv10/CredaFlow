@@ -30,6 +30,7 @@ export interface RepriceNotice {
   loanReference: string
   entityId: string | null
   effectiveDate: string
+  firstChangedPaymentDate: string
   oldInstalmentCents: number
   newInstalmentCents: number
 }
@@ -69,7 +70,7 @@ export async function queueRepriceNotice(db: NoticeDb, notice: RepriceNotice): P
   await alertLoanAdmins(db, notice.tenantId, {
     type: "LOAN_REPRICED",
     title: `Loan ${notice.loanReference} repriced: new instalment notice to send`,
-    body: `From ${notice.effectiveDate} the base instalment moves from ${rand(notice.oldInstalmentCents)} to ${rand(notice.newInstalmentCents)}. No notice has been sent. ${recipients}`,
+    body: `The contract rate changes from ${notice.effectiveDate}. From the payment due ${notice.firstChangedPaymentDate}, the base instalment moves from ${rand(notice.oldInstalmentCents)} to ${rand(notice.newInstalmentCents)}. No notice has been sent. ${recipients}`,
     entityType: "Loan",
     entityId: notice.loanId,
   })

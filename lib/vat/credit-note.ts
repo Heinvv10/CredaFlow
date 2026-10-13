@@ -97,5 +97,6 @@ export async function issueCreditNote(tx: CreditNoteDb, input: IssueCreditNoteIn
   // Deferred constraint triggers fire here, not at a COMMIT Prisma would
   // report as success (lib/loan/apply-payment.ts).
   await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+  await tx.$executeRawUnsafe("SET CONSTRAINTS ALL DEFERRED")
   return note
 }
