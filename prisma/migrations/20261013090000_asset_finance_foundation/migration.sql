@@ -973,6 +973,18 @@ BEGIN
       MESSAGE = 'An application''s NCA classification snapshot is frozen while an approved NON_NCA override awaits it';
   END IF;
 
+  -- Every change to the snapshot is a new classification, stamped later than
+  -- the one it replaces, so an approval bound to ncaClassifiedAt goes stale on
+  -- any change: the inputs can't be swapped under an unchanged (or restored)
+  -- classification time.
+  IF snapshot_changed AND OLD."ncaClassifiedAt" IS NOT NULL
+    AND (NEW."ncaClassifiedAt" IS NULL OR NEW."ncaClassifiedAt" <= OLD."ncaClassifiedAt")
+  THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A changed NCA classification must carry a later ncaClassifiedAt than the one it replaces';
+  END IF;
+
   IF NEW."ncaRegime" IS NOT DISTINCT FROM OLD."ncaRegime" THEN
     RETURN NEW;
   END IF;
