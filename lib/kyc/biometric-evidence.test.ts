@@ -615,16 +615,8 @@ describe("isAdversePriorAttempt", () => {
     }
   })
 
-  it("treats only capture and transport problems as benign", () => {
-    expect([...BENIGN_CAPTURE_REASONS].sort()).toEqual([
-      "extraction_incomplete",
-      "face_count_invalid",
-      "face_not_detected",
-      "image_unusable",
-      // Written only over an attempt that PASSED, when a newer selfie landed
-      // while it ran (lib/kyc/selfie-biometric.server.ts).
-      "superseded_biometric_evidence",
-    ])
+  it("treats only an unfinished check and an unusable image as benign", () => {
+    expect([...BENIGN_CAPTURE_REASONS].sort()).toEqual(["extraction_incomplete", "image_unusable"])
   })
 
   it.each([
@@ -637,6 +629,10 @@ describe("isAdversePriorAttempt", () => {
     "subject_identity_changed",
     "subject_fingerprint_missing",
     "validation_mismatch",
+    // The face model stores these over whatever the VLM said.
+    "face_not_detected",
+    "face_count_invalid",
+    "superseded_biometric_evidence",
   ])("counts a failed attempt recording %s as adverse", (reason) => {
     expect(isAdversePriorAttempt(failed(reason))).toBe(true)
   })
@@ -652,11 +648,46 @@ describe("isAdversePriorAttempt", () => {
     expect(isAdversePriorAttempt(row)).toBe(true)
   })
 
-  it.each(["face_not_detected", "face_count_invalid", "image_unusable", "extraction_incomplete"])(
-    "does not count a failed attempt recording %s", (reason) => {
+  it.each(["image_unusable", "extraction_incomplete"])(
+    "does not count a failed attempt recording %s with no adverse verdict", (reason) => {
       expect(isAdversePriorAttempt(failed(reason))).toBe(false)
+      expect(isAdversePriorAttempt({
+        extractionStatus: "failed",
+        biometricResult: {
+          biometricFailureReason: reason,
+          faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: true },
+        },
+      })).toBe(false)
+      expect(isAdversePriorAttempt({
+        extractionStatus: "failed",
+        biometricResult: {
+          biometricFailureReason: reason,
+          faceVerdict: { samePerson: null, faceMatch: null, faceModelSamePerson: null },
+        },
+      })).toBe(false)
     },
   )
+
+  // Whatever the stored reason: a benign one can sit over an adverse verdict.
+  it.each([
+    ["the persisted VLM verdict is different", { faceVerdict: { samePerson: "different", faceMatch: null, faceModelSamePerson: null } }],
+    ["the persisted VLM verdict is uncertain", { faceVerdict: { samePerson: "uncertain", faceMatch: null, faceModelSamePerson: null } }],
+    ["the persisted VLM verdict is unreadable", { faceVerdict: { samePerson: "unrecognised", faceMatch: null, faceModelSamePerson: null } }],
+    ["the persisted faceMatch is false", { faceVerdict: { samePerson: null, faceMatch: false, faceModelSamePerson: null } }],
+    ["the persisted faceMatch is unreadable", { faceVerdict: { samePerson: null, faceMatch: "unrecognised", faceModelSamePerson: null } }],
+    ["the persisted face model said different", { faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: false } }],
+    ["the provider result says different", { samePerson: "different" }],
+    ["the provider result says uncertain", { samePerson: "uncertain" }],
+    ["the provider result's faceMatch is false", { faceMatch: false }],
+    ["the provider result's face model said different", { faceModel: { samePerson: false } }],
+  ] as const)("counts an attempt as adverse when %s", (_label, fields) => {
+    for (const reason of ["extraction_incomplete", "image_unusable"]) {
+      expect(isAdversePriorAttempt({
+        extractionStatus: "failed",
+        biometricResult: { biometricFailureReason: reason, ...fields },
+      })).toBe(true)
+    }
+  })
 
   it("counts a selfie staff rejected as adverse, whatever its check said", () => {
     expect(isAdversePriorAttempt({

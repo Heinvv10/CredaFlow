@@ -1354,13 +1354,15 @@ describe("POST /api/documents/selfie", () => {
       biometricVerifiedAt: null,
       biometricMatchScore: null,
     }))
-    // No provider result at all: only the bindings and the reason are stored.
+    // No provider result at all: only the bindings, the reason and the
+    // judges' same-person answers (the face model gave none) are stored.
     expect(update.data.biometricResult).toEqual({
       idDocumentId: ID_DOCUMENT_ROW.id,
       idDocumentSha256: ID_DOCUMENT_ROW.contentSha256,
       comparedImageSha256: { idDocument: "1".repeat(64), selfie: "2".repeat(64) },
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       biometricFailureReason: reason,
+      faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: null },
     })
     expect(update.data.extractionError).toBe(message)
     const audit = auditCreateMock.mock.calls[1][0] as { data: { action: string; newValue: { document: Record<string, unknown> } } }

@@ -9,6 +9,7 @@ import {
 import {
   readVlmFaceMatchSideRejection,
   readVlmFaceMatchVerdict,
+  readVlmSamePersonJudgement,
   type IdPhotoKind,
   type SamePersonVerdict,
   type VlmFaceMatchSideJudgement,
@@ -63,6 +64,19 @@ export type StrictRejectionJudgement = VlmFaceMatchSideJudgement & {
   rejection: string
 }
 
+/**
+ * Both judges' same-person answers as given, persisted on every attempt
+ * either judge answered (biometricResult.faceVerdict). A failure path that
+ * writes no provider result would otherwise drop a "different" verdict, and
+ * isAdversePriorAttempt reads it. Never evidence of a pass.
+ */
+export type FaceVerdict = {
+  samePerson: SamePersonVerdict | "unrecognised" | null
+  faceMatch: boolean | "unrecognised" | null
+  /** The face model's decision; null when it refused before comparing. */
+  faceModelSamePerson: boolean | null
+}
+
 export type BiometricAttemptDecision = {
   extractionResult: unknown
   extractionStatus: "done" | "failed"
@@ -71,6 +85,7 @@ export type BiometricAttemptDecision = {
   biometricPassed: boolean
   biometricFailureReason: BiometricEvidenceFailureReason | null
   strictJudgement: StrictRejectionJudgement | null
+  faceVerdict: FaceVerdict | null
 }
 
 export function decideBiometricAttempt({
@@ -224,6 +239,16 @@ export function decideBiometricAttempt({
     ?? (biometricResult ? (modelRejection ?? matchVerdict?.rejection)?.reason : null)
     ?? assessedReason
 
+  const vlmJudgement = extractionUnavailable ? null : readVlmSamePersonJudgement(extractionResult)
+  const faceModelSamePerson = faceComparison?.ok ? faceComparison.evidence.samePerson : null
+  const faceVerdict: FaceVerdict | null = vlmJudgement === null && faceModelSamePerson === null
+    ? null
+    : {
+        samePerson: vlmJudgement?.samePerson ?? null,
+        faceMatch: vlmJudgement?.faceMatch ?? null,
+        faceModelSamePerson,
+      }
+
   return {
     extractionResult,
     extractionStatus,
@@ -232,5 +257,6 @@ export function decideBiometricAttempt({
     biometricPassed,
     biometricFailureReason,
     strictJudgement,
+    faceVerdict,
   }
 }

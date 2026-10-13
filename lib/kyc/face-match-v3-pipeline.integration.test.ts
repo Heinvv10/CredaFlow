@@ -578,14 +578,77 @@ suite("face match v3 through the real pipeline", () => {
       expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
     })
 
-    it("still awaits ID verification after an earlier capture problem, then verifies", async () => {
+    // The breaker's re-attack shapes: a refusal stored over a "different"
+    // verdict, on a first ID copy B that staff have not verified. Each one
+    // used to open the awaiting state, and verifying B then VERIFIED.
+    const different = { samePerson: "different", faceMatch: false, matchConfidence: 0.08 }
+    const faceModelRefusal = (reason: "face_count_invalid" | "face_not_detected") => ({
+      ok: false, rejection: { reason, message: `Synthetic face model refusal: ${reason}` }, idFaceCount: 1, selfieFaceCount: 2,
+    })
+    it.each([
+      ["vlm_liveness_failed over a 'different' verdict", "vlm_liveness_failed", passingReply({ ...different, isLive: false }), null],
+      ["face_count_invalid over a 'different' verdict", "face_count_invalid", passingReply(different), faceModelRefusal("face_count_invalid")],
+      ["face_not_detected over a 'different' verdict", "face_not_detected", passingReply(different), faceModelRefusal("face_not_detected")],
+      ["a no-face selfie, no verdict needed", "face_not_detected", passingReply({ faceDetected: false, facesCount: 0 }), null],
+      ["a face-count refusal under a 'same' verdict, no verdict needed", "face_count_invalid", passingReply(), faceModelRefusal("face_count_invalid")],
+      // A benign reason over an adverse verdict: only the verdict closes these.
+      ["image_unusable over a 'different' verdict", "image_unusable", passingReply({ ...different, quality: "unusable" }), null],
+      ["extraction_incomplete over a 'different' verdict", "extraction_incomplete", {
+        faceDetected: true, facesCount: 1, quality: "good", isLive: true, livenessConfidence: 0.95, ...different,
+      }, null],
+    ] as const)("keeps the first-ID match FAILED after %s", async (_label, reason, firstReply, comparison) => {
       const fixture = await seedClient()
       await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
-      stubVlm(passingReply({ faceDetected: false, facesCount: 0 }))
-      const { selfie: firstSelfie } = await capture(fixture)
-      expect(reasonOf(firstSelfie)).toBe("face_not_detected")
+      stubVlm(firstReply)
+      ctx.comparison = comparison
+      const { selfie: first } = await capture(fixture)
+      expect(reasonOf(first)).toBe(reason)
+      if (firstReply.samePerson === "different") {
+        // Persisted on every completed attempt, provider result or not.
+        expect((first?.biometricResult as Record<string, unknown>).faceVerdict).toEqual(
+          expect.objectContaining({ samePerson: "different", faceMatch: false }),
+        )
+      }
+      vi.unstubAllGlobals()
+      ctx.comparison = null
+      stubVlm(passingReply())
+      await capture(fixture)
+
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
+      expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
+    })
+
+    it("keeps the first-ID match FAILED after a mismatch recorded as subject_identity_changed by a race", async () => {
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      stubVlm(passingReply(different))
+      // Compared against B; C lands before the callback persists.
+      const substitute = await addIdCopy(fixture, "race-substitute", { verified: false, contentSha256: "b".repeat(64) })
+      const stale = await attemptAgainst(fixture, fixture.idCopyId)
+      expect(reasonOf(stale)).toBe("subject_identity_changed")
+      expect(stale.biometricResult).toEqual(expect.objectContaining({ samePerson: "different", faceMatch: false }))
       vi.unstubAllGlobals()
       stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+
+      expect((selfie?.biometricResult as Record<string, unknown>).idDocumentId).toBe(substitute)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
+    })
+
+    it("still awaits ID verification after a check that did not finish, then verifies", async () => {
+      // The honest case: the face model was unavailable for the first attempt.
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      stubVlm(passingReply())
+      ctx.comparison = {
+        ok: false, rejection: { reason: "extraction_incomplete", message: "Synthetic: face model unavailable" },
+        idFaceCount: null, selfieFaceCount: null,
+      }
+      const { selfie: first } = await capture(fixture)
+      expect(reasonOf(first)).toBe("extraction_incomplete")
+      ctx.comparison = null
       await capture(fixture)
 
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })

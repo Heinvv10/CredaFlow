@@ -825,11 +825,16 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
     ["returned a face mismatch, against any copy", { biometricFailureReason: "provider_verification_failed", idDocumentId: "id-copy-gone" }],
     ["recorded no reason", null],
     ["recorded a reason this code does not know", { biometricFailureReason: "a_reason_added_later" }],
+    ["found no face", { biometricFailureReason: "face_not_detected" }],
+    ["did not finish, over a 'different' verdict", {
+      biometricFailureReason: "extraction_incomplete",
+      faceVerdict: { samePerson: "different", faceMatch: false, faceModelSamePerson: null },
+    }],
   ])("projects FAILED when an earlier failed attempt %s", async (_label, biometricResult) => {
     // A mismatch against B, then a pass against an uploaded C, is the
     // substitute pattern; here the pass is against B itself.
     expect(await read([currentB], [
-      { extractionStatus: "failed", biometricResult: { biometricFailureReason: "face_not_detected" } },
+      { extractionStatus: "failed", biometricResult: { biometricFailureReason: "extraction_incomplete" } },
       { extractionStatus: "failed", biometricResult },
     ])).toEqual(expect.objectContaining({
       biometricAttemptFailed: true,
@@ -838,9 +843,9 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
     }))
   })
 
-  it("still awaits ID verification after an earlier capture problem", async () => {
+  it("still awaits ID verification after an earlier check that did not finish", async () => {
     expect(await read([currentB], [
-      { extractionStatus: "failed", biometricResult: { biometricFailureReason: "face_not_detected" } },
+      { extractionStatus: "failed", biometricResult: { biometricFailureReason: "extraction_incomplete" } },
       { extractionStatus: "done", biometricResult: passedAgainstB.biometricResult },
     ])).toEqual(expect.objectContaining({
       biometricAwaitingIdVerification: true,

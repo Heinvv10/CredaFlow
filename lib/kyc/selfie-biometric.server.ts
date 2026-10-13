@@ -17,6 +17,7 @@ import {
 } from "@/lib/kyc/biometric-evidence"
 import {
   decideBiometricAttempt,
+  type FaceVerdict,
   type StrictRejectionJudgement,
   type VlmFaceMatchProviderResult,
 } from "@/lib/kyc/biometric-decision"
@@ -140,6 +141,7 @@ export async function runBiometricVerification(
       biometricPassed,
       biometricFailureReason,
       strictJudgement,
+      faceVerdict,
     } = decideBiometricAttempt({
       vlmResult,
       faceComparison,
@@ -163,6 +165,7 @@ export async function runBiometricVerification(
       biometricFailureReason,
       subjectFingerprint,
       strictJudgement,
+      faceVerdict,
       faceComparison,
       comparedImageSha256: images ? { idDocument: images.id.sha256, selfie: images.selfie.sha256 } : null,
     })
@@ -182,6 +185,7 @@ export async function runBiometricVerification(
       biometricFailureReason: "extraction_incomplete",
       subjectFingerprint,
       strictJudgement: null,
+      faceVerdict: null,
       faceComparison: null,
       comparedImageSha256: null,
     })
@@ -202,6 +206,7 @@ async function persistBiometricOutcome(args: {
   biometricFailureReason: BiometricEvidenceFailureReason | null
   subjectFingerprint: string | null
   strictJudgement: StrictRejectionJudgement | null
+  faceVerdict: FaceVerdict | null
   faceComparison: FaceComparison | null
   /** The canonical bytes both judges saw; null when they never ran. */
   comparedImageSha256: { idDocument: string; selfie: string } | null
@@ -358,6 +363,9 @@ async function persistBiometricOutcome(args: {
       comparedImageSha256: args.comparedImageSha256,
       subjectFingerprint: args.subjectFingerprint,
       biometricFailureReason,
+      // On every attempt either judge answered, pass or fail: an adverse
+      // same-person answer must survive a path that wrote no provider result.
+      faceVerdict: args.faceVerdict,
     } as Prisma.InputJsonValue
     const documentChanged = await tx.clientDocument.updateMany({
       where: {

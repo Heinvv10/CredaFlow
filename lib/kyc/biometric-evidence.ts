@@ -220,22 +220,22 @@ export function biometricSubjectFingerprint(subject: BiometricSubjectClient): st
 /**
  * What an earlier failed selfie attempt says about the client. Keyed by the
  * full failure-reason union, so a new reason cannot ship unclassified.
- * "benign_capture" is a capture or transport problem that says nothing about
- * whose face it is; everything else is adverse, including liveness, a record
- * that changed under the check (which can mask a mismatch), and any reason
- * this file does not know.
+ * "benign_capture" is only a check that never finished or an image too poor
+ * to judge. Everything else is adverse: the face model stores no-face and
+ * face-count refusals over whatever the VLM said, liveness can be a spoof,
+ * a record that changed under the check can mask a mismatch, and a reason
+ * this file does not know fails closed. An honest borrower caught by one
+ * keeps FAILED until staff verify the ID copy and the selfie is retaken.
  */
 export const BIOMETRIC_FAILURE_REASON_CLASS: Record<
   BiometricEvidenceFailureReason,
   "benign_capture" | "adverse"
 > = {
   extraction_incomplete: "benign_capture",
-  face_not_detected: "benign_capture",
-  face_count_invalid: "benign_capture",
   image_unusable: "benign_capture",
-  // Written only over an attempt that PASSED, when a newer selfie landed
-  // while it ran (lib/kyc/selfie-biometric.server.ts).
-  superseded_biometric_evidence: "benign_capture",
+  face_not_detected: "adverse",
+  face_count_invalid: "adverse",
+  superseded_biometric_evidence: "adverse",
   biometric_evidence_missing: "adverse",
   document_deleted: "adverse",
   document_not_verified: "adverse",
@@ -279,11 +279,34 @@ export const PRIOR_FAILED_ATTEMPT_CONDITIONS: {
   ],
 }
 
+/** A same-person answer that is present and is not a plain "yes". */
+function refusesSamePerson(value: unknown, yes: unknown): boolean {
+  return value !== undefined && value !== null && value !== yes
+}
+
+/**
+ * Whether a stored result carries an adverse same-person answer from either
+ * judge: the provider result's samePerson, faceMatch and face model, or the
+ * faceVerdict every completed attempt now persists (lib/kyc/biometric-
+ * decision.ts), which survives paths that write no provider result.
+ */
+function adverseFaceVerdict(result: Record<string, unknown> | null): boolean {
+  if (!result) return false
+  const verdict = jsonRecord(result.faceVerdict)
+  return refusesSamePerson(result.samePerson, "same") ||
+    refusesSamePerson(result.faceMatch, true) ||
+    refusesSamePerson(jsonRecord(result.faceModel)?.samePerson, true) ||
+    refusesSamePerson(verdict?.samePerson, "same") ||
+    refusesSamePerson(verdict?.faceMatch, true) ||
+    refusesSamePerson(verdict?.faceModelSamePerson, true)
+}
+
 /**
  * Whether an earlier selfie attempt is an adverse result. Fails closed: a
  * failed or skipped attempt is adverse unless it recorded a benign capture
- * reason, so a missing, unknown or new reason counts. A selfie staff rejected
- * is adverse whatever its check said.
+ * reason, so a missing, unknown or new reason counts, and whatever its
+ * reason when either judge's same-person answer refused. A selfie staff
+ * rejected is adverse whatever its check said.
  */
 export function isAdversePriorAttempt(row: {
   docType?: string
@@ -295,7 +318,9 @@ export function isAdversePriorAttempt(row: {
   if (row.docType !== undefined && row.docType !== PRIOR_FAILED_ATTEMPT_CONDITIONS.docType) return false
   if ((row.verificationRejectedAt ?? null) !== null || (row.verificationRejectedById ?? null) !== null) return true
   if (row.extractionStatus !== "failed" && row.extractionStatus !== "skipped") return false
-  const reason = parseBiometricEvidenceFailureReason(jsonRecord(row.biometricResult)?.biometricFailureReason)
+  const result = jsonRecord(row.biometricResult)
+  if (adverseFaceVerdict(result)) return true
+  const reason = parseBiometricEvidenceFailureReason(result?.biometricFailureReason)
   return reason === null || !BENIGN_CAPTURE_REASONS.has(reason)
 }
 

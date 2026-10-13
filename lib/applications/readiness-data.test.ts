@@ -387,6 +387,29 @@ describe("inMemoryKycReader", () => {
       }),
     },
     {
+      name: "the same, after an earlier check that did not finish",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          mismatchedSelfie({ biometricResult: { biometricFailureReason: "extraction_incomplete" } }),
+        ],
+      }),
+    },
+    {
+      name: "the same, after an unfinished check whose VLM said different",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          mismatchedSelfie({ biometricResult: {
+            biometricFailureReason: "extraction_incomplete",
+            faceVerdict: { samePerson: "different", faceMatch: false, faceModelSamePerson: null },
+          } }),
+        ],
+      }),
+    },
+    {
       name: "a rejected core document",
       data: rows({
         coreDocuments: [
@@ -445,7 +468,9 @@ describe("inMemoryKycReader", () => {
     ["the same, where only ANOTHER client had an adverse face result", true],
     ["the same, after an earlier attempt that failed with no recorded reason", false],
     ["the same, after an earlier attempt staff rejected", false],
-    ["the same, after an earlier attempt where no face was found", true],
+    ["the same, after an earlier attempt where no face was found", false],
+    ["the same, after an earlier check that did not finish", true],
+    ["the same, after an unfinished check whose VLM said different", false],
   ])("awaits ID verification on the board for %s: %s", async (name, awaiting) => {
     const { data } = cases.find((c) => c.name === name)!
     expect((await readWith(inMemoryKycReader(CLIENT_ID, data))).biometricAwaitingIdVerification).toBe(awaiting)
