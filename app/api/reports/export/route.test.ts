@@ -11,6 +11,7 @@ const queryRawMock = vi.fn()
 const logAuditMock = vi.fn()
 const logAuditStrictMock = vi.fn()
 const loanFindManyMock = vi.fn()
+const applicationFindManyMock = vi.fn()
 const getNcrReturnDataMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
 
@@ -28,6 +29,9 @@ vi.mock("@/lib/prisma", () => ({
     },
     loan: {
       findMany: (args: unknown) => loanFindManyMock(args),
+    },
+    loanApplication: {
+      findMany: (args: unknown) => applicationFindManyMock(args),
     },
     tenantConfig: {
       findUnique: (args: unknown) => tenantConfigFindUniqueMock(args),
@@ -506,4 +510,36 @@ describe("GET reports export — default charges owing beside instalment arrears
       expect(cell(arrearsColumn)).toBe(2169)
     })
   }
+})
+
+describe("GET reports export — affordability register", () => {
+  const decidedAt = new Date("2026-10-12T10:00:00Z")
+  const application = (reference: string, status: string) => ({
+    reference, status, approvedAt: decidedAt, approvedAmount: null, appliedAmount: 100_000, appliedTermDays: 30,
+    netDisposableIncome: null, affordabilityNDI: null, totalExistingDebt: null, recklessLendingAssessed: true,
+    recklessLendingNote: null, incomeVerificationMethod: null, submittedAt: null,
+    client: { firstName: "Thandi", lastName: "Mocktest", idNumber: "9401020000082" },
+    product: { name: "Micro" }, approvedBy: { name: "Demo Admin" },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+  })
+
+  it("fills Approved At for approved and disbursed applications, never for a declined one", async () => {
+    applicationFindManyMock.mockResolvedValue([
+      application("APP-A", "APPROVED"), application("APP-D", "DISBURSED"), application("APP-X", "DECLINED"),
+    ])
+    const res = await GET(request("type=affordability"))
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer() as unknown as Parameters<typeof wb.xlsx.load>[0])
+    const sheet = wb.getWorksheet("Affordability Register")!
+    const col = (sheet.getRow(1).values as unknown[]).indexOf("Approved At")
+    const cell = (row: number) => sheet.getRow(row).getCell(col).value
+    expect(cell(2)).toBeTruthy()
+    expect(cell(3)).toBeTruthy()
+    expect(cell(4) ?? "").toBe("")
+  })
 })
