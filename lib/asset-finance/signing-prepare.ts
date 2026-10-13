@@ -11,7 +11,8 @@
 // Preparation also fixes the contract terms on the deal (review item 1): the
 // planned start date staff chose (default today SAST; from today to 90 days
 // ahead, before the first instalment), the instalment, rate and total interest of the schedule the
-// agreement prints, the arrears terms copied from the product (none = 0), and
+// agreement prints, the arrears terms copied from the product (null disables
+// default interest), and
 // the required signer set (preparedSigners). Booking reproduces and checks
 // those figures; the contract gate counts signatures against that set.
 //
@@ -179,7 +180,7 @@ export async function prepareDealDocuments(
         signedBaseInstalmentCents: p.baseInstalmentCents,
         signedResultingRate: new Prisma.Decimal(p.annualRate),
         signedTotalInterestCents: p.totalInterestCents,
-        signedArrearsMarginRate: new Prisma.Decimal(p.arrearsMarginRate),
+        signedArrearsMarginRate: p.arrearsMarginRate === null ? null : new Prisma.Decimal(p.arrearsMarginRate),
         signedCollectionFeeCents: p.collectionFeeCents,
         preparedSigners: preparedSignerSet(now),
       }

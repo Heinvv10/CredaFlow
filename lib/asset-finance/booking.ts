@@ -82,7 +82,7 @@ interface SignedTerms {
   baseInstalmentCents: number
   resultingRate: Prisma.Decimal
   totalInterestCents: number
-  arrearsMarginRate: Prisma.Decimal
+  arrearsMarginRate: Prisma.Decimal | null
   collectionFeeCents: number
 }
 
@@ -90,7 +90,7 @@ interface SignedTerms {
 function signedTerms(deal: BookingDeal): SignedTerms | null {
   const { plannedStartDate, signedBaseInstalmentCents, signedResultingRate, signedTotalInterestCents, signedArrearsMarginRate, signedCollectionFeeCents } = deal
   if (plannedStartDate === null || signedBaseInstalmentCents === null || signedResultingRate === null
-    || signedTotalInterestCents === null || signedArrearsMarginRate === null || signedCollectionFeeCents === null) return null
+    || signedTotalInterestCents === null || signedCollectionFeeCents === null) return null
   return {
     startDate: isoOfDbDate(plannedStartDate),
     baseInstalmentCents: signedBaseInstalmentCents,
@@ -235,7 +235,7 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         baseInstalmentCents: plan.baseInstalmentCents, financedAmountCents: solved.result.financedAmountCents,
         principal: plan.principal, totalInterest: plan.totalInterest, totalRepayable: plan.totalRepayable,
         balloonCents: deal.balloonCents, instalments: plan.records.length,
-        arrearsMarginRate: signed.arrearsMarginRate.toString(), collectionFeeCents: signed.collectionFeeCents,
+        arrearsMarginRate: signed.arrearsMarginRate?.toString() ?? null, collectionFeeCents: signed.collectionFeeCents,
         taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, interestModel: "REDUCING_BALANCE",
       },
     }, tx)

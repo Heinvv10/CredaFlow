@@ -1,9 +1,11 @@
+import { Prisma } from "@prisma/client"
 import { describe, expect, it, vi } from "vitest"
 import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
 import { plannedStartProblem } from "./signing-prepare"
+import { preparedTermProblem, snapshotArrearsMargin } from "./documents/deal-document-data"
 import { deriveRequiredSigners, preparedSignerSet, requiredFromPrepared } from "./signing"
 import { renderInstalmentSaleAgreement } from "./documents/agreement-pdf"
 import { syntheticDealDocumentData } from "./documents/synthetic-deal.fixture"
@@ -27,6 +29,21 @@ describe("plannedStartProblem", () => {
     expect(plannedStartProblem("2027-01-11", "2027-06-01", TODAY)).toBeNull()
     expect(plannedStartProblem("2027-01-12", "2027-06-01", TODAY)).toMatch(/at most 90 days ahead \(2027-01-11\)/)
   })
+})
+
+describe("preparedTermProblem", () => {
+  it("refuses a term beyond the product or the credit decision", () => {
+    expect(preparedTermProblem(366, 365, 30, 730)).toMatch(/exceeds the approved term/)
+    expect(preparedTermProblem(731, 900, 30, 730)).toMatch(/outside the product/)
+    expect(preparedTermProblem(29, 365, 30, 730)).toMatch(/outside the product/)
+    expect(preparedTermProblem(365, 365, 30, 730)).toBeNull()
+    expect(preparedTermProblem(300, 365, 30, 730)).toBeNull()
+  })
+})
+
+it("preserves disabled default interest distinctly from a zero margin", () => {
+  expect(snapshotArrearsMargin(null)).toBeNull()
+  expect(snapshotArrearsMargin(new Prisma.Decimal(0))).toBe("0")
 })
 
 describe("the prepared signer set", () => {
@@ -65,10 +82,12 @@ describe("agreement section 5 prints the signed arrears terms as data", () => {
     expect(all).toContain("R 450.00")
   })
 
-  it("none when the terms are zero", async () => {
+  it("distinguishes disabled default interest from a zero added margin", async () => {
     const base = syntheticDealDocumentData()
-    const all = await text({ ...base, pricing: { ...base.pricing, arrearsMarginRate: "0", collectionFeeCents: 0 } })
-    expect(all).toContain("None above the contract rate")
-    expect(all).not.toContain("R 450.00")
+    const disabled = await text({ ...base, pricing: { ...base.pricing, arrearsMarginRate: null, collectionFeeCents: 0 } })
+    const zeroMargin = await text({ ...base, pricing: { ...base.pricing, arrearsMarginRate: "0", collectionFeeCents: 0 } })
+    expect(disabled).toContain("Default interest on arrears None")
+    expect(zeroMargin).toContain("Contract rate (no added margin)")
+    expect(disabled).not.toContain("R 450.00")
   })
 })

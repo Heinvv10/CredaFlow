@@ -21,7 +21,7 @@ import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
+import { dbDate, isoOfDbDate } from "./dates"
 import { dealStartDate } from "./deal-structure"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { toScheduleRecord } from "./schedule-records"
@@ -42,6 +42,7 @@ const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: BookingFixture
 let dealC = ""
+let dealCStart = ""
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_FINANCE_TERMS_IT=1 is required")
@@ -53,7 +54,6 @@ const setSession = (user: SessionUser | null) => {
 const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession({ id, email: `${id}@terms-it.test`, role, tenantId: fx.tenantId })
 const routes = () => bookingRoutes(fx.host)
 const today = () => sastCalendarDate(new Date())
-const tomorrow = () => fromDayNumber(toDayNumber(today()) + 1)
 const EVIDENCE: Partial<Record<PayoutChecklistItemKind, Parameters<typeof dealDocument>[3]>> = {
   SUPPLIER_INVOICE_MATCHES_ASSET: "SUPPLIER_INVOICE", SUPPLIER_BANK_VERIFIED: "BANK_STATEMENT", INSURANCE_NOTES_LENDER: "INSURANCE_NOTING",
   TRACKER_CONFIRMED: "TRACKER_CERTIFICATE", DELIVERY_AND_ACCEPTANCE: "DELIVERY_ACCEPTANCE", NATIS_TITLEHOLDER: "NATIS_DOCUMENT",
@@ -88,13 +88,13 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     await db.$disconnect()
   })
 
-  it("preparation fixed the contract terms on each deal: start, figures, the product's arrears terms (none = 0), the signers", async () => {
+  it("preparation fixed the contract terms on each deal: start, figures, the product's arrears terms, the signers", async () => {
     const [a, b] = await Promise.all([fx.dealId, fx.dealB].map((id) => database().assetFinanceDeal.findUniqueOrThrow({ where: { id } })))
-    expect(a.plannedStartDate && isoOfDbDate(a.plannedStartDate)).toBe(today())
+    expect(a.plannedStartDate && isoOfDbDate(a.plannedStartDate)).toBe(dealStartDate(isoOfDbDate(a.firstDueDate)))
     expect(a.signedResultingRate?.toString()).toBe("0.1175")
     expect(a.signedArrearsMarginRate?.toString()).toBe("0.02")
     expect(a.signedCollectionFeeCents).toBe(45_000)
-    expect(b.signedArrearsMarginRate?.toString()).toBe("0")
+    expect(b.signedArrearsMarginRate).toBeNull()
     expect(b.signedCollectionFeeCents).toBe(0)
     expect(a.preparedSigners).toHaveLength(5)
     expect(a.signedBaseInstalmentCents).toBeGreaterThan(0)
@@ -165,7 +165,9 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
 
   it("contract re-renders the agreement: a deal whose agreement no longer hashes to the signed digest is refused (409, audited)", async () => {
     dealC = await approveDeal(fx, fx.assets[2], (id, role) => setSession({ id, email: `${id}@terms-it.test`, role, tenantId: fx.tenantId }), database())
-    await prepareAndSign(fx, dealC, setSession, database(), [], tomorrow())
+    const created = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC }, select: { firstDueDate: true } })
+    dealCStart = dealStartDate(isoOfDbDate(created.firstDueDate))
+    await prepareAndSign(fx, dealC, setSession, database(), [], dealCStart)
     const entity = await database().businessEntity.findUniqueOrThrow({ where: { id: fx.evidenced } })
     await database().businessEntity.update({ where: { id: fx.evidenced }, data: { addressLine1: "10 Other Yard" } })
     staff(fx.officer, "CREDIT_OFFICER")
@@ -185,10 +187,10 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     expect((await routes().book(dealC)).status).toBe(201)
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC }, include: { loan: true } })
     if (!deal.loan) throw new Error("not booked")
-    expect(sastCalendarDate(deal.loan.startDate)).toBe(tomorrow())
+    expect(sastCalendarDate(deal.loan.startDate)).toBe(dealCStart)
     expect(deal.signedResultingRate?.toString()).toBe("0.12")
     const rates = await database().contractRate.findMany({ where: { loanId: deal.loan.id } })
-    expect(rates.map((r) => [isoOfDbDate(r.effectiveDate), r.resultingRate.toString()])).toEqual([[tomorrow(), "0.12"]])
+    expect(rates.map((r) => [isoOfDbDate(r.effectiveDate), r.resultingRate.toString()])).toEqual([[dealCStart, "0.12"]])
     const invoice = await database().taxInvoice.findFirstOrThrow({ where: { loanId: deal.loan.id } })
     expect(isoOfDbDate(invoice.supplyDate)).toBe(today())
   })

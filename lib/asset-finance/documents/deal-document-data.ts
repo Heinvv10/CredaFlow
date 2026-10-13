@@ -11,7 +11,7 @@
 // an unsolvable structure refuses too.
 //
 // TWO MODES. Preparing (`prepare` given): the start date is the one staff
-// chose, the arrears terms are the product's now (none = 0) and the signers
+// chose, the arrears terms are the product's now and the signers
 // are the entity's required people now; signing-prepare.ts snapshots exactly
 // these onto the deal. Otherwise (e-sign, contract): everything comes from
 // that snapshot (plannedStartDate, signedArrears*, preparedSigners), so a
@@ -85,8 +85,8 @@ export interface DealDocumentData {
     reference: { effectiveDate: string; rate: string } | null
     structurePreset: string
     startDate: string
-    /** Default interest above the contract rate, annual decimal ("0" = none). */
-    arrearsMarginRate: string
+    /** Default interest above the contract rate, annual decimal; null disables it. */
+    arrearsMarginRate: string | null
     /** Collection fee per missed instalment (0 = none). */
     collectionFeeCents: number
   }
@@ -130,7 +130,11 @@ export async function loadDealDocumentData(
       signedCollectionFeeCents: true,
       preparedSigners: true,
       application: {
-        select: { reference: true, product: { select: { nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } } },
+        select: {
+          reference: true,
+          approvedTermDays: true,
+          product: { select: { minTermDays: true, maxTermDays: true, nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } },
+        },
       },
       entity: true,
       asset: true,
@@ -153,7 +157,7 @@ export async function loadDealDocumentData(
   const terms = prepare
     ? {
         startDate: prepare.plannedStartDate,
-        arrearsMarginRate: (product.nonNcaDefaultInterestMargin ?? new Prisma.Decimal(0)).toString(),
+        arrearsMarginRate: snapshotArrearsMargin(product.nonNcaDefaultInterestMargin),
         collectionFeeCents: product.nonNcaCollectionFeeCents ?? 0,
       }
     : preparedTerms(deal)
@@ -162,6 +166,8 @@ export async function loadDealDocumentData(
   if ("error" in rate) throw new DealDocumentError(`The schedule cannot be solved: ${rate.error}`)
   const solved = solveDealStructure(deal.asset, structure, rate, terms.startDate)
   if (!solved.ok) throw new DealDocumentError(`The schedule cannot be solved: ${solved.error}`)
+  const termProblem = preparedTermProblem(solved.termDays, deal.application.approvedTermDays, product.minTermDays, product.maxTermDays)
+  if (termProblem) throw new DealDocumentError(termProblem)
 
   const entityType = deal.entity.type
   const requiredSigners = prepare ? deriveRequiredSigners(entityType, relationships) : requiredFromPrepared(deal.preparedSigners)
@@ -238,15 +244,29 @@ interface PreparedColumns {
 }
 
 /** The terms snapshotted at preparation; refuses a deal whose documents were never prepared. */
-function preparedTerms(deal: PreparedColumns): { startDate: string; arrearsMarginRate: string; collectionFeeCents: number } {
-  if (!deal.plannedStartDate || deal.signedArrearsMarginRate === null || deal.signedCollectionFeeCents === null) {
+function preparedTerms(deal: PreparedColumns): { startDate: string; arrearsMarginRate: string | null; collectionFeeCents: number } {
+  if (!deal.plannedStartDate || deal.signedCollectionFeeCents === null) {
     throw new DealDocumentError("The deal's documents have not been prepared")
   }
   return {
     startDate: isoOfDbDate(deal.plannedStartDate),
-    arrearsMarginRate: deal.signedArrearsMarginRate.toString(),
+    arrearsMarginRate: deal.signedArrearsMarginRate?.toString() ?? null,
     collectionFeeCents: deal.signedCollectionFeeCents,
   }
+}
+
+export function preparedTermProblem(termDays: number, approvedTermDays: number | null, minTermDays: number, maxTermDays: number): string | null {
+  if (termDays < minTermDays || termDays > maxTermDays) {
+    return `The prepared term of ${termDays} days is outside the product's ${minTermDays}–${maxTermDays}`
+  }
+  if (approvedTermDays === null || termDays > approvedTermDays) {
+    return `The prepared term of ${termDays} days exceeds the approved term${approvedTermDays === null ? "" : ` of ${approvedTermDays} days`}; obtain a new credit decision`
+  }
+  return null
+}
+
+export function snapshotArrearsMargin(margin: Prisma.Decimal | null): string | null {
+  return margin?.toString() ?? null
 }
 
 function decimalString(value: Prisma.Decimal | null): string | null {

@@ -39,8 +39,9 @@ const SCHEDULE_COLUMNS: TableColumn[] = [
 ]
 
 /** The arrears margin as data: "Contract rate plus 2.00% a year", or none. */
-function arrearsMarginDescription(margin: string): string {
-  return new Prisma.Decimal(margin).isZero() ? "None above the contract rate" : `Contract rate plus ${percentPdf(margin)} a year`
+function arrearsMarginDescription(margin: string | null): string {
+  if (margin === null) return "None"
+  return new Prisma.Decimal(margin).isZero() ? "Contract rate (no added margin)" : `Contract rate plus ${percentPdf(margin)} a year`
 }
 
 function presetLabel(name: string): string {

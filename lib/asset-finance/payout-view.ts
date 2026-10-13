@@ -62,6 +62,7 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
           status: true, amountCents: true, dualApprovalRequired: true, createdById: true, releasedAt: true,
           createdBy: { select: { name: true, email: true } },
           approvedBy: { select: { name: true, email: true } },
+          supplierBankAccount: { select: { bankName: true, accountNumber: true, accountHolder: true } },
         },
       },
       loan: { select: { id: true, reference: true, taxInvoices: { select: { id: true, invoiceNumber: true }, take: 1 } } },
@@ -70,7 +71,7 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
   if (!deal) return null
   const [config, account] = await Promise.all([
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetPayoutDualApprovalCents: true } }),
-    prisma.supplierBankAccount.findFirst({
+    deal.payout ? Promise.resolve(deal.payout.supplierBankAccount) : prisma.supplierBankAccount.findFirst({
       where: { tenantId, supplierId: deal.supplierId, status: "APPROVED" },
       select: { bankName: true, accountNumber: true, accountHolder: true },
     }),

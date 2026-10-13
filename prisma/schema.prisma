@@ -4477,6 +4477,8 @@ model AssetFinanceDeal {
   signedBaseInstalmentCents Int?
   signedResultingRate       Decimal?  @db.Decimal(9, 6)
   signedTotalInterestCents  Int?
+  // Null may mean either unprepared or prepared with default interest disabled;
+  // the other signed columns distinguish those states.
   signedArrearsMarginRate   Decimal?  @db.Decimal(9, 6)
   signedCollectionFeeCents  Int?
   // The required signer set at preparation: [{ clientId, document }], in signing order.

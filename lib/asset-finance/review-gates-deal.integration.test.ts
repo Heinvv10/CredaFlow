@@ -63,6 +63,7 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
     expect(refusedSql("", deal(A, `"plannedStartDate" = NULL`), { triggers: false })).toContain("AssetFinanceDeal_signed_terms_complete")
     expect(refusedSql("", deal(A, `"plannedStartDate" = "firstDueDate"`), { triggers: false })).toContain("AssetFinanceDeal_planned_start_before_first_due")
     expect(refusedSql("", deal(A, `"signedCollectionFeeCents" = -1`), { triggers: false })).toContain("AssetFinanceDeal_signed_terms_range")
+    acceptedSql(`${deal(A, `"status" = 'APPROVED'`)}; ${unsignAll(A())}`, deal(A, `"signedArrearsMarginRate" = NULL`))
     expect(refusedSql("", deal(A, `"status" = 'CANCELLED'`), { triggers: false })).toContain("AssetFinanceDeal_cancellation_shape")
   })
 
