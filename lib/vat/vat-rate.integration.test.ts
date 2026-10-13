@@ -1,8 +1,10 @@
 /**
- * Real-DB proof of the VAT rate anchor in migration 20261013100000: VatRate
- * rows are history (no UPDATE, DELETE or TRUNCATE; a new row only for a date
- * after today, SAST), and a tax invoice's vatRate must be the rate in force on
- * its supply date.
+ * Real-DB proof of the VAT rate anchor in migration 20261013100000: a VatRate
+ * row in force is history (no UPDATE or DELETE; no TRUNCATE at all); a new row
+ * only for a date after today, SAST; an announced row may be corrected or
+ * withdrawn only while still ahead and while no invoice is supplied on or
+ * after its date; a tax invoice's supply date is today or earlier (SAST), and
+ * its vatRate must be the rate in force on that date.
  *
  *   RUN_VAT_INVOICE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/vat/vat-rate.integration.test.ts
@@ -17,6 +19,8 @@ const suite = process.env.RUN_VAT_INVOICE_IT === "1" ? describe : describe.skip
 const HISTORY = /VatRate is history/
 const AFTER_TODAY = /must take effect after today/
 const IN_FORCE = /VAT rate must be the rate in force on its supply date/
+const RELIED_ON = /a tax invoice has a supply date on or after/
+const SUPPLY_AHEAD = /supply date \d{4}-\d{2}-\d{2} may not be after today \(SAST\)/
 
 suite("VatRate is the immutable anchor of every invoice's rate (real DB)", () => {
   const db = new PrismaClient()
@@ -25,10 +29,22 @@ suite("VatRate is the immutable anchor of every invoice's rate (real DB)", () =>
   const seedId = "vat_rate_2018_04_01"
   const shift = (days: number) => sastCalendarDate(new Date(Date.now() + days * 86_400_000))
   // Rolled back whatever happens, so an accepted row never outlives the test.
-  const inRollback = (statement: string) => db.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(statement)
+  const inRollback = (...statements: string[]) => db.$transaction(async (tx) => {
+    for (const statement of statements) await tx.$executeRawUnsafe(statement)
     throw new Error("ROLLBACK")
   })
+  const announcedId = `vr_${tag}_announced`
+  const announce = (day: string) =>
+    `INSERT INTO "VatRate" ("id", "effectiveDate", "rate") VALUES ('${announcedId}', '${day}', 0.1600)`
+  /** An invoice supplied on `day`, written with the triggers off: the only way one can be dated ahead. */
+  const invoiceSuppliedOn = (day: string) => [
+    "SET LOCAL session_replication_role = replica",
+    `INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "supplierName",
+      "supplierAddress", "supplierVatNumber", "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents",
+      "totalInclVatCents") VALUES ('inv_${tag}_ahead', '${tenantId}', 1, 'INV-000001', '${day}', '${day}', 'S', 'A', '4000000000',
+      'R', 'B', 0.16, 1000, 160, 1160)`,
+    "SET LOCAL session_replication_role = origin",
+  ]
 
   beforeAll(async () => {
     tenantId = (await db.tenant.create({ data: { name: `VAT rate IT ${tag}`, slug: `vat-rate-it-${tag}` } })).id
@@ -44,7 +60,7 @@ suite("VatRate is the immutable anchor of every invoice's rate (real DB)", () =>
     await db.$disconnect()
   })
 
-  it("refuses UPDATE, DELETE and TRUNCATE of a rate", async () => {
+  it("refuses UPDATE and DELETE of a rate in force, and TRUNCATE", async () => {
     await expect(db.vatRate.update({ where: { id: seedId }, data: { rate: "0.1400" } })).rejects.toThrow(HISTORY)
     await expect(db.vatRate.delete({ where: { id: seedId } })).rejects.toThrow(HISTORY)
     await expect(inRollback('TRUNCATE "VatRate"')).rejects.toThrow(HISTORY)
@@ -57,6 +73,29 @@ suite("VatRate is the immutable anchor of every invoice's rate (real DB)", () =>
     await expect(inRollback(insert("2020-01-01"))).rejects.toThrow(AFTER_TODAY)
     await expect(inRollback(insert(shift(0)))).rejects.toThrow(AFTER_TODAY)
     await expect(inRollback(insert(shift(1)))).rejects.toThrow("ROLLBACK")
+  })
+
+  it("lets an announced rate be corrected or withdrawn while it is ahead and no invoice is supplied on or after it", async () => {
+    const where = `WHERE "id" = '${announcedId}'`
+    await expect(inRollback(
+      announce(shift(30)),
+      `UPDATE "VatRate" SET "rate" = 0.1550, "effectiveDate" = '${shift(60)}' ${where}`,
+      `DELETE FROM "VatRate" ${where}`,
+    )).rejects.toThrow("ROLLBACK")
+    // Corrected into force: refused.
+    await expect(inRollback(announce(shift(30)), `UPDATE "VatRate" SET "effectiveDate" = '${shift(0)}' ${where}`)).rejects.toThrow(AFTER_TODAY)
+  })
+
+  it("refuses to change, withdraw or add a rate an invoice's supply date reaches", async () => {
+    const where = `WHERE "id" = '${announcedId}'`
+    const ahead = [announce(shift(30)), ...invoiceSuppliedOn(shift(45))]
+    await expect(inRollback(...ahead, `UPDATE "VatRate" SET "rate" = 0.1550 ${where}`)).rejects.toThrow(RELIED_ON)
+    await expect(inRollback(...ahead, `DELETE FROM "VatRate" ${where}`)).rejects.toThrow(RELIED_ON)
+    await expect(inRollback(...ahead, `UPDATE "VatRate" SET "effectiveDate" = '${shift(40)}' ${where}`)).rejects.toThrow(RELIED_ON)
+    await expect(inRollback(...invoiceSuppliedOn(shift(45)),
+      `INSERT INTO "VatRate" ("id", "effectiveDate", "rate") VALUES ('vr_${tag}_late', '${shift(40)}', 0.1600)`)).rejects.toThrow(RELIED_ON)
+    // The control: the same change with no such invoice goes through (to the rollback).
+    await expect(inRollback(announce(shift(30)), `UPDATE "VatRate" SET "rate" = 0.1550 ${where}`)).rejects.toThrow("ROLLBACK")
   })
 
   describe("a tax invoice's rate", () => {
@@ -74,6 +113,11 @@ suite("VatRate is the immutable anchor of every invoice's rate (real DB)", () =>
     it("is refused when it is not the rate in force on the supply date", async () => {
       await expect(invoice("0.1400", "2026-10-13")).rejects.toThrow(IN_FORCE)
       await expect(invoice("0.1500", "2018-03-31")).rejects.toThrow(IN_FORCE)
+      expect(await db.taxInvoice.count({ where: { tenantId } })).toBe(0)
+    })
+
+    it("is refused when its supply date is after today (SAST), even at the rate in force", async () => {
+      await expect(invoice("0.1500", shift(1))).rejects.toThrow(SUPPLY_AHEAD)
       expect(await db.taxInvoice.count({ where: { tenantId } })).toBe(0)
     })
 

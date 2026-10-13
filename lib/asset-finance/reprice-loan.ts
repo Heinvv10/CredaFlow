@@ -145,6 +145,9 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     select: { basis: true, margin: true, resultingRate: true, effectiveDate: true },
   })
   if (!prior || prior.basis !== basis || prior.margin === null) return notEligible("not_linked_to_basis")
+  // The new row keeps the prior basis and margin; only the resulting rate
+  // moves (trigger guardContractRate refuses anything else).
+  // PARTIAL: variations need a re-signed agreement
   const reference = await referenceRateOn(tx, tenantId, basis, effectiveDate)
   if (!reference) return notEligible("no_reference_rate")
   const resultingRate = reference.rate.add(prior.margin)

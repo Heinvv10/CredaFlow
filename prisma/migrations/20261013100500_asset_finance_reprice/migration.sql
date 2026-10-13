@@ -27,11 +27,16 @@ ALTER TABLE "ContractRate" ADD CONSTRAINT "ContractRate_resulting_rate_range" CH
 -- when it is reference-linked, its resulting rate is exactly the APPROVED
 -- reference rate of its basis in force on its date plus its margin (decimal
 -- equality, no rounding: both are DECIMAL(9,6)). A fixed row's resulting rate
--- is its fixed rate (CHECK ContractRate_fixed_resulting_rate). Both writers
--- satisfy that: booking inserts the start-date row from the reference value
--- then in force, and repricing (lib/asset-finance/reprice-loan.ts) inserts a
--- row on the approved reference change's own date at that reference + the
--- prior margin. An equal date is let through to the unique index
+-- is its fixed rate (CHECK ContractRate_fixed_resulting_rate). After the
+-- first row, a new row keeps the loan's terms: the basis and margin (or the
+-- fixed rate) of the loan's latest row, exactly; only the resulting rate moves
+-- with the reference. Both writers satisfy all of that: booking inserts the
+-- start-date row from the reference value then in force, and repricing
+-- (lib/asset-finance/reprice-loan.ts) inserts a row on the approved reference
+-- change's own date at that reference + the prior basis and margin. A change
+-- of basis or margin is a contract variation, refused.
+-- PARTIAL: variations need a re-signed agreement; slice 1 has no such flow.
+-- An equal date is let through to the unique index
 -- ContractRate_loanId_effectiveDate_key, whose P2002 repricing reads as
 -- already_repriced. Inserts for one loan are serialised by an advisory lock,
 -- so two concurrent inserts cannot both pass the "not before the latest" test.
@@ -42,6 +47,7 @@ AS $function$
 DECLARE
   loan_start DATE;
   latest DATE;
+  previous RECORD;
   reference_rate NUMERIC;
 BEGIN
   IF TG_OP <> 'INSERT' THEN
@@ -64,12 +70,26 @@ BEGIN
       MESSAGE = 'A contract rate may not take effect more than a year ahead';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('contract-rate:' || NEW."loanId", 0));
-  SELECT max(c."effectiveDate") INTO latest FROM "ContractRate" AS c WHERE c."loanId" = NEW."loanId";
+  SELECT c."effectiveDate", c."basis", c."margin", c."fixedRate" INTO previous
+  FROM "ContractRate" AS c WHERE c."loanId" = NEW."loanId"
+  ORDER BY c."effectiveDate" DESC LIMIT 1;
+  latest := previous."effectiveDate";
   IF NEW."effectiveDate" < coalesce(latest, loan_start) THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = format('A contract rate may not take effect before %s (the loan''s %s)',
         coalesce(latest, loan_start), CASE WHEN latest IS NULL THEN 'start date' ELSE 'latest contract rate' END);
+  END IF;
+  -- PARTIAL: variations need a re-signed agreement (slice 1 refuses them).
+  IF latest IS NOT NULL AND (
+    NEW."basis" IS DISTINCT FROM previous."basis"
+    OR NEW."margin" IS DISTINCT FROM previous."margin"
+    OR NEW."fixedRate" IS DISTINCT FROM previous."fixedRate"
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('A contract rate keeps the loan''s basis and margin (or fixed rate) of %s: a change is a contract variation, refused',
+        latest);
   END IF;
   IF NEW."basis" <> 'FIXED' THEN
     SELECT reference."rate" INTO reference_rate FROM "ReferenceRate" AS reference

@@ -2,8 +2,9 @@
  * Real-Postgres proof of the rate-table rules: ReferenceRate born PENDING,
  * four-eyes, decision completeness, tenant-bound requester and decider, band,
  * immutability and live-value uniqueness (migration 20261013100000);
- * ContractRate insert-only with its insert rules: fixed = resulting, reference
- * + margin = resulting, never backdated (20261013100500); and the
+ * the decision time stamped by the database; ContractRate insert-only with its
+ * insert rules: fixed = resulting, reference + margin = resulting, never
+ * backdated, basis and margin kept (20261013100500); and the
  * tenant-bound composite foreign keys of ContractRate, TaxInvoice and
  * CreditNote (20261013100700), each isolated from the trigger that would
  * otherwise refuse the row first.
@@ -24,7 +25,7 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
   const otherTenant = `tenant_afr2_${token}`
   const otherUser = `user_afr2_${token}`
   let seq = 0
-  const loans = { nonNca: "", plain: "", nca: "", fresh: "", race: "" }
+  const loans = { nonNca: "", plain: "", nca: "", fresh: "", race: "", repo: "" }
 
   const reference = (over: { date?: string; rate?: string; status?: string; decided?: string | null; basis?: string; requester?: string } = {}) => {
     seq += 1
@@ -41,13 +42,13 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
     const insert = reference(over)
     sql(`${insert}; ${approve(idOf(insert))}`)
   }
-  const contractRate = (loanId: string, over: { date?: string; basis?: string; tenant?: string; rate?: string; fixed?: string } = {}) => {
+  const contractRate = (loanId: string, over: { date?: string; basis?: string; tenant?: string; rate?: string; fixed?: string; margin?: string } = {}) => {
     seq += 1
     const fixed = over.basis === "FIXED"
     const rate = over.rate ?? "0.1275"
     return `INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "margin", "fixedRate", "resultingRate")
       VALUES ('cr_${token}_${seq}', '${over.tenant ?? tenantId}', '${loanId}', '${over.date ?? "2026-01-15"}', '${over.basis ?? "PRIME"}',
-      ${fixed ? `NULL, ${over.fixed ?? rate}` : "0.01, NULL"}, ${rate})`
+      ${fixed ? `NULL, ${over.fixed ?? rate}` : `${over.margin ?? "0.01"}, NULL`}, ${rate})`
   }
 
   beforeAll(() => {
@@ -67,6 +68,7 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
     // 23:00 UTC on 31 May is 01:00 SAST on 1 June: the start DATE is 1 June.
     loans.fresh = book("INSTALMENT_SALE", "'2026-05-31 23:00:00'::timestamp")
     loans.race = book("INSTALMENT_SALE", "'2026-01-01 10:00:00'::timestamp")
+    loans.repo = book("INSTALMENT_SALE", "'2026-01-01 10:00:00'::timestamp")
     const ncaApp = f.application({ entityId }, "NCA")
     sql(ncaApp)
     const nca = f.loan(idOf(ncaApp), { entityId }, "NCA").replace("'LOAN', CURRENT_TIMESTAMP)", "'INSTALMENT_SALE', CURRENT_TIMESTAMP)")
@@ -102,15 +104,29 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
       expectRejected(reference({ date: "2026-01-03" }).replace(/NULL\)$/, "CURRENT_TIMESTAMP)"), message)
     })
 
-    it("refuses a decision by the requester, and a decision without who or when", () => {
+    it("refuses a decision by the requester, a decision without a decider, and a decider on a PENDING row", () => {
       const insert = reference({ date: "2026-01-04" })
       sql(insert)
       const where = `WHERE "id" = '${idOf(insert)}'`
       expectRejected(approve(idOf(insert), userId), "ReferenceRate_four_eyes")
       expectRejected(`UPDATE "ReferenceRate" SET "status" = 'APPROVED' ${where}`, "ReferenceRate_decision_complete")
-      expectRejected(`UPDATE "ReferenceRate" SET "status" = 'APPROVED', "decidedById" = '${approverId}' ${where}`, "ReferenceRate_decision_complete")
       expectRejected(`UPDATE "ReferenceRate" SET "status" = 'REJECTED', "decidedAt" = CURRENT_TIMESTAMP ${where}`, "ReferenceRate_decision_complete")
       expectRejected(`UPDATE "ReferenceRate" SET "decidedById" = '${approverId}', "decidedAt" = CURRENT_TIMESTAMP ${where}`, "ReferenceRate_decision_complete")
+    })
+
+    it("stamps decidedAt with the database clock at the decision: a backdated or missing value is replaced", () => {
+      const lagSeconds = (id: string) => Number(sql(`SELECT extract(epoch FROM (clock_timestamp() AT TIME ZONE 'UTC') - "decidedAt")
+        FROM "ReferenceRate" WHERE "id" = '${id}'`))
+      const backdated = reference({ basis: "JIBAR", date: "2026-01-04" })
+      const missing = reference({ basis: "JIBAR", date: "2026-01-05" })
+      sql(`${backdated}; ${missing}`)
+      sql(`UPDATE "ReferenceRate" SET "status" = 'APPROVED', "decidedById" = '${approverId}', "decidedAt" = '2020-01-01 00:00:00'
+        WHERE "id" = '${idOf(backdated)}'`)
+      sql(`UPDATE "ReferenceRate" SET "status" = 'REJECTED', "decidedById" = '${approverId}' WHERE "id" = '${idOf(missing)}'`)
+      for (const id of [idOf(backdated), idOf(missing)]) {
+        expect(lagSeconds(id)).toBeGreaterThanOrEqual(0)
+        expect(lagSeconds(id)).toBeLessThan(60)
+      }
     })
 
     it("requester and decider are users of the row's own tenant", () => {
@@ -158,18 +174,19 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
     })
 
     it("a fixed rate is its own resulting rate (CHECK)", () => {
-      expectRejected(contractRate(loans.nonNca, { basis: "FIXED", date: "2026-01-20", fixed: "0.13", rate: "0.1275" }), "ContractRate_fixed_resulting_rate")
+      // On a loan with no contract rate yet, so the trigger's continuity rule does not refuse it first.
+      expectRejected(contractRate(loans.race, { basis: "FIXED", date: "2026-01-20", fixed: "0.13", rate: "0.1275" }), "ContractRate_fixed_resulting_rate")
     })
 
     it("when reference-linked, needs an APPROVED reference of its basis in effect on its date", () => {
       const message = "needs an approved reference rate of its basis in effect on its date"
-      expectRejected(contractRate(loans.nonNca, { basis: "REPO", date: "2026-02-01" }), message)
+      expectRejected(contractRate(loans.repo, { basis: "REPO", date: "2026-02-01" }), message)
       const pending = reference({ basis: "REPO", date: "2026-01-20" })
       sql(pending)
-      expectRejected(contractRate(loans.nonNca, { basis: "REPO", date: "2026-02-01" }), message)
-      expectRejected(contractRate(loans.nonNca, { basis: "REPO", date: "2026-01-19" }), message)
+      expectRejected(contractRate(loans.repo, { basis: "REPO", date: "2026-02-01" }), message)
+      expectRejected(contractRate(loans.repo, { basis: "REPO", date: "2026-01-19" }), message)
       sql(approve(idOf(pending)))
-      sql(contractRate(loans.nonNca, { basis: "REPO", date: "2026-02-01" }))
+      sql(contractRate(loans.repo, { basis: "REPO", date: "2026-02-01" }))
     })
 
     it("when reference-linked, its resulting rate is exactly the reference IN FORCE on its date plus the margin", () => {
@@ -186,6 +203,19 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
       sql(contractRate(loans.fresh, { basis: "FIXED", date: "2026-06-01" }))
       // The same date passes the guard to the unique index (repricing reads its P2002 as already_repriced).
       expectRejected(contractRate(loans.fresh, { basis: "FIXED", date: "2026-06-01" }), "ContractRate_loanId_effectiveDate_key")
+    })
+
+    it("keeps the loan's basis and margin (or fixed rate): only the resulting rate moves; a variation is refused", () => {
+      const VARIATION = "keeps the loan's basis and margin (or fixed rate) of 2026-03-01: a change is a contract variation"
+      // nonNca: PRIME + 0.01 from 2026-03-01; PRIME 0.12, REPO 0.1175 approved.
+      expectRejected(contractRate(loans.nonNca, { date: "2026-03-15", margin: "0.02", rate: "0.14" }), VARIATION)
+      expectRejected(contractRate(loans.nonNca, { basis: "REPO", date: "2026-03-15" }), VARIATION)
+      expectRejected(contractRate(loans.nonNca, { basis: "FIXED", date: "2026-03-15", rate: "0.13" }), VARIATION)
+      sql(contractRate(loans.nonNca, { date: "2026-03-15", margin: "0.010000", rate: "0.13" }))
+      // fresh: FIXED 0.1275 from 2026-06-01.
+      const FIXED_VARIATION = VARIATION.replace("2026-03-01", "2026-06-01")
+      expectRejected(contractRate(loans.fresh, { basis: "FIXED", date: "2026-07-01", rate: "0.14" }), FIXED_VARIATION)
+      expectRejected(contractRate(loans.fresh, { date: "2026-07-01", rate: "0.13" }), FIXED_VARIATION)
     })
 
     it("takes effect at most a year ahead", () => {

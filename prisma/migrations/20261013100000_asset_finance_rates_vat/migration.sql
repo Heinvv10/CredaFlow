@@ -181,24 +181,55 @@ INSERT INTO "VatRate" ("id", "effectiveDate", "rate") VALUES ('vat_rate_2018_04_
 ALTER TABLE "VatRate" ADD CONSTRAINT "VatRate_rate_range" CHECK ("rate" >= 0 AND "rate" < 1);
 
 -- The rate table is the anchor every tax invoice's rate is checked against
--- (checkTaxInvoiceVatRate below), so it is history: a row is never updated,
--- deleted or truncated, and a new row is a rate change announced ahead of
--- time, effective after today (SAST). A rate in force today or earlier cannot
--- be inserted, so an issued invoice can never be made to disagree with it.
+-- (checkTaxInvoiceVatRate below). A rate change is a row announced ahead of
+-- time, effective after today (SAST). A row in force (effective today or
+-- earlier) is history: never updated or deleted. An announced row may still
+-- be corrected or withdrawn (UPDATE / DELETE) while it is not yet in force,
+-- and only while no tax invoice has a supply date on or after its effective
+-- date, so no invoice ever relied on it; the corrected row must again take
+-- effect after today, after every invoice's supply date. TRUNCATE is refused.
+--
+-- What this proves: an issued invoice never disagrees with the table. Its
+-- rate was the rate in force on its supply date when it was issued, and that
+-- supply date is today or earlier (checkTaxInvoiceVatRate), so a row that
+-- could change what was in force on it (effective on or before it) would be
+-- dated today or earlier: never inserted, updated to, updated or deleted.
 CREATE OR REPLACE FUNCTION public."guardVatRate"()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
+DECLARE
+  today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
-  IF TG_OP <> 'INSERT' THEN
+  IF TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
-      MESSAGE = format('VatRate is history: %s refused (a rate change is a new row effective after today)', TG_OP);
+      MESSAGE = 'VatRate is history: TRUNCATE refused';
   END IF;
-  IF NEW."effectiveDate" <= (now() AT TIME ZONE 'Africa/Johannesburg')::date THEN
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    IF OLD."effectiveDate" <= today THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = format('VatRate is history: %s of a rate in force refused (a rate change is a new row effective after today)', TG_OP);
+    END IF;
+    IF EXISTS (SELECT 1 FROM "TaxInvoice" AS i WHERE i."supplyDate" >= OLD."effectiveDate") THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = format('VatRate %s refused: a tax invoice has a supply date on or after %s', TG_OP, OLD."effectiveDate");
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+  END IF;
+  IF NEW."effectiveDate" <= today THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = 'A new VAT rate must take effect after today (SAST)';
+  END IF;
+  IF EXISTS (SELECT 1 FROM "TaxInvoice" AS i WHERE i."supplyDate" >= NEW."effectiveDate") THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('A VAT rate effective %s is refused: a tax invoice has a supply date on or after it', NEW."effectiveDate");
   END IF;
   RETURN NEW;
 END;
@@ -252,8 +283,11 @@ $function$;
 CREATE TRIGGER "ReferenceRate_born_pending" BEFORE INSERT ON "ReferenceRate" FOR EACH ROW EXECUTE FUNCTION "guardReferenceRateInsert"();
 
 -- What was recorded never changes; the only UPDATE is the one decision on a
--- PENDING row, after which the row is immutable. An APPROVED value is never
--- deleted (repricings and audit rows cite it); TRUNCATE is refused outright.
+-- PENDING row, after which the row is immutable. The decision is stamped
+-- here: decidedAt is the database clock (UTC) at the decision, whatever the
+-- writer supplied, so a decision cannot be backdated. An APPROVED value is
+-- never deleted (repricings and audit rows cite it); TRUNCATE is refused
+-- outright.
 CREATE OR REPLACE FUNCTION public."guardReferenceRateLifecycle"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -278,6 +312,9 @@ BEGIN
   END IF;
   IF OLD."status" <> 'PENDING' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('A %s reference rate is immutable', OLD."status");
+  END IF;
+  IF NEW."status" <> 'PENDING' THEN
+    NEW."decidedAt" := clock_timestamp() AT TIME ZONE 'UTC';
   END IF;
   RETURN NEW;
 END;
@@ -375,9 +412,15 @@ $function$;
 
 CREATE TRIGGER "TaxInvoiceLine_vat_matches_rate" BEFORE INSERT ON "TaxInvoiceLine" FOR EACH ROW EXECUTE FUNCTION "checkTaxInvoiceLineVat"();
 
--- An invoice charges the VAT rate in force on its supply date: the VatRate
--- row with the latest effectiveDate on or before it, exactly. No rate in
--- force, no invoice.
+-- An invoice is issued for a supply already made: its supply date is today
+-- or earlier (SAST), never ahead. So every VatRate row that could still be
+-- inserted, corrected or withdrawn (effective after today, guardVatRate) lies
+-- after every invoice's supply date, and cannot change the rate in force on
+-- it. The invoice charges the VAT rate in force on its supply date: the
+-- VatRate row with the latest effectiveDate on or before it, exactly. No rate
+-- in force, no invoice. That row is share-locked, so a concurrent change to
+-- it (possible only across midnight) waits for the invoice and then sees it,
+-- or the invoice waits and then finds the row changed and is refused.
 CREATE OR REPLACE FUNCTION public."checkTaxInvoiceVatRate"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -385,8 +428,14 @@ AS $function$
 DECLARE
   in_force NUMERIC;
 BEGIN
+  IF NEW."supplyDate" > (now() AT TIME ZONE 'Africa/Johannesburg')::date THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('A tax invoice''s supply date %s may not be after today (SAST)', NEW."supplyDate");
+  END IF;
   SELECT v."rate" INTO in_force FROM "VatRate" AS v
-  WHERE v."effectiveDate" <= NEW."supplyDate" ORDER BY v."effectiveDate" DESC LIMIT 1;
+  WHERE v."effectiveDate" <= NEW."supplyDate" ORDER BY v."effectiveDate" DESC LIMIT 1
+  FOR SHARE;
   IF in_force IS NULL OR NEW."vatRate" IS DISTINCT FROM in_force THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
