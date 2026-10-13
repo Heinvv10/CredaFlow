@@ -1,12 +1,12 @@
 // Credit notes: the only correction to an issued tax invoice (VAT Act s21).
 // The database assigns the gap-free per-tenant number ("CN-000001"), refuses
 // UPDATE and DELETE, and refuses a credit note for another tenant's invoice
-// or one that would credit more value or VAT than the invoice charged
-// (migration 20261013100000).
+// or one that would credit more value or VAT than the invoice charged, and
+// checks the VAT by creditNoteVat's own rule (migration 20261013100000).
 import type { Prisma } from "@prisma/client"
+import { dbDate } from "@/lib/asset-finance/dates"
 import { vatOnExclusive } from "./amounts"
 import type { VatTransaction } from "./db"
-import { dbDate } from "./tax-invoice"
 import { rateTenThousandthsOf } from "./vat-rate"
 
 export class TaxInvoiceNotFoundError extends Error {
@@ -27,7 +27,7 @@ export interface IssueCreditNoteInput {
   createdById?: string | null
 }
 
-export type CreditNoteDb = Pick<VatTransaction, "taxInvoice" | "creditNote">
+export type CreditNoteDb = Pick<VatTransaction, "taxInvoice" | "creditNote" | "$executeRawUnsafe">
 
 export type IssuedCreditNote = Prisma.CreditNoteGetPayload<Record<string, never>>
 
@@ -70,7 +70,7 @@ export async function issueCreditNote(tx: CreditNoteDb, input: IssueCreditNoteIn
   })
   if (!invoice) throw new TaxInvoiceNotFoundError(input.invoiceId)
   const credited = await tx.creditNote.aggregate({
-    where: { invoiceId: input.invoiceId },
+    where: { tenantId: input.tenantId, invoiceId: input.invoiceId },
     _sum: { exclVatCents: true, vatCents: true },
   })
   const vatCents = creditNoteVat(
@@ -79,7 +79,7 @@ export async function issueCreditNote(tx: CreditNoteDb, input: IssueCreditNoteIn
     input.exclVatCents,
   )
 
-  return tx.creditNote.create({
+  const note = await tx.creditNote.create({
     data: {
       tenantId: input.tenantId,
       // Placeholders: the CreditNote_assign_number trigger overwrites both.
@@ -94,4 +94,8 @@ export async function issueCreditNote(tx: CreditNoteDb, input: IssueCreditNoteIn
       createdById: input.createdById ?? null,
     },
   })
+  // Deferred constraint triggers fire here, not at a COMMIT Prisma would
+  // report as success (lib/loan/apply-payment.ts).
+  await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+  return note
 }

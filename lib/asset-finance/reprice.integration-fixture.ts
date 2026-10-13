@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { Prisma, type PrismaClient } from "@prisma/client"
+import { Prisma, type ContractType, type PrismaClient } from "@prisma/client"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
-import { dbDate } from "./rates-store"
+import { dbDate } from "./dates"
 import { dueDateInstant, toScheduleRecord } from "./schedule-records"
 import { solveStructure } from "./structure"
 import { monthly } from "./structure-presets"
-import type { StructureInput } from "./types"
+import type { StructureInput, StructureResult } from "./types"
 
 // Shared real-Postgres fixture for the repricing integration tests. Synthetic
 // only: an excavator deal for "Test Plant Hire (Pty) Ltd", R1 250 000 incl.
@@ -24,15 +24,30 @@ export const BOOKED = solveStructure(DEAL)
 export const PAID_ROWS = 12 // rows 1..12 settled
 export const MARGIN = "0.01"
 
-export interface RepriceTenant { tenantId: string; adminId: string; productId: string; entityId: string; directorId: string }
+export interface RepriceTenant {
+  tenantId: string; adminId: string; approverId: string; productId: string; entityId: string; directorId: string
+}
 
-export async function createRepriceTenant(db: PrismaClient): Promise<RepriceTenant> {
+/** An APPROVED reference value: recorded by the admin, approved by the second user (four-eyes). */
+export function approvedPrime(tenant: RepriceTenant, effectiveDate: string, rate: string) {
+  return {
+    tenantId: tenant.tenantId, basis: "PRIME" as const, effectiveDate: dbDate(effectiveDate), rate: new Prisma.Decimal(rate),
+    status: "APPROVED" as const, requestedById: tenant.adminId, decidedById: tenant.approverId, decidedAt: new Date(),
+  }
+}
+
+/** A tenant with asset finance on (or off), two loan admins, an entity borrower, and prime 11.75% approved from the deal's start. */
+export async function createRepriceTenant(db: PrismaClient, featureAssetFinance = true): Promise<RepriceTenant> {
   const t = randomUUID().replaceAll("-", "").slice(0, 16)
   const tenantId = `t_rp_${t}`
   await db.tenant.create({ data: { id: tenantId, slug: `rp-${t}`, name: "Reprice IT" } })
-  await db.tenantConfig.create({ data: { ...VALID_LENDER_COLUMNS, tenantId, featureAssetFinance: true } })
+  await db.tenantConfig.create({ data: { ...VALID_LENDER_COLUMNS, tenantId, featureAssetFinance } })
   const admin = await db.user.create({
     data: { id: `u_rp_${t}`, tenantId, email: `${t}@test.invalid`, password: "x", role: "LOAN_ADMIN" },
+  })
+  // Not a LOAN_ADMIN, so the repricing bell goes to the admin alone.
+  const approver = await db.user.create({
+    data: { id: `u_rp2_${t}`, tenantId, email: `approver-${t}@test.invalid`, password: "x", role: "CREDIT_OFFICER" },
   })
   const product = await db.loanProduct.create({
     data: {
@@ -61,17 +76,41 @@ export async function createRepriceTenant(db: PrismaClient): Promise<RepriceTena
       { tenantId, entityId: entity.id, clientId: formerDirector.id, role: "DIRECTOR", active: false },
     ],
   })
-  return { tenantId, adminId: admin.id, productId: product.id, entityId: entity.id, directorId: director.id }
+  const tenant = { tenantId, adminId: admin.id, approverId: approver.id, productId: product.id, entityId: entity.id, directorId: director.id }
+  await db.referenceRate.create({ data: approvedPrime(tenant, DEAL.startDate, "0.1175") })
+  return tenant
 }
 
 export type RateBooking = { basis: "PRIME"; margin: string } | { basis: "FIXED"; fixedRate: string }
 
-/** A booked, part-paid NON_NCA instalment sale with its schedule and booking contract rate. */
-export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant, rate: RateBooking = { basis: "PRIME", margin: MARGIN }) {
+export interface LoanOptions {
+  rate?: RateBooking | null // null: no contract rate (a contract the ContractRate guard refuses)
+  weights?: number[]
+  contractType?: ContractType
+  paidRows?: number
+}
+
+/** The deal solved with `weights`; rows 0..paidRows-1 that have something due are settled. */
+export function bookedWith(weights: number[]): StructureResult {
+  return solveStructure({ ...DEAL, weights })
+}
+
+/**
+ * A booked, part-paid NON_NCA asset-finance loan with its stored schedule and
+ * its booking contract rate (which records the solved base instalment). The
+ * Loan totals are the schedule's sums (lib/asset-finance/schedule-records.ts).
+ */
+export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant, options: LoanOptions = {}) {
   const n = randomUUID().replaceAll("-", "").slice(0, 12)
   const { tenantId } = tenant
-  const totalInterest = BOOKED.totalInterestCents
-  const paidRows = BOOKED.rows.slice(0, PAID_ROWS)
+  const rate = options.rate === undefined ? { basis: "PRIME" as const, margin: MARGIN } : options.rate
+  const booked = options.weights ? bookedWith(options.weights) : BOOKED
+  const paidRows = options.paidRows ?? PAID_ROWS
+  const records = booked.rows.map(toScheduleRecord)
+  const settled = (i: number) => i < paidRows && records[i].totalDue > 0
+  const sum = (pick: (r: (typeof records)[number]) => number, only: (i: number) => boolean = () => true) =>
+    records.reduce((total, r, i) => total + (only(i) ? pick(r) : 0), 0)
+  const last = booked.rows.length - 1
   // The application reaches NON_NCA the only way the database allows: it is
   // classified NCA, a second person approves an NCA → NON_NCA override, and the
   // flip consumes that approval (guardLoanApplicationNcaRegime). It is then
@@ -81,7 +120,7 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
     const app = await tx.loanApplication.create({
       data: {
         tenantId, reference: `APP-RP-${n}`, entityId: tenant.entityId, productId: tenant.productId,
-        appliedAmount: BOOKED.financedAmountCents, appliedTermDays: 1_826, status: "UNDER_REVIEW",
+        appliedAmount: booked.financedAmountCents, appliedTermDays: 1_826, status: "UNDER_REVIEW",
         ncaRegime: "NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ncaClassifiedAt: new Date(),
         ncaClassifiedById: tenant.adminId,
       },
@@ -104,11 +143,11 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
     const created = await tx.loan.create({
       data: {
         tenantId, reference: `LN-RP-${n}`, applicationId: app.id, entityId: tenant.entityId, productId: tenant.productId,
-        ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE", balloonAmount: DEAL.balloonCents,
-        principal: BOOKED.financedAmountCents, totalInterest, initiationFee: 0, totalRepayable: BOOKED.totalPayableCents,
-        outstandingPrincipal: BOOKED.rows[PAID_ROWS - 1].closingBalanceCents,
-        totalPaid: paidRows.reduce((sum, r) => sum + r.totalCents, 0),
-        startDate: dueDateInstant(DEAL.startDate), maturityDate: dueDateInstant(BOOKED.rows[59].dueDate),
+        ncaRegime: "NON_NCA", contractType: options.contractType ?? "INSTALMENT_SALE", balloonAmount: DEAL.balloonCents,
+        principal: sum((r) => r.principalDue), totalInterest: sum((r) => r.interestDue), initiationFee: 0,
+        totalRepayable: sum((r) => r.totalDue), outstandingPrincipal: sum((r) => r.principalDue, (i) => !settled(i)),
+        totalPaid: sum((r) => r.totalDue, settled),
+        startDate: dueDateInstant(DEAL.startDate), maturityDate: dueDateInstant(booked.rows[last].dueDate),
         interestRatePm: 0.1275 / 12, interestModel: "REDUCING_BALANCE", status: "ACTIVE", monthlyServiceFee: 0,
       },
     })
@@ -117,30 +156,27 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
     return created
   })
   await db.repaymentSchedule.createMany({
-    data: BOOKED.rows.map((row, i) => ({
-      ...toScheduleRecord(row), tenantId, loanId: loan.id,
-      ...(i < PAID_ROWS ? { status: "PAID" as const, totalPaid: row.totalCents, paidAt: dueDateInstant(row.dueDate) } : {}),
+    data: records.map((record, i) => ({
+      ...record, tenantId, loanId: loan.id,
+      ...(settled(i) ? { status: "PAID" as const, totalPaid: record.totalDue, paidAt: record.dueDate } : {}),
     })),
   })
-  await db.contractRate.create({
-    data: {
-      tenantId, loanId: loan.id, effectiveDate: dbDate(DEAL.startDate), basis: rate.basis,
-      ...(rate.basis === "FIXED"
-        ? { fixedRate: new Prisma.Decimal(rate.fixedRate), resultingRate: new Prisma.Decimal(rate.fixedRate) }
-        : { margin: new Prisma.Decimal(rate.margin), resultingRate: new Prisma.Decimal("0.1275") }),
-    },
-  })
+  if (rate) {
+    await db.contractRate.create({
+      data: {
+        tenantId, loanId: loan.id, effectiveDate: dbDate(DEAL.startDate), basis: rate.basis, newInstalmentCents: booked.baseInstalmentCents,
+        ...(rate.basis === "FIXED"
+          ? { fixedRate: new Prisma.Decimal(rate.fixedRate), resultingRate: new Prisma.Decimal(rate.fixedRate) }
+          : { margin: new Prisma.Decimal(rate.margin), resultingRate: new Prisma.Decimal("0.1275") }),
+      },
+    })
+  }
   return loan.id
 }
 
-/** Prime history: 11.75% at booking, 12.00% from row 12's due date. */
-export async function recordPrime(db: PrismaClient, tenantId: string): Promise<string> {
+/** Prime 12.00% approved from row 12's due date; returns that date. */
+export async function recordPrime(db: PrismaClient, tenant: RepriceTenant): Promise<string> {
   const effectiveDate = BOOKED.rows[PAID_ROWS - 1].dueDate
-  await db.referenceRate.createMany({
-    data: [
-      { tenantId, basis: "PRIME", effectiveDate: dbDate(DEAL.startDate), rate: new Prisma.Decimal("0.1175") },
-      { tenantId, basis: "PRIME", effectiveDate: dbDate(effectiveDate), rate: new Prisma.Decimal("0.12") },
-    ],
-  })
+  await db.referenceRate.create({ data: approvedPrime(tenant, effectiveDate, "0.12") })
   return effectiveDate
 }

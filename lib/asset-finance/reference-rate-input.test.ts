@@ -7,6 +7,8 @@ describe("parseReferenceRateInput", () => {
       .toEqual({ basis: "PRIME", effectiveDate: "2027-01-15", rate: "0.12" })
     expect(parseReferenceRateInput({ basis: "REPO", effectiveDate: "2027-01-15", rate: 0.0825 }))
       .toEqual({ basis: "REPO", effectiveDate: "2027-01-15", rate: "0.0825" })
+    expect(parseReferenceRateInput({ basis: "JIBAR", effectiveDate: "2027-01-15", rate: "0.499999" }))
+      .toEqual({ basis: "JIBAR", effectiveDate: "2027-01-15", rate: "0.499999" })
   })
 
   it.each([
@@ -14,6 +16,8 @@ describe("parseReferenceRateInput", () => {
     ["a percentage instead of a decimal", { basis: "PRIME", effectiveDate: "2027-01-15", rate: "12" }, ["rate"]],
     ["more than 6 places", { basis: "PRIME", effectiveDate: "2027-01-15", rate: "0.1234567" }, ["rate"]],
     ["a negative rate", { basis: "PRIME", effectiveDate: "2027-01-15", rate: "-0.01" }, ["rate"]],
+    ["a zero rate (below the sanity band)", { basis: "PRIME", effectiveDate: "2027-01-15", rate: "0.000000" }, ["rate"]],
+    ["50% (above the sanity band)", { basis: "PRIME", effectiveDate: "2027-01-15", rate: "0.5" }, ["rate"]],
     ["exponent notation", { basis: "PRIME", effectiveDate: "2027-01-15", rate: 1e-7 }, ["rate"]],
     ["a date that does not exist", { basis: "PRIME", effectiveDate: "2027-02-30", rate: "0.12" }, ["effectiveDate"]],
     ["no body", null, ["basis", "effectiveDate", "rate"]],

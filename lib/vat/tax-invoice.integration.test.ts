@@ -1,7 +1,10 @@
 /**
  * Real-DB proof of the tax-document rules in migration 20261013100000:
  * immutability, gap-free numbering under concurrency, totals = lines at
- * commit, the credit-note cap, and the VatRate seed.
+ * commit, the credit-note cap, the VatRate seed, the counter written only by
+ * the numbering function (itself callable only from the insert triggers), a
+ * line's and a credit note's VAT consistent with the invoice rate, and the
+ * deferred checks surfacing inside issueTaxInvoice / issueCreditNote.
  *
  *   RUN_VAT_INVOICE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/vat/tax-invoice.integration.test.ts
@@ -9,8 +12,8 @@
 import { PrismaClient } from "@prisma/client"
 import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { issueCreditNote } from "./credit-note"
-import { VatNotConfiguredError, issueTaxInvoice, type IssueTaxInvoiceInput } from "./tax-invoice"
+import { issueCreditNote, type CreditNoteDb } from "./credit-note"
+import { VatNotConfiguredError, issueTaxInvoice, type IssueTaxInvoiceInput, type TaxInvoiceDb } from "./tax-invoice"
 import { NoVatRateError, loadRateOn } from "./vat-rate"
 
 const suite = process.env.RUN_VAT_INVOICE_IT === "1" ? describe : describe.skip
@@ -191,4 +194,73 @@ suite("tax invoices and credit notes (real DB)", () => {
     expect(stored[19].invoiceNumber).toBe("INV-000020")
     expect((await db.taxDocumentCounter.findUnique({ where: { tenantId_kind: { tenantId: raceTenantId, kind: "TAX_INVOICE" } } }))?.next).toBe(21)
   }, 60_000)
+
+  describe("(e) only the numbering function writes the counter, only from the insert triggers", () => {
+    const counter = () => db.taxDocumentCounter.findUnique({ where: { tenantId_kind: { tenantId, kind: "TAX_INVOICE" } } })
+
+    it("refuses a direct INSERT, UPDATE, DELETE or TRUNCATE of TaxDocumentCounter", async () => {
+      const before = await counter()
+      const refused = /written only by nextTaxDocumentNumber/
+      await expect(db.$executeRawUnsafe(`UPDATE "TaxDocumentCounter" SET "next" = 1 WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(refused)
+      await expect(db.$executeRawUnsafe(`DELETE FROM "TaxDocumentCounter" WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(refused)
+      await expect(db.$executeRawUnsafe(`INSERT INTO "TaxDocumentCounter" ("tenantId", "kind", "next") VALUES ('${bareTenantId}', 'TAX_INVOICE', 7)`)).rejects.toThrow(refused)
+      await expect(db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('TRUNCATE "TaxDocumentCounter"')
+        throw new Error("TRUNCATE was not refused")
+      })).rejects.toThrow(refused)
+      expect(await counter()).toEqual(before)
+    })
+
+    it("refuses a direct call of nextTaxDocumentNumber, burning no number", async () => {
+      const before = await counter()
+      await expect(db.$queryRawUnsafe(`SELECT "nextTaxDocumentNumber"('${tenantId}', 'TAX_INVOICE')`))
+        .rejects.toThrow(/called only by the tax invoice and credit note insert triggers/)
+      expect(await counter()).toEqual(before)
+    })
+  })
+
+  describe("(f) VAT consistent with the invoice rate", () => {
+    const header = { number: 0, invoiceNumber: "", issueDate: new Date("2026-10-13"), supplyDate: new Date("2026-10-13"),
+      supplierName: "Test Lender (Pty) Ltd", supplierAddress: "1 Test Street", supplierVatNumber: "4000000000",
+      recipientName: "Test Borrower", recipientAddress: "2 Test Road", vatRate: "0.1500" }
+    const LINE_VAT = /line's VAT must be the invoice rate applied half-up/
+
+    it("refuses a line whose VAT is neither rule's (exclusive 1000 at 15% is 150, not 151)", async () => {
+      await expect(db.taxInvoice.create({ data: { ...header, tenantId, totalExclVatCents: 1000, vatCents: 151, totalInclVatCents: 1151,
+        lines: { create: [{ lineNo: 1, description: "Test item", quantity: 1, unitExclVatCents: 1000, exclVatCents: 1000, vatCents: 151, inclVatCents: 1151 }] } } }))
+        .rejects.toThrow(LINE_VAT)
+    })
+
+    it("issues a VAT-inclusive price whose exclusive + VAT is exact (tax fraction) and the database accepts it", async () => {
+      const invoice = await db.$transaction((tx) => issueTaxInvoice(tx, { ...invoiceInput(tenantId), lines: [{ description: "Test asset", inclVatCents: 115_000_004 }] }))
+      expect(invoice.lines[0]).toMatchObject({ exclVatCents: 100_000_003, vatCents: 15_000_001, inclVatCents: 115_000_004 })
+    })
+
+    it("refuses a credit note whose VAT is not the invoice rate on its value, or not the exact remainder on a full credit", async () => {
+      const invoice = await db.$transaction((tx) => issueTaxInvoice(tx, invoiceInput(tenantId, 1000)))
+      const note = { tenantId, invoiceId: invoice.id, issueDate: new Date("2026-10-14"), reason: "Test credit", number: 0, creditNoteNumber: "" }
+      await expect(db.creditNote.create({ data: { ...note, exclVatCents: 10, vatCents: 1, inclVatCents: 11 } })).rejects.toThrow(/half-up to its value/)
+      await db.creditNote.create({ data: { ...note, exclVatCents: 10, vatCents: 2, inclVatCents: 12 } })
+      await expect(db.creditNote.create({ data: { ...note, exclVatCents: 990, vatCents: 147, inclVatCents: 1137 } })).rejects.toThrow(/exactly the remaining VAT/)
+      await db.creditNote.create({ data: { ...note, exclVatCents: 990, vatCents: 148, inclVatCents: 1138 } })
+    })
+  })
+
+  it("(g) a deferred violation surfaces inside issueTaxInvoice and issueCreditNote, not at a COMMIT Prisma would report as success", async () => {
+    const lineless = { tenantId, number: 0, invoiceNumber: "", issueDate: new Date("2026-10-13"), supplyDate: new Date("2026-10-13"),
+      supplierName: "S", supplierAddress: "A", supplierVatNumber: "4000000000", recipientName: "R", recipientAddress: "B",
+      vatRate: "0.1500", totalExclVatCents: 0, vatCents: 0, totalInclVatCents: 0 }
+    const good = await db.$transaction((tx) => issueTaxInvoice(tx, invoiceInput(tenantId, 1000)))
+    const errors: unknown[] = []
+    for (const issue of [
+      (tx: TaxInvoiceDb & CreditNoteDb) => issueTaxInvoice(tx, invoiceInput(tenantId, 1000)),
+      (tx: TaxInvoiceDb & CreditNoteDb) => issueCreditNote(tx, { tenantId, invoiceId: good.id, issueDate: "2026-10-14", reason: "Test", exclVatCents: 10 }),
+    ]) {
+      await db.$transaction(async (tx) => {
+        await tx.taxInvoice.create({ data: lineless }) // its totals check is deferred
+        await issue(tx).catch((error: unknown) => errors.push(error))
+      }).catch(() => undefined)
+    }
+    expect(errors.map(String)).toEqual([expect.stringMatching(TOTALS), expect.stringMatching(TOTALS)])
+  })
 })

@@ -1,7 +1,7 @@
 // The VAT rate in force on a date, from the national VatRate table. A rate
 // applies from its effectiveDate (inclusive) until the next row's.
 import { Prisma } from "@prisma/client"
-import { toDayNumber } from "@/lib/asset-finance/dates"
+import { dbDate, isoOfDbDate, toDayNumber } from "@/lib/asset-finance/dates"
 import { RATE_SCALE } from "./amounts"
 import type { VatTransaction } from "./db"
 
@@ -24,11 +24,6 @@ export class NoVatRateError extends Error {
     super(`No VAT rate is in force on ${date}`)
     this.name = "NoVatRateError"
   }
-}
-
-/** A @db.Date column comes back as UTC midnight; its calendar date. */
-function isoOfDbDate(date: Date): string {
-  return date.toISOString().slice(0, 10)
 }
 
 /** A stored four-place rate (e.g. "0.1500") in ten-thousandths (1500), exactly. */
@@ -69,9 +64,8 @@ type VatRateDb = Pick<VatTransaction, "vatRate">
 
 /** Loads the rate in force on `date` from the database. */
 export async function loadRateOn(db: VatRateDb, date: string): Promise<VatRateInForce> {
-  toDayNumber(date, "date")
   const row = await db.vatRate.findFirst({
-    where: { effectiveDate: { lte: new Date(`${date}T00:00:00.000Z`) } },
+    where: { effectiveDate: { lte: dbDate(date) } },
     orderBy: { effectiveDate: "desc" },
   })
   return rateOn(row ? [row] : [], date)

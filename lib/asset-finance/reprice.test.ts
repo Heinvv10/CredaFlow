@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { repriceRemaining } from "./reprice"
+import { REPRICE_NOTICE_DAYS, noticeKeptThroughIndex, repriceRemaining, repriceTail } from "./reprice"
+import { fromDayNumber, toDayNumber } from "./dates"
+import { storedScheduleForReprice } from "./stored-schedule"
 import { solveStructure } from "./structure"
 import { monthly } from "./structure-presets"
 import type { RatePoint, ScheduleRow, StructureInput } from "./types"
 import { expectRowIdentities, expectRowsMatchOracle } from "./__tests__/oracle-assertions"
 import { oracleDealFromInput, oracleReplay, type OracleDeal } from "./__tests__/structure-oracle"
+import { BASE, PATTERNS, solvePattern, storedRows } from "./__tests__/schedule-fixtures"
 
 // Synthetic deal: R1 250 000, 10% deposit, 20% balloon, 60 months at 11.75%.
 const INPUT: StructureInput = {
@@ -131,4 +134,98 @@ describe("repriceRemaining refuses invalid input", () => {
       expect(() => reprice(patch)).toThrow(RangeError)
     })
   }
+})
+
+const regular = (row: ScheduleRow): number => row.totalCents - row.balloonCents
+const dayAfter = (iso: string, days = 1): string => fromDayNumber(toDayNumber(iso) + days)
+
+describe("repricing skip and seasonal schedules: weights derived from the stored rows", () => {
+  // Settled through row 1, so skip rows (SKIP_N rows 0-2, BIANNUAL's off months)
+  // are among the pending rows; the rate moves 12.75% → 13.75% on 20 Mar 2026.
+  const reprice = (name: string, recorded: boolean) => {
+    const weights = PATTERNS[name]
+    const result = solvePattern(weights)
+    const read = storedScheduleForReprice({
+      stored: storedRows(result, 1), balloonCents: BASE.balloonCents,
+      recordedBaseCents: recorded ? result.baseInstalmentCents : null, ratePath: BASE.ratePath, startDate: BASE.startDate,
+    })
+    if ("error" in read) throw new Error(read.error)
+    const settled = read.paidThroughIndex
+    const ratePath: RatePoint[] = [...BASE.ratePath, { effectiveDate: "2026-03-20", annualRate: 0.1375 }]
+    const tail = {
+      paidThroughIndex: settled, balanceAtRepriceCents: read.capitalOutstandingCents,
+      repriceDate: settled >= 0 ? result.rows[settled].dueDate : BASE.startDate, ratePath, balloonCents: BASE.balloonCents,
+    }
+    // The same re-solve on the solver's own rows, with the TRUE weights.
+    return { weights, result, read, settled, ratePath, derived: repriceTail({ ...tail, rows: read.rows }), truth: repriceTail({ ...tail, rows: result.rows }) }
+  }
+
+  it.each(Object.keys(PATTERNS))("%s with the recorded base: exactly the true-weight re-solve, oracle-consistent", (name) => {
+    const { weights, result, read, settled, ratePath, derived, truth } = reprice(name, true)
+    expect(derived).toEqual({ ...truth, rows: truth.rows.map((row, i) => ({ ...row, weight: derived.rows[i].weight })) })
+    expect(derived.rows.map((r) => r.totalCents === 0)).toEqual(result.rows.slice(settled + 1).map((r) => r.weight === 0))
+    expectRowIdentities(derived.rows, read.capitalOutstandingCents, BASE.balloonCents)
+    const merged = [...result.rows.slice(0, settled + 1), ...derived.rows]
+    const replay = oracleReplay(oracleDealFromInput({ ...BASE, weights, ratePath }), merged.map(regular))
+    expect(replay.map((r) => r.interestCents)).toEqual(merged.map((r) => r.interestCents))
+    expect(replay[replay.length - 1].balanceAfterPaymentCents).toBe(BASE.balloonCents)
+  })
+
+  it("the fixtures exercise skip rows and capitalising rows in the pending tail", () => {
+    expect(reprice("SKIP_N", true).derived.rows.slice(0, 3).map((r) => r.totalCents)).toEqual([0, 0, 0])
+    expect(reprice("BIANNUAL", true).derived.rows.filter((r) => r.totalCents === 0).length).toBeGreaterThan(30)
+    expect(reprice("SEASONAL", true).derived.rows.filter((r) => r.totalCents > 0 && r.totalCents < r.interestCents).length).toBeGreaterThan(3)
+  })
+
+  it.each(Object.keys(PATTERNS))("%s with no recorded base: within half a cent × w / w_R per row of the true re-solve", (name) => {
+    const { read, derived, truth } = reprice(name, false)
+    // Worst case: R is the payment of the smallest positive weight.
+    const positive = truth.rows.map((r) => r.weight).filter((w) => w > 0)
+    const bound = Math.ceil((0.5 * Math.max(...positive)) / Math.min(...positive)) + 1
+    derived.rows.slice(0, -1).forEach((row, i) => expect(Math.abs(regular(row) - regular(truth.rows[i]))).toBeLessThanOrEqual(bound))
+    expect(derived.rows.map((r) => r.totalCents === 0)).toEqual(truth.rows.map((r) => r.totalCents === 0))
+    expectRowIdentities(derived.rows, read.capitalOutstandingCents, BASE.balloonCents)
+  })
+})
+
+describe("notice: rows due within REPRICE_NOTICE_DAYS of the run keep their instalment", () => {
+  const result = solvePattern(PATTERNS.MONTHLY)
+  const paid = 11
+  const tomorrowDue = result.rows[paid + 1].dueDate // 2027-02-15
+  const runDate = dayAfter(tomorrowDue, -1)
+  const ratePath: RatePoint[] = [...BASE.ratePath, { effectiveDate: dayAfter(result.rows[paid].dueDate), annualRate: 0.1375 }]
+  const tail = {
+    rows: result.rows, paidThroughIndex: paid, balanceAtRepriceCents: result.rows[paid].closingBalanceCents,
+    repriceDate: result.rows[paid].dueDate, ratePath, balloonCents: BASE.balloonCents,
+  }
+
+  it("keeps rows due less than 14 days after the run date, and only those", () => {
+    expect(REPRICE_NOTICE_DAYS).toBe(14)
+    expect(noticeKeptThroughIndex(result.rows, paid, runDate)).toBe(paid + 1)
+    expect(noticeKeptThroughIndex(result.rows, paid, dayAfter(tomorrowDue, -13))).toBe(paid + 1)
+    expect(noticeKeptThroughIndex(result.rows, paid, dayAfter(tomorrowDue, -14))).toBe(paid)
+    expect(noticeKeptThroughIndex(result.rows, paid, dayAfter(result.rows[paid + 2].dueDate, -1))).toBe(paid + 2)
+  })
+
+  it("a row due tomorrow keeps its amount; the re-solve from the next row absorbs its interest at the new rate", () => {
+    const kept = repriceTail({ ...tail, keptThroughIndex: noticeKeptThroughIndex(result.rows, paid, runDate) })
+    const unkept = repriceTail(tail)
+    expect(kept.rows[0].totalCents).toBe(result.rows[paid + 1].totalCents)
+    expect(kept.rows[0].interestCents).toBe(unkept.rows[0].interestCents) // charged at the new rate
+    expect(kept.rows[0].interestCents).toBeGreaterThan(result.rows[paid + 1].interestCents)
+    // It pays less than the new instalment would have, so the rest pay more.
+    expect(kept.rows[0].totalCents).toBeLessThan(unkept.rows[0].totalCents)
+    expect(kept.baseInstalmentCents).toBeGreaterThan(unkept.baseInstalmentCents)
+    expect(kept.rows[1].totalCents).toBe(kept.baseInstalmentCents)
+    expectRowIdentities(kept.rows, result.rows[paid].closingBalanceCents, BASE.balloonCents)
+    const merged = [...result.rows.slice(0, paid + 1), ...kept.rows]
+    const replay = oracleReplay(oracleDealFromInput({ ...BASE, weights: PATTERNS.MONTHLY, ratePath }), merged.map(regular))
+    expect(replay.map((r) => r.interestCents)).toEqual(merged.map((r) => r.interestCents))
+    expect(replay[replay.length - 1].balanceAfterPaymentCents).toBe(BASE.balloonCents)
+  })
+
+  it("refuses to keep every pending row (the last must absorb the residue)", () => {
+    expect(() => repriceTail({ ...tail, keptThroughIndex: result.rows.length - 1 })).toThrow(RangeError)
+    expect(() => repriceTail({ ...tail, keptThroughIndex: paid - 1 })).toThrow(RangeError)
+  })
 })

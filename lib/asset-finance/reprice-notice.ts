@@ -36,6 +36,24 @@ export interface RepriceNotice {
 
 const rand = (cents: number): string => `R${(cents / 100).toFixed(2)}`
 
+export interface LoanAdminAlert {
+  type: NotificationType
+  title: string
+  body: string
+  entityType: string
+  entityId: string
+}
+
+/** A bell item for each of the tenant's active loan admins and managers. */
+export async function alertLoanAdmins(db: Pick<NoticeDb, "user" | "notification">, tenantId: string, alert: LoanAdminAlert): Promise<number> {
+  const staff = await db.user.findMany({
+    where: { tenantId, active: true, role: { in: [...ALERTED_STAFF_ROLES] } },
+    select: { id: true },
+  })
+  await db.notification.createMany({ data: staff.map((user) => ({ tenantId, userId: user.id, ...alert })) })
+  return staff.length
+}
+
 /** Resolves the recipients and raises the staff bell items; returns the recipient Client ids. */
 export async function queueRepriceNotice(db: NoticeDb, notice: RepriceNotice): Promise<string[]> {
   const relationships = notice.entityId === null ? [] : await db.entityRelationship.findMany({
@@ -45,23 +63,15 @@ export async function queueRepriceNotice(db: NoticeDb, notice: RepriceNotice): P
   })
   const recipientClientIds = [...new Set(relationships.map((r) => r.clientId))]
 
-  const staff = await db.user.findMany({
-    where: { tenantId: notice.tenantId, active: true, role: { in: [...ALERTED_STAFF_ROLES] } },
-    select: { id: true },
-  })
   const recipients = recipientClientIds.length === 0
     ? "The borrower has no active director, trustee or authorised signatory to send it to."
     : `Send it to the borrower's ${recipientClientIds.length} director(s), trustee(s) or authorised signatory(ies).`
-  await db.notification.createMany({
-    data: staff.map((user) => ({
-      tenantId: notice.tenantId,
-      userId: user.id,
-      type: "LOAN_REPRICED" satisfies NotificationType,
-      title: `Loan ${notice.loanReference} repriced: new instalment notice to send`,
-      body: `From ${notice.effectiveDate} the base instalment moves from ${rand(notice.oldInstalmentCents)} to ${rand(notice.newInstalmentCents)}. No notice has been sent. ${recipients}`,
-      entityType: "Loan",
-      entityId: notice.loanId,
-    })),
+  await alertLoanAdmins(db, notice.tenantId, {
+    type: "LOAN_REPRICED",
+    title: `Loan ${notice.loanReference} repriced: new instalment notice to send`,
+    body: `From ${notice.effectiveDate} the base instalment moves from ${rand(notice.oldInstalmentCents)} to ${rand(notice.newInstalmentCents)}. No notice has been sent. ${recipients}`,
+    entityType: "Loan",
+    entityId: notice.loanId,
   })
   return recipientClientIds
 }

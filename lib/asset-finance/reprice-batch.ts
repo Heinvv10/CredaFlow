@@ -1,18 +1,20 @@
 /**
  * The repricing sweep behind app/api/cron/asset-finance-reprice. For every
- * tenant with featureAssetFinance on, for every ReferenceRate effective on or
- * before `day` (oldest first, so successive changes apply in order), it
+ * tenant with featureAssetFinance on, for every APPROVED ReferenceRate
+ * effective on or before `day` (oldest first, so successive changes apply in
+ * order; a PENDING or REJECTED value never reprices), it
  * reprices each ACTIVE asset-finance loan that holds a contract rate on that
  * basis from an earlier date and none from that date yet.
  *
  * Each loan runs in its own transaction: one failure is logged and counted
  * and the sweep goes on. A loan already repriced for a date has a
  * ContractRate row on it and is not selected again, so re-running the sweep
- * changes nothing. Every query passes tenantId explicitly: a cron has no
- * tenant frame (lib/tenant-scope.ts).
+ * changes nothing. `day` is also the run date the notice window counts from
+ * (./reprice.ts REPRICE_NOTICE_DAYS). Every query passes tenantId explicitly:
+ * a cron has no tenant frame (lib/tenant-scope.ts).
  */
 import type { prisma } from "@/lib/prisma"
-import { dbDate, isoOfDbDate } from "./rates-store"
+import { dbDate, isoOfDbDate } from "./dates"
 import { repriceLoanForReference, type NotEligibleReason } from "./reprice-loan"
 
 type BatchDb = Pick<typeof prisma, "tenantConfig" | "referenceRate" | "loan" | "$transaction">
@@ -34,7 +36,7 @@ export interface RepriceBatchRun {
 async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<TenantRepriceRun> {
   const run: TenantRepriceRun = { tenantId, repriced: 0, alreadyRepriced: 0, notEligible: {}, failed: 0 }
   const references = await db.referenceRate.findMany({
-    where: { tenantId, effectiveDate: { lte: dbDate(day) } },
+    where: { tenantId, status: "APPROVED", effectiveDate: { lte: dbDate(day) } },
     orderBy: [{ effectiveDate: "asc" }, { basis: "asc" }],
     select: { basis: true, effectiveDate: true },
   })
@@ -56,7 +58,7 @@ async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<Te
     for (const loan of loans) {
       try {
         const outcome = await db.$transaction((tx) =>
-          repriceLoanForReference(tx, { tenantId, loanId: loan.id, basis: reference.basis, effectiveDate }),
+          repriceLoanForReference(tx, { tenantId, loanId: loan.id, basis: reference.basis, effectiveDate, runDate: day }),
         )
         if (outcome.kind === "repriced") run.repriced++
         else if (outcome.kind === "already_repriced") run.alreadyRepriced++

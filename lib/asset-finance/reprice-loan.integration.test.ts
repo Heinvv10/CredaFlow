@@ -15,7 +15,7 @@ import { AuditAction } from "@/lib/audit"
 import { repriceTail } from "./reprice"
 import { repriceLoanForReference, type RepriceOutcome } from "./reprice-loan"
 import { runRepriceBatch } from "./reprice-batch"
-import { dbDate } from "./rates-store"
+import { dbDate } from "./dates"
 import { toScheduleRecord } from "./schedule-records"
 import { expectRowIdentities } from "./__tests__/oracle-assertions"
 import { oracleDealFromInput, oracleReplay } from "./__tests__/structure-oracle"
@@ -27,7 +27,7 @@ const suite = process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1" ? describe : desc
 const db = new PrismaClient()
 
 const reprice = (tenant: RepriceTenant, loanId: string, effectiveDate: string): Promise<RepriceOutcome> =>
-  prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate }))
+  prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate, runDate: effectiveDate }))
 
 const scheduleOf = (loanId: string) => db.repaymentSchedule.findMany({ where: { loanId }, orderBy: { installmentNo: "asc" } })
 const loanOf = (loanId: string) => db.loan.findUniqueOrThrow({ where: { id: loanId } })
@@ -58,7 +58,7 @@ suite("repriceLoanForReference against a migrated database", () => {
   beforeAll(async () => {
     tenant = await createRepriceTenant(db)
     loanId = await createRepriceLoan(db, tenant)
-    effectiveDate = await recordPrime(db, tenant.tenantId)
+    effectiveDate = await recordPrime(db, tenant)
     first = await reprice(tenant, loanId, effectiveDate)
   })
   afterAll(async () => {
@@ -107,6 +107,7 @@ suite("repriceLoanForReference against a migrated database", () => {
 
     const rows = await scheduleOf(loanId)
     const loan = await loanOf(loanId)
+    expect(loan.principal).toBe(rows.reduce((sum, r) => sum + r.principalDue, 0))
     expect(loan.totalRepayable).toBe(rows.reduce((sum, r) => sum + r.totalDue, 0))
     expect(loan.totalInterest).toBe(rows.reduce((sum, r) => sum + r.interestDue, 0))
     expect(loan.interestRatePm).toBeCloseTo(0.13 / 12, 12)
@@ -144,8 +145,8 @@ suite("repriceLoanForReference against a migrated database", () => {
   it("the cron sweep reprices a linked loan once, skips a fixed-rate one, and re-running changes nothing", async () => {
     const other = await createRepriceTenant(db)
     const linked = await createRepriceLoan(db, other)
-    const fixed = await createRepriceLoan(db, other, { basis: "FIXED", fixedRate: "0.14" })
-    const day = await recordPrime(db, other.tenantId)
+    const fixed = await createRepriceLoan(db, other, { rate: { basis: "FIXED", fixedRate: "0.14" } })
+    const day = await recordPrime(db, other)
 
     const firstRun = (await runRepriceBatch(prisma, day)).perTenant.find((r) => r.tenantId === other.tenantId)
     expect(firstRun).toEqual({ tenantId: other.tenantId, repriced: 1, alreadyRepriced: 0, notEligible: {}, failed: 0 })
@@ -162,13 +163,13 @@ suite("repriceLoanForReference against a migrated database", () => {
 
   it("refuses a contract rate that is neither fixed nor reference + margin (CHECK)", async () => {
     await expect(db.contractRate.create({
-      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2031-01-01"), basis: "PRIME", resultingRate: "0.13" },
+      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME", resultingRate: "0.13" },
     })).rejects.toThrow(/ContractRate_fixed_xor_margin/)
     await expect(db.contractRate.create({
-      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2031-01-01"), basis: "PRIME", fixedRate: "0.13", resultingRate: "0.13" },
+      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME", fixedRate: "0.13", resultingRate: "0.13" },
     })).rejects.toThrow(/ContractRate_fixed_basis/)
     await expect(db.contractRate.create({
-      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2031-01-01"), basis: "PRIME", margin: "0.01", resultingRate: "1.5" },
+      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME", margin: "0.01", resultingRate: "1.5" },
     })).rejects.toThrow(/ContractRate_resulting_rate_range/)
   })
 })

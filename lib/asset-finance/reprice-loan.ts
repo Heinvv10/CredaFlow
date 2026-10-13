@@ -4,7 +4,8 @@
  * transaction; every write below commits or rolls back together.
  *
  * ELIGIBLE: an ACTIVE, NON_NCA loan whose contractType is not LOAN, and whose
- * latest ContractRate before `effectiveDate` is `basis` + a margin.
+ * latest ContractRate before `effectiveDate` is `basis` + a margin; the
+ * reference value is the tenant's APPROVED rate in effect on effectiveDate.
  *
  * IDEMPOTENT per (loan, effectiveDate). The loan row is locked first
  * (lockLoanForUpdate, which also serialises receipts), so a concurrent second
@@ -16,34 +17,34 @@
  * exactly "nothing changed".
  *
  * THE RE-SOLVE. The new contract rate is reference + margin from
- * `effectiveDate`. The pending rows are re-solved by repriceTail with:
- *   - repriceDate = the last settled row's due date (the loan's start date
- *     when none is settled), and balanceAtReprice = the capital those pending
- *     rows still amortise (Σ pending principalDue, ./schedule-records.ts);
- *   - ratePath = the contract history before effectiveDate plus the new point.
- *   The period that straddles effectiveDate is therefore charged the old rate
- *   up to the day before and the new rate from it, as simple interest on the
- *   period's opening balance: the solver's own rule, no interest capitalised.
- *   An effectiveDate on or before the last settled due date reprices only
- *   the pending periods; settled rows are history and are never adjusted.
- *   Due dates and weights are kept (weights derived as in
- *   ./schedule-records.ts); the balloon is Loan.balloonAmount (0 when null).
+ * `effectiveDate`. The stored schedule is read back (./stored-schedule.ts)
+ * under the contract's rate path so far; the balance after the last settled
+ * row (capitalised interest included) is where the re-solve starts, at that
+ * row's due date (the loan's start date when none is settled), with the rate
+ * path = that history plus the new point. A period straddling effectiveDate is
+ * charged the old rate up to the day before and the new rate from it.
+ * Settled rows are history and are never adjusted.
+ *
+ * NOTICE (./reprice.ts REPRICE_NOTICE_DAYS): a pending row due less than that
+ * many days after `runDate` keeps its instalment; the interest the new rate
+ * adds to (or takes from) those periods is absorbed by the first re-solved row
+ * onward. When every pending row is inside the notice window nothing is
+ * repriced (within_notice_period).
  *
  * WRITES: the ContractRate row (with the new base instalment), each pending
  * RepaymentSchedule row in place (pinned to PENDING, nothing paid), the loan's
- * totalInterest/totalRepayable by the change in the pending rows' totals
- * (capital is unchanged, so the whole change is interest; the contractual*
- * baseline is left alone), Loan.interestRatePm = resultingRate / 12 (the loan
- * page, statement and book export show it), the LOAN_REPRICED audit row and
- * the new-instalment notice (./reprice-notice.ts). The deferred constraint
- * triggers are forced before returning, so "repriced" means it will commit.
+ * principal, outstandingPrincipal, totalInterest and totalRepayable by the
+ * change in the pending rows' sums (the identities in ./schedule-records.ts;
+ * the contractual* baseline is left alone), Loan.interestRatePm =
+ * resultingRate / 12, the LOAN_REPRICED audit row and the new-instalment
+ * notice (./reprice-notice.ts). The deferred constraint triggers are forced
+ * before returning, so "repriced" means it will commit.
  *
- * // PARTIAL: a pending VAT-deferral lump is NOT detected. Goal 4.4 asks for a
- * `vat_deferral_pending` refusal, but no table records a deal's VAT deferral
- * yet (DealStructure is planned, not built), and the lump is invisible in the
- * schedule rows: it would read as a heavy weight and be scaled with the new
- * instalment. Until booking persists the structure, do not book a VAT-deferral
- * deal on a reference-linked rate.
+ * // PARTIAL: a pending VAT-deferral lump is NOT detected. No table records a
+ * deal's VAT deferral yet (DealStructure is planned, not built), and the lump
+ * would read as a heavy weight and be scaled with the new instalment. Until
+ * booking persists the structure, do not book a VAT-deferral deal on a
+ * reference-linked rate.
  *
  * // PARTIAL: NCA asset-finance contracts are refused (D4 re-checks the NCA
  * rate cap on every repricing; slice 1 books NON_NCA deals only).
@@ -53,11 +54,12 @@ import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { toDayNumber } from "./dates"
-import { contractRatePath, dbDate, isoOfDbDate, referenceRateOn } from "./rates-store"
-import { repriceTail } from "./reprice"
+import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
+import { contractRatePath, referenceRateOn } from "./rates-store"
+import { noticeKeptThroughIndex, repriceTail } from "./reprice"
 import { queueRepriceNotice } from "./reprice-notice"
-import { storedScheduleForReprice, type StoredScheduleError } from "./schedule-records"
+import { toScheduleRecord } from "./schedule-records"
+import { storedScheduleForReprice, type StoredScheduleError } from "./stored-schedule"
 
 export type RepriceTx = Pick<
   typeof prisma,
@@ -69,6 +71,7 @@ export interface RepriceRequest {
   loanId: string
   basis: ReferenceRateBasis
   effectiveDate: string // YYYY-MM-DD
+  runDate: string // YYYY-MM-DD, the day the repricing runs: the notice window counts from it
   actorUserId?: string
 }
 
@@ -80,6 +83,7 @@ export type NotEligibleReason =
   | "no_reference_rate"
   | "not_linked_to_basis"
   | "superseded" // the loan already has a contract rate from a later date
+  | "within_notice_period" // every pending row falls due inside the notice window
   | StoredScheduleError
 
 export type RepriceOutcome =
@@ -104,6 +108,7 @@ function isUniqueViolation(error: unknown): boolean {
 export async function repriceLoanForReference(tx: RepriceTx, request: RepriceRequest): Promise<RepriceOutcome> {
   const { tenantId, loanId, basis, effectiveDate } = request
   toDayNumber(effectiveDate, "effectiveDate")
+  toDayNumber(request.runDate, "runDate")
   await lockLoanForUpdate(tx, loanId)
 
   const loan = await tx.loan.findFirst({
@@ -114,8 +119,8 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     },
   })
   if (!loan) return notEligible("loan_not_found")
-  const existing = await tx.contractRate.findUnique({
-    where: { loanId_effectiveDate: { loanId, effectiveDate: dbDate(effectiveDate) } },
+  const existing = await tx.contractRate.findFirst({
+    where: { tenantId, loanId, effectiveDate: dbDate(effectiveDate) },
     select: { id: true },
   })
   if (existing) return { kind: "already_repriced" }
@@ -124,10 +129,10 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   if (loan.contractType === "LOAN") return notEligible("not_asset_finance")
   if (loan.ncaRegime !== "NON_NCA") return notEligible("nca_regime")
 
-  const later = await tx.contractRate.findFirst({ where: { loanId, effectiveDate: { gt: dbDate(effectiveDate) } }, select: { id: true } })
+  const later = await tx.contractRate.findFirst({ where: { tenantId, loanId, effectiveDate: { gt: dbDate(effectiveDate) } }, select: { id: true } })
   if (later) return notEligible("superseded")
   const prior = await tx.contractRate.findFirst({
-    where: { loanId, effectiveDate: { lt: dbDate(effectiveDate) } },
+    where: { tenantId, loanId, effectiveDate: { lt: dbDate(effectiveDate) } },
     orderBy: { effectiveDate: "desc" },
     select: { basis: true, margin: true, resultingRate: true, effectiveDate: true },
   })
@@ -137,7 +142,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const resultingRate = reference.rate.add(prior.margin)
 
   const recordedBase = await tx.contractRate.findFirst({
-    where: { loanId, effectiveDate: { lt: dbDate(effectiveDate) }, newInstalmentCents: { not: null } },
+    where: { tenantId, loanId, effectiveDate: { lt: dbDate(effectiveDate) }, newInstalmentCents: { not: null } },
     orderBy: { effectiveDate: "desc" },
     select: { newInstalmentCents: true },
   })
@@ -150,16 +155,22 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     },
   })
   const balloonCents = loan.balloonAmount ?? 0
-  const schedule = storedScheduleForReprice(stored, balloonCents, recordedBase?.newInstalmentCents ?? null)
+  const startDate = sastCalendarDate(loan.startDate)
+  const history = await contractRatePath(tx, tenantId, loanId) // all before effectiveDate: none later, none on it
+  const schedule = storedScheduleForReprice({
+    stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents ?? null, ratePath: history, startDate,
+  })
   if ("error" in schedule) return notEligible(schedule.error)
 
   const paid = schedule.paidThroughIndex
-  const history = (await contractRatePath(tx, loanId)).filter((point) => point.effectiveDate < effectiveDate)
+  const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)
+  if (kept >= schedule.rows.length - 1) return notEligible("within_notice_period")
   const solved = repriceTail({
     rows: schedule.rows,
     paidThroughIndex: paid,
+    keptThroughIndex: kept,
     balanceAtRepriceCents: schedule.capitalOutstandingCents,
-    repriceDate: paid >= 0 ? schedule.rows[paid].dueDate : sastCalendarDate(loan.startDate),
+    repriceDate: paid >= 0 ? schedule.rows[paid].dueDate : startDate,
     ratePath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }],
     balloonCents,
   })
@@ -181,21 +192,27 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     throw error
   }
 
-  let totalChange = 0
+  const change = { principal: 0, interest: 0, total: 0 }
   for (const row of solved.rows) {
     const before = stored[row.index]
+    const after = toScheduleRecord(row)
     const updated = await tx.repaymentSchedule.updateMany({
       where: { id: before.id, tenantId, loanId, status: "PENDING", totalPaid: 0 },
-      data: { principalDue: row.principalCents + row.balloonCents, interestDue: row.interestCents, totalDue: row.totalCents },
+      data: { principalDue: after.principalDue, interestDue: after.interestDue, totalDue: after.totalDue },
     })
     if (updated.count !== 1) throw new Error(`reprice: schedule row ${before.installmentNo} of loan ${loanId} changed underneath the repricing`)
-    totalChange += row.totalCents - before.totalDue
+    change.principal += after.principalDue - before.principalDue
+    change.interest += after.interestDue - before.interestDue
+    change.total += after.totalDue - before.totalDue
   }
   const loanUpdated = await tx.loan.updateMany({
     where: { id: loanId, tenantId, status: "ACTIVE" },
     data: {
-      totalInterest: { increment: totalChange },
-      totalRepayable: { increment: totalChange },
+      // Only unpaid rows changed, so the outstanding principal moves with the principal.
+      principal: { increment: change.principal },
+      outstandingPrincipal: { increment: change.principal },
+      totalInterest: { increment: change.interest },
+      totalRepayable: { increment: change.total },
       interestRatePm: resultingRate.div(12).toNumber(),
     },
   })
@@ -218,11 +235,12 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
       baseInstalmentCents: schedule.referenceInstalmentCents,
     },
     newValue: {
-      contractRateId, effectiveDate, basis, referenceRate: reference.rate.toString(),
+      contractRateId, effectiveDate, runDate: request.runDate, basis, referenceRate: reference.rate.toString(),
       referenceEffectiveDate: reference.effectiveDate, margin: prior.margin.toString(),
       resultingRate: resultingRate.toString(), baseInstalmentCents: solved.baseInstalmentCents,
-      firstRepricedInstallmentNo: stored[paid + 1].installmentNo, rowsRepriced: solved.rows.length,
-      totalRepayableChangeCents: totalChange, noticeRecipientClientIds, noticeSent: false,
+      firstRepricedInstallmentNo: stored[kept + 1].installmentNo, rowsRepriced: solved.rows.length - (kept - paid),
+      rowsKeptForNotice: kept - paid, principalChangeCents: change.principal, interestChangeCents: change.interest,
+      totalRepayableChangeCents: change.total, noticeRecipientClientIds, noticeSent: false,
       source: request.actorUserId ? "staff" : "cron",
     },
   }, tx)
@@ -236,7 +254,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     resultingRate: resultingRate.toString(),
     oldInstalmentCents: schedule.referenceInstalmentCents,
     newInstalmentCents: solved.baseInstalmentCents,
-    rowsRepriced: solved.rows.length,
+    rowsRepriced: solved.rows.length - (kept - paid),
     noticeRecipientClientIds,
   }
 }

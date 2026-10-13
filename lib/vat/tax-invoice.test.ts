@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { vatOnExclusive } from "./amounts"
 import {
   VatNotConfiguredError, computeTaxInvoice, describeAsset, issueInstalmentSaleInvoice, issueTaxInvoice,
   type TaxInvoiceDb,
@@ -29,14 +30,23 @@ describe("computeTaxInvoice", () => {
 
 const CONFIG = { id: "vc1", tenantId: "t1", vatNumber: "4000000000", registeredName: "Test Lender (Pty) Ltd", address: "1 Test Street, Testville", updatedAt: new Date(0) }
 
-function fakeDb(config: typeof CONFIG | null) {
-  const create = vi.fn(async (args: { data: Record<string, unknown> }) => args.data)
+function fakeDb(config: typeof CONFIG | null, stored: (data: Record<string, unknown>) => Record<string, unknown> = (data) => data) {
+  const calls: string[] = []
+  const create = vi.fn(async (args: { data: Record<string, unknown> }) => {
+    calls.push("create")
+    return stored(args.data)
+  })
+  const executeRaw = vi.fn(async (sql: string) => {
+    calls.push(sql)
+    return 0
+  })
   const db = {
     vatConfig: { findUnique: vi.fn(async () => config) },
     vatRate: { findFirst: vi.fn(async () => ({ id: "r", effectiveDate: new Date("2018-04-01T00:00:00Z"), rate: "0.1500" })) },
     taxInvoice: { create },
+    $executeRawUnsafe: executeRaw,
   }
-  return { db: db as unknown as TaxInvoiceDb, create }
+  return { db: db as unknown as TaxInvoiceDb, create, calls }
 }
 
 const BOOKING = {
@@ -45,12 +55,12 @@ const BOOKING = {
   bookingDate: "2026-10-13",
   recipient: { name: "Test Borrower (Pty) Ltd", address: "2 Test Road, Testville", vatNumber: "4111111111" },
   asset: { make: "Testmake", model: "TX 200", year: 2026, serialNumber: "TESTSERIAL0001", vin: "TEST0000000000001" },
-  cashPriceExclVatCents: 1_000_000_00,
+  cashPriceCents: 1_150_000_00, // VAT-inclusive
   createdById: "user1",
 }
 
 describe("issueInstalmentSaleInvoice", () => {
-  it("issues exactly one line, the asset at its cash price ex VAT, with no interest line", async () => {
+  it("issues exactly one line, the asset at its VAT-inclusive cash price split by the tax fraction, with no interest line", async () => {
     const { db, create } = fakeDb(CONFIG)
     await issueInstalmentSaleInvoice(db, BOOKING)
     expect(create).toHaveBeenCalledTimes(1)
@@ -85,6 +95,28 @@ describe("issueInstalmentSaleInvoice", () => {
     })
   })
 
+  it("states exclusive + VAT = the cash price even where no exclusive price adds VAT back to it", async () => {
+    // R1 150 000.04: exclusive 1 000 000.03 carries VAT 150 000.00 on the
+    // exclusive method, 4 cents short; the tax fraction makes it add up.
+    const { db, create } = fakeDb(CONFIG)
+    await issueInstalmentSaleInvoice(db, { ...BOOKING, cashPriceCents: 115_000_004 })
+    const data = create.mock.calls[0][0].data as { lines: { create: Array<Record<string, number>> } } & Record<string, unknown>
+    expect(vatOnExclusive(100_000_003, 1500) + 100_000_003).not.toBe(115_000_004)
+    expect(data.lines.create[0]).toMatchObject({ unitExclVatCents: 100_000_003, exclVatCents: 100_000_003, vatCents: 15_000_001, inclVatCents: 115_000_004 })
+    expect(data).toMatchObject({ totalExclVatCents: 100_000_003, vatCents: 15_000_001, totalInclVatCents: 115_000_004 })
+  })
+
+  it("refuses an issued invoice whose amounts do not add up to the cash price", async () => {
+    const { db } = fakeDb(CONFIG, (data) => ({ ...data, invoiceNumber: "INV-000001", vatCents: 150_000_01, totalInclVatCents: 1_150_000_01 }))
+    await expect(issueInstalmentSaleInvoice(db, BOOKING)).rejects.toThrow(/does not equal the cash price/)
+  })
+
+  it("forces the deferred totals check before returning (Prisma reports a COMMIT-time rollback as success)", async () => {
+    const { db, calls } = fakeDb(CONFIG)
+    await issueInstalmentSaleInvoice(db, BOOKING)
+    expect(calls).toEqual(["create", "SET CONSTRAINTS ALL IMMEDIATE"])
+  })
+
   it("refuses a tenant with no VAT configuration, before writing anything", async () => {
     const { db, create } = fakeDb(null)
     await expect(issueInstalmentSaleInvoice(db, BOOKING)).rejects.toBeInstanceOf(VatNotConfiguredError)
@@ -99,6 +131,22 @@ describe("issueInstalmentSaleInvoice", () => {
       lines: [{ description: "Test fee", quantity: 1, unitExclVatCents: 100 }],
     })
     expect(create.mock.calls[0][0].data).toMatchObject({ recipientVatNumber: null, loanId: null })
+  })
+})
+
+describe("computeTaxInvoice on a VAT-inclusive price: excl + VAT == price for every amount 1..200 000 cents", () => {
+  it("round-trips exactly, and each line passes the database's VAT rule", () => {
+    for (let incl = 1; incl <= 200_000; incl++) {
+      const invoice = computeTaxInvoice([{ description: "Test asset", inclVatCents: incl }], 1500)
+      const [line] = invoice.lines
+      if (line.exclVatCents + line.vatCents !== incl || invoice.totalInclVatCents !== incl || line.unitExclVatCents !== line.exclVatCents) {
+        throw new Error(`round trip failed at ${incl}`)
+      }
+      // checkTaxInvoiceLineVat: VAT on the exclusive value, or the tax-fraction split.
+      const exclusiveRule = line.vatCents === vatOnExclusive(line.exclVatCents, 1500)
+      const inclusiveRule = line.exclVatCents === Math.floor((2 * incl * 10_000 + 11_500) / 23_000)
+      if (!exclusiveRule && !inclusiveRule) throw new Error(`line VAT rule fails at ${incl}`)
+    }
   })
 })
 

@@ -2,39 +2,68 @@
  * The bridge between the solver's ScheduleRow and an asset-finance loan's
  * RepaymentSchedule rows. Pure: no database, no clock.
  *
- * STORAGE CONVENTION (booking writes with toScheduleRecord; repricing reads it
- * back with storedScheduleForReprice, so the two must agree):
+ * STORED REPRESENTATION (booking writes it with toScheduleRecord; repricing
+ * reads it back with ./stored-schedule.ts and rewrites the pending rows with
+ * toScheduleRecord again):
  *   installmentNo = index + 1
  *   dueDate       = SAST midnight of the row's calendar due date
- *   principalDue  = principalCents + balloonCents (the balloon is capital, so
- *                   Σ principalDue over the schedule is the financed amount)
- *   interestDue   = interestCents; feesDue = feesCents (0 in slice 1);
- *   creditLifePremiumDue = 0; totalDue = totalCents
+ *   payment       = the row's regular payment, round(B × weight) (+ a lump);
+ *                   on the last row the solver's rounding residue included
+ *   interestDue   = min(interest the period accrues, payment)
+ *   principalDue  = payment − interestDue, plus the balloon on the last row
+ *   feesDue = creditLifePremiumDue = 0;  totalDue = payment (+ the balloon)
  *
- * WEIGHTS ARE NOT STORED. RepaymentSchedule has no weight column and the
- * planned DealStructure (DESIGN.md "New data") does not exist yet, so a
- * pending row's weight is derived from what it pays:
- *   regular_i = totalDue_i − (balloon on the last row)      (= round(B × w_i))
- *   weight_i  = regular_i / R
- * R is the base instalment the rows were solved with when it is recorded (the
- * latest ContractRate.newInstalmentCents), else the most common positive
- * regular payment of the pending non-final rows (the smallest on a tie).
- * The solve is invariant to scaling every weight by one constant, so an R that
- * is a multiple of the true B (e.g. a seasonal schedule whose most common
- * payment is the off-season 0.5 × B) yields the same payments; only the
- * recorded "base instalment" is then in that scale.
- * round(B × w) loses up to half a cent, so the raw ratio can be off by
- * 0.5 / R. A weight is therefore snapped to 4 decimals when the snapped value
- * reproduces the stored payment: exactly (round(R × w) = regular) on a regular
- * row, and within one cent per schedule row on the final row, which also
- * carries the solver's rounding residue. A weight that does not snap keeps
- * the raw ratio; the re-solved payments then match the intended pattern to
- * within a cent per row, and the balance still lands exactly on the balloon.
+ * CAPITALISED INTEREST. A period whose payment is below the interest it
+ * accrues (a skip period, weight 0, or a low seasonal weight) cannot pay that
+ * interest. It stores interestDue = payment (0 on a skip row) and
+ * principalDue = 0; the unpaid remainder, capitalisedInterestCents(row), is
+ * added to the balance (the solver's negative principal), bears interest from
+ * the next period on, and is repaid AS PRINCIPAL by later rows: their stored
+ * principal exceeds the financed amount they amortise by exactly the interest
+ * capitalised before them. So no stored amount is ever negative, and a receipt
+ * allocated interest-first (s126 order, lib/loan/receipt-allocation.ts) only
+ * ever pays interest a row actually charges as interest.
  *
- * A VAT-deferral lump is indistinguishable from a heavy weight here: see the
- * PARTIAL note in ./reprice-loan.ts.
+ * ZERO ROWS. A skip period is stored as a row with totalDue 0. Each consumer
+ * tolerates it: receipt allocation fills nothing into it (owed 0);
+ * recomputeLoanBalances never counts it as arrears (unpaid 0) and
+ * nextPaymentDueDate skips it; apply-payment never rewrites it (its paid total
+ * cannot change), so it stays PENDING; settlement allocates it 0; the statement
+ * prints it as a R0.00 row. The debit mandate refuses it (lib/loan/
+ * debit-mandate.ts: totalDue must be > 0), failing closed; an asset-finance
+ * loan cannot carry a debit-order mandate anyway (the mandate route refuses an
+ * entity borrower and needs consumer affordability evidence). Rows are kept
+ * rather than omitted because repricing must know every period's due date, and
+ * an omitted date cannot be recovered from the stored ones when they are all
+ * clamped to a month end (anchor the 31st, payments only in 30-day months).
+ *
+ * INVARIANTS (F = financed amount, I = all interest the schedule accrues,
+ * C = Σ capitalised interest >= 0; ./schedule-records.test.ts):
+ *   every row:  principalDue >= 0, interestDue >= 0,
+ *               interestDue <= totalDue − balloon   (never above the payment),
+ *               totalDue = principalDue + interestDue
+ *   schedule:   Σ principalDue = F + C   (balloon included)
+ *               Σ interestDue  = I − C
+ *               Σ totalDue     = F + I
+ * LOAN TOTALS are these sums, so every reconciliation a consumer makes
+ * (Σ principalDue = principal, Σ interestDue = totalInterest,
+ * Σ totalDue = totalRepayable) holds:
+ *   Loan.principal      = F + C   the capital the schedule repays
+ *   Loan.totalInterest  = I − C   interest charged as interest
+ *   Loan.totalRepayable = F + I
+ * The cost of credit is therefore totalRepayable − F, not totalInterest; F is
+ * the deal's financed amount (cash price − deposit − trade-in + fees).
+ * recomputeLoanBalances' outstandingPrincipal is Σ unpaid principalDue: above
+ * the true balance by the interest later rows will still capitalise (0 on a
+ * schedule without skip or low-weight periods), and 0 only once every row is
+ * paid. A repricing moves the three totals by the change in the pending rows
+ * (./reprice-loan.ts), which keeps the identities.
+ *
+ * WEIGHTS ARE NOT STORED (RepaymentSchedule has no weight column and the
+ * planned DealStructure does not exist yet): repricing derives them from the
+ * payments, below and in ./stored-schedule.ts.
  */
-import { SAST_OFFSET_MS, sastCalendarDate } from "@/lib/date/sast"
+import { SAST_OFFSET_MS } from "@/lib/date/sast"
 import { toDayNumber } from "./dates"
 import type { ScheduleRow } from "./types"
 
@@ -51,23 +80,27 @@ export interface ScheduleRecordAmounts {
   totalDue: number
 }
 
-export interface StoredScheduleRow extends ScheduleRecordAmounts {
-  id: string
-  status: string
-  totalPaid: number
-}
-
 /** SAST midnight of a calendar date, the instant asset-finance due dates are stored at. */
 export function dueDateInstant(iso: string): Date {
   return new Date(toDayNumber(iso, "dueDate") * MS_PER_DAY - SAST_OFFSET_MS)
 }
 
+/** The row's regular payment: what it pays besides the balloon. */
+export const regularPaymentCents = (row: ScheduleRow): number => row.totalCents - row.balloonCents
+
+/** Interest the row accrues but does not pay; it is added to the balance (header). */
+export function capitalisedInterestCents(row: ScheduleRow): number {
+  return Math.max(0, row.interestCents - regularPaymentCents(row))
+}
+
 export function toScheduleRecord(row: ScheduleRow): ScheduleRecordAmounts {
+  const payment = regularPaymentCents(row)
+  const interestDue = Math.min(row.interestCents, payment)
   return {
     installmentNo: row.index + 1,
     dueDate: dueDateInstant(row.dueDate),
-    principalDue: row.principalCents + row.balloonCents,
-    interestDue: row.interestCents,
+    principalDue: payment - interestDue + row.balloonCents,
+    interestDue,
     feesDue: row.feesCents,
     creditLifePremiumDue: 0,
     totalDue: row.totalCents,
@@ -91,8 +124,25 @@ export function modalPositive(values: number[]): number | null {
 
 /**
  * Weights for `regulars` (one regular payment per pending row, the final row
- * last) against reference instalment `referenceCents`; the rule is in the
- * header. `finalToleranceCents` bounds the final row's rounding residue.
+ * last) against reference instalment R = `referenceCents`:
+ *   weight_i = regular_i / R
+ * R is the base instalment the rows were solved with: the latest
+ * ContractRate.newInstalmentCents, which booking and every repricing record.
+ * round(B × w) loses up to half a cent, so a weight is snapped to 4 decimals
+ * when the snapped value reproduces the stored payment: exactly
+ * (round(R × w) = regular) on a regular row, and within `finalToleranceCents`
+ * on the final row, which also carries the solver's rounding residue. With the
+ * recorded B every 4-decimal weight snaps and the re-solve is exact
+ * (./reprice.test.ts). A skip row's payment is 0, so its weight is 0.
+ *
+ * Without a recorded B (a row written before booking recorded it), R is the
+ * most common positive regular payment of the pending non-final rows; the
+ * solve is invariant to scaling every weight by one constant, so that scale
+ * is harmless, but R is itself rounded: a weight w then carries an error of up
+ * to half a cent × w / w_R, where w_R is R's own weight, and does not snap.
+ * The re-solved payments match the pattern only to within about that many
+ * cents per row (a seasonal 3 / 0.2 pattern: up to 8), the last row absorbing
+ * the sum; the balance still lands exactly on the balloon.
  */
 export function deriveWeights(regulars: number[], referenceCents: number, finalToleranceCents: number): number[] {
   if (!Number.isSafeInteger(referenceCents) || referenceCents <= 0) {
@@ -107,67 +157,4 @@ export function deriveWeights(regulars: number[], referenceCents: number, finalT
       : Math.round(referenceCents * snapped) === regular
     return reproduces ? snapped : raw
   })
-}
-
-export type StoredScheduleError = "no_pending_rows" | "schedule_not_contiguous" | "unsupported_schedule"
-
-export interface StoredSchedule {
-  rows: ScheduleRow[] // the full schedule in solver form; weights only on pending rows
-  paidThroughIndex: number // last row that is not PENDING, -1 if none
-  capitalOutstandingCents: number // Σ pending principalDue: the balance after the last non-pending row
-  referenceInstalmentCents: number // R in the header
-}
-
-/** A pending row: PENDING and nothing paid against it. Every other row is settled history. */
-const isPending = (row: StoredScheduleRow): boolean => row.status === "PENDING" && row.totalPaid === 0
-
-/**
- * Reads a stored asset-finance schedule back into solver rows for
- * repriceRemaining. `stored` must be ordered by installmentNo; the pending
- * rows must be one unbroken tail and carry no fees or credit-life premium
- * (they would be lost in the re-solve).
- */
-export function storedScheduleForReprice(
-  stored: StoredScheduleRow[],
-  balloonCents: number,
-  recordedBaseCents: number | null,
-): StoredSchedule | { error: StoredScheduleError } {
-  const firstPending = stored.findIndex(isPending)
-  if (firstPending < 0) return { error: "no_pending_rows" }
-  const tail = stored.slice(firstPending)
-  if (!tail.every(isPending)) return { error: "schedule_not_contiguous" }
-  if (tail.some((row) => row.feesDue !== 0 || row.creditLifePremiumDue !== 0)) return { error: "unsupported_schedule" }
-
-  const last = stored.length - 1
-  const regulars = tail.map((row, i) => row.totalDue - (firstPending + i === last ? balloonCents : 0))
-  const referenceInstalmentCents =
-    recordedBaseCents ?? modalPositive(regulars.slice(0, -1)) ?? regulars[regulars.length - 1]
-  if (!(referenceInstalmentCents > 0)) return { error: "unsupported_schedule" }
-  const weights = deriveWeights(regulars, referenceInstalmentCents, stored.length)
-
-  let opening = stored.reduce((sum, row) => sum + row.principalDue, 0)
-  const rows = stored.map((row, i): ScheduleRow => {
-    const balloon = i === last ? balloonCents : 0
-    const closing = opening - row.principalDue
-    const solverRow: ScheduleRow = {
-      index: i,
-      dueDate: sastCalendarDate(row.dueDate),
-      weight: i >= firstPending ? weights[i - firstPending] : 0, // settled rows: not read by the solver
-      openingBalanceCents: opening,
-      interestCents: row.interestDue,
-      principalCents: row.principalDue - balloon,
-      feesCents: row.feesDue,
-      balloonCents: balloon,
-      totalCents: row.totalDue,
-      closingBalanceCents: closing,
-    }
-    opening = closing
-    return solverRow
-  })
-  return {
-    rows,
-    paidThroughIndex: firstPending - 1,
-    capitalOutstandingCents: tail.reduce((sum, row) => sum + row.principalDue, 0),
-    referenceInstalmentCents,
-  }
 }

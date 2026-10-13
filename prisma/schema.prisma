@@ -3953,8 +3953,19 @@ enum ReferenceRateBasis {
   LENDER_BASE
 }
 
+enum ReferenceRateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // A dated reference rate per tenant (DESIGN D4). A value applies from its
-// effectiveDate until the next one for the same basis.
+// effectiveDate until the next APPROVED one for the same basis. Four-eyes:
+// recorded PENDING by one user, APPROVED or REJECTED by another; only APPROVED
+// values reprice loans. One live (non-REJECTED) value per (tenant, basis,
+// date) is the hand-written partial unique index ReferenceRate_live_key;
+// the rate band, decision shape, four-eyes and immutability rules are
+// hand-written too (migration 20261013100000_asset_finance_rates_vat).
 model ReferenceRate {
   id            String    @id @default(cuid())
   tenantId      String
@@ -3963,10 +3974,13 @@ model ReferenceRate {
   effectiveDate DateTime  @db.Date
   // Annual nominal rate as a decimal: 0.1175 = 11.75%.
   rate          Decimal   @db.Decimal(9, 6)
-  createdById   String?
+  status        ReferenceRateStatus @default(PENDING)
+  requestedById String
+  decidedById   String?
+  decidedAt     DateTime?
   createdAt     DateTime  @default(now())
 
-  @@unique([tenantId, basis, effectiveDate])
+  @@index([tenantId, basis, effectiveDate])
 }
 
 // A loan's rate history: the contract rate from each effectiveDate, as
@@ -3982,7 +3996,11 @@ model ContractRate {
   margin        Decimal?  @db.Decimal(9, 6)
   fixedRate     Decimal?  @db.Decimal(9, 6)
   resultingRate Decimal   @db.Decimal(9, 6)
-  // New base instalment after a repricing (cents); null on the booking row.
+  // The base instalment B the schedule was solved with from this date (cents):
+  // booking records the solver's B, each repricing its new B. Repricing reads
+  // the latest one back to derive the period weights exactly
+  // (lib/asset-finance/schedule-records.ts deriveWeights); null only on rows
+  // written before that convention, which fall back to an estimate.
   newInstalmentCents Int?
   createdById   String?
   createdAt     DateTime  @default(now())

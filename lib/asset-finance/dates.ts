@@ -50,3 +50,18 @@ export function addMonthsClamped(iso: string, months: number): string {
   const targetDay = Math.min(day, daysInMonth(targetYear, targetMonth))
   return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`
 }
+
+// Postgres DATE columns (rate and tax-document dates) are read and written by
+// Prisma as UTC midnight of the calendar day; these two convert at that
+// boundary. (A schedule due date is a timestamp at SAST midnight instead: see
+// dueDateInstant in ./schedule-records.ts.)
+
+/** The Date Prisma uses for a DATE column holding calendar day `iso`; RangeError if `iso` is not a date. */
+export function dbDate(iso: string, label = "date"): Date {
+  return new Date(toDayNumber(iso, label) * MS_PER_DAY)
+}
+
+/** The calendar day a DATE column read through Prisma holds. */
+export function isoOfDbDate(value: Date): string {
+  return value.toISOString().slice(0, 10)
+}

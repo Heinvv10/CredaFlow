@@ -28,6 +28,11 @@ export interface AmortisationResult {
   rows: ScheduleRow[]
 }
 
+/** A period's interest: simple, on its opening balance, rounded half-up once (the rule in ./structure.ts). */
+export function periodInterest(openingCents: number, rateDays: number): number {
+  return Math.round((openingCents * rateDays) / DAY_COUNT_BASIS)
+}
+
 export function assertCents(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new RangeError(`${label}: must be a non-negative integer number of cents`)
@@ -90,7 +95,7 @@ export function amortise(input: AmortisationInput): AmortisationResult {
   let opening = input.openingCents
   for (let i = 0; i <= last; i++) {
     const period = periods[i]
-    const interest = Math.round((opening * rateDays[i]) / DAY_COUNT_BASIS)
+    const interest = periodInterest(opening, rateDays[i])
     // The last row absorbs the rounding residue: it pays exactly what leaves
     // the balloon outstanding, instead of round(B × weight).
     const regular = i === last

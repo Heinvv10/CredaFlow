@@ -4,6 +4,9 @@ CREATE TYPE "ReferenceRateBasis" AS ENUM ('FIXED', 'PRIME', 'REPO', 'JIBAR', 'ZA
 -- CreateEnum
 CREATE TYPE "TaxDocumentKind" AS ENUM ('TAX_INVOICE', 'CREDIT_NOTE');
 
+-- CreateEnum
+CREATE TYPE "ReferenceRateStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
 -- CreateTable
 CREATE TABLE "ReferenceRate" (
     "id" TEXT NOT NULL,
@@ -11,7 +14,10 @@ CREATE TABLE "ReferenceRate" (
     "basis" "ReferenceRateBasis" NOT NULL,
     "effectiveDate" DATE NOT NULL,
     "rate" DECIMAL(9,6) NOT NULL,
-    "createdById" TEXT,
+    "status" "ReferenceRateStatus" NOT NULL DEFAULT 'PENDING',
+    "requestedById" TEXT NOT NULL,
+    "decidedById" TEXT,
+    "decidedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ReferenceRate_pkey" PRIMARY KEY ("id")
@@ -123,7 +129,7 @@ CREATE TABLE "CreditNote" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ReferenceRate_tenantId_basis_effectiveDate_key" ON "ReferenceRate"("tenantId", "basis", "effectiveDate");
+CREATE INDEX "ReferenceRate_tenantId_basis_effectiveDate_idx" ON "ReferenceRate"("tenantId", "basis", "effectiveDate");
 
 -- CreateIndex
 CREATE INDEX "ContractRate_tenantId_idx" ON "ContractRate"("tenantId");
@@ -182,6 +188,62 @@ ALTER TABLE "CreditNote" ADD CONSTRAINT "CreditNote_invoiceId_fkey" FOREIGN KEY 
 INSERT INTO "VatRate" ("id", "effectiveDate", "rate") VALUES ('vat_rate_2018_04_01', '2018-04-01', 0.1500) ON CONFLICT DO NOTHING;
 
 ALTER TABLE "VatRate" ADD CONSTRAINT "VatRate_rate_range" CHECK ("rate" >= 0 AND "rate" < 1);
+
+-- ---------------------------------------------------------------------------
+-- Reference rates: four-eyes (docs/asset-finance/DESIGN.md D4)
+-- ---------------------------------------------------------------------------
+-- A value is recorded PENDING by one user and APPROVED or REJECTED by another;
+-- only APPROVED values reprice loans (lib/asset-finance/rates-store.ts).
+
+-- One live value per tenant, basis and date. A REJECTED value does not block
+-- its correction. (Partial, so it is not in schema.prisma; Prisma reports a
+-- violation as P2002 like any unique index.)
+CREATE UNIQUE INDEX "ReferenceRate_live_key" ON "ReferenceRate"("tenantId", "basis", "effectiveDate") WHERE "status" <> 'REJECTED';
+
+-- Sanity band: an annual nominal decimal above 0% and below 50%.
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_rate_band" CHECK ("rate" > 0 AND "rate" < 0.5);
+-- PENDING has no decision; a decided value has both who and when.
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_decision_shape" CHECK (
+  ("status" = 'PENDING') = ("decidedById" IS NULL) AND ("decidedById" IS NULL) = ("decidedAt" IS NULL)
+);
+-- The decider is never the requester.
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_four_eyes" CHECK ("decidedById" IS NULL OR "decidedById" <> "requestedById");
+
+-- What was recorded never changes; the only UPDATE is the one decision on a
+-- PENDING row, after which the row is immutable. An APPROVED value is never
+-- deleted (repricings and audit rows cite it); TRUNCATE is refused outright.
+CREATE OR REPLACE FUNCTION public."guardReferenceRateLifecycle"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'ReferenceRate rows are never truncated';
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    IF OLD."status" = 'APPROVED' THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approved reference rate is never deleted';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF NEW."tenantId" IS DISTINCT FROM OLD."tenantId"
+     OR NEW."basis" IS DISTINCT FROM OLD."basis"
+     OR NEW."effectiveDate" IS DISTINCT FROM OLD."effectiveDate"
+     OR NEW."rate" IS DISTINCT FROM OLD."rate"
+     OR NEW."requestedById" IS DISTINCT FROM OLD."requestedById"
+     OR NEW."createdAt" IS DISTINCT FROM OLD."createdAt" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A reference rate''s value, basis, date, tenant and requester never change';
+  END IF;
+  IF OLD."status" <> 'PENDING' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('A %s reference rate is immutable', OLD."status");
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "ReferenceRate_guard_lifecycle" BEFORE UPDATE OR DELETE ON "ReferenceRate" FOR EACH ROW EXECUTE FUNCTION "guardReferenceRateLifecycle"();
+CREATE TRIGGER "ReferenceRate_no_truncate" BEFORE TRUNCATE ON "ReferenceRate" FOR EACH STATEMENT EXECUTE FUNCTION "guardReferenceRateLifecycle"();
+
 ALTER TABLE "TaxDocumentCounter" ADD CONSTRAINT "TaxDocumentCounter_next_positive" CHECK ("next" >= 1);
 
 ALTER TABLE "TaxInvoice" ADD CONSTRAINT "TaxInvoice_number_positive" CHECK ("number" > 0);
@@ -228,6 +290,12 @@ CREATE TRIGGER "CreditNote_no_truncate" BEFORE TRUNCATE ON "CreditNote" FOR EACH
 -- (tenantId, kind) until the issuing transaction ends, so concurrent issuers
 -- queue, and a rolled-back issue rolls the counter back with it. A sequence
 -- would not do: nextval is never rolled back, so an abort leaves a gap.
+--
+-- Only the TaxInvoice / CreditNote insert triggers may take a number: a call
+-- outside a trigger (pg_trigger_depth() = 0) is refused, so a number can
+-- never be burnt by a stray SELECT. The function raises the transaction-local
+-- flag credaflow.tax_numbering for its own write and lowers it again; the
+-- counter's guard (below) refuses every write made without it.
 CREATE OR REPLACE FUNCTION public."nextTaxDocumentNumber"(tenant_id TEXT, doc_kind "TaxDocumentKind")
  RETURNS integer
  LANGUAGE plpgsql
@@ -235,13 +303,89 @@ AS $function$
 DECLARE
   issued INTEGER;
 BEGIN
+  IF pg_trigger_depth() = 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'nextTaxDocumentNumber is called only by the tax invoice and credit note insert triggers';
+  END IF;
+  PERFORM set_config('credaflow.tax_numbering', 'on', true);
   INSERT INTO "TaxDocumentCounter" ("tenantId", "kind", "next")
   VALUES (tenant_id, doc_kind, 2)
   ON CONFLICT ("tenantId", "kind") DO UPDATE SET "next" = "TaxDocumentCounter"."next" + 1
   RETURNING "next" - 1 INTO issued;
+  PERFORM set_config('credaflow.tax_numbering', 'off', true);
   RETURN issued;
 END;
 $function$;
+
+-- Only nextTaxDocumentNumber writes the counter: INSERT and UPDATE need its
+-- flag; DELETE (which would restart numbering) and TRUNCATE are refused.
+CREATE OR REPLACE FUNCTION public."guardTaxDocumentCounter"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP IN ('DELETE', 'TRUNCATE')
+     OR current_setting('credaflow.tax_numbering', true) IS DISTINCT FROM 'on' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('TaxDocumentCounter is written only by nextTaxDocumentNumber: %s refused', TG_OP);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "TaxDocumentCounter_guard" BEFORE INSERT OR UPDATE OR DELETE ON "TaxDocumentCounter" FOR EACH ROW EXECUTE FUNCTION "guardTaxDocumentCounter"();
+CREATE TRIGGER "TaxDocumentCounter_no_truncate" BEFORE TRUNCATE ON "TaxDocumentCounter" FOR EACH STATEMENT EXECUTE FUNCTION "guardTaxDocumentCounter"();
+
+-- VAT arithmetic, the same integer half-up formulas as lib/vat/amounts.ts. A
+-- rate is DECIMAL(6,4), so rate × 10000 is an exact integer (ten-thousandths).
+--   vatHalfUpCents(excl, rate)       = vatOnExclusive: floor((2·excl·r + 10000) / 20000)
+--   exclOfInclusiveCents(incl, rate) = splitInclusive's exclusive part:
+--                                      floor((2·incl·10000 + (10000 + r)) / (2·(10000 + r)))
+-- All operands are non-negative, so integer division is floor.
+CREATE OR REPLACE FUNCTION public."vatHalfUpCents"(excl_cents BIGINT, rate NUMERIC)
+ RETURNS BIGINT
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
+  SELECT (2 * excl_cents * (rate * 10000)::BIGINT + 10000) / 20000
+$function$;
+
+CREATE OR REPLACE FUNCTION public."exclOfInclusiveCents"(incl_cents BIGINT, rate NUMERIC)
+ RETURNS BIGINT
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
+  SELECT (2 * incl_cents * 10000 + (10000 + (rate * 10000)::BIGINT)) / (2 * (10000 + (rate * 10000)::BIGINT))
+$function$;
+
+-- A line's VAT is consistent with the invoice's rate, by one of the two
+-- half-up methods lib/vat/amounts.ts implements: VAT on the exclusive value
+-- (a line priced exclusive), or the tax-fraction split of the inclusive value
+-- (a line priced inclusive, e.g. the instalment-sale cash price, so exclusive +
+-- VAT equals that price to the cent; ~13% of inclusive amounts at 15% have no
+-- exclusive value whose VAT adds back to them exactly).
+CREATE OR REPLACE FUNCTION public."checkTaxInvoiceLineVat"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  invoice_rate NUMERIC;
+BEGIN
+  SELECT i."vatRate" INTO invoice_rate FROM "TaxInvoice" AS i WHERE i."id" = NEW."invoiceId";
+  IF invoice_rate IS NULL
+     OR NOT (NEW."vatCents" = "vatHalfUpCents"(NEW."exclVatCents", invoice_rate)
+             OR NEW."exclVatCents" = "exclOfInclusiveCents"(NEW."inclVatCents", invoice_rate)) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A tax invoice line''s VAT must be the invoice rate applied half-up to its exclusive value, or the tax fraction of its inclusive value';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "TaxInvoiceLine_vat_matches_rate" BEFORE INSERT ON "TaxInvoiceLine" FOR EACH ROW EXECUTE FUNCTION "checkTaxInvoiceLineVat"();
 
 -- The trigger ASSIGNS the number and display number; whatever the client
 -- supplied for "number" / "invoiceNumber" is overwritten. Six digits minimum,
@@ -273,7 +417,7 @@ BEGIN
   NEW."number" := "nextTaxDocumentNumber"(NEW."tenantId", 'CREDIT_NOTE');
   NEW."creditNoteNumber" := 'CN-' || lpad(NEW."number"::text, greatest(6, length(NEW."number"::text)), '0');
 
-  SELECT i."tenantId", i."totalExclVatCents", i."vatCents" INTO invoice
+  SELECT i."tenantId", i."totalExclVatCents", i."vatCents", i."vatRate" INTO invoice
   FROM "TaxInvoice" AS i WHERE i."id" = NEW."invoiceId";
   IF NOT FOUND OR invoice."tenantId" <> NEW."tenantId" THEN
     RAISE EXCEPTION USING
@@ -288,6 +432,22 @@ BEGIN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = 'Credit notes may not exceed the value or VAT of the tax invoice they credit';
+  END IF;
+
+  -- VAT proportional to the invoice, by creditNoteVat's rule: the note that
+  -- credits the whole remaining value credits exactly the remaining VAT (which
+  -- absorbs the invoice's per-line rounding); any other note's VAT is the
+  -- invoice rate applied half-up to its value.
+  IF credited.excl + NEW."exclVatCents" = invoice."totalExclVatCents" THEN
+    IF NEW."vatCents" <> invoice."vatCents" - credited.vat THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'A credit note for the whole remaining value must credit exactly the remaining VAT';
+    END IF;
+  ELSIF NEW."vatCents" <> "vatHalfUpCents"(NEW."exclVatCents", invoice."vatRate") THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A credit note''s VAT must be the invoice rate applied half-up to its value';
   END IF;
   RETURN NEW;
 END;

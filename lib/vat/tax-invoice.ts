@@ -20,8 +20,8 @@
 // UNTESTED: list to confirm with the tax advisor (drawn from s20(4) as
 // enacted; SARS guidance could not be read when this was written).
 import type { Prisma } from "@prisma/client"
-import { toDayNumber } from "@/lib/asset-finance/dates"
-import { addVat } from "./amounts"
+import { dbDate } from "@/lib/asset-finance/dates"
+import { addVat, splitInclusive, type VatSplit } from "./amounts"
 import type { VatTransaction } from "./db"
 import { loadRateOn } from "./vat-rate"
 
@@ -32,17 +32,20 @@ export class VatNotConfiguredError extends Error {
   }
 }
 
-export interface TaxInvoiceLineInput {
+/**
+ * A line priced VAT-exclusive (quantity × unit price, VAT added half-up), or a
+ * single item priced VAT-inclusive (split by the tax fraction, so exclusive +
+ * VAT is exactly the inclusive price; ./amounts splitInclusive).
+ */
+export type TaxInvoiceLineInput =
+  | { description: string; quantity: number; unitExclVatCents: number }
+  | { description: string; inclVatCents: number }
+
+export interface ComputedTaxInvoiceLine extends VatSplit {
+  lineNo: number
   description: string
   quantity: number
   unitExclVatCents: number
-}
-
-export interface ComputedTaxInvoiceLine extends TaxInvoiceLineInput {
-  lineNo: number
-  exclVatCents: number
-  vatCents: number
-  inclVatCents: number
 }
 
 export interface ComputedTaxInvoice {
@@ -71,7 +74,7 @@ export interface IssueTaxInvoiceInput {
   createdById?: string | null
 }
 
-export type TaxInvoiceDb = Pick<VatTransaction, "vatConfig" | "vatRate" | "taxInvoice">
+export type TaxInvoiceDb = Pick<VatTransaction, "vatConfig" | "vatRate" | "taxInvoice" | "$executeRawUnsafe">
 
 export type IssuedTaxInvoice = Prisma.TaxInvoiceGetPayload<{ include: { lines: true } }>
 
@@ -82,12 +85,23 @@ function requireText(value: string, label: string): string {
 }
 
 /**
- * Pure: each line's value (quantity × unit price), its VAT (half-up per line,
- * ./amounts) and the invoice totals as the sum of the lines.
+ * Pure: each line's value and VAT (half-up per line, ./amounts) and the
+ * invoice totals as the sum of the lines. An exclusive line's value is
+ * quantity × unit price; an inclusive line is one item whose exclusive value
+ * is the tax-fraction split of its price. The database accepts a line's VAT
+ * by either rule (checkTaxInvoiceLineVat, migration 20261013100000).
  */
 export function computeTaxInvoice(lines: readonly TaxInvoiceLineInput[], rateTenThousandths: number): ComputedTaxInvoice {
   if (lines.length === 0) throw new RangeError("a tax invoice needs at least one line")
-  const computed = lines.map((line, i) => {
+  const computed = lines.map((line, i): ComputedTaxInvoiceLine => {
+    const description = requireText(line.description, `lines[${i}].description`)
+    if ("inclVatCents" in line) {
+      if (!Number.isSafeInteger(line.inclVatCents) || line.inclVatCents <= 0) {
+        throw new RangeError(`lines[${i}].inclVatCents must be a positive integer number of cents`)
+      }
+      const split = splitInclusive(line.inclVatCents, rateTenThousandths)
+      return { lineNo: i + 1, description, quantity: 1, unitExclVatCents: split.exclVatCents, ...split }
+    }
     if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) {
       throw new RangeError(`lines[${i}].quantity must be a positive integer`)
     }
@@ -95,13 +109,7 @@ export function computeTaxInvoice(lines: readonly TaxInvoiceLineInput[], rateTen
       throw new RangeError(`lines[${i}].unitExclVatCents must be a positive integer number of cents`)
     }
     const split = addVat(line.quantity * line.unitExclVatCents, rateTenThousandths)
-    return {
-      lineNo: i + 1,
-      description: requireText(line.description, `lines[${i}].description`),
-      quantity: line.quantity,
-      unitExclVatCents: line.unitExclVatCents,
-      ...split,
-    }
+    return { lineNo: i + 1, description, quantity: line.quantity, unitExclVatCents: line.unitExclVatCents, ...split }
   })
   const sum = (pick: (line: ComputedTaxInvoiceLine) => number) => computed.reduce((total, line) => total + pick(line), 0)
   return {
@@ -110,12 +118,6 @@ export function computeTaxInvoice(lines: readonly TaxInvoiceLineInput[], rateTen
     vatCents: sum((line) => line.vatCents),
     totalInclVatCents: sum((line) => line.inclVatCents),
   }
-}
-
-/** A @db.Date value for an ISO calendar date. */
-export function dbDate(iso: string, label: string): Date {
-  toDayNumber(iso, label)
-  return new Date(`${iso}T00:00:00.000Z`)
 }
 
 /**
@@ -136,7 +138,7 @@ export async function issueTaxInvoice(tx: TaxInvoiceDb, input: IssueTaxInvoiceIn
   const rate = await loadRateOn(tx, input.supplyDate)
   const invoice = computeTaxInvoice(input.lines, rate.rateTenThousandths)
 
-  return tx.taxInvoice.create({
+  const issued = await tx.taxInvoice.create({
     data: {
       tenantId: input.tenantId,
       // Placeholders: the TaxInvoice_assign_number trigger overwrites both.
@@ -170,6 +172,11 @@ export async function issueTaxInvoice(tx: TaxInvoiceDb, input: IssueTaxInvoiceIn
     },
     include: { lines: { orderBy: { lineNo: "asc" } } },
   })
+  // The totals = lines check is a deferred constraint trigger: forced here so
+  // a violation fails this call, not a COMMIT that Prisma would report as
+  // success (lib/loan/apply-payment.ts).
+  await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+  return issued
 }
 
 export interface FinancedAsset {
@@ -187,8 +194,8 @@ export interface IssueInstalmentSaleInvoiceInput {
   bookingDate: string
   recipient: TaxInvoiceRecipient
   asset: FinancedAsset
-  /** The asset's cash price, VAT-exclusive. */
-  cashPriceExclVatCents: number
+  /** The asset's cash price, VAT-INCLUSIVE: the solver's cashPriceCents, what the supplier is paid. */
+  cashPriceCents: number
   createdById?: string | null
 }
 
@@ -207,7 +214,9 @@ export function describeAsset(asset: FinancedAsset): string {
 
 /**
  * The inception tax invoice of an instalment sale: exactly ONE line, the
- * asset at its VAT-exclusive cash price, plus VAT. Finance charges are never
+ * asset at its VAT-inclusive cash price, split by the tax fraction so that
+ * exclusive value + VAT equals the cash price to the cent (asserted: the
+ * invoice must state the consideration the deal finances). Finance charges are never
  * a line: interest on the credit is an exempt financial service (VAT Act
  * s12(a) read with the definition of "financial services" in s2), so it
  * carries no VAT and does not belong on the tax invoice.
@@ -221,13 +230,17 @@ export async function issueInstalmentSaleInvoice(
   tx: TaxInvoiceDb,
   input: IssueInstalmentSaleInvoiceInput,
 ): Promise<IssuedTaxInvoice> {
-  return issueTaxInvoice(tx, {
+  const invoice = await issueTaxInvoice(tx, {
     tenantId: input.tenantId,
     loanId: input.loanId,
     issueDate: input.bookingDate,
     supplyDate: input.bookingDate,
     recipient: input.recipient,
-    lines: [{ description: describeAsset(input.asset), quantity: 1, unitExclVatCents: input.cashPriceExclVatCents }],
+    lines: [{ description: describeAsset(input.asset), inclVatCents: input.cashPriceCents }],
     createdById: input.createdById,
   })
+  if (invoice.totalExclVatCents + invoice.vatCents !== input.cashPriceCents || invoice.totalInclVatCents !== input.cashPriceCents) {
+    throw new Error(`tax invoice ${invoice.invoiceNumber}: exclusive + VAT does not equal the cash price ${input.cashPriceCents}`)
+  }
+  return invoice
 }

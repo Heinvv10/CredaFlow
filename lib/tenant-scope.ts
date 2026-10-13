@@ -70,6 +70,15 @@ export const TENANT_SCOPED_MODELS = [
   "BusinessEntity",
   "EntityRelationship",
   "NcaRegimeOverride",
+  // Asset-finance rates and VAT documents — non-null tenantId, passed
+  // explicitly on every query (the repricing cron has no frame). VatRate is
+  // national and TaxInvoiceLine is scoped through its invoice: neither is listed.
+  "ReferenceRate",
+  "ContractRate",
+  "TaxInvoice",
+  "CreditNote",
+  "TaxDocumentCounter",
+  "VatConfig",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]
