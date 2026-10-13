@@ -53,6 +53,7 @@ import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
 import { annualisedInterestRate, termInterestPercent } from "@/lib/loan/annualised-rate"
 import { avsCheckMatchesSubject } from "@/lib/compliance/avs-subject"
 import { resolveBureauDisplay } from "@/lib/compliance/bureau-display"
+import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { resolveAffordabilityDisplayInputs } from "@/lib/affordability/display"
@@ -120,7 +121,10 @@ async function getBureauObligations(
     select: { obligations: true },
   })
   const obligs = check?.obligations as { totalMonthly?: number } | null
-  return obligs?.totalMonthly ?? null
+  return {
+    totalMonthly: obligs?.totalMonthly ?? null,
+    simulated: isSimulatedBureauCheck(check?.obligations),
+  }
 }
 
 async function getDocumentMismatches(clientId: string, tenantId: string) {
@@ -392,11 +396,12 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     : application.totalExistingDebt || 0
   const bureauDebt = affordabilityLocked && affordabilitySnapshot
     ? affordabilitySnapshot.inputs.bureauObligationsCents
-    : bureauObligationsRaw ?? null
+    : bureauObligationsRaw?.totalMonthly ?? null
   const bureauDisplay = resolveBureauDisplay({
     applicationStatus: application.status,
     approvalSnapshot: affordabilitySnapshot,
     complianceRecord: bureauCheck,
+    simulated: bureauObligationsRaw?.simulated ?? false,
   })
   // Model-aware and NOMINAL for every product (lib/loan/annualised-rate).
   // Both operands come from the approval snapshot once locked, so an approved
