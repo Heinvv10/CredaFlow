@@ -219,7 +219,7 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
 })
 
 describe("jwt callback: a token is only honoured on the host of its own audience", () => {
-  const staffToken = { id: "u1", role: "LOAN_ADMIN", tenantId: "t1", tokenVersion: 0 }
+  const staffToken = { id: "u1", role: "LOAN_ADMIN", tenantId: "t1", tokenVersion: 0, totpEnrolmentRequired: false }
   const staffRow = { active: true, role: "LOAN_ADMIN", tenantId: "t1", tokenVersion: 0 }
 
   beforeEach(() => {

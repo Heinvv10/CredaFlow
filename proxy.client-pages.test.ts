@@ -24,8 +24,8 @@ const singleHost = await proxyIn("all")
 // Read per request by the quote-host check, so set after the modules load.
 vi.stubEnv("FSP_QUICKQUOTE_HOSTS", "quote.test")
 
-type Session = { user: { id: string; role: string; tenantId: string } } | null
-const STAFF: Session = { user: { id: "user-1", role: "LOAN_ADMIN", tenantId: "tenant-1" } }
+type Session = { user: { id: string; role: string; tenantId: string; totpEnrolmentRequired?: boolean } } | null
+const STAFF: Session = { user: { id: "user-1", role: "LOAN_ADMIN", tenantId: "tenant-1", totpEnrolmentRequired: false } }
 const CLIENT: Session = { user: { id: "client-1", role: "CLIENT", tenantId: "tenant-1" } }
 const SESSIONS: Array<[string, Session]> = [["a staff session", STAFF], ["a CLIENT session", CLIENT], ["no session", null]]
 

@@ -80,8 +80,18 @@ it("PATCH refuses a member who outranks the caller, audits the attempt and toggl
   }), undefined)
 })
 
-it("PATCH lets an ADMIN toggle a fellow ADMIN", async () => {
+it("PATCH refuses an ADMIN toggling a fellow ADMIN (equal rank), audits the attempt and toggles nothing", async () => {
   userFindFirstMock.mockResolvedValue({ role: "ADMIN" })
+  const res = await toggle()
+  expect(res.status).toBe(403)
+  expect(setAgentMock).not.toHaveBeenCalled()
+  expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
+    action: "USER_WRITE_REFUSED", newValue: expect.objectContaining({ reason: "target_same_rank" }),
+  }), undefined)
+})
+
+it("PATCH lets an ADMIN toggle a lower-ranked member", async () => {
+  userFindFirstMock.mockResolvedValue({ role: "CREDIT_OFFICER" })
   setAgentMock.mockResolvedValue({ ok: true })
   expect((await toggle()).status).toBe(200)
   expect(setAgentMock).toHaveBeenCalledTimes(1)

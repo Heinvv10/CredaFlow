@@ -1,12 +1,17 @@
 "use client"
 
 import { useState } from "react"
+import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Shield, ShieldCheck, ShieldOff, Loader2, Copy, CheckCircle } from "lucide-react"
 
 interface Props {
   email: string
   totpEnabled: boolean
+  /** The lender requires staff 2FA: it cannot be turned off. */
+  required: boolean
+  /** This session is held at enrolment until 2FA is set up. */
+  enrolmentForced: boolean
 }
 
 interface SetupData {
@@ -15,13 +20,15 @@ interface SetupData {
   qrUrl: string
 }
 
-export function TotpSetupClient({ email, totpEnabled }: Props) {
+export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced }: Props) {
   const [enabled, setEnabled] = useState(totpEnabled)
   const [setup, setSetup] = useState<SetupData | null>(null)
   const [code, setCode] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [disabling, setDisabling] = useState(false)
+  const [signInAgain, setSignInAgain] = useState(false)
 
   const startSetup = async () => {
     setLoading(true)
@@ -49,9 +56,11 @@ export function TotpSetupClient({ email, totpEnabled }: Props) {
         body: JSON.stringify({ secret: setup.secret, code }),
       })
       if (res.ok) {
+        const data = await res.json() as { signInAgain?: boolean }
         setEnabled(true)
         setSetup(null)
         setCode("")
+        setSignInAgain(data.signInAgain === true)
       } else {
         const data = await res.json() as { error?: string }
         setError(data.error ?? "Verification failed")
@@ -65,9 +74,22 @@ export function TotpSetupClient({ email, totpEnabled }: Props) {
 
   const disableTotp = async () => {
     setLoading(true)
+    setError(null)
     try {
-      await fetch("/api/settings/totp", { method: "DELETE" })
-      setEnabled(false)
+      const res = await fetch("/api/settings/totp", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+      if (res.ok) {
+        // The server ended every session a code vouched for, this one included.
+        await signOut({ callbackUrl: "/login" })
+      } else {
+        const data = await res.json().catch(() => ({})) as { error?: string }
+        setError(data.error ?? "Verification failed")
+      }
+    } catch {
+      setError("Network error")
     } finally {
       setLoading(false)
     }
@@ -101,27 +123,73 @@ export function TotpSetupClient({ email, totpEnabled }: Props) {
               ? "Your account is protected with TOTP two-factor authentication. You will need your authenticator app each time you log in."
               : "Add an extra layer of security to your account. You'll need an authenticator app (Google Authenticator, Authy, etc.)."}
           </p>
-          <div className="mt-4 flex gap-3">
-            {enabled ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={disableTotp}
-                disabled={loading}
-                className="border-red-300 text-red-600 hover:bg-red-50"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldOff className="h-4 w-4 mr-2" />}
-                Disable 2FA
-              </Button>
-            ) : (
-              !setup && (
-                <Button size="sm" onClick={startSetup} disabled={loading}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-                  Enable 2FA
+          {enrolmentForced && !enabled && (
+            <p className="text-sm font-medium text-gray-900 mt-3">
+              Your organisation requires two-factor authentication. Set it up to continue.
+            </p>
+          )}
+          {required && enabled && (
+            <p className="text-sm text-gray-600 mt-3">
+              Your organisation requires two-factor authentication, so it cannot be turned off.
+            </p>
+          )}
+          {signInAgain ? (
+            <div className="mt-4 space-y-3">
+              <p className="text-sm font-medium text-gray-900">
+                Two-factor authentication is on. Sign in again with a code from your authenticator app.
+              </p>
+              <Button size="sm" onClick={() => signOut({ callbackUrl: "/login" })}>Sign in again</Button>
+            </div>
+          ) : (
+            <div className="mt-4 flex gap-3">
+              {enabled ? (
+                !required && !disabling && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setDisabling(true); setCode(""); setError(null) }}
+                    className="border-red-300 text-red-600 hover:bg-red-50"
+                  >
+                    <ShieldOff className="h-4 w-4 mr-2" />
+                    Disable 2FA
+                  </Button>
+                )
+              ) : (
+                !setup && (
+                  <Button size="sm" onClick={startSetup} disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
+                    Enable 2FA
+                  </Button>
+                )
+              )}
+            </div>
+          )}
+          {enabled && disabling && (
+            <div className="mt-4 space-y-3">
+              <p className="text-sm text-gray-600">Enter the 6-digit code from your authenticator app to turn off two-factor authentication:</p>
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">{error}</div>
+              )}
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  maxLength={6}
+                  className="border border-gray-300 rounded px-4 py-2 text-lg font-mono tracking-widest w-40 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
+                />
+                <Button variant="outline" onClick={disableTotp} disabled={code.length !== 6 || loading}
+                  className="border-red-300 text-red-600 hover:bg-red-50">
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldOff className="h-4 w-4 mr-2" />}
+                  Confirm
                 </Button>
-              )
-            )}
-          </div>
+                <Button variant="ghost" onClick={() => { setDisabling(false); setCode(""); setError(null) }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

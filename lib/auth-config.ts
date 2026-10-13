@@ -13,6 +13,8 @@ declare module "next-auth" {
     totpVerified?: boolean
     /** Keyed fingerprint of the portal credential (CLIENT only); lib/client-session.ts. */
     credentialStamp?: string
+    /** Set at sign-in when the lender requires 2FA and this user has none (lib/auth.ts). */
+    totpEnrolmentRequired?: boolean
   }
   interface Session {
     user: {
@@ -22,6 +24,8 @@ declare module "next-auth" {
       role: AppRole
       tenantId?: string | null
       totpVerified?: boolean
+      /** This user must enrol TOTP before anything else (proxy.ts, lib/auth-guards.ts). */
+      totpEnrolmentRequired?: boolean
       /** The User row's tokenVersion this session was issued at (staff only). */
       tokenVersion?: number
     }
@@ -89,6 +93,11 @@ export const authBaseConfig = {
         session.user.role = token.role as AppRole
         session.user.tenantId =
           typeof token.tenantId === "string" ? token.tenantId : null
+        // proxy.ts reads this from the cookie, so the edge session must carry it.
+        // Absent stays undefined (not false): a token minted before the claim
+        // existed is held at the proxy, not waved through.
+        session.user.totpEnrolmentRequired =
+          typeof token.totpEnrolmentRequired === "boolean" ? token.totpEnrolmentRequired : undefined
       }
       return session
     },

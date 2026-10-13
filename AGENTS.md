@@ -53,10 +53,19 @@ obligations, not style:
   re-pin only with a proof of what changed.
 - **Audit trail.** Every state-changing user action runs through
   `lib/audit.ts`. Don't bypass it for "just this one path".
-- **TOTP 2FA is mandatory for staff.** Don't add staff-write paths that skip
-  2FA. See `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic
-  demo stacks: `scripts/demo/restore.sh` turns staff TOTP off when the demo
-  app runs with `DEMO_CLEAR_STAFF_TOTP=true`. Never set it on a real lender.
+- **Staff TOTP 2FA is a per-lender setting, on by default**
+  (`TenantConfig.requireStaffTotp`, `lib/security/staff-totp-policy.ts`).
+  While on, a staff user with no TOTP can sign in but reach only the enrolment
+  page (`proxy.ts`, `lib/auth-guards.ts`), and nobody can turn their own 2FA
+  off. Off, a code is demanded only of users who enrolled. Only a SUPER_ADMIN
+  in a TOTP-verified session changes it, audited. Turning your own 2FA off
+  always needs a current code. A SUPER_ADMIN cannot be reset by another
+  SUPER_ADMIN: recovery of a locked-out SUPER_ADMIN is the operator
+  break-glass CLI. Don't add staff-write paths that skip 2FA. See
+  `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic demo
+  stacks: `scripts/demo/restore.sh` turns staff TOTP off, and the lender's 2FA
+  setting off, when the demo app runs with `DEMO_CLEAR_STAFF_TOTP=true` (and
+  again after a restore). Never set it on a real lender.
 - **Document access is logged.** `ClientDocument` access goes through
   `lib/document-auth.ts`, which writes a `DocumentAccessLog` row — POPIA
   compliance depends on it.
