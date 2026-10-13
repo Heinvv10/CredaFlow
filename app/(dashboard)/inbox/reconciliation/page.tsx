@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { MessageReconciliationAction } from "@/components/messaging/MessageReconciliationAction"
@@ -21,7 +21,7 @@ export default async function MessageReconciliationPage({
   // Resolving legal delivery uncertainty is a loan-admin duty and must not
   // depend on the separate inbox-agent roster flag.
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const { messageId } = await searchParams
   const now = new Date()
   const messages = await prisma.message.findMany({

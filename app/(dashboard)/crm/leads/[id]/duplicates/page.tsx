@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 import { Copy } from "lucide-react"
 import { prisma } from "@/lib/prisma"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { findLeadDuplicatesForTenant, DEDUP_SCAN_LIMIT } from "@/lib/crm/lead-dedup-search"
 import { describeReasons } from "@/lib/crm/lead-dedup"
 
@@ -32,7 +32,7 @@ export default async function LeadDuplicatesPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   // Tenant-scoped: `Lead` is absent from TENANT_SCOPED_MODELS, so this filter
   // is manual and load-bearing on every read, this one included.

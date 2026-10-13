@@ -31,7 +31,7 @@ function modalUrl(next: { id: string; tab: TabKey } | null): string {
   return url.toString()
 }
 
-export function LeadKanban({ initialLeads }: { initialLeads: Lead[] }) {
+export function LeadKanban({ initialLeads, canWriteActivity }: { initialLeads: Lead[]; canWriteActivity: boolean }) {
   const [leads, setLeads] = useState(initialLeads)
   const [dropError, setDropError] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState("ALL")
@@ -85,6 +85,10 @@ export function LeadKanban({ initialLeads }: { initialLeads: Lead[] }) {
   )
 
   const handleDrop = async (leadId: string, newStatus: string) => {
+    // Every move is a write that requires CREDIT_OFFICER (the PATCH, lost and
+    // convert routes): below it a drop does nothing, rather than moving the
+    // card and snapping it back on the 403.
+    if (!canWriteActivity) return
     const lead = leads.find((item) => item.id === leadId)
     if (!lead || lead.status === newStatus) return
 
@@ -255,7 +259,7 @@ export function LeadKanban({ initialLeads }: { initialLeads: Lead[] }) {
               leads={filteredLeads.filter((lead) => pipelineStatus(lead) === col.status)}
               onDrop={handleDrop}
               onOpen={openModal}
-              onCallback={setCallbackLeadId}
+              onCallback={canWriteActivity ? setCallbackLeadId : undefined}
             />
           ))}
         </div>

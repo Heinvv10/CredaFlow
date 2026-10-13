@@ -1,6 +1,6 @@
 import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Header } from "@/components/layout/Header"
 import { NotificationsSettingsClient, type EditableChannel } from "./NotificationsSettingsClient"
 
@@ -25,12 +25,13 @@ export default async function NotificationsSettingsPage() {
   // check the route uses, or a LOAN_ADMIN gets a full editor that 403s on save.
   const canEditWaba = hasMinRole(user.role, "ADMIN")
 
-  // Must be the SAME resolver the WABA route reaches through withTenantContext.
-  // A bare findFirst({status:"ACTIVE"}) picks an arbitrary tenant, so with more
-  // than one active tenant this page would list another tenant's template
-  // bodies, Meta names and provider ids — and saving one would copy that
-  // content into the caller's own tenant.
-  const tenantId = await getResolvedTenantId()
+  // The session's tenant. The WABA route (withTenantContext) proceeds only when
+  // the host's tenant is this one, so whenever a save can succeed the two read
+  // the same tenant. A bare findFirst({status:"ACTIVE"}) picks an arbitrary
+  // tenant, so with more than one active tenant this page would list another
+  // tenant's template bodies, Meta names and provider ids — and saving one
+  // would copy that content into the caller's own tenant.
+  const tenantId = await getStaffTenantId()
   // findFirst + status, not findUnique: the previous query filtered on ACTIVE
   // and a suspended tenant must keep rendering nothing rather than its settings.
   const tenant = await prisma.tenant.findFirst({ where: { id: tenantId, status: "ACTIVE" } })

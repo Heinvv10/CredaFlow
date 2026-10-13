@@ -1,6 +1,6 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Activity, User, Clock } from "lucide-react"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { SAST_TIME_ZONE } from "@/lib/utils"
@@ -59,7 +59,7 @@ export default async function LoginLogPage() {
   // decide auth telemetry should be ADMIN-only, tighten both page and
   // API together — never let the page disagree with the API.
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const logs = await getLogs(tenantId)
 
   // Stats

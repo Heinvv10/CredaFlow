@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { InsuranceDashboardClient } from "@/components/insurance/InsuranceDashboardClient"
 
-async function getInsuranceData() {
+// None of these models is in the tenant-scope extension's list, so each query
+// carries the tenant on its own row.
+async function getInsuranceData(tenantId: string) {
   const [policies, claims, premiums] = await Promise.all([
     prisma.insurancePolicy.findMany({
+      where: { tenantId },
       orderBy: { createdAt: "desc" },
       include: {
         client: { select: { id: true, firstName: true, lastName: true, phone: true } },
@@ -12,6 +16,7 @@ async function getInsuranceData() {
       },
     }),
     prisma.insuranceClaim.findMany({
+      where: { tenantId },
       orderBy: { submittedAt: "desc" },
       take: 10,
       include: {
@@ -25,7 +30,7 @@ async function getInsuranceData() {
       },
     }),
     prisma.premiumPayment.aggregate({
-      where: { status: "PAID" },
+      where: { tenantId, status: "PAID" },
       _sum: { amount: true },
     }),
   ])
@@ -56,7 +61,7 @@ async function getInsuranceData() {
 export default async function InsurancePage() {
   await requireMinRole("READONLY")
 
-  const data = await getInsuranceData()
+  const data = await getInsuranceData(await getStaffTenantId())
   return (
     <div className="p-6 lg:p-8">
       <InsuranceDashboardClient {...data} />

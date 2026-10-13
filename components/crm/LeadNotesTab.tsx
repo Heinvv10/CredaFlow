@@ -19,10 +19,13 @@ type NoteActivity = { id: string; type: string; subject: string; notes: string |
 export function LeadNotesTab({
   leadId,
   activities,
+  canWrite,
   onChanged,
 }: {
   leadId: string
   activities: NoteActivity[]
+  /** CREDIT_OFFICER and above — below it the composer is not offered. */
+  canWrite: boolean
   onChanged: () => void
 }) {
   const [body, setBody] = useState("")
@@ -68,7 +71,7 @@ export function LeadNotesTab({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 p-3">
+      {canWrite && <div className="rounded-lg border border-gray-200 p-3">
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
@@ -86,7 +89,7 @@ export function LeadNotesTab({
             Add note
           </button>
         </div>
-      </div>
+      </div>}
 
       {notes.length > 3 && (
         <input

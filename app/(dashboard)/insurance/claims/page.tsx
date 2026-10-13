@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { InsuranceClaimsClient } from "@/components/insurance/InsuranceClaimsClient"
 
@@ -8,7 +8,7 @@ export default async function ClaimsPage() {
   // Claim records carry client PII (name/phone) and the page assigns assessors —
   // gate at INSURANCE_OFFICER (was ungated: any staff incl READONLY could read).
   await requireMinRole("INSURANCE_OFFICER")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const [raw, advisorUsers] = await Promise.all([
     prisma.insuranceClaim.findMany({

@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatZAR } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table"
 
 async function getLoanProducts() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   return prisma.loanProduct.findMany({
     where: { tenantId },
     orderBy: { name: "asc" },
@@ -22,7 +22,9 @@ async function getLoanProducts() {
 }
 
 async function getUsers() {
+  const tenantId = await getStaffTenantId()
   return prisma.user.findMany({
+    where: { tenantId },
     orderBy: { name: "asc" },
     select: {
       id: true,

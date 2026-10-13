@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/prisma"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { OpportunitiesClient } from "@/components/crm/OpportunitiesClient"
 
 async function getOpportunities() {
+  // CrossSellOpportunity is not a tenant-scoped model: the filter is the only
+  // boundary.
+  const tenantId = await getStaffTenantId()
   return prisma.crossSellOpportunity.findMany({
+    where: { tenantId },
     orderBy: { createdAt: "desc" },
     include: {
       client: {

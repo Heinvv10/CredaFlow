@@ -3,7 +3,7 @@ import { auditDocumentAccessRefusal } from "@/lib/audit-refusals"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
-import { withTenantContext } from "@/lib/tenant"
+import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import {
   PORTAL_KYC_SNAPSHOT_OPTIONS,
   readPortalKycDocumentState,
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    return withTenantContext(req, async (tenant) => {
+    return withTenantContextLoggingRefusal(req, { documentId: `client:${clientId}`, caller }, async (tenant) => {
       const includeKycChecklist =
         req.nextUrl.searchParams.get("includeKycChecklist") === "1"
       if (includeKycChecklist) {

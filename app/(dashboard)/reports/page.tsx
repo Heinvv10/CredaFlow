@@ -3,7 +3,7 @@ import { CASH_RECEIPTS } from "@/lib/payments/waiver"
 import { formatZAR, formatZARCompact, SAST_TIME_ZONE } from "@/lib/utils"
 import { TrendingUp, TrendingDown, Download, Users } from "lucide-react"
 import Link from "next/link"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import { defaultQuarter, quarterLabel, sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
@@ -18,7 +18,7 @@ import { loadBookAsOf } from "@/lib/reports/book-as-of"
 const COLLECTIBLE_LOAN_STATUSES = [...COLLECTIBLE_STATUSES]
 
 async function getReportData() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const now = new Date()
   // End-EXCLUSIVE SAST month bounds. These were `new Date(y, m + 1, 0)` — the
   // last DAY of the month at local midnight — filtered with `lte`, which
