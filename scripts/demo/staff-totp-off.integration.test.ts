@@ -59,12 +59,12 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
   it("clears TOTP for staff, keeps it for SUPER_ADMIN, and reports the count", async () => {
     const sql = staffTotpOffSql()
     let seen: { id: string; totpEnabled: boolean; totpSecret: string | null; lastTotpCounter: number | null }[] = []
-    let count = 0n
+    let count = 0
     await expect(
       withoutTenantScope(() =>
         prisma.$transaction(async (tx) => {
           const rows = await tx.$queryRawUnsafe<{ count: bigint }[]>(sql)
-          count = rows[0].count
+          count = Number(rows[0].count)
           seen = await tx.user.findMany({
             where: { id: { in: [adminId, superId] } },
             select: { id: true, totpEnabled: true, totpSecret: true, lastTotpCounter: true },
@@ -74,7 +74,7 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
       ),
     ).rejects.toBeInstanceOf(Rollback)
 
-    expect(count).toBeGreaterThanOrEqual(1n)
+    expect(count).toBeGreaterThanOrEqual(1)
     expect(seen.find((u) => u.id === adminId)).toMatchObject({ totpEnabled: false, totpSecret: null, lastTotpCounter: null })
     expect(seen.find((u) => u.id === superId)).toMatchObject({ totpEnabled: true, totpSecret: "JBSWY3DPEHPK3PXP", lastTotpCounter: 1 })
   })
