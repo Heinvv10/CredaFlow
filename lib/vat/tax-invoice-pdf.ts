@@ -60,10 +60,27 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
     let current = ""
     for (const word of paragraph.split(/\s+/).filter(Boolean)) {
       const candidate = current ? `${current} ${word}` : word
-      if (current && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+      if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+        current = candidate
+        continue
+      }
+      if (current) {
         lines.push(current)
+        current = ""
+      }
+      if (font.widthOfTextAtSize(word, size) <= maxWidth) {
         current = word
-      } else current = candidate
+        continue
+      }
+      let chunk = ""
+      for (const character of word) {
+        const next = chunk + character
+        if (chunk && font.widthOfTextAtSize(next, size) > maxWidth) {
+          lines.push(chunk)
+          chunk = character
+        } else chunk = next
+      }
+      current = chunk
     }
     if (current) lines.push(current)
   }
