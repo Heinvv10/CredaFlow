@@ -53,6 +53,10 @@ export async function applyStaffTotpRequired(
   args: { tenantId: string; actor: { id: string; email: string }; required: boolean; ipAddress?: string },
 ): Promise<{ changed: boolean; required: boolean; signedOut: number }> {
   const { tenantId, actor, required, ipAddress } = args
+  // Serialise writers of this tenant's setting first: with no config row yet
+  // there is no row to lock, and two first switches would both read the default,
+  // both upsert and both audit "on -> off".
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`staff-totp-policy:${tenantId}`}))`
   // Lock the row, then read it, so the audited old value is the state replaced.
   await tx.$executeRaw`SELECT 1 FROM "TenantConfig" WHERE "tenantId" = ${tenantId} FOR UPDATE`
   const stored = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { requireStaffTotp: true } })

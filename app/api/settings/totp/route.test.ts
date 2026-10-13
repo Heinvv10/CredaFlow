@@ -32,6 +32,8 @@ const req = (method: string, body?: unknown) => new NextRequest("http://localhos
   method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
 })
 const enrolledRow = { id: "u1", totpEnabled: true, totpSecret: secret }
+const auditActions = () => h.auditCreate.mock.calls.map((c) => c[0].data.action)
+const refusalRow = () => h.auditCreate.mock.calls.map((c) => c[0].data).find((d) => d.action === "TOTP_CHANGE_REFUSED")
 const wrong = () => String((Number(generateTotpCode(secret)) + 7) % 1_000_000).padStart(6, "0")
 
 beforeEach(() => {
@@ -63,18 +65,24 @@ describe("DELETE /api/settings/totp — turning off your own 2FA", () => {
     expect(h.auditCreate).not.toHaveBeenCalled()
   })
 
-  it("refuses a wrong code with 422 and clears nothing", async () => {
+  it("refuses a wrong code with 422, clears nothing, and audits the failed attempt", async () => {
     const res = await DELETE(req("DELETE", { code: wrong() }))
     expect(res.status).toBe(422)
     expect(h.updateUser).not.toHaveBeenCalled()
-    expect(h.auditCreate).not.toHaveBeenCalled()
+    expect(auditActions()).toEqual(["TOTP_CHANGE_REFUSED"])
+    expect(refusalRow()).toMatchObject({
+      tenantId: "t1", userId: "u1", userEmail: "officer@lender.example", entity: "User", entityId: "u1",
+      newValue: { refused: true, reason: "wrong_code", httpStatus: 422, operation: "disable" },
+    })
+    expect(JSON.stringify(h.auditCreate.mock.calls)).not.toContain(secret)
   })
 
-  it("refuses a replayed code (the counter was already used) with 422", async () => {
+  it("refuses a replayed code (the counter was already used) with 422, and audits it as a replay", async () => {
     h.claim.mockResolvedValue(false)
     const res = await DELETE(req("DELETE", { code: generateTotpCode(secret) }))
     expect(res.status).toBe(422)
     expect(h.updateUser).not.toHaveBeenCalled()
+    expect(refusalRow()).toMatchObject({ newValue: { reason: "replayed_code", operation: "disable" } })
   })
 
   it("claims the matched counter for the caller's own row", async () => {
@@ -110,6 +118,8 @@ describe("DELETE /api/settings/totp — turning off your own 2FA", () => {
     expect(h.required).toHaveBeenCalledWith("t1")
     expect(h.claim).not.toHaveBeenCalled()
     expect(h.updateUser).not.toHaveBeenCalled()
+    expect(auditActions()).toEqual(["TOTP_CHANGE_REFUSED"])
+    expect(refusalRow()).toMatchObject({ entityId: "u1", newValue: { refused: true, reason: "policy_requires_totp", httpStatus: 403, operation: "disable" } })
   })
 
   it("answers 429 once the caller has guessed too often, before it looks at the code", async () => {
@@ -145,7 +155,7 @@ describe("POST /api/settings/totp — enrolling", () => {
     expect(await res.json()).toEqual({ ok: true, signInAgain: false })
     expect(h.updateManyUser).toHaveBeenCalledWith({
       where: { id: "u1", tenantId: "t1", totpEnabled: false, totpSecret: null },
-      data: { totpSecret: secret, totpEnabled: true },
+      data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null },
     })
     expect(h.auditCreate.mock.calls[0]![0].data).toMatchObject({
       action: "TOTP_ENROLLED", userId: "u1", entityId: "u1", oldValue: { totpEnabled: false }, newValue: { totpEnabled: true },
@@ -159,7 +169,7 @@ describe("POST /api/settings/totp — enrolling", () => {
     expect(await res.json()).toEqual({ ok: true, signInAgain: true })
     expect(h.updateManyUser).toHaveBeenCalledWith({
       where: { id: "u1", tenantId: "t1", totpEnabled: false, totpSecret: null },
-      data: { totpSecret: secret, totpEnabled: true, tokenVersion: { increment: 1 } },
+      data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null, tokenVersion: { increment: 1 } },
     })
   })
 
@@ -183,12 +193,18 @@ describe("POST /api/settings/totp — enrolling", () => {
       expect(h.auditCreate).not.toHaveBeenCalled()
     })
 
-    it("refuses a wrong or replayed current code with 422, and replaces nothing", async () => {
+    it("refuses a wrong or replayed current code with 422, replaces nothing, and audits each attempt", async () => {
       expect((await replace({ currentCode: "000000" })).status).toBe(422)
       h.claim.mockResolvedValue(false)
       expect((await replace({ currentCode: generateTotpCode(old) })).status).toBe(422)
       expect(h.updateManyUser).not.toHaveBeenCalled()
-      expect(h.auditCreate).not.toHaveBeenCalled()
+      expect(h.auditCreate.mock.calls.map((c) => c[0].data.newValue)).toEqual([
+        { refused: true, reason: "wrong_code", httpStatus: 422, operation: "replace" },
+        { refused: true, reason: "replayed_code", httpStatus: 422, operation: "replace" },
+      ])
+      const written = JSON.stringify(h.auditCreate.mock.calls)
+      expect(written).not.toContain(old)
+      expect(written).not.toContain(secret)
     })
 
     it("counts current-code guesses against the same limit as turning 2FA off", async () => {
@@ -203,7 +219,7 @@ describe("POST /api/settings/totp — enrolling", () => {
       expect(h.claim).toHaveBeenCalledWith("u1", expect.any(Number))
       expect(h.updateManyUser).toHaveBeenCalledWith({
         where: { id: "u1", tenantId: "t1", totpEnabled: true, totpSecret: old },
-        data: { totpSecret: secret, totpEnabled: true, tokenVersion: { increment: 1 } },
+        data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null, tokenVersion: { increment: 1 } },
       })
       expect(h.auditCreate.mock.calls[0]![0].data).toMatchObject({
         action: "TOTP_REPLACED", userId: "u1", entityId: "u1", oldValue: { totpEnabled: true }, newValue: { totpEnabled: true },

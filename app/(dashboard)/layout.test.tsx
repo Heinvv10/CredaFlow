@@ -45,6 +45,7 @@ vi.mock("@/lib/tenant", () => ({
 }))
 
 import DashboardLayout from "./layout"
+import { EnrolmentShell } from "@/components/app-shell/EnrolmentShell"
 
 describe("dashboard tenant authority", () => {
   beforeEach(() => {
@@ -115,18 +116,28 @@ describe("dashboard tenant authority", () => {
     expect(params).toContain("tenant-authoritative")
     expect(getTenantConfigMock).toHaveBeenCalledWith("tenant-authoritative")
   })
-  // A session held at TOTP enrolment can reach only the enrolment page
-  // (proxy.ts): the sidebar must not offer links that are all refused.
-  it.each([
-    [true, true],
-    [false, false],
-    [undefined, false],
-  ])("tells the shell a session with totpEnrolmentRequired=%j is enrolment-only: %j", async (claim, expected) => {
+  // A session held at TOTP enrolment (proxy.ts) gets a bare shell: no sidebar,
+  // no counts, no navigation, nothing that queries tenant data.
+  it("gives a held session the bare enrolment shell, and runs no sidebar queries", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "staff-1", email: "staff@example.invalid", name: "Staff", role: "LOAN_ADMIN", tenantId: "tenant-authoritative", totpEnrolmentRequired: true },
+    })
+
+    const tree = await DashboardLayout({ children: "page" }) as unknown as { props: { children: { type: unknown } } }
+    expect(tree.props.children.type).toBe(EnrolmentShell)
+    for (const query of [applicationCountMock, loanCountMock, opportunityCountMock, leadCountMock, queryRawMock]) {
+      expect(query).not.toHaveBeenCalled()
+    }
+    expect(getTenantConfigMock).toHaveBeenCalledWith("tenant-authoritative")
+  })
+
+  it.each([false, undefined])("gives a session with totpEnrolmentRequired=%j the full shell", async (claim) => {
     authMock.mockResolvedValue({
       user: { id: "staff-1", email: "staff@example.invalid", name: "Staff", role: "LOAN_ADMIN", tenantId: "tenant-authoritative", totpEnrolmentRequired: claim },
     })
 
-    const tree = await DashboardLayout({ children: null }) as unknown as { props: { children: { props: { enrolmentOnly: boolean } } } }
-    expect(tree.props.children.props.enrolmentOnly).toBe(expected)
+    const tree = await DashboardLayout({ children: null }) as unknown as { props: { children: { type: unknown } } }
+    expect(tree.props.children.type).not.toBe(EnrolmentShell)
+    expect(applicationCountMock).toHaveBeenCalled()
   })
 })

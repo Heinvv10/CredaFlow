@@ -426,5 +426,7 @@ export const AuditAction = {
   TOTP_ENROLLED: "TOTP_ENROLLED",
   TOTP_DISABLED: "TOTP_DISABLED",
   TOTP_REPLACED: "TOTP_REPLACED",
+  // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
+  TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
   TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
 } as const

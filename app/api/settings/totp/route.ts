@@ -6,6 +6,7 @@ import { generateTotpSecret, generateTotpUri, verifyTotpCode } from "@/lib/totp"
 import { withTenantContext } from "@/lib/tenant"
 import { getLenderBrandName } from "@/lib/config/identity"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
 import { callerIp, checkRateLimit } from "@/lib/rate-limit"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 
@@ -16,6 +17,16 @@ import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 // Guesses at the current code, whether to turn 2FA off or to replace the secret.
 const CODE_ATTEMPTS = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 const withinAttempts = (userId: string) => checkRateLimit(`totp-current-code:${userId}`, CODE_ATTEMPTS).allowed
+// A refused attempt at the two changes that must not be done by a stolen
+// session is recorded: who tried, what, and why. Never the code or a secret.
+const refuse = (
+  staff: StaffSession, tenantId: string, operation: "disable" | "replace",
+  reason: "wrong_code" | "replayed_code" | "policy_requires_totp", status: number, message: string,
+) =>
+  auditRefusal({
+    action: AuditAction.TOTP_CHANGE_REFUSED, entity: "User", entityId: staff.id,
+    userId: staff.id, userEmail: staff.email, tenantId, reason, status, detail: { operation },
+  }).then(() => NextResponse.json({ error: message }, { status }))
 const tooManyAttempts = () => NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 })
 
 type StaffSession = { id: string; email: string; tenantId: string; enrolmentRequired: boolean }
@@ -77,9 +88,8 @@ export async function POST(req: NextRequest) {
       }
       if (!withinAttempts(staff.id)) return tooManyAttempts()
       const matched = verifyTotpCode(currentCode.trim(), user.totpSecret)
-      if (matched === null || !(await claimTotpCounter(staff.id, matched))) {
-        return NextResponse.json({ error: "Invalid verification code" }, { status: 422 })
-      }
+      if (matched === null) return refuse(staff, tenant.id, "replace", "wrong_code", 422, "Invalid verification code")
+      if (!(await claimTotpCounter(staff.id, matched))) return refuse(staff, tenant.id, "replace", "replayed_code", 422, "Invalid verification code")
     }
 
     const enrolled = await prisma.$transaction(async (tx) => {
@@ -88,7 +98,7 @@ export async function POST(req: NextRequest) {
         where: replacing
           ? { id: staff.id, tenantId: tenant.id, totpEnabled: true, totpSecret: user.totpSecret }
           : { id: staff.id, tenantId: tenant.id, totpEnabled: false, totpSecret: null },
-        data: { totpSecret: secret, totpEnabled: true, ...(replacing || staff.enrolmentRequired ? { tokenVersion: { increment: 1 } } : {}) },
+        data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null, ...(replacing || staff.enrolmentRequired ? { tokenVersion: { increment: 1 } } : {}) },
       })
       if (count === 0) return false
       await logAuditStrict({
@@ -122,7 +132,7 @@ export async function DELETE(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     if (await isStaffTotpRequired(tenant.id)) {
-      return NextResponse.json({ error: "Your organisation requires two-factor authentication. It cannot be turned off." }, { status: 403 })
+      return refuse(staff, tenant.id, "disable", "policy_requires_totp", 403, "Your organisation requires two-factor authentication. It cannot be turned off.")
     }
 
     const { code } = await bodyOf(req)
@@ -139,9 +149,8 @@ export async function DELETE(req: NextRequest) {
     if (!user || (!user.totpEnabled && !user.totpSecret)) return NextResponse.json({ ok: true })
 
     const matched = user.totpSecret ? verifyTotpCode(code.trim(), user.totpSecret) : null
-    if (matched === null || !(await claimTotpCounter(staff.id, matched))) {
-      return NextResponse.json({ error: "Invalid verification code" }, { status: 422 })
-    }
+    if (matched === null) return refuse(staff, tenant.id, "disable", "wrong_code", 422, "Invalid verification code")
+    if (!(await claimTotpCounter(staff.id, matched))) return refuse(staff, tenant.id, "disable", "replayed_code", 422, "Invalid verification code")
 
     await prisma.$transaction(async (tx) => {
       // The bump ends the sessions a code vouched for (totpVerified), this one included.

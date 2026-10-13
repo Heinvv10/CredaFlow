@@ -62,10 +62,58 @@ describe("forced TOTP enrolment (session.user.totpEnrolmentRequired)", () => {
   })
 
   it("keeps the sign-in and sign-out routes open", async () => {
-    for (const pathname of ["/api/auth/signout", "/api/auth/session", "/login"]) {
-      const res = await visit(pathname, FORCED, { method: "POST" })
+    for (const [pathname, method] of [["/api/auth/signout", "POST"], ["/api/auth/session", "GET"], ["/login", "GET"]]) {
+      const res = await visit(pathname, FORCED, { method })
       expect(res.status, pathname).not.toBe(403)
     }
+  })
+
+  // Next 16 progressive enhancement: a form bound to a server action posts to
+  // the PAGE url with a `$ACTION_ID_<id>` field and no `next-action` header,
+  // as multipart or urlencoded. The refusal keys off the method, not the body.
+  describe("form posts to a page (progressive-enhancement server actions)", () => {
+    const multipart = () => {
+      const form = new FormData()
+      form.set("$ACTION_ID_abc123", "")
+      form.set("file", new Blob(["synthetic,csv"]), "statement.csv")
+      return { method: "POST", body: form }
+    }
+    const urlencoded = () => ({
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "$ACTION_ID_abc123=&amount=1",
+    })
+    const PAGES_TO_TRY = ["/settings/security", "/payments/bank-reconciliation", "/dashboard", "/", "/site/apply"]
+
+    it.each(PAGES_TO_TRY)("refuses a multipart $ACTION_ID post to %s", async (pathname) => {
+      const res = await visit(pathname, FORCED, multipart())
+      expect(res.status).toBe(403)
+      expect(res.headers.get("x-middleware-next")).toBeNull()
+    })
+
+    it.each(PAGES_TO_TRY)("refuses a urlencoded $ACTION_ID post to %s", async (pathname) => {
+      expect((await visit(pathname, FORCED, urlencoded())).status).toBe(403)
+    })
+
+    it.each(["POST", "PUT", "PATCH", "DELETE", "OPTIONS"])("refuses a bare %s to the enrolment page and to another page", async (method) => {
+      for (const pathname of ["/settings/security", "/loans"]) {
+        expect((await visit(pathname, FORCED, { method })).status, `${method} ${pathname}`).toBe(403)
+      }
+    })
+
+    it("still lets a held user read the enrolment page (GET and HEAD)", async () => {
+      for (const method of ["GET", "HEAD"]) {
+        expect((await visit("/settings/security", FORCED, { method })).headers.get("x-middleware-next"), method).toBe("1")
+      }
+    })
+
+    it("holds a staff token with no claim the same way", async () => {
+      expect((await visit("/payments/bank-reconciliation", LEGACY, multipart())).status).toBe(403)
+    })
+
+    it("does not touch a form post from a session that is not held", async () => {
+      expect((await visit("/payments/bank-reconciliation", FREE, multipart())).headers.get("x-middleware-next")).toBe("1")
+    })
   })
 
   it("does not touch a user the lender does not force", async () => {
@@ -108,6 +156,18 @@ describe("forced TOTP enrolment (session.user.totpEnrolmentRequired)", () => {
   ])("holds a forced user at the look-alike API %s", async (pathname) => {
     const res = await visit(pathname, FORCED, { method: "POST" })
     expect(res.headers.get("x-middleware-next"), pathname).not.toBe("1")
+  })
+
+  it("does not touch a CLIENT token that carries no claim (client tokens never do)", async () => {
+    const noClaim = { user: { id: "client-1", role: "CLIENT", tenantId: "tenant-1" } }
+    expect((await visit("/api/portal/loans", noClaim)).headers.get("x-middleware-next")).toBe("1")
+    expect((await visit("/portal", noClaim, { method: "POST" })).status).not.toBe(403)
+  })
+
+  it("refuses a request carrying the next-action header whatever its method", async () => {
+    for (const pathname of ["/settings/security", "/dashboard"]) {
+      expect((await visit(pathname, FORCED, { method: "GET", headers: { "next-action": "abc123" } })).status, pathname).toBe(403)
+    }
   })
 
   it("does not touch a CLIENT session", async () => {

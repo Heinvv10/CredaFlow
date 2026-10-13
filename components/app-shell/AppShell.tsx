@@ -15,12 +15,10 @@ type AppShellProps = {
   featureCrm?: boolean
   featureIms?: boolean
   featureBureauSubmission?: boolean
-  /** The session is held at TOTP enrolment: the sidebar offers only that page. */
-  enrolmentOnly?: boolean
   children: React.ReactNode
 }
 
-export function AppShell({ user, badges, featureCrm, featureIms, featureBureauSubmission, enrolmentOnly, children }: AppShellProps) {
+export function AppShell({ user, badges, featureCrm, featureIms, featureBureauSubmission, children }: AppShellProps) {
   return (
     <div className="min-h-screen cf-app-surface">
       <AppTopbar user={user} />
@@ -30,7 +28,6 @@ export function AppShell({ user, badges, featureCrm, featureIms, featureBureauSu
         featureIms={featureIms}
         featureBureauSubmission={featureBureauSubmission}
         role={user.role}
-        enrolmentOnly={enrolmentOnly}
       />
       <main className="min-h-screen overflow-x-hidden pt-14 lg:pl-[248px]">
         {children}

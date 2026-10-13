@@ -86,6 +86,8 @@ suite("staff TOTP routes (real database)", () => {
       const res = await DELETE(request("DELETE", { code: nextCode() }))
       expect(res.status).toBe(403)
       expect(await stored(ids.officer)).toMatchObject({ totpEnabled: true, totpSecret: secret })
+      const policyRefusal = await db.auditLog.findMany({ where: { tenantId, action: "TOTP_CHANGE_REFUSED", userId: ids.officer } })
+      expect(policyRefusal.map((r) => r.newValue)).toEqual([{ refused: true, reason: "policy_requires_totp", httpStatus: 403, operation: "disable" }])
       await setPolicy(false)
     })
 
@@ -96,6 +98,9 @@ suite("staff TOTP routes (real database)", () => {
       expect((await DELETE(request("DELETE", { code: wrong }))).status).toBe(422)
       expect(await stored(ids.officer)).toMatchObject({ totpEnabled: true, totpSecret: secret })
       expect(await db.auditLog.count({ where: { tenantId, action: "TOTP_DISABLED" } })).toBe(0)
+      // The wrong code is on record: who, what, why; never the code.
+      const refused = await db.auditLog.findMany({ where: { tenantId, action: "TOTP_CHANGE_REFUSED", userId: ids.officer } })
+      expect(refused.map((r) => r.newValue)).toContainEqual({ refused: true, reason: "wrong_code", httpStatus: 422, operation: "disable" })
     })
 
     it("is refused for a code the account already used (replay), and allowed for a newer one", async () => {

@@ -52,6 +52,16 @@ describe("applyStaffTotpRequired", () => {
     expect(calls.updateMany).not.toHaveBeenCalled()
   })
 
+  it("takes the tenant's advisory lock before it reads, so a first switch (no row to lock) cannot race", async () => {
+    const { tx } = fakeTx({ requireStaffTotp: true })
+    const order: string[] = []
+    ;(tx.$executeRaw as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (strings: TemplateStringsArray) => { order.push(strings.join("?")); return 1 })
+    ;(tx.tenantConfig.findUnique as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => { order.push("read"); return { requireStaffTotp: true } })
+    await applyStaffTotpRequired(tx, { tenantId: "t1", actor, required: false })
+    expect(order[0]).toContain("pg_advisory_xact_lock")
+    expect(order.indexOf("read")).toBeGreaterThan(0)
+  })
+
   it("ends the sessions of this tenant's unenrolled staff, but not the actor's", async () => {
     const { tx, calls } = fakeTx({ requireStaffTotp: false })
     await applyStaffTotpRequired(tx, { tenantId: "t1", actor, required: true })

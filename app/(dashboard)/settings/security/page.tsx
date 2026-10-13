@@ -21,7 +21,7 @@ export default async function SecuritySettingsPage() {
       <Header
         title="Settings"
         subtitle="Security & Two-Factor Authentication"
-        breadcrumbs={[
+        breadcrumbs={session.user.totpEnrolmentRequired === true ? undefined : [
           { label: "Settings", href: "/settings" },
           { label: "Security" },
         ]}

@@ -59,10 +59,13 @@ obligations, not style:
   page (`proxy.ts`, `lib/auth-guards.ts`), and nobody can turn their own 2FA
   off. Off, a code is demanded only of users who enrolled. Only a SUPER_ADMIN
   in a TOTP-verified session changes it, audited. Turning your own 2FA off
-  always needs a current code. Don't add staff-write paths that skip 2FA. See
-  `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic
-  demo stacks: `scripts/demo/restore.sh` turns staff TOTP off when the demo
-  app runs with `DEMO_CLEAR_STAFF_TOTP=true`. Never set it on a real lender.
+  always needs a current code. A SUPER_ADMIN cannot be reset by another
+  SUPER_ADMIN: recovery of a locked-out SUPER_ADMIN is the operator
+  break-glass CLI. Don't add staff-write paths that skip 2FA. See
+  `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic demo
+  stacks: `scripts/demo/restore.sh` turns staff TOTP off, and the lender's 2FA
+  setting off, when the demo app runs with `DEMO_CLEAR_STAFF_TOTP=true` (and
+  again after a restore). Never set it on a real lender.
 - **Document access is logged.** `ClientDocument` access goes through
   `lib/document-auth.ts`, which writes a `DocumentAccessLog` row — POPIA
   compliance depends on it.

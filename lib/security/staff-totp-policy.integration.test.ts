@@ -106,6 +106,28 @@ suite("staff two-factor policy (real database)", () => {
     expect(await db.auditLog.count({ where: { tenantId, action: "STAFF_TOTP_POLICY_UPDATED" } })).toBe(2)
   })
 
+  // With no config row there is nothing to lock: two first switches would both
+  // read "on", both upsert, and both audit "on -> off" (or one fail on the
+  // tenantId unique key and answer 500). They must serialise instead.
+  it("serialises two concurrent first switches for a tenant with no config row: no error, one change", async () => {
+    const raceTenant = `tenant_totp_policy_race_${token}`
+    await db.tenant.create({ data: { id: raceTenant, slug: `totp-policy-race-${token}`, name: "Totp Policy Race Integration Test" } })
+    try {
+      const flip = () => prisma.$transaction((tx) =>
+        applyStaffTotpRequired(tx, { tenantId: raceTenant, actor: { id: ids.actor, email: "a@test.invalid" }, required: false }))
+      const results = await Promise.allSettled([flip(), flip(), flip()])
+      expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled", "fulfilled"])
+      const changed = results.map((r) => (r as PromiseFulfilledResult<{ changed: boolean }>).value.changed)
+      expect(changed.filter(Boolean)).toHaveLength(1)
+      expect(await db.auditLog.count({ where: { tenantId: raceTenant, action: "STAFF_TOTP_POLICY_UPDATED" } })).toBe(1)
+      expect(await isStaffTotpRequired(raceTenant)).toBe(false)
+    } finally {
+      await db.auditLog.deleteMany({ where: { tenantId: raceTenant } })
+      await db.tenantConfig.deleteMany({ where: { tenantId: raceTenant } })
+      await db.tenant.deleteMany({ where: { id: raceTenant } })
+    }
+  })
+
   it("creates the config row when the tenant has none", async () => {
     const result = await prisma.$transaction((tx) =>
       applyStaffTotpRequired(tx, { tenantId: bareTenantId, actor: { id: ids.actor, email: "a@test.invalid" }, required: false }))
