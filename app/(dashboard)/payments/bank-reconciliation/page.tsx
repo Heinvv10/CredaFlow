@@ -1,5 +1,5 @@
 import { Header } from "@/components/layout/Header"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import { BankReconciliationClient } from "./BankReconciliationClient"
 import { StatementUpload } from "./StatementUpload"
@@ -11,7 +11,7 @@ export default async function BankReconciliationPage() {
   // the record_payment permission the server actions enforce (lib/auth-guards.ts).
   await requireMinRole("CREDIT_OFFICER")
 
-  const { txns, candidateLoans } = await getReconciliationData(await getDefaultTenantId())
+  const { txns, candidateLoans } = await getReconciliationData(await getStaffTenantId())
 
   return (
     <>

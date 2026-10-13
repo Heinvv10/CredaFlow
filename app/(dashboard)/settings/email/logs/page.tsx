@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import Link from "next/link"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -31,9 +31,9 @@ export default async function EmailLogsPage() {
   // customer addresses and Section 129 subjects, so it matches.
   await requireMinRole("ADMIN")
 
-  // One shared resolver — a local header read with no status check could show
-  // another tenant's email log.
-  const tenantId = await getResolvedTenantId()
+  // The session's tenant, not the request host's: staff of one lender on
+  // another lender's host must not read that lender's email log.
+  const tenantId = await getStaffTenantId()
   const logs = await prisma.emailLog.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },

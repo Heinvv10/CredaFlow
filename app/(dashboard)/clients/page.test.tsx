@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 
 const { clientFindMany, clientsProps } = vi.hoisted(() => ({ clientFindMany: vi.fn(), clientsProps: vi.fn() }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "t1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findMany: clientFindMany },

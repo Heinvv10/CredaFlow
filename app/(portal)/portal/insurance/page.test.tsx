@@ -3,14 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
-  getDefaultTenantId: vi.fn(),
+  getPortalTenantId: vi.fn(),
   clientFindFirst: vi.fn(),
   policyFindMany: vi.fn(),
   redirect: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: mocks.getDefaultTenantId }))
+vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: mocks.getPortalTenantId }))
 vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: async () => ({ tradingName: "Acme Lending" }) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -53,7 +53,7 @@ describe("portal insurance list page", () => {
     mocks.redirect.mockImplementation((to: string) => {
       throw new Error(`NEXT_REDIRECT:${to}`)
     })
-    mocks.getDefaultTenantId.mockResolvedValue("tenant-1")
+    mocks.getPortalTenantId.mockResolvedValue("tenant-1")
     mocks.clientFindFirst.mockResolvedValue({ id: "client-1" })
     mocks.policyFindMany.mockResolvedValue([BASE_POLICY])
   })

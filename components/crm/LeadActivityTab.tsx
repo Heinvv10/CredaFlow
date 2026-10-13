@@ -31,10 +31,13 @@ function matchesChip(entry: LeadTimelineEntry, chip: ChipKey): boolean {
 export function LeadActivityTab({
   activities,
   commsMessages,
+  canPin,
   onChanged,
 }: {
   activities: ActivityInput[]
   commsMessages: TimelineMessageInput[]
+  /** CREDIT_OFFICER and above — below it the pin control is not offered. */
+  canPin: boolean
   onChanged: () => void
 }) {
   const [chip, setChip] = useState<ChipKey>("all")
@@ -71,7 +74,7 @@ export function LeadActivityTab({
     entry.kind === "activity" ? (
       <div key={`a-${entry.id}`} className="group relative">
         <ActivityRow entry={entry} />
-        <button
+        {canPin && <button
           type="button"
           onClick={() => void togglePin(entry.id, !pinnedById.get(entry.id))}
           disabled={busyId !== null}
@@ -80,7 +83,7 @@ export function LeadActivityTab({
           className="absolute right-2 top-2 rounded p-1 text-gray-300 opacity-0 transition-opacity hover:bg-gray-100 hover:text-amber-600 focus-visible:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed"
         >
           {pinnedById.get(entry.id) ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-        </button>
+        </button>}
       </div>
     ) : (
       <MessageRow key={`m-${entry.id}`} entry={entry} />

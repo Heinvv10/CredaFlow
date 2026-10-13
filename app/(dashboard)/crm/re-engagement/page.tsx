@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { RefreshCw, Phone, Mail } from "lucide-react"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 
 const LOST_REASON_LABELS: Record<string, string> = {
   TOO_EXPENSIVE: "Too Expensive",
@@ -46,7 +46,7 @@ function formatRand(cents: number | null) {
 }
 
 export default async function ReEngagementPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const leads = await getReEngagementLeads(tenantId)
 
   return (

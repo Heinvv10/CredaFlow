@@ -3,7 +3,7 @@ import { auditDocumentAccessRefusal } from "@/lib/audit-refusals"
 import { prisma } from "@/lib/prisma"
 import { deleteFile } from "@/lib/storage"
 import { getDocumentCaller } from "@/lib/document-auth"
-import { withTenantContext } from "@/lib/tenant"
+import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { AuditAction } from "@/lib/audit"
 import {
@@ -32,7 +32,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  return withTenantContext(req, async (tenant) => {
+  return withTenantContextLoggingRefusal(req, { documentId: id, caller }, async (tenant) => {
     try {
       const doc = await prisma.clientDocument.findFirst({
         where: { id, tenantId: tenant.id },
@@ -100,7 +100,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     )
   }
 
-  return withTenantContext(req, async (tenant) => {
+  return withTenantContextLoggingRefusal(req, { documentId: id, caller }, async (tenant) => {
     try {
       const doc = await prisma.clientDocument.findFirst({
         where: { id, tenantId: tenant.id },

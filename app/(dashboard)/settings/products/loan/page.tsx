@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { formatZAR } from "@/lib/utils"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 const TYPE_LABELS: Record<string, string> = { MICRO: "Micro", PERSONAL: "Personal", PO_FUNDING: "PO Funding" }
@@ -14,7 +14,7 @@ export default async function LoanProductsPage() {
   // low-privilege role (e.g. COLLECTIONS_AGENT) sees interest-rate edit buttons
   // it can't action and product config it shouldn't.
   await requireMinRole("ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const products = await prisma.loanProduct.findMany({ where: { tenantId }, orderBy: { name: "asc" } })
 
   return (

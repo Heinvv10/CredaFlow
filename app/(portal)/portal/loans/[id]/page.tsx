@@ -6,7 +6,7 @@ import { formatZAR, formatDate } from "@/lib/utils"
 import Link from "next/link"
 import { Download, CreditCard } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
 import { formatStatusLabel } from "@/lib/status-style"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
@@ -18,7 +18,7 @@ interface PageProps {
 }
 
 async function getPortalLoan(loanId: string, email: string) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({ where: { email, tenantId } })
   if (!client) return null

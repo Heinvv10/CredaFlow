@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
 import type { UserRole } from "@prisma/client"
 
 const STAFF_ROLES: UserRole[] = [
@@ -38,7 +37,10 @@ export async function getDocumentCaller(): Promise<CallerInfo | null> {
   // Check if this is a portal client. Document routes call this before the
   // request tenant wrapper is established, so include an explicit tenantId to
   // satisfy the tenant-scope guard instead of throwing before the upload starts.
-  const tenantId = await getDefaultTenantId()
+  // The tenant is the one the portal session was issued for (the client's own
+  // row), never the deployment default. No tenant on the session: no caller.
+  const tenantId = session.user.tenantId
+  if (!tenantId) return null
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },
     select: { id: true, email: true },

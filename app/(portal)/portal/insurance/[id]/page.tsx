@@ -11,7 +11,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { formatStatusLabel, getStatusTone } from "@/lib/status-style"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 
 export default async function PortalPolicyDetailPage({
@@ -24,7 +24,7 @@ export default async function PortalPolicyDetailPage({
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
   const { tradingName } = await getLenderIdentity(tenantId)
 
   const client = await prisma.client.findFirst({

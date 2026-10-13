@@ -5,7 +5,7 @@ import { Header } from "@/components/layout/Header"
 import Link from "next/link"
 import { PaymentsClient } from "@/components/payments/PaymentsClient"
 import { PeriodPills } from "@/components/payments/PeriodPills"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   type Period,
   periodFilter,
@@ -18,7 +18,7 @@ import {
 const ROW_CAP = 200
 
 async function getData(period: Period, now: Date) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const receivedAt = periodFilter(period)
   const preceding = precedingPeriod(period, now)
 
