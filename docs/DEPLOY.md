@@ -174,6 +174,8 @@ scripts/lender/prisma.sh /srv/lenders/<slug> migrate resolve --applied <migratio
 scripts/lender/prisma.sh /srv/lenders/<slug> migrate deploy
 ```
 
+`migrate resolve --rolled-back` leaves the row with `finished_at` NULL and sets `rolled_back_at`; backup and restore treat that as resolved. A backup is **refused** while a migration is failed and unresolved (restore would reject it), and a restore with no `.counts` sidecar is refused for `--over-live` without `--accept-count-drift`.
+
 Do not hand-edit the schema of a lender database unless you can say exactly what the migration
 would have done; the safer path is to restore the pre-migration backup (below) and deploy the
 fixed image: `restore.sh <dir> backups/<slug>-<UTC>-pre-<tag>.dump.gpg --over-live --confirm <slug>`.
@@ -238,7 +240,10 @@ throttle. `admin.sh` fixes the tenant to the lender's own: a `--tenant` argument
 ## One lock per lender
 
 `provision-lender.sh`, `deploy.sh`, `backup.sh` and `restore.sh` share `state/lender.lock`
-(`flock`). A second one waits up to `LENDER_LOCK_WAIT` seconds (default 600), then stops with
+(`flock`), taken after a host-wide lock per compose project (`$XDG_RUNTIME_DIR/credaflow-lender-locks-<uid>/<project>.lock`, else `/tmp`), which
+provision holds from the project-collision check until its `up`, so two directories (or a symlink and its target) racing for
+the same slug cannot both pass the check. The lender directory is canonicalised (`pwd -P`) everywhere. A script that
+holds the lock passes the open descriptor to the scripts it calls; nothing in the environment can claim the lock. A second one waits up to `LENDER_LOCK_WAIT` seconds (default 600), then stops with
 a message, so a nightly backup rides out a deploy and two deploys never interleave. They call
 each other (deploy takes its pre-migration backup) without deadlocking.
 
