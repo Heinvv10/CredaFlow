@@ -4,6 +4,8 @@ import { PortalShell } from "@/components/app-shell/PortalShell"
 import { TenantThemeProvider } from "@/components/TenantThemeProvider"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { authorisedEntityIdsForClient } from "@/lib/asset-finance/portal-access"
+import { loadPortalSigners } from "@/lib/asset-finance/signing-view"
+import { portalBusinessLinkVisible } from "@/lib/asset-finance/portal-navigation"
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await auth()
@@ -16,13 +18,17 @@ export default async function PortalLayout({ children }: { children: React.React
 
   const userName = session.user.name || session.user.email || ""
   const tenantConfig = session.user.tenantId ? await getTenantConfig(session.user.tenantId) : null
-  // The Business link shows only for a client who may act for an entity; the
-  // pages and API enforce the same rule on every request.
+  // Sureties also need the Business link to reach their signing tasks. The
+  // pages and API still enforce access to each entity and signer record.
   const tenantId = session.user.tenantId
-  const showBusiness =
-    tenantId && resolveFeatureFlags(tenantConfig).featureAssetFinance
-      ? (await authorisedEntityIdsForClient(tenantId, session.user.id)).length > 0
-      : false
+  const featureEnabled = resolveFeatureFlags(tenantConfig).featureAssetFinance
+  const [authorisedEntityIds, signers] = tenantId && featureEnabled
+    ? await Promise.all([
+        authorisedEntityIdsForClient(tenantId, session.user.id),
+        loadPortalSigners(tenantId, session.user.id),
+      ])
+    : [[], []]
+  const showBusiness = portalBusinessLinkVisible(featureEnabled, authorisedEntityIds.length, signers.length)
 
   return (
     <TenantThemeProvider config={tenantConfig}>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { CLOSED_DEAL_STATUSES } from "@/lib/asset-finance/deal-create"
+import { ASSET_FINANCE_PRODUCT_WHERE } from "@/lib/asset-finance/deal-products"
 import { DealCreateForm, type DealFormOptions } from "./DealCreateForm"
 
 export default async function NewDealPage() {
@@ -19,11 +20,10 @@ export default async function NewDealPage() {
       select: { id: true, year: true, make: true, model: true, serialNumber: true, cashPriceExclVatCents: true, vatCents: true },
     }),
     prisma.supplier.findMany({ where: { tenantId, active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    // Asset-finance products only: there is no product-kind flag, so a product
-    // qualifies when its NON_NCA arrears terms are configured (a default-interest
-    // margin), which booking copies onto the loan.
+    // There is no product-kind flag yet. Any active product can be selected;
+    // a null NON_NCA margin deliberately means that default interest is off.
     prisma.loanProduct.findMany({
-      where: { tenantId, active: true, nonNcaDefaultInterestMargin: { not: null } },
+      where: { tenantId, ...ASSET_FINANCE_PRODUCT_WHERE },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

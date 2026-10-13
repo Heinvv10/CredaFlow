@@ -44,7 +44,9 @@ describe("queueRepriceNotice recipients", () => {
   it("distinguishes the rate effective date from the first changed payment", async () => {
     const createMany = vi.fn(async () => ({ count: 1 }))
     const db = {
-      entityRelationship: { findMany: vi.fn(async () => [{ clientId: "client-1" }]) },
+      entityRelationship: { findMany: vi.fn(async () => [{
+        client: { id: "client-1", firstName: "TEST", lastName: "CLIENT", email: "test@client.invalid", whatsapp: null },
+      }]) },
       user: { findMany: vi.fn(async () => [{ id: "admin-1" }]) },
       notification: { createMany },
     } as unknown as NoticeDb

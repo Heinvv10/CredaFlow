@@ -12,6 +12,7 @@ import {
 import { documentBytesMatchSha256, sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { ENTITY_DOCUMENT_VIEW_SELECT, lockBusinessEntity, toEntityDocumentView, type EntityDocumentView } from "./entity-documents"
+import { entityDocumentDisposition as contentDisposition } from "./content-disposition"
 
 // Upload and download of EntityDocument bytes, shared by the staff and portal
 // routes. Uploads pass the same MIME allow-list, size cap and magic-byte check
@@ -55,6 +56,10 @@ export async function parseEntityDocumentForm(
 export function safeFileName(name: string): string {
   const cleaned = name.replace(/[\u0000-\u001f\u007f"\\/]/g, "_").trim().slice(0, 200)
   return cleaned.length > 0 ? cleaned : "document"
+}
+
+export function entityDocumentDisposition(disposition: "inline" | "attachment", name: string): string {
+  return contentDisposition(disposition, name, safeFileName)
 }
 
 type EntityDocumentTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -175,12 +180,11 @@ export async function serveEntityDocument(
   if (!documentBytesMatchSha256(buffer, doc.contentSha256)) {
     return NextResponse.json({ error: "The document failed its integrity check and cannot be served" }, { status: 422 })
   }
-  const fileName = safeFileName(doc.fileName)
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
       "Content-Type": doc.mimeType || "application/octet-stream",
-      "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${fileName}"`,
+      "Content-Disposition": entityDocumentDisposition(isDownload ? "attachment" : "inline", doc.fileName),
       "Content-Length": String(buffer.length),
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
