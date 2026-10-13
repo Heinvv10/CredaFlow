@@ -158,7 +158,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     orderBy: { installmentNo: "asc" },
     select: {
       id: true, installmentNo: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true,
-      creditLifePremiumDue: true, totalDue: true, totalPaid: true, status: true,
+      creditLifePremiumDue: true, totalDue: true, totalPaid: true, status: true, assetFinanceOpeningBalanceCents: true,
     },
   })
   const balloonCents = loan.balloonAmount ?? 0
@@ -206,7 +206,12 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     const after = toScheduleRecord(row)
     const updated = await tx.repaymentSchedule.updateMany({
       where: { id: before.id, tenantId, loanId, status: "PENDING", totalPaid: 0 },
-      data: { principalDue: after.principalDue, interestDue: after.interestDue, totalDue: after.totalDue },
+      data: {
+        principalDue: after.principalDue,
+        interestDue: after.interestDue,
+        totalDue: after.totalDue,
+        assetFinanceOpeningBalanceCents: row.openingBalanceCents,
+      },
     })
     if (updated.count !== 1) throw new Error(`reprice: schedule row ${before.installmentNo} of loan ${loanId} changed underneath the repricing`)
     change.principal += after.principalDue - before.principalDue

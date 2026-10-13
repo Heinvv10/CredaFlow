@@ -171,7 +171,7 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
   })
   await db.repaymentSchedule.createMany({
     data: records.map((record, i) => ({
-      ...record, tenantId, loanId: loan.id,
+      ...record, tenantId, loanId: loan.id, assetFinanceOpeningBalanceCents: booked.rows[i].openingBalanceCents,
       ...(settled(i) ? { status: "PAID" as const, totalPaid: record.totalDue, paidAt: record.dueDate } : {}),
     })),
   })

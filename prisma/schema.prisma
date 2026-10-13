@@ -1608,6 +1608,9 @@ model RepaymentSchedule {
   dueDate       DateTime
   principalDue  Int
   interestDue   Int
+  // Opening capital at the last asset-finance solve. Preserved when a paid
+  // row is reopened, so a later reprice can reconstruct its historical accrual.
+  assetFinanceOpeningBalanceCents Int?
   creditLifePremiumDue Int      @default(0)
   feesDue       Int
   totalDue      Int
