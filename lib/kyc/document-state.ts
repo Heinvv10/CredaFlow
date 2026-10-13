@@ -1,5 +1,7 @@
 import {
+  ADVERSE_FACE_RESULT_CONDITIONS,
   assessBiometricEvidence,
+  matchesAdverseFaceResult,
   type BiometricDocumentEvidence,
   type BiometricEvidenceAssessment,
   type BiometricEvidenceFailureReason,
@@ -189,6 +191,10 @@ export interface CompositeKycReader {
     }) => Promise<CoreKycDocumentRow[]>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof ID_PORTRAIT_REFUSAL_CONDITIONS
+        select: { biometricResult: true }
+      }) => Promise<Array<{ biometricResult: unknown }>>) &
+      ((args: {
+        where: { tenantId: string; clientId: string } & typeof ADVERSE_FACE_RESULT_CONDITIONS
         select: { biometricResult: true }
       }) => Promise<Array<{ biometricResult: unknown }>>) &
       ((args: {
@@ -457,7 +463,7 @@ export async function readCompositeKycState(
   /** The ID copy the latest selfie matched, when it awaits staff verification. */
   awaitingIdDocumentId: string | null
 }> {
-  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals] = await Promise.all([
+  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals, adverseAttempts] = await Promise.all([
     reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
@@ -536,6 +542,16 @@ export async function readCompositeKycState(
       },
       select: { biometricResult: true },
     }),
+    // Every attempt, deleted or not, that returned an adverse face result:
+    // one closes the awaiting-ID-verification state, whatever came after.
+    reader.clientDocument.findMany({
+      where: {
+        tenantId: args.tenantId,
+        clientId: args.clientId,
+        ...ADVERSE_FACE_RESULT_CONDITIONS,
+      },
+      select: { biometricResult: true },
+    }),
   ])
   // Deterministic, and identical to the SQL predicate's row choice: verified
   // ID_COPY rows only (the query already excludes deleted), newest first with
@@ -569,6 +585,7 @@ export async function readCompositeKycState(
         subject: args.subject,
         idDocument,
         idDocumentCopies,
+        priorAdverseFaceResult: adverseAttempts.some(matchesAdverseFaceResult),
       })
     : { ok: false as const, reason: "biometric_evidence_missing" as const }
   const manualException = currentManualKycException(exceptionRecord, {

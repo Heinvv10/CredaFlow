@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
+  ADVERSE_FACE_RESULT_REASONS,
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
+  matchesAdverseFaceResult,
   biometricSubjectFingerprint,
   parseBiometricEvidenceFailureReason,
   type BiometricDocumentEvidence,
@@ -443,11 +445,11 @@ describe("assessBiometricEvidence", () => {
 
     it("marks it awaiting ID verification when the client has no verified ID copy", () => {
       expect(assessBiometricEvidence(boundToB, {
-        subject, idDocument: null, idDocumentCopies: [currentB],
+        subject, idDocument: null, priorAdverseFaceResult: false, idDocumentCopies: [currentB],
       })).toEqual(awaiting)
       // An older copy, unverified too, changes nothing: B is the current one.
       expect(assessBiometricEvidence(boundToB, {
-        subject, idDocument: null,
+        subject, idDocument: null, priorAdverseFaceResult: false,
         idDocumentCopies: [{ ...currentB, id: "id-doc-older", contentSha256: "c".repeat(64), createdAt: verifiedA.createdAt }, currentB],
       })).toEqual(awaiting)
     })
@@ -457,6 +459,16 @@ describe("assessBiometricEvidence", () => {
         subject,
         idDocument: { id: verifiedA.id, contentSha256: verifiedA.contentSha256 },
         idDocumentCopies: [verifiedA, currentB],
+        priorAdverseFaceResult: false,
+      })).toEqual(failed)
+    })
+
+    it.each([
+      ["an earlier attempt returned an adverse face result", true],
+      ["the caller did not read the earlier attempts", undefined],
+    ] as const)("keeps it a failed attempt when %s", (_label, priorAdverseFaceResult) => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject, idDocument: null, idDocumentCopies: [currentB], priorAdverseFaceResult,
       })).toEqual(failed)
     })
 
@@ -471,7 +483,7 @@ describe("assessBiometricEvidence", () => {
       ["the caller did not read the copies", null],
     ] as const)("keeps it a failed attempt when %s", (_label, copies) => {
       expect(assessBiometricEvidence(boundToB, {
-        subject, idDocument: null, idDocumentCopies: copies,
+        subject, idDocument: null, priorAdverseFaceResult: false, idDocumentCopies: copies,
       })).toEqual(failed)
     })
 
@@ -479,7 +491,7 @@ describe("assessBiometricEvidence", () => {
       expect(assessBiometricEvidence({
         ...boundToB,
         biometricResult: { ...boundProviderResult, idDocumentId: currentB.id, idDocumentSha256: null },
-      }, { subject, idDocument: null, idDocumentCopies: [{ ...currentB, contentSha256: null }] })).toEqual(failed)
+      }, { subject, idDocument: null, priorAdverseFaceResult: false, idDocumentCopies: [{ ...currentB, contentSha256: null }] })).toEqual(failed)
     })
 
     it("keeps it a failed attempt when the match names another client's copy", () => {
@@ -487,18 +499,18 @@ describe("assessBiometricEvidence", () => {
       expect(assessBiometricEvidence({
         ...boundToB,
         biometricResult: { ...boundProviderResult, idDocumentId: "other-client-id-copy", idDocumentSha256: currentB.contentSha256 },
-      }, { subject, idDocument: null, idDocumentCopies: [currentB] })).toEqual(failed)
+      }, { subject, idDocument: null, priorAdverseFaceResult: false, idDocumentCopies: [currentB] })).toEqual(failed)
     })
 
     it("names the other refusal when B's match also fails a check", () => {
       expect(assessBiometricEvidence({ ...boundToB, biometricMatchScore: 69 }, {
-        subject, idDocument: null, idDocumentCopies: [currentB],
+        subject, idDocument: null, priorAdverseFaceResult: false, idDocumentCopies: [currentB],
       })).toEqual({ ok: false, reason: "match_score_below_threshold" })
     })
 
     it("does not mark a fingerprint mismatch against B as awaiting", () => {
       expect(assessBiometricEvidence(boundToB, {
-        subject: { ...subject, lastName: "Changed" }, idDocument: null, idDocumentCopies: [currentB],
+        subject: { ...subject, lastName: "Changed" }, idDocument: null, priorAdverseFaceResult: false, idDocumentCopies: [currentB],
       })).toEqual(failed)
     })
 
@@ -577,5 +589,42 @@ describe("assessVlmBiometricExtraction", () => {
       ...passingExtractionResult,
       facesCount: { value: "1" },
     })).toEqual({ ok: false, reason: "face_count_invalid" })
+  })
+})
+
+describe("matchesAdverseFaceResult", () => {
+  it.each([
+    "match_score_below_threshold",
+    "provider_verification_failed",
+    "id_document_portrait_invalid",
+    "selfie_not_real_photograph",
+  ])("counts %s as an adverse face result", (reason) => {
+    expect(matchesAdverseFaceResult({ biometricResult: { biometricFailureReason: reason } })).toBe(true)
+  })
+
+  it.each([
+    // Capture or quality problems, not a verdict on whose face it is.
+    "face_not_detected",
+    "face_count_invalid",
+    "image_unusable",
+    "extraction_incomplete",
+    "subject_identity_changed",
+    null,
+  ])("does not count %s", (reason) => {
+    expect(matchesAdverseFaceResult({ biometricResult: { biometricFailureReason: reason } })).toBe(false)
+  })
+
+  it("does not count a result with no recorded reason", () => {
+    expect(matchesAdverseFaceResult({ biometricResult: null })).toBe(false)
+    expect(matchesAdverseFaceResult({ biometricResult: { ok: true } })).toBe(false)
+  })
+
+  it("is the predicate the where-shape names, reason for reason", () => {
+    expect([...ADVERSE_FACE_RESULT_REASONS].sort()).toEqual([
+      "id_document_portrait_invalid",
+      "match_score_below_threshold",
+      "provider_verification_failed",
+      "selfie_not_real_photograph",
+    ])
   })
 })

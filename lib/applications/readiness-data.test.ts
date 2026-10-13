@@ -15,6 +15,7 @@ import {
 } from "@/lib/kyc/document-state"
 import { disbursementApplicationFixture } from "@/lib/affordability/__fixtures__/approval-evidence"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "@/lib/kyc/face-model/evidence.test-helpers"
 import {
   IN_PERSON_KYC_VERIFICATION_KIND,
   IN_PERSON_KYC_VERIFICATION_VERSION,
@@ -74,6 +75,42 @@ const refusalOf = (idDocumentId: string, idDocumentSha256 = "a".repeat(64)) => (
 
 const ATTESTED_AT = new Date("2026-07-19T12:00:00.000Z")
 
+/** A selfie that passed against the client's ID copy `idDocumentId`. */
+function passedSelfie(idDocumentId: string, overrides: Partial<ReadinessSelfieRow> = {}): ReadinessSelfieRow {
+  return selfie({
+    id: "selfie-passed",
+    extractionStatus: "done",
+    extractionResult: {
+      faceDetected: { value: true }, facesCount: { value: 1 }, isLive: { value: true }, quality: { value: "good" },
+    },
+    validationScore: 90,
+    biometricMatchScore: 90,
+    biometricLiveness: 95,
+    biometricResult: {
+      ok: true, verified: true, matchScore: 90, livenessScore: 95,
+      provider: "vlm-face-match-v3", idPhotoKind: "photograph", idPhotoIsRealPhotograph: true,
+      idPhotoFaceDetected: true, selfieIsRealPhotograph: true, samePerson: "same", faceMatch: true,
+      matchConfidence: 0.9, livenessConfidence: 0.95, faceModel: PASSING_FACE_MODEL_EVIDENCE,
+      idDocumentId, idDocumentSha256: "a".repeat(64),
+      subjectFingerprint: biometricSubjectFingerprint(subject),
+    },
+    ...overrides,
+  })
+}
+
+/** The client's first ID copy, not yet verified. */
+const unverifiedFirstIdCopies = () => [
+  coreDocument({ docType: "ID_COPY", verified: false, verificationRejectedAt: null }),
+  ...allCoreDocuments().filter((document) => document.docType !== "ID_COPY"),
+]
+
+/** An earlier attempt whose face check came back adverse. */
+const mismatchedSelfie = (overrides: Partial<ReadinessSelfieRow> = {}) => selfie({
+  id: "selfie-mismatch", verified: false, biometricVerifiedAt: null, extractionStatus: "failed",
+  biometricResult: { biometricFailureReason: "provider_verification_failed", idDocumentId: "doc-ID-gone" },
+  ...overrides,
+})
+
 /** A newer ID copy a reviewer refused. */
 function rejectedIdCopy(): ReadinessCoreDocumentRow {
   return coreDocument({
@@ -129,11 +166,22 @@ function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKyc
         where: {
           docType: { in: string[] } | string
           biometricResult?: { path: string[]; equals: unknown }
+          deletedAt?: null
+          OR?: Array<{ biometricResult?: { path: string[]; equals: unknown } }>
         }
       }) => {
         const { docType, biometricResult } = args.where
         if (typeof docType === "string") {
           const mine = data.selfies.filter((row) => row.clientId === clientId)
+          if (!biometricResult && args.where.deletedAt === undefined) {
+            // The adverse-face-result read: deleted or not, any OR'd reason.
+            return mine.filter((row) => {
+              const result = row.biometricResult as Record<string, unknown> | null
+              return (args.where.OR ?? []).some((clause) =>
+                clause.biometricResult !== undefined
+                && result?.[clause.biometricResult.path[0]] === clause.biometricResult.equals)
+            })
+          }
           if (!biometricResult) {
             // The blocking-candidate read.
             return mine.filter(
@@ -284,6 +332,30 @@ describe("inMemoryKycReader", () => {
       }),
     },
     {
+      name: "a passed selfie against the client's first, unverified ID copy",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [passedSelfie(`doc-ID_COPY-${CLIENT_ID}`)],
+      }),
+    },
+    {
+      name: "the same, after a deleted earlier attempt with an adverse face result",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          mismatchedSelfie({ deletedAt: new Date("2026-07-19T08:30:00.000Z") }),
+        ],
+      }),
+    },
+    {
+      name: "the same, where only ANOTHER client had an adverse face result",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [passedSelfie(`doc-ID_COPY-${CLIENT_ID}`), mismatchedSelfie({ clientId: OTHER_CLIENT_ID })],
+      }),
+    },
+    {
       name: "a rejected core document",
       data: rows({
         coreDocuments: [
@@ -323,6 +395,7 @@ describe("inMemoryKycReader", () => {
         coreDocumentGaps: mine.coreDocumentGaps,
         biometricEvidence: mine.biometricEvidence,
         biometricAttemptFailed: mine.biometricAttemptFailed,
+        biometricAwaitingIdVerification: mine.biometricAwaitingIdVerification,
       }).toEqual({
         ok: reference.ok,
         okForOrigination: reference.okForOrigination,
@@ -330,9 +403,19 @@ describe("inMemoryKycReader", () => {
         coreDocumentGaps: reference.coreDocumentGaps,
         biometricEvidence: reference.biometricEvidence,
         biometricAttemptFailed: reference.biometricAttemptFailed,
+        biometricAwaitingIdVerification: reference.biometricAwaitingIdVerification,
       })
     },
   )
+
+  it.each([
+    ["a passed selfie against the client's first, unverified ID copy", true],
+    ["the same, after a deleted earlier attempt with an adverse face result", false],
+    ["the same, where only ANOTHER client had an adverse face result", true],
+  ])("awaits ID verification on the board for %s: %s", async (name, awaiting) => {
+    const { data } = cases.find((c) => c.name === name)!
+    expect((await readWith(inMemoryKycReader(CLIENT_ID, data))).biometricAwaitingIdVerification).toBe(awaiting)
+  })
 
   it.each([
     ["a passed selfie's copy was rejected", "an in-person attestation behind a passed selfie bound to a copy staff rejected", true],

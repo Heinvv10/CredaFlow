@@ -752,22 +752,31 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
     ...document, verificationRejectedAt: null, verificationRejectedById: null,
   }))
 
-  function reader(idCopies: readonly CoreKycDocumentRow[]): CompositeKycReader {
+  function reader(
+    idCopies: readonly CoreKycDocumentRow[],
+    earlierAttempts: readonly { biometricResult: unknown }[] = [],
+  ): CompositeKycReader {
     return {
       clientDocument: {
-        findMany: (async (args: { where: { docType?: unknown; OR?: unknown } }) => {
+        findMany: (async (args: { where: { docType?: unknown; OR?: unknown; deletedAt?: unknown } }) => {
           if (args.where.docType !== "SELFIE") return [...idCopies, ...otherCore]
-          // The passed selfie is a blocking candidate; nothing refused a portrait.
-          return args.where.OR
+          // The passed selfie is a blocking candidate; nothing refused a
+          // portrait. The adverse-result read has no deletedAt filter, and is
+          // handed every earlier attempt: the reader must apply the predicate.
+          if (!args.where.OR) return []
+          return args.where.deletedAt === null
             ? [{ extractionStatus: "done", biometricResult: passedAgainstB.biometricResult, createdAt: selfieCreatedAt }]
-            : []
+            : earlierAttempts
         }) as unknown as CompositeKycReader["clientDocument"]["findMany"],
         findFirst: async () => passedAgainstB,
       },
     }
   }
 
-  const read = (idCopies: readonly CoreKycDocumentRow[]) => readCompositeKycState(reader(idCopies), {
+  const read = (
+    idCopies: readonly CoreKycDocumentRow[],
+    earlierAttempts: readonly { biometricResult: unknown }[] = [],
+  ) => readCompositeKycState(reader(idCopies, earlierAttempts), {
     tenantId: "tenant-1",
     clientId: subject.id,
     subject,
@@ -809,6 +818,29 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
       biometricAwaitingIdVerification: false,
       awaitingIdDocumentId: null,
       state: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+  })
+
+  it("projects FAILED when an earlier attempt, against any copy, returned an adverse face result", async () => {
+    // A mismatch against B, then a pass against an uploaded C, is the
+    // substitute pattern; here the pass is against B itself.
+    expect(await read([currentB], [
+      { biometricResult: { biometricFailureReason: "face_not_detected" } },
+      { biometricResult: { biometricFailureReason: "provider_verification_failed", idDocumentId: "id-copy-gone" } },
+    ])).toEqual(expect.objectContaining({
+      biometricAttemptFailed: true,
+      biometricAwaitingIdVerification: false,
+      state: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+  })
+
+  it("still awaits ID verification after an earlier capture problem", async () => {
+    expect(await read([currentB], [
+      { biometricResult: { biometricFailureReason: "face_not_detected" } },
+      { biometricResult: passedAgainstB.biometricResult },
+    ])).toEqual(expect.objectContaining({
+      biometricAwaitingIdVerification: true,
+      state: expect.objectContaining({ kycStatus: "PENDING" }),
     }))
   })
 

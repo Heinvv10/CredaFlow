@@ -10,6 +10,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { matchesBlockingSelfie, matchesIdPortraitRefusal } from "@/lib/kyc/in-person-verification"
+import { matchesAdverseFaceResult } from "@/lib/kyc/biometric-evidence"
 import {
   computeReadiness,
   type ApplicationReadiness,
@@ -201,15 +202,17 @@ export function inMemoryKycReader(
 
   const reader: CompositeKycReader = {
     clientDocument: {
-      // Three call shapes: the core-document read (not SELFIE), the
-      // ID-portrait refusal read (SELFIE, filtered on biometricResult) and the
-      // blocking-selfie read (SELFIE, filtered on the blocking conditions).
-      findMany: (async (args: { where: { docType?: unknown; biometricResult?: unknown } }) => {
+      // Four call shapes: the core-document read (not SELFIE), the
+      // ID-portrait refusal read (SELFIE, filtered on biometricResult), the
+      // blocking-selfie read (SELFIE, non-deleted, the blocking conditions)
+      // and the adverse-face-result read (SELFIE, deleted or not).
+      findMany: (async (args: { where: { docType?: unknown; biometricResult?: unknown; deletedAt?: unknown } }) => {
         if (args.where.docType !== "SELFIE") return forClient(data.coreDocuments)
         const selfies = forClient(data.selfies)
-        return args.where.biometricResult
-          ? selfies.filter(matchesIdPortraitRefusal)
-          : selfies.filter(matchesBlockingSelfie)
+        if (args.where.biometricResult) return selfies.filter(matchesIdPortraitRefusal)
+        return args.where.deletedAt === null
+          ? selfies.filter(matchesBlockingSelfie)
+          : selfies.filter(matchesAdverseFaceResult)
       }) as CompositeKycReader["clientDocument"]["findMany"],
       // Only the latest-selfie read remains a findFirst; the rows arrive
       // pre-sorted by latestSelfieOrder().
