@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 /**
  * The people and entities of the asset-finance demo seed: four synthetic
  * clients, a trust and a company, and their relationships. Entities and
@@ -26,9 +27,17 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
     if (existing && existing.tenantId !== tenantId) {
       throw new Error(`Seed refused: client with ID number ${p.idNumber} belongs to another tenant (${existing.tenantId}). The demo seed never rewrites another tenant's row.`)
     }
+    const envPassword = p.portalPasswordEnv ? process.env[p.portalPasswordEnv] || undefined : undefined
     if (existing) {
+      if (envPassword) {
+        await prisma.client.update({ where: { id: existing.id }, data: { portalPassword: await bcrypt.hash(envPassword, 12) } })
+      }
       ids[p.key] = existing.id
       continue
+    }
+    const portalPassword = p.portalPasswordEnv ? envPassword ?? `Demo-${randomBytes(12).toString("base64url")}!` : null
+    if (portalPassword && !envPassword && process.env.SEED_PRINT_CREDENTIALS === "1") {
+      console.log(`Portal login ${personEmail(p)}: ${portalPassword}`)
     }
     const created = await prisma.client.create({
       data: {
@@ -36,7 +45,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
         dateOfBirth: new Date(p.dob), gender: p.gender, email: personEmail(p), phone: p.phone, whatsapp: p.phone,
         addressLine1: "1 Test Street", city: "Testville", province: "Gauteng", postalCode: "0001",
         employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING",
-        portalPassword: p.portalPassword ? await bcrypt.hash(p.portalPassword, 12) : null,
+        portalPassword: portalPassword ? await bcrypt.hash(portalPassword, 12) : null,
       },
       select: { id: true },
     })

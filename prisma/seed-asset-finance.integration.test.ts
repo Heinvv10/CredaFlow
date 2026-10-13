@@ -13,7 +13,7 @@
  *     npx vitest run prisma/seed-asset-finance.integration.test.ts
  */
 import { execFileSync } from "node:child_process"
-import { randomBytes } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -24,6 +24,12 @@ import { sastCalendarDate } from "@/lib/date/sast"
 const RUN = process.env.RUN_SEED_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
 const STAFF = (local: string) => `${local}@acme-lending.example`
+
+// Chosen for this run through the env, as an operator would; never in source.
+const PORTAL_PASSWORDS = {
+  SEED_AF_DIRECTOR_PASSWORD: `it-director-${randomUUID()}`,
+  SEED_AF_SURETY_PASSWORD: `it-surety-${randomUUID()}`,
+}
 
 suite("asset-finance demo seed on a fresh migrated database", () => {
   const admin = RUN ? new PrismaClient() : null
@@ -40,7 +46,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`)
     const url = new URL(process.env.DATABASE_URL ?? "")
     url.pathname = `/${name}`
-    const env = { ...process.env, DATABASE_URL: url.toString() }
+    const env = { ...process.env, DATABASE_URL: url.toString(), ...PORTAL_PASSWORDS }
     execFileSync("npx", ["prisma", "migrate", "deploy"], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"] })
     execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"] })
     db = new PrismaClient({ datasources: { db: { url: url.toString() } } })
@@ -134,11 +140,11 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(loan.daysInArrears).toBeGreaterThan(0)
   })
 
-  it("seeds the director's portal login (entity access) and the surety's (no entity access) with the documented passwords", async () => {
+  it("seeds the director's portal login (entity access) and the surety's (no entity access) with the passwords set through the env", async () => {
     const company = await fresh().businessEntity.findFirstOrThrow({ where: { type: "COMPANY" } })
     for (const [email, password, entities] of [
-      ["test.director.one@acme-lending.invalid", "Synthetic-AF-Director-2099!", [company.id]],
-      ["test.surety.one@acme-lending.invalid", "Synthetic-AF-Surety-2099!", []],
+      ["test.director.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_DIRECTOR_PASSWORD, [company.id]],
+      ["test.surety.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_SURETY_PASSWORD, []],
     ] as const) {
       const client = await fresh().client.findUniqueOrThrow({ where: { email } })
       expect(await bcrypt.compare(password, client.portalPassword ?? "")).toBe(true)

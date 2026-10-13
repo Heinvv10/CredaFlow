@@ -39,10 +39,9 @@ const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
 
 const BRAND = VALID_LENDER_COLUMNS.brandName ?? "Acme Lending"
 const STAFF_DOMAIN = "acme-lending.example"
-// Demo passwords are never in source — except the two synthetic asset-finance
-// portal logins (./seed/asset-finance-data.ts), kept known for the slice-1
-// browser walk-through. SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD,
-// SEED_LOAN_ADMIN_{ONE,TWO}_PASSWORD and SEED_PORTAL_PASSWORD set them (on every run);
+// Demo passwords are never in source. SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD,
+// SEED_LOAN_ADMIN_{ONE,TWO}_PASSWORD, SEED_PORTAL_PASSWORD and the asset-finance
+// SEED_AF_{DIRECTOR,SURETY}_PASSWORD set them (on every run);
 // unset, a random one is generated when the row is first created and a rerun
 // keeps it. TOTP is mandatory for staff, so each staff user also gets a secret
 // generated on first creation. Credentials are printed only with

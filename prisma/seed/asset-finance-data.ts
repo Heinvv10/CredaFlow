@@ -4,15 +4,13 @@
  * 2099 registration years, `.invalid` email domains. ID numbers are synthetic
  * but pass the SA ID check digit, so the client screens accept them.
  *
- * PORTAL PASSWORDS. Unlike the consumer demo clients (whose password is
- * generated or taken from SEED_PORTAL_PASSWORD), the two asset-finance portal
- * logins below have KNOWN synthetic passwords, so the slice-1 browser
- * walk-through can sign in as the director and as the surety. They are also
- * listed in docs/asset-finance/evidence/slice1/README.md. They are set only
- * when the client row is created; a rerun never changes them. The seed refuses
- * to run with NODE_ENV=production (prisma/seed.ts).
- *   TEST Director One  test.director.one@acme-lending.invalid  Synthetic-AF-Director-2099!  (DIRECTOR, AUTHORISED_SIGNATORY, SURETY)
- *   TEST Surety One    test.surety.one@acme-lending.invalid    Synthetic-AF-Surety-2099!    (SURETY only: no entity access)
+ * PORTAL PASSWORDS. As for every demo login, no password is in source: the
+ * director's and the surety's portal passwords come from
+ * SEED_AF_DIRECTOR_PASSWORD / SEED_AF_SURETY_PASSWORD (set on every run when
+ * given), else are generated when the client row is created and printed only
+ * with SEED_PRINT_CREDENTIALS=1. The seed refuses NODE_ENV=production.
+ *   TEST Director One  test.director.one@acme-lending.invalid  (DIRECTOR, AUTHORISED_SIGNATORY, SURETY)
+ *   TEST Surety One    test.surety.one@acme-lending.invalid    (SURETY only: no entity access)
  */
 import type { AssetClass } from "@prisma/client"
 
@@ -50,16 +48,17 @@ export interface AfPerson {
   dob: string
   gender: "MALE" | "FEMALE"
   phone: string
-  portalPassword: string | null
+  /** Env var holding this client's portal password; null = no portal login. */
+  portalPasswordEnv: "SEED_AF_DIRECTOR_PASSWORD" | "SEED_AF_SURETY_PASSWORD" | null
 }
 
 // References sort after the consumer demo clients (CLI-SEED-0001…), which
 // prisma/seed-staging.ts takes by position.
 export const PEOPLE: AfPerson[] = [
-  { key: "trusteeOne", reference: "CLI-SEED-AF-0001", firstName: "TEST", lastName: "Trustee One", idNumber: "7001015000087", dob: "1970-01-01", gender: "MALE", phone: "+27700000101", portalPassword: null },
-  { key: "trusteeTwo", reference: "CLI-SEED-AF-0002", firstName: "TEST", lastName: "Trustee Two", idNumber: "7102025000081", dob: "1971-02-02", gender: "MALE", phone: "+27700000102", portalPassword: null },
-  { key: "director", reference: "CLI-SEED-AF-0003", firstName: "TEST", lastName: "Director One", idNumber: "7203030000080", dob: "1972-03-03", gender: "FEMALE", phone: "+27700000103", portalPassword: "Synthetic-AF-Director-2099!" },
-  { key: "surety", reference: "CLI-SEED-AF-0004", firstName: "TEST", lastName: "Surety One", idNumber: "7304045000089", dob: "1973-04-04", gender: "MALE", phone: "+27700000104", portalPassword: "Synthetic-AF-Surety-2099!" },
+  { key: "trusteeOne", reference: "CLI-SEED-AF-0001", firstName: "TEST", lastName: "Trustee One", idNumber: "7001015000087", dob: "1970-01-01", gender: "MALE", phone: "+27700000101", portalPasswordEnv: null },
+  { key: "trusteeTwo", reference: "CLI-SEED-AF-0002", firstName: "TEST", lastName: "Trustee Two", idNumber: "7102025000081", dob: "1971-02-02", gender: "MALE", phone: "+27700000102", portalPasswordEnv: null },
+  { key: "director", reference: "CLI-SEED-AF-0003", firstName: "TEST", lastName: "Director One", idNumber: "7203030000080", dob: "1972-03-03", gender: "FEMALE", phone: "+27700000103", portalPasswordEnv: "SEED_AF_DIRECTOR_PASSWORD" },
+  { key: "surety", reference: "CLI-SEED-AF-0004", firstName: "TEST", lastName: "Surety One", idNumber: "7304045000089", dob: "1973-04-04", gender: "MALE", phone: "+27700000104", portalPasswordEnv: "SEED_AF_SURETY_PASSWORD" },
 ]
 
 export const personEmail = (p: AfPerson) => `${p.firstName}.${p.lastName.replace(/ /g, ".")}@acme-lending.invalid`.toLowerCase()

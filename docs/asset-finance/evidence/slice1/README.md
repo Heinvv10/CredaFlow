@@ -23,16 +23,17 @@ database seeds, on the Acme demo tenant with `featureAssetFinance` on
   users), contracted, paid out, booked four months and five days before the
   seed ran, first three instalments paid, the fourth in arrears.
 
-## Portal logins (synthetic, known by design)
+## Portal logins
 
-| Client | Email | Password | Access |
-|---|---|---|---|
-| TEST Director One | `test.director.one@acme-lending.invalid` | `Synthetic-AF-Director-2099!` | the company's applications, contracts and documents; signs |
-| TEST Surety One | `test.surety.one@acme-lending.invalid` | `Synthetic-AF-Surety-2099!` | no entity access (404); their own suretyship only |
+| Client | Email | Access |
+|---|---|---|
+| TEST Director One | `test.director.one@acme-lending.invalid` | the company's applications, contracts and documents; signs |
+| TEST Surety One | `test.surety.one@acme-lending.invalid` | no entity access (404); their own suretyship only |
 
-Sign in at `/portal/login`. The passwords are set when the client row is
-first created; a rerun keeps them. The seed refuses to run with
-`NODE_ENV=production`.
+Sign in at `/portal/login`. Set the passwords with `SEED_AF_DIRECTOR_PASSWORD`
+and `SEED_AF_SURETY_PASSWORD` (applied on every seed run), or read the
+generated ones with `SEED_PRINT_CREDENTIALS=1` on the run that creates the
+clients. No password is in source. The seed refuses `NODE_ENV=production`.
 
 ## Staff logins
 
