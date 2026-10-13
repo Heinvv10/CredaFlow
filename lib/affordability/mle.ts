@@ -12,10 +12,10 @@
 //   R50,000.01  +                →  R4,905.38 + 6.75% of (gross − R50,000)
 // LEGAL_WORDING_END
 
-export const MLE_FORMULA_VERSION = "2015-NCA-Reg-23A"
+export const MLE_FORMULA_VERSION = "2015-NCA-Reg-23A-r2"
 
 export function minimumLivingExpense(grossIncomeCents: number): number {
-  if (grossIncomeCents <= 800_00) return grossIncomeCents
+  if (grossIncomeCents <= 800_00) return Math.max(0, grossIncomeCents)
   if (grossIncomeCents <= 6_250_00) {
     return 800_00 + Math.round((grossIncomeCents - 800_00) * 0.0675)
   }

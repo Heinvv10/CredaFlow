@@ -3,11 +3,15 @@ import { MLE_FORMULA_VERSION, minimumLivingExpense } from "./mle"
 
 describe("minimumLivingExpense (NCA Reg 23A, 2015)", () => {
   it("exposes the formula version constant", () => {
-    expect(MLE_FORMULA_VERSION).toBe("2015-NCA-Reg-23A")
+    expect(MLE_FORMULA_VERSION).toBe("2015-NCA-Reg-23A-r2")
   })
 
   it("returns 0 cents at R0 gross income", () => {
     expect(minimumLivingExpense(0)).toBe(0)
+  })
+
+  it("never returns a negative minimum", () => {
+    expect(minimumLivingExpense(-100_00)).toBe(0)
   })
 
   it("counts 100% of gross income up to R800", () => {
