@@ -20,6 +20,18 @@ interface SetupData {
   qrUrl: string
 }
 
+/** After enrolling or replacing: the session ended, and the code just used is spent. */
+export function SignInAgainNotice() {
+  return (
+    <div className="mt-4 space-y-3">
+      <p className="text-sm font-medium text-gray-900">
+        Two-factor authentication is on. Sign in again with the next code from your authenticator app — the one you just used won&apos;t work twice.
+      </p>
+      <Button size="sm" onClick={() => signOut({ callbackUrl: "/login" })}>Sign in again</Button>
+    </div>
+  )
+}
+
 export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced }: Props) {
   const [enabled, setEnabled] = useState(totpEnabled)
   const [setup, setSetup] = useState<SetupData | null>(null)
@@ -134,12 +146,7 @@ export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced 
             </p>
           )}
           {signInAgain ? (
-            <div className="mt-4 space-y-3">
-              <p className="text-sm font-medium text-gray-900">
-                Two-factor authentication is on. Sign in again with a code from your authenticator app.
-              </p>
-              <Button size="sm" onClick={() => signOut({ callbackUrl: "/login" })}>Sign in again</Button>
-            </div>
+            <SignInAgainNotice />
           ) : (
             <div className="mt-4 flex gap-3">
               {enabled ? (
