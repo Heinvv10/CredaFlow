@@ -1,4 +1,4 @@
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   getFscaReturnData,
   listSelectableQuarters,
@@ -29,7 +29,7 @@ export default async function FscaReturnPage({
   const quarter = parseQuarterParam(params.quarter, now)
   const selectableQuarters = listSelectableQuarters(now)
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [data, session] = await Promise.all([
     getFscaReturnData(tenantId, quarter),
     auth(),

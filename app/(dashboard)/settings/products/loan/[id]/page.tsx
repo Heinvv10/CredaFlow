@@ -2,14 +2,14 @@ import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { LoanProductForm } from "@/components/products/LoanProductForm"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 export default async function EditLoanProductPage({ params }: { params: Promise<{ id: string }> }) {
   // Product edit is an ADMIN mutation — gate the form page to match.
   await requireMinRole("ADMIN")
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const product = await prisma.loanProduct.findUnique({ where: { id, tenantId } })
   if (!product) notFound()
 

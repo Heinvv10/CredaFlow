@@ -3,7 +3,7 @@ import type { AppRole } from "@/lib/auth-guards"
 import { auth } from "@/lib/auth"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { NcrReturnClient } from "@/components/compliance/NcrReturnClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getNcrReturnData } from "@/lib/compliance/ncr-return"
 import { listSelectableQuarters, parseQuarterParam } from "@/lib/compliance/quarters"
 
@@ -21,7 +21,7 @@ export default async function NcrReturnPage({
   const quarter = parseQuarterParam(params.quarter, now)
   const selectableQuarters = listSelectableQuarters(now)
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [data, session] = await Promise.all([
     getNcrReturnData(tenantId, quarter, now),
     auth(),

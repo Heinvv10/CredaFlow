@@ -1,5 +1,5 @@
 import { requireMinRole } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { listTemplates } from "@/lib/documents/catalogue"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { DocumentTemplatesTable } from "./DocumentTemplatesTable"
@@ -10,7 +10,7 @@ export const metadata = {
 
 export default async function DocumentTemplatesPage() {
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const templates = await listTemplates(tenantId)
 
   return (

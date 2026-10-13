@@ -2,7 +2,7 @@ import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatDateTime } from "@/lib/utils"
 import { resolveContactHref, contactNeedsTriage } from "@/lib/contact/routing"
 import { leadConversionState } from "@/lib/crm/lead-conversion"
@@ -47,7 +47,7 @@ export default async function ContactsIndexPage({ searchParams }: PageProps) {
   const params = await searchParams
   const q = (params.q ?? "").trim()
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1)
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const where: Prisma.ContactWhereInput = { tenantId }
   if (q.length > 0) {

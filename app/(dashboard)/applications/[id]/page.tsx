@@ -30,7 +30,7 @@ import { ApplicationSubmitButton } from "@/components/applications/ApplicationSu
 import { ApplicationReturnToReviewButton } from "@/components/applications/ApplicationReturnToReviewButton"
 import { auth } from "@/lib/auth"
 import { canDo } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   readCompositeKycState,
   type CoreDocumentGapState,
@@ -192,7 +192,7 @@ interface PageProps { params: Promise<{ id: string }> }
 
 export default async function ApplicationDetailPage({ params }: PageProps) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [application, session, collectionsEngineEnabled] = await Promise.all([
     getApplication(id, tenantId),
     auth(),

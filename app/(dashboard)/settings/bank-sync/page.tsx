@@ -1,6 +1,6 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { BankSyncToggle } from "@/components/settings/BankSyncToggle"
 import { Header } from "@/components/layout/Header"
 
@@ -11,7 +11,7 @@ export const metadata = {
 export default async function BankSyncSettingsPage() {
   // Tenant-wide feature switch: ADMIN, same as the insurance module screen.
   await requireMinRole("ADMIN")
-  const tenantId = await getResolvedTenantId()
+  const tenantId = await getStaffTenantId()
   const config = await prisma.tenantConfig.findUnique({
     where: { tenantId },
     select: { bankSyncEnabled: true },
