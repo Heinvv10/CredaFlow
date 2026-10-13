@@ -615,8 +615,14 @@ describe("isAdversePriorAttempt", () => {
     }
   })
 
-  it("treats only an unfinished check and an unusable image as benign", () => {
-    expect([...BENIGN_CAPTURE_REASONS].sort()).toEqual(["extraction_incomplete", "image_unusable"])
+  it("treats only an unfinished check, an unusable image and a superseded pass as benign", () => {
+    expect([...BENIGN_CAPTURE_REASONS].sort()).toEqual([
+      "extraction_incomplete",
+      "image_unusable",
+      // Written only over an attempt that PASSED, when a newer selfie landed
+      // while it ran (lib/kyc/selfie-biometric.server.ts).
+      "superseded_biometric_evidence",
+    ])
   })
 
   it.each([
@@ -632,7 +638,6 @@ describe("isAdversePriorAttempt", () => {
     // The face model stores these over whatever the VLM said.
     "face_not_detected",
     "face_count_invalid",
-    "superseded_biometric_evidence",
   ])("counts a failed attempt recording %s as adverse", (reason) => {
     expect(isAdversePriorAttempt(failed(reason))).toBe(true)
   })
@@ -648,7 +653,7 @@ describe("isAdversePriorAttempt", () => {
     expect(isAdversePriorAttempt(row)).toBe(true)
   })
 
-  it.each(["image_unusable", "extraction_incomplete"])(
+  it.each(["image_unusable", "extraction_incomplete", "superseded_biometric_evidence"])(
     "does not count a failed attempt recording %s with no adverse verdict", (reason) => {
       expect(isAdversePriorAttempt(failed(reason))).toBe(false)
       expect(isAdversePriorAttempt({
@@ -681,7 +686,7 @@ describe("isAdversePriorAttempt", () => {
     ["the provider result's faceMatch is false", { faceMatch: false }],
     ["the provider result's face model said different", { faceModel: { samePerson: false } }],
   ] as const)("counts an attempt as adverse when %s", (_label, fields) => {
-    for (const reason of ["extraction_incomplete", "image_unusable"]) {
+    for (const reason of ["extraction_incomplete", "image_unusable", "superseded_biometric_evidence"]) {
       expect(isAdversePriorAttempt({
         extractionStatus: "failed",
         biometricResult: { biometricFailureReason: reason, ...fields },

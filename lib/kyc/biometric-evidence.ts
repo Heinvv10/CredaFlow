@@ -220,8 +220,8 @@ export function biometricSubjectFingerprint(subject: BiometricSubjectClient): st
 /**
  * What an earlier failed selfie attempt says about the client. Keyed by the
  * full failure-reason union, so a new reason cannot ship unclassified.
- * "benign_capture" is only a check that never finished or an image too poor
- * to judge. Everything else is adverse: the face model stores no-face and
+ * "benign_capture" is only a check that never finished, an image too poor
+ * to judge, or a pass a newer selfie superseded. Everything else is adverse: the face model stores no-face and
  * face-count refusals over whatever the VLM said, liveness can be a spoof,
  * a record that changed under the check can mask a mismatch, and a reason
  * this file does not know fails closed. An honest borrower caught by one
@@ -233,9 +233,12 @@ export const BIOMETRIC_FAILURE_REASON_CLASS: Record<
 > = {
   extraction_incomplete: "benign_capture",
   image_unusable: "benign_capture",
+  // Written only over an attempt that PASSED, when a newer selfie landed
+  // while it ran (lib/kyc/selfie-biometric.server.ts). Its stored verdict is
+  // still read: an adverse one counts.
+  superseded_biometric_evidence: "benign_capture",
   face_not_detected: "adverse",
   face_count_invalid: "adverse",
-  superseded_biometric_evidence: "adverse",
   biometric_evidence_missing: "adverse",
   document_deleted: "adverse",
   document_not_verified: "adverse",
