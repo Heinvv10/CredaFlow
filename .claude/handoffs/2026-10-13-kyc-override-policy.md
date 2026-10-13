@@ -1,9 +1,9 @@
 # Handoff — KYC override policy (PR #64)
 
-**Repository:** `github.com/Heinvv10/CredaFlow`  
-**Branch:** `feat/kyc-override-policy`  
-**Commit:** `3c82d3f`  
-**PR:** https://github.com/Heinvv10/CredaFlow/pull/64  
+**Repository:** `github.com/Heinvv10/CredaFlow`
+**Branch:** `feat/kyc-override-policy`
+**Commit:** `3c82d3f`
+**PR:** https://github.com/Heinvv10/CredaFlow/pull/64
 **Base:** `main` at `b43ea9c`
 
 ## Outcome
@@ -53,4 +53,3 @@ The migration adds immediate enforcement and must ship atomically with the code.
 ## Next action
 
 Review PR #64. Do not merge or apply migration `20261013213000_kyc_override_policy` without Hein's explicit confirmation.
-
