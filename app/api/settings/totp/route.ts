@@ -72,7 +72,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "secret and code are required" }, { status: 400 })
     }
 
-    if (verifyTotpCode(code, secret) === null) {
+    const newCounter = verifyTotpCode(code, secret)
+    if (newCounter === null) {
       return NextResponse.json({ error: "Invalid verification code" }, { status: 422 })
     }
 
@@ -93,12 +94,14 @@ export async function POST(req: NextRequest) {
     }
 
     const enrolled = await prisma.$transaction(async (tx) => {
-      // Compare-and-set on the state the checks above were made against.
+      // Compare-and-set on the state the checks above were made against. The
+      // code that proved the new secret is spent here: a sign-in with the same
+      // code is a replay.
       const { count } = await tx.user.updateMany({
         where: replacing
           ? { id: staff.id, tenantId: tenant.id, totpEnabled: true, totpSecret: user.totpSecret }
           : { id: staff.id, tenantId: tenant.id, totpEnabled: false, totpSecret: null },
-        data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null, ...(replacing || staff.enrolmentRequired ? { tokenVersion: { increment: 1 } } : {}) },
+        data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: newCounter, ...(replacing || staff.enrolmentRequired ? { tokenVersion: { increment: 1 } } : {}) },
       })
       if (count === 0) return false
       await logAuditStrict({

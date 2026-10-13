@@ -74,6 +74,16 @@ describe("totpVerified claim — authorize()", () => {
     await expect(authorize({ code: generateTotpCode(secret) })).resolves.toMatchObject({ totpVerified: true })
   })
 
+  // Enrolment and replacement store the counter of the code that proved the
+  // secret as lastTotpCounter, so signing in with that same code is a replay.
+  it("refuses a code whose counter was already claimed (the enrolment code, replayed at sign-in)", async () => {
+    const secret = generateTotpSecret()
+    h.findUser.mockResolvedValue(staff({ totpEnabled: true, totpSecret: secret }))
+    h.updateManyUser.mockResolvedValue({ count: 0 })
+    await expect(authorize({ code: generateTotpCode(secret) })).rejects.toBeInstanceOf(Error)
+    expect(h.updateManyUser).toHaveBeenCalledWith(expect.objectContaining({ data: { lastTotpCounter: Math.floor(Date.now() / 30000) } }))
+  })
+
   it("never mints a session for an enrolled account without a valid code", async () => {
     const secret = generateTotpSecret()
     h.findUser.mockResolvedValue(staff({ totpEnabled: true, totpSecret: secret }))

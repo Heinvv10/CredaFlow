@@ -24,7 +24,7 @@ vi.mock("@/lib/prisma", () => {
 })
 
 import { DELETE, POST } from "./route"
-import { generateTotpCode, generateTotpSecret } from "@/lib/totp"
+import { generateTotpCode, generateTotpSecret, verifyTotpCode } from "@/lib/totp"
 
 const secret = generateTotpSecret()
 const staff = (extra: Record<string, unknown> = {}) => ({ user: { id: "u1", email: "officer@lender.example", name: "O", role: "CREDIT_OFFICER", tenantId: "t1", ...extra } })
@@ -150,12 +150,13 @@ describe("POST /api/settings/totp — enrolling", () => {
   beforeEach(() => { h.findUser.mockResolvedValue({ id: "u1", totpEnabled: false, totpSecret: null }) })
 
   it("enrols, audits, and leaves the session alone when the lender did not force it", async () => {
-    const res = await POST(req("POST", body()))
+    const sent = body()
+    const res = await POST(req("POST", sent))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, signInAgain: false })
     expect(h.updateManyUser).toHaveBeenCalledWith({
       where: { id: "u1", tenantId: "t1", totpEnabled: false, totpSecret: null },
-      data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null },
+      data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: verifyTotpCode(sent.code, secret) },
     })
     expect(h.auditCreate.mock.calls[0]![0].data).toMatchObject({
       action: "TOTP_ENROLLED", userId: "u1", entityId: "u1", oldValue: { totpEnabled: false }, newValue: { totpEnabled: true },
@@ -165,12 +166,25 @@ describe("POST /api/settings/totp — enrolling", () => {
 
   it("ends a forced session on enrolment, so the next sign-in carries a code", async () => {
     h.session = staff({ totpEnrolmentRequired: true })
-    const res = await POST(req("POST", body()))
+    const sent = body()
+    const res = await POST(req("POST", sent))
     expect(await res.json()).toEqual({ ok: true, signInAgain: true })
     expect(h.updateManyUser).toHaveBeenCalledWith({
       where: { id: "u1", tenantId: "t1", totpEnabled: false, totpSecret: null },
-      data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null, tokenVersion: { increment: 1 } },
+      data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: verifyTotpCode(sent.code, secret), tokenVersion: { increment: 1 } },
     })
+  })
+
+  // The code that proves the new secret is spent at once: signing in with the
+  // same code must read as a replay (lib/totp-claim.ts compares counters).
+  it.each([["first enrolment", false], ["replacing the secret", true]])("claims the verified code's counter, never null, on %s", async (_label, replacing) => {
+    const old = generateTotpSecret()
+    if (replacing) h.findUser.mockResolvedValue({ id: "u1", totpEnabled: true, totpSecret: old })
+    const sent = { ...body(), ...(replacing ? { currentCode: generateTotpCode(old) } : {}) }
+    await POST(req("POST", sent))
+    const written = h.updateManyUser.mock.calls[0]![0].data.lastTotpCounter
+    expect(written).toBe(verifyTotpCode(sent.code, secret))
+    expect(written).toEqual(expect.any(Number))
   })
 
   it("refuses a wrong code with 422", async () => {
@@ -214,12 +228,13 @@ describe("POST /api/settings/totp — enrolling", () => {
     })
 
     it("replaces the secret only if it is still the one the code was checked against, signs the user out, and audits", async () => {
-      const res = await replace({ currentCode: generateTotpCode(old) })
+      const sent = body()
+      const res = await POST(req("POST", { ...sent, currentCode: generateTotpCode(old) }))
       expect(await res.json()).toEqual({ ok: true, signInAgain: true })
       expect(h.claim).toHaveBeenCalledWith("u1", expect.any(Number))
       expect(h.updateManyUser).toHaveBeenCalledWith({
         where: { id: "u1", tenantId: "t1", totpEnabled: true, totpSecret: old },
-        data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: null, tokenVersion: { increment: 1 } },
+        data: { totpSecret: secret, totpEnabled: true, lastTotpCounter: verifyTotpCode(sent.code, secret), tokenVersion: { increment: 1 } },
       })
       expect(h.auditCreate.mock.calls[0]![0].data).toMatchObject({
         action: "TOTP_REPLACED", userId: "u1", entityId: "u1", oldValue: { totpEnabled: true }, newValue: { totpEnabled: true },

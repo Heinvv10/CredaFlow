@@ -119,3 +119,20 @@ if (require.main === module) {
     process.exit(1)
   })
 }
+
+const TOTP_STEP_MS = 30_000
+
+/** Milliseconds from `nowMs` until the next 30 s TOTP step begins, plus a margin. */
+export function msToNextTotpStep(nowMs: number): number {
+  return TOTP_STEP_MS - (nowMs % TOTP_STEP_MS) + 500
+}
+
+/**
+ * Enrolling TOTP spends the code that proved the secret (lastTotpCounter), so
+ * signing in with the same step's code is refused as a replay: wait for the
+ * next step before the first sign-in with a code.
+ */
+export async function waitForNextTotpStep(baseUrl = simBaseUrl()): Promise<void> {
+  const wait = msToNextTotpStep((await appNow(baseUrl)).getTime())
+  await new Promise((resolve) => setTimeout(resolve, wait))
+}
