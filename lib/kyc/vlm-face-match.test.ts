@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { readVlmFaceMatchSideRejection, readVlmFaceMatchVerdict } from "./vlm-face-match"
+import {
+  readVlmFaceMatchSideRejection,
+  readVlmFaceMatchVerdict,
+  readVlmSamePersonJudgement,
+} from "./vlm-face-match"
 import { isManualKycExceptionableFailureReason } from "./manual-exception-policy"
 
 // A mocked VLM extraction (ExtractedFields shape: { field: { value } }).
@@ -292,5 +296,28 @@ describe("readVlmFaceMatchSideRejection", () => {
       idPhotoKind: { value: "grey_avatar" },
       idPhotoFaceDetected: { value: false },
     })?.message).toBe("No face detected in the ID document photograph")
+  })
+})
+
+describe("readVlmSamePersonJudgement", () => {
+  it("reads the same-person answer even when the rest of the reply refuses", () => {
+    // The liveness gate drops the provider result; this must survive it.
+    expect(readVlmSamePersonJudgement({
+      ...fullVerdict, isLive: { value: false }, samePerson: { value: " Different " }, faceMatch: { value: false },
+    })).toEqual({ samePerson: "different", faceMatch: false })
+  })
+
+  it("reads each field on its own: absent is null, anything unreadable is unrecognised", () => {
+    expect(readVlmSamePersonJudgement({ quality: { value: "good" } })).toEqual({ samePerson: null, faceMatch: null })
+    expect(readVlmSamePersonJudgement({ samePerson: { value: "maybe" }, faceMatch: { value: "false" } }))
+      .toEqual({ samePerson: "unrecognised", faceMatch: "unrecognised" })
+    expect(readVlmSamePersonJudgement({ samePerson: { value: null }, faceMatch: { value: true } }))
+      .toEqual({ samePerson: null, faceMatch: true })
+  })
+
+  it("is null when no reply was read", () => {
+    expect(readVlmSamePersonJudgement(null)).toBeNull()
+    expect(readVlmSamePersonJudgement([fullVerdict])).toBeNull()
+    expect(readVlmSamePersonJudgement({ vlmUnavailable: true })).toBeNull()
   })
 })

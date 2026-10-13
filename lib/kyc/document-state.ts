@@ -1,5 +1,7 @@
 import {
+  PRIOR_FAILED_ATTEMPT_CONDITIONS,
   assessBiometricEvidence,
+  isAdversePriorAttempt,
   type BiometricDocumentEvidence,
   type BiometricEvidenceAssessment,
   type BiometricEvidenceFailureReason,
@@ -120,11 +122,20 @@ export type CompositeKycResult = {
    * A selfie exists, did not pass, and nothing covers it. Not set when the
    * only refusal is that the match was run against an ID copy that is not the
    * newest verified one (biometricIdDocumentNotCurrent): that awaits a new
-   * selfie or staff verifying the copy, like a selfie never taken.
+   * selfie or staff verifying the copy, like a selfie never taken. Nor when
+   * it was run against the current copy, not yet verified
+   * (biometricAwaitingIdVerification).
    */
   biometricAttemptFailed: boolean
   /** The latest selfie's only refusal is its ID-copy binding. */
   biometricIdDocumentNotCurrent: boolean
+  /**
+   * The latest selfie matched the client's current ID copy, which staff have
+   * not verified yet, and no verified ID copy exists: a first-time borrower
+   * who did not wait for staff. PENDING, not FAILED, but origination stays
+   * blocked until staff look at and verify that copy.
+   */
+  biometricAwaitingIdVerification: boolean
   manualExceptionActive: boolean
   /**
    * Which substitute is carrying the biometric requirement, so readers can say
@@ -182,6 +193,15 @@ export interface CompositeKycReader {
         where: { tenantId: string; clientId: string } & typeof ID_PORTRAIT_REFUSAL_CONDITIONS
         select: { biometricResult: true }
       }) => Promise<Array<{ biometricResult: unknown }>>) &
+      ((args: {
+        where: { tenantId: string; clientId: string } & typeof PRIOR_FAILED_ATTEMPT_CONDITIONS
+        select: { extractionStatus: true; biometricResult: true; verificationRejectedAt: true; verificationRejectedById: true }
+      }) => Promise<Array<{
+        extractionStatus: string | null
+        biometricResult: unknown
+        verificationRejectedAt: Date | null
+        verificationRejectedById: string | null
+      }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof BLOCKING_SELFIE_CONDITIONS
         select: { extractionStatus: true; biometricResult: true; createdAt: true }
@@ -307,17 +327,23 @@ export function deriveCompositeKycState(args: {
   // An attempt that exists and did not pass, with nothing covering it.
   const biometricIdDocumentNotCurrent =
     !args.biometricAssessment.ok && args.biometricAssessment.idDocumentNotCurrent === true
+  const biometricAwaitingIdVerification =
+    !args.biometricAssessment.ok &&
+    args.biometricAssessment.idDocumentAwaitingVerification === true &&
+    !manualExceptionActive
   const biometricAttemptFailed =
     args.biometricDocumentPresent &&
     biometricEvidence !== null &&
     !manualExceptionActive &&
-    !biometricIdDocumentNotCurrent
+    !biometricIdDocumentNotCurrent &&
+    !biometricAwaitingIdVerification
   const substituteKind: "senior_exception" | "in_person" | null =
     args.manualException ? "senior_exception" : args.inPersonVerification ? "in_person" : null
   const okForOrigination =
     missingCoreDocuments.length === 0 &&
     !manualRejectionActive &&
-    !biometricAttemptFailed
+    !biometricAttemptFailed &&
+    !biometricAwaitingIdVerification
 
   if (manualRejectionActive) {
     return {
@@ -335,6 +361,7 @@ export function deriveCompositeKycState(args: {
       okForOrigination: false,
       biometricAttemptFailed,
       biometricIdDocumentNotCurrent,
+      biometricAwaitingIdVerification,
       manualRejectionActive,
       manualExceptionActive: false,
       substituteKind: null,
@@ -375,6 +402,7 @@ export function deriveCompositeKycState(args: {
       okForOrigination,
       biometricAttemptFailed,
       biometricIdDocumentNotCurrent,
+      biometricAwaitingIdVerification,
       manualRejectionActive,
       manualExceptionActive,
       substituteKind: manualExceptionActive ? substituteKind : null,
@@ -387,7 +415,8 @@ export function deriveCompositeKycState(args: {
 
   const currentBiometricFailed = args.biometricDocumentPresent &&
     biometricEvidence !== null &&
-    !biometricIdDocumentNotCurrent
+    !biometricIdDocumentNotCurrent &&
+    !biometricAwaitingIdVerification
   // Was a CURRENT core document refused by a named reviewer? Keyed off the same
   // classification the UI renders, so the rollup and the per-document copy can
   // never tell different stories. A note with no author is excluded: the system
@@ -398,6 +427,7 @@ export function deriveCompositeKycState(args: {
     ok,
     biometricAttemptFailed,
     biometricIdDocumentNotCurrent,
+    biometricAwaitingIdVerification,
     state: {
       kycStatus: currentBiometricFailed || rejectedByReviewer ? "FAILED" : "PENDING",
       kycVerifiedAt: null,
@@ -432,8 +462,13 @@ export async function readCompositeKycState(
     }
     preserveVerifiedProvenance?: boolean
   },
-): Promise<CompositeKycResult & { latestSelfieId: string | null; inPersonRoute: InPersonRouteState }> {
-  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals] = await Promise.all([
+): Promise<CompositeKycResult & {
+  latestSelfieId: string | null
+  inPersonRoute: InPersonRouteState
+  /** The ID copy the latest selfie matched, when it awaits staff verification. */
+  awaitingIdDocumentId: string | null
+}> {
+  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals, failedAttempts] = await Promise.all([
     reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
@@ -512,6 +547,16 @@ export async function readCompositeKycState(
       },
       select: { biometricResult: true },
     }),
+    // Every failed or staff-rejected attempt, deleted or not: an adverse one
+    // closes the awaiting-ID-verification state, whatever came after.
+    reader.clientDocument.findMany({
+      where: {
+        tenantId: args.tenantId,
+        clientId: args.clientId,
+        ...PRIOR_FAILED_ATTEMPT_CONDITIONS,
+      },
+      select: { extractionStatus: true, biometricResult: true, verificationRejectedAt: true, verificationRejectedById: true },
+    }),
   ])
   // Deterministic, and identical to the SQL predicate's row choice: verified
   // ID_COPY rows only (the query already excludes deleted), newest first with
@@ -545,6 +590,7 @@ export async function readCompositeKycState(
         subject: args.subject,
         idDocument,
         idDocumentCopies,
+        priorAdverseAttempt: failedAttempts.some(isAdversePriorAttempt),
       })
     : { ok: false as const, reason: "biometric_evidence_missing" as const }
   const manualException = currentManualKycException(exceptionRecord, {
@@ -589,9 +635,14 @@ export async function readCompositeKycState(
     },
     preserveVerifiedProvenance: args.preserveVerifiedProvenance,
   })
+  const boundIdDocumentId = (latestSelfie?.biometricResult as { idDocumentId?: unknown } | null)?.idDocumentId
   return {
     ...result,
     latestSelfieId: latestSelfie?.id ?? null,
+    // Set only with the flag, which matched this id against a current copy.
+    awaitingIdDocumentId: result.biometricAwaitingIdVerification && typeof boundIdDocumentId === "string"
+      ? boundIdDocumentId
+      : null,
     inPersonRoute: {
       blockingBiometricAttempt,
       // The copy the route would attest against: the newest verified one,

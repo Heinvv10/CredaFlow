@@ -15,6 +15,7 @@ function gate(over: Partial<CompositeKycResult>): CompositeKycResult {
     coreDocumentGaps: [],
     biometricAttemptFailed: false,
     biometricIdDocumentNotCurrent: false,
+    biometricAwaitingIdVerification: false,
     state: {
       kycStatus: "PENDING",
       kycVerifiedAt: null,
@@ -46,6 +47,35 @@ describe("a selfie bound to an ID copy that is not the newest verified one", () 
     expect(deriveKycBlockers(pendingIdChange, "disbursement")).toEqual([
       expect.objectContaining({ kind: "biometric_evidence", label: "Biometric evidence invalid" }),
     ])
+  })
+})
+
+describe("a selfie matched against the client's current ID copy, awaiting verification", () => {
+  const awaiting = gate({
+    ok: false,
+    okForOrigination: false,
+    biometricAwaitingIdVerification: true,
+    biometricEvidence: "subject_identity_changed",
+  })
+  const verifyIdCopy = {
+    kind: "biometric_evidence",
+    label: "ID copy awaiting verification",
+    detail: "Selfie matched the client's newest ID copy, which is awaiting verification. Verify the ID copy to complete the identity check.",
+    tone: "danger",
+  }
+
+  it.each(["review", "approval", "disbursement"] as const)("tells staff to verify the ID copy at %s, not to re-capture", (stage) => {
+    expect(deriveKycBlockers(awaiting, stage)).toEqual([verifyIdCopy])
+  })
+
+  it("lists the outstanding ID copy too when it is the client's only one", () => {
+    const blockers = deriveKycBlockers(gate({
+      ...awaiting,
+      missingCoreDocuments: ["ID_COPY"],
+      coreDocumentGaps: [{ docType: "ID_COPY", state: "awaiting_verification" }],
+    }), "review")
+    expect(blockers.map((b) => b.kind)).toEqual(["missing_documents", "biometric_evidence"])
+    expect(blockers[1]).toEqual(verifyIdCopy)
   })
 })
 
@@ -99,6 +129,13 @@ describe("deriveKycBlockers", () => {
       gate: gate({ ok: true, biometricEvidence: "face_not_detected", manualExceptionActive: true }),
       ok: true,
       okForOrigination: true,
+    },
+    {
+      // Matched the current ID copy before staff verified it: both closed.
+      name: "selfie awaiting ID verification",
+      gate: gate({ ok: false, okForOrigination: false, biometricAwaitingIdVerification: true, biometricEvidence: "subject_identity_changed" }),
+      ok: false,
+      okForOrigination: false,
     },
     {
       name: "manual rejection",

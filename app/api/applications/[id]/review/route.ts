@@ -121,6 +121,39 @@ export async function POST(
         // Origination-grade: a selfie is not compulsory to start review. The
         // strict `ok` still gates disbursement in disburse/route.ts.
         if (!compositeKyc.okForOrigination) {
+          // The selfie matched the client's first ID copy before staff
+          // verified it: the remedy is verifying that copy, not a re-capture
+          // and not some other document.
+          if (compositeKyc.biometricAwaitingIdVerification) {
+            await tx.auditLog.create({
+              data: {
+                tenantId: tenant.id,
+                userId: guard.user.id,
+                userEmail: guard.user.email,
+                action: AuditAction.KYC_VERIFICATION_BLOCKED,
+                entity: "LoanApplication",
+                entityId: id,
+                oldValue: {
+                  status: application.status,
+                  latestSelfieId: compositeKyc.latestSelfieId,
+                },
+                newValue: {
+                  attemptedStatus: "UNDER_REVIEW",
+                  blocked: true,
+                  reason: "id_copy_awaiting_verification",
+                  latestSelfieId: compositeKyc.latestSelfieId,
+                  idDocumentId: compositeKyc.awaitingIdDocumentId,
+                  missingDocs: compositeKyc.missingCoreDocuments,
+                },
+              },
+            })
+            return {
+              kind: "id_copy_awaiting_verification" as const,
+              missingDocs: compositeKyc.missingCoreDocuments,
+              documentId: compositeKyc.latestSelfieId,
+              idDocumentId: compositeKyc.awaitingIdDocumentId,
+            }
+          }
           // Surface the biometric 422 only when the failed attempt IS the
           // origination blocker. `biometricEvidence` alone is non-null even
           // when no selfie was ever captured, and with core documents still
@@ -272,6 +305,14 @@ export async function POST(
           error: "Cannot submit for review: the latest selfie does not establish current valid biometric evidence.",
           biometricEvidence: claim.reason,
           documentId: claim.documentId,
+        }, { status: 422 })
+      }
+      if (claim.kind === "id_copy_awaiting_verification") {
+        return NextResponse.json({
+          error: "The client's ID copy must be verified before review; the selfie already matched it.",
+          missingDocs: claim.missingDocs,
+          documentId: claim.documentId,
+          idDocumentId: claim.idDocumentId,
         }, { status: 422 })
       }
       if (claim.kind === "incomplete_kyc") {

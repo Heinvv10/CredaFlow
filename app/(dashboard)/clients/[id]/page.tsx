@@ -422,6 +422,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 coreDocumentsComplete={compositeKyc.missingCoreDocuments.length === 0}
                 biometricEvidence={compositeKyc.biometricEvidence}
                 biometricAttemptFailed={compositeKyc.biometricAttemptFailed}
+                biometricAwaitingIdVerification={compositeKyc.biometricAwaitingIdVerification}
                 inPersonRoute={compositeKyc.inPersonRoute}
                 seniorExceptionAvailable={seniorExceptionAvailable}
               />

@@ -88,6 +88,13 @@ export const BIOMETRIC_FAILURE_COPY: Record<
     detail:
       "The check could not confirm that the photo on the ID document on file is a real photograph of a face, so the selfie could not be compared. The client must upload a new, clear photo of their ID.",
   },
+  // A judge answered but the outcome could not be recorded. Not on the
+  // exception allow-list: there is no result on record to reason over.
+  biometric_outcome_not_recorded: {
+    label: "Identity check result was not saved",
+    detail:
+      "The check on this selfie ran, but its result could not be recorded, so there is no result to rely on.",
+  },
   selfie_not_real_photograph: {
     label: "Selfie could not be verified as a real photograph",
     detail:
@@ -138,6 +145,22 @@ export const BIOMETRIC_FAILURE_COPY: Record<
     detail: "The check ran against the ID photograph and did not pass.",
   },
 }
+
+/**
+ * Not a failure, so not keyed by reason: the selfie matched the client's
+ * current ID copy before staff verified that copy
+ * (CompositeKycResult.biometricAwaitingIdVerification). The refusal reason is
+ * still subject_identity_changed, whose copy would be false here.
+ */
+export const BIOMETRIC_AWAITING_ID_VERIFICATION_COPY: BiometricFailureCopy = {
+  label: "ID copy awaiting verification",
+  detail:
+    "Selfie matched the client's newest ID copy, which is awaiting verification. Verify the ID copy to complete the identity check.",
+}
+
+/** What the CLIENT is told on the portal in the same state. */
+export const PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE =
+  "Selfie received. We're checking your ID document — your identity check completes as soon as it's verified. You don't need to retake your selfie."
 
 // A plain object literal inherits Object.prototype keys, so a lookup for
 // "constructor" or "__proto__" would return a function instead of undefined.

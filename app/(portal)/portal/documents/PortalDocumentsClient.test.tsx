@@ -62,6 +62,7 @@ function checklist(): PortalKycChecklist {
       status: "action_required",
       reason: "extraction_incomplete",
       matchScore: null,
+      awaitingIdVerification: false,
     },
     latestSelfieId: "selfie-failed",
   }
@@ -149,6 +150,7 @@ describe("PortalDocumentsClient KYC status consistency", () => {
       status: "action_required",
       reason: "document_not_verified",
       matchScore: 98,
+      awaitingIdVerification: false,
     }
     rejectedChecklist.latestSelfieId = rejectedSelfie.id
 
@@ -166,6 +168,59 @@ describe("PortalDocumentsClient KYC status consistency", () => {
     )
     expect(html).toContain("The latest selfie could not be verified. Please retake it.")
     expect(html).not.toContain("awaiting advisor review")
+  })
+
+  it("tells the client a selfie matched against an ID copy awaiting verification needs no retake", () => {
+    const idCopy = document({ id: "id-awaiting", docType: "ID_COPY" })
+    const matchedSelfie = document({
+      id: "selfie-matched",
+      docType: "SELFIE",
+      mimeType: "image/jpeg",
+      fileName: "selfie.jpg",
+      verified: true,
+      extractionStatus: "done",
+      biometricMatchScore: 90,
+    })
+    const awaitingChecklist = checklist()
+    awaitingChecklist.customerActionCount = 3
+    awaitingChecklist.pendingReviewCount = 2
+    awaitingChecklist.coreDocuments.ID_COPY = { documentId: idCopy.id, status: "pending_review" }
+    awaitingChecklist.selfie = {
+      documentId: matchedSelfie.id,
+      status: "pending_review",
+      reason: "subject_identity_changed",
+      matchScore: 90,
+      awaitingIdVerification: true,
+    }
+    awaitingChecklist.latestSelfieId = matchedSelfie.id
+
+    const html = renderToStaticMarkup(
+      <PortalDocumentsClient
+        clientId="client-1"
+        popiaConsentGiven
+        initialDocs={[idCopy, matchedSelfie]}
+        initialKycChecklist={awaitingChecklist}
+      />,
+    )
+    const decoded = html.replaceAll("&#x27;", "'")
+
+    // Once on the checklist row, once on the document row.
+    expect(decoded.split(
+      "Selfie received. We're checking your ID document — your identity check completes as soon as it's verified. You don't need to retake your selfie.",
+    )).toHaveLength(3)
+    expect(html).toContain(
+      'data-document-id="selfie-matched" data-document-status="Pending review"',
+    )
+    expect(html).not.toContain("The latest selfie could not be verified")
+    expect(html).not.toContain("Retake")
+    expect(html).not.toContain("Verification is running")
+    expect(html).not.toContain("Verifying your identity")
+    // The checklist row's pill: not "Action needed", not "Verifying".
+    const selfieRow = html.slice(html.indexOf("Selfie verification"), html.indexOf("Upload another document"))
+    expect(selfieRow).not.toContain("Action needed")
+    expect(selfieRow).toContain("Pending review")
+    // Nothing is running: staff have the next step, so no spinner anywhere.
+    expect(html).not.toContain("animate-spin")
   })
 
   it("renders a senior exception as accepted but explicitly not biometric success", () => {
@@ -194,6 +249,7 @@ describe("PortalDocumentsClient KYC status consistency", () => {
       status: "exception_accepted",
       reason: "face_not_detected",
       matchScore: 0,
+      awaitingIdVerification: false,
     }
     exceptionChecklist.latestSelfieId = failedSelfie.id
 

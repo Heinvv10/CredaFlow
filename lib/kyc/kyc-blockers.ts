@@ -1,5 +1,6 @@
 import type { CompositeKycResult, CoreDocumentGap } from "@/lib/kyc/document-state"
 import { DOC_TYPE_LABELS } from "@/lib/document-types"
+import { BIOMETRIC_AWAITING_ID_VERIFICATION_COPY } from "@/lib/kyc/biometric-failure-copy"
 
 /**
  * The composite KYC gate is enforced at three separate transitions, each by a
@@ -99,11 +100,16 @@ export function deriveKycBlockers(
       tone: "danger",
     })
   }
-  // Before signing, only a capture that FAILED blocks; one never taken does
-  // not. From the signing gate onward, absent evidence blocks too.
+  // Before signing, only a capture that FAILED blocks, or one matched against
+  // an ID copy staff have not verified yet; one never taken does not. From
+  // the signing gate onward, absent evidence blocks too.
   const biometricBlocks = gate.biometricEvidence && !gate.manualExceptionActive &&
-    (strict || gate.biometricAttemptFailed)
-  if (biometricBlocks) {
+    (strict || gate.biometricAttemptFailed || gate.biometricAwaitingIdVerification)
+  if (biometricBlocks && gate.biometricAwaitingIdVerification) {
+    // The remedy is a staff action on the ID copy; a re-capture would match
+    // the same unverified copy again.
+    blockers.push({ kind: "biometric_evidence", ...BIOMETRIC_AWAITING_ID_VERIFICATION_COPY, tone: "danger" })
+  } else if (biometricBlocks) {
     // Two different worlds. A capture that failed can be re-taken; one that
     // never happened has nothing to re-take, and its honest remedy includes
     // the in-person route. Relaxing origination made the second state

@@ -12,11 +12,14 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import {
+  BIOMETRIC_FAILURE_REASON_CLASS,
   biometricSubjectFingerprint,
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
 import {
   decideBiometricAttempt,
+  faceVerdictOf,
+  type FaceVerdict,
   type StrictRejectionJudgement,
   type VlmFaceMatchProviderResult,
 } from "@/lib/kyc/biometric-decision"
@@ -58,6 +61,10 @@ export async function runBiometricVerification(
   // could pass unbound. It defends itself with a fallback, but keep this end
   // honest too.
   let subjectFingerprint: string | null = null
+  // Kept for the error path: once either judge has answered, what it said
+  // must reach the record even if the decision or its persistence throws.
+  let faceVerdict: FaceVerdict | null = null
+  let decidedFailureReason: BiometricEvidenceFailureReason | null = null
   try {
     // Step A: the VLM is the biometric provider — one multimodal request
     // carrying the live selfie AND the stored ID document, returning
@@ -109,6 +116,7 @@ export async function runBiometricVerification(
           }),
       images ? compareFaces(images.id, images.selfie) : Promise.resolve(null),
     ])
+    faceVerdict = faceVerdictOf(vlmResult, faceComparison)
 
     // Step B: bind the attempt to the exact subject identity on file
     const client = await prisma.client.findUnique({
@@ -148,6 +156,7 @@ export async function runBiometricVerification(
       subjectFingerprint,
       idDocument,
     })
+    decidedFailureReason = biometricFailureReason
 
     await persistBiometricOutcome({
       docId,
@@ -163,6 +172,7 @@ export async function runBiometricVerification(
       biometricFailureReason,
       subjectFingerprint,
       strictJudgement,
+      faceVerdict,
       faceComparison,
       comparedImageSha256: images ? { idDocument: images.id.sha256, selfie: images.selfie.sha256 } : null,
     })
@@ -179,9 +189,17 @@ export async function runBiometricVerification(
       extractionResult: null,
       biometricResult: null,
       biometricPassed: false,
-      biometricFailureReason: "extraction_incomplete",
+      // extraction_incomplete is benign, so only an error before either judge
+      // answered may record it. After a judgement the decided reason stands
+      // when it is adverse; otherwise the outcome was not recorded.
+      biometricFailureReason: faceVerdict === null
+        ? "extraction_incomplete"
+        : decidedFailureReason !== null && BIOMETRIC_FAILURE_REASON_CLASS[decidedFailureReason] === "adverse"
+          ? decidedFailureReason
+          : "biometric_outcome_not_recorded",
       subjectFingerprint,
       strictJudgement: null,
+      faceVerdict,
       faceComparison: null,
       comparedImageSha256: null,
     })
@@ -202,6 +220,7 @@ async function persistBiometricOutcome(args: {
   biometricFailureReason: BiometricEvidenceFailureReason | null
   subjectFingerprint: string | null
   strictJudgement: StrictRejectionJudgement | null
+  faceVerdict: FaceVerdict | null
   faceComparison: FaceComparison | null
   /** The canonical bytes both judges saw; null when they never ran. */
   comparedImageSha256: { idDocument: string; selfie: string } | null
@@ -358,6 +377,9 @@ async function persistBiometricOutcome(args: {
       comparedImageSha256: args.comparedImageSha256,
       subjectFingerprint: args.subjectFingerprint,
       biometricFailureReason,
+      // On every attempt either judge answered, pass or fail: an adverse
+      // same-person answer must survive a path that wrote no provider result.
+      faceVerdict: args.faceVerdict,
     } as Prisma.InputJsonValue
     const documentChanged = await tx.clientDocument.updateMany({
       where: {

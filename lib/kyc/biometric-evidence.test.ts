@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest"
 import {
+  BENIGN_CAPTURE_REASONS,
+  BIOMETRIC_FAILURE_REASON_CLASS,
+  PRIOR_FAILED_ATTEMPT_CONDITIONS,
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
+  isAdversePriorAttempt,
   biometricSubjectFingerprint,
   parseBiometricEvidenceFailureReason,
   type BiometricDocumentEvidence,
 } from "./biometric-evidence"
 import { PASSING_FACE_MODEL_EVIDENCE } from "./face-model/evidence.test-helpers"
+import { BIOMETRIC_FAILURE_COPY } from "./biometric-failure-copy"
 
 const subject = {
   id: "client-1",
@@ -44,7 +49,8 @@ const passingVlmVerdict = {
 // The client's newest verified ID copy, which the match was run against.
 const idDocument = { id: "id-doc-1", contentSha256: "c".repeat(64) }
 // The client's non-deleted ID copies.
-const idDocumentCopies = [{ ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null }]
+const idCopyCreatedAt = new Date("2026-07-20T08:00:00.000Z")
+const idDocumentCopies = [{ ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null, createdAt: idCopyCreatedAt }]
 const boundProviderResult = {
   ...passingProviderResult,
   ...passingVlmVerdict,
@@ -356,18 +362,19 @@ describe("assessBiometricEvidence", () => {
 
   // The match ran against id-doc-1; staff have since verified a newer id-doc-2.
   const newerVerified = { id: "id-doc-2", contentSha256: "d".repeat(64) }
-  const supersededCopy = { ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null }
+  const supersededCopy = { ...idDocument, verified: true, verificationRejectedAt: null, verificationRejectedById: null, createdAt: idCopyCreatedAt }
+  const newerVerifiedCopy = { ...newerVerified, verified: true, verificationRejectedAt: null, verificationRejectedById: null, createdAt: new Date("2026-07-21T08:00:00.000Z") }
 
   it("marks a match against a superseded verified copy as a pending ID change", () => {
     expect(assessBiometricEvidence(passingEvidence, {
       subject,
       idDocument: newerVerified,
-      idDocumentCopies: [supersededCopy, { ...newerVerified, verified: true }],
+      idDocumentCopies: [supersededCopy, newerVerifiedCopy],
     })).toEqual({ ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true })
   })
 
   it.each([
-    ["the matched copy was never verified (awaiting review, or a substitute)", newerVerified, [{ ...supersededCopy, verified: false }]],
+    ["the matched copy was never verified and a newer copy is", newerVerified, [{ ...supersededCopy, verified: false }, newerVerifiedCopy]],
     ["staff rejected it (verificationRejectedAt)", newerVerified, [{ ...supersededCopy, verificationRejectedAt: new Date("2026-10-12T09:00:00.000Z") }]],
     ["a named reviewer rejected it (verificationRejectedById)", newerVerified, [{ ...supersededCopy, verificationRejectedById: "officer-1" }]],
     ["it was deleted (absent from the non-deleted copies)", newerVerified, []],
@@ -415,6 +422,107 @@ describe("assessBiometricEvidence", () => {
       // No digest to bind to: not a pending ID change.
       ok: false,
       reason: "subject_identity_changed",
+    })
+  })
+
+  describe("a match against the client's first ID copy, not yet verified", () => {
+    // No verified ID copy on file; the borrower uploads B and takes the
+    // selfie before staff review B. Capture compares against B, the newest
+    // copy that is neither deleted nor rejected.
+    const verifiedA = {
+      id: "id-doc-A", contentSha256: "a".repeat(64), verified: true,
+      verificationRejectedAt: null, verificationRejectedById: null,
+      createdAt: new Date("2026-07-20T08:00:00.000Z"),
+    }
+    const currentB = {
+      id: "id-doc-B", contentSha256: "b".repeat(64), verified: false,
+      verificationRejectedAt: null, verificationRejectedById: null,
+      createdAt: new Date("2026-07-21T08:00:00.000Z"),
+    }
+    const boundToB: BiometricDocumentEvidence = {
+      ...passingEvidence,
+      biometricResult: { ...boundProviderResult, idDocumentId: currentB.id, idDocumentSha256: currentB.contentSha256 },
+    }
+    const awaiting = { ok: false, reason: "subject_identity_changed", idDocumentAwaitingVerification: true }
+    const failed = { ok: false, reason: "subject_identity_changed" }
+
+    it("marks it awaiting ID verification when the client has no verified ID copy", () => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject, idDocument: null, priorAdverseAttempt: false, idDocumentCopies: [currentB],
+      })).toEqual(awaiting)
+      // An older copy, unverified too, changes nothing: B is the current one.
+      expect(assessBiometricEvidence(boundToB, {
+        subject, idDocument: null, priorAdverseAttempt: false,
+        idDocumentCopies: [{ ...currentB, id: "id-doc-older", contentSha256: "c".repeat(64), createdAt: verifiedA.createdAt }, currentB],
+      })).toEqual(awaiting)
+    })
+
+    it("keeps it a failed attempt while a verified copy A is on file (the L1 substitute pattern)", () => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject,
+        idDocument: { id: verifiedA.id, contentSha256: verifiedA.contentSha256 },
+        idDocumentCopies: [verifiedA, currentB],
+        priorAdverseAttempt: false,
+      })).toEqual(failed)
+    })
+
+    it.each([
+      ["an earlier attempt returned an adverse face result", true],
+      ["the caller did not read the earlier attempts", undefined],
+    ] as const)("keeps it a failed attempt when %s", (_label, priorAdverseAttempt) => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject, idDocument: null, idDocumentCopies: [currentB], priorAdverseAttempt,
+      })).toEqual(failed)
+    })
+
+    it.each([
+      ["staff rejected B (verificationRejectedAt)", [{ ...currentB, verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z") }]],
+      ["a named reviewer rejected B (verificationRejectedById)", [{ ...currentB, verificationRejectedById: "officer-1" }]],
+      ["B was deleted (absent from the non-deleted copies)", []],
+      ["B's stored digest is not the one matched", [{ ...currentB, contentSha256: "e".repeat(64) }]],
+      ["B has no usable digest", [{ ...currentB, contentSha256: "not-a-digest" }]],
+      ["a later upload C buried B unreviewed", [currentB, { ...currentB, id: "id-doc-C", contentSha256: "f".repeat(64), createdAt: new Date("2026-07-22T08:00:00.000Z") }]],
+      ["C, written in the same instant, sorts after B by id", [currentB, { ...currentB, id: "id-doc-C", contentSha256: "f".repeat(64) }]],
+      ["the caller did not read the copies", null],
+    ] as const)("keeps it a failed attempt when %s", (_label, copies) => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject, idDocument: null, priorAdverseAttempt: false, idDocumentCopies: copies,
+      })).toEqual(failed)
+    })
+
+    it("keeps it a failed attempt when neither the match nor B carries a digest", () => {
+      expect(assessBiometricEvidence({
+        ...boundToB,
+        biometricResult: { ...boundProviderResult, idDocumentId: currentB.id, idDocumentSha256: null },
+      }, { subject, idDocument: null, priorAdverseAttempt: false, idDocumentCopies: [{ ...currentB, contentSha256: null }] })).toEqual(failed)
+    })
+
+    it("keeps it a failed attempt when the match names another client's copy", () => {
+      // The copies are this client's; a row id outside them is not current.
+      expect(assessBiometricEvidence({
+        ...boundToB,
+        biometricResult: { ...boundProviderResult, idDocumentId: "other-client-id-copy", idDocumentSha256: currentB.contentSha256 },
+      }, { subject, idDocument: null, priorAdverseAttempt: false, idDocumentCopies: [currentB] })).toEqual(failed)
+    })
+
+    it("names the other refusal when B's match also fails a check", () => {
+      expect(assessBiometricEvidence({ ...boundToB, biometricMatchScore: 69 }, {
+        subject, idDocument: null, priorAdverseAttempt: false, idDocumentCopies: [currentB],
+      })).toEqual({ ok: false, reason: "match_score_below_threshold" })
+    })
+
+    it("does not mark a fingerprint mismatch against B as awaiting", () => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject: { ...subject, lastName: "Changed" }, idDocument: null, priorAdverseAttempt: false, idDocumentCopies: [currentB],
+      })).toEqual(failed)
+    })
+
+    it("passes once staff verify B, the newest verified copy", () => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject,
+        idDocument: { id: currentB.id, contentSha256: currentB.contentSha256 },
+        idDocumentCopies: [{ ...currentB, verified: true }],
+      })).toEqual({ ok: true })
     })
   })
 
@@ -484,5 +592,142 @@ describe("assessVlmBiometricExtraction", () => {
       ...passingExtractionResult,
       facesCount: { value: "1" },
     })).toEqual({ ok: false, reason: "face_count_invalid" })
+  })
+})
+
+describe("isAdversePriorAttempt", () => {
+  const failed = (biometricFailureReason: unknown) => ({
+    extractionStatus: "failed",
+    biometricResult: { biometricFailureReason },
+  })
+
+  it("classifies every reason in the failure registry, so a new one cannot land benign by omission", () => {
+    // BIOMETRIC_FAILURE_COPY is keyed by the full BiometricEvidenceFailureReason
+    // union; the class map is too, and must cover exactly the same reasons.
+    expect(Object.keys(BIOMETRIC_FAILURE_REASON_CLASS).sort()).toEqual(Object.keys(BIOMETRIC_FAILURE_COPY).sort())
+    for (const reason of Object.keys(BIOMETRIC_FAILURE_COPY)) {
+      expect(parseBiometricEvidenceFailureReason(reason)).toBe(reason)
+      expect(["benign_capture", "adverse"]).toContain(
+        BIOMETRIC_FAILURE_REASON_CLASS[reason as keyof typeof BIOMETRIC_FAILURE_REASON_CLASS],
+      )
+      expect(isAdversePriorAttempt(failed(reason))).toBe(
+        BIOMETRIC_FAILURE_REASON_CLASS[reason as keyof typeof BIOMETRIC_FAILURE_REASON_CLASS] === "adverse",
+      )
+    }
+  })
+
+  it("treats only an unfinished check, an unusable image and a superseded pass as benign", () => {
+    expect([...BENIGN_CAPTURE_REASONS].sort()).toEqual([
+      "extraction_incomplete",
+      "image_unusable",
+      // Written only over an attempt that PASSED, when a newer selfie landed
+      // while it ran (lib/kyc/selfie-biometric.server.ts).
+      "superseded_biometric_evidence",
+    ])
+  })
+
+  it.each([
+    "match_score_below_threshold",
+    "provider_verification_failed",
+    "id_document_portrait_invalid",
+    "selfie_not_real_photograph",
+    "vlm_liveness_failed",
+    "liveness_score_below_threshold",
+    "subject_identity_changed",
+    "subject_fingerprint_missing",
+    "validation_mismatch",
+    // The face model stores these over whatever the VLM said.
+    "face_not_detected",
+    "face_count_invalid",
+  ])("counts a failed attempt recording %s as adverse", (reason) => {
+    expect(isAdversePriorAttempt(failed(reason))).toBe(true)
+  })
+
+  it.each([
+    ["no reason", { extractionStatus: "failed", biometricResult: { ok: false } }],
+    ["a null reason", failed(null)],
+    ["an unknown reason", failed("a_reason_added_later")],
+    ["a non-string reason", failed(7)],
+    ["no result at all", { extractionStatus: "failed", biometricResult: null }],
+    ["a skipped attempt with no reason", { extractionStatus: "skipped", biometricResult: null }],
+  ] as const)("counts a failed attempt with %s as adverse", (_label, row) => {
+    expect(isAdversePriorAttempt(row)).toBe(true)
+  })
+
+  it.each(["image_unusable", "extraction_incomplete", "superseded_biometric_evidence"])(
+    "does not count a failed attempt recording %s with no adverse verdict", (reason) => {
+      expect(isAdversePriorAttempt(failed(reason))).toBe(false)
+      expect(isAdversePriorAttempt({
+        extractionStatus: "failed",
+        biometricResult: {
+          biometricFailureReason: reason,
+          faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: true },
+        },
+      })).toBe(false)
+      expect(isAdversePriorAttempt({
+        extractionStatus: "failed",
+        biometricResult: {
+          biometricFailureReason: reason,
+          faceVerdict: { samePerson: null, faceMatch: null, faceModelSamePerson: null },
+        },
+      })).toBe(false)
+    },
+  )
+
+  // Whatever the stored reason: a benign one can sit over an adverse verdict.
+  it.each([
+    ["the persisted VLM verdict is different", { faceVerdict: { samePerson: "different", faceMatch: null, faceModelSamePerson: null } }],
+    ["the persisted VLM verdict is uncertain", { faceVerdict: { samePerson: "uncertain", faceMatch: null, faceModelSamePerson: null } }],
+    ["the persisted VLM verdict is unreadable", { faceVerdict: { samePerson: "unrecognised", faceMatch: null, faceModelSamePerson: null } }],
+    ["the persisted faceMatch is false", { faceVerdict: { samePerson: null, faceMatch: false, faceModelSamePerson: null } }],
+    ["the persisted faceMatch is unreadable", { faceVerdict: { samePerson: null, faceMatch: "unrecognised", faceModelSamePerson: null } }],
+    ["the persisted face model said different", { faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: false } }],
+    ["the provider result says different", { samePerson: "different" }],
+    ["the provider result says uncertain", { samePerson: "uncertain" }],
+    ["the provider result's faceMatch is false", { faceMatch: false }],
+    ["the provider result's face model said different", { faceModel: { samePerson: false } }],
+  ] as const)("counts an attempt as adverse when %s", (_label, fields) => {
+    for (const reason of ["extraction_incomplete", "image_unusable", "superseded_biometric_evidence"]) {
+      expect(isAdversePriorAttempt({
+        extractionStatus: "failed",
+        biometricResult: { biometricFailureReason: reason, ...fields },
+      })).toBe(true)
+    }
+  })
+
+  it("counts a selfie staff rejected as adverse, whatever its check said", () => {
+    expect(isAdversePriorAttempt({
+      extractionStatus: "done", biometricResult: { biometricFailureReason: null },
+      verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z"), verificationRejectedById: "officer-1",
+    })).toBe(true)
+    expect(isAdversePriorAttempt({
+      extractionStatus: "done", biometricResult: null, verificationRejectedById: "officer-1",
+    })).toBe(true)
+  })
+
+  it("does not count an attempt that passed", () => {
+    expect(isAdversePriorAttempt({ extractionStatus: "done", biometricResult: { biometricFailureReason: null } })).toBe(false)
+  })
+
+  // Its verdict has not landed, and may never: a stuck attempt, or one the
+  // client deleted mid-check (the verdict write then finds no row).
+  it.each(["processing", "pending"])("counts an attempt still %s as blocking", (extractionStatus) => {
+    expect(isAdversePriorAttempt({ extractionStatus, biometricResult: null })).toBe(true)
+    expect(isAdversePriorAttempt({ extractionStatus, biometricResult: { biometricFailureReason: null } })).toBe(true)
+  })
+
+  it("asks the database for in-flight attempts too, deleted or not", () => {
+    expect(PRIOR_FAILED_ATTEMPT_CONDITIONS).toEqual({
+      docType: "SELFIE",
+      OR: [
+        { extractionStatus: { in: ["failed", "skipped", "pending", "processing"] } },
+        { verificationRejectedAt: { not: null } },
+        { verificationRejectedById: { not: null } },
+      ],
+    })
+  })
+
+  it("does not count a document that is not a selfie", () => {
+    expect(isAdversePriorAttempt({ docType: "ID_COPY", ...failed("provider_verification_failed") })).toBe(false)
   })
 })

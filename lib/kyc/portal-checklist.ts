@@ -42,6 +42,8 @@ export interface PortalKycChecklist {
   selfie: PortalKycChecklistItem & {
     reason: CompositeKycResult["biometricEvidence"]
     matchScore: number | null
+    /** Matched the client's current ID copy, which staff have yet to verify. */
+    awaitingIdVerification: boolean
   }
   latestSelfieId: string | null
 }
@@ -92,6 +94,7 @@ function selfieItem(
       status: "verified_in_person",
       reason: null,
       matchScore: null,
+      awaitingIdVerification: false,
     }
   }
 
@@ -101,6 +104,7 @@ function selfieItem(
       status: "exception_accepted",
       reason,
       matchScore: latest.biometricMatchScore ?? null,
+      awaitingIdVerification: false,
     }
   }
 
@@ -110,6 +114,7 @@ function selfieItem(
       status: "verified",
       reason,
       matchScore: latest.biometricMatchScore ?? null,
+      awaitingIdVerification: false,
     }
   }
 
@@ -119,6 +124,7 @@ function selfieItem(
       status: "missing",
       reason,
       matchScore: null,
+      awaitingIdVerification: false,
     }
   }
 
@@ -127,13 +133,18 @@ function selfieItem(
     (latest.extractionStatus === "pending" ||
       latest.extractionStatus === "processing")
   const staffRejected = Boolean(latest.verificationNote?.trim())
+  // Matched the ID copy staff have yet to review: a retake would match the
+  // same copy again, so the client has nothing to do.
+  const awaitingIdVerification = composite.biometricAwaitingIdVerification
   const pending = extractionInProgress ||
-    (reason === "document_not_verified" && !staffRejected)
+    (reason === "document_not_verified" && !staffRejected) ||
+    awaitingIdVerification
   return {
     documentId: latest.id,
     status: pending ? "pending_review" : "action_required",
     reason,
     matchScore: latest.biometricMatchScore ?? null,
+    awaitingIdVerification,
   }
 }
 

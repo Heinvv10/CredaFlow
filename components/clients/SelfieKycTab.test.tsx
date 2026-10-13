@@ -60,6 +60,7 @@ function renderSelfie(deletedAt: string | null) {
       imageUrl="/api/documents/selfie-latest/view"
       biometricEvidence={deletedAt ? "document_deleted" : null}
       biometricAttemptFailed={Boolean(deletedAt)}
+      biometricAwaitingIdVerification={false}
       inPersonRoute={IN_PERSON_ROUTE_OPEN}
       seniorExceptionAvailable={false}
     />,
@@ -111,6 +112,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         canGrantManualException
         biometricEvidence="face_not_detected"
         biometricAttemptFailed
+        biometricAwaitingIdVerification={false}
         inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable
       />,
@@ -139,6 +141,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         coreDocumentsComplete
         biometricEvidence="simulated_provider_evidence"
         biometricAttemptFailed
+        biometricAwaitingIdVerification={false}
         inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
@@ -169,6 +172,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         coreDocumentsComplete
         biometricEvidence="subject_identity_changed"
         biometricAttemptFailed
+        biometricAwaitingIdVerification={false}
         inPersonRoute={inPersonRoute}
         seniorExceptionAvailable={false}
       />,
@@ -197,6 +201,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
           coreDocumentsComplete
           biometricEvidence={reason}
           biometricAttemptFailed
+          biometricAwaitingIdVerification={false}
           inPersonRoute={IN_PERSON_ROUTE_OPEN}
           seniorExceptionAvailable={false}
         />,
@@ -222,6 +227,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         imageUrl="/api/documents/selfie-latest/view"
         biometricEvidence="simulated_provider_evidence"
         biometricAttemptFailed
+        biometricAwaitingIdVerification={false}
         inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
@@ -239,6 +245,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         imageUrl="/api/documents/selfie-latest/view"
         biometricEvidence={null}
         biometricAttemptFailed={false}
+        biometricAwaitingIdVerification={false}
         inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
@@ -267,6 +274,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
           imageUrl="/api/documents/selfie-latest/view"
           biometricEvidence="face_not_detected"
           biometricAttemptFailed
+          biometricAwaitingIdVerification={false}
           inPersonRoute={IN_PERSON_ROUTE_OPEN}
           seniorExceptionAvailable
         />,
@@ -306,6 +314,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
         canGrantManualException
         biometricEvidence="face_not_detected"
         biometricAttemptFailed={false}
+        biometricAwaitingIdVerification={false}
         inPersonRoute={IN_PERSON_ROUTE_OPEN}
         seniorExceptionAvailable={false}
       />,
@@ -346,6 +355,7 @@ describe("SelfieKycTab authoritative attempt display", () => {
           canGrantManualException
           biometricEvidence="face_not_detected"
           biometricAttemptFailed
+          biometricAwaitingIdVerification={false}
           inPersonRoute={IN_PERSON_ROUTE_OPEN}
           seniorExceptionAvailable
         />,
@@ -377,6 +387,44 @@ describe("SelfieKycTab authoritative attempt display", () => {
   })
 })
 
+describe("SelfieKycTab: a selfie matched against an ID copy awaiting verification", () => {
+  const html = renderToStaticMarkup(
+    <SelfieKycTab
+      clientId="client-1"
+      currentKycStatus="PENDING"
+      currentManualRejectionActive={false}
+      currentManualRejectionReason={null}
+      selfieDoc={{ ...baseSelfie, extractionStatus: "done", biometricMatchScore: 90 }}
+      imageUrl="/api/documents/selfie-latest/view"
+      canGrantManualException
+      coreDocumentsComplete
+      biometricEvidence="subject_identity_changed"
+      biometricAttemptFailed={false}
+      biometricAwaitingIdVerification
+      // The passed selfie names a current copy, so the route refuses (409).
+      inPersonRoute={{ blockingBiometricAttempt: true, idDocumentAdmissible: true }}
+      seniorExceptionAvailable={false}
+    />,
+  ).replaceAll("&#x27;", "'")
+
+  it("tells staff to verify the ID copy, not that the record changed", () => {
+    expect(html).toContain("ID copy awaiting verification")
+    expect(html).toContain(
+      "Selfie matched the client's newest ID copy, which is awaiting verification. Verify the ID copy to complete the identity check.",
+    )
+    expect(html).toContain(">PENDING<")
+    expect(html).not.toContain(BIOMETRIC_FAILURE_COPY.subject_identity_changed.label)
+    expect(html).not.toContain("FAILED")
+  })
+
+  it("offers no failure remedies: no exception, no in-person form, no tick", () => {
+    expect(html).not.toContain("Grant senior KYC exception")
+    expect(html).not.toContain("ADMIN-only in-person verification")
+    expect(html).not.toContain("Re-capture the selfie")
+    expect(html).not.toContain("Biometrically verified")
+  })
+})
+
 describe("SelfieKycTab failure wording", () => {
   // renderToStaticMarkup escapes apostrophes to &#x27;, so compare decoded.
   const decode = (html: string) => html
@@ -397,6 +445,7 @@ describe("SelfieKycTab failure wording", () => {
       canGrantManualException
       biometricEvidence={reason}
       biometricAttemptFailed
+      biometricAwaitingIdVerification={false}
       inPersonRoute={IN_PERSON_ROUTE_OPEN}
       seniorExceptionAvailable={false}
     />,

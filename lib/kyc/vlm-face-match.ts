@@ -214,6 +214,35 @@ export function readVlmFaceMatchSideRejection(
 }
 
 /**
+ * The VLM's same-person answer, read field by field, so it survives every
+ * failure path: readVlmFaceMatchVerdict yields nothing when any field is
+ * malformed, and no provider result is written when a liveness or face-model
+ * gate refused first. An absent field is null; any other value that is not
+ * a known verdict (or a boolean) is "unrecognised". null when no reply was
+ * read.
+ */
+export function readVlmSamePersonJudgement(extractionResult: unknown): {
+  samePerson: SamePersonVerdict | "unrecognised" | null
+  faceMatch: boolean | "unrecognised" | null
+} | null {
+  if (!extractionResult || typeof extractionResult !== "object" || Array.isArray(extractionResult)) {
+    return null
+  }
+  const extraction = extractionResult as Record<string, unknown>
+  if (extraction.vlmUnavailable === true) return null
+  const samePerson = extractedValue(extraction, "samePerson")
+  const faceMatch = extractedValue(extraction, "faceMatch")
+  return {
+    samePerson: samePerson === undefined || samePerson === null
+      ? null
+      : oneOf(SAME_PERSON_VERDICTS, samePerson) ?? "unrecognised",
+    faceMatch: faceMatch === undefined || faceMatch === null
+      ? null
+      : typeof faceMatch === "boolean" ? faceMatch : "unrecognised",
+  }
+}
+
+/**
  * Read the two-image face-match verdict out of a SELFIE extraction result.
  * Returns null — never a partial verdict — unless every field is present and
  * well-formed, so a single-image (legacy) extraction or a malformed VLM
