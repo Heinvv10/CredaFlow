@@ -106,6 +106,7 @@ CREATE TABLE "NcaRegimeOverride" (
     "approvedAppliedAmount" INTEGER,
     "approvedProductId" TEXT,
     "approvedClassificationRule" TEXT,
+    "approvedClassifiedAt" TIMESTAMP(3),
     "decisionNote" TEXT,
     "appliedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -197,10 +198,13 @@ ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_decision_compl
 -- requests); one person may do either.
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("status" <> 'APPROVED' OR "toRegime" = 'NCA' OR ("decidedById" IS NOT NULL AND "decidedById" IS DISTINCT FROM "requestedById"));
 -- The application an override was requested on (borrower, amount, product,
--- classification rule) is recorded whole, and always for a move to NON_NCA:
--- that is what the approver agreed to (guardLoanApplicationNcaRegime).
+-- classification rule and the time of that classification) is recorded whole,
+-- and always for a move to NON_NCA: that is what the approver agreed to
+-- (guardLoanApplicationNcaRegime). A re-classification rewrites ncaClassifiedAt,
+-- so an approval never outlives the classification its approver saw.
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_non_nca_snapshot" CHECK (
-  num_nonnulls("approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule") IN (0, 4)
+  num_nonnulls("approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule",
+    "approvedClassifiedAt") IN (0, 5)
   AND ("toRegime" <> 'NON_NCA' OR "approvedEntityId" IS NOT NULL)
 );
 -- Only an approval to NON_NCA is spent (guardLoanApplicationNcaRegime stamps it).
@@ -871,7 +875,8 @@ ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_approved_class
 --    NON_NCA: it is inserted unclassified or NCA and then overridden. Every
 --    change TO NON_NCA spends one APPROVED NcaRegimeOverride to NON_NCA that
 --    has not been applied yet and whose snapshot (borrower, amount, product,
---    classification rule) is the application as it now stands: this trigger
+--    classification rule, classification time) is the application as it now
+--    stands: this trigger
 --    stamps its appliedAt, so each approval authorises exactly one change, of
 --    exactly the application the approver saw, and cannot be replayed after
 --    the regime went back to NCA. A change to NCA (stricter) is free. Regime
@@ -986,7 +991,7 @@ BEGIN
 
   IF NEW."ncaRegime" = 'NON_NCA' THEN
     UPDATE public."NcaRegimeOverride" AS override
-    SET "appliedAt" = clock_timestamp()
+    SET "appliedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
     WHERE override."id" = (
       SELECT candidate."id"
       FROM public."NcaRegimeOverride" AS candidate
@@ -999,6 +1004,7 @@ BEGIN
         AND candidate."approvedAppliedAmount" = NEW."appliedAmount"
         AND candidate."approvedProductId" = NEW."productId"
         AND candidate."approvedClassificationRule" = NEW."ncaClassificationRule"
+        AND candidate."approvedClassifiedAt" = NEW."ncaClassifiedAt"
       ORDER BY candidate."decidedAt", candidate."id"
       LIMIT 1
       FOR UPDATE
@@ -1017,7 +1023,7 @@ BEGIN
       ) THEN
         RAISE EXCEPTION USING
           ERRCODE = '23514',
-          MESSAGE = 'The NON_NCA approval no longer matches the application (borrower, amount, product or classification rule changed since it was requested)';
+          MESSAGE = 'The NON_NCA approval no longer matches the application (borrower, amount, product, classification rule or classification changed since it was requested)';
       END IF;
       RAISE EXCEPTION USING
         ERRCODE = '23514',
@@ -1264,6 +1270,7 @@ DECLARE
   application_amount INTEGER;
   application_product_id TEXT;
   application_rule TEXT;
+  application_classified_at TIMESTAMP(3);
 BEGIN
   IF TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION USING
@@ -1279,8 +1286,9 @@ BEGIN
     END IF;
 
     SELECT application."ncaRegime", application."entityId", application."appliedAmount",
-      application."productId", application."ncaClassificationRule"
-    INTO application_regime, application_entity_id, application_amount, application_product_id, application_rule
+      application."productId", application."ncaClassificationRule", application."ncaClassifiedAt"
+    INTO application_regime, application_entity_id, application_amount, application_product_id, application_rule,
+      application_classified_at
     FROM public."LoanApplication" AS application
     -- By id alone: NcaRegimeOverride_guard_tenant reports a tenant mismatch.
     WHERE application."id" = NEW."applicationId";
@@ -1296,6 +1304,7 @@ BEGIN
       OR NEW."approvedAppliedAmount" IS DISTINCT FROM application_amount
       OR NEW."approvedProductId" IS DISTINCT FROM application_product_id
       OR NEW."approvedClassificationRule" IS DISTINCT FROM application_rule
+      OR NEW."approvedClassifiedAt" IS DISTINCT FROM application_classified_at
     ) THEN
       RAISE EXCEPTION USING
         ERRCODE = '23514',
@@ -1322,6 +1331,7 @@ BEGIN
     OR NEW."approvedAppliedAmount" IS DISTINCT FROM OLD."approvedAppliedAmount"
     OR NEW."approvedProductId" IS DISTINCT FROM OLD."approvedProductId"
     OR NEW."approvedClassificationRule" IS DISTINCT FROM OLD."approvedClassificationRule"
+    OR NEW."approvedClassifiedAt" IS DISTINCT FROM OLD."approvedClassifiedAt"
     OR NEW."createdAt" IS DISTINCT FROM OLD."createdAt"
   THEN
     RAISE EXCEPTION USING
@@ -1349,7 +1359,7 @@ BEGIN
   --     the approval (or the request) fails to serialize on that row.
   IF OLD."status" = 'PENDING' AND NEW."status" = 'APPROVED' AND NEW."toRegime" = 'NON_NCA' THEN
     UPDATE public."LoanApplication" AS application
-    SET "updatedAt" = clock_timestamp()
+    SET "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
     WHERE application."id" = NEW."applicationId";
   END IF;
 

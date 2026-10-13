@@ -87,9 +87,11 @@ export function afSqlFixture(label: string) {
     return {
       id,
       statement: `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason",
-          "source", "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule")
+          "source", "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule",
+          "approvedClassifiedAt")
         SELECT '${id}', '${tenantId}', '${applicationId}', 'NCA', 'NON_NCA', 'Audited AFS on file', 'MANUAL', '${ids.userId}',
-          application."entityId", application."appliedAmount", application."productId", application."ncaClassificationRule"
+          application."entityId", application."appliedAmount", application."productId", application."ncaClassificationRule",
+          application."ncaClassifiedAt"
         FROM "LoanApplication" AS application WHERE application."id" = '${applicationId}'`,
     }
   }

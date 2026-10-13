@@ -2,7 +2,8 @@
  * Real-Postgres proof that an NCA regime approval is bound to the application
  * it approved, through the real routes (DESIGN D5):
  *   - an approval is refused as stale, and recorded REJECTED, once the
- *     application's amount moved after the request;
+ *     application's amount moved after the request, or once it was
+ *     re-classified (even to the same rule: the request named the earlier run);
  *   - re-classifying a NON_NCA application to the same rule writes nothing;
  *     to a different result it goes back to NCA first (the snapshot is frozen
  *     while NON_NCA), and a NON_NCA result needs a fresh approval;
@@ -127,6 +128,31 @@ suite.sequential("NCA approvals bound to the application (real Postgres, real ro
 
     // Still NCA and open: the amount may change, and does.
     await database().loanApplication.update({ where: { id: ids.manualApp }, data: { appliedAmount: 90_000_000 } })
+    signIn(ids.adminB, "LOAN_ADMIN")
+    const decided = await postDecision(overrideId, { decision: "APPROVE", note: "AFS checked against the CIPC record" })
+    expect(decided.status).toBe(409)
+    expect(await overrideRow(overrideId)).toMatchObject({ status: "REJECTED", decisionNote: STALE_OVERRIDE_NOTE, appliedAt: null })
+    expect((await application(ids.manualApp)).ncaRegime).toBe("NCA")
+    await setEvidence([`afs-${t}`])
+  })
+
+  it("rejects an approval as stale once a re-classification replaced the one requested on, even on the same rule", async () => {
+    await setEvidence([])
+    signIn(ids.officerC, "CREDIT_OFFICER")
+    expect((await postClassify(ids.manualApp)).status).toBe(200) // NCA, FINANCIALS_UNPROVEN
+    signIn(ids.adminA, "LOAN_ADMIN")
+    const requested = await postOverride(ids.manualApp, { toRegime: "NON_NCA", reason: "Audited AFS show R4m turnover, filed late" })
+    expect(requested.status).toBe(201)
+    const overrideId = (await requested.json()).id as string
+    const before = await application(ids.manualApp)
+    expect((await overrideRow(overrideId)).approvedClassifiedAt).toEqual(before.ncaClassifiedAt)
+
+    // The same facts, the same NCA rule: a manual request stays open for its decider.
+    signIn(ids.officerC, "CREDIT_OFFICER")
+    const rerun = await (await postClassify(ids.manualApp)).json()
+    expect(rerun).toMatchObject({ classification: { rule: "FINANCIALS_UNPROVEN" }, supersededOverrideId: null })
+    expect((await application(ids.manualApp)).ncaClassifiedAt).not.toEqual(before.ncaClassifiedAt)
+
     signIn(ids.adminB, "LOAN_ADMIN")
     const decided = await postDecision(overrideId, { decision: "APPROVE", note: "AFS checked against the CIPC record" })
     expect(decided.status).toBe(409)

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 
 // The route and lib/asset-finance/classification.ts run for real; only Prisma,
 // the session and the audit writers are stubbed.
@@ -61,7 +62,7 @@ const classify = (body: unknown) =>
 
 const application = (over: Record<string, unknown> = {}) => ({
   id: "app-1", entityId: "ent-1", status: "SUBMITTED", appliedAmount: 150_000_000, productId: "prod-1", ncaRegime: null,
-  ncaClassificationRule: null, ...over,
+  ncaClassificationRule: null, ncaClassifiedAt: null, ...over,
 })
 const company = (over: Record<string, unknown> = {}) => ({
   type: "COMPANY", annualTurnover: null, totalAssetValue: null, financialsEvidenceIds: [], relationships: [], ...over,
@@ -131,6 +132,15 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     expect(m.auditRefusal).not.toHaveBeenCalled()
   })
 
+  it("answers 409 try again when the transaction deadlocked (40P01), not 500", async () => {
+    m.transactionError.current = new Prisma.PrismaClientKnownRequestError("Raw query failed. Code: `40P01`.", {
+      code: "P2010", clientVersion: "test", meta: { code: "40P01", message: "ERROR: deadlock detected" },
+    })
+    const res = await classify({})
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "Another change to this application was in progress; try again" })
+  })
+
   it("lets any other database failure through", async () => {
     m.transactionError.current = new Error("connection reset")
     await expect(classify({})).rejects.toThrow("connection reset")
@@ -174,10 +184,13 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
         reason: `Classifier: JURISTIC_OVER_THRESHOLD — ${body.classification.reason}`, source: "CLASSIFIER",
         // The application as classified: what the second person approves.
         approvedEntityId: "ent-1", approvedAppliedAmount: 150_000_000, approvedProductId: "prod-1",
-        approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
+        approvedClassificationRule: "JURISTIC_OVER_THRESHOLD", approvedClassifiedAt: expect.any(Date),
       },
       select: { id: true },
     })
+    // The run the approver sees: the request names this classification's time.
+    const [[{ data: written }]] = m.tx.loanApplication.update.mock.calls
+    expect(m.tx.ncaRegimeOverride.create.mock.calls[0][0].data.approvedClassifiedAt).toBe(written.ncaClassifiedAt)
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "NCA_OVERRIDE_REQUESTED", entity: "NcaRegimeOverride", entityId: "ov-new", userId: "officer-c",
     }), m.tx)
@@ -187,21 +200,22 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     }), m.tx)
   })
 
-  it("re-uses the open PENDING override when its snapshot is the application as classified", async () => {
-    m.tx.loanApplication.findFirst.mockResolvedValue(application({ ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN" }))
+  it("supersedes the open PENDING override even when the re-run reaches the same result: it named the earlier run", async () => {
+    m.tx.loanApplication.findFirst.mockResolvedValue(application({
+      ncaRegime: "NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ncaClassifiedAt: new Date("2026-10-01T08:00:00Z"),
+    }))
     m.tx.businessEntity.findFirst.mockResolvedValue(largeCompany())
-    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue({
-      id: "ov-open", source: "CLASSIFIER", approvedEntityId: "ent-1", approvedAppliedAmount: 150_000_000,
-      approvedProductId: "prod-1", approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
-    })
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue({ id: "ov-open", source: "CLASSIFIER" })
     const res = await classify({})
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ regime: "NCA", pendingOverrideId: "ov-open", supersededOverrideId: null })
+    expect(await res.json()).toMatchObject({ regime: "NCA", pendingOverrideId: "ov-new", supersededOverrideId: "ov-open" })
     expect(m.tx.ncaRegimeOverride.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: "tenant-1", applicationId: "app-1", status: "PENDING" },
     }))
-    expect(m.tx.ncaRegimeOverride.create).not.toHaveBeenCalled()
-    expect(m.tx.ncaRegimeOverride.update).not.toHaveBeenCalled()
+    expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "ov-open" }, data: expect.objectContaining({ status: "REJECTED" }),
+    }))
+    expect(m.tx.ncaRegimeOverride.create).toHaveBeenCalledTimes(1)
   })
 
   it("writes nothing for a NON_NCA application the classifier puts on the same NON_NCA rule, and says so", async () => {

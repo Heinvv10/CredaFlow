@@ -1,5 +1,6 @@
 // The application facts an NcaRegimeOverride records when it is requested
-// (DESIGN D5). An approval to NON_NCA authorises the change for exactly these:
+// (DESIGN D5), the classification run the approver saw (ncaClassifiedAt)
+// included: a re-classification rewrites it, so it makes an open approval stale. An approval to NON_NCA authorises the change for exactly these:
 // guardLoanApplicationNcaRegime refuses to spend it once the application no
 // longer matches, CHECK NcaRegimeOverride_non_nca_snapshot requires them for a
 // move to NON_NCA, and guardNcaRegimeOverrideLifecycle refuses a snapshot that
@@ -10,6 +11,7 @@ export interface OverrideSnapshot {
   approvedAppliedAmount: number | null
   approvedProductId: string | null
   approvedClassificationRule: string | null
+  approvedClassifiedAt: Date | null
 }
 
 /** The fields of a LoanApplication an override snapshot is taken from. */
@@ -18,6 +20,7 @@ export interface SnapshotSource {
   appliedAmount: number
   productId: string
   ncaClassificationRule: string | null
+  ncaClassifiedAt: Date | null
 }
 
 /** The note on a PENDING override a re-classification replaced. */
@@ -29,6 +32,7 @@ export function overrideSnapshotOf(application: SnapshotSource): OverrideSnapsho
     approvedAppliedAmount: application.appliedAmount,
     approvedProductId: application.productId,
     approvedClassificationRule: application.ncaClassificationRule,
+    approvedClassifiedAt: application.ncaClassifiedAt,
   }
 }
 
@@ -40,6 +44,8 @@ export function overrideMatchesApplication(override: OverrideSnapshot, applicati
     override.approvedEntityId === current.approvedEntityId &&
     override.approvedAppliedAmount === current.approvedAppliedAmount &&
     override.approvedProductId === current.approvedProductId &&
-    override.approvedClassificationRule === current.approvedClassificationRule
+    override.approvedClassificationRule === current.approvedClassificationRule &&
+    override.approvedClassifiedAt !== null &&
+    override.approvedClassifiedAt.getTime() === current.approvedClassifiedAt?.getTime()
   )
 }

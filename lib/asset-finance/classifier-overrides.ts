@@ -1,12 +1,7 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { ClassifyApplicationParams, RegimeTx } from "./classification"
 import type { NcaClassification } from "./nca-classifier"
-import {
-  overrideMatchesApplication,
-  overrideSnapshotOf,
-  SUPERSEDED_OVERRIDE_NOTE,
-  type SnapshotSource,
-} from "./override-snapshot"
+import { overrideSnapshotOf, SUPERSEDED_OVERRIDE_NOTE, type SnapshotSource } from "./override-snapshot"
 
 // The classifier's side of NcaRegimeOverride (DESIGN D5): the PENDING request
 // a NON_NCA result opens for a second person, and the rejection of a request
@@ -24,9 +19,9 @@ export function classifierOverrideReason(classification: NcaClassification): str
  *  - NCA: a classifier-opened request is rejected as superseded; a manual one
  *    stays for its decider (the decide route rejects it as stale once its
  *    snapshot no longer matches).
- *  - NON_NCA: an open request whose snapshot is the application as now
- *    classified is reused; any other is rejected as superseded and a fresh
- *    request opened in the classifying user's name.
+ *  - NON_NCA: any open request is rejected as superseded and a fresh request
+ *    opened in the classifying user's name. Its snapshot names the run just
+ *    recorded (ncaClassifiedAt), so no earlier request can match this one.
  */
 export async function reconcileOpenOverride(
   tx: RegimeTx,
@@ -37,14 +32,7 @@ export async function reconcileOpenOverride(
   const { tenantId, applicationId } = params
   const open = await tx.ncaRegimeOverride.findFirst({
     where: { tenantId, applicationId, status: "PENDING" },
-    select: {
-      id: true,
-      source: true,
-      approvedEntityId: true,
-      approvedAppliedAmount: true,
-      approvedProductId: true,
-      approvedClassificationRule: true,
-    },
+    select: { id: true, source: true },
   })
 
   if (classification.regime === "NCA") {
@@ -53,9 +41,6 @@ export async function reconcileOpenOverride(
     return { pendingOverrideId: null, supersededOverrideId: open.id }
   }
 
-  if (open && overrideMatchesApplication(open, classified)) {
-    return { pendingOverrideId: open.id, supersededOverrideId: null }
-  }
   if (open) await rejectSuperseded(tx, params, open.id)
 
   const reason = classifierOverrideReason(classification)
