@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Restore an encrypted backup (backup.sh) into a NEW scratch database and
+# verify it. The live database is never touched unless --over-live is given.
+#
+#   restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch]
+#   restore.sh <lender-dir> <backup.dump.gpg> --over-live --confirm <slug>
+#
+# Verification (any failure exits non-zero and drops the scratch database):
+#   - pg_restore finishes with --exit-on-error;
+#   - _prisma_migrations has rows and none unfinished;
+#   - the row counts equal the sidecar backup.sh wrote (a dump taken while
+#     writes land can differ by in-flight rows: rerun on a quiet moment).
+# A verified scratch database <db>_restore_<UTC> is left in place (inspect it,
+# then --drop-scratch or DROP DATABASE) unless --drop-scratch is given.
+#
+# --over-live (needs --confirm <slug>, the lender's own slug) then: takes a
+# `pre-restore` backup of the live database, stops the app, renames the live
+# database to <db>_pre_restore_<UTC> and the verified scratch one to <db>,
+# starts the app and health-checks it. The old database is KEPT; to undo, stop
+# the app and swap the two names back. Dropping it is a manual decision.
+set -euo pipefail
+# shellcheck source=scripts/lender/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+dir="${1:-}" file="${2:-}"; shift 2 || true
+over_live=false confirm="" drop=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --over-live) over_live=true; shift ;;
+    --confirm) confirm="${2:?--confirm needs the lender slug}"; shift 2 ;;
+    --drop-scratch) drop=true; shift ;;
+    *) die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug>]" ;;
+  esac
+done
+[ -n "$file" ] || die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug>]"
+need docker gpg
+load_lender "$dir"
+[ -f "$file" ] || die "backup $file not found"
+file="$(readlink -f "$file")"
+pass="$LENDER_DIR/secrets/backup.passphrase"
+[ -s "$pass" ] || die "$pass missing or empty"
+if $over_live; then
+  [ "$confirm" = "$SLUG" ] || die "refusing --over-live: pass --confirm $SLUG to replace the live database of '$SLUG'"
+elif [ -n "$confirm" ]; then
+  die "--confirm only applies to --over-live"
+fi
+
+ts="$(date -u +%Y%m%d%H%M%S)"
+scratch="${PGDB}_restore_$ts" old="${PGDB}_pre_restore_$ts"
+[[ "$scratch" =~ ^[a-z_][a-z0-9_]{0,60}$ ]] || die "unexpected database name '$scratch'"
+[ "$scratch" != "$PGDB" ] || die "internal error: scratch database equals the live database"
+lcompose up -d db >/dev/null; wait_db
+
+drop_scratch() { psql_db postgres "DROP DATABASE IF EXISTS \"$scratch\"" >/dev/null; }
+fail() { drop_scratch || true; die "$*"; }
+
+note "restoring $(basename "$file") into new database $scratch"
+psql_db postgres "CREATE DATABASE \"$scratch\"" >/dev/null
+gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$file" \
+  | lcompose exec -T db pg_restore --no-owner --exit-on-error -U "$PGUSER" -d "$scratch" || fail "pg_restore failed; scratch database dropped"
+
+read -r unfinished total < <(psql_db "$scratch" "SELECT count(*) FILTER (WHERE finished_at IS NULL), count(*) FROM _prisma_migrations" | tr '|' ' ')
+[ "$total" -gt 0 ] && [ "$unfinished" -eq 0 ] || fail "migration table check failed (total=$total unfinished=$unfinished)"
+
+restored="$(psql_db "$scratch" "$COUNTS_SQL")"
+echo "restored row counts in $scratch:" >&2; sed 's/^/  /' <<<"$restored" >&2
+if [ -f "$file.counts" ]; then
+  [ "$restored" = "$(cat "$file.counts")" ] || { diff <(cat "$file.counts") <(echo "$restored") >&2 || true; fail "restored counts differ from the backup's recorded counts"; }
+  note "counts match the backup's sidecar; migrations: $total applied, 0 unfinished"
+else
+  note "WARNING: no $file.counts sidecar; counts not compared (migrations: $total applied, 0 unfinished)"
+fi
+
+if ! $over_live; then
+  if $drop; then drop_scratch; note "VERIFIED; scratch database $scratch dropped"
+  else note "VERIFIED; scratch database $scratch left for inspection (drop: restore.sh … --drop-scratch, or DROP DATABASE \"$scratch\")"; fi
+  exit 0
+fi
+
+note "--over-live: safety backup of the current database first"
+"$LENDER_SCRIPTS/backup.sh" "$LENDER_DIR" --label pre-restore >/dev/null
+lcompose stop app >/dev/null
+psql_db postgres "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname IN ('$PGDB','$scratch') AND pid <> pg_backend_pid()" >/dev/null
+psql_db postgres "ALTER DATABASE \"$PGDB\" RENAME TO \"$old\"; ALTER DATABASE \"$scratch\" RENAME TO \"$PGDB\"" >/dev/null
+lcompose up -d --no-deps app >/dev/null
+if wait_health "http://127.0.0.1:$APP_PORT/api/health" "" 120; then
+  note "RESTORED over live. Previous database kept as \"$old\" (undo: stop app; rename it back)."
+else
+  die "app unhealthy after restore; previous database kept as \"$old\" (stop app, ALTER DATABASE \"$PGDB\" RENAME TO …; ALTER DATABASE \"$old\" RENAME TO \"$PGDB\")"
+fi

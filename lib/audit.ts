@@ -409,6 +409,10 @@ export const AuditAction = {
   // Letterhead logo (lib/config/lender-logo.ts): the file's sha256, never the bytes.
   LENDER_LOGO_UPDATED: "LENDER_LOGO_UPDATED",
   LENDER_LOGO_REMOVED: "LENDER_LOGO_REMOVED",
+  // First SUPER_ADMIN of a lender and the break-glass reset of a locked-out
+  // one (scripts/lender/bootstrap-admin.ts). Never carry a credential.
+  SUPER_ADMIN_BOOTSTRAPPED: "SUPER_ADMIN_BOOTSTRAPPED",
+  SUPER_ADMIN_BREAK_GLASS_RESET: "SUPER_ADMIN_BREAK_GLASS_RESET",
 
   // Complaints and POPIA data subject requests (app/api/complaints,
   // app/api/dsar). Identifiers, statuses and dates only: the description,
