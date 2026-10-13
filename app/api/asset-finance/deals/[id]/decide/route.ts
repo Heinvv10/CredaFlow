@@ -70,6 +70,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("s81_assessment_required", 409, "Record the NCA s81 affordability assessment before approving")
       case "unaffordable":
         return refuse("s81_unaffordable", 409, "The recorded NCA s81 assessment is not affordable")
+      case "credit_life_required":
+        return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
       case "refused_nca":
         return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
       case "decided":

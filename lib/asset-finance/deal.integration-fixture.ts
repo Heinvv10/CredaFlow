@@ -1,12 +1,13 @@
 /**
  * Real-Postgres fixture for the asset-finance deal suites: a tenant with the
  * flag on, staff, an asset-finance product, an APPROVED PRIME reference rate, a
- * supplier, three assets, an unevidenced company (classifier → NCA) and an
+ * supplier, four assets, an unevidenced company (classifier → NCA) and an
  * evidenced R2m-turnover company (classifier → NON_NCA) with a consenting
  * director. Every value is synthetic. The route helpers call the real
  * handlers through a host that resolves to the tenant.
  */
 import type { PrismaClient } from "@prisma/client"
+import { unlink } from "node:fs/promises"
 import { NextRequest } from "next/server"
 import { POST as createRoute } from "@/app/api/asset-finance/deals/route"
 import { POST as previewRoute } from "@/app/api/asset-finance/deals/preview/route"
@@ -14,7 +15,10 @@ import { POST as submitRoute } from "@/app/api/asset-finance/deals/[id]/submit/r
 import { POST as decideRoute } from "@/app/api/asset-finance/deals/[id]/decide/route"
 import { POST as bureauRoute } from "@/app/api/asset-finance/deals/[id]/bureau-checks/route"
 import { PUT as financialsRoute } from "@/app/api/asset-finance/deals/[id]/financials/route"
+import { PUT as affordabilityRoute } from "@/app/api/asset-finance/deals/[id]/affordability/route"
 import { POST as decideOverrideRoute } from "@/app/api/asset-finance/nca-overrides/[overrideId]/decide/route"
+import { POST as creditLifeRoute } from "@/app/api/portal/asset-finance/deals/[id]/credit-life/route"
+import { POST as ncaQuoteRoute } from "@/app/api/asset-finance/deals/[id]/nca-quote/route"
 import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
 
 /** Asset 1's registration number. */
@@ -41,7 +45,12 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   const tenantId = dealFixtureTenantId(t)
   const host = `af-deal-${t}.deal-it.test`
   await db.tenant.create({ data: { id: tenantId, slug: `af-deal-${t}`, name: "Deal IT", domain: host } })
-  await db.tenantConfig.create({ data: { tenantId, featureAssetFinance: true } })
+  await db.tenantConfig.create({ data: {
+    tenantId, featureAssetFinance: true, legalName: "TEST Asset Credit (Pty) Ltd", brandName: "TEST Asset Credit",
+    ncrNumber: "NCRCP99999", fscaNumber: "99999", companyRegNumber: "2099/000001/07",
+    registeredOffice: "1 Synthetic Road\nJohannesburg", publicEmail: "hello@test.invalid", publicPhone: "+27110000000",
+    collectionsEmail: "collections@test.invalid", collectionsPhone: "+27110000001",
+  } })
   const user = async (label: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") =>
     (await db.user.create({ data: { tenantId, email: `${label}-${t}@staff.invalid`, password: "x", role } })).id
   const product = await db.loanProduct.create({
@@ -65,7 +74,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   await db.referenceRate.update({ where: { id: repo.id }, data: { status: "APPROVED", decidedById: adminB, decidedAt: new Date() } })
   const supplier = await db.supplier.create({ data: { tenantId, name: "TEST Plant Sales (Pty) Ltd" } })
   const assets: string[] = []
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 4; i++) {
     assets.push((await db.financedAsset.create({
       data: {
         tenantId, assetClass: "EXCAVATOR", make: "TEST", model: `EX-${i}`, year: 2025,
@@ -107,11 +116,16 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
 export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture, "tenantId"> | undefined): Promise<void> {
   if (!fx) return
   const tenantId = fx.tenantId
+  const documents = await db.clientDocument.findMany({ where: { tenantId }, select: { id: true, storagePath: true } })
+  const documentIds = documents.map((document) => document.id)
+  await Promise.all(documents.flatMap((document) => document.storagePath ? [unlink(document.storagePath).catch(() => undefined)] : []))
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
     db.auditLog.deleteMany({ where: { tenantId } }),
     db.complianceRecord.deleteMany({ where: { tenantId } }),
     db.creditBureauCheck.deleteMany({ where: { tenantId } }),
+    db.documentAccessLog.deleteMany({ where: { documentId: { in: documentIds } } }),
+    db.clientDocument.deleteMany({ where: { tenantId } }),
     db.assetFinanceAffordabilityAssessment.deleteMany({ where: { tenantId } }),
     db.entityFinancials.deleteMany({ where: { tenantId } }),
     db.assetFinanceDeal.deleteMany({ where: { tenantId } }),
@@ -144,6 +158,11 @@ export function dealRoutes(host: string) {
     bureau: (dealId: string) => bureauRoute(request(`/api/asset-finance/deals/${dealId}/bureau-checks`, "POST", {}), id(dealId)),
     financials: (dealId: string, body: unknown) =>
       financialsRoute(request(`/api/asset-finance/deals/${dealId}/financials`, "PUT", body), id(dealId)),
+    affordability: (dealId: string, body: unknown) =>
+      affordabilityRoute(request(`/api/asset-finance/deals/${dealId}/affordability`, "PUT", body), id(dealId)),
+    creditLife: (dealId: string, body: unknown) =>
+      creditLifeRoute(request(`/api/portal/asset-finance/deals/${dealId}/credit-life`, "POST", body), id(dealId)),
+    ncaQuote: (dealId: string) => ncaQuoteRoute(request(`/api/asset-finance/deals/${dealId}/nca-quote`, "POST", {}), id(dealId)),
     decide: (dealId: string, body: unknown) => decideRoute(request(`/api/asset-finance/deals/${dealId}/decide`, "POST", body), id(dealId)),
     decideOverride: (overrideId: string, body: unknown) =>
       decideOverrideRoute(request(`/api/asset-finance/nca-overrides/${overrideId}/decide`, "POST", body), {

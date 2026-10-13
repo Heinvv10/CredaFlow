@@ -57,6 +57,7 @@ export type DecideDealResult =
   | { kind: "memo_required" }
   | { kind: "assessment_required" }
   | { kind: "unaffordable" }
+  | { kind: "credit_life_required" }
   | { kind: "decided"; status: "APPROVED" | "DECLINED" | "REFERRED" }
 
 const DECIDABLE_DEAL = ["SUBMITTED", "REFERRED"]
@@ -74,7 +75,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       applicationId: true,
       financials: { select: { dscr: true, gearing: true } },
       affordabilityAssessment: { select: { affordable: true } },
-      application: { select: { status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true } },
+      application: { select: { status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true, creditLifeElection: true } },
     },
   })
   if (!deal) return { kind: "not_found" }
@@ -88,6 +89,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       if (await hasPendingNonNcaOverride(tx, tenantId, applicationId)) return { kind: "awaiting_override" }
       if (!deal.affordabilityAssessment) return { kind: "assessment_required" }
       if (!deal.affordabilityAssessment.affordable) return { kind: "unaffordable" }
+      if (!app.creditLifeElection) return { kind: "credit_life_required" }
     }
     if (!deal.financials) return { kind: "memo_required" }
   }

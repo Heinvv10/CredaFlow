@@ -28,7 +28,7 @@ const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: DealFixture
-const deals = { refused: "", approved: "", declined: "" }
+const deals = { refused: "", approved: "", declined: "", natural: "" }
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_FINANCE_DEAL_IT=1 is required")
@@ -36,6 +36,9 @@ function database(): PrismaClient {
 }
 const signIn = (userId: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => {
   session.current = { user: { id: userId, email: `${userId}@deal-it.test`, role, tenantId: fx.tenantId } }
+}
+const signInClient = (clientId: string) => {
+  session.current = { user: { id: clientId, email: `${clientId}@client.invalid`, role: "CLIENT", tenantId: fx.tenantId } }
 }
 const routes = () => dealRoutes(fx.host)
 const firstDueDate = addMonthsClamped(sastCalendarDate(new Date()), 2)
@@ -93,6 +96,33 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(row.application).toMatchObject({ status: "SUBMITTED", ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN" })
     expect(await audits(deals.refused, "ASSET_DEAL_SUBMITTED")).toHaveLength(1)
     expect(await database().ncaRegimeOverride.count({ where: { applicationId: row.applicationId } })).toBe(0)
+  })
+
+  it("takes a natural-person asset deal through business-income s81 and approval", async () => {
+    signIn(fx.officer, "CREDIT_OFFICER")
+    const created = await routes().create({ ...structure(fx.assets[3]), clientId: fx.director, supplierId: fx.supplier, productId: fx.product })
+    expect(created.status).toBe(201)
+    deals.natural = (await created.json()).id
+    expect((await routes().submit(deals.natural)).status).toBe(200)
+    const row = await dealRow(deals.natural)
+    expect(row.application).toMatchObject({ ncaRegime: "NCA", ncaClassificationRule: "NATURAL_PERSON_NCA", status: "SUBMITTED" })
+    await database().loanApplication.update({ where: { id: row.applicationId }, data: { affordabilityNDI: 80_000_000 } })
+    expect((await routes().financials(deals.natural, {
+      periodEnd: "2026-02-28", turnoverCents: 240_000_000, ebitdaCents: 80_000_000, totalAssetsCents: 300_000_000,
+      totalLiabilitiesCents: 40_000_000, existingDebtServiceCents: 4_000_000, avgMonthlyCreditsCents: 20_000_000, returnedDebitsCount: 0,
+    })).status).toBe(200)
+    signIn(fx.adminA, "LOAN_ADMIN")
+    expect((await routes().affordability(deals.natural, { recklessLendingNote: "Verified business bank credits and personal NDI support the proposed instalment." })).status).toBe(200)
+    signInClient(fx.director)
+    expect((await routes().creditLife(deals.natural, { election: "DECLINED" })).status).toBe(200)
+    signIn(fx.adminA, "LOAN_ADMIN")
+    const decided = await routes().decide(deals.natural, { decision: "APPROVE", reasons: ["Affordable on verified business income and personal NDI"] })
+    expect(decided.status).toBe(200)
+    expect(await dealRow(deals.natural)).toMatchObject({ status: "APPROVED", application: { status: "APPROVED", ncaRegime: "NCA" } })
+    const issued = await routes().ncaQuote(deals.natural)
+    expect(issued.status).toBe(201)
+    expect(await issued.json()).toMatchObject({ kind: "issued", sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect((await dealRow(deals.natural)).application).toMatchObject({ pasqVersion: "pasq-v3", pasqDocumentId: expect.any(String) })
   })
 
   it("submits the evidenced R2m company's deal: SUBMITTED, awaiting the second approver", async () => {

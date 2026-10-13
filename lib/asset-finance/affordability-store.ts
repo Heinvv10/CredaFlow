@@ -22,7 +22,7 @@ export async function recordAssetFinanceAffordability(
   const deal = await tx.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId: actor.tenantId },
     select: {
-      id: true, status: true, baseInstalmentCents: true, clientId: true, entityId: true,
+      id: true, applicationId: true, status: true, baseInstalmentCents: true, clientId: true, entityId: true,
       application: { select: { ncaRegime: true, affordabilityNDI: true } },
       financials: { select: { turnoverCents: true, avgMonthlyCreditsCents: true, existingDebtServiceCents: true } },
       affordabilityAssessment: { select: { affordable: true, combinedNdiAfterProposedCents: true } },
@@ -57,6 +57,16 @@ export async function recordAssetFinanceAffordability(
     where: { dealId, tenantId: actor.tenantId },
     create: { tenantId: actor.tenantId, dealId, ...data },
     update: data,
+  })
+  await tx.loanApplication.update({
+    where: { id: deal.applicationId, tenantId: actor.tenantId },
+    data: {
+      recklessLendingAssessed: true,
+      recklessLendingAssessedById: actor.userId,
+      recklessLendingAssessedAt: data.assessedAt,
+      recklessLendingNote: note,
+      netDisposableIncome: result.combinedNdiAfterProposedCents,
+    },
   })
   await logAuditStrict({
     tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail,

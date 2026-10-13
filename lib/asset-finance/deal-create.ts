@@ -23,6 +23,7 @@ import { generateReference } from "@/lib/utils"
 import type { RegimeTx } from "./classification"
 import type { DealCreateInput } from "./deal-input"
 import { solveWithRate } from "./deal-structure"
+import { solveNcaDealStructure } from "./nca-structure"
 import { dbDate } from "./dates"
 import { NCA_ASSET_CAPS, resolvedAssetFinanceNcaCapProblems } from "./nca-caps"
 
@@ -70,7 +71,10 @@ export async function createDeal(
   })
   if (other) return refused(409, `The asset is already on an open deal (${other.status})`)
 
-  const solved = await solveWithRate(tx, tenantId, asset, input.terms)
+  const genericSolved = await solveWithRate(tx, tenantId, asset, input.terms)
+  const solved = client && genericSolved.ok
+    ? solveNcaDealStructure(asset, input.terms, genericSolved.rate, genericSolved.startDate)
+    : genericSolved
   if (!solved.ok) return refused(422, solved.error)
   const amount = solved.result.financedAmountCents
   if (client) {

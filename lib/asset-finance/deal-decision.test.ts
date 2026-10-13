@@ -20,7 +20,7 @@ function fakeTx(deal: Record<string, unknown> | null, pendingOverride = false) {
   return { tx, asTx: tx as unknown as RegimeTx }
 }
 
-const deal = (over: { status?: string; appStatus?: string; ncaRegime?: string; memo?: boolean; assessment?: boolean | null } = {}) => ({
+const deal = (over: { status?: string; appStatus?: string; ncaRegime?: string; memo?: boolean; assessment?: boolean | null; creditLife?: "ACCEPTED" | "DECLINED" | null } = {}) => ({
   id: "deal-1",
   applicationId: "app-1",
   status: over.status ?? "SUBMITTED",
@@ -32,6 +32,7 @@ const deal = (over: { status?: string; appStatus?: string; ncaRegime?: string; m
     ncaClassificationRule: "JURISTIC_OVER_THRESHOLD",
     appliedAmount: 155_250_000,
     appliedTermDays: 1826,
+    creditLifeElection: over.creditLife === undefined ? "DECLINED" : over.creditLife,
   },
 })
 
@@ -81,6 +82,11 @@ describe("decideDeal", () => {
     expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "unaffordable" })
     fake = fakeTx(deal({ ncaRegime: "NCA", assessment: true }))
     expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toMatchObject({ kind: "decided", status: "APPROVED" })
+  })
+
+  it("does not approve an NCA deal before the borrower answers the credit-life offer", async () => {
+    fake = fakeTx(deal({ ncaRegime: "NCA", creditLife: null }))
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "credit_life_required" })
   })
 
   it("APPROVE moves the application SUBMITTED → UNDER_REVIEW → APPROVED (EFT, approver) and audits the reasons", async () => {
