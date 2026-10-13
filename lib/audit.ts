@@ -65,6 +65,11 @@ export const AuditAction = {
   LOAN_CANCELLED: "LOAN_CANCELLED",
   LOAN_STATUS_CHANGED: "LOAN_STATUS_CHANGED",
   LOAN_BUREAU_OVERRIDE: "LOAN_BUREAU_OVERRIDE",
+  // Asset finance rates (lib/asset-finance/reprice-loan.ts,
+  // app/api/asset-finance/reference-rates): a reference value recorded, and a
+  // linked loan's pending schedule re-solved on it.
+  REFERENCE_RATE_RECORDED: "REFERENCE_RATE_RECORDED",
+  LOAN_REPRICED: "LOAN_REPRICED",
   PRODUCT_PRICING_UPDATED: "PRODUCT_PRICING_UPDATED",
 
   // Agreement

@@ -22,7 +22,7 @@
  *
  * Invalid input throws RangeError.
  */
-import { amortise } from "./amortise"
+import { amortise, type AmortisationResult } from "./amortise"
 import { toDayNumber } from "./dates"
 import type { RatePoint, ScheduleRow } from "./types"
 
@@ -36,6 +36,11 @@ export interface RepriceInput {
 }
 
 export function repriceRemaining(input: RepriceInput): ScheduleRow[] {
+  return repriceTail(input).rows
+}
+
+/** repriceRemaining, also returning the new base instalment B it solved. */
+export function repriceTail(input: RepriceInput): AmortisationResult {
   const { rows, paidThroughIndex: paid } = input
   rows.forEach((row, i) => {
     if (row.index !== i) throw new RangeError("rows: must be the full schedule, indexed 0..n-1")
@@ -55,5 +60,5 @@ export function repriceRemaining(input: RepriceInput): ScheduleRow[] {
     periods: rows.slice(paid + 1).map((row) => ({ dueDate: row.dueDate, weight: row.weight, lumpCents: 0 })),
     ratePath: input.ratePath,
     balloonCents: input.balloonCents,
-  }).rows
+  })
 }

@@ -161,6 +161,7 @@ model Tenant {
   referenceRates           ReferenceRate[]
   vatConfig                VatConfig?
   taxInvoices              TaxInvoice[]
+  creditNotes              CreditNote[]
   taxDocumentCounters      TaxDocumentCounter[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
@@ -1271,6 +1272,7 @@ model Loan {
   contractRates             ContractRate[]
   taxInvoices               TaxInvoice[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([agreementDocId])
@@ -3953,7 +3955,7 @@ model ContractRate {
   id            String    @id @default(cuid())
   tenantId      String
   loanId        String
-  loan          Loan      @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  loan          Loan      @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   effectiveDate DateTime  @db.Date
   basis         ReferenceRateBasis
   margin        Decimal?  @db.Decimal(9, 6)
@@ -4014,7 +4016,7 @@ model TaxInvoice {
   issueDate          DateTime        @db.Date
   supplyDate         DateTime        @db.Date
   loanId             String?
-  loan               Loan?           @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  loan               Loan?           @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   supplierName       String
   supplierAddress    String
   supplierVatNumber  String
@@ -4031,6 +4033,7 @@ model TaxInvoice {
   creditNotes        CreditNote[]
 
   @@unique([tenantId, number])
+  @@unique([tenantId, id])
   @@index([loanId])
 }
 
@@ -4052,11 +4055,12 @@ model TaxInvoiceLine {
 model CreditNote {
   id                String     @id @default(cuid())
   tenantId          String
+  tenant            Tenant     @relation(fields: [tenantId], references: [id])
   number            Int
   creditNoteNumber  String
   issueDate         DateTime   @db.Date
   invoiceId         String
-  invoice           TaxInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  invoice           TaxInvoice @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   reason            String
   exclVatCents      Int
   vatCents          Int
