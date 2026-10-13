@@ -35,7 +35,7 @@ async function signAndContract(tenantId: string, staff: SeedStaff, dealId: strin
   }
   const rows = await prisma.dealSigner.findMany({
     where: { tenantId, dealId },
-    select: { id: true, clientId: true, document: true, method: true, documentSha256: true, confirmedAt: true, client: { select: { firstName: true, lastName: true, email: true } } },
+    select: { id: true, clientId: true, document: true, method: true, documentSha256: true, scanDocumentId: true, confirmedAt: true, client: { select: { firstName: true, lastName: true, email: true } } },
   })
   for (const row of rows) {
     const name = `${row.client.firstName} ${row.client.lastName}`
@@ -49,13 +49,16 @@ async function signAndContract(tenantId: string, staff: SeedStaff, dealId: strin
       continue
     }
     // Every other signer signs on paper: the officer uploads the scan, a second user confirms it.
+    let scanDocumentId = row.scanDocumentId
     if (row.method === null) {
       const upload = await syntheticUpload(SIGNED_DOC_TYPE[row.document], `Signed ${row.document.toLowerCase()} (wet ink) - ${name}`, Object.values(SIGNED_DOC_TYPE), null)
       const uploaded = await uploadWetInkScan(officer, dealId, row.id, upload)
       if (uploaded.kind !== "done") throw new Error(`Seed: wet-ink upload refused (${JSON.stringify(uploaded)})`)
+      scanDocumentId = uploaded.scanDocumentId
     }
     if (!row.confirmedAt) {
-      const confirmed = await confirmWetInkScan(dealActor(tenantId, staff.adminOne), dealId, row.id)
+      if (!scanDocumentId) throw new Error("Seed: wet-ink signer has no scan to confirm")
+      const confirmed = await confirmWetInkScan(dealActor(tenantId, staff.adminOne), dealId, row.id, scanDocumentId)
       if (confirmed.kind !== "done") throw new Error(`Seed: wet-ink confirmation refused (${JSON.stringify(confirmed)})`)
     }
   }

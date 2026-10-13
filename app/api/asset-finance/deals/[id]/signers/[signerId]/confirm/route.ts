@@ -11,7 +11,10 @@ import { loadStaffSigningPanel } from "@/lib/asset-finance/signing-view"
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; signerId: string }> }) {
   const { id, signerId } = await params
   return withSigningStaff(req, { dealId: id, manage: true }, async ({ tenantId, user, refuse }) => {
-    const result = await confirmWetInkScan({ tenantId, userId: user.id, userEmail: user.email }, id, signerId)
+    const body = await req.json().catch(() => null) as { scanDocumentId?: unknown } | null
+    const scanDocumentId = typeof body?.scanDocumentId === "string" ? body.scanDocumentId.trim() : ""
+    if (!scanDocumentId) return NextResponse.json({ error: "scanDocumentId is required" }, { status: 400 })
+    const result = await confirmWetInkScan({ tenantId, userId: user.id, userEmail: user.email }, id, signerId, scanDocumentId)
     switch (result.kind) {
       case "not_found":
         return NextResponse.json({ error: "Signer not found" }, { status: 404 })
@@ -19,6 +22,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("four_eyes", 403, "A scan is confirmed by someone other than the user who uploaded it", { signerId })
       case "not_open":
         return NextResponse.json({ error: result.reason }, { status: 409 })
+      case "scan_changed":
+        return NextResponse.json({ error: "The scan was replaced after you opened it. Review the current scan before confirming." }, { status: 409 })
       case "done":
         return NextResponse.json(await loadStaffSigningPanel(tenantId, id))
     }

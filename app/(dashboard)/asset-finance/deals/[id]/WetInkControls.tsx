@@ -15,6 +15,7 @@ export function WetInkControls(props: {
   dealId: string
   signerId: string
   docType: EntityDocumentType
+  scanDocumentId: string | null
   canUpload: boolean
   canConfirm: boolean
 }) {
@@ -23,10 +24,14 @@ export function WetInkControls(props: {
   const [busy, setBusy] = useState(false)
   const base = `/api/asset-finance/deals/${props.dealId}/signers/${props.signerId}`
 
-  async function send(path: string, body?: FormData, success = "Saved") {
+  async function send(path: string, body?: BodyInit, success = "Saved") {
     setBusy(true)
     try {
-      const res = await fetch(`${base}/${path}`, { method: "POST", body })
+      const res = await fetch(`${base}/${path}`, {
+        method: "POST",
+        body,
+        ...(typeof body === "string" ? { headers: { "Content-Type": "application/json" } } : {}),
+      })
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string }
         toast.error(data.error ?? "The request failed")
@@ -69,7 +74,7 @@ export function WetInkControls(props: {
         </>
       )}
       {props.canConfirm && (
-        <Button type="button" size="sm" onClick={() => send("confirm", undefined, "Scan confirmed")} disabled={busy}>
+        <Button type="button" size="sm" onClick={() => send("confirm", JSON.stringify({ scanDocumentId: props.scanDocumentId }), "Scan confirmed")} disabled={busy}>
           Confirm scan
         </Button>
       )}

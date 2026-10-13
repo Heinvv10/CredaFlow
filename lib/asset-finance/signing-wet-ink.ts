@@ -28,7 +28,7 @@ export class SignerChangedError extends Error {
 
 type Common = { kind: "not_found" } | { kind: "not_open"; reason: string } | { kind: "done"; scanDocumentId: string }
 export type UploadResult = Common | { kind: "wrong_type"; expected: string }
-export type ConfirmResult = Common | { kind: "four_eyes" }
+export type ConfirmResult = Common | { kind: "four_eyes" } | { kind: "scan_changed" }
 
 function findSigner(tenantId: string, dealId: string, signerId: string) {
   return prisma.dealSigner.findFirst({ where: { id: signerId, dealId, tenantId }, select: SIGNER_SELECT })
@@ -78,16 +78,22 @@ export async function uploadWetInkScan(actor: SigningActor, dealId: string, sign
   return { kind: "done", scanDocumentId: stored.id }
 }
 
-export async function confirmWetInkScan(actor: SigningActor, dealId: string, signerId: string): Promise<ConfirmResult> {
+export async function confirmWetInkScan(
+  actor: SigningActor,
+  dealId: string,
+  signerId: string,
+  reviewedScanDocumentId: string,
+): Promise<ConfirmResult> {
   const signer = await findSigner(actor.tenantId, dealId, signerId)
   if (!signer) return { kind: "not_found" }
   if (signer.deal.status !== "APPROVED") return { kind: "not_open", reason: "Scans are confirmed only while the deal is APPROVED" }
   if (signerState(signer) !== "AWAITING_CONFIRMATION" || !signer.scanDocumentId) {
     return { kind: "not_open", reason: "There is no unconfirmed scan for this signer" }
   }
+  if (signer.scanDocumentId !== reviewedScanDocumentId) return { kind: "scan_changed" }
   if (signer.scanUploadedById?.trim().toLowerCase() === actor.userId.trim().toLowerCase()) return { kind: "four_eyes" }
 
-  const scanDocumentId = signer.scanDocumentId
+  const scanDocumentId = reviewedScanDocumentId
   const confirmed = await prisma.$transaction(async (tx) => {
     const { count } = await tx.dealSigner.updateMany({
       where: { id: signer.id, tenantId: actor.tenantId, method: "WET_INK", scanDocumentId, confirmedAt: null },

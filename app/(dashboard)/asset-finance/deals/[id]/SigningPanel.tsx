@@ -99,6 +99,7 @@ export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; 
                           dealId={dealId}
                           signerId={s.id}
                           docType={SIGNED_DOC_TYPE[s.document]}
+                          scanDocumentId={s.scanDocumentId}
                           canUpload
                           canConfirm={awaiting && s.scanUploadedBy?.id !== userId}
                         />

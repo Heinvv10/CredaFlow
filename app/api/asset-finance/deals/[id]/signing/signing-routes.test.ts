@@ -70,7 +70,7 @@ const writes = {
   prepare: () => prepare(req("{}"), deal),
   contract: () => contract(req("{}"), deal),
   wetInk: () => wetInk(req(scanForm("SIGNED_SURETYSHIP")), signer),
-  confirm: () => confirm(req("{}"), signer),
+  confirm: () => confirm(req(JSON.stringify({ scanDocumentId: "doc-1" })), signer),
 }
 const effects = [m.prepare, m.contract, m.upload, m.confirm]
 
@@ -128,6 +128,17 @@ describe("staff deal-signing routes", () => {
     m.confirm.mockResolvedValue({ kind: "four_eyes" })
     expect((await writes.confirm()).status).toBe(403)
     expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({ reason: "four_eyes", status: 403 }))
+  })
+
+  it("binds confirmation to the scan displayed to the reviewer", async () => {
+    expect((await writes.confirm()).status).toBe(200)
+    expect(m.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "tenant-1", userId: "user-1" }),
+      "deal-1",
+      "signer-1",
+      "doc-1",
+    )
+    expect((await confirm(req("{}"), signer)).status).toBe(400)
   })
 
   it("contract with signers outstanding is 409, lists them and is audited", async () => {
