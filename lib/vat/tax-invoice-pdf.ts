@@ -106,6 +106,7 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
 
   const first = doc.addPage([A4_WIDTH, A4_HEIGHT])
+  let page = first
   const barHeight = 70
   const vatLine = `VAT Reg No: ${invoice.supplierVatNumber}`
   first.drawRectangle({ x: 0, y: A4_HEIGHT - barHeight, width: A4_WIDTH, height: barHeight, color: DARK })
@@ -132,11 +133,22 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
   y -= 3 * 14 + 16
 
   const party = (title: string, rows: [string, string][]): void => {
-    y = drawSectionTitle(first, y, title, bold)
+    const continuation = (): void => {
+      page = doc.addPage([A4_WIDTH, A4_HEIGHT])
+      y = drawSectionTitle(page, A4_HEIGHT - MARGIN - 20, `${title} (CONTINUED)`, bold)
+    }
+    if (y < FLOOR + 40) continuation()
+    else y = drawSectionTitle(page, y, title, bold)
     for (const [label, value] of rows) {
-      drawText(first, label, MARGIN + 4, y, bold, BODY, DARK)
-      for (const line of wrap(value, regular, BODY, CONTENT_WIDTH - 130)) {
-        drawText(first, line, MARGIN + 120, y, regular, BODY, DARK)
+      const lines = wrap(value, regular, BODY, CONTENT_WIDTH - 130)
+      if (y < FLOOR + LINE_GAP) continuation()
+      drawText(page, label, MARGIN + 4, y, bold, BODY, DARK)
+      for (const [i, line] of lines.entries()) {
+        if (y < FLOOR) {
+          continuation()
+          drawText(page, `${label.replace(/:$/, "")} (cont.):`, MARGIN + 4, y, bold, BODY, DARK)
+        }
+        drawText(page, line, MARGIN + 120, y, regular, BODY, DARK)
         y -= LINE_GAP
       }
       y -= 2
@@ -166,10 +178,13 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
     }), bold, 8, GRAY)
     return top - 18
   }
-  y = drawSectionTitle(first, y, "GOODS AND SERVICES SUPPLIED", bold)
-  y = drawHeaders(first, y)
+  if (y < FLOOR + 40) {
+    page = doc.addPage([A4_WIDTH, A4_HEIGHT])
+    y = A4_HEIGHT - MARGIN - 20
+  }
+  y = drawSectionTitle(page, y, "GOODS AND SERVICES SUPPLIED", bold)
+  y = drawHeaders(page, y)
 
-  let page = first
   const openContinuation = (): void => {
     page = doc.addPage([A4_WIDTH, A4_HEIGHT])
     const top = drawSectionTitle(page, A4_HEIGHT - MARGIN - 20, "GOODS AND SERVICES SUPPLIED", bold)
