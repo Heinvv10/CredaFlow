@@ -131,7 +131,9 @@ describe("GET …/documents/[documentId] (download)", () => {
   it("writes the DocumentAccessLog row before reading the bytes", async () => {
     const res = await download(new NextRequest(`${BASE}/doc-1?download=1`, { headers: { "user-agent": "vitest" } }), docParams)
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="afs.pdf"')
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="afs.pdf"; filename*=UTF-8\'\'afs.pdf',
+    )
     expect(m.accessLogCreate).toHaveBeenCalledWith({
       data: { documentId: "doc-1", accessorType: "staff", accessorId: "user-1", action: "download", ipAddress: null, userAgent: "vitest" },
     })
