@@ -6,7 +6,7 @@ import { PortalEntitySwitcher } from "@/components/asset-finance/PortalEntitySwi
 import { PortalSignerList } from "@/components/asset-finance/PortalSignerList"
 import { requirePortalEntityPage } from "@/lib/asset-finance/portal-page"
 import { loadPortalEntities, loadPortalEntityView } from "@/lib/asset-finance/portal-entities"
-import { loadEntityDocuments } from "@/lib/asset-finance/entity-detail"
+import { loadPortalEntityDocuments } from "@/lib/asset-finance/portal-access"
 import { PORTAL_UPLOAD_DOC_TYPES } from "@/lib/asset-finance/entity-documents"
 import { ENTITY_TYPE_LABELS } from "@/lib/asset-finance/labels"
 import { loadPortalSigners } from "@/lib/asset-finance/signing-view"
@@ -18,7 +18,7 @@ export default async function PortalEntityPage({ params }: { params: Promise<{ e
   const [view, entities, documents, signers] = await Promise.all([
     loadPortalEntityView(tenantId, entityId),
     loadPortalEntities(tenantId, clientId),
-    loadEntityDocuments(tenantId, entityId),
+    loadPortalEntityDocuments(tenantId, entityId, clientId),
     loadPortalSigners(tenantId, clientId, entityId),
   ])
   if (!view) notFound()

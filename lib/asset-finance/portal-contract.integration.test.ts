@@ -8,7 +8,10 @@
  *     the documents, and leave no access-log row;
  *   - a page URL pairing an entity the client may see with another entity's
  *     loan is a 404;
- *   - the director reads their own suretyship but not another surety's.
+ *   - the director reads their own suretyship but not another surety's;
+ *   - POPIA: of the entity's signed suretyship scans the director lists and
+ *     downloads only their own, never another surety's (404, unlogged,
+ *     audited); staff still list both.
  *
  * Only the session is stubbed. Routes, pages' gates, tenant resolution (by
  * host), feature flag, solver, VAT, storage, audit and access-log writers are
@@ -24,10 +27,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { cleanupBookedContractFixture, createBookedContractFixture, type BookedContractFixture } from "./portal-contract.integration-fixture"
 import { loadPortalContract } from "./portal-contract"
+import { loadPortalEntityDocuments } from "./portal-access"
 import { GET as summaryRoute } from "@/app/api/portal/asset-finance/loans/[loanId]/route"
 import { GET as statementRoute } from "@/app/api/portal/asset-finance/loans/[loanId]/statement/route"
 import { GET as invoiceRoute } from "@/app/api/portal/asset-finance/loans/[loanId]/tax-invoice/route"
 import { GET as documentRoute } from "@/app/api/portal/asset-finance/loans/[loanId]/documents/[signerId]/route"
+import { GET as entityDocumentsRoute } from "@/app/api/portal/asset-finance/entities/[id]/documents/route"
+import { GET as entityDocumentRoute } from "@/app/api/portal/asset-finance/entities/[id]/documents/[documentId]/route"
+import { GET as staffEntityDocumentsRoute } from "@/app/api/asset-finance/entities/[id]/documents/route"
 import ContractPage from "@/app/(portal)/portal/business/[entityId]/contracts/[loanId]/page"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -172,5 +179,40 @@ suite.sequential("portal contract view (real Postgres, booked deal, real routes)
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("application/pdf")
     expect(await database().documentAccessLog.count({ where: { documentId: fx.loanId } })).toBe(1)
+  })
+
+  it("POPIA: the director lists and downloads their own signed suretyship scan, never another surety's; staff see both", async () => {
+    const entityGet = (path: string) => new NextRequest(`http://${fx.host}${path}`, { headers: { host: fx.host } })
+    const scanOf = async (clientId: string) => (await signer(clientId, "SURETYSHIP")).scanDocumentId ?? ""
+    const own = await scanOf(fx.director)
+    const other = await scanOf(fx.suretyA)
+    expect(own).not.toBe("")
+    expect(other).not.toBe("")
+    const download = (documentId: string) => entityDocumentRoute(
+      entityGet(`/api/portal/asset-finance/entities/${fx.evidenced}/documents/${documentId}?download=1`),
+      { params: Promise.resolve({ id: fx.evidenced, documentId }) },
+    )
+
+    asClient(fx.director)
+    const list = await entityDocumentsRoute(entityGet(`/api/portal/asset-finance/entities/${fx.evidenced}/documents`), { params: Promise.resolve({ id: fx.evidenced }) })
+    expect(list.status).toBe(200)
+    const listed = ((await list.json()) as { id: string; docType: string }[])
+    expect(listed.filter((d) => d.docType === "SIGNED_SURETYSHIP").map((d) => d.id)).toEqual([own])
+    // The portal entity page renders the same loader.
+    expect((await loadPortalEntityDocuments(fx.tenantId, fx.evidenced, fx.director)).map((d) => d.id)).toEqual(listed.map((d) => d.id))
+
+    expect((await download(other)).status).toBe(404)
+    expect(await database().documentAccessLog.count({ where: { documentId: other } })).toBe(0)
+    expect(await database().auditLog.count({
+      where: { tenantId: fx.tenantId, action: "DOCUMENT_ACCESS_REFUSED", entity: "EntityDocument", entityId: other },
+    })).toBe(1)
+    expect((await download(own)).status).toBe(200)
+    expect(await database().documentAccessLog.count({ where: { documentId: own, accessorId: fx.director, action: "download" } })).toBe(1)
+
+    setSession({ id: fx.officer, email: `${fx.officer}@contract-it.test`, role: "CREDIT_OFFICER", tenantId: fx.tenantId })
+    const staff = await staffEntityDocumentsRoute(entityGet(`/api/asset-finance/entities/${fx.evidenced}/documents`), { params: Promise.resolve({ id: fx.evidenced }) })
+    expect(staff.status).toBe(200)
+    const staffScans = ((await staff.json()) as { id: string; docType: string }[]).filter((d) => d.docType === "SIGNED_SURETYSHIP").map((d) => d.id)
+    expect(staffScans.sort()).toEqual([own, other].sort())
   })
 })

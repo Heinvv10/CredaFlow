@@ -6,9 +6,14 @@
  * evidence. Approval needs an acknowledged PASQ and a credit-life product;
  * disbursement needs a signed agreement, a countersignature and (for debit
  * orders) a mandate. None of that is fabricated here, so there are no APPROVED
- * or DISBURSED applications. The one demo loan is booked directly against its
- * still-DRAFT application, the way the real-DB integration fixtures do
- * (lib/loan/charges.integration-fixture.ts).
+ * or DISBURSED consumer applications. The one demo consumer loan is booked
+ * directly against its still-DRAFT application, the way the real-DB
+ * integration fixtures do (lib/loan/charges.integration-fixture.ts).
+ *
+ * Asset finance (./seed/asset-finance.ts) is the exception, by design: its
+ * NON_NCA company deal is approved, disbursed and booked through the
+ * asset-finance lib functions themselves, with the four-eyes approvals and
+ * synthetic evidence documents those functions and the database require.
  *
  * Idempotent: every row is upserted or skipped when present.
  */
@@ -34,8 +39,10 @@ const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
 
 const BRAND = VALID_LENDER_COLUMNS.brandName ?? "Acme Lending"
 const STAFF_DOMAIN = "acme-lending.example"
-// Demo passwords are never in source. SEED_ADMIN_PASSWORD,
-// SEED_OFFICER_PASSWORD and SEED_PORTAL_PASSWORD set them (on every run);
+// Demo passwords are never in source — except the two synthetic asset-finance
+// portal logins (./seed/asset-finance-data.ts), kept known for the slice-1
+// browser walk-through. SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD,
+// SEED_LOAN_ADMIN_{ONE,TWO}_PASSWORD and SEED_PORTAL_PASSWORD set them (on every run);
 // unset, a random one is generated when the row is first created and a rerun
 // keeps it. TOTP is mandatory for staff, so each staff user also gets a secret
 // generated on first creation. Credentials are printed only with
@@ -50,7 +57,7 @@ const SEED_LOAN_REFERENCE = "LN-SEED-0001"
  * it: the base32 secret in `totpSecret`, `totpEnabled = true`. A rerun keeps
  * an existing secret so an authenticator already set up keeps working.
  */
-async function upsertStaff(tenantId: string, email: string, name: string, role: "ADMIN" | "CREDIT_OFFICER", passwordEnv: string) {
+async function upsertStaff(tenantId: string, email: string, name: string, role: "ADMIN" | "LOAN_ADMIN" | "CREDIT_OFFICER", passwordEnv: string) {
   const existing = await prisma.user.findUnique({ where: { email }, select: { tenantId: true, totpSecret: true } })
   // email is globally unique: on a shared database the write below would
   // otherwise rewrite another tenant's user (password, tenantId).
@@ -113,6 +120,7 @@ async function main() {
     featureLms: true,
     featurePortal: true,
     featureReports: true,
+    featureAssetFinance: true,
   }
   await prisma.tenantConfig.upsert({
     where: { tenantId: tenant.id },
@@ -126,6 +134,9 @@ async function main() {
 
   const admin = await upsertStaff(tenant.id, `admin@${STAFF_DOMAIN}`, "Demo Admin", "ADMIN", "SEED_ADMIN_PASSWORD")
   const officer = await upsertStaff(tenant.id, `credit.officer@${STAFF_DOMAIN}`, "Demo Credit Officer", "CREDIT_OFFICER", "SEED_OFFICER_PASSWORD")
+  // Two loan admins: asset-finance four-eyes steps need a second approver.
+  const loanAdminOne = await upsertStaff(tenant.id, `loan.admin.one@${STAFF_DOMAIN}`, "Demo Loan Admin One", "LOAN_ADMIN", "SEED_LOAN_ADMIN_ONE_PASSWORD")
+  const loanAdminTwo = await upsertStaff(tenant.id, `loan.admin.two@${STAFF_DOMAIN}`, "Demo Loan Admin Two", "LOAN_ADMIN", "SEED_LOAN_ADMIN_TWO_PASSWORD")
 
   const products: Record<string, { id: string }> = {}
   for (const p of PRODUCTS) {
@@ -197,12 +208,17 @@ async function main() {
 
   await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id)
 
+  // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
+  const { seedAssetFinance } = await import("./seed/asset-finance")
+  const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
+  await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
+
   console.log(`\nSeed complete: tenant "acme" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {
-    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD and SEED_PORTAL_PASSWORD to choose or reset them.")
+    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD, SEED_LOAN_ADMIN_ONE_PASSWORD, SEED_LOAN_ADMIN_TWO_PASSWORD and SEED_PORTAL_PASSWORD to choose or reset them.")
     return
   }
-  for (const s of [admin, officer]) {
+  for (const s of [admin, officer, loanAdminOne, loanAdminTwo]) {
     console.log(`\n  ${s.user.role}: ${s.user.email}\n    password: ${s.password}\n    TOTP secret (base32): ${s.totpSecret}\n    otpauth: ${s.otpauth}`)
   }
   console.log(`\n  Client portal password (seeded clients created or reset this run): ${portalPasswordUsed ? portalPassword : kept("SEED_PORTAL_PASSWORD")}`)

@@ -124,6 +124,8 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(staff.map((u) => [u.email, u.role]).sort()).toEqual([
       [ADMIN_EMAIL, "ADMIN"],
       ["credit.officer@acme-lending.example", "CREDIT_OFFICER"],
+      ["loan.admin.one@acme-lending.example", "LOAN_ADMIN"],
+      ["loan.admin.two@acme-lending.example", "LOAN_ADMIN"],
     ])
     for (const user of staff) {
       expect(user.totpEnabled).toBe(true)
@@ -153,7 +155,10 @@ suite("base demo seed on a fresh migrated database", () => {
       prisma.client.count({ where: { kycStatus: "PENDING" } }),
       prisma.clientDocument.count(),
       prisma.complianceRecord.count(),
-      prisma.loanApplication.count({ where: { status: { in: ["APPROVED", "DISBURSED"] } } }),
+      // Consumer applications only: the asset-finance company deal is approved
+      // and disbursed through its own lib functions and four-eyes approvals
+      // (prisma/seed-asset-finance.integration.test.ts asserts how).
+      prisma.loanApplication.count({ where: { status: { in: ["APPROVED", "DISBURSED"] }, clientId: { not: null } } }),
       prisma.insurancePolicy.count(),
       prisma.client.count({ where: { NOT: { email: { endsWith: ".invalid" } } } }),
     ])
@@ -170,11 +175,12 @@ suite("base demo seed on a fresh migrated database", () => {
       insurancePolicyCount,
       nonInvalidEmailCount,
     }).toEqual({
-      clientCount: 5,
-      applicationCount: 4,
-      loanCount: 1,
+      // 5 consumer clients + 4 asset-finance people; 4 consumer + 2 asset-finance applications and 1 + 1 loans.
+      clientCount: 9,
+      applicationCount: 6,
+      loanCount: 2,
       verifiedCount: 0,
-      pendingCount: 5,
+      pendingCount: 9,
       clientDocumentCount: 0,
       complianceRecordCount: 0,
       protectedLifecycleCount: 0,
@@ -238,7 +244,9 @@ suite("demo seed passwords", () => {
   const created: string[] = []
   let db: ThrowawayDb | undefined
   let firstRunOutput = ""
-  const STAFF = [ADMIN_EMAIL, "credit.officer@acme-lending.example"]
+  const STAFF = [ADMIN_EMAIL, "credit.officer@acme-lending.example", "loan.admin.one@acme-lending.example", "loan.admin.two@acme-lending.example"]
+  // The asset-finance portal logins have known passwords (prisma/seed/asset-finance-data.ts), not these.
+  const CONSUMER_CLIENTS = { NOT: { reference: { startsWith: "CLI-SEED-AF-" } } }
 
   beforeAll(async () => {
     if (!admin) throw new Error("RUN_SEED_DB_IT=1 is required")
@@ -252,7 +260,7 @@ suite("demo seed passwords", () => {
 
   const passwords = async () => ({
     staff: (await db!.prisma.user.findMany({ orderBy: { email: "asc" }, select: { password: true } })).map((u) => u.password),
-    portal: (await db!.prisma.client.findMany({ orderBy: { idNumber: "asc" }, select: { portalPassword: true } })).map((c) => c.portalPassword ?? ""),
+    portal: (await db!.prisma.client.findMany({ where: CONSUMER_CLIENTS, orderBy: { idNumber: "asc" }, select: { portalPassword: true } })).map((c) => c.portalPassword ?? ""),
   })
 
   it("generates them on the first run and prints the ones it stored", async () => {
@@ -343,11 +351,17 @@ suite("demo seeds never touch another tenant's rows", () => {
     // seed, then hand the Acme staff to the other tenant.
     await prisma.client.update({ where: { idNumber: SEED_ID_NUMBER }, data: { idNumber: "9001015800087" } })
     runSeed(url)
-    await prisma.user.updateMany({ where: { email: { endsWith: "@acme-lending.example" } }, data: { tenantId: otherTenantId } })
+    // The asset-finance rows the staff acted on reference them by composite
+    // (tenantId, userId) foreign keys, which refuse the move; this database is
+    // dropped afterwards, so they are bypassed for the hand-over only.
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      prisma.user.updateMany({ where: { email: { endsWith: "@acme-lending.example" } }, data: { tenantId: otherTenantId } }),
+    ])
 
     expect(failedRunStderr(() => runStagingSeed(url))).toContain("Base demo users are missing")
     const staff = await prisma.user.findMany({ where: { tenantId: otherTenantId }, select: { branchId: true } })
-    expect(staff.map((u) => u.branchId)).toEqual([null, null, null])
+    expect(staff.map((u) => u.branchId)).toEqual([null, null, null, null, null])
     expect(await prisma.branch.count()).toBe(0)
   }, 180_000)
 })

@@ -1,0 +1,153 @@
+/**
+ * Synthetic values for the asset-finance demo seed (./asset-finance.ts). Every
+ * name, number, VIN and ID here is invented and obviously fake: "TEST" names,
+ * 2099 registration years, `.invalid` email domains. ID numbers are synthetic
+ * but pass the SA ID check digit, so the client screens accept them.
+ *
+ * PORTAL PASSWORDS. Unlike the consumer demo clients (whose password is
+ * generated or taken from SEED_PORTAL_PASSWORD), the two asset-finance portal
+ * logins below have KNOWN synthetic passwords, so the slice-1 browser
+ * walk-through can sign in as the director and as the surety. They are also
+ * listed in docs/asset-finance/evidence/slice1/README.md. They are set only
+ * when the client row is created; a rerun never changes them. The seed refuses
+ * to run with NODE_ENV=production (prisma/seed.ts).
+ *   TEST Director One  test.director.one@acme-lending.invalid  Synthetic-AF-Director-2099!  (DIRECTOR, AUTHORISED_SIGNATORY, SURETY)
+ *   TEST Surety One    test.surety.one@acme-lending.invalid    Synthetic-AF-Surety-2099!    (SURETY only: no entity access)
+ */
+import type { AssetClass } from "@prisma/client"
+
+export const AF_PRODUCT_CODE = "AF-IS"
+export const PRIME = { basis: "PRIME", effectiveDate: "2025-01-01", rate: "0.1075" } as const
+export const VAT_VENDOR_NUMBER = "4999999999"
+
+export const SUPPLIER = {
+  name: "TEST Plant Sales (Pty) Ltd",
+  registrationNumber: "2099/000003/07",
+  vatNumber: "4999999998",
+  contactName: "TEST Supplier Contact",
+  contactEmail: "sales@test-plant-sales.invalid",
+  contactPhone: "+27 11 000 0099",
+  address: "3 Test Yard, Testville, 0003",
+}
+export const SUPPLIER_ACCOUNT = {
+  bankName: "TEST Bank",
+  branchCode: "000099",
+  accountNumber: "0000000099",
+  accountHolder: "TEST Plant Sales (Pty) Ltd",
+  accountType: "CHEQUE",
+}
+export const SUPPLIER_ACCOUNT_NOTE =
+  "Not run: company AVS unsupported. Verified manually against a synthetic bank-stamped confirmation letter (TEST)."
+
+export type AfPersonKey = "trusteeOne" | "trusteeTwo" | "director" | "surety"
+
+export interface AfPerson {
+  key: AfPersonKey
+  reference: string
+  firstName: string
+  lastName: string
+  idNumber: string
+  dob: string
+  gender: "MALE" | "FEMALE"
+  phone: string
+  portalPassword: string | null
+}
+
+// References sort after the consumer demo clients (CLI-SEED-0001…), which
+// prisma/seed-staging.ts takes by position.
+export const PEOPLE: AfPerson[] = [
+  { key: "trusteeOne", reference: "CLI-SEED-AF-0001", firstName: "TEST", lastName: "Trustee One", idNumber: "7001015000087", dob: "1970-01-01", gender: "MALE", phone: "+27700000101", portalPassword: null },
+  { key: "trusteeTwo", reference: "CLI-SEED-AF-0002", firstName: "TEST", lastName: "Trustee Two", idNumber: "7102025000081", dob: "1971-02-02", gender: "MALE", phone: "+27700000102", portalPassword: null },
+  { key: "director", reference: "CLI-SEED-AF-0003", firstName: "TEST", lastName: "Director One", idNumber: "7203030000080", dob: "1972-03-03", gender: "FEMALE", phone: "+27700000103", portalPassword: "Synthetic-AF-Director-2099!" },
+  { key: "surety", reference: "CLI-SEED-AF-0004", firstName: "TEST", lastName: "Surety One", idNumber: "7304045000089", dob: "1973-04-04", gender: "MALE", phone: "+27700000104", portalPassword: "Synthetic-AF-Surety-2099!" },
+]
+
+export const personEmail = (p: AfPerson) => `${p.firstName}.${p.lastName.replace(/ /g, ".")}@acme-lending.invalid`.toLowerCase()
+
+export const TRUST = {
+  type: "TRUST",
+  legalName: "TEST Family Farming Trust",
+  registrationNumber: "IT 000001/2099",
+  annualTurnover: 80_000_000, // R800 000
+  financialYearEnd: "2026-02-28",
+  addressLine1: "1 Test Farm Road",
+  city: "Testville",
+  province: "Free State",
+  postalCode: "9999",
+} as const
+
+export const COMPANY = {
+  type: "COMPANY",
+  legalName: "TEST Earthmoving (Pty) Ltd",
+  tradingName: "TEST Earthmoving",
+  registrationNumber: "2099/000001/07",
+  vatNumber: "4999999997",
+  // R25 000 000 in cents: 2.5e9 overflows INT4, the column is BIGINT (big-cents.ts).
+  annualTurnover: 2_500_000_000,
+  totalAssetValue: 1_800_000_000,
+  financialYearEnd: "2026-02-28",
+  addressLine1: "9 Test Quarry Road",
+  city: "Testville",
+  province: "Mpumalanga",
+  postalCode: "9998",
+} as const
+
+export interface AfAsset {
+  assetClass: AssetClass
+  make: string
+  model: string
+  year: number
+  serialNumber: string
+  vin: string | null
+  engineNumber: string | null
+  hours: number | null
+  cashPriceExclVatCents: number
+  vatCents: number
+  insurer: string
+  policyNumber: string
+  trackerProvider: string
+  trackerId: string
+  lenderNotedConfirmed: boolean
+}
+
+// R1 725 000.00 incl. VAT: R1 500 000.00 + 15% VAT. Unregistered: no eNaTIS item.
+export const EXCAVATOR: AfAsset = {
+  assetClass: "EXCAVATOR", make: "TEST", model: "EX-300 Synthetic", year: 2025,
+  serialNumber: "TESTEX0000000001", vin: "TEST0000000000001", engineNumber: "TESTENG0000001", hours: 12,
+  cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000,
+  insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0001", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0001",
+  lenderNotedConfirmed: true,
+}
+
+// R345 000.00 incl. VAT, for the trust's (refused) deal.
+export const TRACTOR: AfAsset = {
+  assetClass: "TRACTOR", make: "TEST", model: "TR-90 Synthetic", year: 2025,
+  serialNumber: "TESTTR0000000001", vin: "TEST0000000000002", engineNumber: null, hours: 3,
+  cashPriceExclVatCents: 30_000_000, vatCents: 4_500_000,
+  insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0002", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0002",
+  lenderNotedConfirmed: true,
+}
+
+/** The company deal: 10% deposit, 20% balloon, 60 months, harvest Apr–Jun ×3, others ×0.5, PRIME + 1.00%. */
+export const COMPANY_DEAL = {
+  depositCents: 17_250_000,
+  balloonCents: 34_500_000,
+  preset: { kind: "ANNUAL_SEASONAL", periods: 60, seasonMonths: [4, 5, 6], seasonWeight: 3, offWeight: 0.5 },
+  rateBasis: "PRIME",
+  rateMargin: "0.0100",
+} as const
+
+export const CREDIT_MEMO = {
+  periodEnd: "2026-02-28",
+  turnoverCents: 2_500_000_000,
+  ebitdaCents: 600_000_000,
+  totalAssetsCents: 1_800_000_000,
+  totalLiabilitiesCents: 700_000_000,
+  existingDebtServiceCents: 120_000_000,
+  avgMonthlyCreditsCents: 210_000_000,
+  returnedDebitsCount: 0,
+  notes: "Synthetic credit memo: audited AFS (TEST) and six months of bank statements (TEST).",
+}
+
+/** Instalments paid by the seed's receipts (the first ones, each on its due date). */
+export const PAID_INSTALMENTS = 3

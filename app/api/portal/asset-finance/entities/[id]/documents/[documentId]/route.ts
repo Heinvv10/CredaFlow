@@ -4,19 +4,21 @@ import { AuditAction } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { getPortalClient, withPortalEntity } from "@/lib/asset-finance/portal-route"
 import { serveEntityDocument } from "@/lib/asset-finance/entity-document-io"
+import { portalVisibleEntityDocumentWhere } from "@/lib/asset-finance/portal-access"
 
 type Params = { params: Promise<{ id: string; documentId: string }> }
 
 /**
  * The document's bytes (`?download=1` as an attachment) for a client with
- * authority over its entity. Writes a DocumentAccessLog row; a refusal is
- * audited, so probing for other entities' documents leaves a trace.
+ * authority over its entity. Another surety's signed suretyship is a 404
+ * (portalVisibleEntityDocumentWhere). Writes a DocumentAccessLog row; a
+ * refusal is audited, so probing for other entities' documents leaves a trace.
  */
 export async function GET(req: NextRequest, { params }: Params) {
   const { id, documentId } = await params
   const outcome = await withPortalEntity(req, id, async ({ tenantId, client }) => {
     const doc = await prisma.entityDocument.findFirst({
-      where: { id: documentId, entityId: id, tenantId, deletedAt: null },
+      where: { id: documentId, entityId: id, tenantId, deletedAt: null, ...portalVisibleEntityDocumentWhere(client.clientId) },
       select: { id: true, fileName: true, mimeType: true, storagePath: true, contentSha256: true },
     })
     if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 })

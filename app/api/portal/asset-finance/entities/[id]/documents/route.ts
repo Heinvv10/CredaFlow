@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { withPortalEntity } from "@/lib/asset-finance/portal-route"
 import { PORTAL_UPLOAD_DOC_TYPES } from "@/lib/asset-finance/entity-documents"
 import { parseEntityDocumentForm, storeEntityDocument } from "@/lib/asset-finance/entity-document-io"
-import { loadEntityDocuments } from "@/lib/asset-finance/entity-detail"
+import { loadPortalEntityDocuments } from "@/lib/asset-finance/portal-access"
 
 type Params = { params: Promise<{ id: string }> }
 
-/** The entity's live documents (metadata only). */
+/** The entity's live documents this client may see (metadata only; another surety's signed suretyship is withheld). */
 export async function GET(req: NextRequest, { params }: Params) {
   const { id } = await params
-  return withPortalEntity(req, id, async ({ tenantId }) => NextResponse.json(await loadEntityDocuments(tenantId, id)))
+  return withPortalEntity(req, id, async ({ tenantId, client }) =>
+    NextResponse.json(await loadPortalEntityDocuments(tenantId, id, client.clientId)),
+  )
 }
 
 /** Upload an onboarding document for the entity (multipart: file, docType). */

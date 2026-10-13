@@ -1,8 +1,11 @@
 /**
  * Real-Postgres fixture for the payout and booking suite: the signing
  * fixture's tenant with two CONTRACTED deals (A on a registered asset, B on
- * an unregistered one), each e-signed by every required signer through the
- * real portal route and contracted through the real staff route. The lender
+ * an unregistered one), each signed by every required signer and contracted
+ * through the real staff route. Every signature is an e-signature through the
+ * real portal route, except deal A's suretyships of the director and suretyA:
+ * those are wet-ink scans (SIGNED_SURETYSHIP entity documents) uploaded by the
+ * officer and confirmed by adminA through the real staff routes. The lender
  * identity and VAT vendor are configured, the entity has an address, and the
  * supplier has an APPROVED bank account (requested by one user, approved by
  * another). Every value is synthetic. Not a test file.
@@ -56,12 +59,24 @@ async function approveDeal(fx: SigningFixture, assetId: string, staff: (id: stri
   return dealId
 }
 
-/** Prepare the documents, e-sign every signer row as its client, contract. */
-async function signAndContract(fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient) {
+/**
+ * Prepare the documents, then sign every signer row: the suretyships of the
+ * clients in `wetInkSureties` as wet-ink scans (officer uploads, adminA
+ * confirms), every other row e-signed as its client. Then contract.
+ */
+async function signAndContract(fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, wetInkSureties: string[] = []) {
   const routes = signingRoutes(fx.host)
-  setSession({ id: fx.officer, email: "officer@booking-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })
+  const staff = (id: string, role: string) => setSession({ id, email: `${id}@booking-it.test`, role, tenantId: fx.tenantId })
+  staff(fx.officer, "CREDIT_OFFICER")
   expect((await routes.prepare(dealId)).status).toBe(200)
   for (const row of await db.dealSigner.findMany({ where: { dealId } })) {
+    if (row.document === "SURETYSHIP" && wetInkSureties.includes(row.clientId)) {
+      staff(fx.officer, "CREDIT_OFFICER")
+      expect((await routes.wetInk(dealId, row.id, "SIGNED_SURETYSHIP")).status).toBe(201)
+      staff(fx.adminA, "LOAN_ADMIN")
+      expect((await routes.confirm(dealId, row.id)).status).toBe(200)
+      continue
+    }
     setSession({ id: row.clientId, email: `${row.clientId}@booking-it.test`, role: "CLIENT", tenantId: fx.tenantId })
     expect((await routes.portalSign(row.id, { signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256 })).status).toBe(200)
   }
@@ -94,7 +109,7 @@ export async function createBookingFixture(db: PrismaClient, t: string, setSessi
     data: { status: "APPROVED", decidedById: fx.adminB, decidedAt: new Date(), avsResult: { manual: "company: bank letter on file" } },
   })
   const dealB = await approveDeal(fx, fx.assets[1], staff, db)
-  await signAndContract(fx, fx.dealId, setSession, db)
+  await signAndContract(fx, fx.dealId, setSession, db, [fx.director, fx.suretyA])
   await signAndContract(fx, dealB, setSession, db)
   return { ...fx, dealB, accountId: account.id }
 }

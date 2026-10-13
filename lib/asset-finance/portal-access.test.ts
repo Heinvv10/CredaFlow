@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
-import { authorisedEntityIdsForClient, PORTAL_AUTHORITY_ROLES, requirePortalEntityAccess } from "./portal-access"
+import {
+  authorisedEntityIdsForClient,
+  loadPortalEntityDocuments,
+  PORTAL_AUTHORITY_ROLES,
+  portalVisibleEntityDocumentWhere,
+  requirePortalEntityAccess,
+} from "./portal-access"
 
 // The real-database proof is portal-access.integration.test.ts; this pins the
 // query the rule is made of.
@@ -29,5 +35,26 @@ describe("portal entity access", () => {
   it("lists each authorised entity once", async () => {
     const findMany = vi.fn().mockResolvedValue([{ entityId: "e1" }, { entityId: "e2" }, { entityId: "e1" }])
     expect(await authorisedEntityIdsForClient("t1", "c1", { entityRelationship: { findMany } } as never)).toEqual(["e1", "e2"])
+  })
+})
+
+// Real-database proof: portal-contract.integration.test.ts (a booked deal with
+// two wet-ink suretyship scans).
+describe("portal entity documents (POPIA: another surety's signed suretyship)", () => {
+  it("withholds every SIGNED_SURETYSHIP but the one bound to this client's own suretyship signer row", () => {
+    expect(portalVisibleEntityDocumentWhere("c1")).toEqual({
+      OR: [
+        { docType: { not: "SIGNED_SURETYSHIP" } },
+        { signerScans: { some: { clientId: "c1", document: "SURETYSHIP" } } },
+      ],
+    })
+  })
+
+  it("lists only the live documents of this tenant and entity that the client may see", async () => {
+    const findMany = vi.fn().mockResolvedValue([])
+    await loadPortalEntityDocuments("t1", "e1", "c1", { entityDocument: { findMany } } as never)
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "t1", entityId: "e1", deletedAt: null, ...portalVisibleEntityDocumentWhere("c1") },
+    }))
   })
 })

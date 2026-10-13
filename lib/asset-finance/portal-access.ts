@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
-import type { EntityRole } from "@prisma/client"
+import type { EntityRole, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { ENTITY_DOCUMENT_VIEW_SELECT, toEntityDocumentView, type EntityDocumentView } from "./entity-documents"
 
 // Who may act for a BusinessEntity in the client portal (goal decision 2a.2).
 // A portal Client holding an ACTIVE director, trustee or authorised-signatory
@@ -57,4 +58,36 @@ export async function requirePortalEntityAccess(
 ): Promise<NextResponse | null> {
   if (await isPortalEntityAuthorised(tenantId, clientId, entityId, db)) return null
   return NextResponse.json({ error: "Not found" }, { status: 404 })
+}
+
+/**
+ * The entity documents a portal client may list and download (POPIA). A
+ * signed suretyship scan is a personal contract between ONE surety and the
+ * lender: only the surety whose signer row binds it (DealSigner.scanDocumentId
+ * → DealSigner.clientId) sees it, never the entity's other directors or
+ * signatories. A scan no signer row binds (one replaced before it was
+ * confirmed) is shown to nobody in the portal. Staff are unaffected.
+ */
+export function portalVisibleEntityDocumentWhere(clientId: string): Prisma.EntityDocumentWhereInput {
+  return {
+    OR: [
+      { docType: { not: "SIGNED_SURETYSHIP" } },
+      { signerScans: { some: { clientId, document: "SURETYSHIP" } } },
+    ],
+  }
+}
+
+/** The entity's live documents as a portal client may see them (metadata only). */
+export async function loadPortalEntityDocuments(
+  tenantId: string,
+  entityId: string,
+  clientId: string,
+  db: Pick<typeof prisma, "entityDocument"> = prisma,
+): Promise<EntityDocumentView[]> {
+  const rows = await db.entityDocument.findMany({
+    where: { tenantId, entityId, deletedAt: null, ...portalVisibleEntityDocumentWhere(clientId) },
+    orderBy: { createdAt: "desc" },
+    select: ENTITY_DOCUMENT_VIEW_SELECT,
+  })
+  return rows.map(toEntityDocumentView)
 }
