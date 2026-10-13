@@ -38,6 +38,14 @@ import {
 } from "@/lib/kyc/document-state"
 import { debtAccountTypeLabel } from "@/lib/credit/debt-account-types"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
+import {
+  getKycOverridePolicy,
+  overrideEligibility,
+  readFaceModelSimilarity,
+  readFaceVerdict,
+} from "@/lib/kyc/override-policy"
+import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
+import { expireAndListPendingKycOverrideRequests } from "@/lib/kyc/override-requests"
 
 async function getClient(id: string, tenantId: string) {
   return prisma.client.findUnique({
@@ -88,7 +96,8 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
     getClient(id, tenantId), getAuthoritativeStaffSelfie(id, tenantId), getBureauHistory(id, tenantId), listCannedReplies(tenantId), listGeneratableCustomTemplates(tenantId, { client: true }),
   ])
   if (!client) notFound()
-  const [compositeKyc, session] = await Promise.all([
+  const session = await auth()
+  const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests] = await Promise.all([
     readCompositeKycState(
       prisma as unknown as CompositeKycReader,
       {
@@ -99,7 +108,15 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
         preserveVerifiedProvenance: true,
       },
     ),
-    auth(),
+    getKycOverridePolicy(tenantId),
+    isStaffTotpRequired(tenantId),
+    session?.user?.id && session.user.email
+      ? expireAndListPendingKycOverrideRequests({
+          tenantId,
+          clientId: id,
+          actor: { id: session.user.id, email: session.user.email },
+        })
+      : Promise.resolve([]),
   ])
   const manualException = compositeKyc.manualException
     ? {
@@ -119,9 +136,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
         approvedByEmail: compositeKyc.inPersonVerification.approvedByEmail,
       }
     : null
-  const canGrantManualException = Boolean(
-    session?.user?.role && hasMinRole(session.user.role, "ADMIN"),
-  )
+  const overridePolicy = { ...overridePolicyBase, requireStaffTotp }
   // Both ways past a selfie the client cannot take on this device. Built here
   // because the portal link needs the client's email AND reference —
   // /portal/continue falls through to the register form without both, which
@@ -221,6 +236,33 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
       extractionStatus: selfieDoc.extractionStatus,
       biometricFailureReason: compositeKyc.biometricEvidence,
     })
+
+  const exceptionEligibility = session?.user?.role && session.user.role !== "CLIENT" ? overrideEligibility({
+    kind: "EXCEPTION",
+    mode: overridePolicy.secondApprover ? "request" : "direct",
+    attempt: selfieDoc ? {
+      extractionStatus: selfieDoc.extractionStatus,
+      biometricFailureReason: compositeKyc.biometricEvidence,
+      similarity: readFaceModelSimilarity(selfieDoc.biometricResult),
+      faceVerdict: readFaceVerdict(selfieDoc.biometricResult),
+    } : null,
+    policy: overridePolicy,
+    caller: { role: session.user.role, totpVerified: session.user.totpVerified === true },
+  }) : { allowed: false as const, code: "role_below_policy" as const }
+  const inPersonEligibility = session?.user?.role && session.user.role !== "CLIENT" ? overrideEligibility({
+    kind: "IN_PERSON",
+    mode: overridePolicy.secondApprover ? "request" : "direct",
+    attempt: null,
+    policy: overridePolicy,
+    caller: { role: session.user.role, totpVerified: session.user.totpVerified === true },
+  }) : { allowed: false as const, code: "role_below_policy" as const }
+  const reviewerEligibility = session?.user?.role && session.user.role !== "CLIENT" ? overrideEligibility({
+    kind: "IN_PERSON",
+    mode: "approve",
+    attempt: null,
+    policy: { ...overridePolicy, enabled: true },
+    caller: { role: session.user.role, totpVerified: session.user.totpVerified === true },
+  }) : { allowed: false as const, code: "role_below_policy" as const }
 
   const selfieImageUrl = selfieDoc?.deletedAt === null && selfieDoc.storagePath
     ? `/api/documents/${selfieDoc.id}/view`
@@ -418,7 +460,19 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 selfieDoc={selfieDocSafe}
                 imageUrl={selfieImageUrl}
                 currentManualException={manualException}
-                canGrantManualException={canGrantManualException}
+                canGrantManualException={exceptionEligibility.allowed}
+                canRecordInPersonVerification={inPersonEligibility.allowed}
+                canDecideOverrideRequest={reviewerEligibility.allowed}
+                overrideRefusalCode={exceptionEligibility.allowed ? null : exceptionEligibility.code}
+                inPersonOverrideRefusalCode={inPersonEligibility.allowed ? null : inPersonEligibility.code}
+                overrideMinRole={overridePolicy.minRole}
+                secondApproverRequired={overridePolicy.secondApprover}
+                currentUserId={session?.user?.id ?? null}
+                pendingOverrideRequests={pendingOverrideRequests.map((request) => ({
+                  ...request,
+                  requestedAt: request.requestedAt.toISOString(),
+                  expiresAt: request.expiresAt.toISOString(),
+                }))}
                 currentInPersonVerification={inPersonVerification}
                 coreDocumentsComplete={compositeKyc.missingCoreDocuments.length === 0}
                 biometricEvidence={compositeKyc.biometricEvidence}

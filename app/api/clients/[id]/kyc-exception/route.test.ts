@@ -11,8 +11,12 @@ const documentFindFirstMock = vi.fn()
 const complianceFindFirstMock = vi.fn()
 const complianceCreateMock = vi.fn()
 const auditCreateMock = vi.fn()
+const tenantConfigFindUniqueMock = vi.fn()
 
 const tx = {
+  $executeRaw: vi.fn().mockResolvedValue(0),
+  $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+  tenantConfig: { findUnique: (...args: unknown[]) => tenantConfigFindUniqueMock(...args) },
   client: {
     findUnique: (...args: unknown[]) => clientFindUniqueMock(...args),
     update: (...args: unknown[]) => clientUpdateMock(...args),
@@ -114,6 +118,7 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
         id: "admin-1",
         email: "admin@example.test",
         role: "ADMIN",
+        totpVerified: true,
       },
     })
     transactionMock.mockImplementation(
@@ -128,6 +133,12 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
       async ({ data }: { data: Record<string, unknown> }) => data,
     )
     auditCreateMock.mockResolvedValue({ id: "audit-1" })
+    tenantConfigFindUniqueMock.mockResolvedValue({
+      kycOverrideEnabled: true,
+      kycOverrideMinRole: "ADMIN",
+      kycOverrideSecondApprover: false,
+      requireStaffTotp: true,
+    })
   })
 
   it("requires ADMIN authority and atomically records an exact failed-attempt exception", async () => {
@@ -138,7 +149,7 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
     }), params)
 
     expect(response.status).toBe(201)
-    expect(requireApiRoleMock).toHaveBeenCalledWith("ADMIN")
+    expect(requireApiRoleMock).toHaveBeenCalledWith("BRANCH_MANAGER")
     expect(complianceCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({
         tenantId: "tenant-1",
@@ -331,5 +342,83 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
 
     expect(response.status).toBe(403)
     expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a caller below the lender's configured minimum role", async () => {
+    requireApiRoleMock.mockResolvedValue({ user: { id: "manager-1", email: "manager@test.invalid", role: "BRANCH_MANAGER", totpVerified: true } })
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe("role_below_policy")
+    expect(complianceCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("requires TOTP only when the lender requires staff TOTP", async () => {
+    requireApiRoleMock.mockResolvedValue({ user: { id: "admin-1", email: "admin@test.invalid", role: "ADMIN", totpVerified: false } })
+    let response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe("totp_required")
+
+    tenantConfigFindUniqueMock.mockResolvedValue({
+      kycOverrideEnabled: true, kycOverrideMinRole: "ADMIN",
+      kycOverrideSecondApprover: false, requireStaffTotp: false,
+    })
+    response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+    expect(response.status).toBe(201)
+  })
+
+  it("requires the request workflow when second approval is enabled", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({
+      kycOverrideEnabled: true, kycOverrideMinRole: "ADMIN",
+      kycOverrideSecondApprover: true, requireStaffTotp: true,
+    })
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+    expect(response.status).toBe(409)
+    expect((await response.json()).code).toBe("second_approver_required")
+  })
+
+  it("refuses disabled overrides", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({
+      kycOverrideEnabled: false, kycOverrideMinRole: "ADMIN",
+      kycOverrideSecondApprover: false, requireStaffTotp: true,
+    })
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe("overrides_disabled")
+  })
+
+  it.each([
+    [0.29, "uncertain"],
+    [0.33, "different"],
+  ] as const)("refuses a clear mismatch at similarity %s / verdict %s", async (similarity, samePerson) => {
+    documentFindFirstMock.mockResolvedValue({
+      ...selfie,
+      biometricResult: {
+        biometricFailureReason: "match_score_below_threshold",
+        faceModel: { similarity },
+        faceVerdict: { samePerson },
+      },
+    })
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence: "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+    expect(response.status).toBe(422)
+    expect((await response.json()).code).toBe("clear_mismatch")
+    expect(complianceCreateMock).not.toHaveBeenCalled()
   })
 })

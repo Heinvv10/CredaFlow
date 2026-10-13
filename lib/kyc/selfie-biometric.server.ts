@@ -370,6 +370,10 @@ async function persistBiometricOutcome(args: {
       ...(args.biometricResult === null
         ? {}
         : JSON.parse(JSON.stringify(args.biometricResult)) as Record<string, unknown>),
+      // Keep the raw similarity on failures too. The override policy must be
+      // able to distinguish a borderline failure from a clear mismatch even
+      // where a VLM-side refusal prevented a provider result being built.
+      ...(args.faceComparison?.ok ? { faceModel: args.faceComparison.evidence } : {}),
       // Also on an attempt with no provider result: an ID-portrait refusal
       // closes the in-person route only over the ID copy it was judged on.
       idDocumentId: args.idDocument.id,

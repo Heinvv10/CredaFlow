@@ -60,13 +60,17 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
   })
 
   // Neither reads the provider tag, and v3 adds no failure reason.
-  it.each(["subject_has_in_person_kyc_verification", "subject_has_manual_kyc_exception"])(
-    "leaves %s at its v2 body",
-    (name) => {
-      expect(baselineFunctionSql(name)).toBe(functionIn(read("20261011060000_face_match_v2_evidence"), name))
-      expect(baselineFunctionSql(name)).not.toContain("'provider'")
-    },
-  )
+  it("leaves the in-person predicate at its v2 body", () => {
+    expect(baselineFunctionSql("subject_has_in_person_kyc_verification")).toBe(
+      functionIn(read("20261011060000_face_match_v2_evidence"), "subject_has_in_person_kyc_verification"),
+    )
+  })
+
+  it("keeps the manual exception predicate provider-agnostic while adding the clear-mismatch guard", () => {
+    const manual = baselineFunctionSql("subject_has_manual_kyc_exception")
+    expect(manual).not.toContain("'provider'")
+    expect(manual).toContain("kyc_exception_selfie_is_clear_mismatch")
+  })
 
   it("pins the same models, threshold and ghost-face ratio as the TypeScript gate", () => {
     const holds = baselineFunctionSql("face_model_evidence_holds")
