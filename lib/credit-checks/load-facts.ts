@@ -146,7 +146,10 @@ export async function loadApplicationFacts(
   const identity: ClientIdentity = { fullName: `${app.client.firstName} ${app.client.lastName}`, idNumber: app.client.idNumber }
 
   const db = opts.db ?? prisma
-  const [docs, deleted, payslipDocs, deletedSlips, priorFlagged, bureau, statementKeys] = await Promise.all([
+  // Taken before anything is read: a statement landing after it differs at
+  // approval and fails closed, never the other way round.
+  const statementKeys = await statementSnapshot(db, { tenantId, clientId: app.clientId, since })
+  const [docs, deleted, payslipDocs, deletedSlips, priorFlagged, bureau] = await Promise.all([
     db.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
       select: { id: true, uploadedByType: true },
@@ -177,9 +180,6 @@ export async function loadApplicationFacts(
       select: { obligations: true },
       orderBy: { createdAt: "desc" },
     }),
-    // Taken before the statements are read below: anything landing after it
-    // differs at approval and fails closed, never the other way round.
-    statementSnapshot(db, { tenantId, clientId: app.clientId, since }),
   ])
 
   const statements: StatementFacts[] = []

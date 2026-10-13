@@ -145,12 +145,11 @@ describe("loadApplicationFacts", () => {
     expect(bureauFind).not.toHaveBeenCalled()
     expect(appFind.mock.calls.length).toBe(appCalls + 1) // only through tx
     expect(ensure).toHaveBeenCalledWith(expect.objectContaining({ persistedOnly: true, db: tx }))
-    // The snapshot query ran before the statement was read.
-    const snapshotOrder = tx.clientDocument.findMany.mock.invocationCallOrder.find((_, i) => {
-      const arg = tx.clientDocument.findMany.mock.calls[i] as unknown as [{ select: Record<string, unknown> }]
-      return "statementAnalyses" in arg[0].select
-    })!
-    expect(snapshotOrder).toBeLessThan(ensure.mock.invocationCallOrder[0])
+    // The snapshot query ran before any other document query and before the statement was read.
+    const isSnapshot = tx.clientDocument.findMany.mock.calls.map((c) => "statementAnalyses" in (c as unknown as [{ select: Record<string, unknown> }])[0].select)
+    expect(isSnapshot.indexOf(true)).toBe(0)
+    expect(isSnapshot.filter(Boolean)).toHaveLength(1)
+    expect(tx.clientDocument.findMany.mock.invocationCallOrder[0]).toBeLessThan(ensure.mock.invocationCallOrder[0])
   })
 
   it("passes no transaction to the reader outside the lock", async () => {

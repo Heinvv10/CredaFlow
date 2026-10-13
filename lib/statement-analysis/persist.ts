@@ -230,7 +230,8 @@ function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
  */
 export function readStatementInBackground(tenantId: string, documentId: string, opts: ReadRequest = {}): void {
   const alreadyWaiting = waiting.has(documentId)
-  if (!alreadyWaiting && [...waiting.values()].filter((w) => w.tenantId === tenantId).length >= MAX_WAITING_PER_TENANT) {
+  // A staff retry is never turned away: a stored failed read is not re-queued on load.
+  if (!alreadyWaiting && !opts.retryFailed && [...waiting.values()].filter((w) => w.tenantId === tenantId).length >= MAX_WAITING_PER_TENANT) {
     console.warn("[statement-analysis] read not queued: tenant queue full", { documentId })
     return
   }
