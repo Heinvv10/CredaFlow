@@ -303,6 +303,12 @@ CREATE INDEX "AssetFinanceDeal_tenantId_status_idx" ON "AssetFinanceDeal"("tenan
 CREATE UNIQUE INDEX "AssetFinanceDeal_tenantId_id_key" ON "AssetFinanceDeal"("tenantId", "id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "AssetFinanceDeal_tenantId_applicationId_key" ON "AssetFinanceDeal"("tenantId", "applicationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AssetFinanceDeal_tenantId_loanId_key" ON "AssetFinanceDeal"("tenantId", "loanId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "EntityFinancials_dealId_key" ON "EntityFinancials"("dealId");
 
 -- CreateIndex
@@ -351,7 +357,7 @@ ALTER TABLE "SupplierBankAccount" ADD CONSTRAINT "SupplierBankAccount_tenantId_s
 ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_applicationId_fkey" FOREIGN KEY ("applicationId") REFERENCES "LoanApplication"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_applicationId_fkey" FOREIGN KEY ("tenantId", "applicationId") REFERENCES "LoanApplication"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_entityId_fkey" FOREIGN KEY ("tenantId", "entityId") REFERENCES "BusinessEntity"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
@@ -363,7 +369,7 @@ ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_assetId
 ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_supplierId_fkey" FOREIGN KEY ("tenantId", "supplierId") REFERENCES "Supplier"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_loanId_fkey" FOREIGN KEY ("tenantId", "loanId") REFERENCES "Loan"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "EntityFinancials" ADD CONSTRAINT "EntityFinancials_tenantId_dealId_fkey" FOREIGN KEY ("tenantId", "dealId") REFERENCES "AssetFinanceDeal"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;

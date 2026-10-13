@@ -4336,7 +4336,7 @@ model AssetFinanceDeal {
   tenantId            String
   tenant              Tenant              @relation(fields: [tenantId], references: [id])
   applicationId       String              @unique
-  application         LoanApplication     @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  application         LoanApplication     @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   entityId            String
   entity              BusinessEntity      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   assetId             String
@@ -4344,7 +4344,7 @@ model AssetFinanceDeal {
   supplierId          String
   supplier            Supplier            @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   loanId              String?             @unique
-  loan                Loan?               @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  loan                Loan?               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   contractType        ContractType        @default(INSTALMENT_SALE)
   status              AssetDealStatus     @default(DRAFT)
   // Structure (cents; rates decimal annual). weights: one per period.
@@ -4374,6 +4374,8 @@ model AssetFinanceDeal {
   documents           EntityDocument[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, applicationId])
+  @@unique([tenantId, loanId])
   @@index([tenantId, status])
 }
 
