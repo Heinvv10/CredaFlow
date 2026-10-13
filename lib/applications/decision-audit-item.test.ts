@@ -37,4 +37,17 @@ describe("decisionAuditItem", () => {
   it("still reports a missing repayment method on an approval", () => {
     expect(decisionAuditItem(base)?.detail).toBe("Demo Admin • Repayment method missing")
   })
+
+  it("keeps showing a declined-then-cancelled application as Declined", () => {
+    const item = decisionAuditItem({ ...base, status: "CANCELLED", declineCategory: "AFFORDABILITY" })
+    expect(item?.label).toMatch(/^Declined /)
+  })
+
+  it("shows no Approved entry for a cancelled application that was never declined", () => {
+    expect(decisionAuditItem({ ...base, status: "CANCELLED" })).toBeNull()
+  })
+
+  it("shows the Approved entry for a disbursed application", () => {
+    expect(decisionAuditItem({ ...base, status: "DISBURSED", repaymentMethod: "EFT" })?.label).toMatch(/^Approved /)
+  })
 })

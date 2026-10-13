@@ -1,5 +1,6 @@
 import type { DeclineCategory } from "@prisma/client"
 import { DECLINE_CATEGORY_LABELS } from "@/lib/applications/decline-category"
+import { decisionKind } from "@/lib/applications/decision-kind"
 import { formatDate } from "@/lib/utils"
 
 interface DecisionAuditSource {
@@ -13,9 +14,10 @@ interface DecisionAuditSource {
 }
 
 export function decisionAuditItem(application: DecisionAuditSource) {
-  if (!application.approvedAt) return null
+  const kind = decisionKind(application)
+  if (!application.approvedAt || !kind) return null
   const decider = application.approvedBy?.name
-  if (application.status === "DECLINED") {
+  if (kind === "declined") {
     return {
       label: `Declined ${formatDate(application.approvedAt)}`,
       detail: `${decider ?? "Decline recorded"}${
