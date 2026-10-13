@@ -31,11 +31,17 @@
  * onward. When every pending row is inside the notice window nothing is
  * repriced (within_notice_period).
  *
+ * BALLOON REACHED: when the balance after the last settled row is already at
+ * or below the balloon there is nothing left to amortise at any rate, so the
+ * loan is not_eligible (balloon_reached) rather than an error.
+ *
  * WRITES: the ContractRate row (with the new base instalment), each pending
  * RepaymentSchedule row in place (pinned to PENDING, nothing paid), the loan's
  * principal, outstandingPrincipal, totalInterest and totalRepayable by the
- * change in the pending rows' sums (the identities in ./schedule-records.ts;
- * the contractual* baseline is left alone), Loan.interestRatePm =
+ * change in the pending rows' sums (the identities in ./schedule-records.ts),
+ * contractualTotalInterest and contractualTotalRepayable by the same change
+ * when they are set (the agreed baseline lib/loan/settlement.ts settles on,
+ * so a repriced loan settles on the repriced schedule), Loan.interestRatePm =
  * resultingRate / 12, the LOAN_REPRICED audit row and the new-instalment
  * notice (./reprice-notice.ts). The deferred constraint triggers are forced
  * before returning, so "repriced" means it will commit.
@@ -84,6 +90,7 @@ export type NotEligibleReason =
   | "not_linked_to_basis"
   | "superseded" // the loan already has a contract rate from a later date
   | "within_notice_period" // every pending row falls due inside the notice window
+  | "balloon_reached" // the balance after the last settled row is at or below the balloon
   | StoredScheduleError
 
 export type RepriceOutcome =
@@ -116,6 +123,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     select: {
       id: true, reference: true, status: true, contractType: true, ncaRegime: true,
       entityId: true, balloonAmount: true, startDate: true, interestRatePm: true,
+      contractualTotalInterest: true, contractualTotalRepayable: true,
     },
   })
   if (!loan) return notEligible("loan_not_found")
@@ -161,6 +169,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents ?? null, ratePath: history, startDate,
   })
   if ("error" in schedule) return notEligible(schedule.error)
+  if (schedule.capitalOutstandingCents <= balloonCents) return notEligible("balloon_reached")
 
   const paid = schedule.paidThroughIndex
   const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)
@@ -213,6 +222,8 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
       outstandingPrincipal: { increment: change.principal },
       totalInterest: { increment: change.interest },
       totalRepayable: { increment: change.total },
+      ...(loan.contractualTotalInterest === null ? {} : { contractualTotalInterest: { increment: change.interest } }),
+      ...(loan.contractualTotalRepayable === null ? {} : { contractualTotalRepayable: { increment: change.total } }),
       interestRatePm: resultingRate.div(12).toNumber(),
     },
   })

@@ -51,6 +51,13 @@ describe("runRepriceBatch", () => {
     expect(consoleError).toHaveBeenCalledTimes(1)
   })
 
+  it("counts a balloon_reached loan as not eligible, not a failure, so the cron stays 200", async () => {
+    repriceLoanForReference.mockResolvedValue({ kind: "not_eligible", reason: "balloon_reached" })
+    const run = await runRepriceBatch(fakeDb(["l1"]).db, "2027-01-16")
+    expect(run).toMatchObject({ ok: true, perTenant: [{ notEligible: { balloon_reached: 1 }, failed: 0 }] })
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
   it("is ok when nothing failed", async () => {
     repriceLoanForReference.mockResolvedValue({ kind: "repriced" })
     const run = await runRepriceBatch(fakeDb(["l1"]).db, "2027-01-16")

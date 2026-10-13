@@ -76,6 +76,8 @@ model User {
   mentionedIn                  MessageMention[]
   ncaOverridesRequested        NcaRegimeOverride[] @relation("NcaOverridesRequested")
   ncaOverridesDecided          NcaRegimeOverride[] @relation("NcaOverridesDecided")
+  referenceRatesRequested      ReferenceRate[]     @relation("ReferenceRatesRequested")
+  referenceRatesDecided        ReferenceRate[]     @relation("ReferenceRatesDecided")
 
   @@unique([tenantId, id])
 }
@@ -164,7 +166,6 @@ model Tenant {
   vatConfig                VatConfig?
   taxInvoices              TaxInvoice[]
   creditNotes              CreditNote[]
-  taxDocumentCounters      TaxDocumentCounter[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -3962,10 +3963,12 @@ enum ReferenceRateStatus {
 // A dated reference rate per tenant (DESIGN D4). A value applies from its
 // effectiveDate until the next APPROVED one for the same basis. Four-eyes:
 // recorded PENDING by one user, APPROVED or REJECTED by another; only APPROVED
-// values reprice loans. One live (non-REJECTED) value per (tenant, basis,
+// values reprice loans. Requester and decider are users of the row's own
+// tenant (composite FKs). One live (non-REJECTED) value per (tenant, basis,
 // date) is the hand-written partial unique index ReferenceRate_live_key;
-// the rate band, decision shape, four-eyes and immutability rules are
-// hand-written too (migration 20261013100000_asset_finance_rates_vat).
+// the rate band, born-PENDING, decision completeness, four-eyes and
+// immutability rules are hand-written too (migration
+// 20261013100000_asset_finance_rates_vat).
 model ReferenceRate {
   id            String    @id @default(cuid())
   tenantId      String
@@ -3976,7 +3979,9 @@ model ReferenceRate {
   rate          Decimal   @db.Decimal(9, 6)
   status        ReferenceRateStatus @default(PENDING)
   requestedById String
+  requestedBy   User      @relation("ReferenceRatesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   decidedById   String?
+  decidedBy     User?     @relation("ReferenceRatesDecided", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   decidedAt     DateTime?
   createdAt     DateTime  @default(now())
 
@@ -4020,31 +4025,20 @@ model VatConfig {
   updatedAt      DateTime @updatedAt
 }
 
-// The VAT rate in force from effectiveDate (national, not per tenant).
+// The VAT rate in force from effectiveDate (national, not per tenant). History:
+// never updated or deleted; a new row must take effect after today, and a tax
+// invoice's vatRate must be the rate in force on its supplyDate (hand-written
+// triggers, migration 20261013100000).
 model VatRate {
   id            String   @id @default(cuid())
   effectiveDate DateTime @unique @db.Date
   rate          Decimal  @db.Decimal(6, 4)
 }
 
-enum TaxDocumentKind {
-  TAX_INVOICE
-  CREDIT_NOTE
-}
-
-// Gap-free numbering per tenant and document kind: the issuing transaction
-// takes the next number by UPDATE ... RETURNING on this row.
-model TaxDocumentCounter {
-  tenantId String
-  tenant   Tenant          @relation(fields: [tenantId], references: [id])
-  kind     TaxDocumentKind
-  next     Int             @default(1)
-
-  @@id([tenantId, kind])
-}
-
 // An issued tax invoice. Every amount and party detail is copied in at issue;
-// a DB trigger blocks UPDATE and DELETE. Corrections are CreditNotes.
+// a DB trigger blocks UPDATE and DELETE. Corrections are CreditNotes. The
+// insert trigger assigns the gap-free per-tenant number (max + 1 under an
+// advisory lock; CreditNote likewise).
 model TaxInvoice {
   id                 String          @id @default(cuid())
   tenantId           String

@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { repriceLoanForReference, type NotEligibleReason, type RepriceTx } from "./reprice-loan"
 import { BASE, PATTERNS, solvePattern, storedRows } from "./__tests__/schedule-fixtures"
 import { fromDayNumber, toDayNumber } from "./dates"
-import { dueDateInstant } from "./schedule-records"
+import { periodInterest } from "./amortise"
+import { dueDateInstant, type ScheduleRecordAmounts } from "./schedule-records"
+import type { StoredScheduleRow } from "./stored-schedule"
 
 // The eligibility guards with the database faked. Each refusal must leave
 // every table untouched. The re-solve and its writes against a real database
@@ -26,6 +28,7 @@ function fakeTx(state: {
   prior?: Record<string, unknown> | null
   reference?: boolean
   paidRows?: number
+  stored?: StoredScheduleRow[]
 }) {
   const contractRateFindFirst = vi.fn(async ({ where }: { where: Where }) => {
     const date = where.effectiveDate
@@ -52,7 +55,7 @@ function fakeTx(state: {
       create: writes.contractRateCreate,
     },
     referenceRate: { findFirst: referenceFindFirst },
-    repaymentSchedule: { findMany: vi.fn(async () => storedRows(BOOKED, state.paidRows ?? 11)), updateMany: writes.scheduleUpdate },
+    repaymentSchedule: { findMany: vi.fn(async () => state.stored ?? storedRows(BOOKED, state.paidRows ?? 11)), updateMany: writes.scheduleUpdate },
     auditLog: { create: writes.auditCreate },
     entityRelationship: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => []) },
@@ -83,6 +86,20 @@ describe("repriceLoanForReference eligibility guards", () => {
   it.each(cases)("%s, writing nothing", async (reason, state, runDate) => {
     fake = fakeTx(state)
     expect(await repriceLoanForReference(fake.tx, request(runDate))).toEqual({ kind: "not_eligible", reason })
+    for (const write of Object.values(fake.writes)) expect(write).not.toHaveBeenCalled()
+  })
+
+  it("balloon_reached, not an error, when the balance after the last settled row is the balloon", async () => {
+    // Every row but the last settled; the last pays only its interest and the
+    // balloon, so the balance it opens at (the one after row 59) is the balloon.
+    const rows = storedRows(BOOKED, 58)
+    const last = rows[59]
+    const days = toDayNumber(BOOKED.rows[59].dueDate) - toDayNumber(BOOKED.rows[58].dueDate)
+    const interest = periodInterest(BASE.balloonCents, 0.1275 * days)
+    const amounts: Partial<ScheduleRecordAmounts> = { principalDue: BASE.balloonCents, interestDue: interest, totalDue: BASE.balloonCents + interest }
+    rows[59] = { ...last, ...amounts }
+    fake = fakeTx({ stored: rows })
+    expect(await repriceLoanForReference(fake.tx, request())).toEqual({ kind: "not_eligible", reason: "balloon_reached" })
     for (const write of Object.values(fake.writes)) expect(write).not.toHaveBeenCalled()
   })
 

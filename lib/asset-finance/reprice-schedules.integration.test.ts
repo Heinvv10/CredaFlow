@@ -1,9 +1,10 @@
 /**
  * Real-Postgres proof of repricing beyond a monthly schedule: the notice
  * window (a row due tomorrow keeps its instalment), skip and seasonal
- * schedules stored with capitalised interest (repriced twice, the Loan totals
- * staying the schedule's sums), the regime and contract-type guards, and the
- * cron sweep's selection (flag off, a non-ACTIVE loan, a PENDING reference).
+ * schedules stored with capitalised interest (repriced twice, the Loan totals,
+ * contractual ones included, staying the schedule's sums), the regime and
+ * contract-type guards, and the cron sweep's selection (flag off, a
+ * non-ACTIVE loan, a PENDING reference).
  *
  *   RUN_ASSET_FINANCE_REPRICE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run --no-file-parallelism lib/asset-finance/reprice-schedules.integration.test.ts
@@ -19,7 +20,7 @@ import { toScheduleRecord } from "./schedule-records"
 import { PATTERNS } from "./__tests__/schedule-fixtures"
 import type { ScheduleRow, StructureResult } from "./types"
 import {
-  BOOKED, DEAL, PAID_ROWS, approvedPrime, bookedWith, createRepriceLoan, createRepriceTenant, recordPrime, type RepriceTenant,
+  BOOKED, DEAL, PAID_ROWS, approvedPrime, bookedWith, pendingPrime, createRepriceLoan, createRepriceTenant, recordPrime, type RepriceTenant,
 } from "./reprice.integration-fixture"
 
 const suite = process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1" ? describe : describe.skip
@@ -42,6 +43,8 @@ async function expectLoanTotalsAreScheduleSums(loanId: string) {
   expect(loan.principal).toBe(sum((r) => r.principalDue))
   expect(loan.totalInterest).toBe(sum((r) => r.interestDue))
   expect(loan.totalRepayable).toBe(sum((r) => r.totalDue))
+  // Booked equal (the fixture), and every repricing moves both by the same delta.
+  expect([loan.contractualTotalInterest, loan.contractualTotalRepayable]).toEqual([loan.totalInterest, loan.totalRepayable])
   expect(loan.outstandingPrincipal).toBe(sum((r) => r.principalDue, (r) => r.status === "PENDING"))
   for (const r of rows) expect(Math.min(r.principalDue, r.interestDue, r.totalDue)).toBeGreaterThanOrEqual(0)
 }
@@ -61,7 +64,7 @@ suite("repricing schedules against a migrated database", () => {
   beforeAll(async () => {
     tenant = await createRepriceTenant(db)
     effectiveDate = await recordPrime(db, tenant)
-    await db.referenceRate.create({ data: approvedPrime(tenant, secondDate, "0.115") })
+    await approvedPrime(db, tenant, secondDate, "0.115")
   })
   afterAll(async () => {
     await db.$disconnect()
@@ -135,7 +138,7 @@ suite("repricing schedules against a migrated database", () => {
     await db.loan.update({ where: { id: defaulted }, data: { status: "DEFAULTED" } })
     const active = await createRepriceLoan(db, on)
     // Recorded, never approved: the sweep must not reprice on it.
-    await db.referenceRate.create({ data: { ...approvedPrime(on, day, "0.12"), status: "PENDING", decidedById: null, decidedAt: null } })
+    await pendingPrime(db, on, day, "0.12")
     const untouched = await Promise.all([offLoan, defaulted, active].map(scheduleOf))
 
     const run = await runRepriceBatch(prisma, day)
