@@ -24,6 +24,7 @@ const authState = vi.hoisted(() => ({ session: null as Session }))
 vi.mock("@/lib/auth", () => ({ auth: async () => authState.session }))
 
 import { GET } from "./route"
+import { GET as viewDocument } from "@/app/api/documents/[id]/view/route"
 
 const RUN = process.env.RUN_SIGNING_PACKET_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -53,6 +54,7 @@ suite("signing packet ownership and access log", () => {
     agreement: `document_packet_agreement_${token}`,
     neighbourPasq: `document_packet_neighbour_pasq_${token}`,
     neighbourAgreement: `document_packet_neighbour_agreement_${token}`,
+    executed: `document_packet_executed_${token}`,
   }
   const slugs = { lender: `packet-a-${token}`, otherLender: `packet-b-${token}` }
   let storageDir: string
@@ -71,7 +73,7 @@ suite("signing packet ownership and access log", () => {
     return GET(req, { params: Promise.resolve({ id: applicationId }) }) as Promise<Response>
   }
 
-  const documentIds = [ids.pasq, ids.agreement, ids.neighbourPasq, ids.neighbourAgreement]
+  const documentIds = [ids.pasq, ids.agreement, ids.neighbourPasq, ids.neighbourAgreement, ids.executed]
   const accessRows = () =>
     db.documentAccessLog.findMany({
       where: { documentId: { in: documentIds } },
@@ -235,5 +237,64 @@ suite("signing packet ownership and access log", () => {
       { documentId: ids.agreement, ...logged },
       { documentId: ids.pasq, ...logged },
     ])
+  })
+
+  // Countersignature mints the executed agreement. The columns are set directly:
+  // the countersign route has its own proof, and what matters here is that the
+  // real tenant-scoped read finds the pointer and the redirect lands on a
+  // document the borrower can actually open on the client host.
+  it("once executed, sends the owner to the executed document and that document opens", async () => {
+    const executed = await pdfBytes(4)
+    const executedPath = path.join(storageDir, "executed.pdf")
+    await writeFile(executedPath, executed)
+    await db.clientDocument.create({
+      data: {
+        id: ids.executed,
+        tenantId: ids.lender,
+        clientId: ids.owner,
+        docType: "EXECUTED_CREDIT_AGREEMENT",
+        fileUrl: "",
+        fileName: "executed.pdf",
+        mimeType: "application/pdf",
+        storagePath: executedPath,
+        contentSha256: sha(executed),
+        extractionStatus: "skipped",
+      },
+    })
+    await db.loanApplication.update({
+      where: { id: ids.application },
+      data: {
+        agreementExecutedDocumentId: ids.executed,
+        agreementExecutedDocumentSha256: sha(executed),
+      },
+    })
+    try {
+      const redirect = await read(client(ids.owner, ids.lender))
+      expect(redirect.status).toBe(307)
+      const location = redirect.headers.get("location")
+      expect(location).toBe(`/api/documents/${ids.executed}/view`)
+      // The neighbour is stopped before the Location is revealed.
+      expect((await read(client(ids.neighbour, ids.lender))).status).toBe(403)
+
+      // The document route resolves a portal client in the deployment's own lender.
+      vi.stubEnv("NEXT_PUBLIC_TENANT_SLUG", slugs.lender)
+      authState.session = client(ids.owner, ids.lender)
+      const opened = await viewDocument(
+        new Request(`http://portal.test.invalid${location}`, { headers: { "x-tenant-slug": slugs.lender } }),
+        { params: Promise.resolve({ id: ids.executed }) },
+      )
+      expect(opened.status).toBe(200)
+      expect(Buffer.from(await opened.arrayBuffer()).equals(executed)).toBe(true)
+      // The redirect itself logs nothing; the document route logs the read, once.
+      expect((await accessRows()).filter((row) => row.documentId === ids.executed)).toEqual([
+        { documentId: ids.executed, accessorType: "client", accessorId: ids.owner, action: "view" },
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+      await db.loanApplication.update({
+        where: { id: ids.application },
+        data: { agreementExecutedDocumentId: null, agreementExecutedDocumentSha256: null },
+      })
+    }
   })
 })
