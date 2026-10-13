@@ -12,8 +12,10 @@
 #     platform operator's bootstrap (provision-operator.ts: no route creates a
 #     SUPER_ADMIN), whose credentials go to .sim-breadth-staff.json; it writes
 #     only to a database carrying the $SIM_DB_MARKER comment set here;
-#   - DEBIT_MANDATE_CREDITOR_TENANT_ID is rewritten to the new "acme" tenant id
+#   - DEBIT_MANDATE_CREDITOR_TENANT_ID is rewritten to the new tenant's id
 #     and the app recreated, or every debit mandate is refused (503);
+#   - the tenant is DEMO_LENDER's (prisma/demo-lender.ts, default acme), and
+#     NEXT_PUBLIC_TENANT_SLUG in .env.demo-sim must be its slug;
 #   - the secrets shared with the live demo ($DEMO_DATA_DIR/secrets.env, see
 #     ensure_shared_secrets in scripts/demo/lib.sh) are created when absent:
 #     WABA_ENC_KEY (the product refuses to store an SMTP password unencrypted,
@@ -32,6 +34,9 @@ START="${1:?usage: fresh-stack.sh <ISO start instant>}"
 . "$(dirname "$0")/../lib.sh"
 cd "$DEMO_ROOT"
 HOST_DB="$(env_get .env.demo-sim SIM_HOST_DATABASE_URL)"
+SLUG="$(demo_slug)"
+[ "$(env_get .env.demo-sim NEXT_PUBLIC_TENANT_SLUG)" = "$SLUG" ] \
+  || die "NEXT_PUBLIC_TENANT_SLUG in .env.demo-sim is not '$SLUG' (DEMO_LENDER=${DEMO_LENDER:-acme})"
 
 # migrate deploy runs from the host against HOST_DB: refuse anything but the
 # sim db's own published port, so a stray URL cannot migrate another database.
@@ -67,9 +72,9 @@ sim_sql "DO \$\$ BEGIN EXECUTE format('COMMENT ON DATABASE %I IS %L', current_da
 scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts \
   | npx tsx scripts/demo/sim/provision-operator.ts --store
 
-TENANT_ID="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = 'acme'")"
-[ -n "$TENANT_ID" ] || { echo "fresh-stack: no acme tenant after seeding" >&2; exit 1; }
+TENANT_ID="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = '$SLUG'")"
+[ -n "$TENANT_ID" ] || { echo "fresh-stack: no $SLUG tenant after seeding" >&2; exit 1; }
 sed -i "s/^DEBIT_MANDATE_CREDITOR_TENANT_ID=.*/DEBIT_MANDATE_CREDITOR_TENANT_ID=$TENANT_ID/" .env.demo-sim
 sim_compose up -d app >&2
 wait_healthy
-echo "fresh-stack: up at $(npx tsx scripts/demo/sim/clock.ts now), tenant acme=$TENANT_ID" >&2
+echo "fresh-stack: up at $(npx tsx scripts/demo/sim/clock.ts now), tenant $SLUG=$TENANT_ID" >&2

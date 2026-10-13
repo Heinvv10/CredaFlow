@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Builds the demo PRODUCT image from this worktree and prints its tag.
 #
-#   scripts/demo/build-image.sh            # → credaflow:demo-<tag>
+#   scripts/demo/build-image.sh                                 # → credaflow:demo-<tag>
+#   DEMO_LENDER=fairscore LIVE_DIR=… scripts/demo/build-image.sh  # → credaflow:fairscore-<tag>
+#
+# The prefix is "demo" for the default lender (acme) and the DEMO_LENDER name
+# otherwise: the build args differ per lender, so two lenders never share a tag.
 #
 # Tag: credaflow:demo-<short sha>, or credaflow:demo-<short sha>-dirty-<hash8>
 # when the worktree has uncommitted changes (worktree_tag in lib.sh: hash8 is
@@ -25,8 +29,11 @@ set -euo pipefail
 
 TURNSTILE_TEST_SITE_KEY=1x00000000000000000000AA
 
+want_slug="$(demo_slug)"   # also refuses an unknown DEMO_LENDER
 tag="$(worktree_tag)"
-image="credaflow:demo-$tag"
+prefix=demo
+[ "${DEMO_LENDER:-acme}" = acme ] || prefix="$DEMO_LENDER"
+image="credaflow:$prefix-$tag"
 if docker image inspect "$image" >/dev/null 2>&1; then
   note "$image already exists; not rebuilding"
   echo "$image"
@@ -36,6 +43,7 @@ fi
 slug="$(env_get "$LIVE_DIR/.env" NEXT_PUBLIC_TENANT_SLUG)"
 portal_login="$(env_get "$LIVE_DIR/.env" NEXT_PUBLIC_PORTAL_LOGIN_URL)"
 [ -n "$slug" ] && [ -n "$portal_login" ] || die "NEXT_PUBLIC_TENANT_SLUG / NEXT_PUBLIC_PORTAL_LOGIN_URL missing from $LIVE_DIR/.env"
+[ "$slug" = "$want_slug" ] || die "$LIVE_DIR/.env has tenant slug '$slug'; DEMO_LENDER=${DEMO_LENDER:-acme} needs '$want_slug'"
 
 note "building $image (tenant $slug, portal $portal_login)"
 docker build -f "$DEMO_ROOT/Dockerfile" -t "$image" \
