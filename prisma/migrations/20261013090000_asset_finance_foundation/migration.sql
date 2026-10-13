@@ -953,8 +953,19 @@ BEGIN
   END IF;
 
   -- The approver agreed to the classification as it stood. An approval to
-  -- NON_NCA takes this row's lock (guardNcaRegimeOverrideLifecycle), so this
-  -- read sees one committed before the write.
+  -- NON_NCA takes this row's lock (guardNcaRegimeOverrideLifecycle), so under
+  -- READ COMMITTED this read sees one committed before the write. Locking the
+  -- open overrides first makes a REPEATABLE READ / SERIALIZABLE writer whose
+  -- snapshot predates such an approval fail with a serialization error rather
+  -- than read the stale PENDING row.
+  IF snapshot_changed THEN
+    PERFORM 1
+    FROM public."NcaRegimeOverride" AS candidate
+    WHERE candidate."applicationId" = OLD."id"
+      AND candidate."status" IN ('PENDING', 'APPROVED')
+      AND candidate."appliedAt" IS NULL
+    FOR SHARE;
+  END IF;
   IF snapshot_changed AND EXISTS (
     SELECT 1
     FROM public."NcaRegimeOverride" AS approval
