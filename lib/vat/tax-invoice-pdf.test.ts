@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
-import { PDFDocument } from "pdf-lib"
+import { PDFDocument, StandardFonts } from "pdf-lib"
 import { describe, expect, it } from "vitest"
 import { extractPdfTextRunsByPage } from "@/lib/pdf/__tests__/pdf-test-utils"
+import { MARGIN } from "@/lib/pdf/helpers"
 import { generateTaxInvoicePdf, type TaxInvoicePdfInput, type TaxInvoicePdfLine } from "./tax-invoice-pdf"
 
 const line = (lineNo: number, description: string, exclVatCents: number, vatCents: number): TaxInvoicePdfLine => ({
@@ -91,5 +92,18 @@ describe("generateTaxInvoicePdf", () => {
     for (const page of pages) if (page.some((run) => run.text.startsWith("Description line"))) {
       expect(page.some((run) => run.text === "Description")).toBe(true)
     }
+  })
+
+  it("splits an unbroken serial before it enters the quantity column", async () => {
+    const serial = "S".repeat(100)
+    const bytes = await generateTaxInvoicePdf({ ...INVOICE, lines: [line(1, serial, 100, 15)] })
+    const runs = (await extractPdfTextRunsByPage(bytes)).flat().filter((run) => /^S+$/.test(run.text))
+    const metrics = await PDFDocument.create()
+    const helvetica = await metrics.embedFont(StandardFonts.Helvetica)
+    const descriptionRight = MARGIN + 4 + 165
+
+    expect(runs.map((run) => run.text).join("")).toBe(serial)
+    expect(runs.length).toBeGreaterThan(1)
+    expect(runs.every((run) => run.x + helvetica.widthOfTextAtSize(run.text, 9) <= descriptionRight)).toBe(true)
   })
 })
