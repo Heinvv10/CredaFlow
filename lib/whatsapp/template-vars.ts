@@ -39,6 +39,8 @@ export type WaTemplateVarSource = {
   supportPhone: string
   /** Only `loan_overdue_7d` reads this; other callers need not supply it. */
   daysOverdue?: string
+  /** Only the `entity_*` bodies read this: the borrowing entity's legal name. */
+  entityName?: string
 }
 
 /**
@@ -157,6 +159,21 @@ export const WABA_BODY_TEMPLATES: Record<string, string> = {
 
   // From WA_TEMPLATES.payment_overdue_7d. The fixed "7 days" became the real
   // count: today its only caller is the 60-day DEFAULTED escalation.
+  // Asset finance (goal §4.11): the borrower is a company or trust, and these
+  // go to the people who act for it (lib/asset-finance/entity-contacts.ts).
+  // The consumer bodies say "your loan" / "your payment" to the borrower, which
+  // a director is not, so these name the entity instead and make no other
+  // claim. NOT YET REGISTERED at Meta: until each is approved, a send outside
+  // the 24h window fails (as payment_reminder_0d_v2 did before approval).
+  entity_payment_due:
+    "Hi {{firstName}},\n\nReminder: a payment of *{{amount}}* on the account of *{{entityName}}* is due on *{{dueDate}}*.\n\nPayment reference: *{{reference}}*\n\nPlease ensure funds are available. {{lenderName}}",
+
+  entity_payment_overdue:
+    "Hi {{firstName}},\n\nA payment of *{{amount}}* on the account of *{{entityName}}* (reference *{{reference}}*) is overdue.\n\nPlease arrange payment or contact us on {{supportPhone}}. {{lenderName}}",
+
+  entity_payment_received:
+    "Hi {{firstName}},\n\nWe have received a payment of *{{amount}}* on the account of *{{entityName}}*.\n\nOutstanding balance: *{{outstanding}}*. Thank you. {{lenderName}}",
+
   loan_overdue_7d:
     "URGENT - {{firstName}}\n\nLoan *{{reference}}* is *{{daysOverdue}} days overdue*. Outstanding: *{{amount}}*.\n\nPlease contact us immediately: {{supportPhone}}\n\nFurther action will be taken if payment is not received.",
 }
@@ -218,6 +235,24 @@ export function waTemplateVarsFor(
         amount: src.amount,
         supportPhone: src.supportPhone,
       }
+    case "entity_payment_due":
+      return {
+        firstName: src.firstName,
+        amount: src.amount,
+        entityName: src.entityName ?? "",
+        dueDate: src.dueDate,
+        reference: src.reference,
+      }
+    case "entity_payment_overdue":
+      return {
+        firstName: src.firstName,
+        amount: src.amount,
+        entityName: src.entityName ?? "",
+        reference: src.reference,
+        supportPhone: src.supportPhone,
+      }
+    case "entity_payment_received":
+      return { firstName: src.firstName, amount: src.amount, entityName: src.entityName ?? "", outstanding: src.outstanding }
     default:
       return {}
   }

@@ -38,6 +38,7 @@ import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { renderTemplate } from "@/lib/messaging/render"
+import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } from "@/lib/asset-finance/entity-reminders"
 
 export type ReminderDeliveryOutcome =
   | "sent"
@@ -216,6 +217,63 @@ async function alreadyProcessedToday(loanId: string, noteType: string, tenantId:
   return !!existing
 }
 
+/**
+ * One trigger for an entity-borrower loan: its WhatsApp leg to every person
+ * who acts for the entity (never SMS), the trigger's LoanNote when a leg went
+ * out, and, on an overdue trigger, the `loan_overdue` notification (email to
+ * the same people) exactly as for a consumer.
+ */
+async function remindEntityTrigger(args: {
+  tenantId: string
+  loan: EntityReminderLoan
+  trigger: ReminderTrigger
+  dueDate: Date
+  today: Date
+  paymentAmount: number
+  charges: number
+  arrearsDue: number
+  lender: { tradingName: string; collectionsPhone: string }
+  result: ReminderResult
+}): Promise<void> {
+  const { loan, trigger, result } = args
+  const overdue = trigger.daysUntilDue < 0
+  if (trigger.channels.includes("whatsapp")) {
+    const sent = await sendEntityReminder({
+      tenantId: args.tenantId,
+      loan,
+      kind: overdue ? "overdue" : "due",
+      amountCents: overdue ? args.arrearsDue : args.paymentAmount + args.charges,
+      dueDate: args.dueDate,
+      daysOverdue: overdue ? -trigger.daysUntilDue : undefined,
+      lender: args.lender,
+      channels: ["WHATSAPP"],
+      occurrence: `${trigger.noteType}:${localDayKey(args.today)}`,
+      category: "collections",
+    })
+    if (sent.reached) {
+      result.sent++
+      await recordEntityReminder(args.tenantId, loan, trigger.noteType, sent)
+    }
+    if (sent.failed) result.errors++
+    result.details.push(`Entity ${trigger.noteType} for ${loan.reference} (${loan.entityName}): ${sent.summary}`)
+  }
+  if (overdue) {
+    // Awaited, unlike the consumer call, so a failure lands in this run's report.
+    try {
+      await triggerNotification({
+        tenantId: args.tenantId,
+        event: "loan_overdue",
+        loanId: loan.id,
+        data: { daysOverdue: Math.abs(trigger.daysUntilDue), amount: args.arrearsDue },
+        suppressWhatsAppReason: overdueWhatsAppSuppressionReason(trigger),
+      })
+    } catch (err) {
+      result.errors++
+      result.details.push(`Error ${loan.reference} loan_overdue: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+}
+
 export async function processPaymentReminders(): Promise<ReminderResult> {
   // The reminders cron runs without a tenant request frame (cron-secret
   // auth on app/api/cron/reminders/route.ts), so the per-tenant-scoped
@@ -340,6 +398,7 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
           whatsapp: true,
         },
       },
+      entity: { select: { legalName: true } },
     },
   })
 
@@ -350,17 +409,15 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
   const companyPhone = identity.collectionsPhone
 
   for (const loan of loans) {
-    // A reminder messages a natural person (the Client's phone / WhatsApp):
-    // an entity borrower (asset finance) has no Client to message, so it is
-    // skipped here. Its regime is not the reason.
-    if (!loan.client) continue
     const today = new Date()
     const dueDate = loan.nextPaymentDate!
     const daysUntil = daysBetween(today, dueDate)
 
-    // Find next upcoming schedule entry for amount
+    // Find next upcoming schedule entry for amount. `totalDue > 0` skips an
+    // asset-finance skip period's R0.00 row, which stays PENDING for good
+    // (lib/asset-finance/schedule-records.ts); a consumer row is never zero.
     const nextSchedule = await prisma.repaymentSchedule.findFirst({
-      where: { loanId: loan.id, tenantId: tenant.id, status: { in: ["PENDING", "OVERDUE"] } },
+      where: { loanId: loan.id, tenantId: tenant.id, status: { in: ["PENDING", "OVERDUE"] }, totalDue: { gt: 0 } },
       orderBy: { dueDate: "asc" },
       select: { totalDue: true },
     })
@@ -379,6 +436,22 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
       // (0 while the tenant's flag is off, so the copy is unchanged).
       const charges = await chargesOutstandingAt(prisma, { tenantId: tenant.id, loanId: loan.id }, today)
       const arrearsDue = loan.arrearsAmount + charges
+
+      // An entity borrower (asset finance) has no Client to message: the
+      // trigger's WhatsApp leg goes to the people who act for it instead, in
+      // copy that names the entity (lib/asset-finance/entity-reminders.ts). Its
+      // regime is not the reason; NON_NCA loans are reminded like any other.
+      if (!loan.client) {
+        if (!loan.entityId || !loan.entity) continue
+        await remindEntityTrigger({
+          tenantId: tenant.id,
+          loan: { id: loan.id, reference: loan.reference, entityId: loan.entityId, entityName: loan.entity.legalName },
+          trigger, dueDate, today, paymentAmount, charges, arrearsDue,
+          lender: { tradingName: lenderName, collectionsPhone: companyPhone },
+          result,
+        })
+        continue
+      }
 
       const ctx: MessageContext = {
         firstName: loan.client.firstName,

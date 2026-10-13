@@ -331,3 +331,30 @@ describe("statement interest-rate disclosure is nominal for every model", () => 
     expect(text).not.toContain(pdfHex("79.6%"))
   })
 })
+
+describe("an entity borrower's statement (asset finance)", () => {
+  const { client: _consumer, ...base } = statementInput(0.01, "REDUCING_BALANCE")
+  const entity = { legalName: "TEST Earthmoving (Pty) Ltd", registrationNumber: "2020/000001/07", address: "9 Test Yard, Testville, 0002" }
+
+  it("prints the entity as the borrower: legal name, registration number, address, and no consumer block", async () => {
+    const text = extractPdfContent(await generateStatementPdf({ ...base, entity }))
+    expect(text).toContain(pdfHex("BORROWER DETAILS"))
+    expect(text).toContain(pdfHex("TEST Earthmoving (Pty) Ltd"))
+    expect(text).toContain(pdfHex("2020/000001/07"))
+    expect(text).toContain(pdfHex("9 Test Yard, Testville, 0002"))
+    expect(text).not.toContain(pdfHex("CLIENT DETAILS"))
+    expect(text).not.toContain(pdfHex("ID Number"))
+  })
+
+  it("omits the address row when none is on file", async () => {
+    const text = extractPdfContent(await generateStatementPdf({ ...base, entity: { ...entity, address: undefined } }))
+    expect(text).toContain(pdfHex("Registration Number"))
+    expect(text).not.toContain(pdfHex("Address"))
+  })
+
+  it("a consumer statement still prints the client block", async () => {
+    const text = await statementText(0.01, "REDUCING_BALANCE")
+    expect(text).toContain(pdfHex("CLIENT DETAILS"))
+    expect(text).not.toContain(pdfHex("BORROWER DETAILS"))
+  })
+})

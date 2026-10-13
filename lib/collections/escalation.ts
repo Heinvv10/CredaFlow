@@ -77,17 +77,16 @@ const RULES: EscalationRule[] = [
         "Loan status changed to DEFAULTED — 60 days overdue",
         ctx.tenantId
       )
-      // The notification messages a natural person (the Client's contact
-      // details); an entity borrower has no Client, so only this step is skipped.
-      if (ctx.clientId !== null) {
-        triggerNotification({
-          tenantId: ctx.tenantId,
-          event: "loan_overdue",
-          loanId: ctx.loanId,
-          clientId: ctx.clientId,
-          data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
-        }).catch(() => {})
-      }
+      // A consumer is messaged as the borrower; an entity borrower (no
+      // Client) through the people who act for it, in copy that names the
+      // entity (triggerNotification → lib/asset-finance/entity-notifications.ts).
+      triggerNotification({
+        tenantId: ctx.tenantId,
+        event: "loan_overdue",
+        loanId: ctx.loanId,
+        ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
+        data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
+      }).catch(() => {})
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
     },
   },

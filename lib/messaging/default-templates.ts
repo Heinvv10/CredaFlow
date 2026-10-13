@@ -88,6 +88,33 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     body: WABA_BODY_TEMPLATES.loan_approved, bodyTemplate: WABA_BODY_TEMPLATES.loan_approved,
   },
   {
+    key: "entity_payment_due_whatsapp", event: "entity_payment_due", channel: "WHATSAPP", category: "SERVICE",
+    body: WABA_BODY_TEMPLATES.entity_payment_due, bodyTemplate: WABA_BODY_TEMPLATES.entity_payment_due,
+    wabaTemplateName: "entity_payment_due",
+  },
+  {
+    key: "entity_payment_overdue_whatsapp", event: "entity_payment_overdue", channel: "WHATSAPP", category: "SERVICE",
+    body: WABA_BODY_TEMPLATES.entity_payment_overdue, bodyTemplate: WABA_BODY_TEMPLATES.entity_payment_overdue,
+    wabaTemplateName: "entity_payment_overdue",
+  },
+  {
+    key: "entity_payment_received_email", event: "entity_payment_received", channel: "EMAIL", category: "TRANSACTIONAL",
+    subject: "{{subject}}",
+    body: "{{text}}",
+    bodyTemplate: "{{html}}",
+  },
+  {
+    key: "entity_payment_received_whatsapp", event: "entity_payment_received", channel: "WHATSAPP", category: "TRANSACTIONAL",
+    body: WABA_BODY_TEMPLATES.entity_payment_received, bodyTemplate: WABA_BODY_TEMPLATES.entity_payment_received,
+    wabaTemplateName: "entity_payment_received",
+  },
+  {
+    key: "entity_reminder_email", event: "entity_reminder", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}",
+    body: "{{text}}",
+    bodyTemplate: "{{html}}",
+  },
+  {
     key: "loan_disbursed_email", event: "loan_disbursed", channel: "EMAIL", category: "TRANSACTIONAL",
     subject: "{{subject}}",
     body: "{{text}}",

@@ -156,7 +156,7 @@ describe("processEscalations — Section 129 legal review", () => {
   })
 })
 
-describe("processEscalations — the regime decides Section 129; only messaging needs a Client", () => {
+describe("processEscalations — the regime decides Section 129; the borrower type decides who is messaged", () => {
   // An asset-finance loan: no Client, 95 DPD, no escalation note yet.
   const entityLoan = (ncaRegime: "NCA" | "NON_NCA") => ({
     id: `loan_e_${ncaRegime}`,
@@ -176,7 +176,7 @@ describe("processEscalations — the regime decides Section 129; only messaging 
   const createdNoteTypes = () =>
     loanNoteCreateMock.mock.calls.map(([args]) => (args as { data: { type: string } }).data.type)
 
-  it("a NON_NCA entity loan is escalated and defaulted, never flagged for Section 129, never messaged, with no error", async () => {
+  it("a NON_NCA entity loan is escalated and defaulted, never flagged for Section 129, with no error", async () => {
     loanFindManyMock.mockResolvedValue([entityLoan("NON_NCA")])
 
     const r = await processEscalations()
@@ -185,18 +185,27 @@ describe("processEscalations — the regime decides Section 129; only messaging 
     expect(loanUpdateManyMock).toHaveBeenCalledWith({
       where: { id: "loan_e_NON_NCA", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" },
     })
-    expect(triggerNotificationMock).not.toHaveBeenCalled()
     expect(r).toMatchObject({ processed: 2, errors: 0 })
   })
 
-  it("an NCA entity loan is flagged for Section 129 legal review like any NCA loan, but not messaged", async () => {
+  it("an NCA entity loan is flagged for Section 129 legal review like any NCA loan", async () => {
     loanFindManyMock.mockResolvedValue([entityLoan("NCA")])
 
     const r = await processEscalations()
 
     expect(createdNoteTypes()).toEqual(["escalation_soft", "escalation_default", "escalation_legal"])
-    expect(triggerNotificationMock).not.toHaveBeenCalled()
     expect(r).toMatchObject({ processed: 3, errors: 0 })
+  })
+
+  it("a defaulted entity loan's notice is raised by loan, with no clientId: triggerNotification routes it to the entity's contacts", async () => {
+    loanFindManyMock.mockResolvedValue([entityLoan("NON_NCA")])
+
+    await processEscalations()
+
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    const [opts] = triggerNotificationMock.mock.calls[0] as [Record<string, unknown>]
+    expect(opts).toMatchObject({ event: "loan_overdue", loanId: "loan_e_NON_NCA" })
+    expect(opts).not.toHaveProperty("clientId")
   })
 
   it("a consumer loan is still messaged when it defaults", async () => {

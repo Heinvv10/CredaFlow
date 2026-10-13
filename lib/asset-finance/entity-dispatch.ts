@@ -1,0 +1,152 @@
+/**
+ * Sends one servicing notice (./entity-notices.ts) to every person who acts for
+ * an entity borrower (./entity-contacts.ts), through the ONE outbound entry
+ * point, sendMessage() (lib/messaging/send.ts): Message row, conversation,
+ * audit, and canSend's consent / opt-out / blocked-contact gate, evaluated per
+ * recipient and per channel.
+ *
+ * Channels: EMAIL and WHATSAPP only. SMS is off by policy and is never a leg
+ * here, whatever the env says (lib/messaging/.claude.md).
+ *
+ * Every leg is reported, never dropped: a recipient without WhatsApp, without a
+ * Contact row for the value, or blocked by consent is an outcome with a reason.
+ * A missing or unusable template row fails that channel for every recipient.
+ *
+ * Idempotency: one key per (occurrence, recipient, channel), so two directors
+ * each get the message and a re-run of the same occurrence sends nothing new.
+ */
+import type { Channel, MessageTemplate } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
+import { lookupContactByChannelValue, normaliseEmail, toWaJid } from "@/lib/contact/identity"
+import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
+import {
+  MessageReconciliationRequiredError,
+  sendMessage,
+  SendBlockedError,
+} from "@/lib/messaging/send"
+import type { EntityContact } from "./entity-contacts"
+import {
+  ENTITY_EMAIL_KEY,
+  ENTITY_WA_EVENT,
+  entityEmailVars,
+  entityWhatsAppVars,
+  type EntityNoticeFacts,
+  type EntityNoticeLender,
+} from "./entity-notices"
+
+export type EntityChannel = Extract<Channel, "EMAIL" | "WHATSAPP">
+
+export type EntityLegStatus =
+  | "sent"
+  | "simulated"
+  | "pending"
+  | "reconciliation"
+  | "blocked"
+  | "skipped"
+  | "failed"
+
+export interface EntityLegOutcome {
+  clientId: string
+  channel: EntityChannel
+  status: EntityLegStatus
+  messageId?: string
+  reason?: string
+}
+
+export interface EntityNoticeRequest {
+  tenantId: string
+  loanId: string
+  facts: EntityNoticeFacts
+  lender: EntityNoticeLender
+  recipients: EntityContact[]
+  channels: EntityChannel[]
+  /** the business occurrence, e.g. `reminder_1d:2026-11-01` or a payment id */
+  occurrence: string
+  /** Message.category */
+  category: string
+}
+
+type TemplateLookup = { template: MessageTemplate } | { problem: string }
+
+async function loadTemplate(tenantId: string, key: string, channel: EntityChannel): Promise<TemplateLookup> {
+  const template = await prisma.messageTemplate.findFirst({ where: { tenantId, key, channel, active: true } })
+  if (!template) {
+    return { problem: `template ${key} missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)` }
+  }
+  // Servicing messages must run through consent, never around it.
+  if (template.statutoryOverride !== false) return { problem: `template ${key} has statutoryOverride=true — refused` }
+  return { template }
+}
+
+function channelValue(recipient: EntityContact, channel: EntityChannel): string | null {
+  if (channel === "EMAIL") return normaliseEmail(recipient.email) || null
+  return recipient.whatsapp ? toWaJid(recipient.whatsapp) || null : null
+}
+
+async function sendLeg(
+  request: EntityNoticeRequest,
+  recipient: EntityContact,
+  channel: EntityChannel,
+  template: MessageTemplate,
+): Promise<EntityLegOutcome> {
+  const leg = { clientId: recipient.clientId, channel }
+  if (channel === "WHATSAPP" && !recipient.whatsapp) return { ...leg, status: "skipped", reason: "No WhatsApp on file" }
+  const value = channelValue(recipient, channel)
+  if (!value) return { ...leg, status: "failed", reason: `Unparseable ${channel} value` }
+  const contact = await lookupContactByChannelValue(prisma, { tenantId: request.tenantId, channel, value })
+  if (!contact) return { ...leg, status: "failed", reason: `No Contact row for ${value}` }
+  const vars = channel === "EMAIL"
+    ? entityEmailVars(request.facts, request.lender, recipient)
+    : entityWhatsAppVars(request.facts, request.lender, recipient)
+  try {
+    const message = await sendMessage({
+      contactId: contact.id,
+      channel,
+      template,
+      vars,
+      toValue: value,
+      toName: channel === "EMAIL" ? `${recipient.firstName} ${recipient.lastName}`.trim() : undefined,
+      category: request.category,
+      loanId: request.loanId,
+      idempotencyKey: `entity-notice:${request.loanId}:${request.occurrence}:${recipient.clientId}:${channel}`,
+    })
+    const outcome = messageDeliveryOutcome(message.status)
+    if (outcome === "not_sent") {
+      const status = message.status === "SUPPRESSED_BY_CONSENT" ? "blocked" : "failed"
+      return { ...leg, status, messageId: message.id, reason: message.status }
+    }
+    return { ...leg, status: outcome, messageId: message.id }
+  } catch (error) {
+    if (error instanceof SendBlockedError) return { ...leg, status: "blocked", reason: error.reason }
+    if (error instanceof MessageReconciliationRequiredError) {
+      return { ...leg, status: "reconciliation", messageId: error.messageRecord.id, reason: "delivery uncertain; automatic replay blocked" }
+    }
+    return { ...leg, status: "failed", reason: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function sendEntityNotice(request: EntityNoticeRequest): Promise<EntityLegOutcome[]> {
+  const outcomes: EntityLegOutcome[] = []
+  for (const channel of request.channels) {
+    const key = channel === "EMAIL" ? ENTITY_EMAIL_KEY[request.facts.kind] : `${ENTITY_WA_EVENT[request.facts.kind]}_whatsapp`
+    const lookup = await loadTemplate(request.tenantId, key, channel)
+    for (const recipient of request.recipients) {
+      outcomes.push("problem" in lookup
+        ? { clientId: recipient.clientId, channel, status: "failed", reason: lookup.problem }
+        : await sendLeg(request, recipient, channel, lookup.template))
+    }
+  }
+  return outcomes
+}
+
+/** One line for a LoanNote or cron detail: who got what, per channel. */
+export function describeEntityOutcomes(outcomes: EntityLegOutcome[], names: Map<string, string>): string {
+  if (outcomes.length === 0) return "no director, trustee or authorised signatory to message"
+  return outcomes
+    .map((o) => `${names.get(o.clientId) ?? o.clientId} ${o.channel.toLowerCase()}: ${o.status}${o.reason ? ` (${o.reason})` : ""}`)
+    .join("; ")
+}
+
+/** A leg that reached (or may have reached) a provider: what a LoanNote records. */
+export const reachedProvider = (o: EntityLegOutcome): boolean =>
+  o.status === "sent" || o.status === "simulated" || o.status === "reconciliation"

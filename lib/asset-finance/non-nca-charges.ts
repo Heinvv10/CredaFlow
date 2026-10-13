@@ -23,7 +23,7 @@ import {
 //    money the lender should already hold. Contractual fees and premiums,
 //    default interest and collection fees are NOT in the base: nothing
 //    compounds on a charge.
-//  - Rate: (contract annual rate + the product's margin) / 365, actual/365. A
+//  - Rate: (contract annual rate + the agreed margin) / 365, actual/365. A
 //    day accrues only once complete, so the as-of day itself never accrues.
 //    Interest posts aggregated per calendar month, as in the NCA engine.
 //  - A collection fee posts once per missed instalment, dated the day after
@@ -36,16 +36,16 @@ import {
 //    the schedule instalment by instalment (the same go-live rule as NCA).
 //  - None of the NCA rules apply: no in duplum cap (s103(5)), no Section 129
 //    letter charge, no post-maturity service fee.
-//  - Terms unset on the product (null) mean that component is zero: no margin
+//  - Terms unset on the agreement (null) mean that component is zero: no margin
 //    means NO default interest (a margin of 0 means the contract rate alone);
 //    no fee means no collection fee.
 //  - `accrueUntil` (write-off, cancellation, closing): nothing accrues or posts
 //    on or after it; receipts are still allocated.
 
 export interface NonNcaArrearsTerms {
-  /** LoanProduct.nonNcaDefaultInterestMargin: annual decimal over the contract rate; null = no default interest */
+  /** Loan.nonNcaDefaultInterestMargin (copied from the product at booking; charges-replay nonNcaArrearsTerms): annual decimal over the contract rate; null = no default interest */
   defaultInterestMargin: number | null
-  /** LoanProduct.nonNcaCollectionFeeCents: per missed instalment; null = none */
+  /** Loan.nonNcaCollectionFeeCents (copied at booking): per missed instalment; null = none */
   collectionFeeCents: number | null
 }
 
