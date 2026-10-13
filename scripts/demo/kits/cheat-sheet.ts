@@ -78,7 +78,7 @@ function loginItems(p: Persona): string[] {
     ? `CLIENT (client portal): ${p.email}; the seed's client portal password (portal activated during the bake).`
     : `CLIENT (client portal): ${p.email}; the password you set when activating the portal in this demo.`
   return [
-    'CREDIT OFFICER and ADMIN (staff app, password + 6-digit authenticator code).',
+    'CREDIT OFFICER and ADMIN (staff app, email + password; the demo has no authenticator code).',
     portal,
     `Credentials: ${CREDENTIALS_SOURCE}. Never shown on screen.`,
   ]

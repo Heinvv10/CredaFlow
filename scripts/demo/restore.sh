@@ -15,6 +15,12 @@
 #
 # Staged while the demo keeps serving:
 #   - pg_restore into <db>_restore_<ts>, row counts checked against meta.json;
+#   - when the live app container runs with DEMO_CLEAR_STAFF_TOTP=true (exact
+#     string, read from the same container env as the DEMO_MODE guard), TOTP
+#     is turned off for every staff user except SUPER_ADMIN in the staged db
+#     (STAFF_TOTP_OFF_SQL in lib.sh), so presenters sign in with a password
+#     only. The bake enrols TOTP, so without this every restore turns it back
+#     on. This is the CLAUDE.md TOTP exception for demo stacks;
 #   - uploads unpacked into <volume>/.restore-<ts>, file count checked.
 # Then the swap (the only downtime): stop app + portal → rename <db> to
 # <db>_old_<ts> and the staged db to <db> (one transaction) → move the old
@@ -208,6 +214,12 @@ got="$(live_sql "$tmp_db" "$SNAPSHOT_COUNTS_SQL" | jq -cS .)"
 [ "$got" = "$want" ] || die "restored row counts $got differ from the snapshot's $want"
 note "database staged in $tmp_db ($got)"
 
+step="staff TOTP off"
+if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | grep -qx 'DEMO_CLEAR_STAFF_TOTP=true'; then
+  cleared="$(live_sql "$tmp_db" "$STAFF_TOTP_OFF_SQL")"
+  note "staff TOTP off for $cleared users (DEMO_CLEAR_STAFF_TOTP=true)"
+fi
+
 step="uploads staging"
 uploads_staged=true
 want_files="$(jq -r .counts.uploadFiles "$snap/meta.json")"
@@ -262,6 +274,15 @@ committed=true
 set +e
 warnings=""
 warn() { note "WARNING: $1"; warnings="$warnings; $1"; }
+# DEMO ONLY: presenters sign in live in front of prospects and the data is
+# synthetic, so the demo's staff have no TOTP (product owner, 2026-10-13). The
+# bake's seed enrols it; clear it again here. Only the platform operator
+# (SUPER_ADMIN) keeps it. This sits behind the DEMO_MODE=true target guard above
+# and must never be carried into a real lender deployment: TOTP is mandatory
+# for staff there (CLAUDE.md).
+cleared="$(live_sql "$db" 'WITH c AS (UPDATE "User" SET "totpEnabled" = false, "totpSecret" = NULL, "lastTotpCounter" = NULL WHERE role <> '"'SUPER_ADMIN'"' RETURNING 1) SELECT count(*) FROM c')" \
+  && note "demo staff TOTP cleared for $cleared non-SUPER_ADMIN users" \
+  || warn "could not clear demo staff TOTP; staff still need an authenticator code"
 if $had_live_db; then
   live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi

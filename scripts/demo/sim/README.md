@@ -136,7 +136,8 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   → `check-dates` → `assert_payment_allocation_reconciles()` →
   `verify-pages` → `db.dump` (pg_dump -Fc), `uploads.tar.gz`, `meta.json`
   (image, sim window, tenant id, counts, checks) and the bake's staff
-  credentials (TOTP secrets are fresh per bake). A snapshot is written and
+  credentials (TOTP secrets are fresh per bake; `restore.sh` clears staff TOTP on
+  the live demo, SUPER_ADMIN excepted). A snapshot is written and
   `latest` moved only when every check passed; the newest 4 are kept. It
   refuses to run when this worktree's `prisma/migrations` differ from the
   image's (the sim migrates and seeds from the worktree).
@@ -146,7 +147,11 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   on another image than the live staff container runs. While the demo keeps
   serving it `pg_restore`s into `<db>_restore_<ts>` (row counts checked against
   `meta.json`) and unpacks the uploads into `.restore-<ts>` in the volume (file
-  count checked). Then: stop app + portal (never the tunnel) → rename the live
+  count checked). If the live app runs with `DEMO_CLEAR_STAFF_TOTP=true` (set
+  in the live `.env.production`), the staged db has TOTP turned off for every
+  staff user except SUPER_ADMIN, so presenters sign in with a password only;
+  the bake enrols TOTP, so without it every restore turns TOTP back on.
+  Then: stop app + portal (never the tunnel) → rename the live
   db to `<db>_old_<ts>` and the staged one into place (one transaction) → swap
   the uploads (old ones to `.old-<ts>`) → tenant id into
   `DEBIT_MANDATE_CREDITOR_TENANT_ID` in the live `.env.production` → `up -d`
