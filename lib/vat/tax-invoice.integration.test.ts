@@ -84,6 +84,14 @@ suite("tax invoices and credit notes (real DB)", () => {
     expect(await db.taxInvoice.count({ where: { tenantId: bareTenantId } })).toBe(0)
   })
 
+  it("issues two invoices inside one caller-owned transaction", async () => {
+    const issued = await db.$transaction(async (tx) => [
+      await issueTaxInvoice(tx, invoiceInput(tenantId, 100)),
+      await issueTaxInvoice(tx, invoiceInput(tenantId, 200)),
+    ])
+    expect(issued.map((invoice) => invoice.lines[0].exclVatCents)).toEqual([100, 200])
+  })
+
   describe("(a) an issued invoice, its lines and its credit notes are immutable", () => {
     let invoiceId = ""
     let lineId = ""

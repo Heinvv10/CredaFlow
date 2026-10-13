@@ -6,7 +6,8 @@ import { queueRepriceNotice, type NoticeDb } from "./reprice-notice"
 
 const notice = {
   tenantId: "t1", loanId: "loan-1", loanReference: "AF-1", entityId: "ent-1",
-  effectiveDate: "2026-11-01", oldInstalmentCents: 1_000_000, newInstalmentCents: 1_050_000,
+  effectiveDate: "2026-11-01", firstChangedPaymentDate: "2026-12-01",
+  oldInstalmentCents: 1_000_000, newInstalmentCents: 1_050_000,
 }
 
 function db(rows: Array<{ client: { id: string } }>) {
@@ -38,5 +39,29 @@ describe("queueRepriceNotice recipients", () => {
     expect(await queueRepriceNotice(handle, { ...notice, entityId: null })).toEqual([])
     expect(relFindMany).not.toHaveBeenCalled()
     expect(notifications).toHaveBeenCalledWith({ data: [expect.objectContaining({ userId: "admin-1", type: "LOAN_REPRICED" })] })
+  })
+
+  it("distinguishes the rate effective date from the first changed payment", async () => {
+    const createMany = vi.fn(async () => ({ count: 1 }))
+    const db = {
+      entityRelationship: { findMany: vi.fn(async () => [{ clientId: "client-1" }]) },
+      user: { findMany: vi.fn(async () => [{ id: "admin-1" }]) },
+      notification: { createMany },
+    } as unknown as NoticeDb
+
+    await queueRepriceNotice(db, {
+      tenantId: "tenant-1",
+      loanId: "loan-1",
+      loanReference: "LN-TEST",
+      entityId: "entity-1",
+      effectiveDate: "2026-10-01",
+      firstChangedPaymentDate: "2026-11-15",
+      oldInstalmentCents: 100_000,
+      newInstalmentCents: 110_000,
+    })
+
+    expect(createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({
+      body: expect.stringContaining("rate changes from 2026-10-01. From the payment due 2026-11-15"),
+    })] })
   })
 })

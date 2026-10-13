@@ -44,6 +44,6 @@ describe("issueCreditNote", () => {
     })
     expect(note).toMatchObject({ exclVatCents: 10, vatCents: 2, inclVatCents: 12 })
     expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", invoiceId: "inv1" } }))
-    expect(calls).toEqual(["create", "SET CONSTRAINTS ALL IMMEDIATE"])
+    expect(calls).toEqual(["create", "SET CONSTRAINTS ALL IMMEDIATE", "SET CONSTRAINTS ALL DEFERRED"])
   })
 })

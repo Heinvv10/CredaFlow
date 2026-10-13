@@ -234,6 +234,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
 
   const noticeRecipientClientIds = await queueRepriceNotice(tx, {
     tenantId, loanId, loanReference: loan.reference, entityId: loan.entityId, effectiveDate,
+    firstChangedPaymentDate: solved.rows[0].dueDate,
     oldInstalmentCents: schedule.referenceInstalmentCents, newInstalmentCents: solved.baseInstalmentCents,
   })
   await logAuditStrict({

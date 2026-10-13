@@ -182,8 +182,10 @@ export async function issueTaxInvoice(tx: TaxInvoiceDb, input: IssueTaxInvoiceIn
   })
   // The totals = lines check is a deferred constraint trigger: forced here so
   // a violation fails this call, not a COMMIT that Prisma would report as
-  // success (lib/loan/apply-payment.ts).
+  // success (lib/loan/apply-payment.ts). Restore deferred mode so a caller
+  // can issue another nested invoice later in the same transaction.
   await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+  await tx.$executeRawUnsafe("SET CONSTRAINTS ALL DEFERRED")
   return issued
 }
 
