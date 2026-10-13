@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+// Server actions that already guard themselves on main. The CRM actions that
+// checked only for a session (generateCrossSellOpportunities, updateLeadStatus,
+// addLeadActivity, toggleLeadActivityPinned) are tested once their guard lands.
+//
 // Every server action is reachable by a POST carrying its action id, so each one
 // has to refuse a CLIENT session itself. The real guards run here (auth-guards is
 // not mocked): only the session, the redirect and the side effects are stubbed,
@@ -36,14 +40,7 @@ vi.mock("@/lib/bank-sync/import", () => ({
 vi.mock("@/lib/manual/progress", () => ({ setLessonComplete: lessonMock }))
 vi.mock("@/lib/crm/staff", () => ({ isAssignableStaff: dbMock }))
 
-import {
-  addLeadActivity,
-  generateCrossSellOpportunities,
-  reassignLead,
-  resetStrandedConvertedLead,
-  updateLeadStatus,
-} from "./crm"
-import { toggleLeadActivityPinned } from "./lead-activities"
+import { reassignLead, resetStrandedConvertedLead } from "./crm"
 import { toggleLesson } from "../(dashboard)/learn/actions"
 import {
   confirmMatchAction,
@@ -64,12 +61,8 @@ const upload = () => {
 }
 
 const ACTIONS: Array<[string, () => Promise<unknown>]> = [
-  ["generateCrossSellOpportunities", () => generateCrossSellOpportunities()],
-  ["updateLeadStatus", () => updateLeadStatus("lead-1", "QUALIFIED")],
-  ["addLeadActivity", () => addLeadActivity({ leadId: "lead-1", type: "NOTE", subject: "s" })],
   ["reassignLead", () => reassignLead("lead-1", "u2")],
   ["resetStrandedConvertedLead", () => resetStrandedConvertedLead("lead-1")],
-  ["toggleLeadActivityPinned", () => toggleLeadActivityPinned("act-1", true)],
   ["toggleLesson", () => toggleLesson("intro", true)],
   ["confirmMatchAction", () => confirmMatchAction("txn-1", "loan-1")],
   ["reassignMatchAction", () => reassignMatchAction("txn-1", "loan-1")],
@@ -103,32 +96,5 @@ describe.each(ACTIONS)("%s", (_name, call) => {
     authMock.mockResolvedValue(null)
     await expect(call()).rejects.toThrow(/NEXT_REDIRECT|Insufficient permissions|Unauthorized/)
     expectUntouched()
-  })
-})
-
-// The four actions that checked only for a session now need the CRM write role
-// the matching API routes use (app/api/crm/**: CREDIT_OFFICER).
-describe.each([
-  ["generateCrossSellOpportunities", ACTIONS[0][1]],
-  ["updateLeadStatus", ACTIONS[1][1]],
-  ["addLeadActivity", ACTIONS[2][1]],
-  ["toggleLeadActivityPinned", ACTIONS[5][1]],
-])("%s role floor", (_name, call) => {
-  it("refuses a READONLY staff session", async () => {
-    authMock.mockResolvedValue(session("READONLY"))
-    await expect(call()).rejects.toThrow(/NEXT_REDIRECT/)
-    expectUntouched()
-  })
-
-  it("refuses a staff session whose tenant binding is gone", async () => {
-    authMock.mockResolvedValue(session("CREDIT_OFFICER", null))
-    await expect(call()).rejects.toThrow(/NEXT_REDIRECT/)
-    expectUntouched()
-  })
-
-  it("lets a CREDIT_OFFICER through the guard", async () => {
-    authMock.mockResolvedValue(session("CREDIT_OFFICER"))
-    await expect(call()).rejects.toThrow("reached the database")
-    expect(tenantMock).toHaveBeenCalled()
   })
 })

@@ -2,7 +2,7 @@
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { requireMinRole } from "@/lib/auth-guards"
+import { auth } from "@/lib/auth"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { getDefaultTenantId } from "@/lib/tenant"
 import { revalidatePath } from "next/cache"
@@ -19,7 +19,8 @@ export async function toggleLeadActivityPinned(
   activityId: string,
   pinned: boolean
 ): Promise<ToggleActivityPinnedResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const session = await auth()
+  if (!session?.user) throw new Error("Unauthorized")
 
   const tenantId = await getDefaultTenantId()
 
@@ -73,8 +74,8 @@ export async function toggleLeadActivityPinned(
   if (result.changed) {
     await logAudit({
       tenantId,
-      userId: user.id,
-      userEmail: user.email,
+      userId: session.user.id,
+      userEmail: session.user.email ?? undefined,
       action: AuditAction.LEAD_ACTIVITY_PIN_TOGGLED,
       entity: "CrmActivity",
       entityId: activityId,

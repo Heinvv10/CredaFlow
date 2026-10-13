@@ -1,6 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/prisma"
+import { auth } from "@/lib/auth"
 import { requireMinRole } from "@/lib/auth-guards"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { getDefaultTenantId } from "@/lib/tenant"
@@ -13,7 +14,8 @@ const VALID_LEAD_STATUS = new Set<string>(Object.values(LeadStatus))
 const VALID_ACTIVITY_TYPE = new Set<string>(Object.values(ActivityType))
 
 export async function generateCrossSellOpportunities() {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const session = await auth()
+  if (!session?.user) throw new Error("Unauthorized")
 
   const tenantId = await getDefaultTenantId()
 
@@ -51,8 +53,8 @@ export async function generateCrossSellOpportunities() {
 
   await logAudit({
     tenantId,
-    userId: user.id,
-    userEmail: user.email,
+    userId: session.user.id,
+    userEmail: session.user.email ?? undefined,
     action: AuditAction.CROSS_SELL_OPPORTUNITIES_GENERATED,
     entity: "CrossSellOpportunity",
     newValue: { type: "FUNERAL_COVER", created: newClientIds.length },
@@ -72,7 +74,8 @@ type UpdateLeadStatusResult =
   | { ok: false; error: string }
 
 export async function updateLeadStatus(leadId: string, status: string): Promise<UpdateLeadStatusResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const session = await auth()
+  if (!session?.user) throw new Error("Unauthorized")
 
   if (!VALID_LEAD_STATUS.has(status)) {
     return { ok: false, error: "Invalid status" }
@@ -116,8 +119,8 @@ export async function updateLeadStatus(leadId: string, status: string): Promise<
 
   await logAudit({
     tenantId,
-    userId: user.id,
-    userEmail: user.email,
+    userId: session.user.id,
+    userEmail: session.user.email ?? undefined,
     action: AuditAction.LEAD_STATUS_CHANGED,
     entity: "Lead",
     entityId: leadId,
@@ -276,7 +279,8 @@ export async function addLeadActivity(data: {
   subject: string
   notes?: string
 }): Promise<AddLeadActivityResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const session = await auth()
+  if (!session?.user) throw new Error("Unauthorized")
 
   if (!VALID_ACTIVITY_TYPE.has(data.type)) {
     return { ok: false, error: "Invalid activity type" }
@@ -298,7 +302,7 @@ export async function addLeadActivity(data: {
         type: data.type as ActivityType,
         subject: data.subject,
         notes: data.notes ?? null,
-        createdById: user.id,
+        createdById: session.user.id!,
         completedAt: new Date(),
       },
     })
@@ -309,8 +313,8 @@ export async function addLeadActivity(data: {
 
   await logAudit({
     tenantId,
-    userId: user.id,
-    userEmail: user.email,
+    userId: session.user.id,
+    userEmail: session.user.email ?? undefined,
     action: AuditAction.LEAD_ACTIVITY_LOGGED,
     entity: "CrmActivity",
     entityId: activity.id,

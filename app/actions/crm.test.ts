@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+const authMock = vi.fn()
 const requireMinRoleMock = vi.fn()
 const getDefaultTenantIdMock = vi.fn()
 const transactionMock = vi.fn()
@@ -7,6 +8,7 @@ const logAuditMock = vi.fn()
 const revalidatePathMock = vi.fn()
 const redirectMock = vi.fn()
 
+vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: (r: string) => requireMinRoleMock(r) }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 vi.mock("@/lib/prisma", () => ({
@@ -32,7 +34,7 @@ import { updateLeadStatus, reassignLead, resetStrandedConvertedLead } from "./cr
 describe("updateLeadStatus — typed result for validation failures", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example" })
+    authMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example" } })
     getDefaultTenantIdMock.mockResolvedValue("t1")
   })
 
@@ -99,10 +101,9 @@ describe("updateLeadStatus — typed result for validation failures", () => {
     expect(revalidatePathMock).toHaveBeenCalledWith("/crm/leads/lead-1")
   })
 
-  it("still throws for a refused caller (genuinely unexpected, not a validation failure)", async () => {
-    requireMinRoleMock.mockRejectedValue(new Error("NEXT_REDIRECT"))
-    await expect(updateLeadStatus("lead-1", "QUALIFIED")).rejects.toThrow("NEXT_REDIRECT")
-    expect(requireMinRoleMock).toHaveBeenCalledWith("CREDIT_OFFICER")
+  it("still throws for an unauthenticated caller (genuinely unexpected, not a validation failure)", async () => {
+    authMock.mockResolvedValue(null)
+    await expect(updateLeadStatus("lead-1", "QUALIFIED")).rejects.toThrow("Unauthorized")
   })
 })
 
