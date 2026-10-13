@@ -9,14 +9,14 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { formatStatusLabel, getStatusTone } from "@/lib/status-style"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { cashReceivedCents } from "@/lib/payments/waiver"
 
 export default async function PortalLoansPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },

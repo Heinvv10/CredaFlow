@@ -1,3 +1,4 @@
+import { canWriteLeadActivity } from "@/lib/crm/lead-write-access"
 import { NextResponse } from "next/server"
 import { requireApiRole, hasMinRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -25,6 +26,8 @@ export async function GET(
   const canReassign = hasMinRole(role, "CREDIT_OFFICER")
   const canCreateTasks = hasMinRole(role, "CREDIT_OFFICER")
   const canManageTasks = hasMinRole(role, "CREDIT_OFFICER")
+  // Mirrors the stage / activity / pin server actions.
+  const canWriteActivity = canWriteLeadActivity(role)
 
   return withTenantContext(req as never, async (tenant) => {
     try {
@@ -34,7 +37,7 @@ export async function GET(
 
       return NextResponse.json({
         ...bundle,
-        permissions: { canReassign, canCreateTasks, canManageTasks },
+        permissions: { canReassign, canCreateTasks, canManageTasks, canWriteActivity },
         currentUserId: guard.user.id,
         // Same helper the send path uses, so the previewed signature matches
         // what actually goes out.

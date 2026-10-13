@@ -50,4 +50,46 @@ describe("GET /api/auth/expired (stale-session loop-breaker)", () => {
     const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent("https://evil.example.com/phish")}`)
     expect(location(res).url.searchParams.get("callbackUrl")).toBe("/dashboard")
   })
+
+  // Browsers read "/\" as "//": a backslash anywhere, however it arrives, must
+  // not survive into the Location. Each lands on the staff /login with the
+  // default destination.
+  it.each([
+    ["a literal backslash", "callbackUrl=" + encodeURIComponent("/\\evil.example")],
+    ["a %5C-encoded backslash", "callbackUrl=/%5Cevil.example"],
+    ["a double-encoded backslash", "callbackUrl=" + encodeURIComponent("/%5Cevil.example")],
+    ["a protocol-relative URL", "callbackUrl=" + encodeURIComponent("//evil")],
+    ["an absolute URL", "callbackUrl=" + encodeURIComponent("https://evil")],
+    ["a tab before the slashes", "callbackUrl=" + encodeURIComponent("/\t/evil.example")],
+  ])("refuses %s → staff /login, callbackUrl /dashboard", (_label, query) => {
+    const res = call(`${ORIGIN}/api/auth/expired?${query}`)
+    const { raw, url } = location(res)
+    expect(raw.startsWith("/login?")).toBe(true)
+    expect(url.origin).toBe(ORIGIN)
+    expect(url.searchParams.get("callbackUrl")).toBe("/dashboard")
+    expect(raw).not.toMatch(/evil/)
+  })
+
+  it.each(["/loans/123", "/clients/abc-1/edit"])("keeps the valid internal path %s", (dest) => {
+    const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent(dest)}`)
+    expect(location(res).url.searchParams.get("callbackUrl")).toBe(dest)
+  })
+
+  // A client cannot sign in on the staff form. The cookie is cleared in the
+  // same response, so /portal/login renders its form instead of sending the
+  // client back to /portal (app/portal/login/page.test.tsx: no session → form).
+  it.each(["/portal", "/portal/loans/123"])("sends a portal destination (%s) to /portal/login, cookie cleared", (dest) => {
+    const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent(dest)}`)
+    expect(res.status).toBe(307)
+    const { raw, url } = location(res)
+    expect(raw.startsWith("/portal/login")).toBe(true)
+    expect(url.pathname).toBe("/portal/login")
+    expect(url.searchParams.get("callbackUrl")).toBe(dest)
+    expect(res.cookies.get(COOKIE)?.maxAge).toBe(0)
+  })
+
+  it("does not treat a path that merely starts with the letters 'portal' as the portal", () => {
+    const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent("/portalx")}`)
+    expect(location(res).url.pathname).toBe("/login")
+  })
 })

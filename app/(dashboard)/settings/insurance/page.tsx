@@ -2,7 +2,7 @@ import Link from "next/link"
 import type { PrismaClient } from "@prisma/client"
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { canSellProduct } from "@/lib/insurance/product-readiness"
 import { ImsModuleToggle } from "@/components/settings/ImsModuleToggle"
 import { Header } from "@/components/layout/Header"
@@ -30,7 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
 export default async function InsuranceModuleSettingsPage() {
   // Same gate as the credit-policy screen: a tenant-wide feature switch is ADMIN.
   await requireMinRole("ADMIN")
-  const tenantId = await getResolvedTenantId()
+  const tenantId = await getStaffTenantId()
 
   const [config, products] = await Promise.all([
     prisma.tenantConfig.findUnique({

@@ -3,7 +3,7 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { WhatsAppLauncher } from "@/components/support/WhatsAppLauncher"
 import { PORTAL_INTENTS } from "@/lib/support/whatsapp-intents"
 import { getLenderIdentity } from "@/lib/config/identity"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 
 type PortalShellProps = {
   userName: string
@@ -15,7 +15,7 @@ export async function PortalShell({ userName, userEmail, children }: PortalShell
   const firstName = userName.split(" ")[0] || "there"
   // Throws LenderIdentityError when the lender is unconfigured: the portal
   // refuses to render rather than show another lender's contact line.
-  const identity = await getLenderIdentity(await getResolvedTenantId())
+  const identity = await getLenderIdentity(await getPortalTenantId())
 
   return (
     <div className="min-h-screen cf-app-surface">

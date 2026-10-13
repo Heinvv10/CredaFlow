@@ -52,13 +52,13 @@ function formWithFile(content: string, name = "absa.csv", type = "text/csv"): Fo
   return fd
 }
 
-const SESSION = { user: { id: "u1", email: "officer@acme-lending.example", role: "CREDIT_OFFICER" } }
+const SESSION = { user: { id: "u1", email: "officer@acme-lending.example", role: "CREDIT_OFFICER", tenantId: "t1" } }
 
 describe("bank-reconciliation actions", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authMock.mockResolvedValue(SESSION)
-    getDefaultTenantIdMock.mockResolvedValue("t1")
+    getDefaultTenantIdMock.mockResolvedValue("default-tenant")
     canDoMock.mockReturnValue(true)
     applyBankTransactionMock.mockResolvedValue({ paymentId: "pay1" })
     ignoreBankTransactionMock.mockResolvedValue(undefined)
@@ -251,6 +251,28 @@ describe("bank-reconciliation actions", () => {
       importStatementMock.mockRejectedValue(new Error("DB exploded"))
 
       await expect(uploadStatementAction(formWithFile("Date,Description,Amount,Balance\n"))).rejects.toThrow("DB exploded")
+    })
+  })
+
+  describe("tenant source", () => {
+    it("uses the staff session's tenant, not the default, for every action", async () => {
+      await confirmMatchAction("txn1", "loan1")
+      await ignoreMatchAction("txn1", "duplicate")
+      await uploadStatementAction(formWithFile("a,b\n1,2"))
+
+      expect(applyBankTransactionMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1" }))
+      expect(ignoreBankTransactionMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1" }))
+      expect(importStatementMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1" }))
+      expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
+    })
+
+    it("refuses a session with no tenant instead of falling back to the default", async () => {
+      authMock.mockResolvedValue({ user: { id: "u1", email: "o@acme-lending.example", role: "CREDIT_OFFICER" } })
+
+      await expect(confirmMatchAction("txn1", "loan1")).rejects.toThrow("Insufficient permissions")
+      await expect(uploadStatementAction(formWithFile("a,b\n1,2"))).rejects.toThrow("Insufficient permissions")
+      expect(applyBankTransactionMock).not.toHaveBeenCalled()
+      expect(importStatementMock).not.toHaveBeenCalled()
     })
   })
 })

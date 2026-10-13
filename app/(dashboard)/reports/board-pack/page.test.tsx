@@ -20,7 +20,7 @@ const model = (name: string) => new Proxy({}, {
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, { get: (_, name: string) => model(name) }),
 }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "tenant-1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "tenant-1") }))
 vi.mock("@/lib/config/identity", () => ({
   getLenderBrandName: vi.fn(async () => "Acme Lending"),
   findLenderIdentity: vi.fn(async () => ({ ncrNumber: "NCRCP99999" })),

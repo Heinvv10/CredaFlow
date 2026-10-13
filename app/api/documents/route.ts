@@ -13,7 +13,7 @@ import {
   matchesMagic,
   MAGIC_BYTE_PREFIX,
 } from "@/lib/document-auth"
-import { withTenantContext } from "@/lib/tenant"
+import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import type { DocType } from "@prisma/client"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  return withTenantContext(req, async (tenant) => {
+  return withTenantContextLoggingRefusal(req, { documentId: "upload", caller }, async (tenant) => {
     try {
       const formData = await req.formData()
       const file = formData.get("file") as File | null

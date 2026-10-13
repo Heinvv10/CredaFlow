@@ -22,7 +22,7 @@ import type { TabKey } from "@/lib/crm/lead-modal-url"
 import type { LeadDetailBundle } from "@/lib/crm/lead-detail-bundle"
 
 type Bundle = LeadDetailBundle & {
-  permissions: { canReassign: boolean; canCreateTasks: boolean; canManageTasks: boolean }
+  permissions: { canReassign: boolean; canCreateTasks: boolean; canManageTasks: boolean; canWriteActivity: boolean }
   currentUserId: string
   agentName: string
 }
@@ -255,6 +255,7 @@ export function LeadSlideOver({ leadId, onClose, initialTab = "details", onTabCh
                     status={lead.status}
                     callbackDate={lead.callbackDate}
                     callbackNotes={lead.callbackNotes}
+                    canSchedule={bundle.permissions.canWriteActivity}
                     onChanged={refresh}
                   />
                 )}
@@ -264,6 +265,7 @@ export function LeadSlideOver({ leadId, onClose, initialTab = "details", onTabCh
                     key={lead.id}
                     leadId={lead.id}
                     activities={bundle.activities}
+                    canWrite={bundle.permissions.canWriteActivity}
                     onChanged={refresh}
                   />
                 )}
@@ -272,6 +274,7 @@ export function LeadSlideOver({ leadId, onClose, initialTab = "details", onTabCh
                   <LeadActivityTab
                     activities={bundle.activities}
                     commsMessages={bundle.commsMessages}
+                    canPin={bundle.permissions.canWriteActivity}
                     onChanged={refresh}
                   />
                 )}

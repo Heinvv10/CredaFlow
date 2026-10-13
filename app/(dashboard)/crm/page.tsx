@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { CrmDashboardClient } from "@/components/crm/CrmDashboardClient"
 import { leadConversionState, leadPipelineStatus } from "@/lib/crm/lead-conversion"
 
@@ -287,7 +287,7 @@ async function getCrmData(tenantId: string) {
 }
 
 export default async function CrmPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const data = await getCrmData(tenantId)
 
   return (

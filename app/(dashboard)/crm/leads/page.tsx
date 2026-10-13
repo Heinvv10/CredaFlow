@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma"
 import { LeadKanban } from "@/components/crm/LeadKanban"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { calculateLeadScore } from "@/lib/lead-scoring"
 import { countDuplicatesByPhone } from "@/lib/crm/lead-dedup"
+import { getSession } from "@/lib/auth-session"
+import { canWriteLeadActivity } from "@/lib/crm/lead-write-access"
 
 async function getLeads(tenantId: string) {
   return prisma.lead.findMany({
@@ -15,8 +17,9 @@ async function getLeads(tenantId: string) {
 }
 
 export default async function LeadsPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const leads = await getLeads(tenantId)
+  const canWriteActivity = canWriteLeadActivity((await getSession())?.user?.role)
 
   // Score is computed on read rather than persisted: it depends on lead age
   // (freshness), so a stored value would go stale, and there is no scoring
@@ -35,7 +38,7 @@ export default async function LeadsPage() {
 
   return (
     <div className="p-6 lg:p-8">
-      <LeadKanban initialLeads={scored} />
+      <LeadKanban initialLeads={scored} canWriteActivity={canWriteActivity} />
     </div>
   )
 }

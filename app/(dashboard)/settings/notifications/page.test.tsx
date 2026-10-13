@@ -3,21 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const {
   requireMinRole,
   hasMinRole,
-  getResolvedTenantId,
+  getSession,
   tenantFindFirst,
   templateFindMany,
   logFindMany,
 } = vi.hoisted(() => ({
   requireMinRole: vi.fn(),
   hasMinRole: vi.fn(),
-  getResolvedTenantId: vi.fn(),
+  getSession: vi.fn(),
   tenantFindFirst: vi.fn(),
   templateFindMany: vi.fn(),
   logFindMany: vi.fn(),
 }))
 
-vi.mock("@/lib/auth-guards", () => ({ requireMinRole, hasMinRole }))
-vi.mock("@/lib/tenant", () => ({ getResolvedTenantId }))
+// The page reads with the SESSION's tenant (lib/session-tenant.ts, real here)
+// — not the request host's (getResolvedTenantId) or the deployment default.
+// All three differ below, so reading with either of the others fails.
+vi.mock("@/lib/auth-guards", () => ({ requireMinRole, hasMinRole, redirectStaleSession: vi.fn() }))
+vi.mock("@/lib/auth-session", () => ({ getSession }))
+vi.mock("@/lib/tenant", () => ({
+  getResolvedTenantId: vi.fn(async () => "tenant-host"),
+  getDefaultTenantId: vi.fn(async () => "tenant-default"),
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenant: { findFirst: tenantFindFirst },
@@ -57,7 +64,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   requireMinRole.mockResolvedValue({ id: "u1", role: "ADMIN" })
   hasMinRole.mockReturnValue(true)
-  getResolvedTenantId.mockResolvedValue("tenant-1")
+  getSession.mockResolvedValue({ user: { id: "u1", role: "ADMIN", tenantId: "tenant-1" } })
   tenantFindFirst.mockResolvedValue({ id: "tenant-1", name: "Acme Lending" })
   templateFindMany.mockResolvedValue([])
   logFindMany.mockResolvedValue([])
@@ -68,9 +75,8 @@ describe("tenant resolution", () => {
   // findFirst({status:"ACTIVE"}) picked an arbitrary tenant, so with a second
   // active tenant this page listed another tenant's template bodies and Meta
   // names — and saving one copied them into the caller's tenant.
-  it("scopes to the resolved tenant, not to an arbitrary active one", async () => {
+  it("scopes to the session's tenant, not to the host's or an arbitrary active one", async () => {
     await NotificationsSettingsPage()
-    expect(getResolvedTenantId).toHaveBeenCalled()
     expect(tenantFindFirst).toHaveBeenCalledWith({
       where: { id: "tenant-1", status: "ACTIVE" },
     })

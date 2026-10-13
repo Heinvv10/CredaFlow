@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { formatZAR, formatDate } from "@/lib/utils"
 import { redirect } from "next/navigation"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import Link from "next/link"
 import { FileText, AlertCircle, ArrowRight, Clock } from "lucide-react"
 import type { AppStatus } from "@prisma/client"
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/app-shell/EmptyState"
 
 async function getApplications(email: string) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({ where: { email, tenantId } })
   if (!client) return { client: null, applications: [] }

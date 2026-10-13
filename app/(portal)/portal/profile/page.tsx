@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 import { User, Shield } from "lucide-react"
 import { ProfileForm } from "./ProfileForm"
 import { PasswordFields } from "./PasswordFields"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { maskIdNumber, SAST_TIME_ZONE } from "@/lib/utils"
 
@@ -19,7 +19,7 @@ export default async function ProfilePage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
   const identity = await getLenderIdentity(tenantId)
 
   const client = await prisma.client.findFirst({

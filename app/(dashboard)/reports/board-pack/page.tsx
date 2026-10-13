@@ -4,7 +4,7 @@ import { COLLECTIBLE_STATUSES, SETTLED_STATUSES } from "@/lib/loan/collectible-b
 import { sastMonthBounds } from "@/lib/compliance/quarters"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { BoardPackClient } from "@/components/reports/BoardPackClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { findLenderIdentity, getLenderBrandName } from "@/lib/config/identity"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { computeCollectionsRate, computeArrearsRate } from "@/lib/reports/collections-rate"
@@ -13,7 +13,7 @@ import { boardPackChargesSummary, loadDefaultChargesReport } from "@/lib/reports
 import { BoardPackDefaultCharges } from "@/components/reports/BoardPackDefaultCharges"
 
 export default async function BoardPackPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [lenderName, lender] = await Promise.all([getLenderBrandName(tenantId), findLenderIdentity(tenantId)])
   const now = new Date()
   // End-EXCLUSIVE SAST month bounds — see lib/compliance/quarters.ts. The

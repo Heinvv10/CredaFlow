@@ -20,7 +20,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, { get: (_, name: string) => model(name) }),
 }))
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: vi.fn(async () => ({ id: "u1" })) }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "tenant-1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "tenant-1") }))
 vi.mock("@/lib/reports/charges-owing", () => ({
   loadChargesOwingByBand: vi.fn(async () => ({ chargesLive: false, byBand: {}, notInArrears: { count: 0, amount: 0 }, total: 0 })),
 }))
