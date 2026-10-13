@@ -65,6 +65,13 @@ export const TENANT_SCOPED_MODELS = [
   // page pass it explicitly, so the rewriter is the backstop for a query that
   // forgets to.
   "BreachLog",
+  // Insurance book + cross-sell opportunities. Non-null tenantId. Routes run
+  // inside withTenantContext's frame; callers outside a request frame pass
+  // tenantId explicitly.
+  "InsurancePolicy",
+  "InsuranceClaim",
+  "PremiumPayment",
+  "CrossSellOpportunity",
   // Asset finance (docs/asset-finance/DESIGN.md). Non-null tenantId; the
   // routes run inside withTenantContext and also pass it explicitly.
   "BusinessEntity",

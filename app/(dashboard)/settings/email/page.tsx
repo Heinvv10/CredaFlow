@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { EmailConfigForm } from "@/components/email/EmailConfigForm"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { SAST_TIME_ZONE } from "@/lib/utils"
@@ -12,7 +12,7 @@ export default async function EmailSettingsPage() {
   // configuration they cannot act on.
   await requireMinRole("ADMIN")
 
-  const tenantId = await getResolvedTenantId()
+  const tenantId = await getStaffTenantId()
   // Poll bookkeeping ONLY. Naming a secret column here would put it in the
   // server-rendered payload; the form fetches the masked config over the API.
   const pollStatus = await prisma.emailConfig.findUnique({

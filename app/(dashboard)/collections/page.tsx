@@ -8,7 +8,7 @@ import { AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { BulkSection129Button } from "@/components/collections/BulkSection129Button"
 import { CollectionsTabs } from "@/components/collections/CollectionsTabs"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
 import { borrowerDisplayName, hasClientBorrower, hasClientBorrowerId } from "@/lib/borrower"
@@ -110,7 +110,7 @@ async function getStageBreakdown(tenantId: string, chargesLive: boolean) {
 }
 
 export default async function CollectionsPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const chargesLive = await chargesLiveForTenant(prisma, tenantId)
   const [loans, s129DueCount, par, stageBreakdown, pendingWriteOffs] = await Promise.all([
     getCollectionsData(tenantId, chargesLive),

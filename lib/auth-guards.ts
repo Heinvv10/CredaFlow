@@ -28,9 +28,12 @@ export type StaffUser = {
  * or deactivation). Server Components can't clear cookies, so going via
  * /api/auth/expired (a route handler that can) breaks the /login ⇄ /dashboard
  * redirect loop. See app/api/auth/expired/route.ts.
+ *
+ * `callbackUrl` is where re-login should land; a `/portal` path sends the
+ * user to the portal sign-in form instead of the staff one.
  */
-export function redirectStaleSession(): never {
-  redirect("/api/auth/expired")
+export function redirectStaleSession(callbackUrl?: string): never {
+  redirect(callbackUrl ? `/api/auth/expired?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/api/auth/expired")
 }
 
 export async function requireRole(allowedRoles: AppRole[]): Promise<StaffUser> {

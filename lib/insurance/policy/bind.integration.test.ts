@@ -21,6 +21,7 @@ import { Prisma } from "@prisma/client"
 import type { PrismaClient } from "@prisma/client"
 import { beforeAll, describe, expect, it } from "vitest"
 import { prisma } from "@/lib/prisma"
+import { withoutTenantScope } from "@/lib/tenant-scope"
 import { signDraftToken } from "../disclosure-token"
 import { hashDraftToken } from "../disclosure-token"
 import { bindQuote } from "./bind"
@@ -229,7 +230,7 @@ suite("bindQuote against real Postgres", () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    const policy = await prisma.insurancePolicy.findUniqueOrThrow({ where: { id: result.policyId } })
+    const policy = await prisma.insurancePolicy.findUniqueOrThrow({ where: { id: result.policyId, tenantId: fixture.tenantId } })
     // Postgres accepted the row, which it only does when the CHECK is met.
     expect(policy.policySource).toBe("STANDALONE")
     expect(policy.faisDisclosureAt).not.toBeNull()
@@ -250,10 +251,12 @@ suite("bindQuote against real Postgres", () => {
     // P2 — the policy is billable. Asserted against the real table because the
     // renewal cron selects on `premiumPayments: { some: ... }`; a policy with
     // no rows here is invisible to it and never lapses, renews or bills.
-    const schedule = await prisma.premiumPayment.findMany({
+    // Read past the tenant scope, so the tenantId assertion below sees what
+    // was written rather than what a tenant filter lets through.
+    const schedule = await withoutTenantScope(async () => await prisma.premiumPayment.findMany({
       where: { policyId: result.policyId },
       orderBy: { dueDate: "asc" },
-    })
+    }))
     expect(schedule).toHaveLength(12)
     expect(schedule[0].amount.toFixed(2)).toBe("83.00")
     expect(schedule.every((row) => row.status === "DUE")).toBe(true)

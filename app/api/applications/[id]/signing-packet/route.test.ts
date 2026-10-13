@@ -323,6 +323,58 @@ describe("GET signing packet — refusals after the owner is let in log nothing"
   })
 })
 
+// The packet is the PASQ plus the UNSIGNED agreement. Once the provider has
+// countersigned, the artifact carrying both signatures exists and is the only
+// document this URL may stand for: a bookmarked or emailed link must not hand
+// the borrower the unsigned copy under a "signed" agreement.
+describe("GET signing packet — once the agreement is executed", () => {
+  beforeEach(() => {
+    rows.applications[0].agreementSignedAt = new Date("2026-10-01T09:00:00.000Z")
+    rows.applications[0].agreementExecutedDocumentId = "executed-doc"
+  })
+
+  it.each([
+    ["the borrower", owner],
+    ["the lender's staff", officer],
+  ])("sends %s to the executed document, not a rebuilt packet", async (_who, session) => {
+    authMock.mockResolvedValue(session)
+    const res = await read()
+    expect(res.status).toBe(307)
+    expect(res.headers.get("location")).toBe("/api/documents/executed-doc/view")
+    expect(res.headers.get("cache-control")).toBe("private, no-store")
+    // The executed document's own route verifies its hash and binding and
+    // writes the read to the access log; nothing is served or logged here.
+    expectNothingRead()
+  })
+
+  it("still refuses another client before revealing the executed document", async () => {
+    authMock.mockResolvedValue(neighbour)
+    const res = await read()
+    expect(res.status).toBe(403)
+    expect(res.headers.get("location")).toBeNull()
+    expectNothingRead()
+  })
+})
+
+// Between the consumer's signature and the countersignature there is no signed
+// PDF: the signature is recorded against the packet's digest, nothing is
+// stamped. Staff need the packet in that window (they countersign from it), so
+// it keeps serving the unsigned packet, which is the exact document the
+// recorded signature is bound to.
+describe("GET signing packet — signed by the consumer, not yet countersigned", () => {
+  beforeEach(() => {
+    rows.applications[0].agreementSignedAt = new Date("2026-10-01T09:00:00.000Z")
+    rows.applications[0].agreementExecutedDocumentId = null
+  })
+
+  it("keeps serving the digest-bound packet", async () => {
+    authMock.mockResolvedValue(officer)
+    const res = await read()
+    expect(res.status).toBe(200)
+    expect(res.headers.get("x-agreement-sha256")).toBe(sha(agreement))
+  })
+})
+
 // "Viewed" is recorded only for a packet that was actually produced, and a
 // packet is never served unrecorded.
 describe("GET signing packet — the access log and the PDF", () => {

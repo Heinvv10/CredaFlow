@@ -119,7 +119,7 @@ function makeStore({ quote = QUOTE, replayedPolicy = null, convertedCount = 1, r
     prisma: {
       insuranceQuote: { findFirst: async () => quote },
       insurancePolicy: {
-        findUnique: async () => replayedPolicy,
+        findUnique: vi.fn(async (_args: { where: Record<string, unknown> }) => replayedPolicy),
         count: async () => 7,
       },
       insuranceEligibilityRule: { findMany: async () => rules },
@@ -216,6 +216,21 @@ describe("bindQuote — the STANDALONE CHECK constraint is satisfied, not sidest
 
     expect(result).toMatchObject({ ok: false, reason: "TOKEN_REPLAYED" })
     expect(store.policyCreates).toHaveLength(0)
+  })
+
+  // InsurancePolicy is a tenant-scope model, and bindQuote takes its tenant
+  // as a parameter rather than from a frame: the replay lookup must name it,
+  // or a caller outside withTenantContext hits missing-context.
+  it("looks the spent token up within the binding tenant", async () => {
+    const store = makeStore()
+    const token = tokenFor()
+    await bindQuote(store.prisma, { ...BASE, draftToken: token })
+    const findUnique = (store.prisma as unknown as { insurancePolicy: { findUnique: ReturnType<typeof vi.fn> } }).insurancePolicy.findUnique
+    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findUnique.mock.calls[0][0].where).toEqual({
+      faisDraftTokenHash: store.policyCreates[0].data.faisDraftTokenHash,
+      tenantId: "tenant-1",
+    })
   })
 
   it("refuses a token that is not signed by this system", async () => {

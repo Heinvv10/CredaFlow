@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateDebitMandatePdf } from "@/lib/pdf/debitMandate"
 import { requireApiRole } from "@/lib/auth-guards"
-import { getDefaultTenantId, withTenantContext } from "@/lib/tenant"
+import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import {
   assertDebitMandateCreditorTenant,
@@ -38,8 +38,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!staff?.active) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const staffTenantId = staff.tenantId ?? await getDefaultTenantId()
-    if (staffTenantId !== tenant.id) {
+    // A staff row with no tenant is refused, never bound to the default tenant.
+    if (!staff.tenantId || staff.tenantId !== tenant.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

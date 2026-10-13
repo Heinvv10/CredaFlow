@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { ClientsPageClient } from "@/components/clients/ClientsPageClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { cashReceivedCents } from "@/lib/payments/waiver"
 
 async function getClients(tenantId: string) {
@@ -26,7 +26,7 @@ async function getClients(tenantId: string) {
 }
 
 export default async function ClientsPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const clients = await getClients(tenantId)
 
   const unread = await prisma.conversation.findMany({

@@ -330,7 +330,7 @@ export async function bindQuote(
 
   const faisDraftTokenHash = hashDraftToken(draftToken)
   const replayed = await prisma.insurancePolicy.findUnique({
-    where: { faisDraftTokenHash },
+    where: { faisDraftTokenHash, tenantId },
     select: { id: true },
   })
   if (replayed) {

@@ -2,11 +2,12 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { formatZAR, formatDate, formatTermDays } from "@/lib/utils"
 import { redirect, notFound } from "next/navigation"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import Link from "next/link"
 import { AlertCircle, CheckCircle, Clock } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
 import type { AppStatus } from "@prisma/client"
+import { portalDecisionLabel } from "@/lib/applications/decision-kind"
 import { PasqAcknowledgementCard } from "@/components/portal/PasqAcknowledgementCard"
 import {
   portalApplicationNextStep,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/portal/application-next-step"
 
 async function getApplicationDetail(id: string, email: string) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({ where: { email, tenantId } })
   if (!client) return null
@@ -72,9 +73,10 @@ function buildTimeline(app: AppDetail): TimelineEvent[] {
     events.push({ label: "PASQ acknowledged", date: app.pasqAcknowledgedAt, done: true })
   }
 
-  if (app.approvedAt) {
+  const decisionLabel = portalDecisionLabel(app)
+  if (app.approvedAt && decisionLabel) {
     events.push({
-      label: app.status === "DECLINED" ? "Application declined" : "Application approved",
+      label: decisionLabel,
       date: app.approvedAt,
       done: true,
     })

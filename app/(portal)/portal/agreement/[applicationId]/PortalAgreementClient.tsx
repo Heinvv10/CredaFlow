@@ -21,6 +21,59 @@ interface Props {
 
 type SignMode = "draw" | "type"
 
+/**
+ * Shown straight after the borrower signs. Only their signature exists at this
+ * point: the executed agreement is minted when the credit provider
+ * countersigns, and the signing packet URL serves the UNSIGNED PASQ and
+ * agreement. So until the executed document exists there is nothing to
+ * download that the borrower signed, and none is offered.
+ */
+export function AgreementSignedPanel({ applicationId, agreementExecutedDocumentId, mandateRequired }: {
+  applicationId: string
+  agreementExecutedDocumentId: string | null
+  mandateRequired: boolean
+}) {
+  return (
+    <div className="max-w-3xl mx-auto px-6 py-12 text-center">
+      <div className="bg-green-50 border border-green-200 rounded-lg p-8">
+        <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
+        <p className="text-2xl font-bold text-green-800 mb-2">Agreement signed</p>
+        <p className="text-green-700">
+          {mandateRequired
+            ? "One step remains: confirm your repayment account and sign the debit mandate."
+            : "Your repayments are set to EFT. No debit mandate is required."}
+        </p>
+        <div className="mt-6 flex justify-center gap-4 text-sm">
+          {agreementExecutedDocumentId ? (
+            <a
+              href={`/api/documents/${agreementExecutedDocumentId}/view?download=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-green-700 underline hover:text-green-900"
+            >
+              Download signed agreement
+            </a>
+          ) : (
+            <p className="text-green-700">
+              Your signed copy will be available to download once we countersign your agreement.
+            </p>
+          )}
+          <a
+            href={
+              mandateRequired
+                ? `/portal/mandate/${applicationId}`
+                : `/portal/applications/${applicationId}`
+            }
+            className="font-semibold text-green-900 underline"
+          >
+            {mandateRequired ? "Set up repayment" : "View application"}
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function PortalAgreementClient({ applicationId, reference, clientName, agreementDocumentSha256, agreementExecutedDocumentId, pasqDocumentSha256, repaymentMethod }: Props) {
   const [checks, setChecks] = useState([false, false, false, false, false])
   const [signing, setSigning] = useState(false)
@@ -143,44 +196,11 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
 
   if (signed) {
     return (
-      <div className="max-w-3xl mx-auto px-6 py-12 text-center">
-        <div className="bg-green-50 border border-green-200 rounded-lg p-8">
-          <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-          <p className="text-2xl font-bold text-green-800 mb-2">Agreement signed</p>
-          <p className="text-green-700">
-            {mandateRequired
-              ? "One step remains: confirm your repayment account and sign the debit mandate."
-              : "Your repayments are set to EFT. No debit mandate is required."}
-          </p>
-          <div className="mt-6 flex justify-center gap-4 text-sm">
-            <a
-              href={
-                agreementExecutedDocumentId
-                  ? `/api/documents/${agreementExecutedDocumentId}/view?download=1`
-                  : `/api/applications/${applicationId}/signing-packet`
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-green-700 underline hover:text-green-900"
-            >
-              {/* Only call it "signed" when the signed artifact is what it
-                  serves. Until countersignature the packet still shows blank
-                  signature rules, and the label was asserting otherwise. */}
-              {agreementExecutedDocumentId ? "Download signed agreement" : "Download agreement"}
-            </a>
-            <a
-              href={
-                mandateRequired
-                  ? `/portal/mandate/${applicationId}`
-                  : `/portal/applications/${applicationId}`
-              }
-              className="font-semibold text-green-900 underline"
-            >
-              {mandateRequired ? "Set up repayment" : "View application"}
-            </a>
-          </div>
-        </div>
-      </div>
+      <AgreementSignedPanel
+        applicationId={applicationId}
+        agreementExecutedDocumentId={agreementExecutedDocumentId}
+        mandateRequired={mandateRequired}
+      />
     )
   }
 
