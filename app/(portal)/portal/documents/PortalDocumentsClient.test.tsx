@@ -219,6 +219,8 @@ describe("PortalDocumentsClient KYC status consistency", () => {
     const selfieRow = html.slice(html.indexOf("Selfie verification"), html.indexOf("Upload another document"))
     expect(selfieRow).not.toContain("Action needed")
     expect(selfieRow).toContain("Pending review")
+    // Nothing is running: staff have the next step, so no spinner anywhere.
+    expect(html).not.toContain("animate-spin")
   })
 
   it("renders a senior exception as accepted but explicitly not biometric success", () => {
