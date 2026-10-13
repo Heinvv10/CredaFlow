@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -253,7 +253,10 @@ describe("failed migration recovery does not poison later backups", () => {
   it("the snapshot session runs the same unfinished-migration predicate restore uses", () => {
     const r = sh("backup.sh", [lender])
     expect(r.status).toBe(0)
-    expect(r.calls.join("\n")).toContain("MIG_UNFINISHED_WHERE=finished_at IS NULL AND rolled_back_at IS NULL")
+    const all = r.calls.join("\n")
+    expect(all).toContain("MIG_UNFINISHED_WHERE=finished_at IS NULL AND rolled_back_at IS NULL")
+    // ...and the in-container script uses that variable, not a predicate of its own
+    expect(all).toMatch(/FROM _prisma_migrations WHERE %s;\s*" "\$MIG_UNFINISHED_WHERE" >&3/) // (the stub's echo expands the \n)
   })
 
   it("deploy after a failed-then-resolved migration: its pre-migration backup is taken and restorable", () => {
@@ -299,6 +302,8 @@ describe("locks", () => {
     symlinkSync(lender, link)
     const r = sh("backup.sh", [link], { LENDER_LOCK_WAIT: "3" })
     expect(r.status, r.out).toBe(0)
+    // every compose call names the CANONICAL directory (that is what the container's working_dir label records)
+    expect(r.calls.filter((c) => c.startsWith("compose -p ")).every((c) => c.includes(`--project-directory ${realpathSync(lender)} `))).toBe(true)
     // and the two spellings exclude each other
     return holdThen(async () => {
       const blocked = sh("backup.sh", [link], { LENDER_LOCK_WAIT: "1" })

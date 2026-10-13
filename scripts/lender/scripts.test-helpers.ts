@@ -101,5 +101,9 @@ beforeEach(() => {
   writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"s".repeat(40)}\nPORTAL_AUTH_SECRET=${"p".repeat(40)}\n`)
   writeFileSync(join(lender, "docker-compose.yml"), "services: {}\n")
 })
-afterEach(() => rmSync(root, { recursive: true, force: true }))
+afterEach(() => {
+  // each test's throwaway GNUPGHOME gets its own gpg-agent daemon: stop it with the directory
+  spawnSync("gpgconf", ["--homedir", join(root, "gnupg"), "--kill", "gpg-agent"])
+  rmSync(root, { recursive: true, force: true })
+})
 

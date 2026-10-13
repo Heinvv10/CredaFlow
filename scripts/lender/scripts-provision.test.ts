@@ -88,6 +88,9 @@ describe("provision-lender.sh", () => {
     expect(r.status, r.out).toBe(0)
     expect(existsSync(join(real, "new-lender/state/lender.lock"))).toBe(true)
     expect(provision(join(root, "via-link", "new-lender"), [], { LENDER_LOCK_WAIT: "5" }).status).toBe(0) // rerun through the link too
+    // a container of this project records the CANONICAL directory; a rerun through the symlink must still recognise it as ours
+    const rerun = provision(join(root, "via-link", "new-lender"), [], { LENDER_LOCK_WAIT: "5", STUB_PROJECT_DIR: join(real, "new-lender") })
+    expect(rerun.status, rerun.out).toBe(0)
   })
 
   it("refuses the same host port for staff and portal", () => {

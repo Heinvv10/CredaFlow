@@ -37,8 +37,12 @@ pass="$LENDER_DIR/secrets/backup.passphrase"
 
 umask 077
 mkdir -p "$LENDER_DIR/backups"
-out="$LENDER_DIR/backups/$SLUG-$(utc_stamp)${label:+-$label}.dump.gpg"
-[ ! -e "$out" ] || die "$out already exists (one backup per second per label)"
+# One file per second per label: if this second's name is taken (a deploy retried at once), use the next free second's stamp.
+for n in 0 1 2 3 4 5; do
+  out="$LENDER_DIR/backups/$SLUG-$(date -u -d "now + $n seconds" +%Y%m%dT%H%M%SZ)${label:+-$label}.dump.gpg"
+  [ ! -e "$out" ] && break
+done
+[ ! -e "$out" ] || die "$out already exists"
 
 trap 'rm -f "$out.partial" "$out.counts.partial"' EXIT
 
