@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect, notFound } from "next/navigation"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { computeQualification } from "@/lib/qualify"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
@@ -38,7 +38,7 @@ export default async function PortalApplyProductPage({
     redirect("/portal/login")
   }
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
   const identity = await getLenderIdentity(tenantId)
 
   const [client, product, creditLifeProduct] = await Promise.all([
