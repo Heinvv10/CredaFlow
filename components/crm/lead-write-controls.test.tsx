@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
+import type { ComponentProps } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
@@ -58,7 +59,7 @@ const lead = {
 
 // READONLY → both flags false; CREDIT_OFFICER → both true (the page derives
 // each from its own CREDIT_OFFICER bar).
-function detail(canWriteActivity: boolean, leadOverrides: Partial<typeof lead> = {}) {
+function detail(canWriteActivity: boolean, leadOverrides: Partial<ComponentProps<typeof LeadDetailClient>["lead"]> = {}) {
   return renderToStaticMarkup(
     <LeadDetailClient
       lead={{ ...lead, ...leadOverrides }}
@@ -143,6 +144,21 @@ describe("lead detail — write controls follow the role", () => {
   it("CREDIT_OFFICER is offered Reset & Retry Conversion on a stranded lead", () => {
     const html = detail(true, { status: "CONVERTED" })
     expect(html).toContain("Reset &amp; Retry Conversion")
+  })
+
+  // The repair view is the convert page; its write is the convert route.
+  const incomplete = { status: "CONVERTED", convertedToClientId: "client-1", conversionRecoveryRequired: true }
+
+  it("READONLY sees an incomplete conversion explained but no Open repair view link", () => {
+    const html = detail(false, incomplete)
+    expect(html).toContain("Conversion evidence is incomplete")
+    expect(html).not.toContain("Open repair view")
+  })
+
+  it("CREDIT_OFFICER gets the Open repair view link", () => {
+    const html = detail(true, incomplete)
+    expect(html).toContain("Open repair view")
+    expect(html).toContain('href="/crm/leads/lead-1/convert"')
   })
 })
 

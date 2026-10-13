@@ -85,6 +85,10 @@ export function LeadKanban({ initialLeads, canWriteActivity }: { initialLeads: L
   )
 
   const handleDrop = async (leadId: string, newStatus: string) => {
+    // Every move is a write that requires CREDIT_OFFICER (the PATCH, lost and
+    // convert routes): below it a drop does nothing, rather than moving the
+    // card and snapping it back on the 403.
+    if (!canWriteActivity) return
     const lead = leads.find((item) => item.id === leadId)
     if (!lead || lead.status === newStatus) return
 
@@ -94,9 +98,7 @@ export function LeadKanban({ initialLeads, canWriteActivity }: { initialLeads: L
     }
 
     if (newStatus === "LOST") {
-      // The lost route requires CREDIT_OFFICER: below it, no modal to fill in
-      // only to be refused.
-      if (canWriteActivity) setLostModalLeadId(leadId)
+      setLostModalLeadId(leadId)
       return
     }
 
@@ -257,7 +259,7 @@ export function LeadKanban({ initialLeads, canWriteActivity }: { initialLeads: L
               leads={filteredLeads.filter((lead) => pipelineStatus(lead) === col.status)}
               onDrop={handleDrop}
               onOpen={openModal}
-              onCallback={setCallbackLeadId}
+              onCallback={canWriteActivity ? setCallbackLeadId : undefined}
             />
           ))}
         </div>

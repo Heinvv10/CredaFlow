@@ -75,7 +75,7 @@ describe("getPortalTenantId", () => {
   // loop. The stale-session route clears the cookie first.
   it("client session without a tenant → the stale-session route, not the default tenant", async () => {
     mockGetSession.mockResolvedValue(session({ role: "CLIENT", tenantId: null }))
-    await expect(getPortalTenantId()).rejects.toThrow("REDIRECT:/api/auth/expired")
+    await expect(getPortalTenantId()).rejects.toThrow(`REDIRECT:/api/auth/expired?callbackUrl=${encodeURIComponent("/portal")}`)
     expect(mockGetDefaultTenantId).not.toHaveBeenCalled()
   })
 

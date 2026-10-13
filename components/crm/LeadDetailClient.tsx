@@ -440,9 +440,9 @@ export function LeadDetailClient({
               {incompleteConversion && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Conversion evidence is incomplete. The exact client/application link must be repaired before this lead can progress.{" "}
-                  <Link href={`/crm/leads/${lead.id}/convert`} className="font-semibold underline">
+                  {canConvert && <Link href={`/crm/leads/${lead.id}/convert`} className="font-semibold underline">
                     Open repair view
-                  </Link>
+                  </Link>}
                 </div>
               )}
               {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (

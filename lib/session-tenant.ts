@@ -30,14 +30,15 @@ export async function getStaffTenantId(): Promise<string> {
 /**
  * Client-portal pages under app/(portal). Mirrors the portal layout: no
  * session → /portal/login; staff → /dashboard. A CLIENT session without a
- * tenant goes to the stale-session route, which clears the cookie: /portal/login
- * would send a signed-in client straight back to /portal, a redirect loop.
+ * tenant goes to the stale-session route, which clears the cookie and then
+ * shows the portal sign-in form: /portal/login straight away would send a
+ * signed-in client back to /portal, a redirect loop.
  */
 export async function getPortalTenantId(): Promise<string> {
   const session = await getSession()
   if (!session?.user) redirect("/portal/login")
   if (session.user.role !== "CLIENT") redirect("/dashboard")
   const tenantId = session.user.tenantId
-  if (!tenantId) redirectStaleSession()
+  if (!tenantId) redirectStaleSession("/portal")
   return tenantId
 }

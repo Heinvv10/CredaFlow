@@ -33,7 +33,13 @@ export function GET(req: NextRequest): NextResponse {
   // from it would send the browser to an unreachable host (nginx does not
   // rewrite a Location that doesn't match its proxy_pass target). A relative
   // path is resolved by the browser against the public origin instead.
-  const location = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+  //
+  // A portal destination goes to the portal's own sign-in form: a client sent
+  // to the staff /login cannot sign in there. With the cookie cleared below,
+  // /portal/login renders its form rather than bouncing back to /portal.
+  const isPortal = callbackUrl === "/portal" || callbackUrl.startsWith("/portal/")
+  const loginPath = isPortal ? "/portal/login" : "/login"
+  const location = `${loginPath}?callbackUrl=${encodeURIComponent(callbackUrl)}`
   const res = new NextResponse(null, { status: 307, headers: { Location: location } })
 
   // Derive the configured cookie name (e.g. `__Secure-authjs.session-token` on

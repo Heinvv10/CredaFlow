@@ -50,4 +50,22 @@ describe("GET /api/auth/expired (stale-session loop-breaker)", () => {
     const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent("https://evil.example.com/phish")}`)
     expect(location(res).url.searchParams.get("callbackUrl")).toBe("/dashboard")
   })
+
+  // A client cannot sign in on the staff form. The cookie is cleared in the
+  // same response, so /portal/login renders its form instead of sending the
+  // client back to /portal (app/portal/login/page.test.tsx: no session → form).
+  it.each(["/portal", "/portal/loans/123"])("sends a portal destination (%s) to /portal/login, cookie cleared", (dest) => {
+    const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent(dest)}`)
+    expect(res.status).toBe(307)
+    const { raw, url } = location(res)
+    expect(raw.startsWith("/portal/login")).toBe(true)
+    expect(url.pathname).toBe("/portal/login")
+    expect(url.searchParams.get("callbackUrl")).toBe(dest)
+    expect(res.cookies.get(COOKIE)?.maxAge).toBe(0)
+  })
+
+  it("does not treat a path that merely starts with the letters 'portal' as the portal", () => {
+    const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent("/portalx")}`)
+    expect(location(res).url.pathname).toBe("/login")
+  })
 })
