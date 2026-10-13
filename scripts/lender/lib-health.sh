@@ -112,6 +112,14 @@ check_ports_free() {
   done
 }
 
+# What "an unfinished migration" means, once, for backup and restore. Prisma leaves
+# `finished_at` NULL on a migration that failed, and `migrate resolve --rolled-back`
+# does NOT set it: it sets `rolled_back_at` and the row stays, finished_at NULL, for
+# good. So a resolved failure must not count as unfinished, or every backup taken
+# after the documented recovery would be refused by restore.sh forever.
+MIG_UNFINISHED_WHERE="finished_at IS NULL AND rolled_back_at IS NULL"
+MIG_STATE_SQL="SELECT count(*) FILTER (WHERE $MIG_UNFINISHED_WHERE) || ' ' || count(*) FROM _prisma_migrations"
+
 # count_drift SIDECAR RESTORED — one line per table whose row count differs
 # between the backup's sidecar and the restored text ("Table: backup=N restored=M");
 # status 1 when any does.
@@ -152,9 +160,13 @@ echo "SELECT 'snap='||pg_export_snapshot();" >&3
 wait_for '^snap='
 snap="$(sed -n 's/^snap=//p' "$d/out" | head -n 1)"
 printf '%s;\n' "$COUNTS_SQL" >&3
+# The migration table check runs in the dump's own snapshot too: a backup restore.sh
+# would reject is refused here, at backup time, not discovered at restore time.
+printf "SELECT 'mig_unfinished='||coalesce(string_agg(migration_name, ','), '') FROM _prisma_migrations WHERE %s;\n" "$MIG_UNFINISHED_WHERE" >&3
 echo "SELECT '--end--';" >&3
 wait_for '^--end--$'
-grep -v -e '^snap=' -e '^--end--$' "$d/out" > "$COUNTS_FILE"
+grep -e '^mig_unfinished=' "$d/out" > "$COUNTS_FILE.mig"
+grep -v -e '^snap=' -e '^--end--$' -e '^mig_unfinished=' "$d/out" > "$COUNTS_FILE"
 pg_dump -Fc --no-owner --snapshot="$snap" -U "$U" -d "$DB"
 echo "COMMIT;" >&3
 exec 3>&-

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -78,6 +78,16 @@ describe("provision-lender.sh", () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/inside the git checkout/)
     expect(existsSync(join(repo, "lender-here"))).toBe(false)
+  })
+
+  it("provisions into a path that goes through a symlink without deadlocking on its own lock", () => {
+    const real = join(root, "real-parent")
+    mkdirSync(real)
+    symlinkSync(real, join(root, "via-link"))
+    const r = provision(join(root, "via-link", "new-lender"), [], { LENDER_LOCK_WAIT: "5" })
+    expect(r.status, r.out).toBe(0)
+    expect(existsSync(join(real, "new-lender/state/lender.lock"))).toBe(true)
+    expect(provision(join(root, "via-link", "new-lender"), [], { LENDER_LOCK_WAIT: "5" }).status).toBe(0) // rerun through the link too
   })
 
   it("refuses the same host port for staff and portal", () => {

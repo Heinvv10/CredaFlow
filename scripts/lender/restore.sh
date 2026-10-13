@@ -68,7 +68,7 @@ psql_db postgres "CREATE DATABASE \"$scratch\"" >/dev/null
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$file" \
   | lcompose exec -T db pg_restore --no-owner --exit-on-error -U "$PGUSER" -d "$scratch" || fail "pg_restore failed; scratch database dropped"
 
-mig="$(psql_db "$scratch" "SELECT count(*) FILTER (WHERE finished_at IS NULL) || ' ' || count(*) FROM _prisma_migrations")" \
+mig="$(psql_db "$scratch" "$MIG_STATE_SQL")" \
   || fail "could not read _prisma_migrations in the restored database; scratch database dropped"
 read -r unfinished total <<<"$mig"
 [ "${total:-0}" -gt 0 ] && [ "${unfinished:-1}" -eq 0 ] || fail "migration table check failed (total=${total:-?} unfinished=${unfinished:-?}); scratch database dropped"
@@ -87,13 +87,14 @@ if [ -f "$file.counts" ]; then
   fi
 else
   note "WARNING: no $file.counts sidecar; counts not compared (migrations: $total applied, 0 unfinished)"
+  drift="no sidecar: row counts were not compared"
 fi
 if [ -n "$drift" ] && $over_live && ! $accept_drift; then
-  fail "refusing --over-live: the restored counts differ from the backup's (tables above). If that is expected, rerun with --accept-count-drift; scratch database dropped"
+  fail "refusing --over-live: the row counts could not be confirmed ($(head -n1 <<<"$drift")). If that is expected, rerun with --accept-count-drift; scratch database dropped"
 fi
 
 if ! $over_live; then
-  verdict="VERIFIED"; [ -z "$drift" ] || verdict="VERIFIED WITH WARNINGS (count drift above)"
+  verdict="VERIFIED"; [ -z "$drift" ] || verdict="VERIFIED WITH WARNINGS (counts not confirmed, see above)"
   if $drop; then drop_scratch; note "$verdict; scratch database $scratch dropped"
   else keep_scratch=true; note "$verdict; scratch database $scratch left for inspection (drop it with DROP DATABASE \"$scratch\", or pass --drop-scratch next time)"; fi
   exit 0

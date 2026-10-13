@@ -7,8 +7,10 @@ import { afterEach, beforeEach, vi } from "vitest"
 // Fixture for the lender shell-script tests (scripts.test.ts, scripts-provision.test.ts).
 // docker, curl and sleep are shell stubs on PATH that answer what the scripts ask and log
 // every call; gpg and flock are real. The scripts are copied into a throwaway git repo so
-// their REPO_ROOT (the checkout they build from) is under test control. The real Docker run
-// is the proof in docs/DEPLOY.md; these tests pin the ORDER and the GUARDS.
+// their REPO_ROOT (the checkout they build from) is under test control. These tests pin the ORDER and the
+// GUARDS against stubs; scripts-rendered.test.ts runs real compose, and the real-docker
+// behaviour is exercised by hand per change (build-context.integration.test.ts is the
+// opt-in real-build test).
 // The scripts shell out to gpg, flock and real sleeps; a loaded build host needs more than the default 5 s.
 vi.setConfig({ testTimeout: 60_000 })
 // Importing this module registers the beforeEach/afterEach that rebuild the fixture.
@@ -44,6 +46,7 @@ case "$*" in
   "build "*) for last in "$@"; do :; done; { echo "ARGS: $*"; find "$last" -type f | sed "s|^$last/||" | sort; } >> "$STUB_LOG.build" ;;
   *"up -d --no-deps"*) if grep -qE "bad|upfail" "$STUB_LENDER/state/image.env" 2>/dev/null; then exit 1; fi ;;
   *"pg_dump"*) printf 'PGDMP-stub-%s' "$$" ;;
+  *'.mig"'*) printf '%s' "mig_unfinished=$STUB_MIG_UNFINISHED" ;;
   *"lender-counts"*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
   *"pg_restore --list"*) d="$(cat)"; case "$d" in PGDMP*) ;; *) exit 1 ;; esac ;;
   *"pg_restore"*) cat > /dev/null ;;
@@ -69,7 +72,7 @@ export function sh(cmd: string, args: string[], env: Record<string, string> = {}
   writeFileSync(join(root, "stub.env"), Object.entries(stubEnv).filter(([k]) => k.startsWith("STUB_")).map(([k, v]) => `export ${k}='${v}'`).join("\n"))
   const r = spawnSync("bash", [join(repo, "scripts/lender", cmd), ...args], {
     env: {
-      NODE_ENV: "test", PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, HOME: root, GNUPGHOME: join(root, "gnupg"),
+      NODE_ENV: "test", PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, HOME: root, GNUPGHOME: join(root, "gnupg"), XDG_RUNTIME_DIR: join(root, "run"),
       STUB_LOG: log, STUB_LENDER: lender, STUB_COMMIT_NEW: "newsha", STUB_COMMIT_OLD: "oldsha",
       STUB_HAS_MIGRATIONS: "t", STUB_MIGRATE_RC: "0", ...env,
     },
@@ -85,7 +88,7 @@ export const idx = (calls: string[], needle: string) => calls.findIndex((c) => c
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "lender-sh-"))
   repo = join(root, "repo"); lender = join(root, "lender"); log = join(root, "docker.log")
-  mkdirSync(join(repo, "scripts"), { recursive: true }); mkdirSync(join(root, "bin")); mkdirSync(join(root, "gnupg"), { mode: 0o700 })
+  mkdirSync(join(repo, "scripts"), { recursive: true }); mkdirSync(join(root, "bin")); mkdirSync(join(root, "gnupg"), { mode: 0o700 }); mkdirSync(join(root, "run"), { mode: 0o700 })
   cpSync(SRC, join(repo, "scripts/lender"), { recursive: true, filter: (s) => !s.endsWith(".test.ts") })
   writeFileSync(log, "")
   for (const [n, body] of [["docker", DOCKER], ["curl", CURL], ["sleep", "#!/bin/sh\nexit 0\n"]]) {

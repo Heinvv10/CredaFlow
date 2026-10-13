@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -232,3 +232,116 @@ describe("one lock per lender", () => {
     expect(idx(readFileSync(join(root, "docker.log"), "utf8").split("\n"), "pg_dump")).toBeGreaterThan(-1)
   })
 })
+
+describe("failed migration recovery does not poison later backups", () => {
+  it("restore counts a migration resolved with --rolled-back as finished (rolled_back_at set, finished_at NULL)", () => {
+    const f = backup()
+    const r = sh("restore.sh", [lender, f])
+    expect(r.status).toBe(0)
+    const q = r.calls.find((c) => c.includes("FROM _prisma_migrations") && c.includes("FILTER"))!
+    expect(q).toContain("finished_at IS NULL AND rolled_back_at IS NULL")
+  })
+
+  it("backup refuses a dump taken while a migration is unfinished, names it, and keeps nothing", () => {
+    const r = sh("backup.sh", [lender], { STUB_MIG_UNFINISHED: "20261012090000_loan_product_amount_bounds" })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toContain("20261012090000_loan_product_amount_bounds")
+    expect(r.out).toMatch(/restore\.sh would reject it/)
+    expect(readdirSync(join(lender, "backups"))).toEqual([])
+  })
+
+  it("the snapshot session runs the same unfinished-migration predicate restore uses", () => {
+    const r = sh("backup.sh", [lender])
+    expect(r.status).toBe(0)
+    expect(r.calls.join("\n")).toContain("MIG_UNFINISHED_WHERE=finished_at IS NULL AND rolled_back_at IS NULL")
+  })
+
+  it("deploy after a failed-then-resolved migration: its pre-migration backup is taken and restorable", () => {
+    // the exact sequence at script level: migrate fails (deploy stops, app not switched) ...
+    const failed = sh("deploy.sh", [lender, "cf:new"], { STUB_MIGRATE_RC: "1" })
+    expect(failed.status).not.toBe(0)
+    expect(failed.out).toMatch(/A failed migration/)
+    // ... prisma.sh migrate resolve --rolled-back ...
+    writeFileSync(join(lender, "state/current-image"), "cf:old\n")
+    expect(sh("prisma.sh", [lender, "migrate", "resolve", "--rolled-back", "20261012090000_loan_product_amount_bounds"]).status).toBe(0)
+    // ... redeploy, then a backup, then a restore of it
+    expect(sh("deploy.sh", [lender, "cf:new"]).status).toBe(0)
+    const f = backup()
+    expect(sh("restore.sh", [lender, f]).status).toBe(0)
+  })
+})
+
+describe("restore --over-live without a counts sidecar", () => {
+  it("needs --accept-count-drift, like any other unconfirmed counts", () => {
+    const f = backup()
+    rmSync(`${f}.counts`)
+    const refused = sh("restore.sh", [lender, f, "--over-live", "--confirm", "stub-lender"])
+    expect(refused.status).not.toBe(0)
+    expect(refused.out).toMatch(/no sidecar/)
+    expect(refused.out).toMatch(/--accept-count-drift/)
+    expect(refused.calls.some((c) => c.includes("stop app") || c.includes("ALTER DATABASE"))).toBe(false)
+    const accepted = sh("restore.sh", [lender, f, "--over-live", "--confirm", "stub-lender", "--accept-count-drift"])
+    expect(accepted.status).toBe(0)
+  })
+
+  it("a scratch restore without a sidecar still verifies, with a warning", () => {
+    const f = backup()
+    rmSync(`${f}.counts`)
+    const r = sh("restore.sh", [lender, f])
+    expect(r.status).toBe(0)
+    expect(r.out).toMatch(/VERIFIED WITH WARNINGS/)
+  })
+})
+
+describe("locks", () => {
+  it("a lender dir reached through a symlink and its target are one lock: provision does not deadlock on itself", () => {
+    const link = join(root, "link-to-lender")
+    symlinkSync(lender, link)
+    const r = sh("backup.sh", [link], { LENDER_LOCK_WAIT: "3" })
+    expect(r.status, r.out).toBe(0)
+    // and the two spellings exclude each other
+    return holdThen(async () => {
+      const blocked = sh("backup.sh", [link], { LENDER_LOCK_WAIT: "1" })
+      expect(blocked.status).not.toBe(0)
+      expect(blocked.out).toMatch(/holds .*lender\.lock/)
+    })
+  })
+
+  it("LENDER_LOCK_HELD in the environment is not a pass: only the real inherited descriptor is", async () => {
+    await holdThen(async () => {
+      const r = sh("backup.sh", [lender], { LENDER_LOCK_WAIT: "1", LENDER_LOCK_HELD: lender })
+      expect(r.status).not.toBe(0)
+      expect(r.out).toMatch(/holds .*lender\.lock/)
+    })
+  })
+
+  it("two lender dirs that would use the same compose project exclude each other (host-wide project lock)", async () => {
+    const other = join(root, "other-dir")
+    mkdirSync(join(other, "state"), { recursive: true })
+    for (const f of [".env", "secrets/auth.env", "secrets/backup.passphrase"]) {
+      mkdirSync(join(other, f, ".."), { recursive: true })
+      writeFileSync(join(other, f), readFileSync(join(lender, f)))
+    }
+    const base = join(root, "run", `credaflow-lender-locks-${process.getuid?.()}`)
+    mkdirSync(base, { recursive: true, mode: 0o700 })
+    const child = spawn("flock", ["-x", join(base, "credaflow-lender-stub-lender.lock"), "sleep", "4"], { stdio: "ignore" })
+    await new Promise((r) => setTimeout(r, 400))
+    try {
+      const r = sh("backup.sh", [other], { LENDER_LOCK_WAIT: "1" })
+      expect(r.status).not.toBe(0)
+      expect(r.out).toMatch(/compose project 'credaflow-lender-stub-lender' holds/)
+    } finally {
+      await new Promise((r) => child.on("exit", r))
+    }
+  })
+})
+
+async function holdThen(fn: () => Promise<void>) {
+  const child = spawn("flock", ["-x", join(lender, "state/lender.lock"), "sleep", "4"], { stdio: "ignore" })
+  await new Promise((r) => setTimeout(r, 400))
+  try {
+    await fn()
+  } finally {
+    await new Promise((r) => child.on("exit", r))
+  }
+}

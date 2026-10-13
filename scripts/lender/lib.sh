@@ -40,7 +40,7 @@ env_set() {
 load_lender() {
   [ -n "${1:-}" ] || die "usage: ${0##*/} <lender-dir> …"
   [ -d "$1" ] || die "lender dir $1 does not exist (run provision-lender.sh first)"
-  LENDER_DIR="$(cd "$1" && pwd)"
+  LENDER_DIR="$(cd "$1" && pwd -P)"
   ENV_FILE="$LENDER_DIR/.env"
   STATE_DIR="$LENDER_DIR/state"
   [ -f "$ENV_FILE" ] || die "$ENV_FILE missing (run provision-lender.sh first)"
@@ -87,16 +87,45 @@ check_project_free() {
   done
 }
 
+# lock_fd FD FILE WAIT — take an exclusive flock on FILE through descriptor FD.
+# If FD already refers to FILE (the same device and inode) it is REUSED, never
+# reopened: a child of a script that holds the lock inherits that very open file
+# description, and flock on it is an immediate no-op, so deploy's own backup child
+# does not wait on its parent. Nothing in the environment is trusted for this: a
+# caller that merely claims to hold the lock either shares the real descriptor
+# (and so does hold it) or opens its own and waits like everyone else.
+lock_fd() {
+  local fd="$1" file="$2" want have
+  [ -e "$file" ] || (umask 077; : > "$file")
+  want="$(stat -Lc '%d:%i' "$file")"
+  have="$(stat -Lc '%d:%i' "/proc/self/fd/$fd" 2>/dev/null || true)"
+  [ "$want" = "$have" ] || eval "exec $fd>>\"\$file\""
+  flock -w "${LENDER_LOCK_WAIT:-600}" "$fd" || return 1
+}
+
+# acquire_project_lock PROJECT — a HOST-WIDE lock per compose project, in the
+# user's runtime dir (else a 0700 per-user dir in /tmp), keyed by the project name:
+# two lender directories (or a symlink and its target) that would use the same
+# project serialise here, so the "is the project free?" check and the `up` that
+# claims it cannot interleave. Held to the end of the script.
+acquire_project_lock() {
+  local base="${XDG_RUNTIME_DIR:-/tmp}/credaflow-lender-locks-$(id -u)"
+  mkdir -p -m 700 "$base"
+  [ "$(stat -c %u "$base")" = "$(id -u)" ] && [ ! -L "$base" ] || die "lock directory $base is not ours"
+  lock_fd 8 "$base/$1.lock" || die "another provision, deploy or restore of compose project '$1' holds $base/$1.lock"
+}
+
 # acquire_lender_lock DIR — ONE lock per lender, shared by provision, deploy,
-# backup and restore (which call each other: the holder exports
-# LENDER_LOCK_HELD so its children do not wait on their own parent). Waits up to
+# backup and restore (which call each other). Takes the project lock first, always
+# in that order, then the lender's own state/lender.lock. Waits up to
 # LENDER_LOCK_WAIT seconds (default 600) so a nightly backup rides out a deploy.
+# DIR is canonicalised (pwd -P), so a symlinked path and its target are one lock.
 acquire_lender_lock() {
-  [ "${LENDER_LOCK_HELD:-}" != "$1" ] || return 0
-  mkdir -p "$1/state"
-  exec 9>"$1/state/lender.lock"
-  flock -w "${LENDER_LOCK_WAIT:-600}" 9 || die "another provision, deploy, backup or restore of this lender holds $1/state/lender.lock"
-  export LENDER_LOCK_HELD="$1"
+  local dir
+  dir="$(cd "$1" 2>/dev/null && pwd -P)" || { mkdir -p "$1" && dir="$(cd "$1" && pwd -P)"; }
+  acquire_project_lock "${PROJECT:?}"
+  mkdir -p "$dir/state"
+  lock_fd 9 "$dir/state/lender.lock" || die "another provision, deploy, backup or restore of this lender holds $dir/state/lender.lock"
 }
 
 # lcompose ARGS… — compose on this lender's project only. -p/-f/--project-directory

@@ -45,11 +45,14 @@ trap 'rm -f "$out.partial" "$out.counts.partial"' EXIT
 # The dump and the row counts come from ONE exported snapshot (lib.sh,
 # SNAPSHOT_DUMP_SH), so the sidecar matches the dump exactly even under writes.
 counts_file="/tmp/lender-counts-$$-$RANDOM"
-lcompose exec -T -e "U=$PGUSER" -e "DB=$PGDB" -e "COUNTS_SQL=$COUNTS_SQL" -e "COUNTS_FILE=$counts_file" db sh -c "$SNAPSHOT_DUMP_SH" \
+lcompose exec -T -e "U=$PGUSER" -e "DB=$PGDB" -e "COUNTS_SQL=$COUNTS_SQL" -e "COUNTS_FILE=$counts_file" -e "MIG_UNFINISHED_WHERE=$MIG_UNFINISHED_WHERE" db sh -c "$SNAPSHOT_DUMP_SH" \
   | gpg --batch --yes --quiet --pinentry-mode loopback --symmetric --cipher-algo AES256 --passphrase-file "$pass" -o "$out.partial"
 [ -s "$out.partial" ] || die "backup is empty"
 lcompose exec -T db sh -c 'cat "$1"; rm -f "$1"' sh "$counts_file" > "$out.counts.partial"
 [ -s "$out.counts.partial" ] || die "no row counts came back from the snapshot session"
+unfinished="$(lcompose exec -T db sh -c 'cat "$1.mig"; rm -f "$1.mig"' sh "$counts_file")"
+[[ "$unfinished" == mig_unfinished=* ]] || die "the snapshot session did not report the migration table state"
+[ -z "${unfinished#mig_unfinished=}" ] || die "refusing to keep this backup: migration(s) ${unfinished#mig_unfinished=} are unfinished (failed, not resolved), so restore.sh would reject it. Resolve them first (docs/DEPLOY.md, 'A failed migration'); a backup taken BEFORE the failed migration is the one to restore."
 
 # The dump must be readable end to end before it counts as a backup.
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$out.partial" \
