@@ -27,7 +27,7 @@ import { generateTotpCode } from "../../../lib/totp"
 import { demoLender } from "../../../prisma/demo-lender"
 import { ensureStaffSessions, type OriginationContext } from "../scenarios/context"
 import { SimClient } from "../sim/api"
-import { appNow } from "../sim/clock"
+import { appNow, waitForNextTotpStep } from "../sim/clock"
 import type { StaffCredentials } from "../sim/credentials"
 import { SIM_CREDENTIALS_FILE, log } from "../sim/env"
 
@@ -80,6 +80,7 @@ async function ensureLoanAdmin(ctx: OriginationContext): Promise<StaffCredential
   if (!enrol?.secret) throw new Error("GET /api/settings/totp returned no secret")
   const code = generateTotpCode(enrol.secret, (await appNow()).getTime())
   await first.post("/api/settings/totp", { secret: enrol.secret, code })
+  await waitForNextTotpStep() // the enrolment code is spent; the next sign-in needs the next step's
 
   const stored: StoredStaff = { userId, email: LOAN_ADMIN_EMAIL, password, totpSecret: enrol.secret }
   writeFileSync(STAFF_FILE, JSON.stringify(stored, null, 2), { mode: 0o600 })

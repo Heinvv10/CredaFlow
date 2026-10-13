@@ -23,9 +23,9 @@ const superId = `user_demo_totp_super_${token}`
 
 class Rollback extends Error {}
 
-function staffTotpOffSql(): string {
+function libSql(name: "STAFF_TOTP_OFF_SQL" | "TENANT_TOTP_POLICY_OFF_SQL"): string {
   const lib = join(__dirname, "lib.sh")
-  const r = spawnSync("bash", ["-c", '. "$0"; printf %s "$STAFF_TOTP_OFF_SQL"', lib], { encoding: "utf8" })
+  const r = spawnSync("bash", ["-c", `. "$0"; printf %s "$${name}"`, lib], { encoding: "utf8" })
   if (r.status !== 0) throw new Error(`lib.sh: ${r.stderr}`)
   return r.stdout
 }
@@ -57,7 +57,7 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
   })
 
   it("clears TOTP for staff, keeps it for SUPER_ADMIN, and reports the count", async () => {
-    const sql = staffTotpOffSql()
+    const sql = libSql("STAFF_TOTP_OFF_SQL")
     let seen: { id: string; totpEnabled: boolean; totpSecret: string | null; lastTotpCounter: number | null }[] = []
     let count = 0
     await expect(
@@ -77,5 +77,23 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
     expect(count).toBeGreaterThanOrEqual(1)
     expect(seen.find((u) => u.id === adminId)).toMatchObject({ totpEnabled: false, totpSecret: null, lastTotpCounter: null })
     expect(seen.find((u) => u.id === superId)).toMatchObject({ totpEnabled: true, totpSecret: "JBSWY3DPEHPK3PXP", lastTotpCounter: 1 })
+  })
+
+  it("TENANT_TOTP_POLICY_OFF_SQL switches the staff 2FA policy off for the tenant", async () => {
+    const sql = libSql("TENANT_TOTP_POLICY_OFF_SQL")
+    let before: boolean | undefined
+    let after: boolean | undefined
+    await expect(
+      withoutTenantScope(() =>
+        prisma.$transaction(async (tx) => {
+          await tx.tenantConfig.create({ data: { tenantId } })
+          before = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).requireStaffTotp
+          await tx.$executeRawUnsafe(sql)
+          after = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).requireStaffTotp
+          throw new Rollback()
+        }),
+      ),
+    ).rejects.toBeInstanceOf(Rollback)
+    expect({ before, after }).toEqual({ before: true, after: false })
   })
 })

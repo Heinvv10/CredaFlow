@@ -13,7 +13,7 @@ Docker image that serves three audiences:
 
 | Surface | Routes | Who |
 |---|---|---|
-| Staff app | `app/(dashboard)`, `/login` | the lender's staff (TOTP 2FA mandatory) |
+| Staff app | `app/(dashboard)`, `/login` | the lender's staff (TOTP 2FA, required by default per lender) |
 | Client portal | `app/(portal)`, `/portal/*` | borrowers |
 | Public website | `app/(website)`, `/`, `/site/*`, `app/(quote)` | the public |
 

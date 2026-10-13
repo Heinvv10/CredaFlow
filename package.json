@@ -18,6 +18,8 @@
     "test:tz": "for z in UTC Africa/Johannesburg America/New_York Pacific/Kiritimati; do echo \"-- TZ=$z\"; TZ=$z vitest run --config vitest.tz.config.ts lib/date/ || exit 1; done",
     "dates:check": "tsx scripts/check-date-boundaries.ts",
     "face-models:fetch": "tsx scripts/fetch-face-models.ts",
+    "lender:bootstrap-tenant": "tsx scripts/lender/bootstrap-tenant-cli.ts",
+    "lender:bootstrap-admin": "tsx scripts/lender/bootstrap-admin-cli.ts",
     "demo:typecheck": "tsc --noEmit -p scripts/demo/tsconfig.json"
   },
   "prisma": {

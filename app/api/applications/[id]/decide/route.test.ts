@@ -26,6 +26,7 @@ const verifyPasqDocumentArtifactMock = vi.fn()
 const runBureauReviewCheckMock = vi.fn()
 const readCompositeKycStateMock = vi.fn()
 const nonOverridableBlockMock = vi.fn()
+const evaluateBureauGateMock = vi.fn()
 const recomputeApplicationFlagsMock = vi.fn()
 const txCheckFlagCountMock = vi.fn()
 const txDocumentCountMock = vi.fn()
@@ -60,7 +61,7 @@ vi.mock("@/lib/notifications", () => ({ triggerNotification: (a: unknown) => tri
 vi.mock("@/lib/kyc", () => ({ CORE_DOC_TYPES: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] }))
 vi.mock("@/lib/compliance/bureau", () => ({ bureauStalenessCutoff: () => new Date("2020-01-01") }))
 vi.mock("@/lib/decision/bureau-gate", () => ({
-  evaluateBureauGate: () => ({ blocked: false }),
+  evaluateBureauGate: (...args: unknown[]) => evaluateBureauGateMock(...args),
   nonOverridableBlock: (...args: unknown[]) => nonOverridableBlockMock(...args),
 }))
 vi.mock("@/lib/decision/affordability-gate", () => ({
@@ -357,6 +358,7 @@ beforeEach(() => {
   triggerNotificationMock.mockResolvedValue(undefined)
   runBureauReviewCheckMock.mockResolvedValue("stored")
   nonOverridableBlockMock.mockReturnValue({ blocked: false })
+  evaluateBureauGateMock.mockReturnValue({ blocked: false })
   readCompositeKycStateMock.mockResolvedValue({
     ok: true,
     okForOrigination: true,
@@ -421,6 +423,39 @@ beforeEach(() => {
     // whether the stored election has actually gone stale.
     insuranceProduct: { findFirst: (a: unknown) => txCreditLifeOfferFindFirstMock(a) },
   }))
+})
+
+it("hands the stored bureau obligations (simulated marker) to the bureau gate", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  const obligations = { simulated: true }
+  creditBureauCheckFindFirstMock.mockResolvedValue({ ...passingBureauCheck, obligations })
+
+  await POST(makeReq({ action: "approve", reason: "Reviewed" }), ctx)
+
+  expect(evaluateBureauGateMock).toHaveBeenCalledWith(
+    expect.objectContaining({ obligations }),
+    expect.anything(),
+  )
+})
+
+it("refuses to approve on a simulated bureau check even with an override reason", async () => {
+  vi.stubEnv("NODE_ENV", "production")
+  try {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    creditBureauCheckFindFirstMock.mockResolvedValue({ ...passingBureauCheck, obligations: { simulated: true } })
+
+    const res = await POST(makeReq({
+      action: "approve",
+      reason: "Reviewed",
+      bureauOverrideReason: "Verified bureau exception with supporting evidence",
+    }), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ simulatedBureauBlock: true, requiresOverride: false })
+    expect(updateManyMock).not.toHaveBeenCalled()
+  } finally {
+    vi.unstubAllEnvs()
+  }
 })
 
 it("requires EFT or debit order before approving an application", async () => {

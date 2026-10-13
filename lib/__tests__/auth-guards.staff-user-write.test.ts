@@ -68,17 +68,47 @@ describe("staffUserWriteRefusal — assigned role ceiling", () => {
 })
 
 describe("staffUserWriteRefusal — target ceiling", () => {
-  it("allows a target exactly when its current role does not outrank the caller (every caller x every target)", () => {
+  it("allows a target exactly when its current role is below the caller's (every caller x every target)", () => {
     for (let c = 0; c < allRoles.length; c++) {
       for (let t = 0; t < allRoles.length; t++) {
         const refusal = staffUserWriteRefusal(caller(allRoles[c]!), { targetRole: allRoles[t]!, assignedRole: undefined })
-        if (t <= c) {
+        if (t < c) {
           expect(refusal, `${allRoles[c]} edits ${allRoles[t]}`).toBeNull()
+        } else if (t === c) {
+          expect(refusal, `${allRoles[c]} edits ${allRoles[t]}`).toMatchObject({ status: 403, reason: "target_same_rank" })
         } else {
           expect(refusal, `${allRoles[c]} edits ${allRoles[t]}`).toMatchObject({ status: 403, reason: "target_outranks_caller" })
         }
       }
     }
+  })
+
+  // Demoting a peer is an edit of a peer, whatever role is assigned.
+  it("refuses demoting or editing a user of equal rank", () => {
+    expect(staffUserWriteRefusal(caller("ADMIN"), { targetRole: "ADMIN", assignedRole: "READONLY" }))
+      .toMatchObject({ status: 403, reason: "target_same_rank" })
+    expect(staffUserWriteRefusal(caller("SUPER_ADMIN"), { targetRole: "SUPER_ADMIN", assignedRole: undefined }))
+      .toMatchObject({ status: 403, reason: "target_same_rank" })
+  })
+
+  // The inbox roster toggles a flag, not an account: it opts out of the
+  // equal-rank rule, and only of that rule.
+  it("lets a route that opts out (allowPeer) write a user of equal rank, but never a higher one", () => {
+    for (const role of allRoles) {
+      expect(staffUserWriteRefusal(caller(role), { targetRole: role, assignedRole: undefined, allowPeer: true }), role).toBeNull()
+    }
+    expect(staffUserWriteRefusal(caller("ADMIN"), { targetRole: "SUPER_ADMIN", assignedRole: undefined, allowPeer: true }))
+      .toMatchObject({ reason: "target_outranks_caller" })
+    expect(staffUserWriteRefusal({ role: "ADMIN", totpVerified: false }, { targetRole: "ADMIN", assignedRole: undefined, allowPeer: true }))
+      .toMatchObject({ reason: "totp_required" })
+  })
+
+  it("lets a caller edit their own row at their own rank, and only that", () => {
+    for (const role of allRoles) {
+      expect(staffUserWriteRefusal(caller(role), { targetRole: role, assignedRole: undefined, self: true }), role).toBeNull()
+    }
+    expect(staffUserWriteRefusal(caller("ADMIN"), { targetRole: "SUPER_ADMIN", assignedRole: undefined, self: true }))
+      .toMatchObject({ reason: "target_outranks_caller" })
   })
 
   // Demoting a senior is still an edit of a senior: the assigned role being
@@ -165,6 +195,22 @@ describe("refuseStaffUserWrite", () => {
     }), undefined)
   })
 
+  it("answers 403 and audits an edit of a user of equal rank", async () => {
+    const res = await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetId: "admin-2", targetRole: "ADMIN", assignedRole: "READONLY" })
+    expect(res?.status).toBe(403)
+    expect(await res?.json()).toEqual({ error: "You cannot modify a user whose role is the same as your own" })
+    expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: "USER_WRITE_REFUSED",
+      entityId: "admin-2",
+      newValue: { refused: true, reason: "target_same_rank", httpStatus: 403, callerRole: "ADMIN", targetRole: "ADMIN" },
+    }), undefined)
+  })
+
+  it("lets a caller edit their own row at their own rank", async () => {
+    expect(await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetId: "admin-1", targetRole: "ADMIN", assignedRole: undefined })).toBeNull()
+    expect(logAuditStrictMock).not.toHaveBeenCalled()
+  })
+
   // Not escalation attempts: nothing above the caller was reached for.
   it("answers an invalid role (400) and a missing TOTP claim (403) without an audit row", async () => {
     const invalid = await refuseStaffUserWrite(admin, { tenantId: "tenant-a", targetRole: null, assignedRole: "OWNER" })
@@ -201,6 +247,20 @@ describe("refuseLockedStaffUserWrite", () => {
     expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
       action: "USER_WRITE_REFUSED", newValue: expect.objectContaining({ targetRole: "SUPER_ADMIN" }),
     }), tx)
+  })
+
+  it("refuses a target promoted to the caller's rank since the route's first check, but not the caller's own row", async () => {
+    const peer = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "ADMIN")]), admin, write)
+    expect(peer.refused?.status).toBe(403)
+    const own = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN")]), admin, { ...write, targetId: "admin-1" })
+    expect(own).toMatchObject({ refused: null, callerRole: "ADMIN", targetRole: "ADMIN" })
+  })
+
+  it("passes allowPeer through to the locked re-check", async () => {
+    const peer = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "ADMIN")]), admin, { ...write, allowPeer: true })
+    expect(peer).toMatchObject({ refused: null, targetRole: "ADMIN" })
+    const senior = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "SUPER_ADMIN")]), admin, { ...write, allowPeer: true })
+    expect(senior.refused?.status).toBe(403)
   })
 
   it("uses the caller's locked role, so a demotion since sign-in counts", async () => {

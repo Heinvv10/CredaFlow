@@ -239,6 +239,12 @@ model TenantConfig {
   bureauMinScore     Int     @default(450)
   bureauBlockAdverse Boolean @default(false)
 
+  // Staff two-factor policy (lib/security/staff-totp-policy.ts). On: a staff
+  // user with no TOTP enrolled can reach only the enrolment page. Off: a code
+  // is demanded at sign-in only from a user who enrolled. Default on, for
+  // existing rows too.
+  requireStaffTotp Boolean @default(true)
+
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
   collectionProvider       String?

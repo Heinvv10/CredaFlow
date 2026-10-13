@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const requireApiRoleMock = vi.fn()
 const findFirstMock = vi.fn()
@@ -71,6 +71,40 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     const res = await post({ reason: REASON })
     expect(res.status).toBe(403)
     expect(updateManyMock).not.toHaveBeenCalled()
+  })
+
+  describe("a demo stack without TOTP (DEMO_MODE and DEMO_CLEAR_STAFF_TOTP both exactly true)", () => {
+    const passwordOnly = () =>
+      requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@test.invalid", role: "LOAN_ADMIN", tenantId: "t1", totpVerified: false } })
+    afterEach(() => vi.unstubAllEnvs())
+
+    it("lets a password-only session clear and records the waiver in the audit row", async () => {
+      vi.stubEnv("DEMO_MODE", "true")
+      vi.stubEnv("DEMO_CLEAR_STAFF_TOTP", "true")
+      passwordOnly()
+      expect((await post({ reason: REASON })).status).toBe(200)
+      expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
+        newValue: expect.objectContaining({ status: "CLEARED", twoFactor: "waived: demo stack without TOTP" }),
+      }), tx)
+    })
+
+    it("does not mark a TOTP-verified clearance as waived", async () => {
+      vi.stubEnv("DEMO_MODE", "true")
+      vi.stubEnv("DEMO_CLEAR_STAFF_TOTP", "true")
+      expect((await post({ reason: REASON })).status).toBe(200)
+      expect(logAuditStrictMock.mock.calls[0][0].newValue).not.toHaveProperty("twoFactor")
+    })
+
+    it.each([
+      ["only DEMO_MODE", { DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "" }],
+      ["only DEMO_CLEAR_STAFF_TOTP", { DEMO_MODE: "", DEMO_CLEAR_STAFF_TOTP: "true" }],
+      ["not exactly true", { DEMO_MODE: "TRUE", DEMO_CLEAR_STAFF_TOTP: "true " }],
+    ])("still refuses a password-only session with %s", async (_what, env) => {
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
+      passwordOnly()
+      expect((await post({ reason: REASON })).status).toBe(403)
+      expect(updateManyMock).not.toHaveBeenCalled()
+    })
   })
 
   it("refuses a reason of 14 characters once trimmed and accepts 15", async () => {

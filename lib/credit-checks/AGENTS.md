@@ -40,8 +40,8 @@ hard stops.
   `CLEAR_REASON_MIN_LENGTH`; change both together
   (`credit-checks-migration.test.ts` pins them).
 - **Clearing** (`app/api/applications/[id]/checks/[flagId]/clear`) is
-  LOAN_ADMIN + TOTP-verified session, audited with the reason via
-  `logAuditStrict` in the same transaction.
+  LOAN_ADMIN + TOTP (waived only on a TOTP-free demo, `demoStaffWithoutTotp`),
+  audited with the reason via `logAuditStrict` in the same transaction.
 - **Showing evidence rows is document access**: `evidence.ts` returns every
   document id a flag cites, and the GET route logs them through
   `logDocumentContentAccess` (`lib/document-auth.ts`).

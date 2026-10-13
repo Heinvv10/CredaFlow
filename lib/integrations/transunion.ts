@@ -121,6 +121,11 @@ export async function getCreditReport(opts: CreditReportOptions): Promise<Credit
     const data = await res.json()
     const score = data.creditScore ?? data.score
     const riskGrade = data.riskGrade ?? data.risk_grade
+    // UNTESTED: needs a TransUnion response spec/sample. The field names below are
+    // guesses, so a body with no numeric score is refused rather than passed on as ok.
+    if (typeof score !== "number") {
+      return { ok: false, error: "TransUnion unrecognised response: no numeric score" }
+    }
     const adverseInfo: string[] = []
 
     if (Array.isArray(data.adverseRecords)) {
@@ -155,7 +160,7 @@ export async function getCreditReport(opts: CreditReportOptions): Promise<Credit
 
     return {
       ok: true,
-      score: typeof score === "number" ? score : undefined,
+      score,
       riskGrade: typeof riskGrade === "string" ? riskGrade : undefined,
       adverseInfo,
       totalMonthlyObligations,

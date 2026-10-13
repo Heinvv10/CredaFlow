@@ -16,6 +16,7 @@ import {
   approvalSnapshotMatches,
   frozenApprovedTerms,
   createAffordabilityContractEvidence,
+  bureauDecisionFingerprint,
   createBureauDecisionEvidence,
   createAffordabilityExpenseEvidence,
   createAffordabilitySnapshot,
@@ -1301,5 +1302,81 @@ describe("frozenApprovedTerms", () => {
 
     expect(frozenApprovedTerms(withAffordabilitySnapshot(null, tampered as never)))
       .toEqual({ ok: false, reason: "changed" })
+  })
+})
+
+// Computed with the snapshot code as it was before the simulated marker existed.
+const PINNED_GENUINE_BUREAU_FINGERPRINT = "114dd599c656e82194a625ea45b32db49e2d206197d1bc894206d42d271730cc"
+
+describe("simulated bureau evidence in the sealed snapshot", () => {
+  const evidenceFor = (obligations: unknown) =>
+    createBureauDecisionEvidence({
+      check: {
+        id: "bureau-1",
+        clientId: "client-1",
+        subjectFingerprint: "a".repeat(64),
+        provider: "experian",
+        createdAt: new Date("2026-07-18T12:30:00Z"),
+        score: 612,
+        riskGrade: "LOW",
+        obligations,
+      },
+      minimumScore: 450,
+      blockAdverse: false,
+      override: null,
+    })
+
+  it("leaves a genuine check without the field", () => {
+    expect(evidenceFor({ totalMonthly: 25_000 }).check).not.toHaveProperty("simulated")
+  })
+
+  it("carries simulated: true on a simulated check", () => {
+    expect(evidenceFor({ totalMonthly: 25_000, simulated: true }).check?.simulated).toBe(true)
+  })
+
+  it("keeps the genuine-check fingerprint byte-identical to the pinned pre-change value", () => {
+    expect(bureauDecisionFingerprint(evidenceFor({ totalMonthly: 25_000 }))).toBe(
+      PINNED_GENUINE_BUREAU_FINGERPRINT,
+    )
+  })
+
+  it("changes the fingerprint when the check is simulated", () => {
+    expect(bureauDecisionFingerprint(evidenceFor({ totalMonthly: 25_000, simulated: true }))).not.toBe(
+      PINNED_GENUINE_BUREAU_FINGERPRINT,
+    )
+  })
+})
+
+describe("snapshot validation of the simulated marker", () => {
+  const sealedWith = (simulated: unknown) => {
+    const snapshot = approvalSnapshot()
+    const check = { ...snapshot.bureauEvidence!.check!, ...(simulated === undefined ? {} : { simulated }) }
+    return { ...snapshot, bureauEvidence: { ...snapshot.bureauEvidence!, check } }
+  }
+
+  it("accepts a snapshot whose bureau check is sealed as simulated", () => {
+    const sealed = approvalSnapshot()
+    const simulated = createAffordabilitySnapshot({
+      stage: "APPROVAL",
+      policyVersion: APPROVAL_AFFORDABILITY_POLICY_VERSION,
+      capturedAt: new Date("2026-07-18T12:42:00Z"),
+      capturedById: "officer-1",
+      inputs,
+      applicationDebts,
+      clientDebts,
+      expenseEvidence,
+      bureauEvidence: {
+        ...sealed.bureauEvidence!,
+        check: { ...sealed.bureauEvidence!.check!, simulated: true },
+      },
+      calculation,
+      calculationStartDate,
+      outcome: sealed.outcome,
+    })
+    expect(affordabilityDecisionSnapshotIsIntact(simulated)).toBe(true)
+  })
+
+  it("rejects a simulated marker that is not exactly true", () => {
+    expect(affordabilityDecisionSnapshotIsIntact(sealedWith("yes") as never)).toBe(false)
   })
 })
