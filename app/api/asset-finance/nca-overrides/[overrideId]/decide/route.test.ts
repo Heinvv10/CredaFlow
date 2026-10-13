@@ -11,6 +11,7 @@ const m = vi.hoisted(() => {
     tx,
     flag: { on: true },
     transaction: vi.fn(),
+    transactionError: { current: null as Error | null },
     findOverride: vi.fn(),
     requireApiRole: vi.fn(),
     logAuditStrict: vi.fn(),
@@ -24,8 +25,9 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
     ncaRegimeOverride: { findFirst: m.findOverride },
-    $transaction: (fn: (tx: unknown) => unknown) => {
+    $transaction: async (fn: (tx: unknown) => unknown) => {
       m.transaction()
+      if (m.transactionError.current) throw m.transactionError.current
       return fn(m.tx)
     },
   },
@@ -79,6 +81,7 @@ const decide = (body: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks()
   m.flag.on = true
+  m.transactionError.current = null
   signIn("admin-b", "LOAN_ADMIN")
   m.findOverride.mockResolvedValue({ applicationId: "app-1" })
   m.tx.$queryRaw.mockResolvedValue([{ id: "locked" }])
@@ -151,16 +154,50 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
     expect(m.tx.ncaRegimeOverride.update).not.toHaveBeenCalled()
   })
 
-  it("answers 409 when the regime moved since the request", async () => {
+  it("APPROVE on a stale request (the regime moved) rejects it as stale: 409, regime untouched", async () => {
     m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "UNDER_REVIEW", ncaRegime: "NON_NCA" } }))
-    expect((await decide({ decision: "APPROVE", note: "Checked" })).status).toBe(409)
+    const res = await decide({ decision: "APPROVE", note: "Checked" })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ override: { status: "REJECTED", decisionNote: "stale: regime changed" } })
+    expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith({
+      where: { id: "ov-1" },
+      data: expect.objectContaining({ status: "REJECTED", decidedById: "admin-b", decisionNote: "stale: regime changed" }),
+    })
+    expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "NCA_OVERRIDE_DECIDED",
+      newValue: expect.objectContaining({ status: "REJECTED", stale: true, requestedDecision: "APPROVE", ncaRegime: "NON_NCA" }),
+    }), m.tx)
+  })
+
+  it("REJECT on a stale request records the rejection with the decider's note", async () => {
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "UNDER_REVIEW", ncaRegime: "NON_NCA" } }))
+    const res = await decide({ decision: "REJECT", note: "No longer relevant" })
+    expect(res.status).toBe(200)
+    expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "REJECTED", decisionNote: "No longer relevant" }),
+    }))
     expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
   })
 
-  it("answers 409 once the application is decided", async () => {
+  it("answers 409 to APPROVE once the application is decided, writing nothing", async () => {
     m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "APPROVED", ncaRegime: "NCA" } }))
     expect((await decide({ decision: "APPROVE", note: "Checked" })).status).toBe(409)
     expect(m.tx.ncaRegimeOverride.update).not.toHaveBeenCalled()
+  })
+
+  it("still accepts REJECT once the application is decided", async () => {
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "APPROVED", ncaRegime: "NCA" } }))
+    expect((await decide({ decision: "REJECT", note: "Application decided" })).status).toBe(200)
+    expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "REJECTED" }),
+    }))
+    expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
+  })
+
+  it("answers 409 when the database refuses the decision (SQLSTATE 23514), not 500", async () => {
+    m.transactionError.current = Object.assign(new Error("A change to NON_NCA requires an approved NcaRegimeOverride"), { code: "23514" })
+    expect((await decide({ decision: "APPROVE", note: "Checked" })).status).toBe(409)
   })
 
   it("approves: locks, records the decision, moves the regime and audits in the transaction", async () => {

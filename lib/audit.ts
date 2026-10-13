@@ -427,4 +427,6 @@ export const AuditAction = {
   NCA_OVERRIDE_DECIDED: "NCA_OVERRIDE_DECIDED",
   // A decision refused for lack of authority or by the four-eyes rule.
   NCA_OVERRIDE_DECISION_REFUSED: "NCA_OVERRIDE_DECISION_REFUSED",
+  // A classification refused (not an entity borrower, or already decided).
+  NCA_CLASSIFY_REFUSED: "NCA_CLASSIFY_REFUSED",
 } as const

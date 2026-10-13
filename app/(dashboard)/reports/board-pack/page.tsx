@@ -39,7 +39,7 @@ export default async function BoardPackPage() {
     // numerator, not just one or the other.
     prisma.loan.findMany({
       where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 } },
-      select: { daysInArrears: true, arrearsAmount: true, outstandingPrincipal: true },
+      select: { daysInArrears: true, arrearsAmount: true, outstandingPrincipal: true, ncaRegime: true },
     }),
     prisma.insurancePolicy.aggregate({ where: { tenantId, status: "ACTIVE" }, _count: true, _sum: { premiumAmount: true } }),
     // Loans still owed only (the collectible book) — a settled loan owes nothing.
@@ -128,6 +128,11 @@ export default async function BoardPackPage() {
     { label: "90+ DPD", count: arrears.filter(l => l.daysInArrears >= 90).length, value: arrears.filter(l => l.daysInArrears >= 90).reduce((s, l) => s + l.arrearsAmount, 0) },
   ].map((b) => (charges.chargesLive ? { ...b, charges: charges.byBand[b.label as keyof typeof charges.byBand] } : b))
 
+  // The aging covers the whole book; the NON_NCA (asset finance) share is
+  // stated separately, because those agreements are not NCA-regulated.
+  const nonNcaInArrears = arrears.filter(l => l.ncaRegime === "NON_NCA")
+  const nonNcaArrears = { count: nonNcaInArrears.length, value: nonNcaInArrears.reduce((s, l) => s + l.arrearsAmount, 0) }
+
   const productMix = byProduct.map(b => ({
     name: products.find(p => p.id === b.productId)?.name || "Unknown",
     type: products.find(p => p.id === b.productId)?.productType || "MICRO",
@@ -157,7 +162,7 @@ export default async function BoardPackPage() {
         lenderName={lenderName} ncrNumber={lender?.ncrNumber ?? null}
         book={book} activeLoans={loans._count} clients={clients}
         collectionsRate={collectionsRate} arrearsRate={arrearsRate}
-        totalArrears={totalArrears} buckets={buckets}
+        totalArrears={totalArrears} buckets={buckets} nonNcaArrears={nonNcaArrears}
         topLoans={topLoans} productMix={productMix}
         insurancePolicies={insurance._count} monthlyPremiums={Number(insurance._sum.premiumAmount ?? 0)}
         totalDisbursed={Number(disbursements._sum.principal || 0)}

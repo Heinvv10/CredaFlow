@@ -11,7 +11,7 @@ import { CollectionsTabs } from "@/components/collections/CollectionsTabs"
 import { getDefaultTenantId } from "@/lib/tenant"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
-import { borrowerDisplayName, hasClientBorrower } from "@/lib/borrower"
+import { borrowerDisplayName, hasClientBorrower, hasClientBorrowerId } from "@/lib/borrower"
 
 
 async function getCollectionsData(tenantId: string, chargesLive: boolean) {
@@ -27,8 +27,10 @@ async function getCollectionsData(tenantId: string, chargesLive: boolean) {
   })
   // Arrears as shown to staff include default charges owed (the synced
   // summary column), only while charges are live.
-  // The queue's actions (s129, payment plan, contact log) are the consumer NCA
-  // process; an entity-borrower loan is not queued here.
+  // Each queue row is a natural person: it links to the Client, shows their
+  // name and messages them (WhatsApp, contact log, Section 129 notice). An
+  // entity borrower (asset finance) has no Client, so it is left out of this
+  // list; its regime is not the reason.
   return loans
     .filter(hasClientBorrower)
     .map((loan) => ({ ...loan, arrearsAmount: arrearsWithCharges(loan, chargesLive) }))
@@ -75,12 +77,15 @@ async function getSection129DueCount(tenantId: string) {
       // not sit in the collections queue or count toward S129 (audit N-03/N-05).
       outstandingPrincipal: { gt: 0 },
     },
-    select: { id: true, status: true, ncaRegime: true, arrearsAmount: true, outstandingPrincipal: true, daysInArrears: true },
+    select: {
+      id: true, clientId: true, status: true, ncaRegime: true, arrearsAmount: true, outstandingPrincipal: true, daysInArrears: true,
+    },
   })
 
   let count = 0
-  // The bulk send's own rule: a NON_NCA agreement is never S129-due.
-  for (const loan of loans.filter(isSection129Eligible)) {
+  // The bulk send's own rules: a NON_NCA agreement is never S129-due, and the
+  // notice is addressed to a Client (an entity borrower has none).
+  for (const loan of loans.filter(isSection129Eligible).filter(hasClientBorrowerId)) {
     const availability = await getSection129ReservationAvailability(tenantId, loan.id)
     if (availability.canReserve) count++
   }

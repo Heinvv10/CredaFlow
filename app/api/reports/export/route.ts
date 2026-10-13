@@ -135,6 +135,9 @@ export async function GET(req: NextRequest) {
       "Default Charges Owing (R)": chargesOwing(l, chargesLive) / 100,
       "Outstanding Principal (R)": l.outstandingPrincipal / 100,
       Status: l.status,
+      // The aging covers the whole book; a NON_NCA (asset finance) agreement
+      // is not NCA-regulated, so each row says which regime it is under.
+      Regime: l.ncaRegime,
     }))
 
     wb = createWorkbook([{ name: "PAR Report", rows }])
@@ -273,9 +276,11 @@ export async function GET(req: NextRequest) {
     const ncr = await getNcrReturnData(tenant.id, quarter, now)
     const { start: qStart, end: qEndExclusive } = quarterBounds(quarter)
 
+    // The NCR return reports NCA credit agreements: a NON_NCA (asset
+    // finance) agreement is outside the Act and on neither sheet.
     const [disbursed, arrears] = await Promise.all([
       prisma.loan.findMany({
-        where: { tenantId: tenant.id, startDate: { gte: qStart, lt: qEndExclusive } },
+        where: { tenantId: tenant.id, ncaRegime: "NCA", startDate: { gte: qStart, lt: qEndExclusive } },
         include: {
           client: { select: { idNumber: true, firstName: true, lastName: true } },
           entity: { select: { legalName: true } },
@@ -283,7 +288,7 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.loan.findMany({
-        where: { ...parWhere(tenant.id, 1) },
+        where: { ...parWhere(tenant.id, 1), ncaRegime: "NCA" },
         include: {
           client: { select: { idNumber: true, firstName: true, lastName: true } },
           entity: { select: { legalName: true } },
@@ -387,8 +392,10 @@ export async function GET(req: NextRequest) {
       },
     })
   } else if (type === "credit-agreements") {
+    // The register of NCA credit agreements: a NON_NCA (asset finance)
+    // agreement is outside the Act and not on it.
     const loans = await prisma.loan.findMany({
-      where: { tenantId: tenant.id, status: { in: ["ACTIVE", "COMPLETED", "DEFAULTED", "WRITTEN_OFF"] } },
+      where: { tenantId: tenant.id, ncaRegime: "NCA", status: { in: ["ACTIVE", "COMPLETED", "DEFAULTED", "WRITTEN_OFF"] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, email: true } },
         entity: { select: { legalName: true } },

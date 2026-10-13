@@ -350,8 +350,9 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
   const companyPhone = identity.collectionsPhone
 
   for (const loan of loans) {
-    // Reminders address a natural person; an entity borrower (asset finance)
-    // is not reminded here.
+    // A reminder messages a natural person (the Client's phone / WhatsApp):
+    // an entity borrower (asset finance) has no Client to message, so it is
+    // skipped here. Its regime is not the reason.
     if (!loan.client) continue
     const today = new Date()
     const dueDate = loan.nextPaymentDate!

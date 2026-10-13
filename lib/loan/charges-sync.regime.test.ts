@@ -29,7 +29,7 @@ function makeLoan(ncaRegime: "NCA" | "NON_NCA") {
     status: "ACTIVE", closedAt: null, writeOffAt: null, totalPaid: 0, outstandingPrincipal: 200_000,
     arrearsAmount: 216_900, daysInArrears: 10, nextPaymentDate: d("2026-09-01"),
     chargesAccrued: 0, chargesOutstanding: 0, defaultChargesExempt: false, defaultChargesExemptReason: null,
-    defaultChargesExemptEndedAt: null, monthlyServiceFee: 6_900,
+    defaultChargesExemptEndedAt: null as Date | null, monthlyServiceFee: 6_900,
     product: {
       code: "AF", monthlyServiceFee: 6_900,
       nonNcaDefaultInterestMargin: new Prisma.Decimal("0.02"), nonNcaCollectionFeeCents: 25_000,
@@ -102,6 +102,24 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
       { type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 3_210 },
     ])
     expect(result?.chargesAccrued).toBe(28_210)
+  })
+
+  it("a NON_NCA loan whose accrueFrom is after the missed due date: no collection fee, interest only from accrueFrom", async () => {
+    const loan = makeLoan("NON_NCA")
+    // An exemption lifted on 5 Sep, after the instalment fell due on 1 Sep:
+    // charging resumes from that moment (charges-replay accrueFromWith).
+    const lifted = d("2026-09-05")
+    loan.defaultChargesExemptEndedAt = lifted
+    const tx = makeTx(loan)
+    const result = await syncLoanCharges(tx as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
+    expect(engines.nonNca.mock.calls.at(-1)?.[0].accrueFrom).toEqual(lifted)
+    const posted = (tx.loanCharge.createMany.mock.calls[0]?.[0].data as Array<{ type: string; day: Date; amount: number }>)
+      .map((c) => ({ type: c.type, day: c.day.toISOString().slice(0, 10), amount: c.amount }))
+    // The collection fee for the 1 Sep instalment would be dated 2 Sep, before
+    // accrueFrom, so it is never posted. Default interest for Sep 5..10 only:
+    // 6 x 210000 x 0.62/365 = 2140.27 → 2140.
+    expect(posted).toEqual([{ type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 2_140 }])
+    expect(result?.chargesAccrued).toBe(2_140)
   })
 
   it("the tenant's charges switch gates NON_NCA charges too: off means no charges at all", async () => {

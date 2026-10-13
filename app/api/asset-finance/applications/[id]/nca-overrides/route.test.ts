@@ -7,7 +7,14 @@ const m = vi.hoisted(() => {
     loanApplication: { findFirst: vi.fn(), update: vi.fn() },
     ncaRegimeOverride: { findFirst: vi.fn(), create: vi.fn() },
   }
-  return { tx, flag: { on: true }, transaction: vi.fn(), requireApiRole: vi.fn(), logAuditStrict: vi.fn() }
+  return {
+    tx,
+    flag: { on: true },
+    transaction: vi.fn(),
+    transactionError: { current: null as Error | null },
+    requireApiRole: vi.fn(),
+    logAuditStrict: vi.fn(),
+  }
 })
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -15,8 +22,9 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
-    $transaction: (fn: (tx: unknown) => unknown) => {
+    $transaction: async (fn: (tx: unknown) => unknown) => {
       m.transaction()
+      if (m.transactionError.current) throw m.transactionError.current
       return fn(m.tx)
     },
   },
@@ -50,6 +58,7 @@ const request = (body: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks()
   m.flag.on = true
+  m.transactionError.current = null
   m.requireApiRole.mockResolvedValue({ user: { id: "admin-a", email: "a@lender.test", role: "LOAN_ADMIN", tenantId: "tenant-1" } })
   m.tx.$queryRaw.mockResolvedValue([{ id: "app-1" }])
   m.tx.loanApplication.findFirst.mockResolvedValue({ id: "app-1", entityId: "ent-1", status: "SUBMITTED", ncaRegime: "NCA" })
@@ -146,5 +155,10 @@ describe("POST /api/asset-finance/applications/[id]/nca-overrides", () => {
     expect(m.tx.loanApplication.update).toHaveBeenCalledWith({ where: { id: "app-1", tenantId: "tenant-1" }, data: { ncaRegime: "NCA" } })
     expect(m.logAuditStrict.mock.calls.map(([params]) => params.action)).toEqual(["NCA_OVERRIDE_REQUESTED", "NCA_OVERRIDE_DECIDED"])
     for (const call of m.logAuditStrict.mock.calls) expect(call[1]).toBe(m.tx)
+  })
+
+  it("answers 409 when the database refuses the write (SQLSTATE 23514), not 500", async () => {
+    m.transactionError.current = Object.assign(new Error("An NCA regime override must belong to its application's tenant"), { code: "23514" })
+    expect((await request({ toRegime: "NON_NCA", reason: REASON })).status).toBe(409)
   })
 })

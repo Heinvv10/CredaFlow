@@ -30,6 +30,8 @@ type Props = {
   book: number; activeLoans: number; clients: number; collectionsRate: number | null; arrearsRate: string | null
   totalArrears: number; totalDisbursed: number
   buckets: { label: string; count: number; value: number; charges?: number }[]
+  /** Of the accounts in the buckets, those under a NON_NCA (asset finance) agreement; stated separately. */
+  nonNcaArrears?: { count: number; value: number }
   topLoans: Loan[]
   productMix: { name: string; type: string; count: number; value: number }[]
   insurancePolicies: number; monthlyPremiums: number
@@ -47,7 +49,7 @@ const PRODUCT_COLORS: Record<string, string> = {
   PO_FUNDING: "#1e6b3f",
 }
 
-export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clients, collectionsRate, arrearsRate, totalArrears, totalDisbursed, buckets, topLoans, productMix, insurancePolicies, monthlyPremiums, nplRatio, nplAmount, par30, par60, par90, monthlyCollectionRate, delinquentAccounts, defaultCharges }: Props) {
+export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clients, collectionsRate, arrearsRate, totalArrears, totalDisbursed, buckets, nonNcaArrears, topLoans, productMix, insurancePolicies, monthlyPremiums, nplRatio, nplAmount, par30, par60, par90, monthlyCollectionRate, delinquentAccounts, defaultCharges }: Props) {
   const maxVal = Math.max(...productMix.map(p => p.value), 1)
 
   return (
@@ -181,6 +183,12 @@ export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clie
             )
           })}
         </div>
+        {nonNcaArrears && nonNcaArrears.count > 0 && (
+          <p className="mt-3 text-xs text-gray-500">
+            Of which NON_NCA (asset finance, not NCA-regulated): {nonNcaArrears.count} account{nonNcaArrears.count === 1 ? "" : "s"},{" "}
+            <span className="whitespace-nowrap">{formatZAR(nonNcaArrears.value)}</span> in arrears.
+          </p>
+        )}
       </div>
 
       {defaultCharges}

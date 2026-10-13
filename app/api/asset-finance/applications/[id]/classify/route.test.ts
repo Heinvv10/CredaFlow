@@ -2,14 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 // The route and lib/asset-finance/classification.ts run for real; only Prisma,
-// the session and the audit writer are stubbed.
+// the session and the audit writers are stubbed.
 const m = vi.hoisted(() => {
   const tx = {
     $queryRaw: vi.fn(),
     loanApplication: { findFirst: vi.fn(), update: vi.fn() },
     businessEntity: { findFirst: vi.fn() },
+    ncaRegimeOverride: { findFirst: vi.fn(), create: vi.fn() },
   }
-  return { tx, flag: { on: true }, transaction: vi.fn(), requireApiRole: vi.fn(), logAuditStrict: vi.fn() }
+  return {
+    tx,
+    flag: { on: true },
+    transaction: vi.fn(),
+    transactionError: { current: null as Error | null },
+    requireApiRole: vi.fn(),
+    logAuditStrict: vi.fn(),
+    auditRefusal: vi.fn(),
+  }
 })
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -17,8 +26,9 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
-    $transaction: (fn: (tx: unknown) => unknown) => {
+    $transaction: async (fn: (tx: unknown) => unknown) => {
       m.transaction()
+      if (m.transactionError.current) throw m.transactionError.current
       return fn(m.tx)
     },
   },
@@ -35,6 +45,7 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit")>()),
   logAuditStrict: m.logAuditStrict,
 }))
+vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: m.auditRefusal }))
 
 import { POST } from "./route"
 
@@ -62,7 +73,13 @@ beforeEach(() => {
   m.tx.$queryRaw.mockResolvedValue([{ id: "app-1" }])
   m.tx.loanApplication.findFirst.mockResolvedValue(application())
   m.tx.businessEntity.findFirst.mockResolvedValue(company())
+  m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(null)
+  m.tx.ncaRegimeOverride.create.mockResolvedValue({ id: "ov-new" })
+  m.transactionError.current = null
 })
+
+/** A company the classifier puts outside the Act (R2m turnover, evidenced). */
+const largeCompany = () => company({ annualTurnover: 200_000_000, financialsEvidenceIds: ["afs-1"] })
 
 describe("POST /api/asset-finance/applications/[id]/classify", () => {
   it("answers 404 when the tenant has not enabled asset finance", async () => {
@@ -87,16 +104,35 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
   })
 
-  it("refuses a natural-person application 422", async () => {
+  it("refuses a natural-person application 422 and audits the refusal", async () => {
     m.tx.loanApplication.findFirst.mockResolvedValue(application({ entityId: null }))
     expect((await classify({})).status).toBe(422)
     expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
+    expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({
+      action: "NCA_CLASSIFY_REFUSED", entity: "LoanApplication", entityId: "app-1", userId: "officer-c",
+      reason: "not_entity_borrower", status: 422,
+    }))
   })
 
-  it("refuses 409 once the application is decided", async () => {
+  it("refuses 409 once the application is decided, and audits the refusal", async () => {
     m.tx.loanApplication.findFirst.mockResolvedValue(application({ status: "APPROVED" }))
     expect((await classify({})).status).toBe(409)
     expect(m.tx.businessEntity.findFirst).not.toHaveBeenCalled()
+    expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({
+      action: "NCA_CLASSIFY_REFUSED", entityId: "app-1", reason: "regime_frozen", status: 409,
+    }))
+  })
+
+  it("answers 409 when the database refuses the write (SQLSTATE 23514), not 500", async () => {
+    m.transactionError.current = Object.assign(new Error("ERROR: A classified application's borrower cannot change"), { code: "23514" })
+    const res = await classify({})
+    expect(res.status).toBe(409)
+    expect(m.auditRefusal).not.toHaveBeenCalled()
+  })
+
+  it("lets any other database failure through", async () => {
+    m.transactionError.current = new Error("connection reset")
+    await expect(classify({})).rejects.toThrow("connection reset")
   })
 
   it("snapshots an unevidenced company as NCA (FINANCIALS_UNPROVEN) with its audit row", async () => {
@@ -120,12 +156,53 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     }), m.tx)
   })
 
-  it("refuses a NON_NCA classification by a user without credit authority: 403, nothing written", async () => {
-    m.tx.businessEntity.findFirst.mockResolvedValue(company({ annualTurnover: 200_000_000, financialsEvidenceIds: ["afs-1"] }))
+  it("records a NON_NCA result as NCA plus a PENDING override in the classifier's name, whoever classifies", async () => {
+    m.tx.businessEntity.findFirst.mockResolvedValue(largeCompany())
     const res = await classify({})
-    expect(res.status).toBe(403)
-    expect(await res.json()).toMatchObject({ classification: { regime: "NON_NCA" } })
-    expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ regime: "NCA", previousRegime: null, pendingOverrideId: "ov-new", classification: { regime: "NON_NCA", rule: "JURISTIC_OVER_THRESHOLD" } })
+    // The snapshot is the classifier's; the effective regime is NCA until approved.
+    expect(m.tx.loanApplication.update).toHaveBeenCalledWith({
+      where: { id: "app-1", tenantId: "tenant-1" },
+      data: expect.objectContaining({ ncaRegime: "NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ncaClassificationEvidenceIds: ["afs-1"] }),
+    })
+    expect(m.tx.ncaRegimeOverride.create).toHaveBeenCalledWith({
+      data: {
+        tenantId: "tenant-1", applicationId: "app-1", fromRegime: "NCA", toRegime: "NON_NCA", requestedById: "officer-c",
+        reason: `Classifier: JURISTIC_OVER_THRESHOLD — ${body.classification.reason}`,
+      },
+      select: { id: true },
+    })
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "NCA_OVERRIDE_REQUESTED", entity: "NcaRegimeOverride", entityId: "ov-new", userId: "officer-c",
+    }), m.tx)
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "NCA_CLASSIFIED",
+      newValue: expect.objectContaining({ ncaRegime: "NCA", classifierRegime: "NON_NCA", pendingOverrideId: "ov-new" }),
+    }), m.tx)
+  })
+
+  it("re-uses the open PENDING override instead of opening a second", async () => {
+    m.tx.loanApplication.findFirst.mockResolvedValue(application({ ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN" }))
+    m.tx.businessEntity.findFirst.mockResolvedValue(largeCompany())
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue({ id: "ov-open" })
+    const res = await classify({})
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ regime: "NCA", pendingOverrideId: "ov-open" })
+    expect(m.tx.ncaRegimeOverride.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: "tenant-1", applicationId: "app-1", status: "PENDING" }, select: { id: true },
+    })
+    expect(m.tx.ncaRegimeOverride.create).not.toHaveBeenCalled()
+  })
+
+  it("keeps an approved NON_NCA application NON_NCA when the classifier agrees, with no new request", async () => {
+    m.tx.loanApplication.findFirst.mockResolvedValue(application({ ncaRegime: "NON_NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD" }))
+    m.tx.businessEntity.findFirst.mockResolvedValue(largeCompany())
+    const res = await classify({})
+    expect(await res.json()).toMatchObject({ regime: "NON_NCA", pendingOverrideId: null })
+    expect(m.tx.loanApplication.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ ncaRegime: "NON_NCA" }) }))
+    expect(m.tx.ncaRegimeOverride.create).not.toHaveBeenCalled()
   })
 
   it("classifies a trust with Letters of Authority and three natural trustees on its evidence", async () => {
@@ -138,9 +215,11 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     }))
     const res = await classify({ trusteeEvidenceIds: [" loa-1 ", "loa-1"] })
     expect(res.status).toBe(200)
-    expect((await res.json()).classification).toMatchObject({ regime: "NON_NCA", rule: "JURISTIC_OVER_THRESHOLD" })
+    expect(await res.json()).toMatchObject({
+      regime: "NCA", pendingOverrideId: "ov-new", classification: { regime: "NON_NCA", rule: "JURISTIC_OVER_THRESHOLD" },
+    })
     expect(m.tx.loanApplication.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ ncaRegime: "NON_NCA", ncaClassificationEvidenceIds: ["loa-1", "afs-1"] }),
+      data: expect.objectContaining({ ncaRegime: "NCA", ncaClassificationEvidenceIds: ["loa-1", "afs-1"] }),
     }))
     // Only active TRUSTEE rows of this tenant count.
     expect(m.tx.businessEntity.findFirst).toHaveBeenCalledWith(expect.objectContaining({
@@ -151,23 +230,14 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     }))
   })
 
-  it("does not relax an NCA application by re-classifying: 409 needs an override, nothing written", async () => {
-    m.tx.loanApplication.findFirst.mockResolvedValue(application({ ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN" }))
-    m.tx.businessEntity.findFirst.mockResolvedValue(company({ annualTurnover: 400_000_000, financialsEvidenceIds: ["afs-1"] }))
-    const res = await classify({})
-    expect(res.status).toBe(409)
-    expect(await res.json()).toMatchObject({ needsOverride: true, classification: { regime: "NON_NCA" } })
-    expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
-    expect(m.logAuditStrict).not.toHaveBeenCalled()
-  })
-
   it("re-classifies a NON_NCA application to NCA without an override (stricter)", async () => {
     m.tx.loanApplication.findFirst.mockResolvedValue(application({ ncaRegime: "NON_NCA", ncaClassificationRule: "LARGE_AGREEMENT" }))
     const res = await classify({})
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ previousRegime: "NON_NCA", classification: { regime: "NCA" } })
+    expect(await res.json()).toMatchObject({ previousRegime: "NON_NCA", regime: "NCA", pendingOverrideId: null, classification: { regime: "NCA" } })
     expect(m.tx.loanApplication.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ ncaRegime: "NCA" }),
     }))
+    expect(m.tx.ncaRegimeOverride.create).not.toHaveBeenCalled()
   })
 })

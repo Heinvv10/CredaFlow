@@ -5,8 +5,9 @@ import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { isRegimeOpen, lockApplicationForRegime } from "@/lib/asset-finance/classification"
+import { isRegimeOpen, lockApplicationForRegime, STALE_OVERRIDE_NOTE } from "@/lib/asset-finance/classification"
 
 const MIN_NOTE = 5
 const MAX_NOTE = 2000
@@ -31,6 +32,13 @@ function parseBody(body: unknown): { decision: Decision; note: string } | string
  * Needs decide_asset_finance, and the decider must not be the requester. The
  * second rule is also CHECK NcaRegimeOverride_four_eyes; the route refuses
  * first so the caller gets a 403 and the attempt is audited.
+ *
+ * APPROVE moves the regime; the regime trigger spends the approval, so it
+ * authorises exactly that one change. A request whose fromRegime no longer
+ * matches the application is stale: REJECT records it as usual, and APPROVE
+ * rejects it instead (note STALE_OVERRIDE_NOTE, 409), so a stale request never
+ * holds the application's one PENDING slot. On a decided application only
+ * REJECT is accepted; the regime is frozen.
  */
 export async function POST(
   req: NextRequest,
@@ -66,14 +74,18 @@ export async function POST(
     if (typeof parsed === "string") return NextResponse.json({ error: parsed }, { status: 400 })
     const { decision, note } = parsed
 
+    // Read outside the transaction only to learn which application to lock:
+    // locks are taken application first, then override, the same order as a
+    // request or a classification, so they cannot deadlock. applicationId never
+    // changes (trigger guardNcaRegimeOverrideLifecycle), and the override is
+    // re-read under both locks before anything is decided.
     const found = await prisma.ncaRegimeOverride.findFirst({
       where: { id: overrideId, tenantId: tenant.id },
       select: { applicationId: true },
     })
     if (!found) return NextResponse.json({ error: "Override not found" }, { status: 404 })
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Application first, then the override: the same order as a request.
+    const decideInTransaction = () => prisma.$transaction(async (tx) => {
       if (!(await lockApplicationForRegime(tx, tenant.id, found.applicationId))) {
         return { kind: "not_found" as const }
       }
@@ -90,21 +102,23 @@ export async function POST(
       if (!override) return { kind: "not_found" as const }
       if (override.status !== "PENDING") return { kind: "not_pending" as const, status: override.status }
       if (override.requestedById === guard.user.id) return { kind: "self_decision" as const }
-      if (!isRegimeOpen(override.application.status)) {
+      const approve = decision === "APPROVE"
+      if (approve && !isRegimeOpen(override.application.status)) {
         return { kind: "regime_frozen" as const, status: override.application.status }
       }
-      // A re-classification since the request moved the regime; the request
-      // no longer describes the change it would make.
-      if (override.application.ncaRegime !== override.fromRegime) return { kind: "stale" as const }
+      // The regime moved since the request (a re-classification or another
+      // override): the request no longer describes the change it would make.
+      const stale = override.application.ncaRegime !== override.fromRegime
+      const approved = approve && !stale
+      const decisionNote = approve && stale ? STALE_OVERRIDE_NOTE : note
 
-      const approved = decision === "APPROVE"
       const updated = await tx.ncaRegimeOverride.update({
         where: { id: overrideId },
         data: {
           status: approved ? "APPROVED" : "REJECTED",
           decidedById: guard.user.id,
           decidedAt: new Date(),
-          decisionNote: note,
+          decisionNote,
         },
       })
       if (approved) {
@@ -124,13 +138,28 @@ export async function POST(
         newValue: {
           applicationId: override.applicationId,
           status: updated.status,
-          note,
+          note: decisionNote,
           requestedById: override.requestedById,
           ncaRegime: approved ? override.toRegime : override.application.ncaRegime,
+          ...(stale ? { stale: true, requestedDecision: decision } : {}),
         },
       }, tx)
-      return { kind: "decided" as const, override: updated }
+      return approve && stale
+        ? { kind: "stale_rejected" as const, override: updated }
+        : { kind: "decided" as const, override: updated }
     })
+
+    let result: Awaited<ReturnType<typeof decideInTransaction>>
+    try {
+      result = await decideInTransaction()
+    } catch (error) {
+      // The regime triggers re-check under the row locks; a decision that lost
+      // a race with another write is a conflict, not a server error.
+      if (isCheckViolation(error)) {
+        return NextResponse.json({ error: "The application changed while the override was being decided; try again" }, { status: 409 })
+      }
+      throw error
+    }
 
     switch (result.kind) {
       case "not_found":
@@ -147,9 +176,12 @@ export async function POST(
           { error: `The NCA regime is frozen once an application is ${result.status}` },
           { status: 409 },
         )
-      case "stale":
+      case "stale_rejected":
         return NextResponse.json(
-          { error: "The application's regime changed since this override was requested" },
+          {
+            error: "The application's regime changed since this override was requested; it was rejected as stale",
+            override: result.override,
+          },
           { status: 409 },
         )
       case "decided":

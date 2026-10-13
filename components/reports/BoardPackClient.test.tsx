@@ -47,6 +47,20 @@ describe("BoardPackClient default charges", () => {
   })
 })
 
+describe("BoardPackClient NCA regime", () => {
+  it("states the NON_NCA share of the arrears aging separately, and nothing when there is none", () => {
+    const buckets = [{ label: "31-60 DPD", count: 3, value: 900_000 }]
+    const html = text(renderToStaticMarkup(
+      <BoardPackClient {...base} buckets={buckets} nonNcaArrears={{ count: 2, value: 600_000 }} delinquentAccounts={[]} />,
+    ))
+    expect(html).toContain("Of which NON_NCA (asset finance, not NCA-regulated): 2 accounts, R 6,000.00 in arrears.")
+    const none = text(renderToStaticMarkup(
+      <BoardPackClient {...base} buckets={buckets} nonNcaArrears={{ count: 0, value: 0 }} delinquentAccounts={[]} />,
+    ))
+    expect(none).not.toContain("NON_NCA")
+  })
+})
+
 describe("BoardPackDefaultCharges", () => {
   it("states this month's flows and what is owing now, split to tie to the bands", () => {
     const html = text(renderToStaticMarkup(

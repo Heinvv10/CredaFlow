@@ -55,7 +55,9 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       )
     }
-    // Section 129 is also a consumer notice; an entity borrower is refused.
+    // The notice is a consumer document addressed to a natural person (the
+    // Client's name, ID number and address): an NCA loan to an entity borrower
+    // has no Client to address it to. Its regime is not the reason.
     if (!hasClientBorrower(loan)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }

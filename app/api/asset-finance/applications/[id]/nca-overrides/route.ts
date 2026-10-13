@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { isRegimeOpen, lockApplicationForRegime } from "@/lib/asset-finance/classification"
 
@@ -48,7 +49,7 @@ export async function POST(
     const { toRegime, reason } = parsed
     const actor = { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const requestInTransaction = () => prisma.$transaction(async (tx) => {
       if (!(await lockApplicationForRegime(tx, tenant.id, id))) return { kind: "not_found" as const }
       const application = await tx.loanApplication.findFirst({
         where: { id, tenantId: tenant.id },
@@ -106,6 +107,18 @@ export async function POST(
       }
       return { kind: "created" as const, override }
     })
+
+    let result: Awaited<ReturnType<typeof requestInTransaction>>
+    try {
+      result = await requestInTransaction()
+    } catch (error) {
+      // The regime triggers re-check under the row lock; a request that lost
+      // a race with another write is a conflict, not a server error.
+      if (isCheckViolation(error)) {
+        return NextResponse.json({ error: "The application changed while the override was being requested; try again" }, { status: 409 })
+      }
+      throw error
+    }
 
     switch (result.kind) {
       case "not_found":

@@ -49,7 +49,8 @@ accounting system; CredaFlow exports journals — decision D3).
   large-agreement threshold → NON_NCA; otherwise NCA. Thresholds (R1m,
   R250k) live in config with their Government Gazette citation. The result
   and evidence ids are snapshotted on the application; an override is
-  audited and NCA → NON_NCA needs a second approver. A restructure or new
+  audited and every move to NON_NCA, a classifier result included, needs a
+  second approver (the application stays NCA until then). A restructure or new
   agreement re-runs it. **Legal must confirm these rules.**
 - **D6 Structure.** A deal's structure is `deposit`, `balloon/residual`,
   optional `vatDeferral { periods }` and an ordered list of period weights

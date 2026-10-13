@@ -815,8 +815,10 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         }
       }
 
-      // Eligibility (the NCA regime first) is the primary rule; s129 is also a
-      // consumer notice, so an entity borrower is refused after it.
+      // Eligibility (the NCA regime first) decides Section 129. The notice is a
+      // consumer document addressed to a natural person (the Client's name, ID
+      // number and address), so an entity borrower, which has no Client, is
+      // refused after it.
       const clientId = requireClientBorrowerId(loan)
       await tx.$queryRawUnsafe(
         `SELECT id FROM "Client" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,

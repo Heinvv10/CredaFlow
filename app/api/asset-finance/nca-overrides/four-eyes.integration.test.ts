@@ -1,7 +1,8 @@
 /**
  * Real-Postgres proof of the NCA regime override's four-eyes rule (DESIGN D5,
- * goal §4.3): NCA → NON_NCA needs a second, different approver with
- * decide_asset_finance, and a move back to NCA applies at once.
+ * goal §4.3): every move to NON_NCA, a classifier result included, needs a
+ * second, different approver with decide_asset_finance; each approval is
+ * spent on one change; a move back to NCA applies at once.
  *
  * Only the session is stubbed. The role guard, the tenant resolver (by host),
  * the session-to-tenant binding, the feature flag, the routes, the audit
@@ -31,7 +32,7 @@ const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 const tenantId = `t_af_4eyes_${t}`
 const host = `af-4eyes-${t}.override-it.test`
-const ids = { adminA: "", adminB: "", officerC: "", applicationId: "", overrideId: "" }
+const ids = { adminA: "", adminB: "", officerC: "", applicationId: "", overrideId: "", evidencedApplicationId: "" }
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_FINANCE_OVERRIDE_IT=1 is required")
@@ -59,8 +60,8 @@ const postDecision = (overrideId: string, body: unknown) =>
     params: Promise.resolve({ overrideId }),
   })
 
-const regime = async () =>
-  (await database().loanApplication.findUniqueOrThrow({ where: { id: ids.applicationId } })).ncaRegime
+const regime = async (applicationId = ids.applicationId) =>
+  (await database().loanApplication.findUniqueOrThrow({ where: { id: applicationId } })).ncaRegime
 const overrideRow = (id: string) => database().ncaRegimeOverride.findUniqueOrThrow({ where: { id } })
 const auditActions = async () =>
   (await database().auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: "asc" } })).map((r) => r.action)
@@ -93,13 +94,31 @@ suite.sequential("NCA regime override four-eyes (real Postgres, real routes)", (
       },
     })
     ids.applicationId = application.id
+    // Audited R2m turnover: the classifier says NON_NCA (JURISTIC_OVER_THRESHOLD).
+    const evidenced = await prisma.businessEntity.create({
+      data: {
+        tenantId, type: "COMPANY", legalName: "TEST Synthetic Earthmoving (Pty) Ltd", registrationNumber: `2099/${t.slice(0, 6)}/08`,
+        annualTurnover: 200_000_000, financialsEvidenceIds: [`afs-${t}`],
+      },
+    })
+    ids.evidencedApplicationId = (await prisma.loanApplication.create({
+      data: {
+        tenantId, reference: `AF-4EYES-E-${t}`, entityId: evidenced.id, productId: product.id,
+        appliedAmount: 150_000_000, appliedTermDays: 1825,
+      },
+    })).id
   })
 
   afterAll(async () => {
     if (!db) return
     await db.auditLog.deleteMany({ where: { tenantId } })
-    await db.ncaRegimeOverride.deleteMany({ where: { tenantId } })
-    await db.loanApplication.deleteMany({ where: { tenantId } })
+    // Overrides are never deleted (guardNcaRegimeOverrideLifecycle); only this
+    // test's own rows are removed, with triggers off for the transaction.
+    await db.$transaction([
+      db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      db.ncaRegimeOverride.deleteMany({ where: { tenantId } }),
+      db.loanApplication.deleteMany({ where: { tenantId } }),
+    ])
     await db.businessEntity.deleteMany({ where: { tenantId } })
     await db.loanProduct.deleteMany({ where: { tenantId } })
     await db.tenantConfig.deleteMany({ where: { tenantId } })
@@ -169,6 +188,8 @@ suite.sequential("NCA regime override four-eyes (real Postgres, real routes)", (
       where: { tenantId, action: "NCA_OVERRIDE_DECIDED", entityId: ids.overrideId },
     })
     expect(decided).toMatchObject({ userId: ids.adminB, oldValue: { ncaRegime: "NCA" }, newValue: { status: "APPROVED", ncaRegime: "NON_NCA" } })
+    // The regime trigger spent the approval on this change.
+    expect((await overrideRow(ids.overrideId)).appliedAt).toBeInstanceOf(Date)
     expect(await auditActions()).toEqual([
       "NCA_CLASSIFIED",
       "NCA_OVERRIDE_REQUESTED",
@@ -190,5 +211,38 @@ suite.sequential("NCA regime override four-eyes (real Postgres, real routes)", (
     // One transaction, so one createdAt: compare as a set.
     const rows = await database().auditLog.findMany({ where: { tenantId, entityId: created.id } })
     expect(rows.map((r) => r.action).sort()).toEqual(["NCA_OVERRIDE_DECIDED", "NCA_OVERRIDE_REQUESTED"])
+  })
+
+  it("(f) the spent approval cannot be replayed: back on NCA, a direct flip to NON_NCA is refused", async () => {
+    expect(await regime()).toBe("NCA")
+    await expect(database().loanApplication.update({
+      where: { id: ids.applicationId }, data: { ncaRegime: "NON_NCA" },
+    })).rejects.toThrow(/requires an approved NcaRegimeOverride that has not been applied/)
+    expect(await regime()).toBe("NCA")
+  })
+
+  it("(g) a classifier result of NON_NCA leaves the application NCA and opens a PENDING request in the classifier's name", async () => {
+    signIn(ids.officerC, "CREDIT_OFFICER")
+    const response = await postClassify(ids.evidencedApplicationId)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({ regime: "NCA", classification: { regime: "NON_NCA", rule: "JURISTIC_OVER_THRESHOLD" } })
+    expect(await regime(ids.evidencedApplicationId)).toBe("NCA")
+    expect(await overrideRow(body.pendingOverrideId)).toMatchObject({
+      applicationId: ids.evidencedApplicationId, status: "PENDING", fromRegime: "NCA", toRegime: "NON_NCA",
+      requestedById: ids.officerC, reason: `Classifier: JURISTIC_OVER_THRESHOLD — ${body.classification.reason}`,
+    })
+
+    // Classifying again re-uses the open request.
+    const again = await postClassify(ids.evidencedApplicationId)
+    expect((await again.json()).pendingOverrideId).toBe(body.pendingOverrideId)
+    expect(await database().ncaRegimeOverride.count({ where: { applicationId: ids.evidencedApplicationId } })).toBe(1)
+
+    // A second user with credit authority approves it: the application becomes NON_NCA.
+    signIn(ids.adminB, "LOAN_ADMIN")
+    const decided = await postDecision(body.pendingOverrideId, { decision: "APPROVE", note: "AFS agree with the CIPC filing" })
+    expect(decided.status).toBe(200)
+    expect(await regime(ids.evidencedApplicationId)).toBe("NON_NCA")
+    expect(await overrideRow(body.pendingOverrideId)).toMatchObject({ status: "APPROVED", decidedById: ids.adminB })
   })
 })

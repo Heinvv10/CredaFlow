@@ -55,7 +55,9 @@ export async function POST(
       include: { client: { select: { id: true, phone: true, whatsapp: true, firstName: true, lastName: true } } },
     })
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
-    // Collections reminders address a natural person; an entity borrower is refused.
+    // A reminder messages a natural person (the Client's phone / WhatsApp):
+    // an entity borrower (asset finance) has no Client to message. Its regime
+    // is not the reason.
     if (!hasClientBorrower(loan)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }

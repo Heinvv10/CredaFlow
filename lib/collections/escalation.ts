@@ -17,6 +17,8 @@ interface EscalationResult {
 interface EscalationRule {
   minDays: number
   noteType: string
+  /** Absent: every loan. A rule outside a loan's regime is skipped, not counted as an error. */
+  appliesTo?: (ctx: EscalationContext) => boolean
   action: (ctx: EscalationContext) => Promise<string>
 }
 
@@ -24,7 +26,8 @@ interface EscalationContext {
   loanId: string
   loanRef: string
   tenantId: string
-  clientId: string
+  /** null for an entity borrower (asset finance): there is no natural person to message. */
+  clientId: string | null
   daysInArrears: number
   arrearsAmount: number
   outstandingPrincipal: number
@@ -74,19 +77,25 @@ const RULES: EscalationRule[] = [
         "Loan status changed to DEFAULTED — 60 days overdue",
         ctx.tenantId
       )
-      triggerNotification({
-        tenantId: ctx.tenantId,
-        event: "loan_overdue",
-        loanId: ctx.loanId,
-        clientId: ctx.clientId,
-        data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
-      }).catch(() => {})
+      // The notification messages a natural person (the Client's contact
+      // details); an entity borrower has no Client, so only this step is skipped.
+      if (ctx.clientId !== null) {
+        triggerNotification({
+          tenantId: ctx.tenantId,
+          event: "loan_overdue",
+          loanId: ctx.loanId,
+          clientId: ctx.clientId,
+          data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
+        }).catch(() => {})
+      }
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
     },
   },
   {
     minDays: 90,
     noteType: "escalation_legal",
+    // Section 129 is an NCA remedy: the regime decides, not the borrower type.
+    appliesTo: (ctx) => ctx.ncaRegime === "NCA",
     action: async (ctx) => {
       const eligibility = evaluateCollectionsEligibility(ctx, "SECTION_129")
       if (!eligibility.eligible) {
@@ -137,10 +146,6 @@ export async function processEscalations(): Promise<EscalationResult> {
   })
 
   for (const loan of loans) {
-    // The escalation ladder (reminders, s129, handover) is the consumer NCA
-    // process; an entity borrower (asset finance) is not escalated here.
-    const clientId = loan.clientId
-    if (clientId === null) continue
     for (const rule of RULES) {
       if (loan.daysInArrears < rule.minDays) continue
 
@@ -151,13 +156,14 @@ export async function processEscalations(): Promise<EscalationResult> {
         loanId: loan.id,
         loanRef: loan.reference,
         tenantId: tenant.id,
-        clientId,
+        clientId: loan.clientId,
         daysInArrears: loan.daysInArrears,
         arrearsAmount: loan.arrearsAmount,
         outstandingPrincipal: loan.outstandingPrincipal,
         status: loan.status,
         ncaRegime: loan.ncaRegime,
       }
+      if (rule.appliesTo && !rule.appliesTo(ctx)) continue
 
       try {
         const detail = await rule.action(ctx)

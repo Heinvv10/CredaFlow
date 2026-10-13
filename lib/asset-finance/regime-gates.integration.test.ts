@@ -100,9 +100,17 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
     const entityApp = await db.loanApplication.create({
       data: {
         tenantId, reference: `APP-RG-E-${t}`, entityId, productId, appliedAmount: 300_000, appliedTermDays: 31,
-        ncaRegime: "NON_NCA", ncaClassificationRule: "TEST_RULE", ncaClassifiedAt: new Date(), ncaClassifiedById: userId,
+        ncaRegime: "NCA", ncaClassificationRule: "TEST_RULE", ncaClassifiedAt: new Date(), ncaClassifiedById: userId,
       },
     })
+    // NON_NCA only through a second person's approval, which the flip spends.
+    const override = await db.ncaRegimeOverride.create({
+      data: { tenantId, applicationId: entityApp.id, fromRegime: "NCA", toRegime: "NON_NCA", reason: "Audited AFS on file", requestedById: userId },
+    })
+    await db.ncaRegimeOverride.update({
+      where: { id: override.id }, data: { status: "APPROVED", decidedById: `approver_${t}`, decidedAt: new Date() },
+    })
+    await db.loanApplication.update({ where: { id: entityApp.id }, data: { ncaRegime: "NON_NCA" } })
     await db.loanApplication.update({ where: { id: entityApp.id }, data: { status: "SUBMITTED" } })
     await db.loanApplication.update({
       where: { id: entityApp.id },
@@ -126,8 +134,15 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
     await db.complianceRecord.deleteMany({ where })
     await db.loanCharge.deleteMany({ where })
     await db.repaymentSchedule.deleteMany({ where })
-    // Together: a disbursed application and its loan must commit as a pair.
-    await db.$transaction([db.loan.deleteMany({ where }), db.loanApplication.deleteMany({ where })])
+    // Overrides are never deleted (guardNcaRegimeOverrideLifecycle) and a
+    // disbursed application and its loan commit as a pair: this test's own rows
+    // go with triggers off for the one transaction.
+    await db.$transaction([
+      db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      db.loan.deleteMany({ where }),
+      db.ncaRegimeOverride.deleteMany({ where }),
+      db.loanApplication.deleteMany({ where }),
+    ])
     await db.businessEntity.deleteMany({ where })
     await db.client.deleteMany({ where })
     await db.loanProduct.deleteMany({ where })

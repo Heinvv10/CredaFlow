@@ -571,3 +571,22 @@ describe("choosing which submitted row is the return", () => {
     expect(label.toLowerCase()).toContain("collectible book")
   })
 })
+
+describe("NCR return covers NCA credit agreements only", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stubQueries()
+  })
+
+  it("restricts every loan and receipt figure to NCA loans", async () => {
+    await getNcrReturnData(TENANT, QUARTER, NOW)
+    const loanWheres = [...loanAggregate.mock.calls, ...loanCount.mock.calls].map(
+      ([args]) => (args as { where: Record<string, unknown> }).where,
+    )
+    expect(loanWheres.length).toBeGreaterThan(0)
+    for (const where of loanWheres) expect(where.ncaRegime).toBe("NCA")
+    const paymentWheres = paymentAggregate.mock.calls.map(([args]) => (args as { where: Record<string, unknown> }).where)
+    expect(paymentWheres.length).toBeGreaterThan(0)
+    for (const where of paymentWheres) expect(where.loan).toEqual({ ncaRegime: "NCA" })
+  })
+})

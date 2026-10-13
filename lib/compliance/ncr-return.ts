@@ -107,6 +107,13 @@ const collectibleWhere = collectibleLoanWhere
 export const parWhere = collectibleParWhere
 
 /** Loans whose agreement was entered into during the quarter. */
+/**
+ * The NCR return reports NCA credit agreements only. A NON_NCA (juristic,
+ * asset-finance) agreement is not regulated by the NCA and is left out of
+ * every figure, matching the NCR export sheets (app/api/reports/export).
+ */
+const NCA_ONLY = { ncaRegime: "NCA" } as const
+
 export function disbursedInQuarterWhere(
   tenantId: string,
   start: Date,
@@ -162,22 +169,22 @@ export async function getNcrReturnData(
   ] = await Promise.all([
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { ncrNumber: true } }),
     prisma.loan.aggregate({
-      where: collectibleWhere(tenantId),
+      where: { ...collectibleWhere(tenantId), ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
     }),
     prisma.loan.aggregate({
-      where: disbursedInQuarterWhere(tenantId, start, end),
+      where: { ...disbursedInQuarterWhere(tenantId, start, end), ...NCA_ONLY },
       _count: true,
       _sum: { principal: true },
     }),
     prisma.payment.aggregate({
-      where: receiptsInQuarterWhere(tenantId, start, end),
+      where: { ...receiptsInQuarterWhere(tenantId, start, end), loan: NCA_ONLY },
       _count: true,
       _sum: { amount: true },
     }),
     prisma.payment.aggregate({
-      where: { ...receiptsInQuarterWhere(tenantId, start, end), allocationStatus: "ALLOCATED" },
+      where: { ...receiptsInQuarterWhere(tenantId, start, end), allocationStatus: "ALLOCATED", loan: NCA_ONLY },
       _count: true,
       _sum: { amount: true },
     }),
@@ -187,7 +194,7 @@ export async function getNcrReturnData(
       // (a recovery, a correction, a restructure) would retroactively erase the
       // loan from a CLOSED quarter's historical figure. The timestamp is the
       // event; the status is current state.
-      where: { tenantId, writeOffAt: { gte: start, lt: end } },
+      where: { tenantId, writeOffAt: { gte: start, lt: end }, ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
     }),
@@ -195,32 +202,32 @@ export async function getNcrReturnData(
       where: section129SentInPeriodWhere(tenantId, start, end),
     }),
     prisma.loan.aggregate({
-      where: parWhere(tenantId, 1),
+      where: { ...parWhere(tenantId, 1), ...NCA_ONLY },
       _count: true,
       _sum: { arrearsAmount: true, outstandingPrincipal: true },
     }),
     prisma.loan.aggregate({
-      where: parWhere(tenantId, 30),
+      where: { ...parWhere(tenantId, 30), ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
     }),
     prisma.loan.aggregate({
-      where: parWhere(tenantId, 60),
+      where: { ...parWhere(tenantId, 60), ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
     }),
     prisma.loan.aggregate({
-      where: parWhere(tenantId, 90),
+      where: { ...parWhere(tenantId, 90), ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
     }),
     prisma.loan.aggregate({
-      where: { tenantId, status: "DEFAULTED" },
+      where: { tenantId, status: "DEFAULTED", ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
     }),
     prisma.loan.count({
-      where: { ...collectibleWhere(tenantId), collectionsStage: "ATTORNEY_REFERRED" },
+      where: { ...collectibleWhere(tenantId), collectionsStage: "ATTORNEY_REFERRED", ...NCA_ONLY },
     }),
     // findMany, not findFirst. More than one SUBMITTED row can exist for a
     // quarter — submission also resolves any lingering PENDING row, and that

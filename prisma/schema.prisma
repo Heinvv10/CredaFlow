@@ -872,7 +872,9 @@ model EntityRelationship {
 }
 
 // An override of an application's NCA classification. NCA → NON_NCA needs a
-// second, different user with credit permission to approve it (DESIGN D5).
+// second, different user with credit permission to approve it (DESIGN D5);
+// a classifier result of NON_NCA is recorded as such a request. Immutable once
+// decided, never deleted (trigger guardNcaRegimeOverrideLifecycle).
 model NcaRegimeOverride {
   id            String            @id @default(cuid())
   tenantId      String
@@ -886,6 +888,9 @@ model NcaRegimeOverride {
   decidedById   String?
   decidedAt     DateTime?
   decisionNote  String?
+  // Set by trigger guardLoanApplicationNcaRegime when it spends this approval
+  // on the NCA → NON_NCA change it authorises: one approval, one change.
+  appliedAt     DateTime?
   createdAt     DateTime          @default(now())
 
   @@index([tenantId, applicationId])
@@ -942,9 +947,6 @@ model LoanApplication {
   ncaClassificationEvidenceIds  String[]             @default([])
   ncaClassifiedAt               DateTime?
   ncaClassifiedById             String?
-  // Set by trigger guardLoanApplicationNcaRegime on every regime change; an
-  // override approval only authorises NCA → NON_NCA if decided after it.
-  ncaRegimeChangedAt            DateTime?
   productId                     String
   branchId                      String?
   branch                        Branch?              @relation(fields: [branchId], references: [id])

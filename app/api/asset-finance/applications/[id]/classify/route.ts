@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { canDo, requireApiRole } from "@/lib/auth-guards"
+import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
+import { AuditAction } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { classifyApplication } from "@/lib/asset-finance/classification"
 
@@ -23,6 +26,10 @@ function parseTrusteeEvidenceIds(body: unknown): string[] | null {
 /**
  * Classify an entity application as NCA or NON_NCA (DESIGN D5) and snapshot
  * the result on it. Body: `{ trusteeEvidenceIds?: string[] }`.
+ *
+ * Any manage_asset_finance user may classify: a NON_NCA result never applies
+ * here. The application stays NCA and the response names the PENDING override
+ * (`pendingOverrideId`) a different user with decide_asset_finance must approve.
  */
 export async function POST(
   req: NextRequest,
@@ -46,51 +53,57 @@ export async function POST(
       )
     }
 
-    const result = await prisma.$transaction((tx) =>
-      classifyApplication(tx, {
+    let result: Awaited<ReturnType<typeof classifyApplication>>
+    try {
+      result = await prisma.$transaction((tx) =>
+        classifyApplication(tx, {
+          tenantId: tenant.id,
+          applicationId: id,
+          userId: guard.user.id,
+          userEmail: guard.user.email,
+          trusteeEvidenceIds,
+        }),
+      )
+    } catch (error) {
+      // The regime triggers re-check under the row lock; a write that lost a
+      // race with another decision is a conflict, not a server error.
+      if (isCheckViolation(error)) {
+        return NextResponse.json({ error: "The application changed while it was being classified; try again" }, { status: 409 })
+      }
+      throw error
+    }
+
+    const refuse = async (reason: string, status: number, error: string) => {
+      await auditRefusal({
+        action: AuditAction.NCA_CLASSIFY_REFUSED,
+        entity: "LoanApplication",
+        entityId: id,
         tenantId: tenant.id,
-        applicationId: id,
         userId: guard.user.id,
         userEmail: guard.user.email,
-        trusteeEvidenceIds,
-        mayClassifyNonNca: canDo(guard.user.role, "decide_asset_finance"),
-      }),
-    )
+        reason,
+        status,
+      })
+      return NextResponse.json({ error }, { status })
+    }
 
     switch (result.kind) {
       case "not_found":
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
       case "not_entity_borrower":
-        return NextResponse.json(
-          { error: "Only a business-entity application is classified; a natural person is always NCA" },
-          { status: 422 },
+        return refuse(
+          "not_entity_borrower",
+          422,
+          "Only a business-entity application is classified; a natural person is always NCA",
         )
       case "regime_frozen":
-        return NextResponse.json(
-          { error: `The NCA regime is frozen once an application is ${result.status}` },
-          { status: 409 },
-        )
-      case "needs_override":
-        return NextResponse.json(
-          {
-            error: "The application is NCA; moving it to NON_NCA needs an approved override",
-            needsOverride: true,
-            classification: result.classification,
-          },
-          { status: 409 },
-        )
-      case "needs_credit_authority":
-        return NextResponse.json(
-          {
-            error: "A NON_NCA classification switches off consumer protections and needs a user with credit authority",
-            classification: result.classification,
-          },
-          { status: 403 },
-        )
+        return refuse("regime_frozen", 409, `The NCA regime is frozen once an application is ${result.status}`)
       case "classified":
         return NextResponse.json({
           classification: result.classification,
           previousRegime: result.previousRegime,
+          regime: result.regime,
+          pendingOverrideId: result.pendingOverrideId,
         })
     }
   })
