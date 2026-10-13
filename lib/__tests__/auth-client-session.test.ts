@@ -217,3 +217,56 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
     expect(await authorize(asClient("a6@example.test"))).toMatchObject({ role: "CLIENT" })
   })
 })
+
+describe("jwt callback: a token is only honoured on the host of its own audience", () => {
+  const staffToken = { id: "u1", role: "LOAN_ADMIN", tenantId: "t1", tokenVersion: 0 }
+  const staffRow = { active: true, role: "LOAN_ADMIN", tenantId: "t1", tokenVersion: 0 }
+
+  beforeEach(() => {
+    mocks.userFindUnique.mockResolvedValue(staffRow)
+    mocks.clientFindFirst.mockResolvedValue({ portalPassword: HASH })
+  })
+
+  it("APP_MODE=client ends a staff token even though it is validly signed and the user is active", async () => {
+    vi.stubEnv("APP_MODE", "client")
+    expect(await jwt({ token: staffToken })).toBeNull()
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
+  })
+
+  it("APP_MODE=client ends a token with no role", async () => {
+    vi.stubEnv("APP_MODE", "client")
+    expect(await jwt({ token: { id: "x", tenantId: "t1" } })).toBeNull()
+  })
+
+  it("APP_MODE=client keeps a CLIENT token", async () => {
+    vi.stubEnv("APP_MODE", "client")
+    const token = clientToken()
+    expect(await jwt({ token })).toEqual(token)
+  })
+
+  it("APP_MODE=staff ends a CLIENT token even though its credential is current", async () => {
+    vi.stubEnv("APP_MODE", "staff")
+    expect(await jwt({ token: clientToken() })).toBeNull()
+    expect(mocks.clientFindFirst).not.toHaveBeenCalled()
+  })
+
+  it("APP_MODE=staff keeps a staff token", async () => {
+    vi.stubEnv("APP_MODE", "staff")
+    expect(await jwt({ token: staffToken })).toMatchObject({ id: "u1", role: "LOAN_ADMIN" })
+  })
+
+  it("APP_MODE unset (single host) keeps both audiences", async () => {
+    expect(await jwt({ token: staffToken })).toMatchObject({ id: "u1" })
+    expect(await jwt({ token: clientToken() })).toMatchObject({ id: "c1" })
+  })
+
+  it("refuses to issue a staff token at sign-in on the client host", async () => {
+    vi.stubEnv("APP_MODE", "client")
+    expect(await jwt({ token: {}, user: { id: "u1", role: "LOAN_ADMIN", tenantId: "t1" } })).toBeNull()
+  })
+
+  it("refuses to issue a CLIENT token at sign-in on the staff host", async () => {
+    vi.stubEnv("APP_MODE", "staff")
+    expect(await jwt({ token: {}, user: { id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: "s" } })).toBeNull()
+  })
+})

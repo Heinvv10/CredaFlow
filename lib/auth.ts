@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials"
 import { prisma } from "./prisma"
 import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "./rate-limit"
-import { authBaseConfig, type AppRole } from "./auth-config"
+import { authBaseConfig, roleRefusedOnThisHost, type AppRole } from "./auth-config"
 import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
@@ -287,6 +287,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
+      if (roleRefusedOnThisHost(user ? user.role : token.role)) return null
       // Sign-in: copy claims from the User shape returned by authorize() into the JWT.
       if (user) {
         if (!user.id) return null  // should not happen with credentials auth

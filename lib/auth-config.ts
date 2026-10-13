@@ -28,6 +28,21 @@ declare module "next-auth" {
   }
 }
 
+/**
+ * A host serves one audience (APP_MODE, as proxy.ts reads it): the client host
+ * only honours CLIENT sessions and the staff host only staff ones. Checked on
+ * every decode, not just at sign-in, so it holds even when the two hosts share
+ * a signing secret (docker-compose falls back to the shared AUTH_SECRET) and a
+ * cookie from one is replayed against the other. Read per call, not at load.
+ * A single host (APP_MODE unset or "all") honours both.
+ */
+export function roleRefusedOnThisHost(role: unknown): boolean {
+  const mode = process.env.APP_MODE
+  if (mode === "client") return role !== "CLIENT"
+  if (mode === "staff") return role === "CLIENT"
+  return false
+}
+
 // Prefer AUTH_URL (NextAuth v5) and fall back to NEXTAUTH_URL (v4 alias).
 // Phase 2 split sets per-container AUTH_URL — relying on NEXTAUTH_URL only
 // would produce non-`__Secure-` cookies on the portal container if a deploy
@@ -58,6 +73,7 @@ export const authBaseConfig = {
   providers: [],
   callbacks: {
     async jwt({ token, user }) {
+      if (roleRefusedOnThisHost(user ? user.role : token.role)) return null
       if (user) {
         if (!user.id) return null
         token.id = user.id
