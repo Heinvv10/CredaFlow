@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // Applications held in memory; groupBy honours `by` and the status / not-null
 // parts of `where`, so the route's attribution is exercised, not its query text.
 type App = { assignedToId: string | null; approvedById: string | null; status: string; approvedAmount: number }
 type User = { id: string; tenantId: string; name: string; email: string; role: string }
-const { db } = vi.hoisted(() => ({ db: { apps: [] as App[], users: [] as User[] } }))
+const { db, requireApiRole } = vi.hoisted(() => ({
+  db: { apps: [] as App[], users: [] as User[] },
+  requireApiRole: vi.fn(),
+}))
 
 function groupBy({ by, where }: { by: (keyof App)[]; where: Record<string, unknown> }) {
   const key = by[0]
@@ -20,7 +23,7 @@ function groupBy({ by, where }: { by: (keyof App)[]; where: Record<string, unkno
   }))
 }
 
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: vi.fn(async () => ({ user: { id: "u1" } })) }))
+vi.mock("@/lib/auth-guards", () => ({ requireApiRole }))
 vi.mock("@/lib/tenant", () => ({ getTenantFromRequest: vi.fn(async () => ({ id: "tenant-1" })) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -35,6 +38,12 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { GET } from "./route"
+import { prisma } from "@/lib/prisma"
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  requireApiRole.mockResolvedValue({ user: { id: "u1", tenantId: "tenant-1" } })
+})
 
 describe("GET /api/reports/advisor", () => {
   it("credits approvals to the advisor the application is assigned to, like every other column", async () => {
@@ -62,5 +71,22 @@ describe("GET /api/reports/advisor", () => {
     ]
     const { data } = await (await GET(new NextRequest("http://localhost/api/reports/advisor"))).json()
     expect(data.map((u: { id: string }) => u.id)).toEqual(["adv"])
+  })
+})
+
+describe("GET /api/reports/advisor — the caller must belong to the host's tenant", () => {
+  it("refuses staff of another lender on this lender's host: 403, nothing read", async () => {
+    requireApiRole.mockResolvedValue({ user: { id: "u2", tenantId: "tenant-2" } })
+    const res = await GET(new NextRequest("http://localhost/api/reports/advisor"))
+    expect(res.status).toBe(403)
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+    expect(prisma.loanApplication.groupBy).not.toHaveBeenCalled()
+  })
+
+  it("serves staff of the host's lender", async () => {
+    db.apps = []
+    db.users = []
+    const res = await GET(new NextRequest("http://localhost/api/reports/advisor"))
+    expect(res.status).toBe(200)
   })
 })

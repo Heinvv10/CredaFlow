@@ -69,6 +69,10 @@ export async function GET(req: NextRequest) {
   if (guard.error) return guard.error
   const tenant = await getTenantFromRequest(req)
   if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 400 })
+  // The host names the tenant; the caller must belong to it — the same rule as
+  // withTenantContext. Without it, staff of one lender on another lender's
+  // host would export that lender's book.
+  if (guard.user.tenantId !== tenant.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const type = req.nextUrl.searchParams.get("type") ?? "loans"
 

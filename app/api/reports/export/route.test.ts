@@ -95,8 +95,8 @@ describe("GET reports export — compliance evidence", () => {
     vi.clearAllMocks()
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     complianceFindManyMock.mockResolvedValue([record])
@@ -129,7 +129,7 @@ describe("GET reports export — compliance evidence", () => {
   it("denies a READONLY viewer before querying or generating the register", async () => {
     requireApiRoleMock.mockImplementation(async (role: string) => role === "LOAN_ADMIN"
       ? { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
-      : { user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+      : { user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
 
     const response = await GET(request())
 
@@ -279,8 +279,8 @@ describe("GET reports export — ncr-quarterly workbook", () => {
     vi.clearAllMocks()
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     loanFindManyMock.mockResolvedValue([loanRow])
@@ -404,8 +404,8 @@ describe("ncr-quarterly export — role gate", () => {
     // same way.
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
     expect(requireApiRoleMock.mock.calls.map(([role]) => role)).toEqual(["READONLY", "LOAN_ADMIN"])
@@ -415,7 +415,7 @@ describe("ncr-quarterly export — role gate", () => {
     requireApiRoleMock.mockImplementation(async (role: string) =>
       role === "LOAN_ADMIN"
         ? { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
-        : { user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } },
+        : { user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } },
     )
     const res = await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
     expect(res.status).toBe(403)
@@ -426,8 +426,8 @@ describe("ncr-quarterly export — role gate", () => {
   it("names the upgraded principal in the audit row, not the READONLY guard", async () => {
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
     expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -440,7 +440,7 @@ describe("ncr-quarterly export — role gate", () => {
 describe("GET reports export — loans", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
   })
 
@@ -494,7 +494,7 @@ describe("GET reports export — default charges owing beside instalment arrears
 
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     loanFindManyMock.mockResolvedValue([loan])
   })
@@ -532,7 +532,7 @@ describe("GET reports export — affordability register", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
   })
 
@@ -565,7 +565,7 @@ describe("GET reports export — fsca-annual", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     policyFindManyMock.mockImplementation(async (args: { where?: Record<string, unknown> }) =>
       POLICIES.filter((p) => Object.entries(args.where ?? {}).every(([k, v]) => p[k as keyof typeof p] === v)))
@@ -581,5 +581,34 @@ describe("GET reports export — fsca-annual", () => {
     const ids: unknown[] = []
     sheet.eachRow((row, n) => { if (n > 1) ids.push(row.getCell(col).value) })
     expect(ids).toEqual(["POL-A-1"])
+  })
+})
+
+describe("GET reports export — the caller must belong to the host's tenant", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    policyFindManyMock.mockResolvedValue([])
+    complaintFindManyMock.mockResolvedValue([])
+  })
+
+  const asStaffOf = (tenantId: string | null) =>
+    requireApiRoleMock.mockResolvedValue({ user: { id: "staff-1", tenantId, email: "staff@example.test", role: "LOAN_ADMIN" } })
+
+  it("refuses staff of another lender on this lender's host: 403, no export", async () => {
+    asStaffOf("tenant-2")
+    const res = await GET(request("type=fsca-annual"))
+    expect(res.status).toBe(403)
+    expect(res.headers.get("content-type")).not.toMatch(/spreadsheetml/)
+    expect(policyFindManyMock).not.toHaveBeenCalled()
+    expect(complaintFindManyMock).not.toHaveBeenCalled()
+  })
+
+  it("serves staff of the host's lender: 200 workbook", async () => {
+    asStaffOf("tenant-1")
+    const res = await GET(request("type=fsca-annual"))
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toMatch(/spreadsheetml/)
+    expect(policyFindManyMock).toHaveBeenCalledOnce()
   })
 })
