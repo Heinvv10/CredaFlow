@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/auth"
 import { Prisma, type UserRole } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
+import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
 
 export type { AppRole }
 
@@ -16,6 +17,8 @@ export type StaffUser = {
   tenantId: string
   /** This session's sign-in verified a TOTP code. */
   totpVerified?: boolean
+  /** The lender requires 2FA and this user has none: the enrolment page only. */
+  totpEnrolmentRequired?: boolean
   /** The User row's tokenVersion when this session was issued. */
   tokenVersion?: number
 }
@@ -40,6 +43,10 @@ export async function requireRole(allowedRoles: AppRole[]): Promise<StaffUser> {
   }
   if (!session.user.tenantId) {
     redirectStaleSession()
+  }
+
+  if (session.user.totpEnrolmentRequired === true) {
+    redirect(ENROLMENT_PAGE)
   }
 
   if (!allowedRoles.includes(session.user.role)) {
@@ -72,6 +79,10 @@ export async function requireMinRole(minRole: UserRole): Promise<StaffUser> {
     redirectStaleSession()
   }
 
+  if (session.user.totpEnrolmentRequired === true) {
+    redirect(ENROLMENT_PAGE)
+  }
+
   if (!hasMinRole(session.user.role, minRole)) {
     redirect("/")
   }
@@ -99,6 +110,9 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
   }
   if (!session.user.tenantId) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  }
+  if (session.user.totpEnrolmentRequired === true) {
+    return { error: enrolmentRequiredResponse() }
   }
   if (!hasMinRole(session.user.role, minRole)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
@@ -135,13 +149,15 @@ type StaffUserWrite = {
   targetRole: UserRole | null
   /** The role the write assigns, as received; undefined when it leaves the role alone. */
   assignedRole: unknown
+  /** The target is the caller's own row. Omitted means not: a peer is refused. */
+  self?: boolean
 }
 
 type StaffUserWriteRefusal = {
   status: 400 | 403
   error: string
   /** Machine-readable cause, as in lib/audit-refusals.ts. */
-  reason: "totp_required" | "target_outranks_caller" | "invalid_role" | "role_above_caller"
+  reason: "totp_required" | "target_outranks_caller" | "target_same_rank" | "invalid_role" | "role_above_caller"
 }
 
 /**
@@ -150,8 +166,9 @@ type StaffUserWriteRefusal = {
  *
  * - TOTP: this session's sign-in verified a code — the same claim, for the
  *   same reason, as PUT /api/settings/identity.
- * - Target ceiling: nobody edits a user whose current role outranks their own.
- *   Any field counts: a new password or email on a senior account takes it over.
+ * - Target ceiling: nobody edits a user whose current role outranks their own,
+ *   or equals it, their own row excepted (`self`). Any field counts: a new
+ *   password or email on a senior or peer account takes it over.
  * - Assigned ceiling: nobody assigns a role above their own. A value that is
  *   not a role in ROLE_HIERARCHY is refused, never written.
  *
@@ -176,6 +193,9 @@ export function staffUserWriteRefusal(
     if (targetRank < 0 || targetRank > callerRank) {
       return { status: 403, reason: "target_outranks_caller", error: "You cannot modify a user whose role is above your own" }
     }
+    if (targetRank === callerRank && write.self !== true) {
+      return { status: 403, reason: "target_same_rank", error: "You cannot modify a user whose role is the same as your own" }
+    }
   }
   if (write.assignedRole !== undefined) {
     const assignedRank = ROLE_HIERARCHY.indexOf(write.assignedRole as UserRole)
@@ -192,7 +212,7 @@ export function staffUserWriteRefusal(
  * user calls this before its first write (and before any probe whose answer
  * would tell a refused caller something).
  *
- * A refusal by either ceiling is an escalation attempt, and is audited: the
+ * A refusal by any ceiling is an escalation attempt, and is audited: the
  * trail must show who reached above their role, not only who was allowed to.
  * The write is strict: if the row cannot be written this throws, so the
  * request fails (500) rather than refusing with no record. Either way nothing
@@ -203,9 +223,9 @@ export async function refuseStaffUserWrite(
   write: StaffUserWrite & { tenantId: string; targetId?: string },
   db?: Pick<typeof prisma, "auditLog">,
 ): Promise<NextResponse | null> {
-  const refusal = staffUserWriteRefusal(caller, write)
+  const refusal = staffUserWriteRefusal(caller, { ...write, self: write.targetId !== undefined && write.targetId === caller.id })
   if (!refusal) return null
-  if (refusal.reason === "target_outranks_caller" || refusal.reason === "role_above_caller") {
+  if (refusal.reason === "target_outranks_caller" || refusal.reason === "target_same_rank" || refusal.reason === "role_above_caller") {
     await logAuditStrict({
       tenantId: write.tenantId,
       userId: caller.id,
@@ -356,6 +376,9 @@ export async function requireOwnerOrStaff(
     }
   }
 
+  if (session.user.totpEnrolmentRequired === true) {
+    return { error: enrolmentRequiredResponse() }
+  }
   if (!hasMinRole(session.user.role, minStaffRole)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }

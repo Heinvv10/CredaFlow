@@ -6,6 +6,7 @@ import { isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
 import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
+import { enrolmentGate, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -242,6 +243,15 @@ function route(req: NextAuthRequest): Response {
   // Forward tenant slug to Server Components via request header
   const requestHeaders = buildTenantHeaders(req, tenantSlug)
 
+  // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts).
+  // A server action is a POST to any page URL and its id is not tied to the
+  // page, so none runs for such a session, public path or not.
+  const mustEnrolTotp =
+    isLoggedIn && req.auth?.user?.role !== "CLIENT" && req.auth?.user?.totpEnrolmentRequired === true
+  if (mustEnrolTotp && req.headers.has("next-action")) {
+    return enrolmentRequiredResponse()
+  }
+
   if (isPublicRoute) {
     if (isLoggedIn && (isLoginPage || isRegisterPage || isForgotPasswordPage)) {
       return NextResponse.redirect(new URL("/", req.url))
@@ -272,6 +282,11 @@ function route(req: NextAuthRequest): Response {
       loginUrl.searchParams.set("callbackUrl", path)
     }
     return NextResponse.redirect(loginUrl)
+  }
+
+  if (mustEnrolTotp) {
+    const refusal = enrolmentGate(req)
+    if (refusal) return refusal
   }
 
   const role = req.auth?.user?.role as string | undefined
