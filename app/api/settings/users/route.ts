@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
           email: true,
           role: true,
           active: true,
+          // Whether 2FA is enrolled, for the Reset 2FA button; never the secret.
+          totpEnabled: true,
           phone: true,
           lastLoginAt: true,
           branchId: true,
