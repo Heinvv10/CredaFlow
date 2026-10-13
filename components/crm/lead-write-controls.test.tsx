@@ -107,6 +107,20 @@ describe("lead detail — write controls follow the role", () => {
     expect(html).toContain("Move Stage")
     expect(html).toContain("+ Add Activity")
   })
+
+  // The callback and lost routes both require CREDIT_OFFICER.
+  it("READONLY is not offered Schedule Callback or Mark as Lost", () => {
+    const html = detail(false)
+    expect(html).toContain("Actions")
+    expect(html).not.toContain("Schedule Callback")
+    expect(html).not.toContain("Mark as Lost")
+  })
+
+  it("CREDIT_OFFICER is offered Schedule Callback and Mark as Lost", () => {
+    const html = detail(true)
+    expect(html).toContain("Schedule Callback")
+    expect(html).toContain("Mark as Lost")
+  })
 })
 
 describe("notes tab composer", () => {

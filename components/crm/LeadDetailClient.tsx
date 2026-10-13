@@ -403,7 +403,7 @@ export function LeadDetailClient({
                   fullWidth
                 />
               )}
-              {!conversionLocked && lead.status !== "LOST" && (
+              {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (
                 <button
                   onClick={() => setShowCallbackModal(true)}
                   className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors"
@@ -441,7 +441,7 @@ export function LeadDetailClient({
                   </Link>
                 </div>
               )}
-              {!conversionLocked && lead.status !== "LOST" && (
+              {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (
                 <button
                   onClick={() => setShowLostModal(true)}
                   className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
