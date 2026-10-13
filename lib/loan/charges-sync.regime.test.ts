@@ -39,6 +39,7 @@ function makeLoan(ncaRegime: "NCA" | "NON_NCA") {
       nonNcaDefaultInterestMargin: new Prisma.Decimal("0.09"), nonNcaCollectionFeeCents: 99_000,
     },
     application: { affordabilityResult: null },
+    contractRates: [] as Array<{ effectiveDate: Date; resultingRate: Prisma.Decimal }>,
     tenant: {
       config: {
         defaultChargesEnabled: true, defaultAdminChargeCents: 8_200, defaultAdminPostageCents: 1_500,
@@ -106,6 +107,24 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
       { type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 3_210 },
     ])
     expect(result?.chargesAccrued).toBe(28_210)
+  })
+
+  it("a NON_NCA replay follows the loan's effective-dated ContractRate history", async () => {
+    const loan = makeLoan("NON_NCA")
+    loan.nonNcaDefaultInterestMargin = new Prisma.Decimal(0)
+    loan.nonNcaCollectionFeeCents = null
+    loan.contractRates = [
+      { effectiveDate: d("2026-01-01"), resultingRate: new Prisma.Decimal("0.12") },
+      { effectiveDate: d("2026-09-06"), resultingRate: new Prisma.Decimal("0.24") },
+    ]
+    const tx = makeTx(loan)
+    const result = await syncLoanCharges(tx as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
+    expect(engines.nonNca.mock.calls.at(-1)?.[0].contractRateHistory).toEqual([
+      { effectiveDate: d("2026-01-01"), annualRate: 0.12 },
+      { effectiveDate: d("2026-09-06"), annualRate: 0.24 },
+    ])
+    // Sep 2..5 at 12%, Sep 6..10 at 24%, on R2,100 overdue.
+    expect(result?.chargesAccrued).toBe(967)
   })
 
   it("a NON_NCA loan whose accrueFrom is after the missed due date: no collection fee, interest only from accrueFrom", async () => {

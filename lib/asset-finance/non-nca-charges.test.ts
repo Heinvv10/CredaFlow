@@ -81,6 +81,23 @@ describe("computeNonNcaCharges", () => {
     ])
   })
 
+  it("uses the contract rate effective on each replayed day", () => {
+    const result = computeNonNcaCharges({
+      ...base,
+      schedule: [instalment("2026-01-31")],
+      asOf: d("2026-02-11"),
+      defaultInterestMargin: 0,
+      collectionFeeCents: null,
+      contractRateHistory: [
+        { effectiveDate: d("2026-01-01"), annualRate: 0.12 },
+        { effectiveDate: d("2026-02-06"), annualRate: 0.24 },
+      ],
+    })
+    // Feb 1..5 at 12%, then Feb 6..10 at 24%:
+    // 5 x 110000 x 0.12/365 + 5 x 110000 x 0.24/365 = 542.47.
+    expect(result.interestAccrued).toBe(542)
+  })
+
   it("an instalment paid the day after its due date carries no fee and no interest", () => {
     const result = computeNonNcaCharges({
       ...base,

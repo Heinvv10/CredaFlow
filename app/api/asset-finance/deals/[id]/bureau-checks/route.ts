@@ -70,25 +70,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const startedAt = new Date()
     const recent = await recentlyCheckedClientIds(tenant.id, deal.applicationId, subjects.map((s) => s.clientId), startedAt)
     const results: Array<{ clientId: string; role: string; outcome: DealBureauOutcome }> = []
-    for (const subject of subjects) {
-      const outcome = recent.has(subject.clientId) && !force
-        ? "recent" as const
-        : await runDealBureauCheck(tenant.id, deal.applicationId, subject, { force, startedAt })
-      results.push({ clientId: subject.clientId, role: subject.role, outcome })
+    const auditRun = (interruptedAtClientId?: string) => {
+      const rechecked = force
+        ? results.map((result) => result.clientId).filter((clientId) => recent.has(clientId))
+        : []
+      return logAuditStrict({
+        tenantId: tenant.id,
+        userId: guard.user.id,
+        userEmail: guard.user.email,
+        action: force ? AuditAction.ASSET_DEAL_BUREAU_FORCED_RERUN : AuditAction.ASSET_DEAL_BUREAU_CHECKED,
+        entity: "AssetFinanceDeal",
+        entityId: deal.id,
+        newValue: {
+          applicationId: deal.applicationId, provider: "experian", results,
+          ...(interruptedAtClientId ? { interrupted: true, interruptedAtClientId } : {}),
+          ...(force ? { forced: true, recheckedWithinDays: RECHECK_WINDOW_DAYS, recheckedClientIds: [...new Set(rechecked)] } : {}),
+        },
+      })
     }
-    const rechecked = force ? subjects.map((s) => s.clientId).filter((clientId) => recent.has(clientId)) : []
-    await logAuditStrict({
-      tenantId: tenant.id,
-      userId: guard.user.id,
-      userEmail: guard.user.email,
-      action: force ? AuditAction.ASSET_DEAL_BUREAU_FORCED_RERUN : AuditAction.ASSET_DEAL_BUREAU_CHECKED,
-      entity: "AssetFinanceDeal",
-      entityId: deal.id,
-      newValue: {
-        applicationId: deal.applicationId, provider: "experian", results,
-        ...(force ? { forced: true, recheckedWithinDays: RECHECK_WINDOW_DAYS, recheckedClientIds: [...new Set(rechecked)] } : {}),
-      },
-    })
+    for (const subject of subjects) {
+      try {
+        const outcome = recent.has(subject.clientId) && !force
+          ? "recent" as const
+          : await runDealBureauCheck(tenant.id, deal.applicationId, subject, { force, startedAt })
+        results.push({ clientId: subject.clientId, role: subject.role, outcome })
+      } catch (error) {
+        await auditRun(subject.clientId)
+        throw error
+      }
+    }
+    await auditRun()
     return NextResponse.json({ results, deal: await loadDealDetail(tenant.id, deal.id) })
   })
 }

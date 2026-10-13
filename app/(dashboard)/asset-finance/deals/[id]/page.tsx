@@ -15,6 +15,7 @@ import { DEAL_STATUS_TONE, dealStatusLabel, ratePercent } from "@/lib/asset-fina
 import { BureauTable, ClassificationPanel, DealSummaryPanel } from "./DealSummaryPanels"
 import { CreditMemoForm } from "./CreditMemoForm"
 import { DealActionButton } from "./DealActionButton"
+import { BureauChecksButton } from "./BureauChecksButton"
 import { DecidePanel } from "./DecidePanel"
 import { OverrideDecision } from "./OverrideDecision"
 import { NcaOverrideRequest } from "./NcaOverrideRequest"
@@ -92,7 +93,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         <DataPanel
           title="Director and trustee bureau checks"
           actions={canManage && OPEN_FOR_CHECKS.includes(deal.status)
-            ? <DealActionButton url={`/api/asset-finance/deals/${id}/bureau-checks`} label="Run bureau checks" busyLabel="Checking…" variant="outline" />
+            ? <BureauChecksButton dealId={id} />
             : undefined}
         >
           <BureauTable deal={deal} />

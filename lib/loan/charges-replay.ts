@@ -159,6 +159,10 @@ export async function loadChargesReplay(
       nonNcaCollectionFeeCents: true,
       product: { select: { code: true, monthlyServiceFee: true } },
       application: { select: { affordabilityResult: true } },
+      contractRates: {
+        orderBy: { effectiveDate: "asc" },
+        select: { effectiveDate: true, resultingRate: true },
+      },
       tenant: {
         select: {
           config: {
@@ -257,6 +261,10 @@ export async function loadChargesReplay(
         ...common,
         defaultInterestMargin: margin === null ? null : margin.toNumber(),
         collectionFeeCents: terms.nonNcaCollectionFeeCents,
+        contractRateHistory: loan.contractRates.map((rate) => ({
+          effectiveDate: rate.effectiveDate,
+          annualRate: rate.resultingRate.toNumber(),
+        })),
       })
     }
     return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })

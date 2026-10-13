@@ -120,4 +120,24 @@ describe("POST …/deals/[id]/bureau-checks: 30-day re-check window", () => {
       expect(m.runCheck).toHaveBeenCalledTimes(1)
     }
   })
+
+  it("audits completed enquiries when a later subject throws", async () => {
+    const providerError = new Error("provider result could not be stored")
+    m.subjects.mockResolvedValue([
+      { clientId: "c-first", role: "DIRECTOR", trusteeKind: null },
+      { clientId: "c-later", role: "TRUSTEE", trusteeKind: "NATURAL" },
+    ])
+    m.checkFindMany.mockResolvedValue([])
+    m.runCheck.mockResolvedValueOnce("stored").mockRejectedValueOnce(providerError)
+
+    await expect(run()).rejects.toBe(providerError)
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ASSET_DEAL_BUREAU_CHECKED",
+      newValue: expect.objectContaining({
+        interrupted: true,
+        interruptedAtClientId: "c-later",
+        results: [{ clientId: "c-first", role: "DIRECTOR", outcome: "stored" }],
+      }),
+    }))
+  })
 })
