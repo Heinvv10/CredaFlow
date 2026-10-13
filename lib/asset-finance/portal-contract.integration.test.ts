@@ -166,9 +166,11 @@ suite.sequential("portal contract view (real Postgres, booked deal, real routes)
     expect(await loadPortalContract(fx.tenantId, fx.unevidenced, fx.loanId, people.otherDirector)).toBeNull()
   })
 
-  it("the statement gate admits the director (the entity renderer has not landed: 503, nothing logged)", async () => {
+  it("serves the director the entity statement and logs the read against the loan", async () => {
     asClient(fx.director)
-    expect((await call.statement()).status).toBe(503)
-    expect(await database().documentAccessLog.count({ where: { documentId: fx.loanId } })).toBe(0)
+    const res = await call.statement()
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("application/pdf")
+    expect(await database().documentAccessLog.count({ where: { documentId: fx.loanId } })).toBe(1)
   })
 })

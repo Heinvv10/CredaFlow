@@ -93,6 +93,9 @@ vi.mock("@/lib/portal/loan-charges", async (importOriginal) => ({
   portalLoanCharges: async () => ({ outstanding: 0, lines: [], settlementAmount: null }),
 }))
 vi.mock("@/lib/vat/tax-invoice-pdf", () => ({ generateTaxInvoicePdf: async () => PDF }))
+vi.mock("@/lib/asset-finance/documents/statement-pdf", () => ({
+  renderEntityStatementPdf: async () => ({ kind: "pdf", bytes: PDF, filename: "statement.pdf" }),
+}))
 vi.mock("@/lib/storage", () => ({ readFile: m.readFile, saveFile: vi.fn(), deleteFile: vi.fn() }))
 vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: m.auditRefusal }))
 
@@ -186,8 +189,12 @@ describe("portal contract routes", () => {
     expect(m.accessLogCreate).toHaveBeenCalledTimes(2)
   })
 
-  it("statement: the gate holds; until the entity renderer lands it serves nothing and logs nothing", async () => {
-    expect((await call.statement()).status).toBe(503)
-    expect(m.accessLogCreate).not.toHaveBeenCalled()
+  it("statement: an authorised client gets the PDF, and the read is logged against the loan first", async () => {
+    const res = await call.statement()
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("application/pdf")
+    expect(m.accessLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ accessorType: "client", accessorId: "director", action: "view" }),
+    })
   })
 })
