@@ -76,6 +76,8 @@ export interface ReadinessBureauCheck {
   underDebtReview: boolean
   hasJudgement: boolean
   hasNotice: boolean
+  /** Carries the `simulated` marker the bureau gate reads. */
+  obligations?: unknown
 }
 
 /** The client columns the payout bank tuple is built from. */

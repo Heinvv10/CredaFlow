@@ -67,6 +67,9 @@ export function CreditBureauCheckPanel({ display, bureauDebt, selfDeclaredDebt }
   return (
     <div className="space-y-4">
       {display.override && <BureauOverrideNotice override={display.override} />}
+      {display.simulated && (
+        <p className="text-xs font-semibold text-[var(--cf-warning)]">Simulated result — not a real bureau check</p>
+      )}
       {display.source === "APPROVAL_SNAPSHOT" && (
         <p className="text-xs font-medium text-[var(--cf-text-muted)]">Evidence source: immutable approval snapshot</p>
       )}

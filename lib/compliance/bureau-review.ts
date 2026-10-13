@@ -148,8 +148,9 @@ export async function runBureauReviewCheck(
       }
     }
 
-    const obligations = result.totalMonthlyObligations != null || scoreDropAlert
+    const obligations = result.totalMonthlyObligations != null || scoreDropAlert || result.simulated
       ? {
+          ...(result.simulated ? { simulated: true } : {}),
           ...(result.totalMonthlyObligations != null
             ? { totalMonthly: result.totalMonthlyObligations }
             : {}),
@@ -199,6 +200,7 @@ export async function runBureauReviewCheck(
               deceased: result.deceased ?? false,
               error: result.error ?? null,
               errorClass: result.errorClass ?? null,
+              ...(result.simulated ? { simulated: true } : {}),
             },
             completedAt: result.ok ? new Date() : null,
           },

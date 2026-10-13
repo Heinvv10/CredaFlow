@@ -24,6 +24,8 @@ export type BureauDisplay =
       riskGrade: string | null
       adverseInfo: string[]
       unscoreable: boolean
+      /** Set only when the stored result came from a simulated provider response. */
+      simulated?: true
       checkedAt: Date
       override: BureauOverrideDisplay | null
     }
@@ -137,6 +139,7 @@ export function resolveBureauDisplay(args: {
       ? data.adverseInfo.filter((item): item is string => typeof item === "string")
       : [],
     unscoreable: data.unscoreable === true,
+    ...(data.simulated === true ? { simulated: true as const } : {}),
     checkedAt: record.completedAt ?? record.createdAt,
     override: null,
   }

@@ -151,4 +151,25 @@ describe("bureau review generation binding", () => {
       }),
     })
   })
+
+  it("marks a simulated provider response in both stored records", async () => {
+    getCreditReportMock.mockResolvedValue({ ok: true, simulated: true, score: 645, adverseInfo: [] })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    expect(bureauCheckCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ obligations: expect.objectContaining({ simulated: true }) }),
+    })
+    expect(complianceRecordCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ data: expect.objectContaining({ simulated: true }) }),
+    })
+  })
+
+  it("does not mark a genuine provider response as simulated", async () => {
+    await runBureauReviewCheck(request)
+
+    const check = bureauCheckCreateMock.mock.calls[0][0].data
+    expect(check.obligations).not.toHaveProperty("simulated")
+    expect(complianceRecordCreateMock.mock.calls[0][0].data.data).not.toHaveProperty("simulated")
+  })
 })

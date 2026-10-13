@@ -874,6 +874,7 @@ export async function POST(
               underDebtReview: bureauCheck.underDebtReview,
               hasJudgement: bureauCheck.hasJudgement,
               hasNotice: bureauCheck.hasNotice,
+              obligations: bureauCheck.obligations,
             },
             { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
           )

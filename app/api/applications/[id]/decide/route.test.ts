@@ -26,6 +26,7 @@ const verifyPasqDocumentArtifactMock = vi.fn()
 const runBureauReviewCheckMock = vi.fn()
 const readCompositeKycStateMock = vi.fn()
 const nonOverridableBlockMock = vi.fn()
+const evaluateBureauGateMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 vi.mock("@/lib/tenant", () => ({
@@ -52,7 +53,7 @@ vi.mock("@/lib/notifications", () => ({ triggerNotification: (a: unknown) => tri
 vi.mock("@/lib/kyc", () => ({ CORE_DOC_TYPES: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] }))
 vi.mock("@/lib/compliance/bureau", () => ({ bureauStalenessCutoff: () => new Date("2020-01-01") }))
 vi.mock("@/lib/decision/bureau-gate", () => ({
-  evaluateBureauGate: () => ({ blocked: false }),
+  evaluateBureauGate: (...args: unknown[]) => evaluateBureauGateMock(...args),
   nonOverridableBlock: (...args: unknown[]) => nonOverridableBlockMock(...args),
 }))
 vi.mock("@/lib/decision/affordability-gate", () => ({
@@ -349,6 +350,7 @@ beforeEach(() => {
   triggerNotificationMock.mockResolvedValue(undefined)
   runBureauReviewCheckMock.mockResolvedValue("stored")
   nonOverridableBlockMock.mockReturnValue({ blocked: false })
+  evaluateBureauGateMock.mockReturnValue({ blocked: false })
   readCompositeKycStateMock.mockResolvedValue({
     ok: true,
     okForOrigination: true,
@@ -406,6 +408,19 @@ beforeEach(() => {
     // whether the stored election has actually gone stale.
     insuranceProduct: { findFirst: (a: unknown) => txCreditLifeOfferFindFirstMock(a) },
   }))
+})
+
+it("hands the stored bureau obligations (simulated marker) to the bureau gate", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  const obligations = { simulated: true }
+  creditBureauCheckFindFirstMock.mockResolvedValue({ ...passingBureauCheck, obligations })
+
+  await POST(makeReq({ action: "approve", reason: "Reviewed" }), ctx)
+
+  expect(evaluateBureauGateMock).toHaveBeenCalledWith(
+    expect.objectContaining({ obligations }),
+    expect.anything(),
+  )
 })
 
 it("requires EFT or debit order before approving an application", async () => {

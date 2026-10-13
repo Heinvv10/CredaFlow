@@ -163,3 +163,32 @@ describe("CreditBureauCheckPanel immutable approval evidence", () => {
     expect(html).not.toContain(">799<")
   })
 })
+
+describe("CreditBureauCheckPanel simulated result", () => {
+  const record = (data: Record<string, unknown>) => ({
+    status: "COMPLETED",
+    data: { provider: "experian", score: 645, ...data },
+    createdAt: new Date("2026-07-18T08:30:00.000Z"),
+    completedAt: new Date("2026-07-18T08:30:00.000Z"),
+  })
+  const render = (data: Record<string, unknown>) =>
+    renderToStaticMarkup(
+      <CreditBureauCheckPanel
+        display={resolveBureauDisplay({
+          applicationStatus: "UNDER_REVIEW",
+          approvalSnapshot: null,
+          complianceRecord: record(data),
+        })}
+        bureauDebt={null}
+        selfDeclaredDebt={0}
+      />,
+    )
+
+  it("labels a simulated check as not a real bureau result", () => {
+    expect(render({ simulated: true })).toContain("Simulated result \u2014 not a real bureau check")
+  })
+
+  it("does not label a genuine check", () => {
+    expect(render({})).not.toContain("Simulated")
+  })
+})

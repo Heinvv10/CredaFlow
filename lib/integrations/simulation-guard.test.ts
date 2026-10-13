@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import { assertSimulationAllowed, isDeployedBuild } from "./simulation-guard"
+import { assertSimulationAllowed, isDeployedBuild, isSimulationPermitted } from "./simulation-guard"
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -107,5 +107,25 @@ describe("assertSimulationAllowed", () => {
   it("treats staging as deployed — NODE_ENV is 'production' there too", () => {
     vi.stubEnv("NODE_ENV", "production")
     expect(isDeployedBuild()).toBe(true)
+  })
+})
+
+describe("isSimulationPermitted", () => {
+  it("is true off a deployed build", () => {
+    vi.stubEnv("NODE_ENV", "development")
+    expect(isSimulationPermitted("experian")).toBe(true)
+  })
+
+  it("is false on a deployed build with no declaration", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    expect(isSimulationPermitted("experian")).toBe(false)
+  })
+
+  it("is true on a deployed build only for a declared sandbox", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("EXPERIAN_ENV", "UAT")
+    expect(isSimulationPermitted("experian")).toBe(true)
+    vi.stubEnv("EXPERIAN_ENV", "PRODUCTION")
+    expect(isSimulationPermitted("experian")).toBe(false)
   })
 })

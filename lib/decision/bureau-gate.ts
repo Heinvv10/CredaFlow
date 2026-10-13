@@ -1,4 +1,5 @@
 import { SIGMA_SCORE_MIN } from "@/lib/integrations/experian"
+import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 
 export interface BureauGateCheck {
   score: number | null
@@ -8,6 +9,17 @@ export interface BureauGateCheck {
   underDebtReview: boolean
   hasJudgement: boolean
   hasNotice: boolean
+  /** The stored `CreditBureauCheck.obligations` JSON, which carries the `simulated` marker. */
+  obligations?: unknown
+}
+
+/** True when the stored check came from a simulated (dry-run) provider response. */
+export function isSimulatedBureauCheck(obligations: unknown): boolean {
+  return (
+    typeof obligations === "object" &&
+    obligations !== null &&
+    (obligations as { simulated?: unknown }).simulated === true
+  )
 }
 
 /** Pure bureau approval gate. Hard-stops first, then the score gate. An
@@ -17,6 +29,9 @@ export function evaluateBureauGate(
   check: BureauGateCheck,
   cfg: { bureauMinScore: number; bureauBlockAdverse: boolean },
 ): { blocked: boolean; reason?: string; requiresCalibration?: boolean } {
+  if (isSimulatedBureauCheck(check.obligations) && !isSimulationPermitted("experian")) {
+    return { blocked: true, reason: "The bureau check is a simulated result and is not valid evidence in this environment." }
+  }
   if (check.deceased) return { blocked: true, reason: "Consumer is marked deceased at the bureau." }
   if (check.underDebtReview) return { blocked: true, reason: "Consumer is under debt review (NCA s.88)." }
   if (check.hasJudgement) return { blocked: true, reason: "Consumer has one or more court judgements." }

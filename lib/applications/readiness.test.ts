@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createHash } from "node:crypto"
 import { computeReadiness, type ReadinessInput } from "@/lib/applications/readiness"
 import { readinessReadyLabel, readinessSummary } from "@/lib/applications/readiness-view"
@@ -460,6 +460,29 @@ describe("computeReadiness", () => {
         }),
       )
       expect(result?.blockers).toContain("Bureau risk gate")
+    })
+
+    it("blocks a simulated bureau check where this deployment forbids simulation", () => {
+      vi.stubEnv("NODE_ENV", "production")
+      try {
+        const result = computeReadiness(
+          input({
+            bureau: {
+              score: 700,
+              unscoreable: false,
+              hasAdverse: false,
+              deceased: false,
+              underDebtReview: false,
+              hasJudgement: false,
+              hasNotice: false,
+              obligations: { simulated: true },
+            },
+          }),
+        )
+        expect(result?.blockers).toContain("Bureau risk gate")
+      } finally {
+        vi.unstubAllEnvs()
+      }
     })
 
     it("reports deceased as its own non-overridable blocker", () => {
