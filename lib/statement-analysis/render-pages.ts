@@ -15,15 +15,36 @@ import {
   withPrivateTempDir,
 } from "@/lib/vlm-extract"
 
+/**
+ * cropBoxPt's geometry probe, run asynchronously: the same pdfinfo call under
+ * the same limits, its output handed to cropBoxPt to parse, so a slow or
+ * hostile file never blocks the event loop.
+ */
+async function pageBox(input: string, execFile: typeof import("child_process").execFile) {
+  const out = await new Promise<string>((resolve, reject) => {
+    execFile(
+      "sh",
+      ["-c", `ulimit -v ${MAX_RENDER_MEMORY_KB}; exec pdfinfo -box "$1"`, "sh", input],
+      { timeout: 15_000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
+    )
+  })
+  return boxFrom(out)
+}
+
+function boxFrom(pdfinfoOutput: string) {
+  return cropBoxPt("", (() => pdfinfoOutput) as unknown as typeof import("child_process").execFileSync)
+}
+
 export async function renderPdfPages(bytes: Buffer, pageCount: number): Promise<Buffer[]> {
-  const { execFile, execFileSync } = await import("child_process")
+  const { execFile } = await import("child_process")
   const { readFileSync, writeFileSync } = await import("fs")
   const { join } = await import("path")
   return withPrivateTempDir(async (dir) => {
     const input = join(dir, "in.pdf")
     writeFileSync(input, bytes, { mode: 0o600 })
     // Page 1's box sizes every page: statements are printed on one paper size.
-    const { widthPt, heightPt, quarterTurned } = cropBoxPt(input, execFileSync)
+    const { widthPt, heightPt, quarterTurned } = await pageBox(input, execFile)
     const target = renderTargetPx(widthPt, heightPt)
     const expected = quarterTurned ? { widthPx: target.heightPx, heightPx: target.widthPx } : target
     const out: Buffer[] = []

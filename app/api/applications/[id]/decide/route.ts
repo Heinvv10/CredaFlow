@@ -1131,8 +1131,10 @@ export async function POST(
             // Evidence that arrived after the recompute read it has not been
             // checked: new or deleted statements and payslips, new statement
             // reads, or any payslip whose extraction changed since (started,
-            // finished, re-run). The client evidence lock held here is the one
-            // extraction takes, so none can land between this and the write.
+            // finished, re-run). Payslip extraction takes the client evidence
+            // lock held here, so it cannot change between this and the write;
+            // an upload or a statement read does not take it, so one landing
+            // in that window (milliseconds) is not seen by this approval.
             const clientId = locked.application.client.id
             const asOf = checks?.evidenceAsOf ?? new Date(0)
             const newEvidence = await tx.clientDocument.count({

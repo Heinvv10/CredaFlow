@@ -50,6 +50,15 @@ describe("GET /api/applications/[id]/checks", () => {
     expect(logAccessMock).not.toHaveBeenCalled()
   })
 
+  it("refuses a cross-site request before it writes anything", async () => {
+    const req = new NextRequest("https://acme.example/api/applications/app-1/checks", { headers: { "sec-fetch-site": "cross-site" } })
+    expect((await GET(req, ctx)).status).toBe(403)
+    expect(requireApiRoleMock).not.toHaveBeenCalled()
+    expect(recomputeMock).not.toHaveBeenCalled()
+    const sameOrigin = new NextRequest("https://acme.example/api/applications/app-1/checks", { headers: { "sec-fetch-site": "same-origin" } })
+    expect((await GET(sameOrigin, ctx)).status).toBe(200)
+  })
+
   it("passes through a role refusal without recomputing", async () => {
     requireApiRoleMock.mockResolvedValue({ error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) })
     expect((await get()).status).toBe(401)

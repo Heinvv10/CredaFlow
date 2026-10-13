@@ -5,7 +5,7 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { analyseStatement } from "./analyse"
-import { ensureStatementAnalysis, readStatementInBackground } from "./persist"
+import { ensureStatementAnalysis, MAX_WAITING_PER_TENANT, readStatementInBackground } from "./persist"
 import { VlmUnavailableError } from "./vlm-reader"
 
 vi.mock("@/lib/prisma", () => ({
@@ -250,6 +250,18 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
     expect(analyse).not.toHaveBeenCalled()
   })
 
+  it("persistedOnly runs on the caller's transaction, never a second pool connection", async () => {
+    const tx = {
+      clientDocument: { findFirst: vi.fn().mockResolvedValue(doc({ contentSha256: BYTES_SHA })) },
+      statementAnalysis: { findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(stored([], "READ")) },
+    }
+    expect(await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: false, persistedOnly: true, db: tx as never }))
+      .toMatchObject({ state: "read" })
+    expect(tx.statementAnalysis.findFirst).toHaveBeenCalledTimes(2)
+    expect(docFind).not.toHaveBeenCalled()
+    expect(saFind).not.toHaveBeenCalled()
+  })
+
   it("retryFailed discards a READ_FAILED read and reads again; anything else stays cached", async () => {
     docFind.mockResolvedValue(doc({ contentSha256: BYTES_SHA }) as never)
     saFind.mockResolvedValueOnce(stored(["READ_FAILED"]) as never)
@@ -309,6 +321,26 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
     readStatementInBackground(TENANT, "doc-callbacks", { onRead: next })
     await vi.waitFor(() => expect(next).toHaveBeenCalledTimes(1))
     expect(failing).toHaveBeenCalledTimes(1)
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c[0])
+    expect(errors).toEqual(["[statement-analysis] after-read callback failed:"])
+  })
+
+  it("turns away a tenant's reads past its cap, and not another tenant's", async () => {
+    let release: (v: null) => void = () => undefined
+    docFind.mockReturnValueOnce(new Promise((res) => { release = res }) as never)
+    docFind.mockResolvedValue(null)
+    readStatementInBackground("tenant-busy", "busy-running")
+    await vi.waitFor(() => expect(docFind).toHaveBeenCalledTimes(1))
+    for (let i = 0; i <= MAX_WAITING_PER_TENANT; i++) readStatementInBackground("tenant-busy", `busy-${i}`)
+    readStatementInBackground("tenant-quiet", "quiet-1")
+    expect(console.warn).toHaveBeenCalledWith("[statement-analysis] read not queued: tenant queue full", { documentId: `busy-${MAX_WAITING_PER_TENANT}` })
+    release(null)
+    await vi.waitFor(() => expect(docFind).toHaveBeenCalledTimes(MAX_WAITING_PER_TENANT + 2))
+    await new Promise((r) => setTimeout(r, 20))
+    const read = docFind.mock.calls.map((c) => (c[0] as { where: { id: string } }).where.id)
+    expect(read).toContain("quiet-1")
+    expect(read).not.toContain(`busy-${MAX_WAITING_PER_TENANT}`)
+    expect(read).toHaveLength(MAX_WAITING_PER_TENANT + 2)
   })
 })
 

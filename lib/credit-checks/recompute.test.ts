@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+const tx = {
+  $queryRaw: vi.fn(async () => [{ status: "UNDER_REVIEW" }]),
+  applicationCheckFlag: { findMany: vi.fn(async () => []) },
+}
+vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) } }))
 vi.mock("./load-facts", () => ({ loadApplicationFacts: vi.fn() }))
 
 import type { ApplicationCheckFlag } from "@prisma/client"
-import { maySupersede } from "./recompute"
+import { loadApplicationFacts } from "./load-facts"
+import { maySupersede, recomputeApplicationFlags } from "./recompute"
 import { facts, statement } from "./facts.test-helpers"
 
 const flag = (code: string, evidence: Record<string, unknown> = {}) => ({ code, evidence } as unknown as ApplicationCheckFlag)
@@ -37,5 +42,15 @@ describe("maySupersede: an OPEN flag that is no longer raised", () => {
     expect(maySupersede(flag("UNDISCLOSED_DEBIT_ORDER", { documentId: "doc-1", analysisId: "an-1" }), facts({ debts: [{ name: "X", monthlyInstalmentCents: 1, source: "DECLARED" }] }))).toBe(false)
     expect(maySupersede(flag("STATEMENT_DELETED", { documentId: "gone" }), facts())).toBe(false)
     expect(maySupersede(flag("PAYSLIP_UNVALIDATED", { payslipDocumentId: "slip-1" }), facts())).toBe(false)
+  })
+})
+
+describe("recomputeApplicationFlags under the lock", () => {
+  it("reloads the facts on the locking transaction, not a second pool connection", async () => {
+    const load = vi.mocked(loadApplicationFacts)
+    load.mockResolvedValueOnce({ facts: facts(), status: "UNDER_REVIEW", payslipSnapshot: [], statementSnapshot: [], since: new Date() })
+    load.mockResolvedValueOnce(null)
+    await recomputeApplicationFlags("t1", "app-1", null)
+    expect(load).toHaveBeenLastCalledWith("t1", "app-1", expect.objectContaining({ persistedOnly: true, db: tx }))
   })
 })

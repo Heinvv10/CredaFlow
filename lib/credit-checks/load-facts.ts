@@ -108,7 +108,7 @@ export async function statementSnapshot(
 ): Promise<string[]> {
   const docs = await db.clientDocument.findMany({
     where: { tenantId: where.tenantId, clientId: where.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: where.since } },
-    select: { id: true, statementAnalyses: { where: { parserVersion: PARSER_VERSION }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
+    select: { id: true, statementAnalyses: { where: { parserVersion: PARSER_VERSION }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true } } },
   })
   return docs.map((d) => `${d.id}:${d.statementAnalyses[0]?.id ?? ""}`).sort()
 }
@@ -119,6 +119,8 @@ export interface LoadOptions {
    * under the application row lock, after a first pass has done the reading.
    */
   persistedOnly?: boolean
+  /** The transaction holding the application lock: every query runs on it. */
+  db?: Pick<typeof prisma, "loanApplication" | "clientDocument" | "creditBureauCheck" | "statementAnalysis">
   /** With persistedOnly: why each statement was still pending in the first pass. */
   pendingReasons?: Map<string, NonNullable<StatementFacts["pendingReason"]>>
 }
@@ -128,7 +130,7 @@ export async function loadApplicationFacts(
   applicationId: string,
   opts: LoadOptions = {},
 ): Promise<{ facts: ApplicationFacts; status: AppStatus; payslipSnapshot: string[]; statementSnapshot: string[]; since: Date } | null> {
-  const app = await prisma.loanApplication.findFirst({
+  const app = await (opts.db ?? prisma).loanApplication.findFirst({
     where: { id: applicationId, tenantId },
     select: {
       id: true, status: true, clientId: true, submittedAt: true, createdAt: true,
@@ -143,37 +145,41 @@ export async function loadApplicationFacts(
   const deletedInWindow = { deletedAt: { not: null }, OR: [{ createdAt: { gte: since } }, { deletedAt: { gte: since } }] }
   const identity: ClientIdentity = { fullName: `${app.client.firstName} ${app.client.lastName}`, idNumber: app.client.idNumber }
 
-  const [docs, deleted, payslipDocs, deletedSlips, priorFlagged, bureau] = await Promise.all([
-    prisma.clientDocument.findMany({
+  const db = opts.db ?? prisma
+  const [docs, deleted, payslipDocs, deletedSlips, priorFlagged, bureau, statementKeys] = await Promise.all([
+    db.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
       select: { id: true, uploadedByType: true },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.clientDocument.findMany({
+    db.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", ...deletedInWindow, statementAnalyses: { some: {} } },
       select: { id: true },
     }),
-    prisma.clientDocument.findMany({
+    db.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, createdAt: { gte: since } },
       select: { id: true, extractionStatus: true, extractionGeneration: true, extractionResult: true, validationMismatch: true },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.clientDocument.findMany({
+    db.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", ...deletedInWindow },
       select: { id: true },
     }),
     // Starting another application — cancelling, declining or abandoning this
     // one, however long ago — must not leave its open findings where no one
     // looks. Substantive findings only: a PRIOR flag does not breed more.
-    prisma.loanApplication.findMany({
+    db.loanApplication.findMany({
       where: { tenantId, clientId: app.clientId, id: { not: applicationId }, checkFlags: { some: { status: "OPEN", code: { not: "PRIOR_OPEN_FLAGS" } } } },
       select: { id: true, reference: true, status: true },
     }),
-    prisma.creditBureauCheck.findFirst({
+    db.creditBureauCheck.findFirst({
       where: { tenantId, applicationId, ok: true },
       select: { obligations: true },
       orderBy: { createdAt: "desc" },
     }),
+    // Taken before the statements are read below: anything landing after it
+    // differs at approval and fails closed, never the other way round.
+    statementSnapshot(db, { tenantId, clientId: app.clientId, since }),
   ])
 
   const statements: StatementFacts[] = []
@@ -187,7 +193,7 @@ export async function loadApplicationFacts(
       statements.push(pending(doc.id, "consent"))
       continue
     }
-    const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false, persistedOnly: opts.persistedOnly })
+    const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false, persistedOnly: opts.persistedOnly, db: opts.persistedOnly ? opts.db : undefined })
     if (r.state === "read") statements.push(statementFacts(doc.id, r.analysis))
     else if (r.state === "pending") {
       const reason = r.reason === "file_missing" || r.reason === "reader_unavailable" ? r.reason : opts.pendingReasons?.get(doc.id) ?? "vlm"
@@ -214,7 +220,7 @@ export async function loadApplicationFacts(
     status: app.status,
     // Every payslip in the window as it stood: the approval refuses if it changed.
     payslipSnapshot: payslipDocs.map(payslipStateKey),
-    statementSnapshot: await statementSnapshot(prisma, { tenantId, clientId: app.clientId, since }),
+    statementSnapshot: statementKeys,
     since,
     facts: {
       applicationId: app.id,

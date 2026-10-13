@@ -25,6 +25,11 @@ export interface EnsureOptions {
   allowVlm: boolean
   /** Return a persisted read or pending; never run a reader (see load-facts LoadOptions). */
   persistedOnly?: boolean
+  /**
+   * With persistedOnly: the caller's transaction. A caller holding a row lock
+   * must not wait on a second pool connection, or a full pool deadlocks.
+   */
+  db?: Pick<typeof prisma, "clientDocument" | "statementAnalysis">
   /** Re-extract: a stored READ_FAILED read is discarded and the file read again. */
   retryFailed?: boolean
   /** Who asked for the retry: named on the audit row of the discarded read. */
@@ -100,21 +105,22 @@ async function discardFailedRead(read: StatementAnalysis, opts: EnsureOptions): 
   })
 }
 
-function findRead(tenantId: string, documentId: string, sha: string) {
-  return prisma.statementAnalysis.findFirst({
+function findRead(tenantId: string, documentId: string, sha: string, db: Pick<typeof prisma, "statementAnalysis"> = prisma) {
+  return db.statementAnalysis.findFirst({
     where: { tenantId, clientDocumentId: documentId, contentSha256: sha, parserVersion: PARSER_VERSION },
   })
 }
 
 /** The current read of a statement document, reading it first if needed. */
 export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<EnsureResult> {
-  const doc = await prisma.clientDocument.findFirst({
+  const db = opts.db ?? prisma
+  const doc = await db.clientDocument.findFirst({
     where: { id: opts.documentId, tenantId: opts.tenantId, docType: "BANK_STATEMENT", deletedAt: null },
     select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
   })
   if (!doc?.storagePath) return { state: "missing" }
 
-  const claimed = doc.contentSha256 ? await findRead(opts.tenantId, doc.id, doc.contentSha256) : null
+  const claimed = doc.contentSha256 ? await findRead(opts.tenantId, doc.id, doc.contentSha256, db) : null
   if (claimed && opts.retryFailed && failedRead(claimed)) {
     await discardFailedRead(claimed, opts)
   } else if (claimed) {
@@ -123,9 +129,9 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
   if (opts.persistedOnly) {
     // A file whose bytes no longer match the row's hash was read under the
     // hash of its bytes: take the document's newest read either way.
-    const latest = await prisma.statementAnalysis.findFirst({
+    const latest = await db.statementAnalysis.findFirst({
       where: { tenantId: opts.tenantId, clientDocumentId: doc.id, parserVersion: PARSER_VERSION },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     })
     return latest ? { state: "read", analysis: latest } : { state: "pending", reason: "vlm_deferred" }
   }
@@ -202,6 +208,14 @@ interface ReadRequest {
 const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>> }>()
 const running = new Set<string>()
 
+/**
+ * Reads one tenant may have waiting. The queue is shared by every tenant on
+ * the process, so one uploading hundreds of statements would otherwise hold
+ * the vision model for hours. A document turned away stays unread and is
+ * queued again when its application is next loaded.
+ */
+export const MAX_WAITING_PER_TENANT = 20
+
 function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
   const w = waiting.get(documentId) ?? { tenantId, onReads: [] }
   if (opts.retryFailed) w.retry = opts.actorUserId ?? null
@@ -216,6 +230,10 @@ function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
  */
 export function readStatementInBackground(tenantId: string, documentId: string, opts: ReadRequest = {}): void {
   const alreadyWaiting = waiting.has(documentId)
+  if (!alreadyWaiting && [...waiting.values()].filter((w) => w.tenantId === tenantId).length >= MAX_WAITING_PER_TENANT) {
+    console.warn("[statement-analysis] read not queued: tenant queue full", { documentId })
+    return
+  }
   merge(tenantId, documentId, opts)
   if (alreadyWaiting || running.has(documentId)) return
   schedule(documentId)

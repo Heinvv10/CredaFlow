@@ -126,6 +126,40 @@ describe("loadApplicationFacts", () => {
     expect(slipWhere).toEqual({ tenantId: "t1", clientId: "client-1", docType: "PAYSLIP", deletedAt: null, createdAt: { gte: loaded.since } })
   })
 
+  it("under the lock runs every query on the transaction, and keys statements before reading them", async () => {
+    const tx = {
+      loanApplication: { findFirst: vi.fn(async (q: unknown) => appFind(q)), findMany: vi.fn(async () => []) },
+      clientDocument: { findMany: vi.fn(async (q: unknown) => docFindMany(q)) },
+      creditBureauCheck: { findFirst: vi.fn(async () => null) },
+      statementAnalysis: {},
+    }
+    documents({ statements: [{ id: "staff-1", uploadedByType: "staff" }] })
+    ensure.mockResolvedValue({ state: "pending", reason: "vlm_deferred" })
+    const appCalls = appFind.mock.calls.length
+    await loadApplicationFacts("t1", "app-1", { persistedOnly: true, db: tx as never })
+    expect(tx.loanApplication.findFirst).toHaveBeenCalledTimes(1)
+    expect(tx.clientDocument.findMany).toHaveBeenCalledTimes(5)
+    expect(tx.loanApplication.findMany).toHaveBeenCalledTimes(1)
+    expect(tx.creditBureauCheck.findFirst).toHaveBeenCalledTimes(1)
+    expect(appFindMany).not.toHaveBeenCalled()
+    expect(bureauFind).not.toHaveBeenCalled()
+    expect(appFind.mock.calls.length).toBe(appCalls + 1) // only through tx
+    expect(ensure).toHaveBeenCalledWith(expect.objectContaining({ persistedOnly: true, db: tx }))
+    // The snapshot query ran before the statement was read.
+    const snapshotOrder = tx.clientDocument.findMany.mock.invocationCallOrder.find((_, i) => {
+      const arg = tx.clientDocument.findMany.mock.calls[i] as unknown as [{ select: Record<string, unknown> }]
+      return "statementAnalyses" in arg[0].select
+    })!
+    expect(snapshotOrder).toBeLessThan(ensure.mock.invocationCallOrder[0])
+  })
+
+  it("passes no transaction to the reader outside the lock", async () => {
+    documents({ statements: [{ id: "staff-1", uploadedByType: "staff" }] })
+    ensure.mockResolvedValue({ state: "pending", reason: "vlm_deferred" })
+    await loadApplicationFacts("t1", "app-1")
+    expect(ensure).toHaveBeenLastCalledWith(expect.objectContaining({ db: undefined }))
+  })
+
   it("scopes every query to the tenant", async () => {
     await loadApplicationFacts("t1", "app-1")
     for (const m of [appFind, docFindMany, appFindMany, bureauFind]) {
@@ -147,7 +181,7 @@ describe("statementSnapshot", () => {
       .toEqual(["consent-pending:an-old", "unread:"])
     expect(findMany).toHaveBeenCalledWith({
       where: { tenantId: "t1", clientId: "client-1", docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
-      select: { id: true, statementAnalyses: { where: { parserVersion: expect.any(String) }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
+      select: { id: true, statementAnalyses: { where: { parserVersion: expect.any(String) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true } } },
     })
   })
 })

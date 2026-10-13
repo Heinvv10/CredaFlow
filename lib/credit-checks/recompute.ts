@@ -90,7 +90,7 @@ export async function recomputeApplicationFlags(
     // evidence. Persisted reads only: no reader runs while the lock is held.
     const evidenceAsOf = new Date()
     const pendingReasons = new Map(warm.facts.statements.flatMap((s) => (s.pendingReason ? [[s.documentId, s.pendingReason] as const] : [])))
-    const loaded = await loadApplicationFacts(tenantId, applicationId, { persistedOnly: true, pendingReasons })
+    const loaded = await loadApplicationFacts(tenantId, applicationId, { persistedOnly: true, pendingReasons, db: tx })
     if (!loaded) return { recomputed: false, flags: [] }
     const candidates = runChecks(loaded.facts)
     const existing = new Map((await listFlags(tenantId, applicationId, tx)).map((f) => [f.fingerprint, f]))

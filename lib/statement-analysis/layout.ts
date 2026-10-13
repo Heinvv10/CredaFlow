@@ -37,9 +37,26 @@ export function holderFromTitleLine(page: string): string | null {
   return null
 }
 
+/**
+ * Statement lines are under 200 characters. A longer one is not statement
+ * text, and running a pattern over it can be quadratic in its length, so a
+ * hostile file of very long lines could stall the process.
+ */
+export const MAX_LINE_CHARS = 400
+
+/** The first match of `re` on any line of plausible length; patterns never see a whole page. */
+export function lineMatch(text: string, re: RegExp): RegExpExecArray | null {
+  for (const line of text.split("\n")) {
+    if (line.length > MAX_LINE_CHARS) continue
+    const m = re.exec(line)
+    if (m) return m
+  }
+  return null
+}
+
 /** Last four digits of the first account number a pattern captures. */
 export function last4(text: string, re: RegExp): string | null {
-  const m = re.exec(text)
+  const m = lineMatch(text, re)
   return m ? m[1].slice(-4) : null
 }
 

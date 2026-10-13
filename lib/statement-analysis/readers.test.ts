@@ -4,6 +4,8 @@
  */
 import { describe, expect, it } from "vitest"
 import { analyseStatement } from "./analyse"
+import { readCapitec } from "./capitec"
+import { readFnb } from "./fnb"
 import { syntheticStatement } from "./fixtures/dataset"
 import { buildCapitecStatement, buildFnbStatement, type SynthStatement } from "./fixtures/synthetic"
 
@@ -86,5 +88,20 @@ describe("FNB rows that move no money", () => {
     expect(r.balanceCheck).toBe("PASS")
     const months = new Set(r.read!.transactions.map((t) => t.date.slice(0, 7)))
     expect([...months]).toEqual(["2026-11", "2026-12", "2027-01"])
+  })
+})
+
+describe("hostile long lines", () => {
+  // Header patterns once ran over the whole page: a run of spaces after a
+  // label made them quadratic and stalled the process.
+  const spaces = " ".repeat(60_000)
+  const capitec = [`Transaction History\nOpening Balance:${spaces}x\nClosing Balance:${spaces}x\nFrom Date:${spaces}x\nAccount${spaces}x`]
+  const fnb = [`Statement Period : 1 June 2026 to 30 June 2026\nOpening Balance${spaces}x\nClosing Balance${spaces}x\n:${spaces}x`]
+
+  it("reads a page of very long lines quickly and takes nothing from them", () => {
+    const started = performance.now()
+    expect(readCapitec(capitec)).toMatchObject({ openingBalanceCents: null, closingBalanceCents: null, periodStart: null, accountNumberLast4: null })
+    expect(readFnb(fnb, [[]])).toMatchObject({ openingBalanceCents: null, closingBalanceCents: null, accountNumberLast4: null })
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })

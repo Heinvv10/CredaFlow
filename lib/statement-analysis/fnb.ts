@@ -16,7 +16,7 @@
  * header word. Each figure goes to the column whose right edge is nearest.
  */
 import { parseRandToCents } from "./money"
-import { holderFromTitleLine, isoFromDayMonthYear, last4, MONTHS, validIso } from "./layout"
+import { holderFromTitleLine, isoFromDayMonthYear, last4, lineMatch, MONTHS, validIso } from "./layout"
 import type { PdfWord } from "./pdf-tools"
 import type { StatementRead, StatementTransaction } from "./types"
 
@@ -30,7 +30,7 @@ const MON = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/
  * printed balance where it was (markNonPosting).
  */
 const NON_POSTING = /\bAttempt\b/i
-const PERIOD = /Statement Period\s*:\s*(\d{1,2} [A-Za-z]+ \d{4})\s+to\s+(\d{1,2} [A-Za-z]+ \d{4})/
+const PERIOD = /Statement Period[ \t]*:[ \t]*(\d{1,2} [A-Za-z]+ \d{4})[ \t]+to[ \t]+(\d{1,2} [A-Za-z]+ \d{4})/
 /** How far (pt) a figure's right edge may sit from its column's. */
 const COLUMN_SLACK_PT = 30
 
@@ -74,7 +74,7 @@ function fnbCents(text: string): number | null {
 }
 
 function headerBalance(text: string, label: string): number | null {
-  const m = new RegExp(`${label}\\s+(\\d{1,3}(?:,\\d{3})*\\.\\d{2}(?: ?(?:Cr|Dr))?)`).exec(text)
+  const m = lineMatch(text, new RegExp(`${label}[ \\t]+(\\d{1,3}(?:,\\d{3})*\\.\\d{2}(?: ?(?:Cr|Dr))?)`))
   return m ? fnbCents(m[1]) : null
 }
 
@@ -145,12 +145,12 @@ function markNonPosting(rows: StatementTransaction[], opening: number | null): S
 /** Reads an FNB statement's text layer, or null when it is not one. */
 export function readFnb(pages: string[], words: PdfWord[][]): StatementRead | null {
   const all = pages.join("\n")
-  const period = PERIOD.exec(all)
+  const period = lineMatch(all, PERIOD)
   if (!period || !/Opening Balance/.test(all)) return null
   const periodStart = isoFromDayMonthYear(period[1])
   return {
     accountHolderName: holderFromTitleLine(pages[0] ?? ""),
-    accountNumberLast4: last4(pages[0] ?? "", /:\s*(\d{10,12})\s*$/m),
+    accountNumberLast4: last4(pages[0] ?? "", /:[ \t]*(\d{10,12})[ \t]*$/),
     periodStart,
     periodEnd: isoFromDayMonthYear(period[2]),
     openingBalanceCents: headerBalance(all, "Opening Balance"),

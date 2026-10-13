@@ -11,6 +11,11 @@ import { flagViews } from "@/lib/credit-checks/evidence"
  * Quoting statement rows is document access: each quoted document is logged.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // A GET that writes (flags, audit and access-log rows): another site must
+  // not be able to trigger it with the officer's cookies.
+  if (req.headers.get("sec-fetch-site") === "cross-site") {
+    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 })
+  }
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
 

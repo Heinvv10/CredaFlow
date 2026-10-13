@@ -10,27 +10,21 @@
  * running balance, which moves by in + out + fee.
  */
 import { parseRandToCents } from "./money"
-import { holderFromTitleLine, isoFromDmy, last4, leftSegment, tokens } from "./layout"
+import { holderFromTitleLine, isoFromDmy, last4, leftSegment, lineMatch, MAX_LINE_CHARS, tokens } from "./layout"
 import type { StatementRead, StatementTransaction } from "./types"
 
 const AMOUNT_TOKEN = /-?\d{1,3}(?: \d{3})*\.\d{2}/g
 const ROW_DATE = /^\s*(\d{2}\/\d{2}\/\d{4})\s+(.*)$/
 const TABLE_HEADER = /^\s*Date\s+Description\s+(Category\s+)?Money In\s+Money Out/
 const TABLE_END = /Includes VAT|Client Care Centre|Unique Document No/
-/**
- * Statement lines are under 200 characters. A longer one is not a row, and
- * running the amount pattern over it is quadratic in its length, so a hostile
- * file of very long lines could stall the reader.
- */
-const MAX_LINE_CHARS = 400
 
 function headerAmount(text: string, label: string): number | null {
-  const m = new RegExp(`${label}:\\s*(-?R?-?[\\d ]+\\.\\d{2})`).exec(text)
+  const m = lineMatch(text, new RegExp(`${label}:[ \\t]*(-?R?-?\\d[\\d ]*\\.\\d{2})`))
   return m ? parseRandToCents(m[1]) : null
 }
 
 function headerDate(text: string, label: string): string | null {
-  const m = new RegExp(`${label}:\\s*(\\d{2}/\\d{2}/\\d{4})`).exec(text)
+  const m = lineMatch(text, new RegExp(`${label}:[ \\t]*(\\d{2}/\\d{2}/\\d{4})`))
   return m ? isoFromDmy(m[1]) : null
 }
 
@@ -104,7 +98,7 @@ export function readCapitec(pages: string[]): StatementRead | null {
   const transactions = readRows(pages)
   return {
     accountHolderName: holder(pages[0] ?? ""),
-    accountNumberLast4: last4(pages[0] ?? "", /^\s*Account(?::[^\d\n]*)?\s+(\d{6,})/m),
+    accountNumberLast4: last4(pages[0] ?? "", /^[ \t]*Account(?::[^\d]*?)?[ \t]+(\d{6,})/),
     periodStart: headerDate(all, "From Date"),
     periodEnd: headerDate(all, "To Date"),
     openingBalanceCents: headerAmount(all, "Opening Balance"),
