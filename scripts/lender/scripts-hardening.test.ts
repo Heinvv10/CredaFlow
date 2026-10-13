@@ -130,12 +130,12 @@ describe("deploy failure paths", () => {
     expect(r.calls.filter((c) => /pg_dump|migrate|up -d|stop/.test(c))).toEqual([])
   })
 
-  it("lets a port through when it is this lender's own container publishing it", async () => {
+  it("lets a port through when one of this lender's containers is configured to publish it, whatever its state", async () => {
     const server = createServer()
     await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok))
     const port = (server.address() as { port: number }).port
     writeFileSync(join(lender, ".env"), readFileSync(join(lender, ".env"), "utf8").replace("APP_PORT=3999", `APP_PORT=${port}`))
-    const r = sh("deploy.sh", [lender, "cf:new"], { STUB_PS_PORTS: `127.0.0.1:${port}->3300/tcp` })
+    const r = sh("deploy.sh", [lender, "cf:new"], { STUB_OUR_CONTAINER: "abc123", STUB_PS_PORTS: `${port}` })
     server.close()
     expect(r.status).toBe(0)
   })

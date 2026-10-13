@@ -96,7 +96,7 @@ describe("provision-lender.sh", () => {
     const dir = join(root, "new-lender")
     const r = provision(dir, [], { STUB_PROJECT_DIR: "/srv/some-other-stack" })
     expect(r.status).not.toBe(0)
-    expect(r.out).toMatch(/project 'credaflow-lender-stub-lender' already exists with working_dir '\/srv\/some-other-stack'/)
+    expect(r.out).toMatch(/project 'credaflow-lender-stub-lender' already has a container with working_dir '\/srv\/some-other-stack'/)
     expect(existsSync(dir)).toBe(false)
     expect(r.calls.some((c) => /\bup\b|\bbuild\b|\brun\b/.test(c))).toBe(false)
   })
@@ -104,6 +104,16 @@ describe("provision-lender.sh", () => {
   it("refuses a labelled container that records no working_dir", () => {
     const r = provision(join(root, "new-lender"), [], { STUB_PROJECT_DIR: "BLANK" })
     expect(r.status).not.toBe(0)
+  })
+
+  it("treats a volume or network already carrying the project label as a collision for a NEW directory, not for a rerun", () => {
+    const dir = join(root, "new-lender")
+    const fresh = provision(dir, [], { STUB_FOREIGN_VOLUME: "credaflow-lender-stub-lender_pgdata" })
+    expect(fresh.status).not.toBe(0)
+    expect(fresh.out).toMatch(/already has volume resource\(s\) \(credaflow-lender-stub-lender_pgdata\) and this lender directory is new/)
+    expect(existsSync(dir)).toBe(false)
+    expect(provision(dir).status).toBe(0)
+    expect(provision(dir, [], { STUB_FOREIGN_VOLUME: "credaflow-lender-stub-lender_pgdata" }).status).toBe(0)
   })
 
   it("accepts the project when its recorded working_dir is this very lender directory (a rerun)", () => {

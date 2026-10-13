@@ -7,8 +7,12 @@ the host: a VPS, a managed Docker host or a laptop all work. Everything lives in
 
 The `credaflow-lender-` project prefix keeps a lender clear of the other stacks on a
 host (`credaflow-demo`, `credaflow-fairscore`, `credaflow-staging`, …). `provision-lender.sh`
-refuses, before creating anything, if a container, volume or network already carries
-that compose project label with a `working_dir` other than this lender directory (or none).
+refuses, before creating anything, if a container already carries that compose project
+label with a `working_dir` other than this lender directory (or none), or, for a new lender
+directory, if any volume or network already carries it (those do not record a working_dir, so
+they cannot prove who owns them; on a rerun in an existing directory they are presumed this
+lender's own). `deploy.sh`'s port check likewise counts a port as this lender's when one of its
+containers is *configured* to publish it, even while that container is crash-looping.
 
 Prerequisites on the host: `docker` with compose (v2 plugin or `docker-compose`),
 `jq`, `openssl`, `gpg`, `curl`, `flock`, and `git` when building. Keep the lender

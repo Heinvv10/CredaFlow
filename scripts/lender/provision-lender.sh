@@ -53,7 +53,7 @@ SLUG="$(jq -er .slug "$config")" || die "$config is not JSON with a slug"
 case "$(readlink -m "$target")/" in "$REPO_ROOT"/*) die "lender dir $target is inside the git checkout $REPO_ROOT: secrets must live outside it" ;; esac
 # Refuse before any side effect when another stack already owns this compose project.
 abs_target="$( { [ -d "$target" ] && cd "$target" && pwd; } || readlink -m "$target")"
-check_project_free "$(project_of "$SLUG")" "$abs_target"
+check_project_free "$(project_of "$SLUG")" "$abs_target" "$([ -f "$abs_target/.env" ] && echo false || echo true)"
 
 # 1. Directory, lock, config, compose file (the compose file is not hand-edited: rerun to refresh it).
 (umask 077; mkdir -p "$target" "$target/secrets" "$target/backups" "$target/state")

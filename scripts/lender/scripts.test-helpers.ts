@@ -26,9 +26,11 @@ case "$*" in
   "compose version") exit 0 ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
   "image inspect "*) exit 0 ;;
-  "ps -a "*|"volume ls"*|"network ls"*) [ -z "$STUB_PROJECT_DIR" ] || { [ "$STUB_PROJECT_DIR" = BLANK ] && echo "dir=" || echo "dir=$STUB_PROJECT_DIR"; } ;;
+  "ps -a -q "*) echo "$STUB_OUR_CONTAINER" ;;
+  "inspect -f {{range"*) echo "$STUB_PS_PORTS" ;;
+  "ps -a "*) [ -z "$STUB_PROJECT_DIR" ] || { [ "$STUB_PROJECT_DIR" = BLANK ] && echo "dir=" || echo "dir=$STUB_PROJECT_DIR"; } ;;
+  "volume ls"*|"network ls"*) [ -z "$STUB_FOREIGN_VOLUME" ] || echo "$STUB_FOREIGN_VOLUME" ;;
   "ps -q "*) echo "$STUB_SERVING" ;;
-  "ps --filter"*) echo "$STUB_PS_PORTS" ;;
   *"up -d --no-deps"*) if grep -qE "bad|upfail" "$STUB_LENDER/state/image.env" 2>/dev/null; then exit 1; fi ;;
   *"pg_dump"*) printf 'PGDMP-stub-%s' "$$" ;;
   *"lender-counts"*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;

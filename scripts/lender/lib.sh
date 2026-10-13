@@ -63,19 +63,27 @@ load_lender() {
 # credaflow-fairscore, credaflow-staging, …), whose names are `credaflow-<word>`.
 project_of() { echo "credaflow-lender-$1"; }
 
-# check_project_free PROJECT DIR — refuse when a container, volume or network
-# already carries compose project PROJECT unless its recorded working_dir is DIR:
-# `up`, `down --volumes` and the volume names would otherwise touch another stack.
+# check_project_free PROJECT DIR FRESH(true|false) — refuse when another stack
+# already owns compose project PROJECT, since `up`, `down --volumes` and the volume
+# names would otherwise touch it:
+#   - a container carrying the project label must record DIR as its working_dir;
+#   - volumes and networks do not record a working_dir, so they cannot prove who owns
+#     them: for a FRESH lender directory (no .env yet) any of them is a collision;
+#     for a rerun in an existing directory they are presumed this lender's own.
 check_project_free() {
-  local project="$1" dir="$2" kind got
-  for kind in "ps -a" "volume ls" "network ls"; do
-    # shellcheck disable=SC2086  # $kind is a fixed two-word subcommand
-    got="$(docker $kind --filter "label=com.docker.compose.project=$project" --format 'dir={{.Label "com.docker.compose.project.working_dir"}}' | sort -u)" || die "cannot list docker $kind"
-    [ -n "$got" ] || continue
+  local project="$1" dir="$2" fresh="$3" got wd kind
+  got="$(docker ps -a --filter "label=com.docker.compose.project=$project" --format 'dir={{.Label "com.docker.compose.project.working_dir"}}' | sort -u)" || die "cannot list docker containers"
+  if [ -n "$got" ]; then
     while IFS= read -r wd; do
       wd="${wd#dir=}"   # the prefix keeps a blank label from vanishing in $( )
-      [ "$wd" = "$dir" ] || die "refusing: docker compose project '$project' already exists with working_dir '${wd:-<none>}', not '$dir'. Pick another slug or lender dir; never reuse another stack's project."
+      [ "$wd" = "$dir" ] || die "refusing: docker compose project '$project' already has a container with working_dir '${wd:-<none>}', not '$dir'. Pick another slug or lender dir; never reuse another stack's project."
     done <<<"$got"
+  fi
+  [ "$fresh" = true ] || return 0
+  for kind in "volume ls" "network ls"; do
+    # shellcheck disable=SC2086  # $kind is a fixed two-word subcommand
+    got="$(docker $kind -q --filter "label=com.docker.compose.project=$project")" || die "cannot list docker $kind"
+    [ -z "$got" ] || die "refusing: docker compose project '$project' already has ${kind%% *} resource(s) (${got//$'\n'/ }) and this lender directory is new. Pick another slug; never reuse another stack's project."
   done
 }
 
@@ -225,14 +233,24 @@ wait_stack_health() {
   wait_health "http://$PROBE_HOST:$APP_PORT/api/health" "$1" "$2" && wait_health "http://$PROBE_HOST:$PORTAL_PORT/api/health" "$1" "$2"
 }
 
+# port_is_ours PORT — one of this lender's containers is CONFIGURED to publish
+# PORT, whatever its state. (A crash-looping container publishes nothing between
+# restarts, so `docker ps` Ports would call its own port foreign.)
+port_is_ours() {
+  local id
+  for id in $(docker ps -a -q --filter "label=com.docker.compose.project=$PROJECT"); do
+    docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$id" | tr ' ' '\n' | grep -qx "$1" && return 0
+  done
+  return 1
+}
+
 # check_ports_free — refuse when something other than this lender's own
 # containers already listens on either published port (a `compose up` would fail
 # half way and leave the image state split).
 check_ports_free() {
   local p
   for p in "$APP_PORT" "$PORTAL_PORT"; do
-    if (exec 3<>"/dev/tcp/$PROBE_HOST/$p") 2>/dev/null \
-      && ! docker ps --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Ports}}' | grep -q ":$p->"; then
+    if (exec 3<>"/dev/tcp/$PROBE_HOST/$p") 2>/dev/null && ! port_is_ours "$p"; then
       die "host port $p ($PROBE_HOST) is already in use by something other than this lender's containers"
     fi
   done
