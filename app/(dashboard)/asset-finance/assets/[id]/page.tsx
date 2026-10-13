@@ -10,6 +10,7 @@ import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS } from "@/lib/asset-finance/asset-labels"
 import { ValuationForm } from "./ValuationForm"
+import { AssetReadinessForm } from "./AssetReadinessForm"
 
 function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -64,6 +65,17 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             <Detail label="Registered" value={formatDate(asset.createdAt)} />
           </dl>
         </DataPanel>
+
+        {canManage && (
+          <AssetReadinessForm assetId={asset.id} initial={{
+            natisTitleholder: asset.natisTitleholder,
+            trackerProvider: asset.trackerProvider,
+            trackerId: asset.trackerId,
+            insurer: asset.insurer,
+            policyNumber: asset.policyNumber,
+            lenderNotedConfirmed: asset.lenderNotedConfirmed,
+          }} />
+        )}
 
         <DataPanel title="Valuations" density="loose">
           {asset.valuations.length === 0 ? (

@@ -38,6 +38,7 @@ vi.mock("@/lib/config/identity", async (orig) => {
 })
 vi.mock("@/lib/integrations/bulksms", () => ({ sendSms: m.sendSms, sendWhatsApp: m.sendWhatsApp }))
 vi.mock("@/lib/messaging/send", async (orig) => ({ ...(await orig<typeof import("@/lib/messaging/send")>()), sendMessage: m.sendMessage }))
+vi.mock("@/lib/inbox/settings", () => ({ getCommsSettings: async () => ({ whatsappEnabled: true }) }))
 vi.mock("@/lib/contact/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/contact/identity")>()),
   lookupContactByChannelValue: m.lookupContact,

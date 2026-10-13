@@ -54,7 +54,11 @@ export async function notifyEntityBorrower(opts: EntityNotificationOptions, log:
   if (!opts.loanId || (opts.event !== "payment_received" && opts.event !== "loan_overdue")) return false
   const loan = await prisma.loan.findFirst({
     where: { id: opts.loanId, tenantId: opts.tenantId },
-    select: { id: true, reference: true, outstandingPrincipal: true, entityId: true, entity: { select: { legalName: true } } },
+    select: {
+      id: true, reference: true, entityId: true,
+      entity: { select: { legalName: true } },
+      repaymentSchedule: { select: { totalDue: true, totalPaid: true } },
+    },
   })
   if (!loan?.entityId || !loan.entity) return false
   const base = { loanId: loan.id, event: opts.event }
@@ -75,8 +79,9 @@ export async function notifyEntityBorrower(opts: EntityNotificationOptions, log:
   // Fails closed, as the consumer path does: no notice signed by no lender.
   const identity = await getLenderIdentity(opts.tenantId)
   const amountCents = Number(opts.data?.amount ?? 0)
+  const outstandingCents = loan.repaymentSchedule.reduce((sum, row) => sum + Math.max(0, row.totalDue - row.totalPaid), 0)
   const facts: EntityNoticeFacts = opts.event === "payment_received"
-    ? { kind: "received", entityName: loan.entity.legalName, reference: loan.reference, amountCents, outstandingCents: loan.outstandingPrincipal }
+    ? { kind: "received", entityName: loan.entity.legalName, reference: loan.reference, amountCents, outstandingCents }
     : { kind: "overdue", entityName: loan.entity.legalName, reference: loan.reference, amountCents, daysOverdue: Number(opts.data?.daysOverdue ?? 0) || undefined }
 
   const channels: EntityChannel[] = opts.suppressWhatsAppReason ? ["EMAIL"] : ["EMAIL", "WHATSAPP"]

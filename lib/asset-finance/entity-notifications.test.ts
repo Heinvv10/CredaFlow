@@ -16,6 +16,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 vi.mock("@/lib/messaging/send", async (orig) => ({ ...(await orig<typeof import("@/lib/messaging/send")>()), sendMessage: h.sendMessage }))
+vi.mock("@/lib/inbox/settings", () => ({ getCommsSettings: async () => ({ whatsappEnabled: true }) }))
 vi.mock("@/lib/contact/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/contact/identity")>()),
   lookupContactByChannelValue: h.lookupContact,
@@ -29,7 +30,11 @@ vi.mock("@/lib/config/identity", async (orig) => {
 import { notifyEntityBorrower } from "./entity-notifications"
 import { SendBlockedError } from "@/lib/messaging/send"
 
-const ENTITY_LOAN = { id: "l_af", reference: "LN-AF-3", outstandingPrincipal: 9_000_000, entityId: "ent_1", entity: { legalName: "TEST Earthmoving (Pty) Ltd" } }
+const ENTITY_LOAN = {
+  id: "l_af", reference: "LN-AF-3", outstandingPrincipal: 9_000_000, entityId: "ent_1",
+  entity: { legalName: "TEST Earthmoving (Pty) Ltd" },
+  repaymentSchedule: [{ totalDue: 6_000_000, totalPaid: 1_000_000 }, { totalDue: 6_000_000, totalPaid: 1_000_000 }],
+}
 const person = (id: string, whatsapp: string | null) => ({
   client: { id, firstName: id === "cl_a" ? "Ann" : "Bo", lastName: "Testperson", email: `${id}@example.test`, whatsapp },
 })
@@ -71,8 +76,8 @@ describe("notifyEntityBorrower", () => {
     ])
     expect(calls.every((c) => c.loanId === "l_af" && c.idempotencyKey.includes("payment_received:pay_1"))).toBe(true)
     expect(calls[0].vars.text).toContain("We have received a payment of R 12,345.00 on the Acme Lending account of TEST Earthmoving (Pty) Ltd")
-    expect(calls[0].vars.text).toContain("The outstanding balance is R 90,000.00.")
-    expect(calls[2].vars).toMatchObject({ firstName: "Ann", amount: "R 12,345.00", outstanding: "R 90,000.00", entityName: "TEST Earthmoving (Pty) Ltd" })
+    expect(calls[0].vars.text).toContain("The outstanding balance is R 100,000.00.")
+    expect(calls[2].vars).toMatchObject({ firstName: "Ann", amount: "R 12,345.00", outstanding: "R 100,000.00", entityName: "TEST Earthmoving (Pty) Ltd" })
     const rows = log.mock.calls.map(([r]) => r)
     expect(rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ clientId: "cl_a", channel: "email", status: "sent" }),
