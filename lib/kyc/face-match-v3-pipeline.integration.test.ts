@@ -25,6 +25,7 @@ import sharp from "sharp"
 
 const ctx = vi.hoisted(() => ({
   tenantId: "", adminId: "", readPaths: [] as string[],
+  session: null as null | { user: { email: string } },
   comparison: null as unknown,
   compared: [] as Array<{ id: { fileBuffer: Buffer; mimeType: string }; selfie: { fileBuffer: Buffer; mimeType: string } }>,
 }))
@@ -50,7 +51,8 @@ vi.mock("@/lib/storage", async () => {
   }
 })
 // lib/document-auth (the selfie magic-byte check) imports the NextAuth config.
-vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
+// A portal client's session for the document DELETE route; none otherwise.
+vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ctx.session) }))
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: vi.fn(async () => ({
     error: null,
@@ -62,6 +64,7 @@ vi.mock("@/lib/tenant", async () => {
   return {
     withTenantContext: (_req: unknown, handler: (tenant: { id: string }) => Promise<unknown>) =>
       runWithTenant(ctx.tenantId, () => handler({ id: ctx.tenantId })),
+    getDefaultTenantId: async () => ctx.tenantId,
   }
 })
 
@@ -71,6 +74,7 @@ import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
 import { POST as exceptionPOST } from "@/app/api/clients/[id]/kyc-exception/route"
 import { POST as inPersonPOST } from "@/app/api/clients/[id]/kyc-in-person-verification/route"
 import { PATCH as verifyPATCH } from "@/app/api/clients/[id]/documents/[docId]/verify/route"
+import { DELETE as documentDELETE } from "@/app/api/documents/[id]/route"
 import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
 import { inPersonKycVerificationOffered } from "@/lib/kyc/in-person-verification"
 
@@ -181,12 +185,8 @@ async function capture(fixture: { tenantId: string; clientId: string }) {
   return { result, selfie }
 }
 
-/** Run the pipeline directly against a chosen ID copy, as a stale callback would. */
-async function attemptAgainst(fixture: { tenantId: string; clientId: string }, idDocumentId: string) {
-  const idDocument = await db.clientDocument.findUniqueOrThrow({
-    where: { id: idDocumentId },
-    select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
-  })
+/** A selfie attempt claimed for processing whose callback has not run yet. */
+async function inFlightAttempt(fixture: { tenantId: string; clientId: string }) {
   const selfieId = `fm_pipe_selfie_${sequence}_${randomUUID().slice(0, 8)}`
   const generation = randomUUID()
   await db.clientDocument.create({
@@ -197,13 +197,31 @@ async function attemptAgainst(fixture: { tenantId: string; clientId: string }, i
       extractionGeneration: generation, extractionStartedAt: new Date(),
     },
   })
+  return { selfieId, generation }
+}
+
+/** Let an in-flight attempt's callback run against a chosen ID copy. */
+async function completeAttempt(
+  fixture: { tenantId: string; clientId: string },
+  attempt: { selfieId: string; generation: string },
+  idDocumentId: string,
+) {
+  const idDocument = await db.clientDocument.findUniqueOrThrow({
+    where: { id: idDocumentId },
+    select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
+  })
   await runWithTenant(fixture.tenantId, () => runBiometricVerification(
-    selfieId, fixture.clientId, fixture.tenantId, generation, SELFIE_JPEG, "image/jpeg", idDocument,
+    attempt.selfieId, fixture.clientId, fixture.tenantId, attempt.generation, SELFIE_JPEG, "image/jpeg", idDocument,
   ))
   return db.clientDocument.findUniqueOrThrow({
-    where: { id: selfieId },
-    select: { extractionStatus: true, verified: true, biometricResult: true },
+    where: { id: attempt.selfieId },
+    select: { extractionStatus: true, verified: true, biometricResult: true, deletedAt: true },
   })
+}
+
+/** Run the pipeline directly against a chosen ID copy, as a stale callback would. */
+async function attemptAgainst(fixture: { tenantId: string; clientId: string }, idDocumentId: string) {
+  return completeAttempt(fixture, await inFlightAttempt(fixture), idDocumentId)
 }
 
 const reasonOf = (selfie: { biometricResult: unknown } | null) =>
@@ -636,6 +654,100 @@ suite("face match v3 through the real pipeline", () => {
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
       expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
     })
+
+    it("keeps a first-ID match FAILED while an earlier attempt is still in flight", async () => {
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      // Attempt 1 never completes (stuck, or still running).
+      await inFlightAttempt(fixture)
+      const copyB = await addIdCopy(fixture, "after-in-flight", { verified: false, contentSha256: "b".repeat(64) })
+      stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+
+      expect((selfie?.biometricResult as Record<string, unknown>).idDocumentId).toBe(copyB)
+      // As main shows it: a match against an unverified copy is FAILED.
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
+    })
+
+    it("keeps a first-ID match FAILED after the client deleted a selfie mid-check", async () => {
+      // The breaker's REPRO 1: a portal DELETE of a selfie still being checked
+      // succeeds, and its "different" verdict then lands on no row.
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      const attempt = await inFlightAttempt(fixture)
+      const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId }, select: { email: true } })
+      ctx.session = { user: { email: client.email! } }
+      try {
+        const deleted = await documentDELETE(new Request("http://localhost/", { method: "DELETE" }), {
+          params: Promise.resolve({ id: attempt.selfieId }),
+        })
+        expect(deleted.status).toBe(200)
+      } finally {
+        ctx.session = null
+      }
+      stubVlm(passingReply({ samePerson: "different", faceMatch: false, matchConfidence: 0.08 }))
+      const late = await completeAttempt(fixture, attempt, fixture.idCopyId)
+      // The verdict write needs deletedAt null: no adverse trace is recorded.
+      expect(late).toEqual(expect.objectContaining({ extractionStatus: "processing", biometricResult: null }))
+      expect(late.deletedAt).not.toBeNull()
+
+      const copyB = await addIdCopy(fixture, "after-delete", { verified: false, contentSha256: "b".repeat(64) })
+      vi.unstubAllGlobals()
+      stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+
+      expect((selfie?.biometricResult as Record<string, unknown>).idDocumentId).toBe(copyB)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
+    })
+
+    it("records a judged attempt as adverse when its first persist fails on the evidence lock", async () => {
+      // The breaker's REPRO 2: the first persistBiometricOutcome throws and the
+      // catch path re-persists. Prisma 5.22 does not expire an interactive
+      // transaction while its statement is blocked (holding the lock 6.5 s let
+      // the first persist commit), so the failure is driven directly: the
+      // persist's statement waiting on the affordability-client lock is
+      // cancelled, as a statement timeout or a dropped connection would end it.
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      stubVlm(passingReply({ samePerson: "different", faceMatch: false, matchConfidence: 0.08 }))
+      // Claimed before the lock is taken: inserting a document waits on it too.
+      const inFlight = await inFlightAttempt(fixture)
+      let locked!: () => void
+      const lockTaken = new Promise<void>((resolve) => { locked = resolve })
+      let cancelled = 0
+      const holder = db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`affordability-client:${fixture.tenantId}:${fixture.clientId}`}))::text`
+        locked()
+        await vi.waitFor(async () => {
+          const waiting = await db.$queryRaw<Array<{ pid: number }>>`
+            SELECT pid FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND wait_event = 'advisory' AND query LIKE '%pg_advisory_xact_lock%'`
+          expect(waiting).toHaveLength(1)
+          await db.$queryRaw`SELECT pg_cancel_backend(${waiting[0].pid}::int)::text`
+          cancelled += 1
+        }, { timeout: 10_000, interval: 50 })
+      }, { timeout: 20_000 })
+      await lockTaken
+      const [, attempt] = await Promise.all([holder, completeAttempt(fixture, inFlight, fixture.idCopyId)])
+
+      expect(cancelled).toBe(1)
+      // Re-persisted by the catch path: no provider result, but the decided
+      // adverse reason and both judges' answers.
+      expect(attempt.extractionStatus).toBe("failed")
+      expect(attempt.biometricResult).toEqual(expect.objectContaining({
+        biometricFailureReason: "provider_verification_failed",
+        faceVerdict: { samePerson: "different", faceMatch: false, faceModelSamePerson: true },
+      }))
+      expect((attempt.biometricResult as Record<string, unknown>).provider).toBeUndefined()
+
+      vi.unstubAllGlobals()
+      stubVlm(passingReply())
+      await capture(fixture)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
+    }, 30_000)
 
     it("still awaits ID verification after a check that did not finish, then verifies", async () => {
       // The honest case: the face model was unavailable for the first attempt.

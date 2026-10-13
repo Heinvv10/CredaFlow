@@ -1261,6 +1261,114 @@ describe("POST /api/documents/selfie", () => {
     }
   }
 
+  const DIFFERENT_REPLY = {
+    ok: true,
+    data: {
+      faceDetected: { value: true },
+      facesCount: { value: 1 },
+      isLive: { value: true },
+      quality: { value: "good" },
+      livenessConfidence: { value: 0.95 },
+      ...JUDGED_REAL_PHOTOS,
+      samePerson: { value: "different" },
+      faceMatch: { value: false },
+      matchConfidence: { value: 0.08 },
+    },
+  }
+
+  it("persists the VLM's verdict when the liveness gate leaves no provider result", async () => {
+    extractDocumentDataMock.mockResolvedValueOnce({
+      ok: true,
+      data: { ...DIFFERENT_REPLY.data, isLive: { value: false } },
+    })
+
+    await POST(request() as never)
+
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    const update = latestDocumentUpdate()
+    expect(update.data.biometricResult).toEqual(expect.objectContaining({
+      biometricFailureReason: "vlm_liveness_failed",
+      faceVerdict: { samePerson: "different", faceMatch: false, faceModelSamePerson: true },
+    }))
+    expect(update.data.biometricResult.provider).toBeUndefined()
+  })
+
+  // The first persist can throw (the 5 s transaction timeout on the evidence
+  // lock, a deadlock, a dropped connection). The catch path re-persists; it
+  // must not launder a judged attempt into the benign extraction_incomplete.
+  describe("when recording the outcome throws", () => {
+    function failTheFirstPersist() {
+      transactionMock
+        .mockImplementationOnce((callback: (client: typeof tx) => Promise<unknown>) => callback(tx))
+        .mockImplementationOnce(async () => {
+          throw new Error("Transaction already closed: the timeout for this transaction was 5000 ms")
+        })
+    }
+
+    it("keeps an adverse decided reason and the verdict", async () => {
+      failTheFirstPersist()
+      extractDocumentDataMock.mockResolvedValueOnce(DIFFERENT_REPLY)
+
+      await POST(request() as never)
+
+      await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+      expect(transactionMock).toHaveBeenCalledTimes(3)
+      const update = latestDocumentUpdate()
+      expect(update.data.extractionStatus).toBe("failed")
+      expect(update.data.verified).toBe(false)
+      expect(update.data.biometricResult).toEqual(expect.objectContaining({
+        biometricFailureReason: "provider_verification_failed",
+        faceVerdict: { samePerson: "different", faceMatch: false, faceModelSamePerson: true },
+      }))
+    })
+
+    it.each([
+      ["a pass", undefined],
+      ["a benign decided reason", { quality: { value: "unusable" } }],
+    ] as const)("records an adverse reason, not extraction_incomplete, after %s", async (_label, change) => {
+      failTheFirstPersist()
+      if (change) {
+        extractDocumentDataMock.mockResolvedValueOnce({
+          ok: true,
+          data: {
+            faceDetected: { value: true }, facesCount: { value: 1 }, isLive: { value: true },
+            livenessConfidence: { value: 0.95 }, ...JUDGED_REAL_PHOTOS,
+            samePerson: { value: "same" }, faceMatch: { value: true }, matchConfidence: { value: 0.95 },
+            ...change,
+          },
+        })
+      }
+
+      await POST(request() as never)
+
+      await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+      const update = latestDocumentUpdate()
+      expect(update.data.verified).toBe(false)
+      expect(update.data.biometricResult).toEqual(expect.objectContaining({
+        biometricFailureReason: "biometric_outcome_not_recorded",
+        faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: true },
+      }))
+    })
+
+    it("records extraction_incomplete only when neither judge answered", async () => {
+      failTheFirstPersist()
+      extractDocumentDataMock.mockResolvedValueOnce({ ok: false, error: "upstream unavailable" })
+      compareFacesMock.mockResolvedValueOnce({
+        ok: false, rejection: { reason: "extraction_incomplete", message: "Face comparison timed out" },
+        idFaceCount: null, selfieFaceCount: null,
+      })
+
+      await POST(request() as never)
+
+      await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+      const update = latestDocumentUpdate()
+      expect(update.data.biometricResult).toEqual(expect.objectContaining({
+        biometricFailureReason: "extraction_incomplete",
+        faceVerdict: null,
+      }))
+    })
+  })
+
   it("refuses a confident VLM \"same\" when the face model's similarity is below the threshold", async () => {
     const belowThreshold = { ...PASSING_FACE_MODEL_EVIDENCE, similarity: 0.12, samePerson: false }
     compareFacesMock.mockResolvedValueOnce({

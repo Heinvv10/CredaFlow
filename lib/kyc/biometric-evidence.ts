@@ -53,6 +53,11 @@ export type BiometricEvidenceFailureReason =
   // The VLM judged the selfie not to be a camera photograph of a real person.
   // Not exceptionable for the same reason: the remedy is a real selfie.
   | "selfie_not_real_photograph"
+  // A judge answered, but recording the outcome failed (a transaction
+  // timeout, a deadlock, a dropped connection), so what it said is not on
+  // record. Not extraction_incomplete, which is benign: that would launder
+  // a "different" into a capture problem.
+  | "biometric_outcome_not_recorded"
 
 const BIOMETRIC_EVIDENCE_FAILURE_REASONS = new Set<BiometricEvidenceFailureReason>([
   "extraction_incomplete",
@@ -74,6 +79,7 @@ const BIOMETRIC_EVIDENCE_FAILURE_REASONS = new Set<BiometricEvidenceFailureReaso
   "provider_verification_failed",
   "id_document_portrait_invalid",
   "selfie_not_real_photograph",
+  "biometric_outcome_not_recorded",
 ])
 
 export function parseBiometricEvidenceFailureReason(
@@ -253,6 +259,7 @@ export const BIOMETRIC_FAILURE_REASON_CLASS: Record<
   provider_verification_failed: "adverse",
   id_document_portrait_invalid: "adverse",
   selfie_not_real_photograph: "adverse",
+  biometric_outcome_not_recorded: "adverse",
 }
 
 export const BENIGN_CAPTURE_REASONS: ReadonlySet<BiometricEvidenceFailureReason> = new Set(
@@ -263,20 +270,20 @@ export const BENIGN_CAPTURE_REASONS: ReadonlySet<BiometricEvidenceFailureReason>
 /**
  * The where-shape for earlier selfie attempts that may be adverse, deleted or
  * not (a portal client may delete an unverified attempt, and that must not
- * erase the signal): every failed or skipped attempt, and every one staff
- * rejected. isAdversePriorAttempt then decides each row.
+ * erase the signal): every failed, skipped or still in-flight attempt, and
+ * every one staff rejected. isAdversePriorAttempt then decides each row.
  */
 export const PRIOR_FAILED_ATTEMPT_CONDITIONS: {
   docType: "SELFIE"
   OR: [
-    { extractionStatus: { in: ["failed", "skipped"] } },
+    { extractionStatus: { in: ["failed", "skipped", "pending", "processing"] } },
     { verificationRejectedAt: { not: null } },
     { verificationRejectedById: { not: null } },
   ]
 } = {
   docType: "SELFIE",
   OR: [
-    { extractionStatus: { in: ["failed", "skipped"] } },
+    { extractionStatus: { in: ["failed", "skipped", "pending", "processing"] } },
     { verificationRejectedAt: { not: null } },
     { verificationRejectedById: { not: null } },
   ],
@@ -309,7 +316,9 @@ function adverseFaceVerdict(result: Record<string, unknown> | null): boolean {
  * failed or skipped attempt is adverse unless it recorded a benign capture
  * reason, so a missing, unknown or new reason counts, and whatever its
  * reason when either judge's same-person answer refused. A selfie staff
- * rejected is adverse whatever its check said.
+ * rejected is adverse whatever its check said. One still pending or
+ * processing blocks too: its verdict has not landed and may never (stuck,
+ * or deleted mid-check, when the verdict write finds no row).
  */
 export function isAdversePriorAttempt(row: {
   docType?: string
@@ -320,6 +329,7 @@ export function isAdversePriorAttempt(row: {
 }): boolean {
   if (row.docType !== undefined && row.docType !== PRIOR_FAILED_ATTEMPT_CONDITIONS.docType) return false
   if ((row.verificationRejectedAt ?? null) !== null || (row.verificationRejectedById ?? null) !== null) return true
+  if (row.extractionStatus === "pending" || row.extractionStatus === "processing") return true
   if (row.extractionStatus !== "failed" && row.extractionStatus !== "skipped") return false
   const result = jsonRecord(row.biometricResult)
   if (adverseFaceVerdict(result)) return true

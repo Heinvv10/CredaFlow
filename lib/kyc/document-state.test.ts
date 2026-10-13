@@ -843,6 +843,14 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
     }))
   })
 
+  it.each(["processing", "pending"])("projects FAILED while an earlier attempt is still %s", async (extractionStatus) => {
+    expect(await read([currentB], [{ extractionStatus, biometricResult: null }])).toEqual(expect.objectContaining({
+      biometricAttemptFailed: true,
+      biometricAwaitingIdVerification: false,
+      state: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+  })
+
   it("still awaits ID verification after an earlier check that did not finish", async () => {
     expect(await read([currentB], [
       { extractionStatus: "failed", biometricResult: { biometricFailureReason: "extraction_incomplete" } },

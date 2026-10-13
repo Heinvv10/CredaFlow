@@ -77,6 +77,32 @@ export type FaceVerdict = {
   faceModelSamePerson: boolean | null
 }
 
+function extractionIsUnavailable(vlmResult: Awaited<ReturnType<typeof extractDocumentData>>): boolean {
+  return !vlmResult.ok && vlmResult.error?.includes('AI document extraction is not configured') === true
+}
+
+/**
+ * The two judges' same-person answers, from their raw outputs: null when
+ * neither answered. Derived before the decision so the pipeline's error path
+ * can keep it when anything after the judges throws.
+ */
+export function faceVerdictOf(
+  vlmResult: Awaited<ReturnType<typeof extractDocumentData>>,
+  faceComparison: FaceComparison | null,
+): FaceVerdict | null {
+  const vlmJudgement = extractionIsUnavailable(vlmResult)
+    ? null
+    : readVlmSamePersonJudgement(vlmResult.data ?? null)
+  const faceModelSamePerson = faceComparison?.ok ? faceComparison.evidence.samePerson : null
+  return vlmJudgement === null && faceModelSamePerson === null
+    ? null
+    : {
+        samePerson: vlmJudgement?.samePerson ?? null,
+        faceMatch: vlmJudgement?.faceMatch ?? null,
+        faceModelSamePerson,
+      }
+}
+
 export type BiometricAttemptDecision = {
   extractionResult: unknown
   extractionStatus: "done" | "failed"
@@ -106,7 +132,7 @@ export function decideBiometricAttempt({
   /** The ID copy the selfie was compared against. */
   idDocument: BiometricIdDocument
 }): BiometricAttemptDecision {
-  const extractionUnavailable = !vlmResult.ok && vlmResult.error?.includes('AI document extraction is not configured')
+  const extractionUnavailable = extractionIsUnavailable(vlmResult)
 
   // Step C: derive the provider result from the VLM's own verdict. There is
   // no external provider any more (Smile Identity was never configured and
@@ -239,15 +265,7 @@ export function decideBiometricAttempt({
     ?? (biometricResult ? (modelRejection ?? matchVerdict?.rejection)?.reason : null)
     ?? assessedReason
 
-  const vlmJudgement = extractionUnavailable ? null : readVlmSamePersonJudgement(extractionResult)
-  const faceModelSamePerson = faceComparison?.ok ? faceComparison.evidence.samePerson : null
-  const faceVerdict: FaceVerdict | null = vlmJudgement === null && faceModelSamePerson === null
-    ? null
-    : {
-        samePerson: vlmJudgement?.samePerson ?? null,
-        faceMatch: vlmJudgement?.faceMatch ?? null,
-        faceModelSamePerson,
-      }
+  const faceVerdict = faceVerdictOf(vlmResult, faceComparison)
 
   return {
     extractionResult,

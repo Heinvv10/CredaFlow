@@ -88,6 +88,13 @@ export const BIOMETRIC_FAILURE_COPY: Record<
     detail:
       "The check could not confirm that the photo on the ID document on file is a real photograph of a face, so the selfie could not be compared. The client must upload a new, clear photo of their ID.",
   },
+  // A judge answered but the outcome could not be recorded. Not on the
+  // exception allow-list: there is no result on record to reason over.
+  biometric_outcome_not_recorded: {
+    label: "Identity check result was not saved",
+    detail:
+      "The check on this selfie ran, but its result could not be recorded, so there is no result to rely on.",
+  },
   selfie_not_real_photograph: {
     label: "Selfie could not be verified as a real photograph",
     detail:

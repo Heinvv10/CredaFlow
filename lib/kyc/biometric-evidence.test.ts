@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   BENIGN_CAPTURE_REASONS,
   BIOMETRIC_FAILURE_REASON_CLASS,
+  PRIOR_FAILED_ATTEMPT_CONDITIONS,
   assessBiometricEvidence,
   assessVlmBiometricExtraction,
   isAdversePriorAttempt,
@@ -704,12 +705,26 @@ describe("isAdversePriorAttempt", () => {
     })).toBe(true)
   })
 
-  it.each([
-    ["passed", "done"],
-    ["still processing", "processing"],
-    ["pending", "pending"],
-  ])("does not count an attempt that %s", (_label, extractionStatus) => {
-    expect(isAdversePriorAttempt({ extractionStatus, biometricResult: { biometricFailureReason: null } })).toBe(false)
+  it("does not count an attempt that passed", () => {
+    expect(isAdversePriorAttempt({ extractionStatus: "done", biometricResult: { biometricFailureReason: null } })).toBe(false)
+  })
+
+  // Its verdict has not landed, and may never: a stuck attempt, or one the
+  // client deleted mid-check (the verdict write then finds no row).
+  it.each(["processing", "pending"])("counts an attempt still %s as blocking", (extractionStatus) => {
+    expect(isAdversePriorAttempt({ extractionStatus, biometricResult: null })).toBe(true)
+    expect(isAdversePriorAttempt({ extractionStatus, biometricResult: { biometricFailureReason: null } })).toBe(true)
+  })
+
+  it("asks the database for in-flight attempts too, deleted or not", () => {
+    expect(PRIOR_FAILED_ATTEMPT_CONDITIONS).toEqual({
+      docType: "SELFIE",
+      OR: [
+        { extractionStatus: { in: ["failed", "skipped", "pending", "processing"] } },
+        { verificationRejectedAt: { not: null } },
+        { verificationRejectedById: { not: null } },
+      ],
+    })
   })
 
   it("does not count a document that is not a selfie", () => {

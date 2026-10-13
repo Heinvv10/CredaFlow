@@ -12,11 +12,13 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import {
+  BIOMETRIC_FAILURE_REASON_CLASS,
   biometricSubjectFingerprint,
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
 import {
   decideBiometricAttempt,
+  faceVerdictOf,
   type FaceVerdict,
   type StrictRejectionJudgement,
   type VlmFaceMatchProviderResult,
@@ -59,6 +61,10 @@ export async function runBiometricVerification(
   // could pass unbound. It defends itself with a fallback, but keep this end
   // honest too.
   let subjectFingerprint: string | null = null
+  // Kept for the error path: once either judge has answered, what it said
+  // must reach the record even if the decision or its persistence throws.
+  let faceVerdict: FaceVerdict | null = null
+  let decidedFailureReason: BiometricEvidenceFailureReason | null = null
   try {
     // Step A: the VLM is the biometric provider — one multimodal request
     // carrying the live selfie AND the stored ID document, returning
@@ -110,6 +116,7 @@ export async function runBiometricVerification(
           }),
       images ? compareFaces(images.id, images.selfie) : Promise.resolve(null),
     ])
+    faceVerdict = faceVerdictOf(vlmResult, faceComparison)
 
     // Step B: bind the attempt to the exact subject identity on file
     const client = await prisma.client.findUnique({
@@ -141,7 +148,6 @@ export async function runBiometricVerification(
       biometricPassed,
       biometricFailureReason,
       strictJudgement,
-      faceVerdict,
     } = decideBiometricAttempt({
       vlmResult,
       faceComparison,
@@ -150,6 +156,7 @@ export async function runBiometricVerification(
       subjectFingerprint,
       idDocument,
     })
+    decidedFailureReason = biometricFailureReason
 
     await persistBiometricOutcome({
       docId,
@@ -182,10 +189,17 @@ export async function runBiometricVerification(
       extractionResult: null,
       biometricResult: null,
       biometricPassed: false,
-      biometricFailureReason: "extraction_incomplete",
+      // extraction_incomplete is benign, so only an error before either judge
+      // answered may record it. After a judgement the decided reason stands
+      // when it is adverse; otherwise the outcome was not recorded.
+      biometricFailureReason: faceVerdict === null
+        ? "extraction_incomplete"
+        : decidedFailureReason !== null && BIOMETRIC_FAILURE_REASON_CLASS[decidedFailureReason] === "adverse"
+          ? decidedFailureReason
+          : "biometric_outcome_not_recorded",
       subjectFingerprint,
       strictJudgement: null,
-      faceVerdict: null,
+      faceVerdict,
       faceComparison: null,
       comparedImageSha256: null,
     })

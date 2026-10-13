@@ -387,6 +387,27 @@ describe("inMemoryKycReader", () => {
       }),
     },
     {
+      name: "the same, while an earlier attempt is still processing",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          selfie({ id: "selfie-in-flight", verified: false, biometricVerifiedAt: null, extractionStatus: "processing" }),
+        ],
+      }),
+    },
+    {
+      name: "the same, after an earlier attempt deleted while pending",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          selfie({ id: "selfie-deleted-in-flight", verified: false, biometricVerifiedAt: null, extractionStatus: "pending",
+            deletedAt: new Date("2026-07-19T08:45:00.000Z") }),
+        ],
+      }),
+    },
+    {
       name: "the same, after an earlier check that did not finish",
       data: rows({
         coreDocuments: unverifiedFirstIdCopies(),
@@ -470,6 +491,8 @@ describe("inMemoryKycReader", () => {
     ["the same, after an earlier attempt staff rejected", false],
     ["the same, after an earlier attempt where no face was found", false],
     ["the same, after an earlier check that did not finish", true],
+    ["the same, while an earlier attempt is still processing", false],
+    ["the same, after an earlier attempt deleted while pending", false],
     ["the same, after an unfinished check whose VLM said different", false],
   ])("awaits ID verification on the board for %s: %s", async (name, awaiting) => {
     const { data } = cases.find((c) => c.name === name)!
