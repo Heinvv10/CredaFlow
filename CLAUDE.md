@@ -51,7 +51,9 @@ obligations, not style:
 - **TOTP 2FA is mandatory for staff.** Don't add staff-write paths that skip
   2FA. See `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic
   demo stacks: `scripts/demo/restore.sh` turns staff TOTP off when the demo
-  app runs with `DEMO_CLEAR_STAFF_TOTP=true`. Never set it on a real lender.
+  app runs with `DEMO_CLEAR_STAFF_TOTP=true`, and with it plus `DEMO_MODE=true`
+  a password-only session may clear a credit check (`demoStaffWithoutTotp`,
+  `lib/config/demo-mode.ts`; audited as waived). Never set it on a real lender.
 - **Document access is logged.** `ClientDocument` access goes through
   `lib/document-auth.ts`, which writes a `DocumentAccessLog` row — POPIA
   compliance depends on it.

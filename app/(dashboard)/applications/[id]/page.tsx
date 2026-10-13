@@ -56,6 +56,7 @@ import { resolveBureauDisplay } from "@/lib/compliance/bureau-display"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { resolveAffordabilityDisplayInputs } from "@/lib/affordability/display"
+import { demoStaffWithoutTotp } from "@/lib/config/demo-mode"
 import {
   affordabilityContractEvidenceIsIntact,
   affordabilityDecisionSnapshotIsIntact,
@@ -812,8 +813,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         {canReadChecks && (
           <CreditChecksPanel
             applicationId={application.id}
-            canClear={canApprove && session?.user?.totpVerified === true && checksUndecided}
-            needsTotp={canApprove && session?.user?.totpVerified !== true && checksUndecided}
+            canClear={canApprove && (session?.user?.totpVerified === true || demoStaffWithoutTotp()) && checksUndecided}
+            needsTotp={canApprove && session?.user?.totpVerified !== true && !demoStaffWithoutTotp() && checksUndecided}
             initialOpenCount={openChecks}
           />
         )}
