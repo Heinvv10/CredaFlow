@@ -80,4 +80,11 @@ describe("salaryMatch", () => {
     expect(codes(out)).toEqual(["SALARY_NOT_CHECKED"])
     expect(out[0].evidence).toMatchObject({ documentId: "doc-1" })
   })
+
+  it("raises PAYSLIP_NOT_CLIENTS for an older payslip too, though a newer one matches", () => {
+    const out = salaryMatch(facts({ payslip: payslip(), mismatchedPayslipIds: ["slip-old"], statements: [paid(1_845_000, 1_845_000, 1_845_000)] }))
+    expect(codes(out)).toEqual(["PAYSLIP_NOT_CLIENTS"])
+    expect(out[0].evidence).toEqual({ payslipDocumentId: "slip-old" })
+  })
 })
+

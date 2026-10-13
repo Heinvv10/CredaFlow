@@ -22,11 +22,8 @@ describe("maySupersede: an OPEN flag that is no longer raised", () => {
     expect(maySupersede(flag("NOT_READ", { documentId: "doc-1" }), facts({ statements: [] }))).toBe(false)
   })
 
-  it("goes when its own statement was re-read into a reconciling read, and not otherwise", () => {
-    const old = { documentId: "doc-1", analysisId: "an-old" }
-    expect(maySupersede(flag("GAMBLING", old), facts())).toBe(true)
-    expect(maySupersede(flag("GAMBLING", old), facts({ statements: [statement([], { balanceCheck: "FAIL" })] }))).toBe(false)
-    expect(maySupersede(flag("GAMBLING", { documentId: "doc-1", analysisId: "an-1" }), facts())).toBe(false)
+  it("stays even when a newer parser re-read its statement: the finding may have gone for other reasons", () => {
+    expect(maySupersede(flag("GAMBLING", { documentId: "doc-1", analysisId: "an-old" }), facts())).toBe(false)
   })
 
   it("stays when its statement was deleted or the client record changed", () => {

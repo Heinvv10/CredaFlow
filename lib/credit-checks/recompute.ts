@@ -8,10 +8,10 @@
  *                                          the database refuses it too)
  *   - a SUPERSEDED flag raised again     → OPEN again
  *   - an OPEN flag no longer raised      → SUPERSEDED only when the evidence it
- *     complained of being absent arrived (supersedesOnArrival), or its own
- *     statement was re-read by a newer parser. Otherwise it stays OPEN: a
- *     deleted statement or an edited client record must not make a finding
- *     disappear without an officer clearing it.
+ *     complained of being absent arrived, or the statement it could not read
+ *     has been read (maySupersede). Otherwise it stays OPEN: a deleted
+ *     statement, an edited client record or a parser change must not make a
+ *     finding disappear without an officer clearing it.
  *
  * Runs only before a decision: once an application is approved or declined
  * its flags are the record of what the officer saw, and stay as they were.
@@ -52,13 +52,12 @@ const SUPERSEDES_ON_READ = new Set(["NOT_READ", "NOT_READ_NO_CONSENT"])
 
 export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts): boolean {
   if (SUPERSEDES_ON_ARRIVAL.has(flag.code)) return true
-  const e = (flag.evidence ?? {}) as { documentId?: unknown; analysisId?: unknown }
+  const e = (flag.evidence ?? {}) as { documentId?: unknown }
   const current = facts.statements.find((s) => s.documentId === e.documentId)
-  if (SUPERSEDES_ON_READ.has(flag.code)) return !!current && current.state !== "PENDING"
-  // A newer parser re-read the same statement: its findings replace the old
-  // read's, but only from a read that reconciles.
-  return !!current?.analysisId && typeof e.analysisId === "string" && current.analysisId !== e.analysisId
-    && current.balanceCheck === "PASS"
+  // Every other finding stays until an officer clears it — even after a newer
+  // parser re-reads its statement, since the finding may have gone for reasons
+  // that have nothing to do with the re-read.
+  return SUPERSEDES_ON_READ.has(flag.code) && !!current && current.state !== "PENDING"
 }
 
 export async function recomputeApplicationFlags(
@@ -81,7 +80,8 @@ export async function recomputeApplicationFlags(
     }
     // Facts again under the lock, so a slower recompute cannot act on older
     // evidence. Persisted reads only: no reader runs while the lock is held.
-    const loaded = await loadApplicationFacts(tenantId, applicationId, { persistedOnly: true })
+    const pendingReasons = new Map(warm.facts.statements.flatMap((s) => (s.pendingReason ? [[s.documentId, s.pendingReason] as const] : [])))
+    const loaded = await loadApplicationFacts(tenantId, applicationId, { persistedOnly: true, pendingReasons })
     if (!loaded) return { recomputed: false, flags: [] }
     const candidates = runChecks(loaded.facts)
     const existing = new Map((await listFlags(tenantId, applicationId, tx)).map((f) => [f.fingerprint, f]))
@@ -142,5 +142,10 @@ export async function recomputeClientApplications(tenantId: string, clientId: st
     where: { tenantId, clientId, status: { in: [...RECOMPUTE_STATUSES] } },
     select: { id: true },
   })
-  for (const app of apps) await recomputeApplicationFlags(tenantId, app.id, null)
+  for (const app of apps) {
+    // One application failing must not leave the client's others unchecked.
+    await recomputeApplicationFlags(tenantId, app.id, null).catch((err) => {
+      console.error("[credit-checks] recompute failed:", { applicationId: app.id, error: err instanceof Error ? err.name : "unknown" })
+    })
+  }
 }

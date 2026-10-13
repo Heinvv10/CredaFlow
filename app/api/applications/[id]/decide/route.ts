@@ -1069,6 +1069,7 @@ export async function POST(
         // flag still OPEN after a fresh recompute blocks approval until a
         // LOAN_ADMIN clears it with a reason. The transaction re-counts under
         // the row lock and the LoanApplication trigger is the backstop.
+        const checksAt = new Date()
         const checks = await recomputeApplicationFlags(tenant.id, id, { userId: guard.user.id, email: guard.user.email })
         const openChecks = (checks?.flags ?? []).filter((f) => f.status === "OPEN")
         if (openChecks.length > 0) {
@@ -1126,6 +1127,21 @@ export async function POST(
             })
             if (openFlags > 0) {
               return { ok: false as const, reason: "checks_open" as const }
+            }
+            // Evidence that arrived after the recompute above has not been checked.
+            const clientId = locked.application.client.id
+            const newEvidence = await tx.clientDocument.count({
+              where: {
+                tenantId: tenant.id,
+                clientId,
+                docType: { in: ["BANK_STATEMENT", "PAYSLIP"] },
+                OR: [{ createdAt: { gt: checksAt } }, { deletedAt: { gt: checksAt } }],
+              },
+            }) + await tx.statementAnalysis.count({
+              where: { tenantId: tenant.id, createdAt: { gt: checksAt }, clientDocument: { clientId } },
+            })
+            if (newEvidence > 0) {
+              return { ok: false as const, reason: "checks_stale" as const }
             }
             const approved = await tx.loanApplication.updateMany({
               where: {
@@ -1309,6 +1325,12 @@ export async function POST(
                 error: "KYC evidence changed before the application could be approved; refresh and complete KYC again.",
                 kycEvidence: "changed",
               },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "checks_stale") {
+            return NextResponse.json(
+              { error: "New statements or payslips arrived while approving. Refresh Credit checks and review them first." },
               { status: 409 },
             )
           }

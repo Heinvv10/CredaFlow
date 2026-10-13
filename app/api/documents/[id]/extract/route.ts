@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
+import { hasMinRole } from "@/lib/permissions"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import { getDocumentCaller } from "@/lib/document-auth"
@@ -240,7 +241,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (start.doc.docType === "BANK_STATEMENT") {
         const clientId = start.doc.clientId
         readStatementInBackground(tenant.id, start.doc.id, {
-          retryFailed: true,
+          // Discarding a failed read is for credit staff, not every staff role.
+          retryFailed: hasMinRole(caller.role, "CREDIT_OFFICER"),
           onRead: () => recomputeClientApplications(tenant.id, clientId),
         })
       }
@@ -363,6 +365,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           { ok: false, error: completion.error },
           { status: 422 },
         )
+      }
+      // A re-extracted payslip feeds the credit checks: raise what it shows now.
+      if (start.doc.docType === "PAYSLIP") {
+        await recomputeClientApplications(tenant.id, start.doc.clientId).catch((err) => {
+          console.error("[document-extract] credit-check recompute failed:", { documentId: start.doc.id, error: err instanceof Error ? err.name : "unknown" })
+        })
       }
 
       return NextResponse.json({ ok: true, data: extractedData })

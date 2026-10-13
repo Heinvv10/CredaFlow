@@ -71,6 +71,8 @@ export interface LoadOptions {
    * under the application row lock, after a first pass has done the reading.
    */
   persistedOnly?: boolean
+  /** With persistedOnly: why each statement was still pending in the first pass. */
+  pendingReasons?: Map<string, NonNullable<StatementFacts["pendingReason"]>>
 }
 
 export async function loadApplicationFacts(
@@ -89,7 +91,7 @@ export async function loadApplicationFacts(
   const applicationDate = isoDay(app.submittedAt ?? app.createdAt)!
   const since = new Date(app.createdAt.getTime() - STATEMENT_UPLOAD_LOOKBACK_DAYS * 86_400_000)
 
-  const [docs, deleted, slip, bureau] = await Promise.all([
+  const [docs, deleted, slips, deletedSlips, cancelled, bureau] = await Promise.all([
     prisma.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
       select: { id: true, uploadedByType: true },
@@ -99,10 +101,20 @@ export async function loadApplicationFacts(
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: { not: null }, createdAt: { gte: since }, statementAnalyses: { some: {} } },
       select: { id: true },
     }),
-    prisma.clientDocument.findFirst({
+    prisma.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, extractionStatus: "done", createdAt: { gte: since } },
       select: { id: true, extractionResult: true, validationMismatch: true },
       orderBy: { createdAt: "desc" },
+    }),
+    prisma.clientDocument.findMany({
+      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: { not: null }, extractionStatus: "done", createdAt: { gte: since } },
+      select: { id: true },
+    }),
+    // Cancelling an application and starting another must not leave its open
+    // findings behind where no one looks.
+    prisma.loanApplication.findMany({
+      where: { tenantId, clientId: app.clientId, id: { not: applicationId }, status: "CANCELLED", createdAt: { gte: since }, checkFlags: { some: { status: "OPEN" } } },
+      select: { id: true },
     }),
     prisma.creditBureauCheck.findFirst({
       where: { tenantId, applicationId, ok: true },
@@ -125,7 +137,7 @@ export async function loadApplicationFacts(
     const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false, persistedOnly: opts.persistedOnly })
     if (r.state === "read") statements.push(statementFacts(doc.id, r.analysis))
     else if (r.state === "pending") {
-      const reason = r.reason === "file_missing" || r.reason === "reader_unavailable" ? r.reason : "vlm"
+      const reason = r.reason === "file_missing" || r.reason === "reader_unavailable" ? r.reason : opts.pendingReasons?.get(doc.id) ?? "vlm"
       statements.push(pending(doc.id, reason))
       // A read the vision model has not done yet — the model was down, or the
       // process restarted before its queue ran — is queued again here.
@@ -133,6 +145,7 @@ export async function loadApplicationFacts(
     }
   }
 
+  const slip = slips[0]
   const payslip = slip ? payslipFacts(slip.id, slip.extractionResult, slip.validationMismatch) : null
   // The lower of the payslip and the declared income: a payslip can only make
   // the income-relative checks stricter, never looser.
@@ -152,6 +165,9 @@ export async function loadApplicationFacts(
       monthlyIncomeCents: income,
       statements,
       deletedStatementIds: deleted.map((d) => d.id),
+      mismatchedPayslipIds: slips.filter((s) => s.validationMismatch).map((s) => s.id),
+      deletedPayslipIds: deletedSlips.map((d) => d.id),
+      priorOpenFlagApplicationIds: cancelled.map((a) => a.id),
       payslip,
       debts,
     },

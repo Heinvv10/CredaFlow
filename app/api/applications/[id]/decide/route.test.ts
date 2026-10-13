@@ -28,6 +28,8 @@ const readCompositeKycStateMock = vi.fn()
 const nonOverridableBlockMock = vi.fn()
 const recomputeApplicationFlagsMock = vi.fn()
 const txCheckFlagCountMock = vi.fn()
+const txDocumentCountMock = vi.fn()
+const txAnalysisCountMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 vi.mock("@/lib/credit-checks/recompute", () => ({
@@ -404,10 +406,13 @@ beforeEach(() => {
   txExecuteRawUnsafeMock.mockResolvedValue(0)
   recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [] })
   txCheckFlagCountMock.mockResolvedValue(0)
+  txDocumentCountMock.mockResolvedValue(0)
+  txAnalysisCountMock.mockResolvedValue(0)
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({
     loanApplication: { updateMany: txUpdateManyMock },
     applicationCheckFlag: { count: (a: unknown) => txCheckFlagCountMock(a) },
-    clientDocument: { updateMany: (a: unknown) => txDocumentUpdateManyMock(a) },
+    clientDocument: { updateMany: (a: unknown) => txDocumentUpdateManyMock(a), count: (a: unknown) => txDocumentCountMock(a) },
+    statementAnalysis: { count: (a: unknown) => txAnalysisCountMock(a) },
     auditLog: { create: txAuditLogCreateMock },
     $executeRawUnsafe: (sql: string) => txExecuteRawUnsafeMock(sql),
     // return_to_review re-resolves the current credit-life offer to decide
@@ -547,6 +552,30 @@ it("re-counts open checks under the row lock and refuses before writing the appr
   expect(txCheckFlagCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", applicationId: expect.any(String), status: "OPEN" } })
   expect(txUpdateManyMock).not.toHaveBeenCalled()
   expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("refuses an approval when a statement or payslip arrived after the checks ran", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txDocumentCountMock.mockResolvedValue(1)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toContain("arrived while approving")
+  expect(txDocumentCountMock).toHaveBeenCalledWith({
+    where: expect.objectContaining({ tenantId: "t1", docType: { in: ["BANK_STATEMENT", "PAYSLIP"] } }),
+  })
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("refuses an approval when a statement was read after the checks ran", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txAnalysisCountMock.mockResolvedValue(1)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
 })
 
 it("409s when the open-check-flags trigger refuses the approval write", async () => {

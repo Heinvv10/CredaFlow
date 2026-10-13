@@ -51,6 +51,9 @@ export function outcomeOf(id: string, r: StatementAnalysisResult): Outcome {
     payslip: null,
     debts: [],
     deletedStatementIds: [],
+    mismatchedPayslipIds: [],
+    deletedPayslipIds: [],
+    priorOpenFlagApplicationIds: [],
     statements: [{
       documentId: id, analysisId: id, contentSha256: id, state: r.status, method: r.method, bank: r.bank,
       read: r.read, balanceCheck: r.balanceCheck, authenticity: r.authenticity,

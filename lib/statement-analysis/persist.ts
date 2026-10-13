@@ -104,8 +104,9 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
     return { state: "read", analysis: claimed }
   }
   if (opts.persistedOnly) {
-    // A row without a recorded hash was read under the hash of its bytes: take the newest read.
-    const latest = doc.contentSha256 ? null : await prisma.statementAnalysis.findFirst({
+    // A file whose bytes no longer match the row's hash was read under the
+    // hash of its bytes: take the document's newest read either way.
+    const latest = await prisma.statementAnalysis.findFirst({
       where: { tenantId: opts.tenantId, clientDocumentId: doc.id, parserVersion: PARSER_VERSION },
       orderBy: { createdAt: "desc" },
     })
@@ -121,7 +122,11 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
   // The read binds the bytes actually read, whatever the row claims.
   const sha = sha256DocumentBytes(bytes)
   const existing = sha !== doc.contentSha256 ? await findRead(opts.tenantId, doc.id, sha) : null
-  if (existing) return { state: "read", analysis: existing }
+  if (existing && opts.retryFailed && failedRead(existing)) {
+    await prisma.statementAnalysis.deleteMany({ where: { id: existing.id, tenantId: opts.tenantId } })
+  } else if (existing) {
+    return { state: "read", analysis: existing }
+  }
   const mimeType = doc.mimeType ?? "application/octet-stream"
   if (!opts.allowVlm && mimeType !== "application/pdf") return { state: "pending", reason: "vlm_deferred" }
 

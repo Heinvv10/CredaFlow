@@ -172,6 +172,13 @@ suite("recomputeApplicationFlags against Postgres", () => {
     expect(second.map((f) => f.code)).toEqual(expect.arrayContaining(["GAMBLING", "PAYDAY_LENDER", "RETURNED_DEBIT"]))
   })
 
+  it("raises PRIOR_OPEN_FLAGS when a flagged application is cancelled to start afresh", async () => {
+    await prisma.loanApplication.update({ where: { id: `${appId}_2`, tenantId }, data: { status: "CANCELLED" } })
+    await recomputeApplicationFlags(tenantId, appId, { userId })
+    const prior = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { tenantId, applicationId: appId, code: "PRIOR_OPEN_FLAGS" } })
+    expect(prior).toMatchObject({ status: "OPEN", evidence: { applicationId: `${appId}_2` } })
+  })
+
   it("does not recompute a decided application", async () => {
     const before = await openCodes()
     await prisma.loanApplication.update({ where: { id: appId, tenantId }, data: { status: "DECLINED", decisionReason: "Test" } })

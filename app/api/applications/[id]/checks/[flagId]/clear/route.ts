@@ -27,6 +27,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { id, flagId } = await ctx.params
     const body = (await req.json().catch(() => ({}))) as { reason?: unknown }
     const reason = typeof body.reason === "string" ? body.reason.trim() : ""
+    // A NUL is refused by Postgres text; control characters have no place in a reason.
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(reason)) {
+      return NextResponse.json({ error: "The reason contains control characters.", reason: "invalid" }, { status: 400 })
+    }
     // Code points, as the database's char_length counts them: an emoji is one, not two.
     const length = [...reason].length
     if (length < CLEAR_REASON_MIN_LENGTH) {

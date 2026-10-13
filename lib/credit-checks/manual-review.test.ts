@@ -81,4 +81,28 @@ describe("manualReview", () => {
     expect(codes(out)).toEqual(["NOT_READ"])
     expect(out[0].summary).toContain("PDF tools")
   })
+
+  it("raises every concern about a statement, so clearing one cannot hide another", () => {
+    const signals = (x: string[]) => ({ producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: x })
+    const photo = statement([], { method: "VLM", bank: null, balanceCheck: "FAIL", authenticity: signals(["NOT_A_PDF"]) })
+    photo.read!.accountHolderName = null
+    expect(codes(manualReview(withSlip({ statements: [photo] })))).toEqual(["AUTHENTICITY_UNCHECKED", "READ_INCOMPLETE", "UNVERIFIED_READ"])
+  })
+
+  it("raises AUTHENTICITY_UNCHECKED for a profiled bank whose layout the text reader did not recognise", () => {
+    const s = statement([], { method: "VLM", authenticity: { producer: "OpenPDF 2.0.2", creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: ["TEXT_LAYOUT_UNRECOGNISED"] } })
+    expect(codes(manualReview(withSlip({ statements: [s] })))).toEqual(["AUTHENTICITY_UNCHECKED"])
+  })
+
+  it("says a statement with contradictory metadata may be altered, not that it is long", () => {
+    const s = statement([], { state: "UNSUPPORTED", read: null, method: "VLM", balanceCheck: "NOT_APPLICABLE", authenticity: { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: ["METADATA_AMBIGUOUS"] } })
+    expect(manualReview(withSlip({ statements: [s] }))[0].summary).toContain("possibly altered")
+  })
+
+  it("raises PAYSLIP_DELETED and PRIOR_OPEN_FLAGS for each one", () => {
+    const out = manualReview(withSlip({ deletedPayslipIds: ["slip-old"], priorOpenFlagApplicationIds: ["app-cancelled"] }))
+    expect(codes(out)).toEqual(["PAYSLIP_DELETED", "PRIOR_OPEN_FLAGS"])
+    expect(out.find((c) => c.code === "PRIOR_OPEN_FLAGS")!.evidence).toEqual({ applicationId: "app-cancelled" })
+  })
 })
+

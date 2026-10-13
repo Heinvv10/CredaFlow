@@ -87,6 +87,13 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     expect((await post({ reason: "🙂".repeat(15) })).status).toBe(200)
   })
 
+  it("refuses control characters in a reason, which Postgres would reject as a 500", async () => {
+    const res = await post({ reason: "Reviewed by hand\u0000 and fine" })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ reason: "invalid" })
+    expect(updateManyMock).not.toHaveBeenCalled()
+  })
+
   it("refuses a reason over 1000 characters", async () => {
     const res = await post({ reason: "x".repeat(1001) })
     expect(res.status).toBe(400)

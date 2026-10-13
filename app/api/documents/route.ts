@@ -357,6 +357,14 @@ export async function POST(req: NextRequest) {
                   },
                 } as never)
               })
+              // A payslip's figures and its name/ID check feed the credit checks:
+              // raise what they show now, not when someone next opens the application.
+              // Its own failure must not mark the finished extraction as failed.
+              if (docType === "PAYSLIP") {
+                await recomputeClientApplications(tenant.id, clientId).catch((err) => {
+                  console.error("[document-upload] credit-check recompute failed:", { documentId: doc.id, error: err instanceof Error ? err.name : "unknown" })
+                })
+              }
             } else {
               const extractionUnavailable = result.error?.includes('AI document extraction is not configured')
               await failUploadExtraction(

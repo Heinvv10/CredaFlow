@@ -25,19 +25,25 @@ interface MonthResult {
   documentIds: Set<string>
 }
 
+const notClients = (payslipDocumentId: string): FlagCandidate => ({
+  check: "SALARY_MATCH",
+  code: "PAYSLIP_NOT_CLIENTS",
+  key: payslipDocumentId,
+  summary: "The payslip's name or ID number does not match the client, so it was not used. Verify whose payslip it is.",
+  evidence: { payslipDocumentId },
+})
+
+/** Every payslip that names someone else is raised, not only the newest: a later upload must not hide one. */
 export function salaryMatch(f: ApplicationFacts): FlagCandidate[] {
+  const others = f.mismatchedPayslipIds.filter((id) => id !== f.payslip?.documentId).map(notClients)
+  return [...others, ...againstNewestPayslip(f)]
+}
+
+function againstNewestPayslip(f: ApplicationFacts): FlagCandidate[] {
   const slip = f.payslip
   const read = f.statements.filter((s) => s.state === "READ" && s.read?.periodStart && s.read.periodEnd)
   if (!slip) return []
-  if (!slip.matchesClient) {
-    return [{
-      check: "SALARY_MATCH",
-      code: "PAYSLIP_NOT_CLIENTS",
-      key: slip.documentId,
-      summary: "The payslip's name or ID number does not match the client, so it was not used. Verify whose payslip it is.",
-      evidence: { payslipDocumentId: slip.documentId },
-    }]
-  }
+  if (!slip.matchesClient) return [notClients(slip.documentId)]
   if (!slip.validated || slip.netPayCents === null || !slip.payDate) {
     return [{
       check: "SALARY_MATCH",
