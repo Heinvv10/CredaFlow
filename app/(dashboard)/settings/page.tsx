@@ -22,7 +22,9 @@ async function getLoanProducts() {
 }
 
 async function getUsers() {
+  const tenantId = await getStaffTenantId()
   return prisma.user.findMany({
+    where: { tenantId },
     orderBy: { name: "asc" },
     select: {
       id: true,

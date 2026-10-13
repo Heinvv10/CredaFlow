@@ -13,6 +13,7 @@ async function getNewPolicyData() {
     }),
     prisma.user.findMany({
       where: {
+        tenantId,
         active: true,
         role: { in: ["ADMIN", "INSURANCE_OFFICER", "LOAN_ADMIN"] },
       },
