@@ -14,6 +14,9 @@
 #
 #   scripts/demo/sim/seed-faked.sh > scripts/demo/.sim-credentials.txt
 #
+# DEMO_LENDER (prisma/demo-lender.ts) is passed through, so the seed brands
+# the tenant as the lender the bake is for.
+#
 # Set the clock (clock.ts set …) and migrate first. Seed output (including the
 # credentials, SEED_PRINT_CREDENTIALS=1) goes to stdout; progress to stderr.
 set -euo pipefail
@@ -54,6 +57,7 @@ docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME=/tmp \
   -e DATABASE_URL \
+  -e DEMO_LENDER \
   -e SEED_PRINT_CREDENTIALS=1 \
   -e TZ=UTC \
   -e FAKETIME_TIMESTAMP_FILE=/sim-clock/faketime.rc \

@@ -182,6 +182,30 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   after `SIM_VLM_RETRY_BACKOFF_MS` (default `30000,60000,120000`) before
   failing the persona.
 
+## Another lender (DEMO_LENDER)
+
+`prisma/demo-lender.ts` holds the demo lenders (`acme`, the default, and
+`fairscore`): tenant slug, lender identity, colours, staff and client email
+domains, bureau trading name. `DEMO_LENDER=<name>` selects one for the seed
+(`seed-faked.sh` passes it into the container), the simulator's staff, persona
+and mailbox addresses and copy, `fresh-stack.sh`, `bake.sh` (`meta.json`
+`tenantSlug`) and `build-image.sh` (tag `credaflow:<name>-<sha>`; `demo-` for
+acme). Unset, everything is exactly Acme as before.
+
+Another lender's bake needs its own checkout (its `.env.demo-sim` names the
+lender's slug in `NEXT_PUBLIC_TENANT_SLUG` and `TENANT_HOST_MAP`, and its
+public origins), its own `DEMO_DATA_DIR`, and that lender's live stack:
+
+```bash
+export DEMO_LENDER=fairscore DEMO_DATA_DIR=~/credaflow-fairscore-data \
+  LIVE_DIR=~/Workspace/CredaFlow-fairscore DEMO_LIVE_PROJECT=credaflow-fairscore
+export DEMO_LENDER_LOGO=$DEMO_DATA_DIR/branding/fairscore-logo.png   # optional PNG
+scripts/demo/build-image.sh && scripts/demo/bake.sh && scripts/demo/restore.sh
+```
+
+The sim stack (`credaflow-demo-sim`) is one per host and `bake.lock` lives in
+each `DEMO_DATA_DIR`, so never bake two lenders at once.
+
 ## Modules
 
 - `clock.ts` — `setClock(date)`, `advanceDays(n)`, `now()`, `appNow()`. The

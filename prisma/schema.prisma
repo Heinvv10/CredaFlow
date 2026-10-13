@@ -44,6 +44,7 @@ model User {
   sessions                     Session[]
   accounts                     Account[]
   approvedLoans                LoanApplication[]   @relation("ApprovedBy")
+  clearedCheckFlags            ApplicationCheckFlag[] @relation("CheckFlagClearedBy")
   branchSignedApplications     LoanApplication[]   @relation("AgreementSignedBy")
   countersignedApplications    LoanApplication[]   @relation("AgreementCountersignedBy")
   bureauOverriddenApplications LoanApplication[]   @relation("BureauOverrideBy")
@@ -130,6 +131,8 @@ model Tenant {
   notificationLogs         NotificationLog[]
   integrationLogs          IntegrationLog[]
   creditBureauChecks       CreditBureauCheck[]
+  statementAnalyses        StatementAnalysis[]
+  applicationCheckFlags    ApplicationCheckFlag[]
   complianceRecords        ComplianceRecord[]
   consentRecords           ConsentRecord[]
   complaints               Complaint[]
@@ -633,6 +636,7 @@ model ClientDocument {
   createdAt           DateTime  @default(now())
   client              Client    @relation(fields: [clientId], references: [id])
   loanNotes           LoanNote[]
+  statementAnalyses   StatementAnalysis[]
 
   @@index([tenantId])
   @@index([tenantId, clientId, docType, biometricAttemptSequence], map: "ClientDocument_biometric_attempt_order_idx")
@@ -696,6 +700,97 @@ model DocumentTemplateVersion {
 
   @@unique([templateId, version])
   @@index([templateId])
+}
+
+// ── Credit checks v1 (lib/statement-analysis, lib/credit-checks) ──────────────
+// A statement read is evidence, not a decision: the checks raise REFER flags a
+// LOAN_ADMIN clears with a reason. The approval trigger and the clearance
+// CHECK are hand-written in migration 20261013120000_credit_checks_v1.
+
+enum StatementReadMethod {
+  TEXT
+  VLM
+}
+
+enum StatementReadStatus {
+  READ
+  UNREADABLE
+  UNSUPPORTED
+}
+
+enum BalanceCheck {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+}
+
+/// One read of one ClientDocument's exact bytes by one parser version.
+model StatementAnalysis {
+  id                  String              @id @default(cuid())
+  tenantId            String
+  tenant              Tenant              @relation(fields: [tenantId], references: [id])
+  clientDocumentId    String
+  clientDocument      ClientDocument      @relation(fields: [clientDocumentId], references: [id])
+  contentSha256       String
+  parserVersion       String
+  method              StatementReadMethod
+  status              StatementReadStatus
+  bank                String?
+  accountHolderName   String?
+  accountNumberLast4  String?
+  periodStart         DateTime?
+  periodEnd           DateTime?
+  openingBalanceCents BigInt?
+  closingBalanceCents BigInt?
+  /// [{date, description, amountCents, balanceCents, page}]: cents as JSON numbers
+  transactions        Json
+  balanceCheck        BalanceCheck
+  balanceDiffCents    BigInt?
+  /// {producer, creator, createdAt, modifiedAt, incrementalUpdates, signals[]}
+  authenticity        Json
+  createdAt           DateTime            @default(now())
+
+  @@unique([clientDocumentId, contentSha256, parserVersion])
+  @@index([tenantId])
+}
+
+enum CreditCheck {
+  DOCUMENT_AUTHENTICITY
+  SALARY_MATCH
+  UNDISCLOSED_DEBT
+  RISK_BEHAVIOUR
+  MANUAL_REVIEW
+}
+
+enum CheckFlagStatus {
+  OPEN
+  CLEARED
+  SUPERSEDED
+}
+
+/// A REFER flag on an application. An OPEN flag blocks approval, in the decide
+/// route and in the LoanApplication approval trigger.
+model ApplicationCheckFlag {
+  id            String          @id @default(cuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  applicationId String
+  application   LoanApplication @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  check         CreditCheck
+  code          String
+  fingerprint   String
+  status        CheckFlagStatus @default(OPEN)
+  summary       String
+  evidence      Json
+  raisedAt      DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  clearedById   String?
+  clearedBy     User?           @relation("CheckFlagClearedBy", fields: [tenantId, clearedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clearedAt     DateTime?
+  clearReason   String?
+
+  @@unique([applicationId, fingerprint])
+  @@index([tenantId, applicationId, status])
 }
 
 model DocumentAccessLog {
@@ -942,6 +1037,7 @@ model LoanApplication {
   convertedLead                Lead?                @relation("LeadConvertedApplication")
   pasqAcknowledgementTokens     PasqAcknowledgementToken[]
   selfieCaptureTokens           SelfieCaptureToken[]
+  checkFlags                    ApplicationCheckFlag[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, id, clientId])

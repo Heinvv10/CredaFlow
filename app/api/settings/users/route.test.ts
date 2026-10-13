@@ -7,6 +7,7 @@ const h = vi.hoisted(() => {
   const m = {
     auth: vi.fn(),
     userFindUnique: vi.fn(),
+    userFindMany: vi.fn(),
     userCreate: vi.fn(),
     branchFindFirst: vi.fn(),
     logAudit: vi.fn(),
@@ -32,10 +33,11 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: (args: unknown) => h.userFindUnique(args),
+      findMany: (args: unknown) => h.userFindMany(args),
       // The create goes through the locked transaction's client.
       create: () => { throw new Error("user.create outside the transaction") },
     },
-    branch: { findFirst: (args: unknown) => h.branchFindFirst(args) },
+    branch: { findFirst: (args: unknown) => h.branchFindFirst(args), findMany: async () => [] },
     $transaction: (fn: (tx: unknown) => unknown) => fn(h.tx),
   },
 }))
@@ -47,7 +49,7 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 vi.mock("bcryptjs", () => ({ default: { hash: async (value: string) => `hashed:${value}` } }))
 
 import { Prisma } from "@prisma/client"
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const URL = "https://app.example.test/api/settings/users"
 
@@ -65,6 +67,25 @@ function post(body: Record<string, unknown>) {
     body: JSON.stringify({ name: "New Staff", email: "new.staff@acme-lending.example", password: "synthetic-pass-1", ...body }),
   }))
 }
+
+describe("GET /api/settings/users", () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    h.userFindMany.mockResolvedValue([])
+  })
+
+  // The table offers Reset 2FA only for a user with 2FA enrolled: it needs the
+  // flag, never the secret (or the password hash).
+  it("selects whether 2FA is enrolled, and never the secret, the counter or the password", async () => {
+    signedIn("ADMIN")
+    const res = await GET(new NextRequest(URL))
+    expect(res.status).toBe(200)
+    const { where, select } = h.userFindMany.mock.calls[0][0]
+    expect(where).toEqual({ tenantId: "tenant-a" })
+    expect(select.totpEnabled).toBe(true)
+    for (const secret of ["totpSecret", "lastTotpCounter", "password"]) expect(select).not.toHaveProperty(secret)
+  })
+})
 
 describe("POST /api/settings/users", () => {
   beforeEach(() => {

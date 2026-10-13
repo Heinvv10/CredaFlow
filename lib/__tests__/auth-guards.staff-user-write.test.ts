@@ -91,6 +91,18 @@ describe("staffUserWriteRefusal — target ceiling", () => {
       .toMatchObject({ status: 403, reason: "target_same_rank" })
   })
 
+  // The inbox roster toggles a flag, not an account: it opts out of the
+  // equal-rank rule, and only of that rule.
+  it("lets a route that opts out (allowPeer) write a user of equal rank, but never a higher one", () => {
+    for (const role of allRoles) {
+      expect(staffUserWriteRefusal(caller(role), { targetRole: role, assignedRole: undefined, allowPeer: true }), role).toBeNull()
+    }
+    expect(staffUserWriteRefusal(caller("ADMIN"), { targetRole: "SUPER_ADMIN", assignedRole: undefined, allowPeer: true }))
+      .toMatchObject({ reason: "target_outranks_caller" })
+    expect(staffUserWriteRefusal({ role: "ADMIN", totpVerified: false }, { targetRole: "ADMIN", assignedRole: undefined, allowPeer: true }))
+      .toMatchObject({ reason: "totp_required" })
+  })
+
   it("lets a caller edit their own row at their own rank, and only that", () => {
     for (const role of allRoles) {
       expect(staffUserWriteRefusal(caller(role), { targetRole: role, assignedRole: undefined, self: true }), role).toBeNull()
@@ -242,6 +254,13 @@ describe("refuseLockedStaffUserWrite", () => {
     expect(peer.refused?.status).toBe(403)
     const own = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN")]), admin, { ...write, targetId: "admin-1" })
     expect(own).toMatchObject({ refused: null, callerRole: "ADMIN", targetRole: "ADMIN" })
+  })
+
+  it("passes allowPeer through to the locked re-check", async () => {
+    const peer = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "ADMIN")]), admin, { ...write, allowPeer: true })
+    expect(peer).toMatchObject({ refused: null, targetRole: "ADMIN" })
+    const senior = await refuseLockedStaffUserWrite(txWith([row("admin-1", "ADMIN"), row("u2", "SUPER_ADMIN")]), admin, { ...write, allowPeer: true })
+    expect(senior.refused?.status).toBe(403)
   })
 
   it("uses the caller's locked role, so a demotion since sign-in counts", async () => {

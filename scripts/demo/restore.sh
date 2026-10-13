@@ -82,6 +82,12 @@ tenant_id="$(jq -r .tenantId "$snap/meta.json")"
 [ -n "$tenant_id" ] && [ "$tenant_id" != null ] || die "no tenantId in $snap/meta.json"
 # It is written into .env.production: only the id shape (cuid) may get there.
 [[ "$tenant_id" =~ ^[a-z0-9]{20,40}$ ]] || die "refusing: tenantId in $snap/meta.json is not a valid id"
+# One lender's snapshot never goes into another lender's stack: the live
+# image and host map resolve only the slug in $LIVE_DIR/.env (DEMO_LENDER).
+live_slug="$(env_get "$live_dir/.env" NEXT_PUBLIC_TENANT_SLUG 2>/dev/null)" || live_slug=""
+snap_slug="$(jq -r '.tenantSlug // empty' "$snap/meta.json")"
+[ -n "$live_slug" ] || die "refusing: no NEXT_PUBLIC_TENANT_SLUG in $live_dir/.env"
+[ "$snap_slug" = "$live_slug" ] || die "refusing: snapshot is tenant '${snap_slug:-unknown}', the live stack serves '$live_slug'"
 if [ "$snap_image" != "$image" ]; then
   $force_image || die "snapshot was baked on $snap_image but the live demo runs $image (--force-image to restore anyway)"
   note "WARNING: snapshot image $snap_image != live $image (--force-image)"

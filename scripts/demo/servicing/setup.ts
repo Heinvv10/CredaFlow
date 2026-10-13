@@ -24,6 +24,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { generateTotpCode } from "../../../lib/totp"
+import { demoLender } from "../../../prisma/demo-lender"
 import { ensureStaffSessions, type OriginationContext } from "../scenarios/context"
 import { SimClient } from "../sim/api"
 import { appNow, waitForNextTotpStep } from "../sim/clock"
@@ -31,7 +32,8 @@ import type { StaffCredentials } from "../sim/credentials"
 import { SIM_CREDENTIALS_FILE, log } from "../sim/env"
 
 const STAFF_FILE = path.join(path.dirname(SIM_CREDENTIALS_FILE), ".sim-staff.json")
-const LOAN_ADMIN_EMAIL = "collections.manager@acme-lending.example"
+const LENDER = demoLender()
+const LOAN_ADMIN_EMAIL = `collections.manager@${LENDER.staffDomain}`
 export const SMTP_SINK_HOST = "credaflow-demo-sim-smtp"
 export const ATTORNEY_FIRM = "Kroonstad Vale & Mokgosi Attorneys"
 
@@ -91,12 +93,12 @@ async function ensureEmailConfig(ctx: OriginationContext): Promise<void> {
   if (current?.smtpHost === SMTP_SINK_HOST && current.active) return
   await ctx.admin.post("/api/email/config", {
     provider: "IMAP_SMTP",
-    fromName: "Acme Lending",
-    fromAddress: "accounts@acme-lending.example",
-    replyToAddress: "support@acme-lending.example",
+    fromName: LENDER.identity.brandName,
+    fromAddress: `accounts@${LENDER.staffDomain}`,
+    replyToAddress: `support@${LENDER.staffDomain}`,
     smtpHost: SMTP_SINK_HOST,
     smtpPort: 2525,
-    smtpUser: "acme-sim",
+    smtpUser: `${LENDER.slug}-sim`,
     smtpPass: randomBytes(12).toString("base64url"),
     useTls: false,
     active: true,

@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { SAST_TIME_ZONE } from "@/lib/utils"
+
+/**
+ * InsurancePolicy is a tenant-scope model and a cron has no tenant frame: a
+ * policy query must name its tenant, so each sweep runs once per tenant.
+ */
+async function acrossTenants<T>(tenantIds: string[], query: (tenantId: string) => Promise<T[]>): Promise<T[]> {
+  const rows: T[] = []
+  for (const tenantId of tenantIds) rows.push(...(await query(tenantId)))
+  return rows
+}
 
 export async function POST(req: NextRequest) {
   const denied = verifyCronSecret(req)
@@ -20,10 +29,13 @@ export async function POST(req: NextRequest) {
     const graceCutoff = new Date(now)
     graceCutoff.setDate(graceCutoff.getDate() - GRACE_DAYS)
 
+    const tenantIds = (await prisma.tenant.findMany({ select: { id: true }, orderBy: { id: "asc" } })).map((t) => t.id)
+
     // Find active policies that have an OVERDUE premium payment whose due date
     // is older than the grace period.
-    const lapseEligible = await prisma.insurancePolicy.findMany({
+    const lapseEligible = await acrossTenants(tenantIds, (tenantId) => prisma.insurancePolicy.findMany({
       where: {
+        tenantId,
         status: "ACTIVE",
         premiumPayments: {
           some: {
@@ -33,16 +45,15 @@ export async function POST(req: NextRequest) {
         },
       },
       select: { id: true, tenantId: true, policyNumber: true },
-    })
+    }))
 
-    const fallbackTenantId = await getDefaultTenantId()
     let lapsed = 0
     let lapseFailed = 0
     for (const lp of lapseEligible) {
       try {
         await prisma.$transaction(async (tx) => {
           await tx.insurancePolicy.update({
-            where: { id: lp.id },
+            where: { id: lp.id, tenantId: lp.tenantId },
             data: { status: "LAPSED" },
           })
 
@@ -62,7 +73,7 @@ export async function POST(req: NextRequest) {
 
         await prisma.auditLog.create({
           data: {
-            tenantId: lp.tenantId || fallbackTenantId,
+            tenantId: lp.tenantId,
             action: "POLICY_LAPSED",
             entity: "InsurancePolicy",
             entityId: lp.id,
@@ -81,8 +92,9 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Renewal notifications ──────────────────────────────────────────────────
-    const policies = await prisma.insurancePolicy.findMany({
+    const policies = await acrossTenants(tenantIds, (tenantId) => prisma.insurancePolicy.findMany({
       where: {
+        tenantId,
         status: "ACTIVE",
         renewalDate: {
           gte: now,
@@ -94,7 +106,7 @@ export async function POST(req: NextRequest) {
           select: { id: true, firstName: true, lastName: true, email: true, phone: true },
         },
       },
-    })
+    }))
 
     let processed = 0
     let actioned = 0
@@ -107,7 +119,7 @@ export async function POST(req: NextRequest) {
       try {
         await prisma.crmActivity.create({
           data: {
-            tenantId: policy.tenantId || fallbackTenantId,
+            tenantId: policy.tenantId,
             clientId: policy.clientId,
             type: "INSURANCE_OFFER",
             subject: `Insurance Renewal Due: ${policy.policyNumber}`,
@@ -120,7 +132,7 @@ export async function POST(req: NextRequest) {
         // Also log a NotificationLog entry
         await prisma.notificationLog.create({
           data: {
-            tenantId: policy.tenantId || fallbackTenantId,
+            tenantId: policy.tenantId,
             clientId: policy.clientId,
             event: "insurance_renewal_due",
             channel: "system",

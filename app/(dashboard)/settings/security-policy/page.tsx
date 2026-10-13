@@ -1,4 +1,5 @@
 import { requireMinRole } from "@/lib/auth-guards"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getStaffTotpPolicyState } from "@/lib/security/staff-totp-policy"
 import { formatDateTime } from "@/lib/utils"
 import { StaffTotpPolicyToggle } from "@/components/settings/StaffTotpPolicyToggle"
@@ -11,7 +12,7 @@ export const metadata = {
 export default async function SecurityPolicySettingsPage() {
   // Visible to ADMIN and above; only a SUPER_ADMIN changes the 2FA setting.
   const user = await requireMinRole("ADMIN")
-  const state = await getStaffTotpPolicyState(user.tenantId)
+  const state = await getStaffTotpPolicyState(await getStaffTenantId())
   const lastChange = state.lastChange
     ? `Last changed by ${state.lastChange.byEmail ?? "unknown"} on ${formatDateTime(state.lastChange.at)}.`
     : null

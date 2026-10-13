@@ -10,6 +10,8 @@ const transactionMock = vi.fn()
 const readFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
+const readStatementInBackgroundMock = vi.fn()
+const recomputeClientApplicationsMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -45,6 +47,12 @@ vi.mock("@/lib/storage", () => ({
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (args: unknown) => extractDocumentDataMock(args),
+}))
+vi.mock("@/lib/credit-checks/recompute", () => ({
+  recomputeClientApplications: (...args: unknown[]) => recomputeClientApplicationsMock(...args),
+}))
+vi.mock("@/lib/statement-analysis/persist", () => ({
+  readStatementInBackground: (...args: unknown[]) => readStatementInBackgroundMock(...args),
 }))
 vi.mock("@/lib/ocr/documentValidationService", () => ({
   validateDocumentAgainstClient: (...args: unknown[]) => validateDocumentAgainstClientMock(...args),
@@ -159,6 +167,32 @@ describe("POST /api/documents/[id]/extract", () => {
       "client-1",
       tx,
     )
+  })
+
+  it("re-reads a bank statement for the credit checks on a manual re-extract", async () => {
+    const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+
+    expect(response.status).toBe(200)
+    // A re-extract retries a read that failed, and raises its findings once read.
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", { retryFailed: true, actorUserId: "officer-1", onRead: expect.any(Function) })
+  })
+
+  it("lets only credit staff discard a failed read when re-extracting", async () => {
+    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "ro-1", role: "READONLY", tenantId: "tenant-1" })
+    await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", expect.objectContaining({ retryFailed: false }))
+  })
+
+  it("recomputes the client's applications after re-extracting a payslip", async () => {
+    documentFindFirstMock.mockReset()
+    documentFindFirstMock
+      .mockResolvedValueOnce({ ...lockedDocument, docType: "PAYSLIP" })
+      .mockResolvedValueOnce({ id: "doc-1" })
+    recomputeClientApplicationsMock.mockResolvedValue(undefined)
+    const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+    expect(response.status).toBe(200)
+    expect(recomputeClientApplicationsMock).toHaveBeenCalledWith(expect.any(String), "client-1")
+    expect(readStatementInBackgroundMock).not.toHaveBeenCalled()
   })
 
   it("refuses to mutate a retained credit agreement", async () => {

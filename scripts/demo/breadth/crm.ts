@@ -13,6 +13,7 @@
  * E-mail goes to the sim's SMTP sink, so the Message rows say SENT because the
  * provider accepted them; nothing claims a channel that did not carry it.
  */
+import { demoLender } from "../../../prisma/demo-lender"
 import { SimClient } from "../sim/api"
 import { now } from "../sim/clock"
 import { log } from "../sim/env"
@@ -20,6 +21,8 @@ import { readDb } from "../sim/readonly-db"
 import { addDays, nextBusinessDay, sastInstant, shiftBusinessDays } from "../simulate/dates"
 import { as, beforeEnd, fromStart, later, operationId, recall, remember, step, type Breadth } from "./context"
 import { LEADS, leadPerson, type LeadPerson, type LeadSpec, type Step } from "./crm-leads"
+
+const BRAND = demoLender().identity.brandName
 
 const rands = (cents: number): string => `R${(cents / 100).toLocaleString("en-ZA")}`
 
@@ -112,8 +115,8 @@ async function runStep(b: Breadth, spec: LeadSpec, who: LeadPerson, s: Step, day
       return
     case "email": {
       const sent = await c.post<{ status: string }>(`/api/crm/leads/${leadId}/messages`, {
-        channel: "EMAIL", subject: "Your loan enquiry with Acme Lending",
-        text: `Hi ${who.firstName},\n\nThank you for your enquiry. To complete your application we need your latest payslip, three months' bank statements and a copy of your ID.\n\nKind regards,\n${c.user?.name ?? "Acme Lending"}`,
+        channel: "EMAIL", subject: `Your loan enquiry with ${BRAND}`,
+        text: `Hi ${who.firstName},\n\nThank you for your enquiry. To complete your application we need your latest payslip, three months' bank statements and a copy of your ID.\n\nKind regards,\n${c.user?.name ?? BRAND}`,
         operationId: operationId(key),
       }, { expect: [200] })
       if (sent.json?.status !== "SENT") throw new Error(`lead e-mail not accepted by the provider: ${sent.text.slice(0, 200)}`)

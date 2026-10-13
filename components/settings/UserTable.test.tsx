@@ -13,8 +13,8 @@ import { UserTable } from "./UserTable"
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 
-const staff = (id: string, role: string): SettingsUser =>
-  ({ id, name: `Staff ${id}`, email: `${id}@acme-lending.example`, role, active: true, createdAt: "2026-01-01" })
+const staff = (id: string, role: string, totpEnabled = false): SettingsUser =>
+  ({ id, name: `Staff ${id}`, email: `${id}@acme-lending.example`, role, active: true, createdAt: "2026-01-01", totpEnabled })
 
 /** The action buttons' titles on the row for `email`. */
 function actions(renderer: ReactTestRenderer, email: string): string[] {
@@ -25,10 +25,10 @@ function actions(renderer: ReactTestRenderer, email: string): string[] {
   return row[0]!.findAll(n => n.type === "button").map(b => String(b.props.title))
 }
 
-async function render(callerRole: string) {
+async function render(callerRole: string, totpVerified = true) {
   let renderer!: ReactTestRenderer
   await act(async () => {
-    renderer = create(<UserTable currentUserId="me" currentUserRole={callerRole} />)
+    renderer = create(<UserTable currentUserId="me" currentUserRole={callerRole} currentUserTotpVerified={totpVerified} />)
   })
   return renderer
 }
@@ -53,16 +53,54 @@ describe("UserTable row actions", () => {
     expect(actions(renderer, "root@acme-lending.example")).toEqual(["View details"])
   })
 
-  it("offers edit, password reset and deactivation on equal and lower-ranked users", async () => {
+  // The server refuses a write to a user level with the caller (their own row
+  // excepted): a peer gets no edit, password reset or deactivation either.
+  it("offers edit, password reset and deactivation on lower-ranked users only", async () => {
     const renderer = await render("ADMIN")
-    for (const email of ["peer@acme-lending.example", "officer@acme-lending.example"]) {
-      expect(actions(renderer, email)).toEqual(["View details", "Edit user", "Reset password", "Deactivate"])
-    }
+    expect(actions(renderer, "officer@acme-lending.example")).toEqual(["View details", "Edit user", "Reset password", "Deactivate"])
+    expect(actions(renderer, "peer@acme-lending.example")).toEqual(["View details"])
   })
 
-  it("offers a SUPER_ADMIN every action, delete included, on everyone but themself", async () => {
-    const renderer = await render("SUPER_ADMIN")
-    expect(actions(renderer, "root@acme-lending.example")).toEqual(["View details", "Edit user", "Reset password", "Deactivate", "Delete user"])
+  it("offers the caller their own row's edit and password reset, but not deactivation", async () => {
+    const renderer = await render("ADMIN")
     expect(actions(renderer, "me@acme-lending.example")).toEqual(["View details", "Edit user", "Reset password"])
+  })
+
+  it("offers a SUPER_ADMIN every action, delete included, on a lower-ranked user, and nothing but details on another SUPER_ADMIN", async () => {
+    const renderer = await render("SUPER_ADMIN")
+    expect(actions(renderer, "peer@acme-lending.example")).toEqual(["View details", "Edit user", "Reset password", "Deactivate", "Delete user"])
+    expect(actions(renderer, "root@acme-lending.example")).toEqual(["View details"])
+  })
+})
+
+// DELETE /api/settings/users/[id]/totp: ADMIN or above, TOTP-verified session,
+// strictly outranking the target, who has 2FA enrolled.
+describe("UserTable Reset 2FA button", () => {
+  beforeEach(() => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    loadUsersMock.mockResolvedValue({
+      users: [staff("peer", "ADMIN", true), staff("enrolled", "CREDIT_OFFICER", true), staff("plain", "CREDIT_OFFICER", false), staff("me", "ADMIN", true)],
+      branches: [],
+    })
+  })
+
+  afterEach(() => {
+    delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  })
+
+  it("is offered for a lower-ranked user with 2FA enrolled", async () => {
+    const renderer = await render("ADMIN")
+    expect(actions(renderer, "enrolled@acme-lending.example")).toContain("Reset 2FA")
+  })
+
+  it.each([
+    ["has no 2FA enrolled", "plain@acme-lending.example", "ADMIN", true],
+    ["is level with the caller", "peer@acme-lending.example", "ADMIN", true],
+    ["is the caller", "me@acme-lending.example", "ADMIN", true],
+    ["is reached in a session that did not verify TOTP", "enrolled@acme-lending.example", "ADMIN", false],
+    ["is reached by a caller below ADMIN", "enrolled@acme-lending.example", "BRANCH_MANAGER", true],
+  ])("is not offered for a user who %s", async (_label, email, callerRole, totpVerified) => {
+    const renderer = await render(callerRole, totpVerified)
+    expect(actions(renderer, email)).not.toContain("Reset 2FA")
   })
 })
