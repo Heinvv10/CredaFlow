@@ -12,7 +12,7 @@ Module-specific rules live in the nested `.claude.md` files (see root).
 
 ## Client sessions end when the portal credential changes
 - A CLIENT JWT carries `credentialStamp`: a keyed HMAC (`AUTH_SECRET`) of the
-  stored `portalPassword` hash (`lib/client-session.ts`). The jwt callback in
+  stored `portalPassword` hash (`lib/client-session.ts`), bound to client id and tenant. The jwt callback in
   `lib/auth.ts` revalidates it on every refresh; a changed hash, a cleared
   password, a missing row or a token with no stamp ends the session.
 - The Client table has no tokenVersion, so the hash IS the version. Adding any
