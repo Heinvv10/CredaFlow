@@ -46,8 +46,9 @@ export async function withTenantContextLoggingRefusal<T>(
  *    with NO actor identity;
  *  - the actor's own tenant gets an attributed row with NO identifier of the
  *    probed tenant (no document id, no tenant id, no host).
- * Otherwise (same tenant, or one side unresolved) the actor is attributed in
- * the request tenant, as before.
+ * If the session's tenant cannot be determined, the request tenant's row is
+ * anonymous too. Only when the session tenant equals the request tenant is the
+ * actor attributed in it.
  */
 export async function auditWrapperRefusal(params: {
   req: Request
@@ -59,24 +60,36 @@ export async function auditWrapperRefusal(params: {
   const reason = status === 403 ? "tenant_scope_refused" : `unlabelled_${status}`
 
   let requestTenantId: string | null = null
+  try {
+    requestTenantId = (await getTenantFromRequest(req))?.id ?? null
+  } catch {
+    requestTenantId = null
+  }
+
   let sessionTenantId: string | null = null
   let sessionEmail: string | null = null
   try {
-    requestTenantId = (await getTenantFromRequest(req))?.id ?? null
     const { auth } = await import("@/lib/auth")
     const session = await auth()
     sessionTenantId = session?.user?.tenantId ?? null
     sessionEmail = session?.user?.email ?? null
   } catch {
-    // Resolution failure falls through to the same-tenant path below, which
-    // never files the actor under a tenant it was not matched to.
+    // The session's tenant stays unknown; handled below.
   }
 
   // No tenant for the request (the wrapper's 400 "Tenant not found"): a row
   // would carry a null tenant, which no audit page or export can retrieve.
   if (!requestTenantId) return
 
-  if (requestTenantId && sessionTenantId && requestTenantId !== sessionTenantId) {
+  // The session's tenant could not be determined (auth failed or carries no
+  // tenant): we cannot tell whether the actor belongs to this tenant, so the
+  // request tenant's row records the probe with NO actor identity.
+  if (!sessionTenantId) {
+    await auditDocumentAccessRefusal({ documentId, reason, status, tenantId: requestTenantId, anonymous: true })
+    return
+  }
+
+  if (requestTenantId !== sessionTenantId) {
     await auditDocumentAccessRefusal({
       documentId,
       reason,

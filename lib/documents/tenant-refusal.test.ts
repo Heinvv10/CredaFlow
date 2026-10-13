@@ -59,4 +59,28 @@ describe("withTenantContextLoggingRefusal", () => {
       expect.objectContaining({ tenantId: "tenant-alpha-id", userEmail: "client@example.test", entityId: "doc_1" }),
     )
   })
+
+  it("auth throwing after the tenant resolves: one anonymous row, no email or userId", async () => {
+    withTenantContextMock.mockResolvedValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }))
+    authMock.mockRejectedValue(new Error("session store down"))
+
+    await withTenantContextLoggingRefusal(req, { documentId: "doc_1", caller }, async () => NextResponse.json({}))
+
+    expect(logAuditMock).toHaveBeenCalledTimes(1)
+    const row = logAuditMock.mock.calls[0][0] as Record<string, unknown>
+    expect(row).toMatchObject({ tenantId: "tenant-alpha-id", entityId: "doc_1" })
+    expect(row.userId).toBeUndefined()
+    expect(row.userEmail).toBeUndefined()
+    expect(JSON.stringify(row)).not.toContain("client@example.test")
+  })
+
+  it("a session with no tenant also gets the anonymous row", async () => {
+    withTenantContextMock.mockResolvedValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }))
+    authMock.mockResolvedValue({ user: { id: "cl_1", email: "client@example.test" } })
+
+    await withTenantContextLoggingRefusal(req, { documentId: "doc_1", caller }, async () => NextResponse.json({}))
+
+    expect(logAuditMock).toHaveBeenCalledTimes(1)
+    expect((logAuditMock.mock.calls[0][0] as Record<string, unknown>).userEmail).toBeUndefined()
+  })
 })
