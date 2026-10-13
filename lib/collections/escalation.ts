@@ -29,6 +29,7 @@ interface EscalationContext {
   arrearsAmount: number
   outstandingPrincipal: number
   status: string
+  ncaRegime: "NCA" | "NON_NCA"
 }
 
 async function noteExists(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
@@ -131,6 +132,7 @@ export async function processEscalations(): Promise<EscalationResult> {
       arrearsAmount: true,
       outstandingPrincipal: true,
       status: true,
+      ncaRegime: true,
     },
   })
 
@@ -154,6 +156,7 @@ export async function processEscalations(): Promise<EscalationResult> {
         arrearsAmount: loan.arrearsAmount,
         outstandingPrincipal: loan.outstandingPrincipal,
         status: loan.status,
+        ncaRegime: loan.ncaRegime,
       }
 
       try {

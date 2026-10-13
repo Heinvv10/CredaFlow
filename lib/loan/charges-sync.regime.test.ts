@@ -1,0 +1,116 @@
+import { Prisma } from "@prisma/client"
+import { describe, expect, it, vi } from "vitest"
+
+// Spies that still run the real engines, so both the dispatch and the posted
+// result are checked.
+const engines = vi.hoisted(() => ({ nca: vi.fn(), nonNca: vi.fn() }))
+vi.mock("@/lib/loan/default-charges", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/loan/default-charges")>()
+  engines.nca.mockImplementation(actual.computeDefaultCharges)
+  return { ...actual, computeDefaultCharges: engines.nca }
+})
+vi.mock("@/lib/asset-finance/non-nca-charges", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/asset-finance/non-nca-charges")>()
+  engines.nonNca.mockImplementation(actual.computeNonNcaCharges)
+  return { ...actual, computeNonNcaCharges: engines.nonNca }
+})
+
+import { syncLoanCharges } from "./charges-sync"
+
+// Midday SAST so a date never straddles the SAST/UTC day boundary.
+const d = (ymd: string) => new Date(`${ymd}T12:00:00+02:00`)
+const ref = { tenantId: "t1", loanId: "loan-1" }
+
+// R2,000 bullet + R100 interest + R69 fee due 1 Sep, unpaid; a Section 129
+// letter on record. Synced on 11 Sep: Sep 2..10 are complete days in default.
+function makeLoan(ncaRegime: "NCA" | "NON_NCA") {
+  return {
+    principal: 200_000, interestRatePm: 0.05, ncaRegime, maturityDate: d("2026-09-01"),
+    status: "ACTIVE", closedAt: null, writeOffAt: null, totalPaid: 0, outstandingPrincipal: 200_000,
+    arrearsAmount: 216_900, daysInArrears: 10, nextPaymentDate: d("2026-09-01"),
+    chargesAccrued: 0, chargesOutstanding: 0, defaultChargesExempt: false, defaultChargesExemptReason: null,
+    defaultChargesExemptEndedAt: null, monthlyServiceFee: 6_900,
+    product: {
+      code: "AF", monthlyServiceFee: 6_900,
+      nonNcaDefaultInterestMargin: new Prisma.Decimal("0.02"), nonNcaCollectionFeeCents: 25_000,
+    },
+    application: { affordabilityResult: null },
+    tenant: {
+      config: {
+        defaultChargesEnabled: true, defaultAdminChargeCents: 8_200, defaultAdminPostageCents: 1_500,
+        defaultChargesStartedAt: d("2026-01-01"), defaultChargesStoppedAt: null,
+      },
+    },
+    repaymentSchedule: [{
+      id: "row-1", dueDate: d("2026-09-01"), principalDue: 200_000, interestDue: 10_000, feesDue: 6_900,
+      creditLifePremiumDue: 0, totalDue: 216_900, totalPaid: 0, status: "PENDING", paidAt: null,
+    }],
+  }
+}
+
+function makeTx(loan: ReturnType<typeof makeLoan>) {
+  return {
+    loan: { findUnique: vi.fn().mockResolvedValue(loan), update: vi.fn().mockResolvedValue({}) },
+    payment: { findMany: vi.fn().mockResolvedValue([]), update: vi.fn().mockResolvedValue({}) },
+    complianceRecord: {
+      findMany: vi.fn().mockResolvedValue([
+        { id: "s129-1", completedAt: d("2026-09-05"), data: { lifecycle: "ISSUED", adminChargeCents: 9_700 } },
+      ]),
+    },
+    loanCharge: {
+      findMany: vi.fn().mockResolvedValue([]),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    repaymentSchedule: { update: vi.fn().mockResolvedValue({}) },
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
+  }
+}
+
+async function sync(ncaRegime: "NCA" | "NON_NCA") {
+  engines.nca.mockClear()
+  engines.nonNca.mockClear()
+  const tx = makeTx(makeLoan(ncaRegime))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await syncLoanCharges(tx as any, ref, d("2026-09-11"), { source: "test" })
+  const posted = tx.loanCharge.createMany.mock.calls[0]?.[0].data as Array<{ type: string; day: Date; amount: number }>
+  return { result, posted: posted.map((c) => ({ type: c.type, day: c.day.toISOString().slice(0, 10), amount: c.amount })) }
+}
+
+describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
+  it("an NCA loan runs the NCA engine: default interest at the monthly rate and the s129 letter charge", async () => {
+    const { result, posted } = await sync("NCA")
+    expect(engines.nca).toHaveBeenCalled()
+    expect(engines.nonNca).not.toHaveBeenCalled()
+    // 9 x 200000 x 5% / 30 = 3000; the letter's frozen R97.
+    expect(posted).toEqual([
+      { type: "DEFAULT_ADMIN", day: "2026-09-05", amount: 9_700 },
+      { type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 3_000 },
+    ])
+    expect(result?.chargesAccrued).toBe(12_700)
+  })
+
+  it("a NON_NCA loan runs the NON_NCA engine: product margin and collection fee, no letter charge", async () => {
+    const { result, posted } = await sync("NON_NCA")
+    expect(engines.nonNca).toHaveBeenCalled()
+    expect(engines.nca).not.toHaveBeenCalled()
+    expect(engines.nonNca.mock.calls[0][0]).toMatchObject({ defaultInterestMargin: 0.02, collectionFeeCents: 25_000 })
+    // (60% + 2%) / 365 on R2,100 overdue (principal + contractual interest)
+    // for 9 days: 9 x 210000 x 0.62/365 = 3210.41 → 3210.
+    expect(posted).toEqual([
+      { type: "COLLECTION_FEE", day: "2026-09-02", amount: 25_000 },
+      { type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 3_210 },
+    ])
+    expect(result?.chargesAccrued).toBe(28_210)
+  })
+
+  it("the tenant's charges switch gates NON_NCA charges too: off means no charges at all", async () => {
+    const loan = makeLoan("NON_NCA")
+    loan.tenant.config.defaultChargesEnabled = false
+    const tx = makeTx(loan)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await syncLoanCharges(tx as any, ref, d("2026-09-11"), { source: "test" })).toBeNull()
+    expect(tx.loanCharge.createMany).not.toHaveBeenCalled()
+    expect(tx.loan.update).not.toHaveBeenCalled()
+  })
+})

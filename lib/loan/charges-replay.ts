@@ -7,10 +7,17 @@ import {
   type DefaultChargeResult,
 } from "@/lib/loan/default-charges"
 import { bookedServiceFee, letterCharges, type GoLiveInputs } from "@/lib/loan/charges-inputs"
+import { computeNonNcaCharges } from "@/lib/asset-finance/non-nca-charges"
 
-// Loads one loan's default-charges inputs and runs the pure replay
-// (lib/loan/default-charges.ts). ALL money is CENTS. Read-only: persisting the
-// result is lib/loan/charges-sync.ts.
+// Loads one loan's default-charges inputs and runs the pure replay: by
+// Loan.ncaRegime, lib/loan/default-charges.ts (NCA) or
+// lib/asset-finance/non-nca-charges.ts (NON_NCA). ALL money is CENTS.
+// Read-only: persisting the result is lib/loan/charges-sync.ts.
+//
+// The tenant's charges switch (flag, go-live, one-way stop; charges-switch.ts)
+// gates BOTH regimes: while it is off, or after a stop, a NON_NCA loan accrues
+// no default interest or collection fee either, and go-live bounds its
+// back-charging exactly as for NCA.
 
 /** Add to a writer's existing loan read so the flag costs no extra query. */
 export const CHARGES_FLAG_INCLUDE = {
@@ -109,6 +116,7 @@ export async function loadChargesReplay(
     select: {
       principal: true,
       interestRatePm: true,
+      ncaRegime: true,
       maturityDate: true,
       status: true,
       closedAt: true,
@@ -124,7 +132,7 @@ export async function loadChargesReplay(
       defaultChargesExemptReason: true,
       defaultChargesExemptEndedAt: true,
       monthlyServiceFee: true,
-      product: { select: { code: true, monthlyServiceFee: true } },
+      product: { select: { code: true, monthlyServiceFee: true, nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } },
       application: { select: { affordabilityResult: true } },
       tenant: {
         select: {
@@ -206,18 +214,27 @@ export async function loadChargesReplay(
   const accrueFrom = accrueFromWith([])
 
   /** Re-run the replay, optionally with a receipt not yet written. */
-  const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = []) =>
-    computeDefaultCharges({
+  const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = []) => {
+    const common = {
       schedule: loan.repaymentSchedule,
       receipts: [...receipts, ...extraReceipts],
-      adminCharges,
       interestRatePm: loan.interestRatePm,
-      monthlyServiceFee,
       maturityDate: loan.maturityDate,
       asOf: at,
       accrueFrom: extraReceipts.length > 0 ? accrueFromWith(extraReceipts) : accrueFrom,
       accrueUntil,
-    })
+    }
+    // NON_NCA: the product's arrears terms; no NCA caps, letters or service fee.
+    if (loan.ncaRegime === "NON_NCA") {
+      const margin = loan.product.nonNcaDefaultInterestMargin
+      return computeNonNcaCharges({
+        ...common,
+        defaultInterestMargin: margin === null ? null : margin.toNumber(),
+        collectionFeeCents: loan.product.nonNcaCollectionFeeCents,
+      })
+    }
+    return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })
+  }
   return {
     loan,
     receipts,

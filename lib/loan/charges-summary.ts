@@ -25,10 +25,11 @@ export interface ChargeBucket {
 
 export { CHARGE_TYPE_LABELS } from "@/lib/loan/charge-labels"
 
-const TYPES: ChargeType[] = ["DEFAULT_INTEREST", "SERVICE_FEE", "DEFAULT_ADMIN"]
+const TYPES = ["DEFAULT_INTEREST", "SERVICE_FEE", "DEFAULT_ADMIN"] as const satisfies readonly ChargeType[]
 
 export interface ChargesSummary {
-  buckets: Record<ChargeType, ChargeBucket>
+  /** COLLECTION_FEE (NON_NCA only) is present only when one was posted */
+  buckets: Record<(typeof TYPES)[number], ChargeBucket> & { COLLECTION_FEE?: ChargeBucket }
   /** charges owed now, all types */
   outstanding: number
   postings: ChargePosting[]
@@ -43,7 +44,7 @@ export interface ChargesSummary {
 export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
   const buckets = Object.fromEntries(
     TYPES.map((type) => [type, { accrued: 0, paid: 0, outstanding: 0 }]),
-  ) as Record<ChargeType, ChargeBucket>
+  ) as ChargesSummary["buckets"]
   buckets.DEFAULT_INTEREST = {
     accrued: result.interestAccrued,
     paid: result.interestPaid,
@@ -52,7 +53,9 @@ export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
   let feesPaid = result.feesPaid
   for (const posting of result.postings) {
     if (posting.type === "DEFAULT_INTEREST") continue
-    const bucket = buckets[posting.type]
+    const bucket = posting.type === "COLLECTION_FEE"
+      ? (buckets.COLLECTION_FEE ??= { accrued: 0, paid: 0, outstanding: 0 })
+      : buckets[posting.type]
     const paid = Math.min(feesPaid, posting.amount)
     feesPaid -= paid
     bucket.accrued += posting.amount
@@ -67,11 +70,17 @@ export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
   }
 }
 
+/** The per-type buckets in display order; COLLECTION_FEE only where posted. */
+export function chargeBucketRows(summary: ChargesSummary): Array<{ type: ChargeType; bucket: ChargeBucket }> {
+  const rows: Array<{ type: ChargeType; bucket: ChargeBucket }> = TYPES.map((type) => ({ type, bucket: summary.buckets[type] }))
+  return summary.buckets.COLLECTION_FEE ? [...rows, { type: "COLLECTION_FEE", bucket: summary.buckets.COLLECTION_FEE }] : rows
+}
+
 /** One line per charge type still owed, for a plain breakdown under a total. */
 export function chargeBreakdownLines(summary: ChargesSummary): Array<{ label: string; amount: number }> {
-  return TYPES
-    .filter((type) => summary.buckets[type].outstanding > 0)
-    .map((type) => ({ label: CHARGE_TYPE_LABELS[type], amount: summary.buckets[type].outstanding }))
+  return chargeBucketRows(summary)
+    .filter(({ bucket }) => bucket.outstanding > 0)
+    .map(({ type, bucket }) => ({ label: CHARGE_TYPE_LABELS[type], amount: bucket.outstanding }))
 }
 
 export interface LoanChargesView extends ChargesSummary {

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { arrearsWithCharges } from "@/lib/loan/charge-labels"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
-import { COLLECTIONS_ELIGIBLE_STATUSES } from "@/lib/collections/section129-eligibility"
+import { COLLECTIONS_ELIGIBLE_STATUSES, isSection129Eligible } from "@/lib/collections/section129-eligibility"
 import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { formatZAR } from "@/lib/utils"
 import { AlertTriangle } from "lucide-react"
@@ -75,11 +75,12 @@ async function getSection129DueCount(tenantId: string) {
       // not sit in the collections queue or count toward S129 (audit N-03/N-05).
       outstandingPrincipal: { gt: 0 },
     },
-    select: { id: true },
+    select: { id: true, status: true, ncaRegime: true, arrearsAmount: true, outstandingPrincipal: true, daysInArrears: true },
   })
 
   let count = 0
-  for (const loan of loans) {
+  // The bulk send's own rule: a NON_NCA agreement is never S129-due.
+  for (const loan of loans.filter(isSection129Eligible)) {
     const availability = await getSection129ReservationAvailability(tenantId, loan.id)
     if (availability.canReserve) count++
   }

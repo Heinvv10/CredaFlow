@@ -16,6 +16,9 @@ CREATE TYPE "TrusteeKind" AS ENUM ('NATURAL', 'JURISTIC');
 -- CreateEnum
 CREATE TYPE "NcaOverrideStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
+-- AlterEnum
+ALTER TYPE "LoanChargeType" ADD VALUE 'COLLECTION_FEE';
+
 -- AlterTable
 ALTER TABLE "Loan" ADD COLUMN     "assetId" TEXT,
 ADD COLUMN     "balloonAmount" INTEGER,
@@ -34,6 +37,10 @@ ADD COLUMN     "ncaClassifiedById" TEXT,
 ADD COLUMN     "ncaRegime" "NcaRegime",
 ADD COLUMN     "ncaRegimeChangedAt" TIMESTAMP(3),
 ALTER COLUMN "clientId" DROP NOT NULL;
+
+-- AlterTable
+ALTER TABLE "LoanProduct" ADD COLUMN     "nonNcaCollectionFeeCents" INTEGER,
+ADD COLUMN     "nonNcaDefaultInterestMargin" DECIMAL(9,6);
 
 -- AlterTable
 ALTER TABLE "TenantConfig" ADD COLUMN     "featureAssetFinance" BOOLEAN NOT NULL DEFAULT false;
@@ -157,6 +164,9 @@ ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_non_nca_requires_e
 -- classifier counts them); no other role carries a trustee kind.
 ALTER TABLE "EntityRelationship" ADD CONSTRAINT "EntityRelationship_trustee_kind" CHECK (("role" = 'TRUSTEE') = ("trusteeKind" IS NOT NULL));
 ALTER TABLE "EntityRelationship" ADD CONSTRAINT "EntityRelationship_ownership_pct_range" CHECK ("ownershipPct" IS NULL OR ("ownershipPct" >= 0 AND "ownershipPct" <= 100));
+
+-- NON_NCA arrears terms are non-negative.
+ALTER TABLE "LoanProduct" ADD CONSTRAINT "LoanProduct_non_nca_arrears_terms" CHECK (("nonNcaDefaultInterestMargin" IS NULL OR "nonNcaDefaultInterestMargin" >= 0) AND ("nonNcaCollectionFeeCents" IS NULL OR "nonNcaCollectionFeeCents" >= 0));
 
 -- An override changes the regime, and its decision fields are all-or-nothing.
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_changes_regime" CHECK ("fromRegime" <> "toRegime");

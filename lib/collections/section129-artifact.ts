@@ -753,6 +753,7 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
           clientId: true,
           reference: true,
           status: true,
+          ncaRegime: true,
           arrearsAmount: true,
           outstandingPrincipal: true,
           daysInArrears: true,
@@ -760,27 +761,6 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
       })
       if (!loan) {
         throw new Section129EligibilityChangedError("loan no longer exists in this tenant")
-      }
-      // s129 is a consumer NCA notice; an entity borrower is refused.
-      const clientId = requireClientBorrowerId(loan)
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM "Client" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
-        clientId,
-        args.tenantId,
-      )
-      const client = await tx.client.findUnique({
-        where: { id: clientId, tenantId: args.tenantId },
-        select: {
-          firstName: true,
-          lastName: true,
-          idNumber: true,
-          addressLine1: true,
-          city: true,
-          email: true,
-        },
-      })
-      if (!client) {
-        throw new Section129EligibilityChangedError("client no longer exists in this tenant")
       }
       const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
       if (!eligibility.eligible) {
@@ -835,6 +815,28 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         }
       }
 
+      // Eligibility (the NCA regime first) is the primary rule; s129 is also a
+      // consumer notice, so an entity borrower is refused after it.
+      const clientId = requireClientBorrowerId(loan)
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM "Client" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
+        clientId,
+        args.tenantId,
+      )
+      const client = await tx.client.findUnique({
+        where: { id: clientId, tenantId: args.tenantId },
+        select: {
+          firstName: true,
+          lastName: true,
+          idNumber: true,
+          addressLine1: true,
+          city: true,
+          email: true,
+        },
+      })
+      if (!client) {
+        throw new Section129EligibilityChangedError("client no longer exists in this tenant")
+      }
       const operativeSnapshot = args.reservation.recordData
       const changedFields = [
         ["loan.reference", operativeSnapshot.loanReference, loan.reference],

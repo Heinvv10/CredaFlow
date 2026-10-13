@@ -745,6 +745,12 @@ model LoanProduct {
   initiationFeePct  Float             @default(0)
   initiationFeeMax  Int               @default(0)
   monthlyServiceFee Int               @default(0)
+  // NON_NCA (asset finance) arrears terms, decision 2a.4 of the slice-1 goal:
+  // default interest at the contract rate plus this annual margin (decimal,
+  // 0.02 = 2%) on overdue amounts, and a collection fee (cents) per missed
+  // instalment. Never applied to an NCA loan, whose caps and s129 rules hold.
+  nonNcaDefaultInterestMargin Decimal? @db.Decimal(9, 6)
+  nonNcaCollectionFeeCents    Int?
   active            Boolean           @default(true)
   createdAt         DateTime          @default(now())
   applications      LoanApplication[]
@@ -1267,6 +1273,9 @@ enum LoanChargeType {
   DEFAULT_INTEREST
   SERVICE_FEE
   DEFAULT_ADMIN
+  // NON_NCA (asset finance) only: the product's collection fee per missed
+  // instalment (lib/asset-finance/non-nca-charges.ts). Never posted on an NCA loan.
+  COLLECTION_FEE
 }
 
 // A charge posted after a missed instalment. DERIVED: rewritten per loan on

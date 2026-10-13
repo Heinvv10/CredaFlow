@@ -62,9 +62,10 @@ export async function POST(req: NextRequest) {
       include: { client: true, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
     })
 
-    // Section 129 is a consumer NCA notice: an entity borrower is skipped (and
-    // counted in `skipped`).
-    const eligible = loans.filter(hasClientBorrower).filter(isSection129Eligible)
+    // Eligibility refuses a NON_NCA agreement first (the regime is the primary
+    // rule); s129 is also a consumer notice, so an entity borrower is skipped
+    // too. Both are counted in `skipped`.
+    const eligible = loans.filter(isSection129Eligible).filter(hasClientBorrower)
     const noticeDateValue = new Date()
     const noticeDate = section129NoticeDateLabel(noticeDateValue)
     let sent = 0

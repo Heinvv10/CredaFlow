@@ -138,6 +138,7 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
       id: true,
       reference: true,
       status: true,
+      ncaRegime: true,
       daysInArrears: true,
       arrearsAmount: true,
       outstandingPrincipal: true,
@@ -464,6 +465,7 @@ export async function replayAutomationLog(
           select: {
             reference: true,
             status: true,
+            ncaRegime: true,
             daysInArrears: true,
             arrearsAmount: true,
             outstandingPrincipal: true,

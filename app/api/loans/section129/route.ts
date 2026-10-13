@@ -44,19 +44,20 @@ export async function POST(req: NextRequest) {
       include: { client: true, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
     })
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
-    // Section 129 is a consumer NCA notice; an entity borrower is refused.
-    if (!hasClientBorrower(loan)) {
-      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
-    }
 
     // The PDF endpoint uses this exact predicate too. A statutory default
     // document must never be renderable for a state the dispatch route refuses.
+    // It refuses a NON_NCA agreement first: the regime is the primary rule.
     const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
     if (!eligibility.eligible) {
       return NextResponse.json(
         { error: `Cannot issue a Section 129 default notice: ${eligibility.reason}.` },
         { status: 422 }
       )
+    }
+    // Section 129 is also a consumer notice; an entity borrower is refused.
+    if (!hasClientBorrower(loan)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
 
     // The notice prints the tenant's own NCR registration; refuse before any

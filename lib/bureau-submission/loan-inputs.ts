@@ -69,8 +69,8 @@ export async function loadBureauLoans(db: Db, tenantId: string, loanIds: string[
     select: LOAN_SELECT,
     orderBy: { reference: "asc" },
   })
-  // The consumer bureau file reports natural persons; an entity borrower
-  // (asset finance) is never in it.
+  // The population (CONSUMER_BORROWER_WHERE in population.ts) never names an
+  // entity borrower; this narrows `client` to non-null for mapLoan.
   return loans.filter(hasClientBorrower)
 }
 
