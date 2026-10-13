@@ -154,6 +154,8 @@ type StaffUserWrite = {
   assignedRole: unknown
   /** The target is the caller's own row. Omitted means not: a peer is refused. */
   self?: boolean
+  /** The write is a flag, not an account edit (the inbox roster): a peer is not refused. Never a senior. */
+  allowPeer?: boolean
 }
 
 type StaffUserWriteRefusal = {
@@ -196,7 +198,7 @@ export function staffUserWriteRefusal(
     if (targetRank < 0 || targetRank > callerRank) {
       return { status: 403, reason: "target_outranks_caller", error: "You cannot modify a user whose role is above your own" }
     }
-    if (targetRank === callerRank && write.self !== true) {
+    if (targetRank === callerRank && write.self !== true && write.allowPeer !== true) {
       return { status: 403, reason: "target_same_rank", error: "You cannot modify a user whose role is the same as your own" }
     }
   }
@@ -277,7 +279,7 @@ export async function refuseStaffUserWrite(
 export async function refuseLockedStaffUserWrite(
   tx: Pick<typeof prisma, "$executeRaw" | "$queryRaw" | "auditLog">,
   caller: StaffUser,
-  write: { tenantId: string; targetId?: string; assignedRole: unknown },
+  write: { tenantId: string; targetId?: string; assignedRole: unknown; allowPeer?: boolean },
 ): Promise<{ refused: NextResponse } | { refused: null; callerRole: UserRole; targetRole: UserRole | null }> {
   await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
   const ids = write.targetId ? [caller.id, write.targetId] : [caller.id]
@@ -301,7 +303,7 @@ export async function refuseLockedStaffUserWrite(
   }
   const refused = await refuseStaffUserWrite(
     { ...caller, role: fresh.role },
-    { tenantId: write.tenantId, targetId: write.targetId, targetRole, assignedRole: write.assignedRole },
+    { tenantId: write.tenantId, targetId: write.targetId, targetRole, assignedRole: write.assignedRole, allowPeer: write.allowPeer },
     tx,
   )
   return refused ? { refused } : { refused: null, callerRole: fresh.role, targetRole }

@@ -80,14 +80,13 @@ it("PATCH refuses a member who outranks the caller, audits the attempt and toggl
   }), undefined)
 })
 
-it("PATCH refuses an ADMIN toggling a fellow ADMIN (equal rank), audits the attempt and toggles nothing", async () => {
+// A comms-agent flag is not an account edit: peers may toggle each other. The
+// users routes stay strict (lib/auth-guards.ts allowPeer).
+it("PATCH lets an ADMIN toggle a fellow ADMIN", async () => {
   userFindFirstMock.mockResolvedValue({ role: "ADMIN" })
-  const res = await toggle()
-  expect(res.status).toBe(403)
-  expect(setAgentMock).not.toHaveBeenCalled()
-  expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
-    action: "USER_WRITE_REFUSED", newValue: expect.objectContaining({ reason: "target_same_rank" }),
-  }), undefined)
+  setAgentMock.mockResolvedValue({ ok: true })
+  expect((await toggle()).status).toBe(200)
+  expect(setAgentMock).toHaveBeenCalledTimes(1)
 })
 
 it("PATCH lets an ADMIN toggle a lower-ranked member", async () => {

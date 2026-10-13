@@ -21,14 +21,14 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "userId and isCommsAgent required" }, { status: 400 })
   }
   return withTenantContext(req, async (tenant) => {
-    // An edit of a staff user: the same gate as Settings → Users.
+    // The same gate as Settings → Users, except that a peer may toggle a peer: this is a flag, not an account edit.
     const target = await prisma.user.findFirst({ where: { id: body.userId, tenantId: tenant.id }, select: { role: true } })
     if (!target) return NextResponse.json({ error: "not found" }, { status: 404 })
-    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetId: body.userId, targetRole: target.role, assignedRole: undefined })
+    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetId: body.userId, targetRole: target.role, assignedRole: undefined, allowPeer: true })
     if (refused) return refused
     // Re-checked on the locked rows: the member's role may have changed since.
     const res = await prisma.$transaction(async (tx) => {
-      const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, targetId: body.userId, assignedRole: undefined })
+      const locked = await refuseLockedStaffUserWrite(tx, guard.user, { tenantId: tenant.id, targetId: body.userId, assignedRole: undefined, allowPeer: true })
       if (locked.refused) return locked.refused
       return setCommsAgent({ tenantId: tenant.id, userId: body.userId!, isCommsAgent: body.isCommsAgent!, actorUserId: guard.user.id, actorEmail: guard.user.email }, tx)
     }).catch((err: unknown) => {
