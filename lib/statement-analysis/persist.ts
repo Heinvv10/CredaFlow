@@ -196,7 +196,8 @@ interface ReadRequest {
 /**
  * Requests per document, merged: a retry or a callback asked for while the
  * document already waits rides on that run, and one asked for while it is
- * being read runs once that read is done. None is dropped.
+ * being read runs once that read is done. Callbacks run only after a read is
+ * stored; a read left pending is re-queued when its application is next loaded.
  */
 const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>> }>()
 const running = new Set<string>()
@@ -235,9 +236,11 @@ function schedule(documentId: string): void {
       // Each callback on its own: one failing must not skip the others, nor be
       // reported as a failed read.
       for (const onRead of w.onReads) {
-        await onRead().catch((err) => {
+        try {
+          await onRead()
+        } catch (err) {
           console.error("[statement-analysis] after-read callback failed:", { documentId, error: err instanceof Error ? err.name : "unknown" })
-        })
+        }
       }
     })
     .catch((err) => {

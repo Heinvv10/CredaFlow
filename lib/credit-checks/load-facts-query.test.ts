@@ -20,7 +20,7 @@ vi.mock("@/lib/statement-analysis/persist", () => ({
   readStatementInBackground: (...a: unknown[]) => queueRead(...a),
 }))
 
-import { loadApplicationFacts } from "./load-facts"
+import { loadApplicationFacts, statementSnapshot } from "./load-facts"
 
 const slipFields = (net: number) => ({
   grossIncome: { value: net + 100_000, validated: true }, totalDeductions: { value: 100_000, validated: true },
@@ -32,7 +32,10 @@ type Where = { docType?: string; deletedAt?: unknown }
 function documents(byQuery: { statements?: unknown[]; deletedStatements?: unknown[]; payslips?: unknown[]; deletedPayslips?: unknown[] }) {
   docFindMany.mockImplementation(async ({ where }: { where: Where }) => {
     const deleted = where.deletedAt !== null
-    if (where.docType === "BANK_STATEMENT") return (deleted ? byQuery.deletedStatements : byQuery.statements) ?? []
+    if (where.docType === "BANK_STATEMENT") {
+      const rows = ((deleted ? byQuery.deletedStatements : byQuery.statements) ?? []) as Array<Record<string, unknown>>
+      return rows.map((r) => ({ statementAnalyses: [], ...r }))
+    }
     return (deleted ? byQuery.deletedPayslips : byQuery.payslips) ?? []
   })
 }
@@ -111,7 +114,7 @@ describe("loadApplicationFacts", () => {
 
   it("returns the snapshot of payslips and statements the approval compares against", async () => {
     documents({
-      statements: [{ id: "stmt-1", uploadedByType: "staff" }],
+      statements: [{ id: "stmt-1", uploadedByType: "staff", statementAnalyses: [{ id: "an-1" }] }],
       payslips: [{ id: "slip-1", extractionStatus: "done", extractionGeneration: "g1", extractionResult: slipFields(1_000_000), validationMismatch: false }],
     })
     ensure.mockResolvedValue({ state: "read", analysis: { id: "an-1", contentSha256: "s", status: "READ", method: "TEXT", bank: "CAPITEC", balanceCheck: "PASS", transactions: [], authenticity: { signals: [] }, accountHolderName: "T", accountNumberLast4: null, periodStart: null, periodEnd: null, openingBalanceCents: null, closingBalanceCents: null } })
@@ -130,3 +133,22 @@ describe("loadApplicationFacts", () => {
     }
   })
 })
+
+describe("statementSnapshot", () => {
+  it("keys every statement with its newest read, through one query both sides use", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      { id: "consent-pending", statementAnalyses: [{ id: "an-old" }] },
+      { id: "unread", statementAnalyses: [] },
+    ])
+    const since = new Date("2026-07-01T00:00:00Z")
+    // A statement read before consent was revoked keeps its read in the key on
+    // both sides, so revoking consent cannot wedge the approval.
+    expect(await statementSnapshot({ clientDocument: { findMany } } as never, { tenantId: "t1", clientId: "client-1", since }))
+      .toEqual(["consent-pending:an-old", "unread:"])
+    expect(findMany).toHaveBeenCalledWith({
+      where: { tenantId: "t1", clientId: "client-1", docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
+      select: { id: true, statementAnalyses: { where: { parserVersion: expect.any(String) }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
+    })
+  })
+})
+

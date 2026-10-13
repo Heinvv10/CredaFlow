@@ -6,6 +6,7 @@
 import type { AppStatus, StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
+import { PARSER_VERSION } from "@/lib/statement-analysis/analyse"
 import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/lib/statement-analysis/types"
 import { PAYSLIP_MONEY_FIELDS, type ExtractedFields } from "@/lib/vlm-extract"
 import { areNamesSimilar } from "@/lib/ocr/name-matching"
@@ -95,9 +96,21 @@ export function payslipStateKey(d: { id: string; extractionStatus: string; extra
   return `${d.id}:${d.extractionStatus}:${d.extractionGeneration ?? ""}`
 }
 
-/** A statement and the read the checks used: a new document or a new read means it was not seen. */
-export function statementStateKey(documentId: string, analysisId: string | null): string {
-  return `${documentId}:${analysisId ?? ""}`
+/**
+ * Every statement in the window with its newest read: the recompute records
+ * it and the approval compares it under the lock, through this one query, so
+ * the two can only differ when the evidence did. Consent-pending, unread and
+ * file-less statements are keyed the same way on both sides.
+ */
+export async function statementSnapshot(
+  db: { clientDocument: Pick<typeof prisma.clientDocument, "findMany"> },
+  where: { tenantId: string; clientId: string; since: Date },
+): Promise<string[]> {
+  const docs = await db.clientDocument.findMany({
+    where: { tenantId: where.tenantId, clientId: where.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: where.since } },
+    select: { id: true, statementAnalyses: { where: { parserVersion: PARSER_VERSION }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
+  })
+  return docs.map((d) => `${d.id}:${d.statementAnalyses[0]?.id ?? ""}`).sort()
 }
 
 export interface LoadOptions {
@@ -201,8 +214,7 @@ export async function loadApplicationFacts(
     status: app.status,
     // Every payslip in the window as it stood: the approval refuses if it changed.
     payslipSnapshot: payslipDocs.map(payslipStateKey),
-    // And every statement with the read it was checked on.
-    statementSnapshot: statements.map((s) => statementStateKey(s.documentId, s.analysisId)),
+    statementSnapshot: await statementSnapshot(prisma, { tenantId, clientId: app.clientId, since }),
     since,
     facts: {
       applicationId: app.id,
