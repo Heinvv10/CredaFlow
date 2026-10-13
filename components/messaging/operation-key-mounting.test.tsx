@@ -83,6 +83,7 @@ describe("WhatsApp operation-key component lifetime", () => {
         tasks={[]}
         canCreateTasks={false}
         canManageTasks={false}
+        canWriteActivity={false}
         currentUserId="user-1"
         duplicateCount={0}
         duplicatesTruncated={false}

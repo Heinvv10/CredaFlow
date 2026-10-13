@@ -72,6 +72,10 @@ export async function auditWrapperRefusal(params: {
     // never files the actor under a tenant it was not matched to.
   }
 
+  // No tenant for the request (the wrapper's 400 "Tenant not found"): a row
+  // would carry a null tenant, which no audit page or export can retrieve.
+  if (!requestTenantId) return
+
   if (requestTenantId && sessionTenantId && requestTenantId !== sessionTenantId) {
     await auditDocumentAccessRefusal({
       documentId,

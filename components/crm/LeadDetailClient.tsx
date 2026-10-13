@@ -100,6 +100,7 @@ export function LeadDetailClient({
   tasks,
   canCreateTasks,
   canManageTasks,
+  canWriteActivity,
   currentUserId,
   duplicateCount,
   duplicatesTruncated,
@@ -116,6 +117,8 @@ export function LeadDetailClient({
   canCreateTasks: boolean
   /** May act on ANY task — mirrors PATCH's `canManage`, not the POST bar. */
   canManageTasks: boolean
+  /** May change stage / log activity — CREDIT_OFFICER and above, like the actions. */
+  canWriteActivity: boolean
   /** Session user id — the Tasks panel decides completion per row from it. */
   currentUserId: string
   /** Leads sharing this one's phone or email. 0 renders no banner. */
@@ -291,7 +294,7 @@ export function LeadDetailClient({
           </div>
 
           {/* Status pipeline */}
-          <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5">
+          {canWriteActivity && <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Move Stage</p>
             <div className="flex flex-wrap gap-2">
               {STATUSES.map((s) => {
@@ -311,7 +314,7 @@ export function LeadDetailClient({
               })}
             </div>
             {statusError && <p className="mt-3 text-xs text-red-600">{statusError}</p>}
-          </div>
+          </div>}
 
           <LeadTasksPanel
             leadId={lead.id}
@@ -326,13 +329,13 @@ export function LeadDetailClient({
           <div className="bg-white rounded-lg border border-gray-100 shadow-sm">
             <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
               <h2 className="font-semibold text-gray-900 text-sm">Activity Timeline</h2>
-              <button
+              {canWriteActivity && <button
                 onClick={() => setShowActivityForm(!showActivityForm)}
                 className="text-xs font-medium px-3 py-1.5 rounded-md text-white"
                 style={{ backgroundColor: "#4338CA" }}
               >
                 + Add Activity
-              </button>
+              </button>}
             </div>
 
             {showActivityForm && (
