@@ -195,7 +195,9 @@ export async function classifyApplication(
   if (application.ncaRegime === "NON_NCA") {
     await tx.loanApplication.update({ where: { id: application.id, tenantId }, data: { ncaRegime: "NCA" } })
   }
-  const classifiedAt = new Date()
+  // Strictly later than the classification it replaces (the DB requires it),
+  // even if this server's clock is behind the one that stamped the last one.
+  const classifiedAt = new Date(Math.max(Date.now(), (application.ncaClassifiedAt?.getTime() ?? 0) + 1))
   await tx.loanApplication.update({
     where: { id: application.id, tenantId },
     data: {

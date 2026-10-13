@@ -276,6 +276,10 @@ COMMIT;
     expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{"turnover":"SWAPPED"}'::jsonb WHERE "id" = '${id}'`, LATER)
     expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['forged'], "ncaClassifiedAt" = '${at}'::timestamp WHERE "id" = '${id}'`, LATER)
     expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{}'::jsonb, "ncaClassifiedAt" = '${at}'::timestamp - INTERVAL '1 day' WHERE "id" = '${id}'`, LATER)
+    expectRejected(
+      `UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{}'::jsonb, "ncaClassifiedAt" = TIMESTAMP '2099-01-01' WHERE "id" = '${id}'`,
+      "cannot be stamped in the future",
+    )
   })
 
   it("never rewrites the snapshot or source of a request", () => {
