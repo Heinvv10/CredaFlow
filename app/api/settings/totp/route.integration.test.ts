@@ -24,7 +24,8 @@ vi.mock("@/lib/auth", () => ({ auth: async () => h.session }))
 
 import { DELETE, POST } from "./route"
 import { DELETE as RESET } from "../users/[id]/totp/route"
-import { generateTotpCode, generateTotpSecret } from "@/lib/totp"
+import { generateTotpCode, generateTotpSecret, verifyTotpCode } from "@/lib/totp"
+import { claimTotpCounter } from "@/lib/totp-claim"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -128,10 +129,18 @@ suite("staff TOTP routes (real database)", () => {
   describe("enrolling", () => {
     it("enrols a user without 2FA, leaves a session the lender did not force alone, and audits it", async () => {
       h.session = sessionOf(ids.fresh, "CREDIT_OFFICER", { totpVerified: false })
-      const res = await POST(request("POST", { secret, code: nextCode() }))
+      const code = nextCode()
+      const res = await POST(request("POST", { secret, code }))
       expect(await res.json()).toEqual({ ok: true, signInAgain: false })
       const row = await stored(ids.fresh)
       expect(row).toMatchObject({ totpEnabled: true, totpSecret: secret, tokenVersion: 0 })
+      // The code that proved the secret is spent: signing in with it again is a
+      // replay (sign-in claims counters through claimTotpCounter), the next
+      // step's code is not.
+      const spent = verifyTotpCode(code, secret)!
+      expect(row.lastTotpCounter).toBe(spent)
+      expect(await claimTotpCounter(ids.fresh, spent)).toBe(false)
+      expect(await claimTotpCounter(ids.fresh, spent + 1)).toBe(true)
       expect(await db.auditLog.count({ where: { tenantId, action: "TOTP_ENROLLED", entityId: ids.fresh } })).toBe(1)
     })
 
@@ -157,13 +166,19 @@ suite("staff TOTP routes (real database)", () => {
       const other = generateTotpSecret()
       const now = Date.now()
       await db.user.update({ where: { id: ids.peer }, data: { lastTotpCounter: Math.floor(now / 30_000) } })
-      const body = (at: number) => ({ secret: other, code: generateTotpCode(other), currentCode: generateTotpCode(secret, at) })
+      const newCode = generateTotpCode(other)
+      const body = (at: number) => ({ secret: other, code: newCode, currentCode: generateTotpCode(secret, at) })
       expect((await POST(request("POST", body(now)))).status).toBe(422) // the counter sign-in used
       expect(await stored(ids.peer)).toMatchObject({ totpSecret: secret })
 
       const res = await POST(request("POST", body(now + 30_000)))
       expect(await res.json()).toEqual({ ok: true, signInAgain: true })
-      expect(await stored(ids.peer)).toMatchObject({ totpSecret: other, totpEnabled: true, tokenVersion: 1 })
+      const replaced = await stored(ids.peer)
+      expect(replaced).toMatchObject({ totpSecret: other, totpEnabled: true, tokenVersion: 1 })
+      const spent = verifyTotpCode(newCode, other)!
+      expect(replaced.lastTotpCounter).toBe(spent)
+      expect(await claimTotpCounter(ids.peer, spent)).toBe(false) // the new secret's code is not reusable at sign-in
+      expect(await claimTotpCounter(ids.peer, spent + 1)).toBe(true) // the next step's is
       const rows = await db.auditLog.findMany({ where: { tenantId, action: "TOTP_REPLACED" } })
       expect(rows).toHaveLength(1)
       expect(JSON.stringify(rows)).not.toContain(other)
