@@ -38,8 +38,25 @@ describe("admin.sh", () => {
     const run = r.calls.find((c) => c.startsWith("run --rm"))!
     expect(run).toContain("--network credaflow-lender-stub-lender_default")
     expect(run).toMatch(/-e LENDER_OPERATOR=\S+@\S+/)
-    expect(run).toContain("cf-tools:new npx tsx scripts/lender/bootstrap-admin-cli.ts --tenant stub-lender --email a@b.example --break-glass")
+    expect(run).toContain("cf-tools:new npx tsx scripts/lender/bootstrap-admin-cli.ts --email a@b.example --break-glass --tenant stub-lender")
     expect(run).not.toContain("p@db") // the database password is passed by variable name, never in argv
+  })
+
+  it("refuses a caller-supplied --tenant instead of letting the last one win", () => {
+    writeFileSync(join(lender, "state/current-image"), "cf:new\n")
+    for (const args of [["--tenant", "other"], ["--tenant=other"]]) {
+      const r = sh("admin.sh", [lender, "--email", "a@b.example", ...args])
+      expect(r.status).not.toBe(0)
+      expect(r.out).toMatch(/--tenant is fixed to this lender/)
+      expect(r.calls.some((c) => c.startsWith("run --rm"))).toBe(false)
+    }
+  })
+
+  it("prefers the tools image the deploy recorded by id over a mutable tag", () => {
+    writeFileSync(join(lender, "state/current-image"), "cf:new\n")
+    writeFileSync(join(lender, "state/current-tools-id"), "sha256:toolsid\n")
+    const r = sh("admin.sh", [lender, "--email", "a@b.example"])
+    expect(r.calls.find((c) => c.startsWith("run --rm"))).toContain("sha256:toolsid npx tsx")
   })
 
   it("refuses before anything is deployed", () => {
@@ -140,5 +157,57 @@ describe("provision-lender.sh", () => {
     provision(dir)
     expect(provision(dir).out).not.toMatch(/kept existing|updated /)
   })
+
+  describe("validates what it writes into .env and compose", () => {
+    const bad: [string, string[], RegExp][] = [
+      ["a public URL with a path", ["--public-url", "https://staff.example/app"], /--public-url must be/],
+      ["a public URL with a newline", ["--public-url", "https://staff.example\nINJECTED=1"], /--public-url must be/],
+      ["a portal URL with a space", ["--portal-url", "https://por tal.example"], /--portal-url must be/],
+      ["a non-http scheme", ["--portal-url", "ftp://portal.example"], /--portal-url must be/],
+      ["a hostname as the bind", ["--bind", "localhost"], /--bind must be an IPv4/],
+      ["an out-of-range bind octet", ["--bind", "127.0.0.256"], /--bind must be an IPv4/],
+      ["a port of 0", ["--port", "0"], /must be integers 1-65535/],
+      ["a port above 65535", ["--portal-port", "70000"], /must be integers 1-65535/],
+      ["a malformed admin email", ["--admin-email", "not an email"], /--admin-email/],
+      ["an image with shell characters", ["--image", "cf:new;rm -rf /"], /--image has unexpected/],
+    ]
+    for (const [name, args, msg] of bad) {
+      it(`refuses ${name} before creating anything`, () => {
+        const dir = join(root, "new-lender")
+        const r = provision(dir, args)
+        expect(r.status).not.toBe(0)
+        expect(r.out).toMatch(msg)
+        expect(existsSync(dir)).toBe(false)
+      })
+    }
+
+    it("accepts a trailing slash and stores the origin without it", () => {
+      const dir = join(root, "new-lender")
+      expect(provision(dir, ["--public-url", "https://staff.example/", "--bind", "127.0.0.2"]).status).toBe(0)
+      const env = readFileSync(join(dir, ".env"), "utf8")
+      expect(env).toContain("NEXTAUTH_URL=https://staff.example\n")
+      expect(env).toContain("APP_BIND=127.0.0.2\n")
+    })
+  })
+
+  it("refuses an image built for another lender before any database or tenant work", () => {
+    const r = provision(join(root, "new-lender"), [], { STUB_IMAGE_SLUG: "someone-else" })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/was built for lender 'someone-else'/)
+    expect(r.calls.some((c) => c.includes("migrate deploy") || c.includes("up -d db"))).toBe(false)
+  })
 })
 
+describe("prisma.sh", () => {
+  it("runs only migrate status|resolve|deploy, from the recorded tools image id", () => {
+    writeFileSync(join(lender, "state/current-image"), "cf:new\n")
+    writeFileSync(join(lender, "state/current-tools-id"), "sha256:toolsid\n")
+    const ok = sh("prisma.sh", [lender, "migrate", "resolve", "--rolled-back", "20261012090000_loan_product_amount_bounds"])
+    expect(ok.status).toBe(0)
+    expect(ok.calls.find((c) => c.startsWith("run --rm"))).toContain("sha256:toolsid npx prisma migrate resolve --rolled-back 20261012090000_loan_product_amount_bounds")
+    for (const args of [["db", "push"], ["migrate", "reset"], ["migrate", "resolve", "--rolled-back", "x; rm -rf /"], ["migrate", "resolve", "--rolled-back"], ["migrate", "status", "--extra"]]) {
+      const r = sh("prisma.sh", [lender, ...args])
+      expect(r.status, args.join(" ")).not.toBe(0)
+    }
+  })
+})

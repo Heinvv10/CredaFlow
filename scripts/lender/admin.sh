@@ -17,5 +17,12 @@ dir="${1:-}"; shift || true
 need docker
 load_lender "$dir"
 image="$(cat "$STATE_DIR/current-image" 2>/dev/null)" || die "nothing deployed yet ($STATE_DIR/current-image missing)"
-tools_run "$(tools_image_of "$image")" -e NODE_ENV=production -- \
-  npx tsx scripts/lender/bootstrap-admin-cli.ts --tenant "$SLUG" "$@"
+# The tenant is always this lender's own: a caller-supplied --tenant is refused,
+# not left to "last one wins".
+for a in "$@"; do
+  case "$a" in --tenant | --tenant=*) die "refusing: --tenant is fixed to this lender ($SLUG)" ;; esac
+done
+# The tools image the deploy recorded by id (a moved tag cannot swap the CLI), else by tag.
+tools="$(cat "$STATE_DIR/current-tools-id" 2>/dev/null || tools_image_of "$image")"
+tools_run "$tools" -e NODE_ENV=production -- \
+  npx tsx scripts/lender/bootstrap-admin-cli.ts "$@" --tenant "$SLUG"

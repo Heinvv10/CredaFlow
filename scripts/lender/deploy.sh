@@ -7,8 +7,10 @@
 #             (refuses a dirty tree); without it both must exist locally or be
 #             pullable from a registry.
 #
-# It first refuses unless the staff and portal session secrets are set and
-# distinct (check_auth_secrets). Order: images present -> database up ->
+# It first validates the RENDERED compose config (check_rendered_config: distinct
+# staff/portal session secrets, ports) and that both images were built for this
+# lender (io.credaflow.lender-slug label). Images are pinned by immutable id for
+# the switch and the rollback, so a moved tag cannot change what gets restored. Order: images present -> database up ->
 # pre-migration backup -> prisma migrate deploy (the old app is still serving) ->
 # switch app and app-portal -> GET /api/health on BOTH hosts (HTTP 200, status ok
 # = DB reachable, commit = the image's own GIT_SHA) -> done.
@@ -39,12 +41,12 @@ done
 [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "--health-timeout must be a positive integer"
 need docker curl jq flock
 load_lender "$dir"
-check_auth_secrets
+check_rendered_config
 acquire_lender_lock "$LENDER_DIR"
 
 log() { printf '%s %s image=%s commit=%s %s\n' "$(utc_stamp)" "$1" "$image" "${expected:-?}" "${2:-}" >> "$STATE_DIR/deploys.log"; }
 set_image() { printf 'APP_IMAGE=%s\n' "$1" > "$STATE_DIR/image.env.tmp"; mv "$STATE_DIR/image.env.tmp" "$STATE_DIR/image.env"; }
-# switch_to IMAGE EXPECT_COMMIT — point both hosts at IMAGE; 0 only when `compose up` AND both health probes succeed.
+# switch_to IMAGE_ID EXPECT_COMMIT — point both hosts at the image; 0 only when `compose up` AND both health probes succeed.
 switch_to() {
   set_image "$1"
   lcompose up -d --no-deps app app-portal >/dev/null && wait_stack_health "$2" "$timeout"
@@ -52,8 +54,14 @@ switch_to() {
 
 ensure_images "$image" "$build"
 tools="$(tools_image_of "$image")"
-expected="$(image_commit "$image")"
+check_image_lender "$image"
+check_image_lender "$tools"
+image_id="$(image_id "$image")" tools_id="$(image_id "$tools")"
+expected="$(image_commit "$image_id")"
+# What is running now, by immutable id (an older state dir recorded tags only).
 prev="$(cat "$STATE_DIR/current-image" 2>/dev/null || true)"
+prev_id="$(cat "$STATE_DIR/current-image-id" 2>/dev/null || true)"
+[ -n "$prev_id" ] || [ -z "$prev" ] || prev_id="$(image_id "$prev" 2>/dev/null || true)"
 check_ports_free
 serving="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=app" --filter status=running)"
 
@@ -72,38 +80,42 @@ else
 fi
 
 note "applying migrations with $tools (app still on ${prev:-nothing})"
-if ! tools_run "$tools" npx prisma migrate deploy; then
+if ! tools_run "$tools_id" npx prisma migrate deploy; then
   log MIGRATE_FAILED "backup=${backup:-none}"
-  die "migration failed; the app was NOT switched and still runs ${prev:-nothing}. A partly applied migration is not reverted: backup before it: ${backup:-none}"
+  die "migration failed; the app was NOT switched and still runs ${prev:-nothing}. A partly applied migration is not reverted: see docs/DEPLOY.md, 'A failed migration'. Backup before it: ${backup:-none}"
 fi
 
-note "switching app to $image"
-if switch_to "$image" "$expected"; then
+note "switching app to $image ($image_id)"
+if switch_to "$image_id" "$expected"; then
   printf '%s\n' "$image" > "$STATE_DIR/current-image"
-  [ -z "$prev" ] || [ "$prev" = "$image" ] || printf '%s\n' "$prev" > "$STATE_DIR/previous-image"
+  printf '%s\n' "$image_id" > "$STATE_DIR/current-image-id"
+  printf '%s\n' "$tools_id" > "$STATE_DIR/current-tools-id"
+  if [ -n "$prev_id" ] && [ "$prev_id" != "$image_id" ]; then
+    printf '%s\n' "${prev:-?}" > "$STATE_DIR/previous-image"; printf '%s\n' "$prev_id" > "$STATE_DIR/previous-image-id"
+  fi
   log DEPLOYED "backup=${backup:-none} previous=${prev:-none}"
   note "DEPLOYED $image (commit ${expected:-unknown}); health ok"
   exit 0
 fi
 
-note "switch to $image FAILED (compose up error, or no 200/ok/commit=$expected on both hosts within ${timeout}s)"
+note "switch to $image FAILED (compose up error, or no 200/ok/commit=$expected and a 200 login page on both hosts within ${timeout}s)"
 log SWITCH_FAILED "backup=${backup:-none}"
-if [ -n "$prev" ] && [ "$prev" != "$image" ]; then
-  note "rolling the app back to $prev"
-  if switch_to "$prev" "$(image_commit "$prev" 2>/dev/null || true)"; then
-    log ROLLED_BACK "to=$prev"
-    die "ROLLED BACK to $prev: $image failed to start or pass its health check. Migrations are NOT reverted (backup before them: ${backup:-none})"
+if [ -n "$prev_id" ] && [ "$prev_id" != "$image_id" ] && docker image inspect "$prev_id" >/dev/null 2>&1; then
+  note "rolling the app back to ${prev:-$prev_id} ($prev_id)"
+  if switch_to "$prev_id" "$(image_commit "$prev_id" 2>/dev/null || true)"; then
+    log ROLLED_BACK "to=${prev:-$prev_id} id=$prev_id"
+    die "ROLLED BACK to ${prev:-$prev_id}: $image failed to start or pass its health check. Migrations are NOT reverted (backup before them: ${backup:-none})"
   fi
-  log ROLLBACK_FAILED "to=$prev"
-  die "rollback to $prev is ALSO unhealthy or failed to start; investigate: compose logs. Backup before the migration: ${backup:-none}"
+  log ROLLBACK_FAILED "to=${prev:-$prev_id} id=$prev_id"
+  die "rollback to ${prev:-$prev_id} is ALSO unhealthy or failed to start; investigate: compose logs. Backup before the migration: ${backup:-none}"
 fi
-if [ "$prev" = "$image" ]; then
+if [ -n "$prev_id" ] && [ "$prev_id" = "$image_id" ]; then
   log SAME_TAG_UNHEALTHY "left running, not stopped"
   die "redeploy of the same image $image is unhealthy and there is no other image to roll back to. Left running, NOT stopped: inspect (compose logs), fix .env or the data, and redeploy. Backup before the migration: ${backup:-none}"
 fi
 if [ -n "$serving" ]; then
   log UNHEALTHY_NO_PREVIOUS "left running, not stopped"
-  die "$image is unhealthy; no previous image is recorded but the stack was already serving, so it is left running, NOT stopped. Backup before the migration: ${backup:-none}"
+  die "$image is unhealthy; no previous image is available but the stack was already serving, so it is left running, NOT stopped. Backup before the migration: ${backup:-none}"
 fi
 lcompose stop app app-portal >/dev/null
 log STOPPED "first deploy, nothing was serving"

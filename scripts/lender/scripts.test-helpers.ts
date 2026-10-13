@@ -20,10 +20,20 @@ export let lender: string
 export let log: string
 
 const DOCKER = String.raw`#!/bin/sh
+# compose runs under env -i, so the STUB_* settings reach the stubs through a file
+[ -f "$HOME/stub.env" ] && . "$HOME/stub.env"
 echo "$* APP_IMAGE=$APP_IMAGE" >> "$STUB_LOG"
 if [ -n "$STUB_FAIL_MATCH" ]; then case "$*" in *"$STUB_FAIL_MATCH"*) exit 1 ;; esac; fi
 case "$*" in
   "compose version") exit 0 ;;
+  "image inspect -f {{.Id}} "*) echo "sha256:id-$(echo "$5" | tr ':/' '__')$STUB_ID_SUFFIX" ;;
+  "image inspect -f {{index .Config.Labels"*) s="$STUB_IMAGE_SLUG"; [ -n "$s" ] || s=stub-lender; if [ "$s" = NONE ]; then echo; else echo "$s"; fi ;;
+  *"config --format json"*)
+    e="$STUB_LENDER"; g() { sed -n "s/^$1=//p" "$e/$2" | head -1; }
+    bind="$(g APP_BIND .env)"; [ -n "$bind" ] || bind=127.0.0.1
+    jq -n --arg s "$(g STAFF_AUTH_SECRET secrets/auth.env)" --arg p "$(g PORTAL_AUTH_SECRET secrets/auth.env)" --arg sh "$(g NEXTAUTH_SECRET .env)" \
+      --arg b "$bind" --arg ap "$(g APP_PORT .env)" --arg pp "$(g PORTAL_PORT .env)" --arg leak "$(g STAFF_AUTH_SECRET .env)" \
+      '{services:{db:{}, app:{environment:({AUTH_SECRET:$s,NEXTAUTH_SECRET:$sh} + (if $leak != "" then {STAFF_AUTH_SECRET:$leak} else {} end)), ports:[{host_ip:$b,published:$ap}]}, "app-portal":{environment:{AUTH_SECRET:$p,NEXTAUTH_SECRET:$sh}, ports:[{host_ip:$b,published:$pp}]}}}' ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
   "image inspect "*) exit 0 ;;
   "ps -a -q "*) echo "$STUB_OUR_CONTAINER" ;;
@@ -31,6 +41,7 @@ case "$*" in
   "ps -a "*) [ -z "$STUB_PROJECT_DIR" ] || { [ "$STUB_PROJECT_DIR" = BLANK ] && echo "dir=" || echo "dir=$STUB_PROJECT_DIR"; } ;;
   "volume ls"*|"network ls"*) [ -z "$STUB_FOREIGN_VOLUME" ] || echo "$STUB_FOREIGN_VOLUME" ;;
   "ps -q "*) echo "$STUB_SERVING" ;;
+  "build "*) for last in "$@"; do :; done; { echo "ARGS: $*"; find "$last" -type f | sed "s|^$last/||" | sort; } >> "$STUB_LOG.build" ;;
   *"up -d --no-deps"*) if grep -qE "bad|upfail" "$STUB_LENDER/state/image.env" 2>/dev/null; then exit 1; fi ;;
   *"pg_dump"*) printf 'PGDMP-stub-%s' "$$" ;;
   *"lender-counts"*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
@@ -46,12 +57,16 @@ exit 0
 `
 // Health follows whichever image state/image.env currently names: "bad" images never answer.
 const CURL = String.raw`#!/bin/sh
+[ -f "$HOME/stub.env" ] && . "$HOME/stub.env"
 echo "curl $*" >> "$STUB_LOG"
+case "$*" in *"-w "*) if [ -n "$STUB_PAGE_CODE" ]; then printf '%s' "$STUB_PAGE_CODE"; else printf 200; fi; exit 0 ;; esac
 img="$(sed -n 's/^APP_IMAGE=//p' "$STUB_LENDER/state/image.env" 2>/dev/null)"
 case "$img" in *bad*) exit 22 ;; *new*) h="$STUB_HEALTH_COMMIT"; [ -n "$h" ] || h="$STUB_COMMIT_NEW"; st="$STUB_HEALTH_STATUS"; [ -n "$st" ] || st=ok; echo "{\"status\":\"$st\",\"commit\":\"$h\"}" ;; *) echo "{\"status\":\"ok\",\"commit\":\"$STUB_COMMIT_OLD\"}" ;; esac
 `
 
 export function sh(cmd: string, args: string[], env: Record<string, string> = {}) {
+  const stubEnv = { STUB_LOG: log, STUB_LENDER: lender, STUB_COMMIT_NEW: "newsha", STUB_COMMIT_OLD: "oldsha", STUB_HAS_MIGRATIONS: "t", STUB_MIGRATE_RC: "0", ...env }
+  writeFileSync(join(root, "stub.env"), Object.entries(stubEnv).filter(([k]) => k.startsWith("STUB_")).map(([k, v]) => `export ${k}='${v}'`).join("\n"))
   const r = spawnSync("bash", [join(repo, "scripts/lender", cmd), ...args], {
     env: {
       NODE_ENV: "test", PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, HOME: root, GNUPGHOME: join(root, "gnupg"),
@@ -59,6 +74,7 @@ export function sh(cmd: string, args: string[], env: Record<string, string> = {}
       STUB_HAS_MIGRATIONS: "t", STUB_MIGRATE_RC: "0", ...env,
     },
     encoding: "utf8",
+    cwd: root,
   })
   return { status: r.status, out: `${r.stdout}${r.stderr}`, calls: readFileSync(log, "utf8").split("\n") }
 }

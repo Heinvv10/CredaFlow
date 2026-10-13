@@ -43,6 +43,7 @@ file="$(readlink -f "$file")"
 pass="$LENDER_DIR/secrets/backup.passphrase"
 [ -s "$pass" ] || die "$pass missing or empty"
 if $over_live; then
+  check_rendered_config
   [ "$confirm" = "$SLUG" ] || die "refusing --over-live: pass --confirm $SLUG to replace the live database of '$SLUG'"
 elif [ -n "$confirm" ] || $accept_drift; then
   die "--confirm and --accept-count-drift only apply to --over-live"

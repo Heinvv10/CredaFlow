@@ -59,15 +59,21 @@ mv "$out.partial" "$out"; mv "$out.counts.partial" "$out.counts"
 note "backup written: $out ($(stat -c %s "$out") bytes)"
 
 # Retention: the newest $keep dumps in EACH pool, so a run of nightly backups can
-# never push out the pre-migration (pre-*) ones, nor the reverse. Names sort by UTC stamp.
+# never push out the pre-migration (pre-*) ones, nor the reverse. Only files whose
+# whole name matches the exact pattern we write are ever considered (so an odd
+# filename, even one holding a newline, can neither be listed wrongly nor make rm
+# reach outside backups/); names sort by UTC stamp. NUL-delimited throughout.
 prune_pool() {
-  local old
-  while IFS= read -r old; do
-    note "retention: removing $(basename "$old")"
-    rm -f -- "$old" "$old.counts"
-  done < <(find "$LENDER_DIR/backups" -maxdepth 1 -name "$SLUG-*.dump.gpg" | sort -r \
-            | { if [ "$1" = pre ]; then grep -E -- "/$SLUG-[0-9]{8}T[0-9]{6}Z-pre-"; else grep -vE -- "/$SLUG-[0-9]{8}T[0-9]{6}Z-pre-"; fi || true; } \
-            | tail -n +"$((keep + 1))")
+  local f b n=0
+  while IFS= read -r -d '' f; do
+    b="${f##*/}"
+    [[ "$b" =~ ^$SLUG-[0-9]{8}T[0-9]{6}Z(-[A-Za-z0-9._-]+)?\.dump\.gpg$ ]] || continue
+    if [[ "$b" =~ ^$SLUG-[0-9]{8}T[0-9]{6}Z-pre- ]]; then [ "$1" = pre ] || continue; else [ "$1" = nightly ] || continue; fi
+    n=$((n + 1))
+    [ "$n" -gt "$keep" ] || continue
+    note "retention: removing $b"
+    rm -f -- "$LENDER_DIR/backups/$b" "$LENDER_DIR/backups/$b.counts"
+  done < <(find "$LENDER_DIR/backups" -maxdepth 1 -type f -name '*.dump.gpg' -print0 | sort -z -r)
 }
 prune_pool pre
 prune_pool nightly

@@ -101,9 +101,16 @@ acquire_lender_lock() {
 
 # lcompose ARGS… — compose on this lender's project only. -p/-f/--project-directory
 # are explicit so a COMPOSE_PROJECT_NAME or COMPOSE_FILE in the caller's
-# environment cannot point `down`/`up` at another stack.
+# environment cannot point `down`/`up` at another stack, and the environment is
+# SCRUBBED (`env -i` plus a short allowlist for talking to the docker daemon):
+# compose gives shell variables priority over --env-file, so a stray
+# `APP_BIND=0.0.0.0` or `STAFF_AUTH_SECRET=…` in the operator's shell would
+# otherwise override what the lender's files say.
 lcompose() {
-  local envs=(--env-file "$ENV_FILE") pre=(env)
+  local envs=(--env-file "$ENV_FILE") pre=(env -i) v
+  for v in PATH HOME USER LANG TMPDIR DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY XDG_RUNTIME_DIR; do
+    [ -z "${!v:-}" ] || pre+=("$v=${!v}")
+  done
   [ ! -f "$AUTH_ENV" ] || envs+=(--env-file "$AUTH_ENV")
   # Compose interpolates the whole file even for `up db`. Before the first deploy
   # there is no state/image.env, so name an image that cannot exist (a stray
@@ -142,166 +149,9 @@ tools_run() {
     docker run --rm -e DATABASE_URL -e "LENDER_OPERATOR=$(id -un)@$(hostname)" --network "${PROJECT}_default" "${opts[@]}" "$image" "$@"
 }
 
-# tools_image_of REPO:TAG — the matching image that holds the CLIs (prisma, tsx, the scripts).
-tools_image_of() { echo "${1%:*}-tools:${1##*:}"; }
-
-image_commit() { docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" | sed -n 's/^GIT_SHA=//p'; }
-
-# build_images IMAGE TOOLS — build both targets of the Dockerfile from the
-# checkout this script lives in. The image is `runner`; the tools image is the
-# `builder` stage (prisma CLI, tsx, the scripts), which the runner image lacks.
-# Refuses a dirty tree: the image would match no commit. BUILD_TIME is the
-# commit's time, so a rebuild of the same commit is fully cached.
-build_images() {
-  local image="$1" tools="$2" args v
-  git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "refusing to build: $REPO_ROOT is not a git checkout"
-  [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] \
-    || die "refusing to build: working tree at $REPO_ROOT is dirty (commit or stash first; the image would match no commit)"
-  args=(--build-arg "GIT_SHA=$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
-        --build-arg "BUILD_TIME=$(git -C "$REPO_ROOT" show -s --format=%cI HEAD)"
-        --build-arg "NEXT_PUBLIC_TENANT_SLUG=$SLUG")
-  for v in "${BUILD_PUBLIC_VARS[@]}"; do
-    [ -z "$(env_get "$ENV_FILE" "$v")" ] || args+=(--build-arg "$v=$(env_get "$ENV_FILE" "$v")")
-  done
-  note "building $image and $tools from $(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
-  docker build "${args[@]}" --target runner -t "$image" "$REPO_ROOT"
-  docker build "${args[@]}" --target builder -t "$tools" "$REPO_ROOT"
-}
-
-# ensure_images IMAGE BUILD(true|false) — both images present locally.
-ensure_images() {
-  local image="$1" build="$2" tools i
-  [[ "$image" == *:* ]] || die "image '$image' needs an explicit tag (name:tag)"
-  tools="$(tools_image_of "$image")"
-  if [ "$build" = true ]; then build_images "$image" "$tools"; return; fi
-  for i in "$image" "$tools"; do
-    docker image inspect "$i" >/dev/null 2>&1 && continue
-    note "pulling $i"
-    docker pull "$i" >/dev/null || die "cannot find or pull $i (use --build from a clean checkout, or publish both images)"
-  done
-}
-
-# health_ok URL EXPECT_COMMIT — one probe: HTTP 200, status ok (the route runs
-# SELECT 1, so this includes the database) and, unless the image carries no
-# commit, the commit it reports equals the one this image was built from.
-health_ok() {
-  local body
-  body="$(curl -fsS --max-time 5 "$1" 2>/dev/null)" || return 1
-  [ "$(jq -r .status <<<"$body" 2>/dev/null)" = ok ] || return 1
-  [ -z "$2" ] || [ "$2" = unknown ] || [ "$(jq -r .commit <<<"$body" 2>/dev/null)" = "$2" ]
-}
-
-# wait_health URL EXPECT_COMMIT TIMEOUT_SECONDS
-wait_health() {
-  local deadline=$((SECONDS + $3))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    health_ok "$1" "$2" && return 0
-    sleep 2
-  done
-  return 1
-}
-
-# The row counts a backup records (backup.sh) and a restore verifies (restore.sh).
-COUNTS_SQL="$(cat <<'SQL'
-SELECT 'Tenant='||count(*) FROM "Tenant" UNION ALL SELECT 'User='||count(*) FROM "User"
-UNION ALL SELECT 'Client='||count(*) FROM "Client" UNION ALL SELECT 'LoanApplication='||count(*) FROM "LoanApplication"
-UNION ALL SELECT 'Loan='||count(*) FROM "Loan" UNION ALL SELECT 'Payment='||count(*) FROM "Payment"
-UNION ALL SELECT 'AuditLog='||count(*) FROM "AuditLog" UNION ALL SELECT 'migrations='||count(*) FROM _prisma_migrations
-SQL
-)"
-
-# check_auth_secrets — refuse (before anything changes) unless the staff and
-# portal session secrets are both set, long, different from each other and from
-# the shared NEXTAUTH_SECRET, and live only in secrets/auth.env: in .env they
-# would reach both containers through env_file. Values are never printed.
-check_auth_secrets() {
-  local staff portal shared k
-  [ -f "$AUTH_ENV" ] || die "$AUTH_ENV missing: staff and portal need separate session secrets (run provision-lender.sh)"
-  staff="$(env_get "$AUTH_ENV" STAFF_AUTH_SECRET)" portal="$(env_get "$AUTH_ENV" PORTAL_AUTH_SECRET)"
-  shared="$(env_get "$ENV_FILE" NEXTAUTH_SECRET)"
-  [ -n "$staff" ] && [ -n "$portal" ] || die "STAFF_AUTH_SECRET and PORTAL_AUTH_SECRET must both be set in $AUTH_ENV"
-  [ "${#staff}" -ge 32 ] && [ "${#portal}" -ge 32 ] || die "STAFF_AUTH_SECRET and PORTAL_AUTH_SECRET must each be at least 32 characters"
-  [ "$staff" != "$portal" ] || die "refusing to deploy: STAFF_AUTH_SECRET equals PORTAL_AUTH_SECRET (staff and client sessions would be replayable across hosts)"
-  { [ "$staff" != "$shared" ] && [ "$portal" != "$shared" ]; } || die "refusing to deploy: an auth secret equals the shared NEXTAUTH_SECRET"
-  for k in STAFF_AUTH_SECRET PORTAL_AUTH_SECRET AUTH_SECRET; do
-    [ -z "$(env_get "$ENV_FILE" "$k")" ] || die "refusing to deploy: $k is set in $ENV_FILE, which both containers read; keep the per-host secrets in $AUTH_ENV only"
-  done
-}
-
-# wait_stack_health EXPECT_COMMIT TIMEOUT — both hosts (staff, portal) healthy, probed at the bound address.
-wait_stack_health() {
-  wait_health "http://$PROBE_HOST:$APP_PORT/api/health" "$1" "$2" && wait_health "http://$PROBE_HOST:$PORTAL_PORT/api/health" "$1" "$2"
-}
-
-# port_is_ours PORT — one of this lender's containers is CONFIGURED to publish
-# PORT, whatever its state. (A crash-looping container publishes nothing between
-# restarts, so `docker ps` Ports would call its own port foreign.)
-port_is_ours() {
-  local id
-  for id in $(docker ps -a -q --filter "label=com.docker.compose.project=$PROJECT"); do
-    docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$id" | tr ' ' '\n' | grep -qx "$1" && return 0
-  done
-  return 1
-}
-
-# check_ports_free — refuse when something other than this lender's own
-# containers already listens on either published port (a `compose up` would fail
-# half way and leave the image state split).
-check_ports_free() {
-  local p
-  for p in "$APP_PORT" "$PORTAL_PORT"; do
-    if (exec 3<>"/dev/tcp/$PROBE_HOST/$p") 2>/dev/null && ! port_is_ours "$p"; then
-      die "host port $p ($PROBE_HOST) is already in use by something other than this lender's containers"
-    fi
-  done
-}
-
-# count_drift SIDECAR RESTORED — one line per table whose row count differs
-# between the backup's sidecar and the restored text ("Table: backup=N restored=M");
-# status 1 when any does.
-count_drift() {
-  local t b r drift=0
-  while IFS='=' read -r t b; do
-    [ -n "$t" ] || continue
-    r="$(grep -m1 "^$t=" <<<"$2" | cut -d= -f2)"
-    [ "$b" = "$r" ] || { echo "$t: backup=$b restored=${r:-missing}"; drift=1; }
-  done < "$1"
-  return "$drift"
-}
-
-# SNAPSHOT_DUMP_SH — runs INSIDE the db container (busybox sh; env U, DB,
-# COUNTS_SQL, COUNTS_FILE). One session holds a REPEATABLE READ transaction and
-# exports its snapshot; the row counts are taken in it and pg_dump --snapshot
-# dumps that same snapshot, so the sidecar describes exactly what the dump holds
-# even while the app writes. The dump goes to stdout; the counts to COUNTS_FILE.
-SNAPSHOT_DUMP_SH="$(cat <<'SH'
-set -eu
-d="$(mktemp -d)"
-trap 'rm -rf "$d"' EXIT
-mkfifo "$d/in"
-psql -v ON_ERROR_STOP=1 -qAt -U "$U" -d "$DB" <"$d/in" >"$d/out" 2>"$d/err" &
-pid=$!
-exec 3>"$d/in"
-wait_for() {
-  i=0
-  until grep -q -- "$1" "$d/out" 2>/dev/null; do
-    kill -0 "$pid" 2>/dev/null || { cat "$d/err" >&2; echo "snapshot session ended early" >&2; exit 1; }
-    i=$((i + 1))
-    [ "$i" -lt 3000 ] || { echo "timed out waiting for the snapshot session" >&2; exit 1; }
-    sleep 0.2
-  done
-}
-echo "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;" >&3
-echo "SELECT 'snap='||pg_export_snapshot();" >&3
-wait_for '^snap='
-snap="$(sed -n 's/^snap=//p' "$d/out" | head -n 1)"
-printf '%s;\n' "$COUNTS_SQL" >&3
-echo "SELECT '--end--';" >&3
-wait_for '^--end--$'
-grep -v -e '^snap=' -e '^--end--$' "$d/out" > "$COUNTS_FILE"
-pg_dump -Fc --no-owner --snapshot="$snap" -U "$U" -d "$DB"
-echo "COMMIT;" >&3
-exec 3>&-
-wait "$pid" || true
-SH
-)"
+# The rest, split out to keep each file small: images and builds, then health and
+# the rendered-config gate. Sourced here, so every script that sources lib.sh has them.
+# shellcheck source=scripts/lender/lib-images.sh
+. "$LENDER_SCRIPTS/lib-images.sh"
+# shellcheck source=scripts/lender/lib-health.sh
+. "$LENDER_SCRIPTS/lib-health.sh"

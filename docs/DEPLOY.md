@@ -41,6 +41,7 @@ directory **outside** the git checkout (the scripts refuse otherwise).
 | `restore.sh <dir> <file> [--drop-scratch]` | restore into a NEW scratch database and verify it. |
 | `restore.sh <dir> <file> --over-live --confirm <slug> [--accept-count-drift]` | verified restore, then swap it in. |
 | `npm run lender:bootstrap-tenant -- --config f.json [--dry-run]` | tenant + config + default templates (run in the tools image by provision). |
+| `prisma.sh <dir> migrate status \| resolve --rolled-back\|--applied <name> \| deploy` | recover from a failed migration (below), from the deployed tools image. |
 | `admin.sh <dir> --email E [--break-glass [--reactivate]] [--dry-run]` | the first-admin CLI (`lender:bootstrap-admin`) against this lender, for break-glass. provision runs the same CLI for the first admin. |
 
 ### Two images
@@ -52,6 +53,15 @@ stage. `--build` builds both from the same checkout and the same build args
 (cache shared). Without `--build`, both must exist locally or be pullable, so
 publishing to a registry means pushing **both** tags. That registry path is not
 exercised here (no registry on the staging host).
+
+**What goes into an image.** `--build` builds from a `git archive` export of `HEAD` in a temp
+dir, never from the working tree: the Dockerfile does `COPY . .`, and a working tree holds
+gitignored files (`.env*`, `*.pem`, `uploads/`, the OCR corpus of real client documents) that must
+not ship. It also refuses a dirty tree. `.dockerignore` excludes the same paths for any other
+build. Both images carry the labels `io.credaflow.lender-slug` and `io.credaflow.git-sha`;
+`deploy.sh` and `provision-lender.sh` refuse an image whose slug label is not this lender's (or
+is missing), because the slug is baked into the bundle and another lender's image answers
+`/api/health` yet fails every page.
 
 `NEXT_PUBLIC_*` values are baked into the client bundle at build, so an image is
 specific to one lender (`NEXT_PUBLIC_TENANT_SLUG` plus whichever `NEXT_PUBLIC_*`
@@ -90,11 +100,21 @@ they sit in `secrets/auth.env`, not `.env`, so the other container's `env_file` 
 carries them. `NEXTAUTH_SECRET` stays in `.env` as a third, different secret
 (insurance disclosure tokens only).
 
-`deploy.sh` (and provision) refuse, before touching anything, unless both are set,
-at least 32 characters, different from each other and from `NEXTAUTH_SECRET`, and
-neither `STAFF_AUTH_SECRET`, `PORTAL_AUTH_SECRET` nor `AUTH_SECRET` appears in `.env`.
+`deploy.sh` and `provision-lender.sh` refuse, before touching anything, unless the secrets in the
+**rendered** compose config (`compose config --format json`, i.e. what the daemon will really
+run, after quoting, duplicate keys and `env_file` merging) are both set, at least 32 characters,
+different from each other and from `NEXTAUTH_SECRET`, and neither per-host secret reaches a
+container's environment through `.env`. All compose calls run with a scrubbed environment (`env -i`
+plus the few variables docker itself needs), so an operator's shell `STAFF_AUTH_SECRET=…` or
+`APP_BIND=0.0.0.0` cannot override the files. The ports and bind the probes and the port check use
+are read from the rendered config too.
 Rotating either secret ends every session on that host: edit `secrets/auth.env`
 and redeploy.
+
+Provisioning validates everything it writes into `.env`: the two URLs must be
+`http(s)://host[:port]` with no path, space or newline, `--bind` an IPv4 address, ports 1-65535,
+`--admin-email` and `--image` plain. A rerun reports a changed value as `kept existing …` and
+applies it only with `--update-settings`.
 
 ## Deploy
 
@@ -102,11 +122,11 @@ and redeploy.
 scripts/lender/deploy.sh /srv/lenders/acme credaflow-acme:$(git rev-parse --short=12 HEAD) --build
 ```
 
-Order: auth-secret check, **host ports free** (refuses when something other than this lender's own containers listens on either port), images present, database up, **pre-migration backup** (skipped on the very
+Order: rendered-config check (below), image-slug check, **host ports free** (refuses when something other than this lender's own containers listens on either port), images present, database up, **pre-migration backup** (skipped on the very
 first deploy, when there is no migration table), `prisma migrate deploy` (the old
 app is still serving), switch both containers (one `compose up -d app app-portal`), then poll
 `/api/health` on **both** until HTTP 200, `status: ok` (the route runs `SELECT 1`, so the
-database is included) and `commit` equal to the image's own `GIT_SHA`, probed at the bound address (`APP_BIND`; a wildcard bind is probed through `127.0.0.1`).
+database is included) and `commit` equal to the image's own `GIT_SHA`, probed at the bound address (`APP_BIND`; a wildcard bind is probed through `127.0.0.1`). Each host's tenant-resolving login page (`/login`, `/portal/login`) must also return 200.
 
 `--build` refuses a dirty tree (untracked files count): the image would match no
 commit. There is no pull + build + restart inside a live directory.
@@ -133,6 +153,31 @@ commit. There is no pull + build + restart inside a live directory.
 
 `state/deploys.log` records each outcome (`DEPLOYED`, `HEALTH_FAILED`,
 `ROLLED_BACK`, `MIGRATE_FAILED`, …).
+
+**Rollback pins images by id.** The switch and the rollback use the immutable image id
+(`state/current-image-id`, `previous-image-id`, `current-tools-id`), so a tag that is re-pushed
+between deploys cannot change what is restored. A re-pushed tag that goes unhealthy is rolled back
+to the id that was running; only a redeploy of the identical image id is the "left running" case.
+
+### A failed migration
+
+`deploy.sh` stops before switching the app and prints the pre-migration backup. A migration that
+failed part-way is recorded as failed in `_prisma_migrations`, and every later `migrate deploy`
+refuses (`P3009`) until you resolve it. From the lender's own tools image:
+
+```bash
+scripts/lender/prisma.sh /srv/lenders/<slug> migrate status
+# the migration was NOT applied (or you rolled its effects back by hand):
+scripts/lender/prisma.sh /srv/lenders/<slug> migrate resolve --rolled-back <migration_name>
+# the migration's effects ARE all in place (you finished it by hand):
+scripts/lender/prisma.sh /srv/lenders/<slug> migrate resolve --applied <migration_name>
+scripts/lender/prisma.sh /srv/lenders/<slug> migrate deploy
+```
+
+Do not hand-edit the schema of a lender database unless you can say exactly what the migration
+would have done; the safer path is to restore the pre-migration backup (below) and deploy the
+fixed image: `restore.sh <dir> backups/<slug>-<UTC>-pre-<tag>.dump.gpg --over-live --confirm <slug>`.
+The restore loses every write since that backup.
 
 ## Backup and restore
 
@@ -179,7 +224,7 @@ If the only SUPER_ADMIN is locked out (lost password or authenticator, deactivat
 on the host, from a checkout:
 
 ```bash
-scripts/lender/admin.sh /srv/lenders/<slug> --email <their email> --break-glass [--dry-run]
+scripts/lender/admin.sh /srv/lenders/<slug> --email <their email> --break-glass [--reactivate] [--dry-run]
 ```
 
 (`admin.sh` runs the CLI from the tools image of the currently deployed image on the
@@ -188,7 +233,7 @@ resets an **existing** SUPER_ADMIN of that tenant: new password, new TOTP secret
 re-activated (only with `--reactivate` if the account was deactivated, with a warning: a deactivation may have been deliberate), every session ended (`tokenVersion` bump), audited as
 `SUPER_ADMIN_BREAK_GLASS_RESET`. It never creates or promotes a user. Login rate
 limiting is in process memory (`lib/rate-limit.ts`); restarting the app clears a
-throttle. The operator needs docker access to the host, which is the trust boundary.
+throttle. `admin.sh` fixes the tenant to the lender's own: a `--tenant` argument is refused. The operator needs docker access to the host, which is the trust boundary.
 
 ## One lock per lender
 
@@ -209,58 +254,7 @@ docker compose -p credaflow-lender-<slug> -f <dir>/docker-compose.yml --project-
 
 ## Environment variables
 
-Generated by `provision-lender.sh` (secrets) or required from you. "Required" means
-the lender cannot work correctly without it; everything else degrades or turns a
-feature off. Provider values are blank in a new `.env` (commented TODO block).
-
-**Core**
-
-| Variable | Needed | Notes |
-|---|---|---|
-| `NEXT_PUBLIC_TENANT_SLUG` | required | the `Tenant.slug`; baked at build and read at runtime |
-| `NEXTAUTH_URL`, `AUTH_URL` | required | staff public origin; also the base for the in-process cron scheduler's calls and reset links |
-| `STAFF_AUTH_SECRET`, `PORTAL_AUTH_SECRET` | required | generated, distinct, in `secrets/auth.env`; become each container's `AUTH_SECRET`. Never fall back to a shared one |
-| `PORTAL_NEXTAUTH_URL`, `PORTAL_PORT` | required | portal origin (becomes its `NEXTAUTH_URL` and `AUTH_URL`) and host port |
-| `NEXTAUTH_SECRET` | required | generated; insurance disclosure tokens. Must differ from both auth secrets |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | required | generated; compose builds `DATABASE_URL` |
-| `APP_PORT`, `APP_BIND` | required / optional | staff host port (compose only, not an app variable); bind address, default `127.0.0.1` |
-| `CRON_SECRET` | required | gates `app/api/cron/*`; unset, the scheduler in `instrumentation.ts` is not registered |
-| `INTERNAL_API_SECRET` | required | bearer for `/api/notifications/*` |
-| `UNSUB_TOKEN_SECRET` | required | unsubscribe links; templated emails are refused without it |
-| `WABA_ENC_KEY` | required | 32 bytes base64; seals stored email and WhatsApp credentials. Losing it orphans them |
-| `ADMIN_SECRET` | optional | `x-admin-secret` for `/api/admin/tenants` |
-| `TRUSTED_PROXY` | set behind a proxy | number of proxies in front; default `0` |
-| `APP_MODE` | set by compose | `staff` on the staff container, `client` on the portal (`all` is the app's default when unset) |
-| `GIT_SHA`, `BUILD_TIME` | image | baked at build; `/api/health` reports them. Do not set in `.env` |
-| `NODE_ENV`, `PORT`, `HOSTNAME`, `PUPPETEER_EXECUTABLE_PATH` | image | set by the Dockerfile and compose |
-| `BACKUP_KEEP` | optional | scripts only, default 14 |
-
-**Per integration** (all optional until the feature is used)
-
-| Feature | Variables |
-|---|---|
-| Payments (Stitch) | `STITCH_CLIENT_ID`, `STITCH_CLIENT_SECRET`, `STITCH_WEBHOOK_SECRET`, `STITCH_BENEFICIARY_NAME`, `STITCH_BANK_ID`, `STITCH_BANK_NAME`, `STITCH_ACCOUNT_NUMBER`, `STITCH_ACCOUNT_TYPE`, `STITCH_BRANCH_CODE` |
-| Debit mandates | `DEBIT_MANDATE_CREDITOR_BANK_NAME`, `_ACCOUNT_NUMBER`, `_BRANCH_CODE` (real, printed on every mandate; placeholders are refused), `DEBIT_MANDATE_CREDITOR_TENANT_ID` (must equal the tenant id; provision sets it) |
-| KYC (SmileIdentity) | `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY`, `SMILE_IDENTITY_ENV` (`production` or `test`), `SMILE_DRY_RUN` |
-| Face match | `FACE_MODEL_DIR`, `FACE_SIMILARITY_THRESHOLD`, `FACE_MODEL_LOAD_TIMEOUT_MS`, `FACE_COMPARISON_TIMEOUT_MS` (models are in the image) |
-| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD`, `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings |
-| Bureau submission | `BUREAU_SUBMISSION_MODE` |
-| Dry-run switches | `EXPERIAN_DRY_RUN`, `TRANSUNION_DRY_RUN`, `NETCASH_DRY_RUN`, `NETCASH_COLLECTIONS_DRY_RUN`, `BULKSMS_DRY_RUN` (SMS is off by policy), `WA_DRY_RUN`, `SIMULATED_INTEGRATIONS`. On `NODE_ENV=production` a dry-run for a financial or credit provider throws unless declared a sandbox (`lib/integrations/simulation-guard.ts`) |
-| Email | primary: Settings > Email, stored sealed with `WABA_ENC_KEY`. Fallback: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`. Delivery guard: `EMAIL_DELIVERY_MODE` (default restricted to an allowlist; `unrestricted` on production only), `EMAIL_RECIPIENT_ALLOWLIST`, `EMAIL_INTERNAL_DOMAINS`, `EMAIL_INBOUND_ALLOWED_HOSTS` |
-| WhatsApp Cloud | `WHATSAPP_CLOUD_APP_SECRET`, `WHATSAPP_CLOUD_VERIFY_TOKEN` (generated), `WHATSAPP_GRAPH_VERSION`, `NEXT_PUBLIC_META_APP_ID`, `NEXT_PUBLIC_META_ES_CONFIG_ID` |
-| WhatsApp bridge | `WA_ENABLED`, `WA_SENDER_URL`, `WA_BRIDGE_ADMIN_SECRET`, `WA_BRIDGE_ALERT_RECIPIENTS`, `WA_UNOFFICIAL_WEBHOOK_SECRET` |
-| Messaging cutover | `MESSAGING_NEW_SEND_*` (13 flags; only the literal `true` enables) |
-| Website AI chat | `ANTHROPIC_API_KEY`, `WEBSITE_CHAT_SECRET` (generated, 32+ chars) and `TRUSTED_PROXY` > 0, all three |
-| Bot protection | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (build), `TURNSTILE_SECRET_KEY` |
-| Document OCR | `VLM_API_URL`, `VLM_MODEL` |
-| Links | `NEXT_PUBLIC_PORTAL_LOGIN_URL` or `NEXT_PUBLIC_PORTAL_URL` (build; portal links are omitted or refused without), `NEXT_PUBLIC_PORTAL_ORIGIN`, `PORTAL_PUBLIC_ORIGIN`, `NEXT_PUBLIC_WEBSITE_URL`, `NEXT_PUBLIC_APP_URL`, `STAFF_APP_HOST`, `TENANT_HOST_MAP` |
-| Insurance | `CREDIT_LIFE_AUTO_BUNDLE_ENABLED`, `CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS`, `FSP_QUICKQUOTE_*`, `DOCUMENT_SIGNUM_ENABLED` |
-| Analytics | `NEXT_PUBLIC_MATOMO_URL`, `_MATOMO_SITE_ID`, `_MATOMO_BLOCKED_HOSTS`, `NEXT_PUBLIC_GTM_ID`, `NEXT_PUBLIC_POSTHOG_KEY`, `_POSTHOG_HOST` (all build-time) |
-| Demo only, leave unset | `DEMO_MODE` and friends, `TURNSTILE_DEV_BYPASS` |
-
-The list comes from `process.env` / `env.` reads under `app/`, `lib/`, `components/`,
-`proxy.ts` and `instrumentation.ts`; it is not generated, so recheck it when adding
-an integration.
+Every variable the app reads, required or optional per integration, with what sets it: `docs/DEPLOY-ENV.md`.
 
 ## Not covered
 

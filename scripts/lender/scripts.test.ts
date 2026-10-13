@@ -54,7 +54,7 @@ describe("deploy.sh", () => {
     const r = sh("deploy.sh", [lender, "cf:bad", "--health-timeout", "1"])
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/ROLLED BACK to cf:old/)
-    expect(readFileSync(join(lender, "state/image.env"), "utf8")).toContain("APP_IMAGE=cf:old")
+    expect(readFileSync(join(lender, "state/image.env"), "utf8")).toContain("APP_IMAGE=sha256:id-cf_old")
     expect(state("current-image")).toBe("cf:old")
     expect(state("deploys.log")).toMatch(/ROLLED_BACK/)
   })
@@ -87,12 +87,12 @@ describe("deploy.sh", () => {
 
   describe("refuses to start without distinct per-host auth secrets, before touching anything", () => {
     const cases: [string, (env: string) => void, RegExp][] = [
-      ["equal", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"x".repeat(40)}\nPORTAL_AUTH_SECRET=${"x".repeat(40)}\n`), /equals PORTAL_AUTH_SECRET/],
-      ["portal unset", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"s".repeat(40)}\n`), /must both be set/],
-      ["file missing", () => rmSync(join(lender, "secrets/auth.env")), /auth.env missing/],
+      ["equal", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"x".repeat(40)}\nPORTAL_AUTH_SECRET=${"x".repeat(40)}\n`), /render EQUAL/],
+      ["portal unset", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"s".repeat(40)}\n`), /renders empty/],
+      ["file missing", () => rmSync(join(lender, "secrets/auth.env")), /renders empty/],
       ["too short", () => writeFileSync(join(lender, "secrets/auth.env"), "STAFF_AUTH_SECRET=a\nPORTAL_AUTH_SECRET=b\n"), /at least 32/],
-      ["staff equals shared NEXTAUTH_SECRET", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=shared-secret-0123456789abcdef0123456789\nPORTAL_AUTH_SECRET=${"p".repeat(40)}\n`), /shared NEXTAUTH_SECRET/],
-      ["secret leaked into .env", () => writeFileSync(join(lender, ".env"), `${readFileSync(join(lender, ".env"), "utf8")}STAFF_AUTH_SECRET=${"s".repeat(40)}\n`), /keep the per-host secrets/],
+      ["staff equals shared NEXTAUTH_SECRET", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=shared-secret-0123456789abcdef0123456789\nPORTAL_AUTH_SECRET=${"p".repeat(40)}\n`), /equal to the shared NEXTAUTH_SECRET/],
+      ["secret leaked into .env", () => writeFileSync(join(lender, ".env"), `${readFileSync(join(lender, ".env"), "utf8")}STAFF_AUTH_SECRET=${"s".repeat(40)}\n`), /reaches a container's environment/],
     ]
     for (const [name, arrange, msg] of cases) {
       it(name, () => {

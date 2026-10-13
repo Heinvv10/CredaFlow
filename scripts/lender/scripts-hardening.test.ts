@@ -110,6 +110,18 @@ describe("backup retention pools", () => {
     expect(rest).toEqual(["stub-lender-20200103T000000Z.dump.gpg", "stub-lender-20200104T000000Z.dump.gpg"])
   })
 
+  it("is NUL-safe: a filename with a newline is neither listed as two paths nor lets rm reach another file", () => {
+    const victim = join(root, "stub-lender-victim.dump.gpg") // what the second "line" of the odd name would point at, relative to the cwd
+    writeFileSync(victim, "keep me")
+    const odd = "stub-lender-20200101T000009Z-pre-a\nstub-lender-victim.dump.gpg"
+    writeFileSync(join(lender, "backups", odd), "odd")
+    for (const n of ["01", "02", "03"]) writeFileSync(join(lender, "backups", `stub-lender-202001${n}T000000Z.dump.gpg`), "old")
+    expect(sh("backup.sh", [lender, "--keep", "1"]).status).toBe(0)
+    expect(existsSync(victim)).toBe(true)
+    expect(existsSync(join(lender, "backups", odd))).toBe(true) // not ours: never touched
+    expect(dumps().filter((f) => !f.includes("\n"))).toHaveLength(1) // the nightly pool still pruned to --keep
+  })
+
   it("a run of nightly backups never removes pre-migration ones", () => {
     for (const n of ["01", "02", "03"]) writeFileSync(join(lender, "backups", `stub-lender-202002${n}T000000Z-pre-v${n}.dump.gpg`), "old")
     expect(sh("backup.sh", [lender, "--keep", "3"]).status).toBe(0)
@@ -146,7 +158,7 @@ describe("deploy failure paths", () => {
     const r = sh("deploy.sh", [lender, "cf:new-upfail"])
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/ROLLED BACK to cf:old/)
-    expect(readFileSync(join(lender, "state/image.env"), "utf8")).toContain("APP_IMAGE=cf:old")
+    expect(readFileSync(join(lender, "state/image.env"), "utf8")).toContain("APP_IMAGE=sha256:id-cf_old")
     expect(state("deploys.log")).toMatch(/SWITCH_FAILED[\s\S]*ROLLED_BACK/)
     expect(state("current-image")).toBe("cf:old")
   })

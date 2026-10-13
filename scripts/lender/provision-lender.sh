@@ -45,6 +45,20 @@ done
 [ -n "$target" ] && [ -f "$config" ] && [[ "$port" =~ ^[0-9]+$ ]] && [ -n "$public_url" ] \
   && [[ "$portal_port" =~ ^[0-9]+$ ]] && [ -n "$portal_url" ] || die "$USAGE"
 [ "$port" != "$portal_port" ] || die "--port and --portal-port must differ"
+# Values are written into .env and compose: only these shapes (and no newline, quote or space) get that far.
+valid_port() { [[ "$1" =~ ^[0-9]{1,5}$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+valid_origin() { [[ "$1" =~ ^https?://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?/?$ ]]; }
+valid_ipv4() {
+  local o IFS=.; [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+  for o in $1; do [ "$o" -le 255 ] || return 1; done
+}
+valid_port "$port" && valid_port "$portal_port" || die "--port and --portal-port must be integers 1-65535"
+valid_origin "$public_url" || die "--public-url must be http(s)://host[:port] (no path, query or spaces): '$public_url'"
+valid_origin "$portal_url" || die "--portal-url must be http(s)://host[:port] (no path, query or spaces): '$portal_url'"
+public_url="${public_url%/}" portal_url="${portal_url%/}"
+[ -z "$bind" ] || valid_ipv4 "$bind" || die "--bind must be an IPv4 address: '$bind'"
+[ -z "$admin_email" ] || [[ "$admin_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "--admin-email is not an email address"
+[ -z "$image" ] || [[ "$image" =~ ^[A-Za-z0-9._/:@-]+$ ]] || die "--image has unexpected characters"
 need docker jq openssl gpg curl
 SLUG="$(jq -er .slug "$config")" || die "$config is not JSON with a slug"
 [[ "$SLUG" =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "slug '$SLUG' in $config is malformed"
@@ -95,7 +109,7 @@ add WABA_ENC_KEY "$(openssl rand -base64 32)"   # 32 bytes, base64: lib/crypto/s
 add BACKUP_KEEP 14
 if ! grep -q '^# --- Provider credentials' "$env"; then
   cat >> "$env" <<'ENVTODO'
-# --- Provider credentials: TODO before go-live (docs/DEPLOY.md lists every variable) ---
+# --- Provider credentials: TODO before go-live (docs/DEPLOY-ENV.md lists every variable) ---
 # STITCH_CLIENT_ID= STITCH_CLIENT_SECRET= STITCH_WEBHOOK_SECRET= (+ STITCH_BANK_ID, STITCH_ACCOUNT_NUMBER, STITCH_BRANCH_CODE, STITCH_BENEFICIARY_NAME)
 # SMILE_IDENTITY_PARTNER_ID= SMILE_IDENTITY_API_KEY= SMILE_IDENTITY_ENV=
 # SMTP_HOST= SMTP_PORT= SMTP_USER= SMTP_PASS= SMTP_FROM_EMAIL= SMTP_FROM_NAME=
@@ -120,11 +134,13 @@ fi
 load_lender "$target"
 [ "$(env_get "$ENV_FILE" NEXT_PUBLIC_TENANT_SLUG)" = "$SLUG" ] || die "$ENV_FILE belongs to another lender"
 [ "$APP_PORT" != "$PORTAL_PORT" ] || die "APP_PORT and PORTAL_PORT in $ENV_FILE must differ"
-check_auth_secrets
+check_rendered_config
 
 # 3. Images, database, migrations.
 ensure_images "$image" "$build"
 tools="$(tools_image_of "$image")"
+check_image_lender "$image"
+check_image_lender "$tools"
 lcompose up -d db >/dev/null
 wait_db
 note "migrate deploy"
