@@ -179,7 +179,7 @@ it off first. Then, for exactly this lender:
 
 ```bash
 docker compose -p credaflow-<slug> -f <dir>/docker-compose.yml --project-directory <dir> \
-  --env-file <dir>/.env --env-file <dir>/state/image.env down --volumes
+  --env-file <dir>/.env --env-file <dir>/secrets/auth.env --env-file <dir>/state/image.env down --volumes
 ```
 
 ## Environment variables
