@@ -66,7 +66,7 @@ export function afSqlFixture(label: string) {
   }
 
   /** INSERT an application, unclassified (null) or classified NCA with `rule`. */
-  function application(borrower: Borrower, regime: Regime | null, rule = "TEST_RULE", amount = 150_000_000): string {
+  function application(borrower: Borrower, regime: Regime | null, rule = "FINANCIALS_UNPROVEN", amount = 150_000_000): string {
     const n = next()
     return `
       INSERT INTO "LoanApplication" ("id", "tenantId", "reference", "clientId", "entityId", "productId",
@@ -78,13 +78,19 @@ export function afSqlFixture(label: string) {
         CURRENT_TIMESTAMP)`
   }
 
-  /** INSERT a PENDING NCA → NON_NCA override requested by the fixture user. */
+  /**
+   * INSERT a PENDING NCA → NON_NCA override requested by the fixture user,
+   * its snapshot read from the application as it stands.
+   */
   function pendingOverride(applicationId: string): { id: string; statement: string } {
     const id = `ovr_${label}_${token}_${next()}`
     return {
       id,
-      statement: `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "requestedById")
-        VALUES ('${id}', '${tenantId}', '${applicationId}', 'NCA', 'NON_NCA', 'Audited AFS on file', '${ids.userId}')`,
+      statement: `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason",
+          "source", "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule")
+        SELECT '${id}', '${tenantId}', '${applicationId}', 'NCA', 'NON_NCA', 'Audited AFS on file', 'MANUAL', '${ids.userId}',
+          application."entityId", application."appliedAmount", application."productId", application."ncaClassificationRule"
+        FROM "LoanApplication" AS application WHERE application."id" = '${applicationId}'`,
     }
   }
 
@@ -100,14 +106,16 @@ export function afSqlFixture(label: string) {
   }
 
   /** INSERT an entity application, classified NCA, and take it to NON_NCA. Returns its id. */
-  function nonNcaApplication(entityId = ids.entityId, rule = "TEST_RULE", amount = 150_000_000): string {
+  function nonNcaApplication(entityId = ids.entityId, rule = "FINANCIALS_UNPROVEN", amount = 150_000_000): string {
     const statement = application({ entityId }, "NCA", rule, amount)
     sql(`${statement}; ${toNonNca(idOf(statement))}`)
     return idOf(statement)
   }
 
+  // An entity application reaches APPROVED through SUBMITTED (guardEntityApplicationStatus).
   const approveApplication = (applicationId: string) =>
-    `UPDATE "LoanApplication" SET "status" = 'APPROVED', "repaymentMethod" = 'EFT', "approvedAt" = CURRENT_TIMESTAMP,
+    `UPDATE "LoanApplication" SET "status" = 'SUBMITTED' WHERE "id" = '${applicationId}' AND "status" = 'DRAFT';
+     UPDATE "LoanApplication" SET "status" = 'APPROVED', "repaymentMethod" = 'EFT', "approvedAt" = CURRENT_TIMESTAMP,
        "approvedById" = '${ids.userId}' WHERE "id" = '${applicationId}'`
 
   const disburse = (applicationId: string) =>
@@ -140,7 +148,8 @@ export function afSqlFixture(label: string) {
     sql(`
       INSERT INTO "Tenant" ("id", "slug", "name", "updatedAt") VALUES ('${tenantId}', '${label}-${token}', 'AF test', CURRENT_TIMESTAMP);
       INSERT INTO "User" ("id", "tenantId", "email", "password", "updatedAt")
-        VALUES ('${ids.userId}', '${tenantId}', '${label}-${token}@test.invalid', 'x', CURRENT_TIMESTAMP);
+        VALUES ('${ids.userId}', '${tenantId}', '${label}-${token}@test.invalid', 'x', CURRENT_TIMESTAMP),
+               ('${ids.approverId}', '${tenantId}', '${label}-approver-${token}@test.invalid', 'x', CURRENT_TIMESTAMP);
       INSERT INTO "Client" ("id", "tenantId", "reference", "idNumber", "firstName", "lastName", "email", "phone", "updatedAt")
         VALUES ('${ids.clientId}', '${tenantId}', 'CLI-${token}', 'ID-${token}', 'Test', 'Director', 'c-${token}@test.invalid', '+27820000000', CURRENT_TIMESTAMP);
       INSERT INTO "LoanProduct" ("id", "tenantId", "code", "name", "productType", "minAmount", "maxAmount",

@@ -6,6 +6,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { isRegimeOpen, lockApplicationForRegime } from "@/lib/asset-finance/classification"
+import { overrideSnapshotOf } from "@/lib/asset-finance/override-snapshot"
 
 const MIN_REASON = 10
 const MAX_REASON = 2000
@@ -29,7 +30,9 @@ function parseBody(body: unknown): { toRegime: Regime; reason: string } | string
  *
  * To NCA only adds protection, so it applies at once, decided by the
  * requester. To NON_NCA stays PENDING until a different decider approves it
- * (app/api/asset-finance/nca-overrides/[overrideId]/decide).
+ * (app/api/asset-finance/nca-overrides/[overrideId]/decide). The override
+ * records the application's borrower, amount, product and classification rule
+ * as they stand; the approval is valid for exactly that application.
  */
 export async function POST(
   req: NextRequest,
@@ -53,7 +56,10 @@ export async function POST(
       if (!(await lockApplicationForRegime(tx, tenant.id, id))) return { kind: "not_found" as const }
       const application = await tx.loanApplication.findFirst({
         where: { id, tenantId: tenant.id },
-        select: { id: true, entityId: true, status: true, ncaRegime: true },
+        select: {
+          id: true, entityId: true, status: true, ncaRegime: true,
+          appliedAmount: true, productId: true, ncaClassificationRule: true,
+        },
       })
       if (!application) return { kind: "not_found" as const }
       if (!application.entityId) return { kind: "not_entity_borrower" as const }
@@ -76,7 +82,9 @@ export async function POST(
           fromRegime,
           toRegime,
           reason,
+          source: "MANUAL",
           requestedById: guard.user.id,
+          ...overrideSnapshotOf(application),
           ...(appliesNow ? { status: "APPROVED" as const, decidedById: guard.user.id, decidedAt } : {}),
         },
       })
@@ -85,7 +93,10 @@ export async function POST(
         action: AuditAction.NCA_OVERRIDE_REQUESTED,
         entity: "NcaRegimeOverride",
         entityId: override.id,
-        newValue: { applicationId: id, fromRegime, toRegime, reason, status: override.status },
+        newValue: {
+          applicationId: id, fromRegime, toRegime, reason, status: override.status, source: "MANUAL",
+          ...overrideSnapshotOf(application),
+        },
       }, tx)
 
       if (appliesNow) {

@@ -52,6 +52,12 @@ import { POST } from "./route"
 const signIn = (id: string, role: string) =>
   m.requireApiRole.mockResolvedValue({ user: { id, email: `${id}@lender.test`, role, tenantId: "tenant-1" } })
 
+/** The application as it stands; by default exactly the one the override was requested on. */
+const app = (over: Record<string, unknown> = {}) => ({
+  status: "UNDER_REVIEW", ncaRegime: "NCA", entityId: "ent-1", appliedAmount: 150_000_000, productId: "prod-1",
+  ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ...over,
+})
+
 const pending = (over: Record<string, unknown> = {}) => ({
   id: "ov-1",
   tenantId: "tenant-1",
@@ -64,7 +70,11 @@ const pending = (over: Record<string, unknown> = {}) => ({
   decidedById: null,
   decidedAt: null,
   decisionNote: null,
-  application: { status: "UNDER_REVIEW", ncaRegime: "NCA" },
+  approvedEntityId: "ent-1",
+  approvedAppliedAmount: 150_000_000,
+  approvedProductId: "prod-1",
+  approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
+  application: app(),
   ...over,
 })
 
@@ -155,13 +165,13 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
   })
 
   it("APPROVE on a stale request (the regime moved) rejects it as stale: 409, regime untouched", async () => {
-    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "UNDER_REVIEW", ncaRegime: "NON_NCA" } }))
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: app({ status: "UNDER_REVIEW", ncaRegime: "NON_NCA" }) }))
     const res = await decide({ decision: "APPROVE", note: "Checked" })
     expect(res.status).toBe(409)
-    expect(await res.json()).toMatchObject({ override: { status: "REJECTED", decisionNote: "stale: regime changed" } })
+    expect(await res.json()).toMatchObject({ override: { status: "REJECTED", decisionNote: "stale: the application changed since the request" } })
     expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith({
       where: { id: "ov-1" },
-      data: expect.objectContaining({ status: "REJECTED", decidedById: "admin-b", decisionNote: "stale: regime changed" }),
+      data: expect.objectContaining({ status: "REJECTED", decidedById: "admin-b", decisionNote: "stale: the application changed since the request" }),
     })
     expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
@@ -170,8 +180,21 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
     }), m.tx)
   })
 
+  it.each([
+    ["borrower", { entityId: "ent-2" }],
+    ["amount", { appliedAmount: 140_000_000 }],
+    ["product", { productId: "prod-2" }],
+    ["classification rule", { ncaClassificationRule: "LARGE_AGREEMENT" }],
+  ])("APPROVE after the application's %s changed since the request rejects it as stale: 409, regime untouched", async (_label, change) => {
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: app(change) }))
+    const res = await decide({ decision: "APPROVE", note: "Checked" })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ override: { status: "REJECTED", decisionNote: "stale: the application changed since the request" } })
+    expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
+  })
+
   it("REJECT on a stale request records the rejection with the decider's note", async () => {
-    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "UNDER_REVIEW", ncaRegime: "NON_NCA" } }))
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: app({ status: "UNDER_REVIEW", ncaRegime: "NON_NCA" }) }))
     const res = await decide({ decision: "REJECT", note: "No longer relevant" })
     expect(res.status).toBe(200)
     expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -181,13 +204,13 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
   })
 
   it("answers 409 to APPROVE once the application is decided, writing nothing", async () => {
-    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "APPROVED", ncaRegime: "NCA" } }))
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: app({ status: "APPROVED", ncaRegime: "NCA" }) }))
     expect((await decide({ decision: "APPROVE", note: "Checked" })).status).toBe(409)
     expect(m.tx.ncaRegimeOverride.update).not.toHaveBeenCalled()
   })
 
   it("still accepts REJECT once the application is decided", async () => {
-    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: { status: "APPROVED", ncaRegime: "NCA" } }))
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: app({ status: "APPROVED", ncaRegime: "NCA" }) }))
     expect((await decide({ decision: "REJECT", note: "Application decided" })).status).toBe(200)
     expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: "REJECTED" }),

@@ -55,13 +55,18 @@ const request = (body: unknown) =>
     { params: Promise.resolve({ id: "app-1" }) },
   )
 
+const application = (over: Record<string, unknown> = {}) => ({
+  id: "app-1", entityId: "ent-1", status: "SUBMITTED", ncaRegime: "NCA", appliedAmount: 150_000_000, productId: "prod-1",
+  ncaClassificationRule: "FINANCIALS_UNPROVEN", ...over,
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   m.flag.on = true
   m.transactionError.current = null
   m.requireApiRole.mockResolvedValue({ user: { id: "admin-a", email: "a@lender.test", role: "LOAN_ADMIN", tenantId: "tenant-1" } })
   m.tx.$queryRaw.mockResolvedValue([{ id: "app-1" }])
-  m.tx.loanApplication.findFirst.mockResolvedValue({ id: "app-1", entityId: "ent-1", status: "SUBMITTED", ncaRegime: "NCA" })
+  m.tx.loanApplication.findFirst.mockResolvedValue(application())
   m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(null)
   m.tx.ncaRegimeOverride.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: "ov-1", status: "PENDING", decidedById: null, decidedAt: null, ...data,
@@ -111,7 +116,7 @@ describe("POST /api/asset-finance/applications/[id]/nca-overrides", () => {
     ["decided", { status: "APPROVED" }, /frozen/],
     ["already at the target", { ncaRegime: "NON_NCA" }, /already NON_NCA/],
   ])("answers 409 when the application is %s", async (_label, over, message) => {
-    m.tx.loanApplication.findFirst.mockResolvedValue({ id: "app-1", entityId: "ent-1", status: "SUBMITTED", ncaRegime: "NCA", ...over })
+    m.tx.loanApplication.findFirst.mockResolvedValue(application(over))
     const res = await request({ toRegime: "NON_NCA", reason: REASON })
     expect(res.status).toBe(409)
     expect((await res.json()).error).toMatch(message)
@@ -133,7 +138,13 @@ describe("POST /api/asset-finance/applications/[id]/nca-overrides", () => {
     const res = await request({ toRegime: "NON_NCA", reason: `  ${REASON}  ` })
     expect(res.status).toBe(201)
     expect(m.tx.ncaRegimeOverride.create).toHaveBeenCalledWith({
-      data: { tenantId: "tenant-1", applicationId: "app-1", fromRegime: "NCA", toRegime: "NON_NCA", reason: REASON, requestedById: "admin-a" },
+      data: {
+        tenantId: "tenant-1", applicationId: "app-1", fromRegime: "NCA", toRegime: "NON_NCA", reason: REASON, requestedById: "admin-a",
+        source: "MANUAL",
+        // The application the approver will be agreeing to; the approval is valid for exactly this.
+        approvedEntityId: "ent-1", approvedAppliedAmount: 150_000_000, approvedProductId: "prod-1",
+        approvedClassificationRule: "FINANCIALS_UNPROVEN",
+      },
     })
     expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
     expect(m.logAuditStrict).toHaveBeenCalledTimes(1)
@@ -144,7 +155,7 @@ describe("POST /api/asset-finance/applications/[id]/nca-overrides", () => {
   })
 
   it("NON_NCA → NCA: applies at once, decided by the requester, with both audit rows", async () => {
-    m.tx.loanApplication.findFirst.mockResolvedValue({ id: "app-1", entityId: "ent-1", status: "UNDER_REVIEW", ncaRegime: "NON_NCA" })
+    m.tx.loanApplication.findFirst.mockResolvedValue(application({ status: "UNDER_REVIEW", ncaRegime: "NON_NCA" }))
     const res = await request({ toRegime: "NCA", reason: "Turnover was the group's, not the entity's" })
     expect(res.status).toBe(201)
     expect(m.tx.ncaRegimeOverride.create).toHaveBeenCalledWith({

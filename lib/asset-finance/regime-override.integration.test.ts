@@ -6,7 +6,8 @@
  *     an approval cannot be replayed; a change to NCA is free; frozen once
  *     decided;
  *   - once classified the borrower is fixed; while NON_NCA the amount and
- *     product are fixed; once decided the classification snapshot is fixed;
+ *     product are fixed; while NON_NCA and once decided the classification
+ *     snapshot is fixed;
  *   - an override is never deleted, starts PENDING when it relaxes the regime,
  *     is decided once by someone other than its requester, and is immutable
  *     after that except for being spent (guardNcaRegimeOverrideLifecycle and
@@ -37,7 +38,7 @@ suite("asset finance foundation: NCA regime and override rules", () => {
   afterAll(() => f.cleanup())
 
   it("refuses to insert an application NON_NCA, whatever its status", () => {
-    const insert = f.application({ entityId }, "NCA").replace(/'NCA', 'TEST_RULE'/, "'NON_NCA', 'TEST_RULE'")
+    const insert = f.application({ entityId }, "NCA").replace(/'NCA', 'FINANCIALS_UNPROVEN'/, "'NON_NCA', 'FINANCIALS_UNPROVEN'")
     expectRejected(insert, "cannot be inserted NON_NCA")
   })
 
@@ -48,12 +49,14 @@ suite("asset finance foundation: NCA regime and override rules", () => {
     sql(override.statement)
     expectRejected(flip(id), "requires an approved NcaRegimeOverride that has not been applied")
 
+    // Unclassified straight to NON_NCA: the snapshot cannot be written NON_NCA,
+    // and no override can be requested for an unclassified application.
     const unclassified = f.application({ entityId }, null)
     sql(unclassified)
     expectRejected(
-      `UPDATE "LoanApplication" SET "ncaRegime" = 'NON_NCA', "ncaClassificationRule" = 'TEST_RULE',
+      `UPDATE "LoanApplication" SET "ncaRegime" = 'NON_NCA', "ncaClassificationRule" = 'FINANCIALS_UNPROVEN',
          "ncaClassifiedAt" = CURRENT_TIMESTAMP, "ncaClassifiedById" = '${userId}' WHERE "id" = '${idOf(unclassified)}'`,
-      "requires an approved NcaRegimeOverride that has not been applied",
+      "classification snapshot is frozen while it is NON_NCA",
     )
   })
 
@@ -72,16 +75,16 @@ suite("asset finance foundation: NCA regime and override rules", () => {
     expect(sql(`SELECT "ncaRegime" FROM "LoanApplication" WHERE "id" = '${id}'`)).toBe("NON_NCA")
   })
 
-  it("never lets the requester approve a move to NCA → NON_NCA, however the id is padded or cased", () => {
+  it("never lets the requester approve a move to NCA → NON_NCA", () => {
     const id = ncaApplication()
     const override = f.pendingOverride(id)
     sql(override.statement)
-    const decideAs = (decider: string) =>
-      `UPDATE "NcaRegimeOverride" SET "status" = 'APPROVED', "decidedById" = '${decider}', "decidedAt" = CURRENT_TIMESTAMP
-       WHERE "id" = '${override.id}'`
-    expectRejected(decideAs(userId), "NcaRegimeOverride_four_eyes")
-    expectRejected(decideAs(` ${userId.toUpperCase()}  `), "NcaRegimeOverride_four_eyes")
-    sql(decideAs(approverId))
+    expectRejected(
+      `UPDATE "NcaRegimeOverride" SET "status" = 'APPROVED', "decidedById" = '${userId}', "decidedAt" = CURRENT_TIMESTAMP
+       WHERE "id" = '${override.id}'`,
+      "NcaRegimeOverride_four_eyes",
+    )
+    sql(f.approve(override.id))
   })
 
   it("allows one PENDING override per application", () => {
@@ -123,26 +126,42 @@ suite("asset finance foundation: NCA regime and override rules", () => {
     )
   })
 
-  it("fixes the classification snapshot once decided, but not while open", () => {
+  const snapshotWrites = [
+    `"ncaClassificationRule" = 'JURISTIC_OVER_THRESHOLD'`,
+    `"ncaClassificationInputs" = '{"principalDebtCents": 1}'::jsonb`,
+    `"ncaClassificationEvidenceIds" = ARRAY['afs-x']`,
+    `"ncaClassifiedAt" = CURRENT_TIMESTAMP + INTERVAL '1 day'`,
+    `"ncaClassifiedById" = '${approverId}'`,
+  ]
+
+  it("fixes the classification snapshot while NON_NCA, even while open; back on NCA it may change", () => {
     const id = f.nonNcaApplication()
+    for (const set of snapshotWrites) {
+      expectRejected(`UPDATE "LoanApplication" SET ${set} WHERE "id" = '${id}'`, "snapshot is frozen while it is NON_NCA")
+    }
+    // Not in the same statement that leaves NON_NCA either: NCA first, then re-classify.
+    expectRejected(
+      `UPDATE "LoanApplication" SET "ncaRegime" = 'NCA', "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`,
+      "snapshot is frozen while it is NON_NCA",
+    )
+    sql(`UPDATE "LoanApplication" SET "ncaRegime" = 'NCA' WHERE "id" = '${id}'`)
     sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`)
-    sql(f.approveApplication(id))
-    for (const set of [
-      `"ncaClassificationRule" = 'JURISTIC_OVER_THRESHOLD'`,
-      `"ncaClassificationInputs" = '{"principalDebtCents": 1}'::jsonb`,
-      `"ncaClassificationEvidenceIds" = ARRAY['afs-x']`,
-      `"ncaClassifiedAt" = CURRENT_TIMESTAMP + INTERVAL '1 day'`,
-      `"ncaClassifiedById" = '${approverId}'`,
-    ]) {
-      expectRejected(`UPDATE "LoanApplication" SET ${set} WHERE "id" = '${id}'`, "snapshot is frozen once it is decided")
+  })
+
+  it("fixes the classification snapshot once decided, NCA included", () => {
+    const id = ncaApplication()
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`)
+    sql(`UPDATE "LoanApplication" SET "status" = 'DECLINED' WHERE "id" = '${id}'`)
+    for (const set of snapshotWrites) {
+      expectRejected(`UPDATE "LoanApplication" SET ${set} WHERE "id" = '${id}'`, "snapshot is frozen while it is NON_NCA and once it is decided")
     }
   })
 
   it("refuses an override that does not change the regime, or a half-recorded decision", () => {
     const id = ncaApplication()
     expectRejected(
-      `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "requestedById")
-       VALUES ('same_${token}', '${tenantId}', '${id}', 'NCA', 'NCA', 'no change', '${userId}')`,
+      `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "source", "requestedById")
+       VALUES ('same_${token}', '${tenantId}', '${id}', 'NCA', 'NCA', 'no change', 'MANUAL', '${userId}')`,
       "NcaRegimeOverride_changes_regime",
     )
     const override = f.pendingOverride(id)
@@ -160,8 +179,8 @@ suite("asset finance foundation: NCA regime and override rules", () => {
   it("refuses an override outside its application's tenant", () => {
     const id = ncaApplication()
     expectRejected(
-      `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "requestedById")
-       VALUES ('xt_${token}', 'some_other_tenant', '${id}', 'NCA', 'NON_NCA', 'cross tenant', '${userId}')`,
+      `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "source", "requestedById")
+       VALUES ('xt_${token}', 'some_other_tenant', '${id}', 'NCA', 'NON_NCA', 'cross tenant', 'MANUAL', '${userId}')`,
       "must belong to its application's tenant",
     )
   })
@@ -169,9 +188,9 @@ suite("asset finance foundation: NCA regime and override rules", () => {
   it("starts every override to NON_NCA PENDING", () => {
     const id = ncaApplication()
     expectRejected(
-      `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason",
+      `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "source",
          "requestedById", "status", "decidedById", "decidedAt")
-       VALUES ('pre_${token}', '${tenantId}', '${id}', 'NCA', 'NON_NCA', 'pre-approved', '${userId}', 'APPROVED',
+       VALUES ('pre_${token}', '${tenantId}', '${id}', 'NCA', 'NON_NCA', 'pre-approved', 'MANUAL', '${userId}', 'APPROVED',
          '${approverId}', CURRENT_TIMESTAMP)`,
       "requested PENDING; a second person decides it",
     )

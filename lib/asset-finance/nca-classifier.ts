@@ -23,13 +23,21 @@ export interface NcaClassifierInput {
   principalDebtCents: number
 }
 
-export type NcaRuleId =
-  | "TRUST_FEW_NATURAL_TRUSTEES"
-  | "TRUST_UNEVIDENCED"
-  | "FINANCIALS_UNPROVEN"
-  | "JURISTIC_OVER_THRESHOLD"
-  | "LARGE_AGREEMENT"
-  | "JURISTIC_SMALL_AGREEMENT"
+/**
+ * Every rule the classifier returns. The database refuses any other value in
+ * LoanApplication.ncaClassificationRule and NcaRegimeOverride.approvedClassificationRule
+ * (CHECKs in 20261013090000_asset_finance_foundation; nca-rule-ids.test.ts holds them equal).
+ */
+export const NCA_RULE_IDS = [
+  "TRUST_FEW_NATURAL_TRUSTEES",
+  "TRUST_UNEVIDENCED",
+  "FINANCIALS_UNPROVEN",
+  "JURISTIC_OVER_THRESHOLD",
+  "LARGE_AGREEMENT",
+  "JURISTIC_SMALL_AGREEMENT",
+] as const
+
+export type NcaRuleId = (typeof NCA_RULE_IDS)[number]
 
 export interface NcaClassification {
   regime: "NCA" | "NON_NCA"

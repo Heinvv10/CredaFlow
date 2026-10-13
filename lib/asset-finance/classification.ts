@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { classifyNcaRegime, type NcaClassification } from "./nca-classifier"
+import { reconcileOpenOverride } from "./classifier-overrides"
+import type { SnapshotSource } from "./override-snapshot"
 
 // Runs the NCA classifier for an entity application and snapshots the result
 // on it (DESIGN D5). Every move to NON_NCA goes through four-eyes: a classifier
@@ -10,9 +12,16 @@ import { classifyNcaRegime, type NcaClassification } from "./nca-classifier"
 // the classifier's name, which a different user with decide_asset_finance
 // approves through the decide route. The database is the backstop:
 // guardLoanApplicationNcaRegime refuses any change to NON_NCA that does not
-// spend an approved override and freezes the regime and snapshot once the
-// application is decided; LoanApplication_nca_classification_complete refuses
-// a partial snapshot.
+// spend an approved override matching the application, and freezes the
+// classification snapshot while NON_NCA and once the application is decided;
+// LoanApplication_nca_classification_complete refuses a partial snapshot.
+//
+// A re-run on a NON_NCA application that reaches the same NON_NCA rule writes
+// nothing (`unchanged`). Any other result first moves it back to NCA (stricter,
+// always allowed), which unfreezes the snapshot and leaves the spent approval
+// behind. An open override follows the latest result: a classifier request is
+// rejected as superseded when the result is NCA, and any open request is kept
+// only if its snapshot is the application as now classified.
 
 /** The transaction client of the app's (tenant-scoped) Prisma client. */
 export type RegimeTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -20,8 +29,8 @@ export type RegimeTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 /** Statuses in which an application's regime may still change (mirrors the trigger). */
 export const NCA_REGIME_OPEN_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] as const
 
-/** The note on an approval refused because the application's regime moved since the request. */
-export const STALE_OVERRIDE_NOTE = "stale: regime changed"
+/** The note on an approval refused because the application moved since the request. */
+export const STALE_OVERRIDE_NOTE = "stale: the application changed since the request"
 
 export function isRegimeOpen(status: string): boolean {
   return (NCA_REGIME_OPEN_STATUSES as readonly string[]).includes(status)
@@ -72,15 +81,14 @@ export type ClassifyApplicationResult =
       regime: Regime
       /** The PENDING NCA → NON_NCA override awaiting a second approver, if any. */
       pendingOverrideId: string | null
+      /** An open override this run rejected because the classification moved on. */
+      supersededOverrideId: string | null
+      /** A NON_NCA application re-classified to the same rule: nothing was written. */
+      unchanged: boolean
     }
   | { kind: "not_found" }
   | { kind: "not_entity_borrower" }
   | { kind: "regime_frozen"; status: string }
-
-/** The override reason recorded for a classifier result of NON_NCA. */
-export function classifierOverrideReason(classification: NcaClassification): string {
-  return `Classifier: ${classification.rule} — ${classification.reason}`
-}
 
 export async function classifyApplication(
   tx: RegimeTx,
@@ -96,6 +104,7 @@ export async function classifyApplication(
       entityId: true,
       status: true,
       appliedAmount: true,
+      productId: true,
       ncaRegime: true,
       ncaClassificationRule: true,
     },
@@ -138,15 +147,55 @@ export async function classifyApplication(
     principalDebtCents: params.principalDebtCents ?? application.appliedAmount,
   })
 
-  // NON_NCA is never written here. An application already NON_NCA (approved
-  // earlier) stays so when the classifier agrees; otherwise the effective
-  // regime is NCA, and a NON_NCA result becomes a request for a second person.
-  const regime: Regime =
-    classification.regime === "NON_NCA" && application.ncaRegime === "NON_NCA" ? "NON_NCA" : "NCA"
+  const audit = (newValue: Record<string, unknown>) =>
+    logAuditStrict(
+      {
+        tenantId,
+        userId: params.userId,
+        userEmail: params.userEmail,
+        action: AuditAction.NCA_CLASSIFIED,
+        entity: "LoanApplication",
+        entityId: application.id,
+        oldValue: { ncaRegime: application.ncaRegime, rule: application.ncaClassificationRule },
+        newValue: {
+          classifierRegime: classification.regime,
+          rule: classification.rule,
+          evidenceIds: classification.evidenceIds,
+          principalDebtCents: classification.inputs.principalDebtCents,
+          ...newValue,
+        },
+      },
+      tx,
+    )
+
+  // Already NON_NCA on this rule (approved earlier): the snapshot is frozen
+  // and nothing new needs recording.
+  if (
+    application.ncaRegime === "NON_NCA" &&
+    classification.regime === "NON_NCA" &&
+    classification.rule === application.ncaClassificationRule
+  ) {
+    await audit({ ncaRegime: "NON_NCA", unchanged: true })
+    return {
+      kind: "classified",
+      classification,
+      previousRegime: application.ncaRegime,
+      regime: "NON_NCA",
+      pendingOverrideId: null,
+      supersededOverrideId: null,
+      unchanged: true,
+    }
+  }
+
+  // NON_NCA is never written here. Back to NCA first (stricter, always
+  // allowed): the snapshot is frozen while NON_NCA.
+  if (application.ncaRegime === "NON_NCA") {
+    await tx.loanApplication.update({ where: { id: application.id, tenantId }, data: { ncaRegime: "NCA" } })
+  }
   await tx.loanApplication.update({
     where: { id: application.id, tenantId },
     data: {
-      ncaRegime: regime,
+      ncaRegime: "NCA",
       ncaClassificationRule: classification.rule,
       ncaClassificationInputs: { ...classification.inputs },
       ncaClassificationEvidenceIds: classification.evidenceIds,
@@ -155,69 +204,17 @@ export async function classifyApplication(
     },
   })
 
-  let pendingOverrideId: string | null = null
-  if (classification.regime === "NON_NCA" && regime === "NCA") {
-    pendingOverrideId = await requestNonNcaOverride(tx, params, classification)
+  const classified: SnapshotSource = { ...application, ncaClassificationRule: classification.rule }
+  const { pendingOverrideId, supersededOverrideId } = await reconcileOpenOverride(tx, params, classification, classified)
+
+  await audit({ ncaRegime: "NCA", pendingOverrideId, supersededOverrideId })
+  return {
+    kind: "classified",
+    classification,
+    previousRegime: application.ncaRegime,
+    regime: "NCA",
+    pendingOverrideId,
+    supersededOverrideId,
+    unchanged: false,
   }
-
-  await logAuditStrict(
-    {
-      tenantId,
-      userId: params.userId,
-      userEmail: params.userEmail,
-      action: AuditAction.NCA_CLASSIFIED,
-      entity: "LoanApplication",
-      entityId: application.id,
-      oldValue: { ncaRegime: application.ncaRegime, rule: application.ncaClassificationRule },
-      newValue: {
-        ncaRegime: regime,
-        classifierRegime: classification.regime,
-        rule: classification.rule,
-        evidenceIds: classification.evidenceIds,
-        principalDebtCents: classification.inputs.principalDebtCents,
-        pendingOverrideId,
-      },
-    },
-    tx,
-  )
-  return { kind: "classified", classification, previousRegime: application.ncaRegime, regime, pendingOverrideId }
-}
-
-/**
- * The PENDING NCA → NON_NCA override for a classifier result: the open one if
- * the application already has one (at most one, index
- * NcaRegimeOverride_one_pending_per_application), else a new one in the
- * classifying user's name. Every PENDING override is NCA → NON_NCA: a move to
- * NCA is decided when it is requested.
- */
-async function requestNonNcaOverride(
-  tx: RegimeTx,
-  params: ClassifyApplicationParams,
-  classification: NcaClassification,
-): Promise<string> {
-  const { tenantId, applicationId } = params
-  const open = await tx.ncaRegimeOverride.findFirst({
-    where: { tenantId, applicationId, status: "PENDING" },
-    select: { id: true },
-  })
-  if (open) return open.id
-
-  const reason = classifierOverrideReason(classification)
-  const override = await tx.ncaRegimeOverride.create({
-    data: { tenantId, applicationId, fromRegime: "NCA", toRegime: "NON_NCA", reason, requestedById: params.userId },
-    select: { id: true },
-  })
-  await logAuditStrict(
-    {
-      tenantId,
-      userId: params.userId,
-      userEmail: params.userEmail,
-      action: AuditAction.NCA_OVERRIDE_REQUESTED,
-      entity: "NcaRegimeOverride",
-      entityId: override.id,
-      newValue: { applicationId, fromRegime: "NCA", toRegime: "NON_NCA", reason, status: "PENDING", byClassifier: true },
-    },
-    tx,
-  )
-  return override.id
 }

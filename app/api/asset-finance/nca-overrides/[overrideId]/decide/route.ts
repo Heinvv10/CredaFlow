@@ -8,6 +8,7 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { isRegimeOpen, lockApplicationForRegime, STALE_OVERRIDE_NOTE } from "@/lib/asset-finance/classification"
+import { overrideMatchesApplication } from "@/lib/asset-finance/override-snapshot"
 
 const MIN_NOTE = 5
 const MAX_NOTE = 2000
@@ -34,8 +35,11 @@ function parseBody(body: unknown): { decision: Decision; note: string } | string
  * first so the caller gets a 403 and the attempt is audited.
  *
  * APPROVE moves the regime; the regime trigger spends the approval, so it
- * authorises exactly that one change. A request whose fromRegime no longer
- * matches the application is stale: REJECT records it as usual, and APPROVE
+ * authorises exactly that one change. A request is stale when the
+ * application's regime is no longer its fromRegime or, for a move to NON_NCA,
+ * the application's borrower, amount, product or classification rule is no
+ * longer the snapshot it was requested on (the regime trigger would refuse to
+ * spend the approval). REJECT records a stale request as usual, and APPROVE
  * rejects it instead (note STALE_OVERRIDE_NOTE, 409), so a stale request never
  * holds the application's one PENDING slot. On a decided application only
  * REJECT is accepted; the regime is frozen.
@@ -97,7 +101,14 @@ export async function POST(
       if (!locked[0]) return { kind: "not_found" as const }
       const override = await tx.ncaRegimeOverride.findFirst({
         where: { id: overrideId, tenantId: tenant.id },
-        include: { application: { select: { status: true, ncaRegime: true } } },
+        include: {
+          application: {
+            select: {
+              status: true, ncaRegime: true, entityId: true, appliedAmount: true, productId: true,
+              ncaClassificationRule: true,
+            },
+          },
+        },
       })
       if (!override) return { kind: "not_found" as const }
       if (override.status !== "PENDING") return { kind: "not_pending" as const, status: override.status }
@@ -106,9 +117,12 @@ export async function POST(
       if (approve && !isRegimeOpen(override.application.status)) {
         return { kind: "regime_frozen" as const, status: override.application.status }
       }
-      // The regime moved since the request (a re-classification or another
-      // override): the request no longer describes the change it would make.
-      const stale = override.application.ncaRegime !== override.fromRegime
+      // The application moved since the request (a re-classification, another
+      // override, a new amount or product): the request no longer describes
+      // the change it would make.
+      const stale =
+        override.application.ncaRegime !== override.fromRegime ||
+        (override.toRegime === "NON_NCA" && !overrideMatchesApplication(override, override.application))
       const approved = approve && !stale
       const decisionNote = approve && stale ? STALE_OVERRIDE_NOTE : note
 

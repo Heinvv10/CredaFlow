@@ -30,6 +30,9 @@ function parseTrusteeEvidenceIds(body: unknown): string[] | null {
  * Any manage_asset_finance user may classify: a NON_NCA result never applies
  * here. The application stays NCA and the response names the PENDING override
  * (`pendingOverrideId`) a different user with decide_asset_finance must approve.
+ * `supersededOverrideId` names an open request this run rejected because the
+ * classification moved on; `unchanged` is true when a NON_NCA application
+ * re-classified to the same rule, and nothing was written.
  */
 export async function POST(
   req: NextRequest,
@@ -104,6 +107,8 @@ export async function POST(
           previousRegime: result.previousRegime,
           regime: result.regime,
           pendingOverrideId: result.pendingOverrideId,
+          supersededOverrideId: result.supersededOverrideId,
+          unchanged: result.unchanged,
         })
     }
   })
