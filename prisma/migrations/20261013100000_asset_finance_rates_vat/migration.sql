@@ -2,9 +2,6 @@
 CREATE TYPE "ReferenceRateBasis" AS ENUM ('FIXED', 'PRIME', 'REPO', 'JIBAR', 'ZARONIA', 'LENDER_BASE');
 
 -- CreateEnum
-CREATE TYPE "TaxDocumentKind" AS ENUM ('TAX_INVOICE', 'CREDIT_NOTE');
-
--- CreateEnum
 CREATE TYPE "ReferenceRateStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
 -- CreateTable
@@ -59,15 +56,6 @@ CREATE TABLE "VatRate" (
     "rate" DECIMAL(6,4) NOT NULL,
 
     CONSTRAINT "VatRate_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "TaxDocumentCounter" (
-    "tenantId" TEXT NOT NULL,
-    "kind" "TaxDocumentKind" NOT NULL,
-    "next" INTEGER NOT NULL DEFAULT 1,
-
-    CONSTRAINT "TaxDocumentCounter_pkey" PRIMARY KEY ("tenantId","kind")
 );
 
 -- CreateTable
@@ -159,13 +147,16 @@ CREATE UNIQUE INDEX "CreditNote_tenantId_number_key" ON "CreditNote"("tenantId",
 ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_tenantId_requestedById_fkey" FOREIGN KEY ("tenantId", "requestedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_tenantId_decidedById_fkey" FOREIGN KEY ("tenantId", "decidedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE "ContractRate" ADD CONSTRAINT "ContractRate_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "VatConfig" ADD CONSTRAINT "VatConfig_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "TaxDocumentCounter" ADD CONSTRAINT "TaxDocumentCounter_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TaxInvoice" ADD CONSTRAINT "TaxInvoice_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -189,11 +180,73 @@ INSERT INTO "VatRate" ("id", "effectiveDate", "rate") VALUES ('vat_rate_2018_04_
 
 ALTER TABLE "VatRate" ADD CONSTRAINT "VatRate_rate_range" CHECK ("rate" >= 0 AND "rate" < 1);
 
+-- The rate table is the anchor every tax invoice's rate is checked against
+-- (checkTaxInvoiceVatRate below). A rate change is a row announced ahead of
+-- time, effective after today (SAST). A row in force (effective today or
+-- earlier) is history: never updated or deleted. An announced row may still
+-- be corrected or withdrawn (UPDATE / DELETE) while it is not yet in force,
+-- and only while no tax invoice has a supply date on or after its effective
+-- date, so no invoice ever relied on it; the corrected row must again take
+-- effect after today, after every invoice's supply date. TRUNCATE is refused.
+--
+-- What this proves: an issued invoice never disagrees with the table. Its
+-- rate was the rate in force on its supply date when it was issued, and that
+-- supply date is today or earlier (checkTaxInvoiceVatRate), so a row that
+-- could change what was in force on it (effective on or before it) would be
+-- dated today or earlier: never inserted, updated to, updated or deleted.
+CREATE OR REPLACE FUNCTION public."guardVatRate"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
+BEGIN
+  IF TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'VatRate is history: TRUNCATE refused';
+  END IF;
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    IF OLD."effectiveDate" <= today THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = format('VatRate is history: %s of a rate in force refused (a rate change is a new row effective after today)', TG_OP);
+    END IF;
+    IF EXISTS (SELECT 1 FROM "TaxInvoice" AS i WHERE i."supplyDate" >= OLD."effectiveDate") THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = format('VatRate %s refused: a tax invoice has a supply date on or after %s', TG_OP, OLD."effectiveDate");
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+  END IF;
+  IF NEW."effectiveDate" <= today THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A new VAT rate must take effect after today (SAST)';
+  END IF;
+  IF EXISTS (SELECT 1 FROM "TaxInvoice" AS i WHERE i."supplyDate" >= NEW."effectiveDate") THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('A VAT rate effective %s is refused: a tax invoice has a supply date on or after it', NEW."effectiveDate");
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "VatRate_guard" BEFORE INSERT OR UPDATE OR DELETE ON "VatRate" FOR EACH ROW EXECUTE FUNCTION "guardVatRate"();
+CREATE TRIGGER "VatRate_no_truncate" BEFORE TRUNCATE ON "VatRate" FOR EACH STATEMENT EXECUTE FUNCTION "guardVatRate"();
+
 -- ---------------------------------------------------------------------------
 -- Reference rates: four-eyes (docs/asset-finance/DESIGN.md D4)
 -- ---------------------------------------------------------------------------
 -- A value is recorded PENDING by one user and APPROVED or REJECTED by another;
--- only APPROVED values reprice loans (lib/asset-finance/rates-store.ts).
+-- only APPROVED values reprice loans (lib/asset-finance/rates-store.ts). The
+-- requester and the decider are users of the row's own tenant (composite FKs
+-- ReferenceRate_tenantId_requestedById_fkey / _decidedById_fkey above), and a
+-- row can only be born PENDING (guardReferenceRateInsert below), so the one
+-- way to an APPROVED value is a second user's UPDATE.
 
 -- One live value per tenant, basis and date. A REJECTED value does not block
 -- its correction. (Partial, so it is not in schema.prisma; Prisma reports a
@@ -203,15 +256,38 @@ CREATE UNIQUE INDEX "ReferenceRate_live_key" ON "ReferenceRate"("tenantId", "bas
 -- Sanity band: an annual nominal decimal above 0% and below 50%.
 ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_rate_band" CHECK ("rate" > 0 AND "rate" < 0.5);
 -- PENDING has no decision; a decided value has both who and when.
-ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_decision_shape" CHECK (
-  ("status" = 'PENDING') = ("decidedById" IS NULL) AND ("decidedById" IS NULL) = ("decidedAt" IS NULL)
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_decision_complete" CHECK (
+  CASE WHEN "status" = 'PENDING' THEN "decidedById" IS NULL AND "decidedAt" IS NULL
+       ELSE "decidedById" IS NOT NULL AND "decidedAt" IS NOT NULL END
 );
--- The decider is never the requester.
-ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_four_eyes" CHECK ("decidedById" IS NULL OR "decidedById" <> "requestedById");
+-- The decider is never the requester (NULL-safe: a NULL decider is a PENDING row).
+ALTER TABLE "ReferenceRate" ADD CONSTRAINT "ReferenceRate_four_eyes" CHECK ("decidedById" IS DISTINCT FROM "requestedById");
+
+-- A value is born PENDING, undecided: an INSERT that arrives APPROVED or
+-- REJECTED, or with a decider or decision time, is refused, so no single
+-- writer can record and approve a value in one statement.
+CREATE OR REPLACE FUNCTION public."guardReferenceRateInsert"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NEW."status" IS DISTINCT FROM 'PENDING' OR NEW."decidedById" IS NOT NULL OR NEW."decidedAt" IS NOT NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A reference rate is recorded PENDING and undecided; a second user decides it by UPDATE';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "ReferenceRate_born_pending" BEFORE INSERT ON "ReferenceRate" FOR EACH ROW EXECUTE FUNCTION "guardReferenceRateInsert"();
 
 -- What was recorded never changes; the only UPDATE is the one decision on a
--- PENDING row, after which the row is immutable. An APPROVED value is never
--- deleted (repricings and audit rows cite it); TRUNCATE is refused outright.
+-- PENDING row, after which the row is immutable. The decision is stamped
+-- here: decidedAt is the database clock (UTC) at the decision, whatever the
+-- writer supplied, so a decision cannot be backdated. An APPROVED value is
+-- never deleted (repricings and audit rows cite it); TRUNCATE is refused
+-- outright.
 CREATE OR REPLACE FUNCTION public."guardReferenceRateLifecycle"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -237,14 +313,15 @@ BEGIN
   IF OLD."status" <> 'PENDING' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('A %s reference rate is immutable', OLD."status");
   END IF;
+  IF NEW."status" <> 'PENDING' THEN
+    NEW."decidedAt" := clock_timestamp() AT TIME ZONE 'UTC';
+  END IF;
   RETURN NEW;
 END;
 $function$;
 
 CREATE TRIGGER "ReferenceRate_guard_lifecycle" BEFORE UPDATE OR DELETE ON "ReferenceRate" FOR EACH ROW EXECUTE FUNCTION "guardReferenceRateLifecycle"();
 CREATE TRIGGER "ReferenceRate_no_truncate" BEFORE TRUNCATE ON "ReferenceRate" FOR EACH STATEMENT EXECUTE FUNCTION "guardReferenceRateLifecycle"();
-
-ALTER TABLE "TaxDocumentCounter" ADD CONSTRAINT "TaxDocumentCounter_next_positive" CHECK ("next" >= 1);
 
 ALTER TABLE "TaxInvoice" ADD CONSTRAINT "TaxInvoice_number_positive" CHECK ("number" > 0);
 ALTER TABLE "TaxInvoice" ADD CONSTRAINT "TaxInvoice_vat_rate_range" CHECK ("vatRate" >= 0 AND "vatRate" < 1);
@@ -285,58 +362,6 @@ CREATE TRIGGER "TaxInvoiceLine_immutable" BEFORE UPDATE OR DELETE ON "TaxInvoice
 CREATE TRIGGER "TaxInvoiceLine_no_truncate" BEFORE TRUNCATE ON "TaxInvoiceLine" FOR EACH STATEMENT EXECUTE FUNCTION "refuseTaxDocumentChange"();
 CREATE TRIGGER "CreditNote_immutable" BEFORE UPDATE OR DELETE ON "CreditNote" FOR EACH ROW EXECUTE FUNCTION "refuseTaxDocumentChange"();
 CREATE TRIGGER "CreditNote_no_truncate" BEFORE TRUNCATE ON "CreditNote" FOR EACH STATEMENT EXECUTE FUNCTION "refuseTaxDocumentChange"();
-
--- Gap-free numbering. The counter row is taken by one upsert: it row-locks
--- (tenantId, kind) until the issuing transaction ends, so concurrent issuers
--- queue, and a rolled-back issue rolls the counter back with it. A sequence
--- would not do: nextval is never rolled back, so an abort leaves a gap.
---
--- Only the TaxInvoice / CreditNote insert triggers may take a number: a call
--- outside a trigger (pg_trigger_depth() = 0) is refused, so a number can
--- never be burnt by a stray SELECT. The function raises the transaction-local
--- flag credaflow.tax_numbering for its own write and lowers it again; the
--- counter's guard (below) refuses every write made without it.
-CREATE OR REPLACE FUNCTION public."nextTaxDocumentNumber"(tenant_id TEXT, doc_kind "TaxDocumentKind")
- RETURNS integer
- LANGUAGE plpgsql
-AS $function$
-DECLARE
-  issued INTEGER;
-BEGIN
-  IF pg_trigger_depth() = 0 THEN
-    RAISE EXCEPTION USING
-      ERRCODE = '23514',
-      MESSAGE = 'nextTaxDocumentNumber is called only by the tax invoice and credit note insert triggers';
-  END IF;
-  PERFORM set_config('credaflow.tax_numbering', 'on', true);
-  INSERT INTO "TaxDocumentCounter" ("tenantId", "kind", "next")
-  VALUES (tenant_id, doc_kind, 2)
-  ON CONFLICT ("tenantId", "kind") DO UPDATE SET "next" = "TaxDocumentCounter"."next" + 1
-  RETURNING "next" - 1 INTO issued;
-  PERFORM set_config('credaflow.tax_numbering', 'off', true);
-  RETURN issued;
-END;
-$function$;
-
--- Only nextTaxDocumentNumber writes the counter: INSERT and UPDATE need its
--- flag; DELETE (which would restart numbering) and TRUNCATE are refused.
-CREATE OR REPLACE FUNCTION public."guardTaxDocumentCounter"()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF TG_OP IN ('DELETE', 'TRUNCATE')
-     OR current_setting('credaflow.tax_numbering', true) IS DISTINCT FROM 'on' THEN
-    RAISE EXCEPTION USING
-      ERRCODE = '23514',
-      MESSAGE = format('TaxDocumentCounter is written only by nextTaxDocumentNumber: %s refused', TG_OP);
-  END IF;
-  RETURN NEW;
-END;
-$function$;
-
-CREATE TRIGGER "TaxDocumentCounter_guard" BEFORE INSERT OR UPDATE OR DELETE ON "TaxDocumentCounter" FOR EACH ROW EXECUTE FUNCTION "guardTaxDocumentCounter"();
-CREATE TRIGGER "TaxDocumentCounter_no_truncate" BEFORE TRUNCATE ON "TaxDocumentCounter" FOR EACH STATEMENT EXECUTE FUNCTION "guardTaxDocumentCounter"();
 
 -- VAT arithmetic, the same integer half-up formulas as lib/vat/amounts.ts. A
 -- rate is DECIMAL(6,4), so rate × 10000 is an exact integer (ten-thousandths).
@@ -387,15 +412,64 @@ $function$;
 
 CREATE TRIGGER "TaxInvoiceLine_vat_matches_rate" BEFORE INSERT ON "TaxInvoiceLine" FOR EACH ROW EXECUTE FUNCTION "checkTaxInvoiceLineVat"();
 
--- The trigger ASSIGNS the number and display number; whatever the client
--- supplied for "number" / "invoiceNumber" is overwritten. Six digits minimum,
--- never truncated.
+-- An invoice is issued for a supply already made: its supply date is today
+-- or earlier (SAST), never ahead. So every VatRate row that could still be
+-- inserted, corrected or withdrawn (effective after today, guardVatRate) lies
+-- after every invoice's supply date, and cannot change the rate in force on
+-- it. The invoice charges the VAT rate in force on its supply date: the
+-- VatRate row with the latest effectiveDate on or before it, exactly. No rate
+-- in force, no invoice. That row is share-locked, so a concurrent change to
+-- it (possible only across midnight) waits for the invoice and then sees it,
+-- or the invoice waits and then finds the row changed and is refused.
+CREATE OR REPLACE FUNCTION public."checkTaxInvoiceVatRate"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  in_force NUMERIC;
+BEGIN
+  IF NEW."supplyDate" > (now() AT TIME ZONE 'Africa/Johannesburg')::date THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('A tax invoice''s supply date %s may not be after today (SAST)', NEW."supplyDate");
+  END IF;
+  SELECT v."rate" INTO in_force FROM "VatRate" AS v
+  WHERE v."effectiveDate" <= NEW."supplyDate" ORDER BY v."effectiveDate" DESC LIMIT 1
+  FOR SHARE;
+  IF in_force IS NULL OR NEW."vatRate" IS DISTINCT FROM in_force THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('A tax invoice''s VAT rate must be the rate in force on its supply date %s', NEW."supplyDate");
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "TaxInvoice_vat_rate_in_force" BEFORE INSERT ON "TaxInvoice" FOR EACH ROW EXECUTE FUNCTION "checkTaxInvoiceVatRate"();
+
+-- Gap-free numbering, per tenant and document kind. The insert trigger
+-- ASSIGNS the number and display number; whatever the client supplied for
+-- "number" / "invoiceNumber" is overwritten. Six digits minimum, never
+-- truncated.
+--
+-- The number is max(number) + 1 of the tenant's documents of that kind, read
+-- under a transaction-scoped advisory lock on (tenant, kind): concurrent
+-- issuers queue on the lock, and each reads max() only after the previous
+-- holder has committed or rolled back (a plpgsql statement takes a fresh
+-- snapshot under READ COMMITTED, the app's isolation level). It is gap-free
+-- because a rolled-back issue leaves no row, and an issued document is never
+-- updated, deleted or truncated (the immutability triggers above). There is
+-- no counter to tamper with: the issued documents ARE the sequence. A
+-- sequence would not do: nextval is never rolled back, so an abort leaves a
+-- gap. Under REPEATABLE READ the max() is stale and the unique index
+-- (tenantId, number) refuses the duplicate: fails closed, never a gap.
 CREATE OR REPLACE FUNCTION public."assignTaxInvoiceNumber"()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
 BEGIN
-  NEW."number" := "nextTaxDocumentNumber"(NEW."tenantId", 'TAX_INVOICE');
+  PERFORM pg_advisory_xact_lock(hashtextextended('tax-doc:' || NEW."tenantId" || ':TAX_INVOICE', 0));
+  SELECT coalesce(max(i."number"), 0) + 1 INTO NEW."number" FROM "TaxInvoice" AS i WHERE i."tenantId" = NEW."tenantId";
   NEW."invoiceNumber" := 'INV-' || lpad(NEW."number"::text, greatest(6, length(NEW."number"::text)), '0');
   RETURN NEW;
 END;
@@ -405,7 +479,7 @@ CREATE TRIGGER "TaxInvoice_assign_number" BEFORE INSERT ON "TaxInvoice" FOR EACH
 
 -- Same for credit notes, which also must belong to the invoice's tenant and
 -- may never credit more than the invoice charged. The cap is checked after
--- the counter lock is taken, so concurrent credit notes see each other.
+-- the numbering lock is taken, so concurrent credit notes see each other.
 CREATE OR REPLACE FUNCTION public."assignCreditNoteNumber"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -414,7 +488,8 @@ DECLARE
   invoice RECORD;
   credited RECORD;
 BEGIN
-  NEW."number" := "nextTaxDocumentNumber"(NEW."tenantId", 'CREDIT_NOTE');
+  PERFORM pg_advisory_xact_lock(hashtextextended('tax-doc:' || NEW."tenantId" || ':CREDIT_NOTE', 0));
+  SELECT coalesce(max(c."number"), 0) + 1 INTO NEW."number" FROM "CreditNote" AS c WHERE c."tenantId" = NEW."tenantId";
   NEW."creditNoteNumber" := 'CN-' || lpad(NEW."number"::text, greatest(6, length(NEW."number"::text)), '0');
 
   SELECT i."tenantId", i."totalExclVatCents", i."vatCents", i."vatRate" INTO invoice

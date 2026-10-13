@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 
 const m = vi.hoisted(() => {
   const tx = {
@@ -52,10 +53,12 @@ import { POST } from "./route"
 const signIn = (id: string, role: string) =>
   m.requireApiRole.mockResolvedValue({ user: { id, email: `${id}@lender.test`, role, tenantId: "tenant-1" } })
 
+const CLASSIFIED_AT = "2026-10-01T08:00:00.000Z"
+
 /** The application as it stands; by default exactly the one the override was requested on. */
 const app = (over: Record<string, unknown> = {}) => ({
   status: "UNDER_REVIEW", ncaRegime: "NCA", entityId: "ent-1", appliedAmount: 150_000_000, productId: "prod-1",
-  ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ...over,
+  ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ncaClassifiedAt: new Date(CLASSIFIED_AT), ...over,
 })
 
 const pending = (over: Record<string, unknown> = {}) => ({
@@ -74,6 +77,7 @@ const pending = (over: Record<string, unknown> = {}) => ({
   approvedAppliedAmount: 150_000_000,
   approvedProductId: "prod-1",
   approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
+  approvedClassifiedAt: new Date(CLASSIFIED_AT),
   application: app(),
   ...over,
 })
@@ -185,6 +189,7 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
     ["amount", { appliedAmount: 140_000_000 }],
     ["product", { productId: "prod-2" }],
     ["classification rule", { ncaClassificationRule: "LARGE_AGREEMENT" }],
+    ["classification run (re-classified, same rule)", { ncaClassifiedAt: new Date("2026-10-02T08:00:00.000Z") }],
   ])("APPROVE after the application's %s changed since the request rejects it as stale: 409, regime untouched", async (_label, change) => {
     m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(pending({ application: app(change) }))
     const res = await decide({ decision: "APPROVE", note: "Checked" })
@@ -223,10 +228,23 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
     expect((await decide({ decision: "APPROVE", note: "Checked" })).status).toBe(409)
   })
 
+  it("answers 409 try again when the transaction failed to serialize (P2034), not 500", async () => {
+    m.transactionError.current = new Prisma.PrismaClientKnownRequestError("Transaction failed due to a write conflict or a deadlock", {
+      code: "P2034", clientVersion: "test",
+    })
+    const res = await decide({ decision: "APPROVE", note: "Checked" })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "Another change to this application was in progress; try again" })
+  })
+
   it("approves: locks, records the decision, moves the regime and audits in the transaction", async () => {
     const res = await decide({ decision: "APPROVE", note: "  AFS checked against CIPC  " })
     expect(res.status).toBe(200)
-    expect(m.tx.$queryRaw).toHaveBeenCalledTimes(2) // application, then override, FOR UPDATE
+    // Application first, then override, FOR UPDATE: the classifier's order, so the two cannot deadlock.
+    expect(m.tx.$queryRaw).toHaveBeenCalledTimes(2)
+    const locked = m.tx.$queryRaw.mock.calls.map((call) => (call[0] as { sql: string }).sql)
+    expect(locked[0]).toMatch(/FROM "LoanApplication"[\s\S]*FOR UPDATE/)
+    expect(locked[1]).toMatch(/FROM "NcaRegimeOverride"[\s\S]*FOR UPDATE/)
     expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith({
       where: { id: "ov-1" },
       data: expect.objectContaining({ status: "APPROVED", decidedById: "admin-b", decisionNote: "AFS checked against CIPC", decidedAt: expect.any(Date) }),

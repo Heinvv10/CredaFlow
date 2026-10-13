@@ -95,7 +95,6 @@ describe("tenant-scope — ALS primitives", () => {
       "ContractRate",
       "TaxInvoice",
       "CreditNote",
-      "TaxDocumentCounter",
       "VatConfig",
       "EntityDocument",
       "FinancedAsset",

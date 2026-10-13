@@ -28,15 +28,12 @@ const run = () =>
 
 const application = (over: Record<string, unknown> = {}) => ({
   id: "app-1", entityId: "ent-1", status: "UNDER_REVIEW", appliedAmount: 150_000_000, productId: "prod-1",
-  ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN", ...over,
+  ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN", ncaClassifiedAt: new Date("2026-10-01T08:00:00Z"), ...over,
 })
 const unevidenced = { type: "COMPANY", annualTurnover: null, totalAssetValue: null, financialsEvidenceIds: [], relationships: [] }
 /** R2m turnover, evidenced: JURISTIC_OVER_THRESHOLD, NON_NCA. */
 const evidenced = { ...unevidenced, annualTurnover: 200_000_000, financialsEvidenceIds: ["afs-1"] }
-const openOverride = (over: Record<string, unknown> = {}) => ({
-  id: "ov-open", source: "CLASSIFIER", approvedEntityId: "ent-1", approvedAppliedAmount: 150_000_000,
-  approvedProductId: "prod-1", approvedClassificationRule: "JURISTIC_OVER_THRESHOLD", ...over,
-})
+const openOverride = (over: Record<string, unknown> = {}) => ({ id: "ov-open", source: "CLASSIFIER", ...over })
 
 const rejectedAsSuperseded = (overrideId: string) =>
   expect(m.tx.ncaRegimeOverride.update).toHaveBeenCalledWith({
@@ -72,20 +69,16 @@ describe("classifyApplication: open overrides follow the latest classification",
     expect(m.tx.ncaRegimeOverride.update).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ["rule", { approvedClassificationRule: "LARGE_AGREEMENT" }],
-    ["amount", { approvedAppliedAmount: 140_000_000 }],
-    ["product", { approvedProductId: "prod-2" }],
-    ["borrower", { approvedEntityId: "ent-2" }],
-  ])("a NON_NCA result rejects an open request whose %s differs and opens a fresh one", async (_label, over) => {
+  it.each(["MANUAL", "CLASSIFIER"])("a NON_NCA result rejects any open %s request (it named an earlier run) and opens a fresh one", async (source) => {
     m.tx.businessEntity.findFirst.mockResolvedValue(evidenced)
-    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(openOverride({ source: "MANUAL", ...over }))
+    m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(openOverride({ source }))
     expect(await run()).toMatchObject({ regime: "NCA", pendingOverrideId: "ov-new", supersededOverrideId: "ov-open" })
     rejectedAsSuperseded("ov-open")
     expect(m.tx.ncaRegimeOverride.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         source: "CLASSIFIER", requestedById: "officer-c", approvedEntityId: "ent-1", approvedAppliedAmount: 150_000_000,
         approvedProductId: "prod-1", approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
+        approvedClassifiedAt: m.tx.loanApplication.update.mock.calls[0][0].data.ncaClassifiedAt,
       }),
       select: { id: true },
     })

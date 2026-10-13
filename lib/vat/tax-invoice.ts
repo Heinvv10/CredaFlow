@@ -20,7 +20,8 @@
 // UNTESTED: list to confirm with the tax advisor (drawn from s20(4) as
 // enacted; SARS guidance could not be read when this was written).
 import type { Prisma } from "@prisma/client"
-import { dbDate } from "@/lib/asset-finance/dates"
+import { dbDate, toDayNumber } from "@/lib/asset-finance/dates"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { addVat, splitInclusive, type VatSplit } from "./amounts"
 import type { VatTransaction } from "./db"
 import { loadRateOn } from "./vat-rate"
@@ -67,7 +68,7 @@ export interface IssueTaxInvoiceInput {
   loanId?: string | null
   /** ISO YYYY-MM-DD. */
   issueDate: string
-  /** ISO YYYY-MM-DD; selects the VAT rate. */
+  /** ISO YYYY-MM-DD; selects the VAT rate. Today or earlier (SAST): a supply is invoiced once made. */
   supplyDate: string
   recipient: TaxInvoiceRecipient
   lines: readonly TaxInvoiceLineInput[]
@@ -123,12 +124,19 @@ export function computeTaxInvoice(lines: readonly TaxInvoiceLineInput[], rateTen
 /**
  * Issues a tax invoice inside the caller's transaction. Refuses with
  * VatNotConfiguredError when the tenant has no VatConfig, and NoVatRateError
- * when no rate is in force on the supply date. The number and display number
+ * when no rate is in force on the supply date; RangeError when the supply
+ * date is after today (SAST). The number and display number
  * ("INV-000123") are assigned by the database trigger.
  */
 export async function issueTaxInvoice(tx: TaxInvoiceDb, input: IssueTaxInvoiceInput): Promise<IssuedTaxInvoice> {
   const issueDate = dbDate(input.issueDate, "issueDate")
   const supplyDate = dbDate(input.supplyDate, "supplyDate")
+  // Never ahead of the supply (also trigger checkTaxInvoiceVatRate): a VAT
+  // rate announced later always takes effect after every issued supply date.
+  const today = sastCalendarDate(new Date())
+  if (toDayNumber(input.supplyDate) > toDayNumber(today)) {
+    throw new RangeError(`supplyDate ${input.supplyDate} is after today (${today}, SAST)`)
+  }
   const recipientName = requireText(input.recipient.name, "recipient.name")
   const recipientAddress = requireText(input.recipient.address, "recipient.address")
   const recipientVatNumber = input.recipient.vatNumber?.trim() || null

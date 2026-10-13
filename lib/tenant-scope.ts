@@ -77,7 +77,6 @@ export const TENANT_SCOPED_MODELS = [
   "ContractRate",
   "TaxInvoice",
   "CreditNote",
-  "TaxDocumentCounter",
   "VatConfig",
   "EntityDocument",
   "FinancedAsset",

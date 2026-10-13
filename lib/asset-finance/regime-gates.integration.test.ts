@@ -112,6 +112,7 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
         tenantId, applicationId: entityApp.id, fromRegime: "NCA", toRegime: "NON_NCA", reason: "Audited AFS on file",
         source: "MANUAL", requestedById: userId, approvedEntityId: entityId, approvedAppliedAmount: 300_000,
         approvedProductId: productId, approvedClassificationRule: "FINANCIALS_UNPROVEN",
+        approvedClassifiedAt: entityApp.ncaClassifiedAt,
       },
     })
     await db.ncaRegimeOverride.update({

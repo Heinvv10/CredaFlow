@@ -22,8 +22,10 @@ import { nullableFigureFromDb } from "./big-cents"
 // nothing (`unchanged`). Any other result first moves it back to NCA (stricter,
 // always allowed), which unfreezes the snapshot and leaves the spent approval
 // behind. An open override follows the latest result: a classifier request is
-// rejected as superseded when the result is NCA, and any open request is kept
-// only if its snapshot is the application as now classified.
+// rejected as superseded when the result is NCA, and any open request is
+// rejected as superseded when it is NON_NCA (a fresh one names this run). An
+// override's snapshot includes ncaClassifiedAt, so every re-classification
+// makes an earlier request or unspent approval stale.
 
 /** The transaction client of the app's (tenant-scoped) Prisma client. */
 export type RegimeTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -102,6 +104,7 @@ export async function classifyApplication(
       productId: true,
       ncaRegime: true,
       ncaClassificationRule: true,
+      ncaClassifiedAt: true,
     },
   })
   if (!application) return { kind: "not_found" }
@@ -189,6 +192,7 @@ export async function classifyApplication(
   if (application.ncaRegime === "NON_NCA") {
     await tx.loanApplication.update({ where: { id: application.id, tenantId }, data: { ncaRegime: "NCA" } })
   }
+  const classifiedAt = new Date()
   await tx.loanApplication.update({
     where: { id: application.id, tenantId },
     data: {
@@ -196,12 +200,14 @@ export async function classifyApplication(
       ncaClassificationRule: classification.rule,
       ncaClassificationInputs: { ...classification.inputs },
       ncaClassificationEvidenceIds: classification.evidenceIds,
-      ncaClassifiedAt: new Date(),
+      ncaClassifiedAt: classifiedAt,
       ncaClassifiedById: params.userId,
     },
   })
 
-  const classified: SnapshotSource = { ...application, ncaClassificationRule: classification.rule }
+  const classified: SnapshotSource = {
+    ...application, ncaClassificationRule: classification.rule, ncaClassifiedAt: classifiedAt,
+  }
   const { pendingOverrideId, supersededOverrideId } = await reconcileOpenOverride(tx, params, classification, classified)
 
   await audit({ ncaRegime: "NCA", pendingOverrideId, supersededOverrideId })

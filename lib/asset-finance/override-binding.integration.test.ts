@@ -9,7 +9,8 @@
  *     request (the classifier does, when a re-run supersedes it);
  *   - an override is requested only on a classified application, with a
  *     snapshot (borrower, amount, product, rule) that is the application as
- *     it stands, required for a move to NON_NCA and immutable;
+ *     it stands (its classification run included), required for a move to
+ *     NON_NCA and immutable;
  *   - guardLoanApplicationNcaRegime spends an approval only on the application
  *     its snapshot describes, and freezes the classification snapshot while an
  *     approval to NON_NCA is unspent (an approval holds the application's row,
@@ -119,22 +120,30 @@ suite("asset finance foundation: override binding to users and to the applicatio
 
   it("records the application as it stands: whole, required for NON_NCA, and true at insert", () => {
     const id = ncaApplication()
+    const at = `(SELECT "ncaClassifiedAt" FROM "LoanApplication" WHERE "id" = '${id}')`
     const insert = (to: "NCA" | "NON_NCA", from: "NCA" | "NON_NCA", snapshot: string) => `
       INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "source",
-        "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule")
+        "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule",
+        "approvedClassifiedAt")
       VALUES ('snap_${token}_${Math.random().toString(36).slice(2, 8)}', '${tenantId}', '${id}', '${from}', '${to}',
         'Audited AFS on file', 'MANUAL', '${userId}', ${snapshot})`
-    expectRejected(insert("NON_NCA", "NCA", "NULL, NULL, NULL, NULL"), "NcaRegimeOverride_non_nca_snapshot")
-    expectRejected(insert("NCA", "NON_NCA", "NULL, 150000000, NULL, NULL"), "NcaRegimeOverride_non_nca_snapshot")
+    expectRejected(insert("NON_NCA", "NCA", "NULL, NULL, NULL, NULL, NULL"), "NcaRegimeOverride_non_nca_snapshot")
+    expectRejected(insert("NCA", "NON_NCA", "NULL, 150000000, NULL, NULL, NULL"), "NcaRegimeOverride_non_nca_snapshot")
+    // The CHECK on its own (the lifecycle trigger refuses this first): a snapshot without its run time.
+    expectRejected(`BEGIN; SET LOCAL session_replication_role = replica;
+      ${insert("NON_NCA", "NCA", `'${entityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN', NULL`)}; ROLLBACK;`,
+      "NcaRegimeOverride_non_nca_snapshot")
     for (const wrong of [
-      `'${f.ids.otherEntityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN'`,
-      `'${entityId}', 1, '${productId}', 'FINANCIALS_UNPROVEN'`,
-      `'${entityId}', 150000000, '${otherProductId}', 'FINANCIALS_UNPROVEN'`,
-      `'${entityId}', 150000000, '${productId}', 'LARGE_AGREEMENT'`,
+      `'${entityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN', NULL`,
+      `'${f.ids.otherEntityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN', ${at}`,
+      `'${entityId}', 1, '${productId}', 'FINANCIALS_UNPROVEN', ${at}`,
+      `'${entityId}', 150000000, '${otherProductId}', 'FINANCIALS_UNPROVEN', ${at}`,
+      `'${entityId}', 150000000, '${productId}', 'LARGE_AGREEMENT', ${at}`,
+      `'${entityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN', ${at} - INTERVAL '1 millisecond'`,
     ]) {
       expectRejected(insert("NON_NCA", "NCA", wrong), "snapshot must be its application as it stands")
     }
-    sql(insert("NON_NCA", "NCA", `'${entityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN'`))
+    sql(insert("NON_NCA", "NCA", `'${entityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN', ${at}`))
   })
 
   it.each([
@@ -162,6 +171,18 @@ suite("asset finance foundation: override binding to users and to the applicatio
     sql(f.approve(overrideId))
     expectRejected(flip(id), NO_MATCH)
     expect(column(overrideId, "appliedAt")).toBe("null")
+  })
+
+  it("will not spend an approval once a re-classification replaced the one it approved, even on the same rule", () => {
+    const id = ncaApplication()
+    const overrideId = requested(id)
+    // A re-run while PENDING: new inputs and a new run time, the same rule.
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationInputs" = '{"principalDebtCents": 150000000}'::jsonb,
+           "ncaClassifiedAt" = "ncaClassifiedAt" + INTERVAL '1 second' WHERE "id" = '${id}'`)
+    sql(f.approve(overrideId))
+    expectRejected(flip(id), NO_MATCH)
+    expect(column(overrideId, "appliedAt")).toBe("null")
+    expect(regime(id)).toBe("NCA")
   })
 
   const AWAITS = "snapshot is frozen while an approved NON_NCA override awaits it"
@@ -207,6 +228,45 @@ suite("asset finance foundation: override binding to users and to the applicatio
     expect(column(overrideId, "status")).toBe("APPROVED")
   }, 20_000)
 
+  // A snapshot writer under REPEATABLE READ / SERIALIZABLE whose snapshot was
+  // taken before the approval (or even before the request) must fail to
+  // serialize: the approval writes the application row.
+  async function snapshotWriterRace(isolation: string, requestFirst: boolean) {
+    const id = ncaApplication()
+    const marker = `rr_${token}_${isolation.replace(" ", "_")}_${requestFirst}`
+    const earlyRequest = requestFirst ? requested(id) : null
+    const writer = spawn("psql", ["--no-psqlrc", "--dbname", process.env.DATABASE_URL ?? "", "-v", "ON_ERROR_STOP=1", "-At"])
+    let output = ""
+    writer.stdout.on("data", (chunk) => { output += String(chunk) })
+    writer.stderr.on("data", (chunk) => { output += String(chunk) })
+    const writerExit = new Promise<number | null>((resolve) => writer.on("close", resolve))
+    writer.stdin.end(`BEGIN ISOLATION LEVEL ${isolation};
+SELECT "status" FROM "LoanApplication" WHERE "id" = '${id}';
+SELECT pg_sleep(2) AS ${marker};
+UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'] WHERE "id" = '${id}';
+COMMIT;
+`)
+    const sleeping = () => sql(`SELECT count(*) FROM pg_stat_activity
+      WHERE state = 'active' AND query LIKE '%AS ${marker}%' AND pid <> pg_backend_pid()`) === "1"
+    for (const deadline = Date.now() + 10_000; !sleeping(); ) {
+      if (Date.now() > deadline) throw new Error("the writer never reached its sleep")
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    sql(f.approve(earlyRequest ?? requested(id)))
+    expect(await writerExit).not.toBe(0)
+    expect(output).toContain("could not serialize")
+    expect(evidence(id)).not.toContain("afs-swapped")
+  }
+
+  it.each([
+    ["REPEATABLE READ", true],
+    ["REPEATABLE READ", false],
+    ["SERIALIZABLE", true],
+    ["SERIALIZABLE", false],
+  ])("refuses a %s snapshot write whose snapshot predates the approval (request already open: %s)", async (isolation, requestFirst) => {
+    await snapshotWriterRace(String(isolation), Boolean(requestFirst))
+  }, 20_000)
+
   it("never rewrites the snapshot or source of a request", () => {
     const overrideId = requested(ncaApplication())
     const where = `WHERE "id" = '${overrideId}'`
@@ -215,6 +275,7 @@ suite("asset finance foundation: override binding to users and to the applicatio
       `"approvedClassificationRule" = 'LARGE_AGREEMENT'`,
       `"approvedProductId" = '${otherProductId}'`,
       `"approvedEntityId" = '${f.ids.otherEntityId}'`,
+      `"approvedClassifiedAt" = "approvedClassifiedAt" + INTERVAL '1 second'`,
       `"source" = 'CLASSIFIER'`,
     ]) {
       expectRejected(`UPDATE "NcaRegimeOverride" SET ${set} ${where}`, "override request is immutable")

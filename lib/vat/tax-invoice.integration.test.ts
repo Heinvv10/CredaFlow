@@ -1,10 +1,11 @@
 /**
  * Real-DB proof of the tax-document rules in migration 20261013100000:
- * immutability, gap-free numbering under concurrency, totals = lines at
- * commit, the credit-note cap, the VatRate seed, the counter written only by
- * the numbering function (itself callable only from the insert triggers), a
- * line's and a credit note's VAT consistent with the invoice rate, and the
- * deferred checks surfacing inside issueTaxInvoice / issueCreditNote.
+ * immutability, gap-free numbering under concurrency (max + 1 under an
+ * advisory lock), a supplied number ignored, totals = lines at commit, the
+ * credit-note cap, the VatRate seed, a line's and a credit note's VAT
+ * consistent with the invoice rate, and the deferred checks surfacing inside
+ * issueTaxInvoice / issueCreditNote. The VatRate rules are in
+ * ./vat-rate.integration.test.ts.
  *
  *   RUN_VAT_INVOICE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/vat/tax-invoice.integration.test.ts
@@ -64,7 +65,6 @@ suite("tax invoices and credit notes (real DB)", () => {
       await tx.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } })
       await tx.taxInvoiceLine.deleteMany({ where: { invoice: { tenantId: { in: tenantIds } } } })
       await tx.taxInvoice.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await tx.taxDocumentCounter.deleteMany({ where: { tenantId: { in: tenantIds } } })
       await tx.vatConfig.deleteMany({ where: { tenantId: { in: tenantIds } } })
       await tx.tenant.deleteMany({ where: { id: { in: tenantIds } } })
     })
@@ -81,7 +81,7 @@ suite("tax invoices and credit notes (real DB)", () => {
 
   it("refuses to issue for a tenant with no VAT configuration", async () => {
     await expect(db.$transaction((tx) => issueTaxInvoice(tx, invoiceInput(bareTenantId)))).rejects.toBeInstanceOf(VatNotConfiguredError)
-    expect(await db.taxDocumentCounter.count({ where: { tenantId: bareTenantId } })).toBe(0)
+    expect(await db.taxInvoice.count({ where: { tenantId: bareTenantId } })).toBe(0)
   })
 
   describe("(a) an issued invoice, its lines and its credit notes are immutable", () => {
@@ -185,38 +185,25 @@ suite("tax invoices and credit notes (real DB)", () => {
     const second = await Promise.all(secondTen)
 
     expect(doomedNumber).toBe(11)
-    // Every one of them waited for the rollback: the counter row was locked.
+    // Every one of them waited for the rollback: the numbering lock was held.
     for (const { at } of second) expect(at).toBeGreaterThanOrEqual(rolledBackAt)
     expect(second.map(({ invoice }) => invoice.number).sort((a, b) => a - b)).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
 
     const stored = await db.taxInvoice.findMany({ where: { tenantId: raceTenantId }, orderBy: { number: "asc" }, select: { number: true, invoiceNumber: true } })
     expect(stored.map((s) => s.number)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
     expect(stored[19].invoiceNumber).toBe("INV-000020")
-    expect((await db.taxDocumentCounter.findUnique({ where: { tenantId_kind: { tenantId: raceTenantId, kind: "TAX_INVOICE" } } }))?.next).toBe(21)
   }, 60_000)
 
-  describe("(e) only the numbering function writes the counter, only from the insert triggers", () => {
-    const counter = () => db.taxDocumentCounter.findUnique({ where: { tenantId_kind: { tenantId, kind: "TAX_INVOICE" } } })
-
-    it("refuses a direct INSERT, UPDATE, DELETE or TRUNCATE of TaxDocumentCounter", async () => {
-      const before = await counter()
-      const refused = /written only by nextTaxDocumentNumber/
-      await expect(db.$executeRawUnsafe(`UPDATE "TaxDocumentCounter" SET "next" = 1 WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(refused)
-      await expect(db.$executeRawUnsafe(`DELETE FROM "TaxDocumentCounter" WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(refused)
-      await expect(db.$executeRawUnsafe(`INSERT INTO "TaxDocumentCounter" ("tenantId", "kind", "next") VALUES ('${bareTenantId}', 'TAX_INVOICE', 7)`)).rejects.toThrow(refused)
-      await expect(db.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe('TRUNCATE "TaxDocumentCounter"')
-        throw new Error("TRUNCATE was not refused")
-      })).rejects.toThrow(refused)
-      expect(await counter()).toEqual(before)
-    })
-
-    it("refuses a direct call of nextTaxDocumentNumber, burning no number", async () => {
-      const before = await counter()
-      await expect(db.$queryRawUnsafe(`SELECT "nextTaxDocumentNumber"('${tenantId}', 'TAX_INVOICE')`))
-        .rejects.toThrow(/called only by the tax invoice and credit note insert triggers/)
-      expect(await counter()).toEqual(before)
-    })
+  it("(e) ignores a supplied number and display number: the next number is the tenant's max + 1", async () => {
+    const before = await db.taxInvoice.aggregate({ where: { tenantId }, _max: { number: true } })
+    const forged = await db.taxInvoice.create({ data: {
+      tenantId, number: 999_999, invoiceNumber: "INV-999999", issueDate: new Date("2026-10-13"), supplyDate: new Date("2026-10-13"),
+      supplierName: "Test Lender (Pty) Ltd", supplierAddress: "1 Test Street", supplierVatNumber: "4000000000",
+      recipientName: "Test Borrower", recipientAddress: "2 Test Road", vatRate: "0.1500", totalExclVatCents: 1000, vatCents: 150, totalInclVatCents: 1150,
+      lines: { create: [{ lineNo: 1, description: "Test item", quantity: 1, unitExclVatCents: 1000, exclVatCents: 1000, vatCents: 150, inclVatCents: 1150 }] },
+    } })
+    const next = (before._max.number ?? 0) + 1
+    expect(forged).toMatchObject({ number: next, invoiceNumber: `INV-${String(next).padStart(6, "0")}` })
   })
 
   describe("(f) VAT consistent with the invoice rate", () => {

@@ -6,6 +6,7 @@ import { AuditAction } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
+import { isTransactionConflict } from "@/lib/asset-finance/transaction-conflict"
 import { classifyApplication } from "@/lib/asset-finance/classification"
 
 /**
@@ -45,6 +46,11 @@ export async function POST(
         }),
       )
     } catch (error) {
+      // A deadlock or serialization failure (40P01 / 40001) rolled everything
+      // back: the same request can be retried.
+      if (isTransactionConflict(error)) {
+        return NextResponse.json({ error: "Another change to this application was in progress; try again" }, { status: 409 })
+      }
       // The regime triggers re-check under the row lock; a write that lost a
       // race with another decision is a conflict, not a server error.
       if (isCheckViolation(error)) {

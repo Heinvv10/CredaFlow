@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { vatOnExclusive } from "./amounts"
 import {
   VatNotConfiguredError, computeTaxInvoice, describeAsset, issueInstalmentSaleInvoice, issueTaxInvoice,
@@ -131,6 +131,26 @@ describe("issueInstalmentSaleInvoice", () => {
       lines: [{ description: "Test fee", quantity: 1, unitExclVatCents: 100 }],
     })
     expect(create.mock.calls[0][0].data).toMatchObject({ recipientVatNumber: null, loanId: null })
+  })
+})
+
+describe("issueTaxInvoice: the supply date", () => {
+  afterEach(() => vi.useRealTimers())
+  const issueSuppliedOn = (db: TaxInvoiceDb, supplyDate: string) => issueTaxInvoice(db, {
+    tenantId: "t1", issueDate: supplyDate, supplyDate, recipient: { name: "Test Person", address: "3 Test Lane" },
+    lines: [{ description: "Test fee", quantity: 1, unitExclVatCents: 100 }],
+  })
+
+  it("is refused after today (SAST), before anything is written; today (SAST) is accepted", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-10-14T21:59:59Z")) // 23:59:59 SAST on 14 October
+    const { db, create } = fakeDb(CONFIG)
+    await expect(issueSuppliedOn(db, "2026-10-15")).rejects.toThrow("supplyDate 2026-10-15 is after today (2026-10-14, SAST)")
+    expect(create).not.toHaveBeenCalled()
+    await issueSuppliedOn(db, "2026-10-14")
+    vi.setSystemTime(new Date("2026-10-14T22:00:00Z")) // midnight SAST: 15 October, still the 14th in UTC
+    await issueSuppliedOn(db, "2026-10-15")
+    expect(create).toHaveBeenCalledTimes(2)
   })
 })
 

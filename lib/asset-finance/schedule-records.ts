@@ -24,6 +24,15 @@
  * allocated interest-first (s126 order, lib/loan/receipt-allocation.ts) only
  * ever pays interest a row actually charges as interest.
  *
+ * Capitalised interest COMPOUNDS: once added to the balance, every later row
+ * charges interest on it. That is allowed for a NON_NCA contract, the only
+ * regime slice 1 books and reprices. It is a slice-2 issue for NCA asset
+ * finance: NCA s103 (no interest on interest; the exact subsection is for the
+ * lender's legal team to confirm) means an NCA skip or seasonal schedule must
+ * not charge interest on capitalised interest, or must not capitalise it at
+ * all. Nothing here enforces that.
+ * // UNTESTED: NCA treatment of capitalised interest
+ *
  * ZERO ROWS. A skip period is stored as a row with totalDue 0. Each consumer
  * tolerates it: receipt allocation fills nothing into it (owed 0);
  * recomputeLoanBalances never counts it as arrears (unpaid 0) and

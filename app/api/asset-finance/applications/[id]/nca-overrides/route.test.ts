@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 
 const m = vi.hoisted(() => {
   const tx = {
@@ -57,7 +58,7 @@ const request = (body: unknown) =>
 
 const application = (over: Record<string, unknown> = {}) => ({
   id: "app-1", entityId: "ent-1", status: "SUBMITTED", ncaRegime: "NCA", appliedAmount: 150_000_000, productId: "prod-1",
-  ncaClassificationRule: "FINANCIALS_UNPROVEN", ...over,
+  ncaClassificationRule: "FINANCIALS_UNPROVEN", ncaClassifiedAt: new Date("2026-10-01T08:00:00.000Z"), ...over,
 })
 
 beforeEach(() => {
@@ -143,7 +144,7 @@ describe("POST /api/asset-finance/applications/[id]/nca-overrides", () => {
         source: "MANUAL",
         // The application the approver will be agreeing to; the approval is valid for exactly this.
         approvedEntityId: "ent-1", approvedAppliedAmount: 150_000_000, approvedProductId: "prod-1",
-        approvedClassificationRule: "FINANCIALS_UNPROVEN",
+        approvedClassificationRule: "FINANCIALS_UNPROVEN", approvedClassifiedAt: new Date("2026-10-01T08:00:00.000Z"),
       },
     })
     expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
@@ -171,5 +172,14 @@ describe("POST /api/asset-finance/applications/[id]/nca-overrides", () => {
   it("answers 409 when the database refuses the write (SQLSTATE 23514), not 500", async () => {
     m.transactionError.current = Object.assign(new Error("An NCA regime override must belong to its application's tenant"), { code: "23514" })
     expect((await request({ toRegime: "NON_NCA", reason: REASON })).status).toBe(409)
+  })
+
+  it("answers 409 try again when the transaction deadlocked (40P01), not 500", async () => {
+    m.transactionError.current = new Prisma.PrismaClientKnownRequestError("Raw query failed. Code: `40P01`.", {
+      code: "P2010", clientVersion: "test", meta: { code: "40P01", message: "ERROR: deadlock detected" },
+    })
+    const res = await request({ toRegime: "NON_NCA", reason: REASON })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "Another change to this application was in progress; try again" })
   })
 })

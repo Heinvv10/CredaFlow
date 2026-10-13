@@ -7,6 +7,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
+import { isTransactionConflict } from "@/lib/asset-finance/transaction-conflict"
 import { isRegimeOpen, lockApplicationForRegime, STALE_OVERRIDE_NOTE } from "@/lib/asset-finance/classification"
 import { overrideMatchesApplication } from "@/lib/asset-finance/override-snapshot"
 
@@ -37,8 +38,9 @@ function parseBody(body: unknown): { decision: Decision; note: string } | string
  * APPROVE moves the regime; the regime trigger spends the approval, so it
  * authorises exactly that one change. A request is stale when the
  * application's regime is no longer its fromRegime or, for a move to NON_NCA,
- * the application's borrower, amount, product or classification rule is no
- * longer the snapshot it was requested on (the regime trigger would refuse to
+ * the application's borrower, amount, product or classification (rule, or the
+ * run's ncaClassifiedAt: any re-classification) is no longer the snapshot it
+ * was requested on (the regime trigger would refuse to
  * spend the approval). REJECT records a stale request as usual, and APPROVE
  * rejects it instead (note STALE_OVERRIDE_NOTE, 409), so a stale request never
  * holds the application's one PENDING slot. On a decided application only
@@ -105,7 +107,7 @@ export async function POST(
           application: {
             select: {
               status: true, ncaRegime: true, entityId: true, appliedAmount: true, productId: true,
-              ncaClassificationRule: true,
+              ncaClassificationRule: true, ncaClassifiedAt: true,
             },
           },
         },
@@ -167,6 +169,11 @@ export async function POST(
     try {
       result = await decideInTransaction()
     } catch (error) {
+      // A deadlock or serialization failure (40P01 / 40001) rolled everything
+      // back: the same request can be retried.
+      if (isTransactionConflict(error)) {
+        return NextResponse.json({ error: "Another change to this application was in progress; try again" }, { status: 409 })
+      }
       // The regime triggers re-check under the row locks; a decision that lost
       // a race with another write is a conflict, not a server error.
       if (isCheckViolation(error)) {

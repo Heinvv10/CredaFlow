@@ -8,10 +8,11 @@
  *   RUN_ASSET_FINANCE_REPRICE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run --no-file-parallelism lib/asset-finance/reprice-loan.integration.test.ts
  */
-import { PrismaClient } from "@prisma/client"
+import { Prisma, PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
+import { currentSettlementAmount, projectReceipt } from "@/lib/loan/settlement"
 import { repriceTail } from "./reprice"
 import { repriceLoanForReference, type RepriceOutcome } from "./reprice-loan"
 import { runRepriceBatch } from "./reprice-batch"
@@ -123,6 +124,20 @@ suite("repriceLoanForReference against a migrated database", () => {
     expect(bell.map((n) => [n.userId, n.type])).toEqual([[tenant.adminId, "LOAN_REPRICED"]])
   })
 
+  it("a repriced loan settles on the repriced schedule: the contractual totals moved with it", async () => {
+    const rows = await scheduleOf(loanId)
+    const loan = await loanOf(loanId)
+    const booked = BOOKED.rows.map(toScheduleRecord)
+    // The fixture booked contractual = schedule sums; the repricing moved both by the same delta.
+    expect(loan.contractualTotalRepayable).toBe(loan.totalRepayable)
+    expect(loan.contractualTotalInterest).toBe(loan.totalInterest)
+    expect(loan.contractualTotalRepayable).not.toBe(booked.reduce((sum, r) => sum + r.totalDue, 0))
+    const owedOnSchedule = rows.reduce((sum, r) => sum + r.totalDue - r.totalPaid, 0)
+    expect(currentSettlementAmount({ loan, schedule: rows, asOf: new Date() })).toBe(owedOnSchedule)
+    const settling = projectReceipt({ loan, schedule: rows, amount: owedOnSchedule, asOf: new Date() })
+    expect(settling).toMatchObject({ settlementDue: owedOnSchedule, isCompleted: true, excessAmount: 0 })
+  })
+
   it("is a no-op the second time: already_repriced, and every row byte-identical", async () => {
     const before = { rows: await scheduleOf(loanId), loan: await loanOf(loanId) }
     expect(await reprice(tenant, loanId, effectiveDate)).toEqual({ kind: "already_repriced" })
@@ -162,14 +177,16 @@ suite("repriceLoanForReference against a migrated database", () => {
   })
 
   it("refuses a contract rate that is neither fixed nor reference + margin (CHECK)", async () => {
-    await expect(db.contractRate.create({
-      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME", resultingRate: "0.13" },
-    })).rejects.toThrow(/ContractRate_fixed_xor_margin/)
-    await expect(db.contractRate.create({
-      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME", fixedRate: "0.13", resultingRate: "0.13" },
-    })).rejects.toThrow(/ContractRate_fixed_basis/)
-    await expect(db.contractRate.create({
-      data: { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME", margin: "0.01", resultingRate: "1.5" },
-    })).rejects.toThrow(/ContractRate_resulting_rate_range/)
+    // Each with trigger ContractRate_guard off, rolled back: its basis-and-margin
+    // continuity rule would otherwise refuse every one of these rows first.
+    const unguarded = (data: Prisma.ContractRateUncheckedCreateInput) => db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "ContractRate" DISABLE TRIGGER "ContractRate_guard"')
+      await tx.contractRate.create({ data })
+      throw new Error("ROLLBACK")
+    })
+    const row = { tenantId: tenant.tenantId, loanId, effectiveDate: dbDate("2027-06-01"), basis: "PRIME" as const }
+    await expect(unguarded({ ...row, resultingRate: "0.13" })).rejects.toThrow(/ContractRate_fixed_xor_margin/)
+    await expect(unguarded({ ...row, fixedRate: "0.13", resultingRate: "0.13" })).rejects.toThrow(/ContractRate_fixed_basis/)
+    await expect(unguarded({ ...row, margin: "1.38", resultingRate: "1.5" })).rejects.toThrow(/ContractRate_resulting_rate_range/)
   })
 })

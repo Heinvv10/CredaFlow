@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
+import { isTransactionConflict } from "@/lib/asset-finance/transaction-conflict"
 import { isRegimeOpen, lockApplicationForRegime } from "@/lib/asset-finance/classification"
 import { overrideSnapshotOf } from "@/lib/asset-finance/override-snapshot"
 
@@ -31,8 +32,9 @@ function parseBody(body: unknown): { toRegime: Regime; reason: string } | string
  * To NCA only adds protection, so it applies at once, decided by the
  * requester. To NON_NCA stays PENDING until a different decider approves it
  * (app/api/asset-finance/nca-overrides/[overrideId]/decide). The override
- * records the application's borrower, amount, product and classification rule
- * as they stand; the approval is valid for exactly that application.
+ * records the application's borrower, amount, product and classification (rule
+ * and ncaClassifiedAt) as they stand; the approval is valid for exactly that
+ * application and that classification run.
  */
 export async function POST(
   req: NextRequest,
@@ -58,7 +60,7 @@ export async function POST(
         where: { id, tenantId: tenant.id },
         select: {
           id: true, entityId: true, status: true, ncaRegime: true,
-          appliedAmount: true, productId: true, ncaClassificationRule: true,
+          appliedAmount: true, productId: true, ncaClassificationRule: true, ncaClassifiedAt: true,
         },
       })
       if (!application) return { kind: "not_found" as const }
@@ -123,6 +125,11 @@ export async function POST(
     try {
       result = await requestInTransaction()
     } catch (error) {
+      // A deadlock or serialization failure (40P01 / 40001) rolled everything
+      // back: the same request can be retried.
+      if (isTransactionConflict(error)) {
+        return NextResponse.json({ error: "Another change to this application was in progress; try again" }, { status: 409 })
+      }
       // The regime triggers re-check under the row lock; a request that lost
       // a race with another write is a conflict, not a server error.
       if (isCheckViolation(error)) {
