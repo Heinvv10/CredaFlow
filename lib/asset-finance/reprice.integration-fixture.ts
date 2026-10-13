@@ -156,7 +156,7 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
       data: {
         tenantId, reference: `LN-RP-${n}`, applicationId: app.id, entityId: tenant.entityId, productId: tenant.productId,
         ncaRegime: "NON_NCA", contractType: options.contractType ?? "INSTALMENT_SALE", balloonAmount: DEAL.balloonCents,
-        assetFinanceWeights: DEAL.weights,
+        assetFinanceWeights: options.weights ?? DEAL.weights,
         principal: sum((r) => r.principalDue), totalInterest: sum((r) => r.interestDue), initiationFee: 0,
         totalRepayable: sum((r) => r.totalDue), outstandingPrincipal: sum((r) => r.principalDue, (i) => !settled(i)),
         contractualTotalInterest: sum((r) => r.interestDue), contractualTotalRepayable: sum((r) => r.totalDue),
