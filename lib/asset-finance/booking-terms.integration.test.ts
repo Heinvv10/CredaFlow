@@ -120,6 +120,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     const booked = await database().repaymentSchedule.findMany({ where: { loanId: loan.id }, orderBy: { installmentNo: "asc" } })
     expect(booked.map((r) => [r.installmentNo, r.dueDate.toISOString(), r.principalDue, r.interestDue, r.totalDue]))
       .toEqual(signed.schedule.map(toScheduleRecord).map((r) => [r.installmentNo, r.dueDate.toISOString(), r.principalDue, r.interestDue, r.totalDue]))
+    expect(booked.map((r) => r.assetFinanceOpeningBalanceCents)).toEqual(signed.schedule.map((r) => r.openingBalanceCents))
     const rates = await database().contractRate.findMany({ where: { loanId: loan.id } })
     expect(rates.map((r) => [r.effectiveDate, r.resultingRate.toString()])).toEqual([[deal.plannedStartDate, "0.1175"]])
   })

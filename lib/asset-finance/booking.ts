@@ -183,7 +183,13 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
       select: { id: true, reference: true },
     })
     await tx.repaymentSchedule.createMany({
-      data: plan.records.map((record) => ({ ...record, tenantId, loanId: loan.id, status: "PENDING" as const })),
+      data: plan.records.map((record, i) => ({
+        ...record,
+        tenantId,
+        loanId: loan.id,
+        status: "PENDING" as const,
+        assetFinanceOpeningBalanceCents: solved.result.rows[i].openingBalanceCents,
+      })),
     })
     const disbursedAt = new Date()
     const disbursed = await tx.loanApplication.updateMany({
