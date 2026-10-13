@@ -62,8 +62,10 @@ export async function POST(req: NextRequest) {
   }
 
   return withTenantContext(req, async (tenant) => {
+    // By the session's own client id, not the email: the email is mutable and
+    // not what the session was issued to.
     const client = await prisma.client.findFirst({
-      where: { email: session.user.email!, tenantId: tenant.id },
+      where: { id: session.user.id, tenantId: tenant.id },
       select: { id: true, portalPassword: true },
     })
 
@@ -77,10 +79,20 @@ export async function POST(req: NextRequest) {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12)
-    await prisma.client.update({
-      where: { id: client.id },
+    // Compare-and-swap on the hash verified above. Hashing takes ~half a second,
+    // and a password reset written in that window must win: it exists to end
+    // every session, including this one. An unconditional update would
+    // overwrite it and re-stamp this session.
+    const written = await prisma.client.updateMany({
+      where: { id: client.id, tenantId: tenant.id, portalPassword: client.portalPassword },
       data: { portalPassword: hashed },
     })
+    if (written.count !== 1) {
+      return NextResponse.json(
+        { error: "Your password was changed while this was being saved, so nothing was updated. Please sign in again." },
+        { status: 409 },
+      )
+    }
 
     // Audit the change — never log password values, only that it happened.
     await logAudit({

@@ -2,19 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { decode, encode } from "next-auth/jwt"
 
-const { auth, findFirstClient, updateClient } = vi.hoisted(() => ({
+const { auth, findFirstClient, updateManyClient, logAudit } = vi.hoisted(() => ({
   auth: vi.fn(),
   findFirstClient: vi.fn(),
-  updateClient: vi.fn(),
+  updateManyClient: vi.fn(),
+  logAudit: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth }))
-vi.mock("@/lib/prisma", () => ({ prisma: { client: { findFirst: findFirstClient, update: updateClient } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { client: { findFirst: findFirstClient, updateMany: updateManyClient } } }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, handler: (t: { id: string }) => unknown) => handler({ id: "t1" }),
 }))
 vi.mock("@/lib/tenant-scope", () => ({ withoutTenantScope: <T,>(fn: () => Promise<T>) => fn() }))
-vi.mock("@/lib/audit", () => ({ logAudit: vi.fn(), AuditAction: { CLIENT_UPDATED: "CLIENT_UPDATED" } }))
+vi.mock("@/lib/audit", () => ({ logAudit, AuditAction: { CLIENT_UPDATED: "CLIENT_UPDATED" } }))
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
   callerIp: () => "203.0.113.7",
@@ -58,7 +59,8 @@ beforeEach(() => {
   vi.stubEnv("AUTH_SECRET", SECRET)
   auth.mockReset().mockResolvedValue({ user: { id: "c1", email: "client@example.test", role: "CLIENT", tenantId: "t1" } })
   findFirstClient.mockReset().mockResolvedValue({ id: "c1", portalPassword: OLD_HASH })
-  updateClient.mockReset().mockResolvedValue({})
+  updateManyClient.mockReset().mockResolvedValue({ count: 1 })
+  logAudit.mockReset()
 })
 
 describe("POST /api/portal/password keeps the changing session signed in", () => {
@@ -106,6 +108,30 @@ describe("POST /api/portal/password keeps the changing session signed in", () =>
     vi.mocked(bcrypt.compare).mockResolvedValueOnce(false as never)
     const res = await change(sessionToken())
     expect(res.status).toBe(400)
+    expect(await reissuedToken(res)).toBeNull()
+  })
+
+  it("finds the client by the session's own id and tenant, not by email", async () => {
+    await change(sessionToken())
+    expect(findFirstClient).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "c1", tenantId: "t1" } }))
+  })
+
+  it("writes only if the hash it verified is still the stored one", async () => {
+    await change(sessionToken())
+    expect(updateManyClient).toHaveBeenCalledWith({
+      where: { id: "c1", tenantId: "t1", portalPassword: OLD_HASH },
+      data: { portalPassword: NEW_HASH },
+    })
+  })
+
+  it("answers 409 and neither audits nor re-issues the cookie when the hash moved underneath it", async () => {
+    updateManyClient.mockResolvedValue({ count: 0 })
+    const res = await change(sessionToken())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: "Your password was changed while this was being saved, so nothing was updated. Please sign in again.",
+    })
+    expect(logAudit).not.toHaveBeenCalled()
     expect(await reissuedToken(res)).toBeNull()
   })
 })
