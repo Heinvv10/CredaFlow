@@ -3,7 +3,7 @@
 // UPDATE and DELETE, and refuses a credit note for another tenant's invoice
 // or one that would credit more value or VAT than the invoice charged, and
 // checks the VAT by creditNoteVat's own rule (migration 20261013100000).
-import type { Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { vatOnExclusive } from "./amounts"
 import type { VatTransaction } from "./db"
@@ -27,7 +27,7 @@ export interface IssueCreditNoteInput {
   createdById?: string | null
 }
 
-export type CreditNoteDb = Pick<VatTransaction, "taxInvoice" | "creditNote" | "$executeRawUnsafe">
+export type CreditNoteDb = Pick<VatTransaction, "taxInvoice" | "creditNote" | "$executeRaw" | "$executeRawUnsafe">
 
 export type IssuedCreditNote = Prisma.CreditNoteGetPayload<Record<string, never>>
 
@@ -68,6 +68,12 @@ export async function issueCreditNote(tx: CreditNoteDb, input: IssueCreditNoteIn
   const issueDate = dbDate(input.issueDate, "issueDate")
   const reason = input.reason.trim()
   if (reason === "") throw new RangeError("reason is required")
+
+  // Take the same tenant-level lock as the numbering trigger before reading
+  // prior credits, so concurrent issuers calculate from committed remainders.
+  await tx.$executeRaw(Prisma.sql`
+    SELECT pg_advisory_xact_lock(hashtextextended(${'tax-doc:' + input.tenantId + ':CREDIT_NOTE'}, 0))
+  `)
 
   const invoice = await tx.taxInvoice.findFirst({
     where: { id: input.invoiceId, tenantId: input.tenantId },
