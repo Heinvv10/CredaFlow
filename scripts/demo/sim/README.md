@@ -136,7 +136,8 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
   → `check-dates` → `assert_payment_allocation_reconciles()` →
   `verify-pages` → `db.dump` (pg_dump -Fc), `uploads.tar.gz`, `meta.json`
   (image, sim window, tenant id, counts, checks) and the bake's staff
-  credentials (TOTP secrets are fresh per bake). A snapshot is written and
+  credentials (TOTP secrets are fresh per bake; `restore.sh` clears staff TOTP on
+  the live demo, SUPER_ADMIN excepted). A snapshot is written and
   `latest` moved only when every check passed; the newest 4 are kept. It
   refuses to run when this worktree's `prisma/migrations` differ from the
   image's (the sim migrates and seeds from the worktree).

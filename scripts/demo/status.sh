@@ -81,6 +81,10 @@ for job in bake restore; do
   [ -z "$newest" ] || echo "  newest cron log: $newest ($(tail -1 "$LOG_DIR/$newest"))"
 done
 
+if grep -q 'could not clear demo staff TOTP' "$LOG_DIR/last-restore" 2>/dev/null; then
+  flag "the last restore could not clear demo staff TOTP: staff sign-in will ask for an authenticator code"
+fi
+
 any_failure=false
 for job in bake restore; do
   if [ -s "$LOG_DIR/LAST_FAILURE-$job" ]; then

@@ -72,6 +72,15 @@ describe('status.sh', () => {
     expect(r).toMatchObject({ status: 0 })
   })
 
+  it('flags a restore that could not clear demo staff TOTP', () => {
+    recordRunner(git('rev-parse', 'HEAD'))
+    mkdirSync(join(data, 'logs'), { recursive: true })
+    writeFileSync(join(data, 'logs', 'last-restore'), '2026-10-13T01:00:00Z ok 20261012T000000Z in 9.0 s, 5.0 s down (warnings; could not clear demo staff TOTP; staff still need an authenticator code)\n')
+    const r = status({ STUB_UPLOADS: 'clients\\n' })
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/!! the last restore could not clear demo staff TOTP/)
+  })
+
   it('flags a runner with no update record', () => {
     const r = status()
     expect(r.status).toBe(1)

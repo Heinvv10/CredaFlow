@@ -97,8 +97,9 @@ docker exec "$SIM_DB" \
   sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' > "$work/db.dump"
 docker exec "$SIM_APP" tar -czf - -C /app/uploads . > "$work/uploads.tar.gz"
 upload_files="$(tar -tzf "$work/uploads.tar.gz" | grep -vc '/$' || true)"
-# The seed's TOTP secrets are fresh per bake: these are the staff logins that
-# work on the live demo after this snapshot is restored.
+# The seed enrols TOTP (secrets fresh per bake); restore.sh clears it for the
+# demo's staff. These are the staff logins that work on the live demo after
+# this snapshot is restored.
 cp scripts/demo/.sim-credentials.txt scripts/demo/.sim-staff.json scripts/demo/.sim-breadth-staff.json "$work/"
 npx tsx scripts/demo/sim/provision-operator.ts --forget "$work/.sim-breadth-staff.json"
 
