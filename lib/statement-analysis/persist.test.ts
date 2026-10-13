@@ -344,5 +344,20 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
     expect(read).not.toContain(`busy-${MAX_WAITING_PER_TENANT}`)
     expect(read).toHaveLength(MAX_WAITING_PER_TENANT + 3)
   })
+
+  it("bounds retries too, at twice the cap", async () => {
+    let release: (v: null) => void = () => undefined
+    docFind.mockReturnValueOnce(new Promise((res) => { release = res }) as never)
+    docFind.mockResolvedValue(null)
+    readStatementInBackground("tenant-retrying", "retry-running")
+    await vi.waitFor(() => expect(docFind).toHaveBeenCalledTimes(1))
+    for (let i = 0; i <= 2 * MAX_WAITING_PER_TENANT; i++) {
+      readStatementInBackground("tenant-retrying", `retry-${i}`, { retryFailed: true, actorUserId: "officer-1" })
+    }
+    expect(console.warn).toHaveBeenCalledTimes(1)
+    expect(console.warn).toHaveBeenCalledWith("[statement-analysis] read not queued: tenant queue full", { documentId: `retry-${2 * MAX_WAITING_PER_TENANT}` })
+    release(null)
+    await vi.waitFor(() => expect(docFind).toHaveBeenCalledTimes(2 * MAX_WAITING_PER_TENANT + 1))
+  })
 })
 

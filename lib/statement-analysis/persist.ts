@@ -230,8 +230,12 @@ function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
  */
 export function readStatementInBackground(tenantId: string, documentId: string, opts: ReadRequest = {}): void {
   const alreadyWaiting = waiting.has(documentId)
-  // A staff retry is never turned away: a stored failed read is not re-queued on load.
-  if (!alreadyWaiting && !opts.retryFailed && [...waiting.values()].filter((w) => w.tenantId === tenantId).length >= MAX_WAITING_PER_TENANT) {
+  // A staff retry gets headroom past the cap, since a stored failed read is
+  // not re-queued on load; the headroom is bounded too, so retries cannot
+  // become a way round it.
+  const queued = [...waiting.values()].filter((w) => w.tenantId === tenantId).length
+  const cap = opts.retryFailed ? 2 * MAX_WAITING_PER_TENANT : MAX_WAITING_PER_TENANT
+  if (!alreadyWaiting && queued >= cap) {
     console.warn("[statement-analysis] read not queued: tenant queue full", { documentId })
     return
   }
