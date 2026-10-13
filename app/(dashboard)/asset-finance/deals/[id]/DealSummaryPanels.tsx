@@ -36,7 +36,9 @@ export function DealSummaryPanel({ deal }: { deal: DealDetail }) {
     <DataPanel title="Deal" density="loose">
       <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Item label="Borrower">
-          <Link href={`/asset-finance/entities/${deal.entity.id}`} className="text-[var(--cf-brand)] hover:underline">{deal.entity.legalName}</Link>
+          {deal.entity ? (
+            <Link href={`/asset-finance/entities/${deal.entity.id}`} className="text-[var(--cf-brand)] hover:underline">{deal.entity.legalName}</Link>
+          ) : deal.client ? deal.client.name : "Unknown borrower"}
         </Item>
         <Item label="Asset">
           <Link href={`/asset-finance/assets/${deal.asset.id}`} className="text-[var(--cf-brand)] hover:underline">{deal.asset.description}</Link>

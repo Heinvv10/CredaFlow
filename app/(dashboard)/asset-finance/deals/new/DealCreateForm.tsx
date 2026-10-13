@@ -17,6 +17,7 @@ import { DealStructureFields } from "./DealStructureFields"
 type Option = { id: string; label: string }
 export interface DealFormOptions {
   entities: Option[]
+  clients: Option[]
   assets: Option[]
   suppliers: Option[]
   products: Option[]
@@ -24,7 +25,7 @@ export interface DealFormOptions {
 type Preview = StructureResult & { startDate: string; termDays: number; rate: { annualRate: string } }
 
 const INITIAL: DealFormValues = {
-  assetId: "", depositRands: "", tradeInRands: "", feesRands: "", balloonRands: "", firstDueDate: "",
+  assetId: "", contractType: "INSTALMENT_SALE", depositRands: "", tradeInRands: "", feesRands: "", balloonRands: "", firstDueDate: "",
   vatDeferralPeriod: "", rateBasis: "PRIME", ratePercent: "", preset: "MONTHLY", periods: "60", skipFirst: "",
   seasonMonths: "", seasonWeight: "", offWeight: "", months: "", steps: "",
 }
@@ -34,7 +35,7 @@ const choices = (options: Option[], placeholder: string) =>
 export function DealCreateForm({ options }: { options: DealFormOptions }) {
   const router = useRouter()
   const [values, setValues] = useState<DealFormValues>(INITIAL)
-  const [parties, setParties] = useState({ entityId: "", supplierId: "", productId: "" })
+  const [parties, setParties] = useState({ borrowerType: "ENTITY" as "ENTITY" | "CLIENT", entityId: "", clientId: "", supplierId: "", productId: "" })
   const [preview, setPreview] = useState<Preview | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewFields, setPreviewFields] = useState<Record<string, string>>({})
@@ -45,7 +46,7 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
   const set = (key: keyof DealFormValues) => (value: string) => setValues((prev) => ({ ...prev, [key]: value }))
   const structure = useMemo(() => dealStructureBody(values), [values])
   const ready = values.assetId !== "" && values.firstDueDate !== "" && Object.keys(structure.errors).length === 0
-  const requestBody = ready ? JSON.stringify(structure.body) : null
+  const requestBody = ready ? JSON.stringify({ ...structure.body, nca: parties.borrowerType === "CLIENT" }) : null
 
   // Live preview: re-solve 400 ms after the structure stops changing.
   useEffect(() => {
@@ -90,7 +91,10 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
     }
     setSaving(true)
     setError(null)
-    const result = await sendJson("/api/asset-finance/deals", "POST", { ...structure.body, ...parties })
+    const result = await sendJson("/api/asset-finance/deals", "POST", {
+      ...structure.body, supplierId: parties.supplierId, productId: parties.productId,
+      ...(parties.borrowerType === "ENTITY" ? { entityId: parties.entityId } : { clientId: parties.clientId }),
+    })
     setSaving(false)
     if (!result.ok) {
       const keys = Object.keys(result.fields)
@@ -108,8 +112,19 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
         <div className="space-y-4">
           <FormError message={error} />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <SelectField id="entityId" label="Borrower (entity)" required value={parties.entityId}
-              onChange={(entityId) => setParties((p) => ({ ...p, entityId }))} options={choices(options.entities, "Choose an entity")} error={fields.entityId} />
+            <SelectField id="borrowerType" label="Borrower type" required value={parties.borrowerType}
+              onChange={(borrowerType) => setParties((p) => ({ ...p, borrowerType: borrowerType as "ENTITY" | "CLIENT", entityId: "", clientId: "" }))}
+              options={{ ENTITY: "Entity", CLIENT: "Sole proprietor" }} error={fields.borrower} />
+            {parties.borrowerType === "ENTITY" ? (
+              <SelectField id="entityId" label="Borrower (entity)" required value={parties.entityId}
+                onChange={(entityId) => setParties((p) => ({ ...p, entityId }))} options={choices(options.entities, "Choose an entity")} error={fields.entityId} />
+            ) : (
+              <SelectField id="clientId" label="Borrower (sole proprietor)" required value={parties.clientId}
+                onChange={(clientId) => setParties((p) => ({ ...p, clientId }))} options={choices(options.clients, "Choose a client")} error={fields.clientId} />
+            )}
+            <SelectField id="contractType" label="Agreement type" required value={values.contractType}
+              onChange={(contractType) => set("contractType")(contractType as DealFormValues["contractType"])}
+              options={{ INSTALMENT_SALE: "Instalment sale", FINANCE_LEASE: "Finance lease" }} error={fields.contractType} />
             <SelectField id="assetId" label="Asset" required value={values.assetId}
               onChange={set("assetId")} options={choices(options.assets, "Choose an asset")} error={fields.assetId} />
             <SelectField id="supplierId" label="Supplier" required value={parties.supplierId}

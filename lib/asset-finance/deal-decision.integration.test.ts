@@ -1,8 +1,8 @@
 /**
  * Real-Postgres proof of asset-finance origination (goal §4.7, decisions
  * 2a.3 and 2a.6): create → submit → classify → four-eyes regime override →
- * credit memo → decision with mandatory reasons; an NCA deal is refused and
- * audited.
+ * credit memo → s81 affordability → decision with mandatory reasons; an NCA
+ * deal proceeds down the regulated path.
  *
  * Only the session is stubbed. Routes, role guard, tenant resolution (by
  * host), feature flag, classifier, audit writer, regime trigger, CHECKs and
@@ -82,18 +82,16 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(again.status).toBe(409)
   })
 
-  it("refuses the unevidenced company's deal at submit: REFUSED_NCA, application DECLINED, audited", async () => {
+  it("submits the unevidenced company's NCA deal instead of refusing it", async () => {
     signIn(fx.officer, "CREDIT_OFFICER")
     const response = await routes().submit(deals.refused)
     expect(response.status).toBe(200)
     const body = await response.json()
-    const reason = "NCA applies (Turnover and asset value not proven by verified financial statements)"
-    expect(body).toMatchObject({ refusedNca: true, reason, deal: { status: "REFUSED_NCA" } })
+    expect(body).toMatchObject({ refusedNca: false, awaitingRegimeApproval: false, deal: { status: "SUBMITTED" } })
     const row = await dealRow(deals.refused)
-    expect(row.status).toBe("REFUSED_NCA")
-    expect(row.application).toMatchObject({ status: "DECLINED", ncaRegime: "NCA", decisionReason: reason })
-    const [refusal] = await audits(deals.refused, "ASSET_DEAL_REFUSED_NCA")
-    expect(refusal).toMatchObject({ userId: fx.officer, newValue: { status: "REFUSED_NCA", rule: "FINANCIALS_UNPROVEN", reason } })
+    expect(row.status).toBe("SUBMITTED")
+    expect(row.application).toMatchObject({ status: "SUBMITTED", ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN" })
+    expect(await audits(deals.refused, "ASSET_DEAL_SUBMITTED")).toHaveLength(1)
     expect(await database().ncaRegimeOverride.count({ where: { applicationId: row.applicationId } })).toBe(0)
   })
 

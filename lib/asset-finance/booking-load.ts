@@ -43,11 +43,14 @@ const BOOKING_SELECT = {
 } as const satisfies Prisma.AssetFinanceDealSelect
 
 type Loaded = Prisma.AssetFinanceDealGetPayload<{ select: typeof BOOKING_SELECT }>
-export type BookingDeal = Omit<Loaded, "payout"> & { payout: NonNullable<Loaded["payout"]> }
+export type BookingDeal = Omit<Loaded, "payout" | "entity"> & {
+  payout: NonNullable<Loaded["payout"]>
+  entity: NonNullable<Loaded["entity"]>
+}
 
 export type LoadResult = { kind: "not_found" } | BookingRefusal | { kind: "loaded"; deal: BookingDeal }
 
-type EntityAddress = Pick<Loaded["entity"], "addressLine1" | "addressLine2" | "city" | "province" | "postalCode">
+type EntityAddress = Pick<NonNullable<Loaded["entity"]>, "addressLine1" | "addressLine2" | "city" | "province" | "postalCode">
 
 /** The entity's address as invoice lines, or null without a first line and a city. */
 export function recipientAddress(entity: EntityAddress): string | null {
@@ -79,6 +82,7 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
 
   const deal = await tx.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: BOOKING_SELECT })
   if (!deal) return { kind: "not_found" }
+  if (!deal.entity) return refuse("consumer_booking_not_ready", "Natural-person NCA booking is not available until its prescribed documents and credit-life evidence are complete")
   if (deal.contractType !== "INSTALMENT_SALE") return refuse("contract_type", `Slice 1 books instalment sales only, not ${deal.contractType}`)
   if (deal.application.status !== "APPROVED" || deal.application.ncaRegime !== "NON_NCA") {
     return refuse("application_not_ready", `The application must be APPROVED and NON_NCA (it is ${deal.application.status}, ${deal.application.ncaRegime ?? "unclassified"})`)
@@ -89,5 +93,5 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
   if (payout.supplierBankAccount.status !== "APPROVED") {
     return refuse("account_not_approved", "The payout's bank account is no longer the supplier's APPROVED account")
   }
-  return { kind: "loaded", deal: { ...deal, payout } }
+  return { kind: "loaded", deal: { ...deal, entity: deal.entity, payout } }
 }

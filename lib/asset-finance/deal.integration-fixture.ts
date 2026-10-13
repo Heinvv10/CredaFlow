@@ -59,6 +59,10 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
     data: { tenantId, basis: "PRIME", effectiveDate: new Date("2020-01-01T00:00:00Z"), rate: "0.1075", requestedById: adminA },
   })
   await db.referenceRate.update({ where: { id: prime.id }, data: { status: "APPROVED", decidedById: adminB, decidedAt: new Date() } })
+  const repo = await db.referenceRate.create({
+    data: { tenantId, basis: "REPO", effectiveDate: new Date("2020-01-01T00:00:00Z"), rate: "0.0725", requestedById: adminA },
+  })
+  await db.referenceRate.update({ where: { id: repo.id }, data: { status: "APPROVED", decidedById: adminB, decidedAt: new Date() } })
   const supplier = await db.supplier.create({ data: { tenantId, name: "TEST Plant Sales (Pty) Ltd" } })
   const assets: string[] = []
   for (let i = 1; i <= 3; i++) {
@@ -108,6 +112,7 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
     db.auditLog.deleteMany({ where: { tenantId } }),
     db.complianceRecord.deleteMany({ where: { tenantId } }),
     db.creditBureauCheck.deleteMany({ where: { tenantId } }),
+    db.assetFinanceAffordabilityAssessment.deleteMany({ where: { tenantId } }),
     db.entityFinancials.deleteMany({ where: { tenantId } }),
     db.assetFinanceDeal.deleteMany({ where: { tenantId } }),
     db.ncaRegimeOverride.deleteMany({ where: { tenantId } }),

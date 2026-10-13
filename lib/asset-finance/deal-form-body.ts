@@ -2,13 +2,14 @@
 // (lib/asset-finance/deal-input.ts). Pure and client-safe: rands and percent
 // strings are converted with string arithmetic, so no float drifts into cents
 // or rates. Field errors use the API's field names.
-import type { ReferenceRateBasis } from "@prisma/client"
+import type { ContractType, ReferenceRateBasis } from "@prisma/client"
 import { randsToCents } from "./money-input"
 import { percentToDecimal } from "./deal-labels"
 import type { StructurePresetName } from "./deal-input"
 
 export interface DealFormValues {
   assetId: string
+  contractType: Extract<ContractType, "INSTALMENT_SALE" | "FINANCE_LEASE">
   depositRands: string
   tradeInRands: string
   feesRands: string
@@ -71,6 +72,7 @@ export function dealStructureBody(v: DealFormValues): { body: Record<string, unk
   }
   const body: Record<string, unknown> = {
     assetId: v.assetId,
+    contractType: v.contractType,
     depositCents: money("depositCents", v.depositRands),
     tradeInCents: money("tradeInCents", v.tradeInRands),
     financedFeesCents: money("financedFeesCents", v.feesRands),

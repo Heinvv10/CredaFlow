@@ -53,7 +53,8 @@ export interface DealDetail {
   /** A PENDING NCA → NON_NCA override awaits a second approver. */
   awaitingRegimeApproval: boolean
   pendingOverrideId: string | null
-  entity: { id: string; legalName: string; type: string; registrationNumber: string }
+  entity: { id: string; legalName: string; type: string; registrationNumber: string } | null
+  client: { id: string; name: string; idNumber: string } | null
   asset: { id: string; description: string; serialNumber: string; cashPriceExclVatCents: number; vatCents: number }
   supplier: { id: string; name: string }
   product: { id: string; name: string }
@@ -92,6 +93,7 @@ export async function loadDealList(tenantId: string): Promise<DealListRow[]> {
       createdAt: true,
       application: { select: { reference: true, appliedAmount: true } },
       entity: { select: { legalName: true } },
+      client: { select: { firstName: true, lastName: true } },
       asset: { select: { make: true, model: true, year: true } },
     },
   })
@@ -99,7 +101,7 @@ export async function loadDealList(tenantId: string): Promise<DealListRow[]> {
     id: r.id,
     status: r.status,
     applicationReference: r.application.reference,
-    entityName: r.entity.legalName,
+    entityName: r.entity?.legalName ?? (r.client ? `${r.client.firstName} ${r.client.lastName}` : "Unknown borrower"),
     assetDescription: `${r.asset.year} ${r.asset.make} ${r.asset.model}`,
     financedAmountCents: r.application.appliedAmount,
     baseInstalmentCents: r.baseInstalmentCents,
@@ -131,6 +133,7 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
         },
       },
       entity: { select: { id: true, legalName: true, type: true, registrationNumber: true } },
+      client: { select: { id: true, firstName: true, lastName: true, idNumber: true } },
       asset: { select: { id: true, make: true, model: true, year: true, serialNumber: true, cashPriceExclVatCents: true, vatCents: true } },
       supplier: { select: { id: true, name: true } },
       financials: true,
@@ -138,11 +141,11 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
   })
   if (!deal) return null
 
-  const people = await prisma.entityRelationship.findMany({
+  const people = deal.entityId ? await prisma.entityRelationship.findMany({
     where: { tenantId, entityId: deal.entityId, active: true, role: { in: ["SURETY", "DIRECTOR", "TRUSTEE"] } },
     orderBy: { createdAt: "asc" },
     select: { clientId: true, role: true, trusteeKind: true, client: { select: { firstName: true, lastName: true } } },
-  })
+  }) : []
   const toPerson = (p: (typeof people)[number]): DealPerson => ({
     clientId: p.clientId, name: personName(p.client), role: p.role, trusteeKind: p.trusteeKind,
   })
@@ -163,6 +166,7 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
     awaitingRegimeApproval: pendingOverrideId !== null && app.ncaRegime !== "NON_NCA",
     pendingOverrideId,
     entity: deal.entity,
+    client: deal.client && { id: deal.client.id, name: personName(deal.client), idNumber: deal.client.idNumber },
     asset: {
       id: asset.id, description: `${asset.year} ${asset.make} ${asset.model}`, serialNumber: asset.serialNumber,
       cashPriceExclVatCents: asset.cashPriceExclVatCents, vatCents: asset.vatCents,

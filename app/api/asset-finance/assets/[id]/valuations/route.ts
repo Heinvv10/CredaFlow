@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         where: { tenantId: tenant.id, assetId: id },
         select: { entityId: true },
       })
-      const entityIds = [...new Set(deals.map((d) => d.entityId))]
+      const entityIds = [...new Set(deals.map((d) => d.entityId).filter((entityId): entityId is string => entityId !== null))]
       const document = await prisma.entityDocument.findFirst({
         where: {
           id: input.documentId, tenantId: tenant.id, deletedAt: null, docType: "VALUATION",

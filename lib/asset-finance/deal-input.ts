@@ -9,7 +9,7 @@
  * weights it generates are stored with the preset's name. Calendar presets
  * take the month of firstDueDate as period 0's month.
  */
-import type { ReferenceRateBasis } from "@prisma/client"
+import type { ContractType, ReferenceRateBasis } from "@prisma/client"
 import { toDayNumber } from "./dates"
 import { asRecord, MAX_INT, readEnum, readInt, readText, type Errors, type Fields } from "./input-fields"
 import { annualSeasonal, biannual, monthly, skipN, stepUp, type WeightStep } from "./structure-presets"
@@ -18,6 +18,8 @@ export const STRUCTURE_PRESETS = ["MONTHLY", "ANNUAL_SEASONAL", "BIANNUAL", "SKI
 export type StructurePresetName = (typeof STRUCTURE_PRESETS)[number]
 
 export const RATE_BASES = ["FIXED", "PRIME", "REPO", "JIBAR", "ZARONIA", "LENDER_BASE"] as const satisfies readonly ReferenceRateBasis[]
+export const ASSET_CONTRACT_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE"] as const satisfies readonly ContractType[]
+export type AssetContractType = (typeof ASSET_CONTRACT_TYPES)[number]
 
 /** Longest structure accepted: ten years of monthly periods. */
 export const MAX_PERIODS = 120
@@ -45,11 +47,15 @@ export interface StructureTerms {
 
 export interface DealPreviewInput {
   assetId: string
+  contractType: AssetContractType
+  /** True when the preview is for a known NCA borrower (natural person). */
+  nca?: boolean
   terms: StructureTerms
 }
 
-export interface DealCreateInput extends DealPreviewInput {
-  entityId: string
+export type DealCreateInput = DealPreviewInput & {
+  clientId: string | null
+  entityId: string | null
   supplierId: string
   productId: string
 }
@@ -171,6 +177,8 @@ export function parseDealPreview(body: unknown, today: string): Result<DealPrevi
   const errors: Errors = {}
   const out: Fields = {}
   readText(record, "assetId", out, errors, { required: true, nullable: false, max: 64 })
+  if (record.contractType === undefined) out.contractType = "INSTALMENT_SALE"
+  else readEnum(record, "contractType", out, errors, { required: true, values: ASSET_CONTRACT_TYPES })
   for (const key of ["depositCents", "tradeInCents", "financedFeesCents", "balloonCents"]) {
     if (record[key] === undefined) out[key] = 0
     else readInt(record, key, out, errors, { required: false, nullable: false, min: 0, max: MAX_INT })
@@ -188,6 +196,8 @@ export function parseDealPreview(body: unknown, today: string): Result<DealPrevi
   return {
     data: {
       assetId: out.assetId as string,
+      contractType: out.contractType as AssetContractType,
+      nca: record.nca === true,
       terms: {
         depositCents: out.depositCents as number,
         tradeInCents: out.tradeInCents as number,
@@ -208,14 +218,23 @@ export function parseDealCreate(body: unknown, today: string): Result<DealCreate
   const record = asRecord(body) ?? {}
   const errors: Errors = "errors" in preview ? { ...preview.errors } : {}
   const out: Fields = {}
-  for (const key of ["entityId", "supplierId", "productId"]) {
+  for (const key of ["supplierId", "productId"]) {
     readText(record, key, out, errors, { required: true, nullable: false, max: 64 })
   }
+  for (const key of ["clientId", "entityId"]) {
+    if (record[key] !== undefined && record[key] !== null && record[key] !== "") {
+      readText(record, key, out, errors, { required: false, nullable: true, max: 64 })
+    }
+  }
+  const clientId = (out.clientId as string | undefined) ?? null
+  const entityId = (out.entityId as string | undefined) ?? null
+  if ((clientId === null) === (entityId === null)) errors.borrower = "choose exactly one borrower: a sole proprietor or an entity"
   if ("errors" in preview || Object.keys(errors).length > 0) return { errors }
   return {
     data: {
       ...preview.data,
-      entityId: out.entityId as string,
+      clientId,
+      entityId,
       supplierId: out.supplierId as string,
       productId: out.productId as string,
     },

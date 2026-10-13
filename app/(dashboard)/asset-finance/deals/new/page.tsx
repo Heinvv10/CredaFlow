@@ -11,8 +11,9 @@ export default async function NewDealPage() {
   const { tenantId, canManage } = await requireAssetFinanceStaffPage()
   if (!canManage) notFound()
 
-  const [entities, assets, suppliers, products] = await Promise.all([
+  const [entities, clients, assets, suppliers, products] = await Promise.all([
     prisma.businessEntity.findMany({ where: { tenantId }, orderBy: { legalName: "asc" }, select: { id: true, legalName: true } }),
+    prisma.client.findMany({ where: { tenantId }, orderBy: [{ lastName: "asc" }, { firstName: "asc" }], select: { id: true, firstName: true, lastName: true, reference: true } }),
     // Unreleased and on no open deal: the create route refuses the rest.
     prisma.financedAsset.findMany({
       where: { tenantId, releasedAt: null, deals: { none: { status: { notIn: [...CLOSED_DEAL_STATUSES] } } } },
@@ -30,6 +31,7 @@ export default async function NewDealPage() {
   ])
   const options: DealFormOptions = {
     entities: entities.map((e) => ({ id: e.id, label: e.legalName })),
+    clients: clients.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName} · ${c.reference}` })),
     assets: assets.map((a) => ({
       id: a.id,
       label: `${a.year} ${a.make} ${a.model} · ${a.serialNumber} · ${formatMoney(a.cashPriceExclVatCents + a.vatCents)} incl. VAT`,

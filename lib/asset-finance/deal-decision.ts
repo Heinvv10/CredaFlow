@@ -21,7 +21,7 @@
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { RegimeTx } from "./classification"
-import { hasPendingNonNcaOverride, lockDeal, refuseNcaDeal, type DealActor } from "./deal-submit"
+import { hasPendingNonNcaOverride, lockDeal, type DealActor } from "./deal-submit"
 
 export const CREDIT_DECISIONS = ["APPROVE", "DECLINE", "REFER"] as const
 export type CreditDecisionValue = (typeof CREDIT_DECISIONS)[number]
@@ -55,6 +55,8 @@ export type DecideDealResult =
   | { kind: "awaiting_override" }
   | { kind: "refused_nca"; reason: string }
   | { kind: "memo_required" }
+  | { kind: "assessment_required" }
+  | { kind: "unaffordable" }
   | { kind: "decided"; status: "APPROVED" | "DECLINED" | "REFERRED" }
 
 const DECIDABLE_DEAL = ["SUBMITTED", "REFERRED"]
@@ -71,6 +73,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       status: true,
       applicationId: true,
       financials: { select: { dscr: true, gearing: true } },
+      affordabilityAssessment: { select: { affordable: true } },
       application: { select: { status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true } },
     },
   })
@@ -83,7 +86,8 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
   if (input.decision === "APPROVE") {
     if (app.ncaRegime !== "NON_NCA") {
       if (await hasPendingNonNcaOverride(tx, tenantId, applicationId)) return { kind: "awaiting_override" }
-      return { kind: "refused_nca", reason: await refuseNcaDeal(tx, actor, deal, app.ncaClassificationRule) }
+      if (!deal.affordabilityAssessment) return { kind: "assessment_required" }
+      if (!deal.affordabilityAssessment.affordable) return { kind: "unaffordable" }
     }
     if (!deal.financials) return { kind: "memo_required" }
   }

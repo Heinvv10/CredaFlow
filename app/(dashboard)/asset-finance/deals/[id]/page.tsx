@@ -51,7 +51,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   return (
     <>
       <Header
-        title={`${deal.application.reference} · ${deal.entity.legalName}`}
+        title={`${deal.application.reference} · ${deal.entity?.legalName ?? deal.client?.name ?? "Unknown borrower"}`}
         subtitle={`${deal.asset.description} · created ${formatDate(deal.createdAt)}`}
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Deals", href: "/asset-finance/deals" }, { label: deal.application.reference }]}
         actions={

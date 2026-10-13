@@ -6,6 +6,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseDealPreview } from "@/lib/asset-finance/deal-input"
 import { solveWithRate } from "@/lib/asset-finance/deal-structure"
+import { NCA_ASSET_CAPS, resolvedAssetFinanceNcaCapProblems } from "@/lib/asset-finance/nca-caps"
 
 /**
  * Preview a deal structure (manage_asset_finance). Writes nothing: reads the
@@ -38,6 +39,17 @@ export async function POST(req: NextRequest) {
 
     const solved = await solveWithRate(prisma, tenant.id, asset, parsed.data.terms)
     if (!solved.ok) return NextResponse.json({ error: solved.error })
+    if (parsed.data.nca) {
+      const problems = await resolvedAssetFinanceNcaCapProblems(prisma, tenant.id, solved.startDate, {
+        contractType: parsed.data.contractType,
+        annualRate: Number(solved.rate.annualRate),
+        principalCents: solved.result.financedAmountCents,
+        initiationFeeCents: parsed.data.terms.financedFeesCents,
+        monthlyServiceFeeCents: NCA_ASSET_CAPS.monthlyServiceFeeCents,
+      })
+      if (problems === null) return NextResponse.json({ error: "No approved REPO rate exists for the NCA cap on the deal start date" })
+      if (problems.length > 0) return NextResponse.json({ error: problems[0].message })
+    }
     return NextResponse.json({
       startDate: solved.startDate,
       termDays: solved.termDays,

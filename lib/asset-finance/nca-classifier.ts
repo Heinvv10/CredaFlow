@@ -29,6 +29,7 @@ export interface NcaClassifierInput {
  * (CHECKs in 20261013090000_asset_finance_foundation; nca-rule-ids.test.ts holds them equal).
  */
 export const NCA_RULE_IDS = [
+  "NATURAL_PERSON_NCA",
   "TRUST_FEW_NATURAL_TRUSTEES",
   "TRUST_UNEVIDENCED",
   "FINANCIALS_UNPROVEN",

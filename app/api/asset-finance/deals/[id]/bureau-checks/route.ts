@@ -56,15 +56,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     const deal = await prisma.assetFinanceDeal.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { id: true, status: true, entityId: true, applicationId: true },
+      select: { id: true, status: true, entityId: true, clientId: true, applicationId: true },
     })
     if (!deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 })
     if (!OPEN_FOR_CHECKS.includes(deal.status)) {
       return NextResponse.json({ error: `Bureau checks are closed once a deal is ${deal.status}` }, { status: 409 })
     }
-    const subjects = await dealBureauSubjects(tenant.id, deal.entityId)
+    const subjects = deal.entityId
+      ? await dealBureauSubjects(tenant.id, deal.entityId)
+      : deal.clientId ? [{ clientId: deal.clientId, role: "DIRECTOR" as const, trusteeKind: null }] : []
     if (subjects.length === 0) {
-      return NextResponse.json({ error: "The entity has no active director or trustee to check" }, { status: 422 })
+      return NextResponse.json({ error: "The borrower has no natural person to check" }, { status: 422 })
     }
 
     const startedAt = new Date()

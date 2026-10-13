@@ -24,7 +24,7 @@ export interface StaffSignerView {
 
 export interface StaffSigningPanel {
   dealStatus: AssetDealStatus
-  entityId: string
+  entityId: string | null
   legalWordingApproved: boolean
   signers: StaffSignerView[]
   /**
@@ -54,7 +54,7 @@ export async function loadStaffSigningPanel(tenantId: string, dealId: string): P
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetFinanceLegalWordingApproved: true } }),
   ])
   const canPrepare = deal.status === "APPROVED" && rows.every((r) => r.method === null)
-  const required = canPrepare ? await currentRequiredSigners(prisma, tenantId, deal.entityId) : []
+  const required = canPrepare && deal.entityId ? await currentRequiredSigners(prisma, tenantId, deal.entityId) : []
   const present = new Set(rows.map((r) => `${r.document}:${r.clientId}`))
   const missingRequired = required.filter((s) => !present.has(`${s.document}:${s.clientId}`))
   const missingClients = await prisma.client.findMany({
@@ -118,7 +118,7 @@ export async function loadPortalSigners(tenantId: string, clientId: string, enti
     id: r.id,
     document: r.document,
     dealReference: r.deal.application.reference,
-    entityName: r.deal.entity.legalName,
+    entityName: r.deal.entity?.legalName ?? "Consumer agreement",
     state: signerState(r),
     canSign: r.deal.status === "APPROVED" && r.method === null,
   }))

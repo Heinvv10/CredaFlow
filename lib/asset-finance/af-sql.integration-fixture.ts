@@ -175,10 +175,15 @@ export function afSqlFixture(label: string) {
       DELETE FROM "LoanCharge" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "RepaymentSchedule" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "Loan" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "AssetFinanceAffordabilityAssessment" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "AssetFinanceDeal" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "NcaRegimeOverride" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "LoanApplication" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "EntityRelationship" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "BusinessEntity" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "FinancedAsset" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "Supplier" WHERE "tenantId" = '${tenantId}';
+      DELETE FROM "ReferenceRate" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "LoanProduct" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "Client" WHERE "tenantId" = '${tenantId}';
       DELETE FROM "User" WHERE "tenantId" = '${tenantId}';
