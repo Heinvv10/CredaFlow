@@ -33,6 +33,13 @@ describe("authenticated navigation", () => {
     expect(usersItem?.minRole).toBe("BRANCH_MANAGER")
   })
 
+  // The page requires ADMIN (app/(dashboard)/settings/security-policy/page.tsx).
+  it("lists Security & KYC policy at ADMIN, matching its page", () => {
+    const item = staffNavigation.flatMap(group => group.items).find(i => i.href === "/settings/security-policy")
+    expect(item?.label).toBe("Security & KYC policy")
+    expect(item?.minRole).toBe("ADMIN")
+  })
+
   // /settings/audit-log (all state-changing actions) and /settings/login-log
   // (sign-in events only) are distinct datasets that were previously
   // collapsed into one "Activity Log" item pointing only at login-log,
@@ -52,7 +59,8 @@ describe("authenticated navigation", () => {
     expect(loginActivity?.minRole).toBe("LOAN_ADMIN")
   })
 
-  // TOTP 2FA enrolment is mandatory for EVERY staff member (CLAUDE.md), and the
+  // TOTP 2FA enrolment is on by default for every staff member (a per-lender
+  // setting, CLAUDE.md), and the
   // backing page app/(dashboard)/settings/security/page.tsx only requires an
   // authenticated session (no requireMinRole) — so the nav item must be reachable
   // by all roles. Previously the page was orphaned (no link anywhere). (ADM-02)

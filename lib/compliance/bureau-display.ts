@@ -24,6 +24,8 @@ export type BureauDisplay =
       riskGrade: string | null
       adverseInfo: string[]
       unscoreable: boolean
+      /** Set only when the stored result came from a simulated provider response. */
+      simulated?: true
       checkedAt: Date
       override: BureauOverrideDisplay | null
     }
@@ -73,6 +75,8 @@ export function resolveBureauDisplay(args: {
   applicationStatus: string
   approvalSnapshot: ApprovalSnapshot | null
   complianceRecord: BureauComplianceRecord | null
+  /** From `CreditBureauCheck.obligations`, the same source the approval gate reads. */
+  simulated?: boolean
 }): BureauDisplay {
   const approvalEvidenceRequired = ["APPROVED", "DISBURSED"].includes(
     args.applicationStatus,
@@ -106,6 +110,7 @@ export function resolveBureauDisplay(args: {
       riskGrade: evidence.check.riskGrade,
       adverseInfo: snapshotAdverseInfo(evidence.check),
       unscoreable: evidence.check.unscoreable,
+      ...(evidence.check.simulated === true ? { simulated: true as const } : {}),
       checkedAt: new Date(evidence.check.createdAt),
       override,
     }
@@ -137,6 +142,7 @@ export function resolveBureauDisplay(args: {
       ? data.adverseInfo.filter((item): item is string => typeof item === "string")
       : [],
     unscoreable: data.unscoreable === true,
+    ...(args.simulated === true ? { simulated: true as const } : {}),
     checkedAt: record.completedAt ?? record.createdAt,
     override: null,
   }

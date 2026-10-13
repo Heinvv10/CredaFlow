@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createHash } from "node:crypto"
 import { computeReadiness, type ReadinessInput } from "@/lib/applications/readiness"
 import { readinessReadyLabel, readinessSummary } from "@/lib/applications/readiness-view"
@@ -462,6 +462,29 @@ describe("computeReadiness", () => {
       expect(result?.blockers).toContain("Bureau risk gate")
     })
 
+    it("blocks a simulated bureau check, as a non-overridable reason, where this deployment forbids simulation", () => {
+      vi.stubEnv("NODE_ENV", "production")
+      try {
+        const result = computeReadiness(
+          input({
+            bureau: {
+              score: 700,
+              unscoreable: false,
+              hasAdverse: false,
+              deceased: false,
+              underDebtReview: false,
+              hasJudgement: false,
+              hasNotice: false,
+              obligations: { simulated: true },
+            },
+          }),
+        )
+        expect(result?.blockers).toEqual(["Bureau check is simulated"])
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
     it("reports deceased as its own non-overridable blocker", () => {
       const result = computeReadiness(
         input({
@@ -655,6 +678,19 @@ describe("computeReadiness", () => {
           },
         })?.blockers,
       ).toContain("Affordability changed")
+    })
+
+    it("names a simulated bureau check at payout where this deployment forbids simulation", () => {
+      vi.stubEnv("NODE_ENV", "production")
+      try {
+        const blockers = approved({
+          bureauEvidenceCheck: { ...evidenceBureauCheck, obligations: { ...evidenceBureauCheck.obligations, simulated: true } },
+        })?.blockers
+        expect(blockers).toContain("Bureau check is simulated")
+        expect(blockers).not.toContain("Affordability changed")
+      } finally {
+        vi.unstubAllEnvs()
+      }
     })
 
     it("blocks when the contract schedule is missing", () => {

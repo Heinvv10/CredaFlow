@@ -4,19 +4,23 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { demoStaffWithoutTotp } from "@/lib/config/demo-mode"
 import { CLEAR_REASON_MAX_LENGTH, CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
 import { RECOMPUTE_STATUSES } from "@/lib/credit-checks/recompute"
 
 /**
  * POST /api/applications/[id]/checks/[flagId]/clear — a LOAN_ADMIN, signed in
  * with two-factor authentication, clears one OPEN flag with a written reason.
+ * The one exception is a TOTP-free demo stack (demoStaffWithoutTotp), where a
+ * password-only session may clear; its audit row says the 2FA was waived.
  * The clearance and its audit row commit together; the database CHECK
  * (ApplicationCheckFlag_clearance_complete) holds the same reason floor.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string; flagId: string }> }) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
-  if (guard.user.totpVerified !== true) {
+  const totpWaived = guard.user.totpVerified !== true && demoStaffWithoutTotp()
+  if (guard.user.totpVerified !== true && !totpWaived) {
     return NextResponse.json(
       { error: "Sign in with two-factor authentication to clear a credit check." },
       { status: 403 },
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         entity: "ApplicationCheckFlag",
         entityId: flag.id,
         oldValue: { status: "OPEN" },
-        newValue: { status: "CLEARED", applicationId: id, check: flag.check, code: flag.code, reason, clearedAt: clearedAt.toISOString() },
+        newValue: { status: "CLEARED", applicationId: id, check: flag.check, code: flag.code, reason, clearedAt: clearedAt.toISOString(), ...(totpWaived ? { twoFactor: "waived: demo stack without TOTP" } : {}) },
       }, tx)
       return { status: 200 as const }
     })

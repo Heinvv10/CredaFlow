@@ -120,6 +120,15 @@ function inVendorSandbox(integration: GuardedIntegration): boolean {
 }
 
 /**
+ * Non-throwing form of the same policy: does THIS deployment permit simulated
+ * results from `integration`? Used to decide whether a stored simulated result
+ * may still count as evidence (e.g. a UAT row restored into production).
+ */
+export function isSimulationPermitted(integration: GuardedIntegration): boolean {
+  return !isDeployedBuild() || inVendorSandbox(integration) || explicitlyAllowed(integration)
+}
+
+/**
  * Throws if `<PROVIDER>_DRY_RUN` is enabled on a deployed build without an
  * explicit, known-safe signal.
  *
@@ -136,8 +145,7 @@ export function assertSimulationAllowed(
   dryRunRequested: boolean,
 ): void {
   if (!dryRunRequested) return
-  if (!isDeployedBuild()) return
-  if (inVendorSandbox(integration) || explicitlyAllowed(integration)) return
+  if (isSimulationPermitted(integration)) return
 
   const rule = SIMULATION_FORBIDDEN_ON_DEPLOYED[integration] as {
     sandboxEnvVar: string | null

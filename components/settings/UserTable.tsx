@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
-import { assignableRoles, loadUsers, type SettingsUser as User, type Branch } from "@/lib/settings-users"
-import { hasMinRole, type UserRole } from "@/lib/permissions"
+import { assignableRoles, canResetTotp, canWriteUser, loadUsers, type SettingsUser as User, type Branch } from "@/lib/settings-users"
+import { ResetTotpButton } from "./ResetTotpButton"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import {
   Plus, Pencil, UserX, UserCheck, KeyRound, Search,
@@ -85,7 +85,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
 const selectCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-300"
 
-export function UserTable({ currentUserId, currentUserRole }: { currentUserId: string; currentUserRole: string }) {
+export function UserTable({
+  currentUserId, currentUserRole, currentUserTotpVerified = false, staffTotpRequired = true,
+}: { currentUserId: string; currentUserRole: string; currentUserTotpVerified?: boolean; staffTotpRequired?: boolean }) {
   const isSuperAdmin = currentUserRole === "SUPER_ADMIN"
   const [users, setUsers] = useState<User[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
@@ -249,11 +251,14 @@ export function UserTable({ currentUserId, currentUserRole }: { currentUserId: s
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
                       <button onClick={() => setDetailUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="View details"><Activity className="h-4 w-4" /></button>
-                      {/* The server refuses any write to a user who outranks the caller. */}
-                      {hasMinRole(currentUserRole as UserRole, user.role as UserRole) && (
+                      {/* The server refuses any write to a user who ranks above or level with the caller (their own row excepted). */}
+                      {canWriteUser(currentUserRole, user.role, user.id === currentUserId) && (
                         <>
                           <button onClick={() => setEditUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="Edit user"><Pencil className="h-4 w-4" /></button>
                           <button onClick={() => setResetUser(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-600" title="Reset password"><KeyRound className="h-4 w-4" /></button>
+                          {canResetTotp({ callerRole: currentUserRole, callerTotpVerified: currentUserTotpVerified, targetRole: user.role, targetEnrolled: user.totpEnabled, isSelf: user.id === currentUserId }) && (
+                            <ResetTotpButton user={user} staffTotpRequired={staffTotpRequired} onDone={() => setRefreshKey(k => k + 1)} />
+                          )}
                           {user.id !== currentUserId && (
                             <ToggleActiveButton user={user} onDone={() => setRefreshKey(k => k + 1)} />
                           )}

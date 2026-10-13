@@ -446,6 +446,13 @@ export async function POST(
           disbursementPrecondition: "unchanged_affordability",
         }, { status: 422 })
       }
+      if (!initialApprovalEvidence.ok && initialApprovalEvidence.reason === "bureau_simulated") {
+        return NextResponse.json({
+          error: "Cannot disburse: the bureau check on this application is a simulated result, not valid evidence in this environment. Return the application to review and run a real bureau check before funds can move.",
+          affordabilitySnapshot: initialApprovalEvidence.reason,
+          disbursementPrecondition: "unchanged_affordability",
+        }, { status: 422 })
+      }
       if (!initialApprovalEvidence.ok && initialApprovalEvidence.reason === "kyc_changed") {
         return NextResponse.json({
           error: "Cannot disburse: the client's current KYC status is not verified. Re-complete KYC and approve the application against valid identity evidence before funds can move.",

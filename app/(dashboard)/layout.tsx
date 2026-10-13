@@ -3,6 +3,7 @@ import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { getSession } from "@/lib/auth-session"
 import { redirectStaleSession } from "@/lib/auth-guards"
 import { AppShell } from "@/components/app-shell/AppShell"
+import { EnrolmentShell } from "@/components/app-shell/EnrolmentShell"
 import { TenantThemeProvider } from "@/components/TenantThemeProvider"
 import { prisma } from "@/lib/prisma"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
@@ -65,6 +66,16 @@ export default async function DashboardLayout({
   const tenantId = session.user.tenantId
   if (!tenantId) {
     redirectStaleSession()
+  }
+
+  // Held at TOTP enrolment (proxy.ts): a bare shell, with none of the sidebar's
+  // counts or navigation.
+  if (session.user.totpEnrolmentRequired === true) {
+    return (
+      <TenantThemeProvider config={await getTenantConfig(tenantId)}>
+        <EnrolmentShell>{children}</EnrolmentShell>
+      </TenantThemeProvider>
+    )
   }
 
   const user = {

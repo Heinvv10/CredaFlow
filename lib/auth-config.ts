@@ -11,6 +11,10 @@ declare module "next-auth" {
     tenantId?: string | null
     /** True only when THIS sign-in verified a TOTP code (lib/auth.ts). */
     totpVerified?: boolean
+    /** Keyed fingerprint of the portal credential (CLIENT only); lib/client-session.ts. */
+    credentialStamp?: string
+    /** Set at sign-in when the lender requires 2FA and this user has none (lib/auth.ts). */
+    totpEnrolmentRequired?: boolean
   }
   interface Session {
     user: {
@@ -20,10 +24,27 @@ declare module "next-auth" {
       role: AppRole
       tenantId?: string | null
       totpVerified?: boolean
+      /** This user must enrol TOTP before anything else (proxy.ts, lib/auth-guards.ts). */
+      totpEnrolmentRequired?: boolean
       /** The User row's tokenVersion this session was issued at (staff only). */
       tokenVersion?: number
     }
   }
+}
+
+/**
+ * A host serves one audience (APP_MODE, as proxy.ts reads it): the client host
+ * only honours CLIENT sessions and the staff host only staff ones. Checked on
+ * every decode, not just at sign-in, so it holds even when the two hosts share
+ * a signing secret (docker-compose falls back to the shared AUTH_SECRET) and a
+ * cookie from one is replayed against the other. Read per call, not at load.
+ * A single host (APP_MODE unset or "all") honours both.
+ */
+export function roleRefusedOnThisHost(role: unknown): boolean {
+  const mode = process.env.APP_MODE
+  if (mode === "client") return role !== "CLIENT"
+  if (mode === "staff") return role === "CLIENT"
+  return false
 }
 
 // Prefer AUTH_URL (NextAuth v5) and fall back to NEXTAUTH_URL (v4 alias).
@@ -56,6 +77,7 @@ export const authBaseConfig = {
   providers: [],
   callbacks: {
     async jwt({ token, user }) {
+      if (roleRefusedOnThisHost(user ? user.role : token.role)) return null
       if (user) {
         if (!user.id) return null
         token.id = user.id
@@ -71,6 +93,11 @@ export const authBaseConfig = {
         session.user.role = token.role as AppRole
         session.user.tenantId =
           typeof token.tenantId === "string" ? token.tenantId : null
+        // proxy.ts reads this from the cookie, so the edge session must carry it.
+        // Absent stays undefined (not false): a token minted before the claim
+        // existed is held at the proxy, not waved through.
+        session.user.totpEnrolmentRequired =
+          typeof token.totpEnrolmentRequired === "boolean" ? token.totpEnrolmentRequired : undefined
       }
       return session
     },

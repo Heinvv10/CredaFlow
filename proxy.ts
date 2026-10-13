@@ -6,6 +6,8 @@ import { isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
 import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
+import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
+import { isStaticAssetRead } from "@/lib/proxy/static-image"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -25,7 +27,14 @@ const APP_MODE: AppMode =
 
 // Every response (redirects and 404s included) goes through applyDemoHeaders so
 // a demo deployment is never indexable; with DEMO_MODE unset it is a no-op.
-export default auth((req) => applyDemoHeaders(route(req)))
+const handle = auth((req) => applyDemoHeaders(route(req)))
+
+// Reads of the real files in public/ are answered before the session is decoded,
+// as when the matcher skipped images. Everything else, image-suffixed or not,
+// reaches route() (lib/proxy/static-image.ts).
+export default function proxy(...args: Parameters<typeof handle>) {
+  return isStaticAssetRead(args[0]) ? NextResponse.next() : handle(...args)
+}
 
 function route(req: NextAuthRequest): Response {
   const path = req.nextUrl.pathname
@@ -183,27 +192,24 @@ function route(req: NextAuthRequest): Response {
   //     APP_MODE=all keeps the legacy single-host behaviour for backward
   //     compatibility.
   if (APP_MODE !== "all") {
-    const isStaffOnlyPage =
-      isLoginPage ||
-      isRegisterPage ||
-      isForgotPasswordPage ||
-      isResetPasswordPage ||
-      path === "/dashboard" || path.startsWith("/dashboard/") ||
-      path === "/applications" || path.startsWith("/applications/") ||
-      path === "/clients" || path.startsWith("/clients/") ||
-      path === "/collections" || path.startsWith("/collections/") ||
-      path === "/compliance" || path.startsWith("/compliance/") ||
-      path === "/crm" || path.startsWith("/crm/") ||
-      path === "/disbursements" || path.startsWith("/disbursements/") ||
-      path === "/insurance" || path.startsWith("/insurance/") ||
-      path === "/loans" || path.startsWith("/loans/") ||
-      path === "/payments" || path.startsWith("/payments/") ||
-      path === "/reports" || path.startsWith("/reports/") ||
-      path === "/settings" || path.startsWith("/settings/")
+    // The client host serves an allow-list of pages: the portal, plus the
+    // public routes minus the staff sign-in pages. Anything else is a staff
+    // page, or no page at all, and 404s. A deny-list of staff prefixes missed
+    // /inbox, /contacts and /learn, and would miss the next staff page added.
+    const isStaffSignInPage =
+      isLoginPage || isRegisterPage || isForgotPasswordPage || isResetPasswordPage
+    const isUnlistedPage =
+      !path.startsWith("/api/") &&
+      !(isPortalPath || (isPublicRoute && !isStaffSignInPage))
     const isClientOnlyPage = isPortalLoginPage || isPortalPath
+    // /api/auth/* is public everywhere, but the app's own staff handlers
+    // (forgot-password, reset-password) share the prefix. The client host serves
+    // NextAuth's endpoints and the stale-session loop-breaker only.
+    const isNextAuthApi =
+      /^\/api\/auth\/(?:session|csrf|providers|signin|signout|callback|error|verify-request|webauthn-options|_log|expired)(?:\/|$)/.test(path)
     const isStaffOnlyApi =
       path.startsWith("/api/") &&
-      !isApiAuthRoute &&
+      !isNextAuthApi &&
       !isWebsiteApi &&
       !isPublicOperationalApi &&
       !isSharedClientApi &&
@@ -218,7 +224,7 @@ function route(req: NextAuthRequest): Response {
     if (APP_MODE === "staff" && (isClientOnlyPage || isClientOnlyApi)) {
       return reject(isClientOnlyApi)
     }
-    if (APP_MODE === "client" && (isStaffOnlyPage || isStaffOnlyApi)) {
+    if (APP_MODE === "client" && (isUnlistedPage || isStaffOnlyApi)) {
       return reject(isStaffOnlyApi)
     }
   }
@@ -241,6 +247,13 @@ function route(req: NextAuthRequest): Response {
 
   // Forward tenant slug to Server Components via request header
   const requestHeaders = buildTenantHeaders(req, tenantSlug)
+
+  // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts)
+  // reaches only the enrolment page, public paths included.
+  if (isHeldAtEnrolment(req.auth)) {
+    const refusal = enrolmentGate(req, isPublicRoute)
+    if (refusal) return refusal
+  }
 
   if (isPublicRoute) {
     if (isLoggedIn && (isLoginPage || isRegisterPage || isForgotPasswordPage)) {
@@ -303,6 +316,6 @@ function route(req: NextAuthRequest): Response {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|webp|svg|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 }
