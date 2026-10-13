@@ -112,8 +112,10 @@ export function afSqlFixture(label: string) {
     return idOf(statement)
   }
 
+  // An entity application reaches APPROVED through SUBMITTED (guardEntityApplicationStatus).
   const approveApplication = (applicationId: string) =>
-    `UPDATE "LoanApplication" SET "status" = 'APPROVED', "repaymentMethod" = 'EFT', "approvedAt" = CURRENT_TIMESTAMP,
+    `UPDATE "LoanApplication" SET "status" = 'SUBMITTED' WHERE "id" = '${applicationId}' AND "status" = 'DRAFT';
+     UPDATE "LoanApplication" SET "status" = 'APPROVED', "repaymentMethod" = 'EFT', "approvedAt" = CURRENT_TIMESTAMP,
        "approvedById" = '${ids.userId}' WHERE "id" = '${applicationId}'`
 
   const disburse = (applicationId: string) =>

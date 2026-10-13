@@ -184,7 +184,10 @@ ALTER TABLE "LoanProduct" ADD CONSTRAINT "LoanProduct_non_nca_arrears_terms" CHE
 
 -- An override changes the regime, and its decision fields are all-or-nothing.
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_changes_regime" CHECK ("fromRegime" <> "toRegime");
-ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_decision_complete" CHECK (("status" = 'PENDING') = ("decidedById" IS NULL AND "decidedAt" IS NULL));
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_decision_complete" CHECK (
+  ("status" = 'PENDING' AND "decidedById" IS NULL AND "decidedAt" IS NULL)
+  OR ("status" <> 'PENDING' AND "decidedById" IS NOT NULL AND "decidedAt" IS NOT NULL)
+);
 -- The approver of an override that relaxes the regime (NCA → NON_NCA) is
 -- never its requester. Both ids are real users of the override's tenant
 -- (composite FKs NcaRegimeOverride_tenantId_requestedById_fkey and
@@ -192,7 +195,7 @@ ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_decision_compl
 -- no user and fails the FK. Moving to NCA only adds protection, and a
 -- rejection grants nothing (the classifier rejects its own superseded
 -- requests); one person may do either.
-ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("status" <> 'APPROVED' OR "toRegime" = 'NCA' OR "decidedById" <> "requestedById");
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("status" <> 'APPROVED' OR "toRegime" = 'NCA' OR ("decidedById" IS NOT NULL AND "decidedById" IS DISTINCT FROM "requestedById"));
 -- The application an override was requested on (borrower, amount, product,
 -- classification rule) is recorded whole, and always for a move to NON_NCA:
 -- that is what the approver agreed to (guardLoanApplicationNcaRegime).
@@ -1065,6 +1068,19 @@ BEGIN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = 'A decided entity application cannot be reopened';
+  END IF;
+
+  -- Only these moves exist for an entity application; DECLINED and CANCELLED
+  -- are final, and DISBURSED follows APPROVED only.
+  IF NOT (
+    (OLD."status"::TEXT = 'DRAFT' AND NEW."status"::TEXT IN ('SUBMITTED', 'DECLINED', 'CANCELLED'))
+    OR (OLD."status"::TEXT = 'SUBMITTED' AND NEW."status"::TEXT IN ('UNDER_REVIEW', 'APPROVED', 'DECLINED', 'CANCELLED'))
+    OR (OLD."status"::TEXT = 'UNDER_REVIEW' AND NEW."status"::TEXT IN ('APPROVED', 'DECLINED', 'CANCELLED'))
+    OR (OLD."status"::TEXT = 'APPROVED' AND NEW."status"::TEXT IN ('DISBURSED', 'CANCELLED'))
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format('An entity application cannot move from %s to %s', OLD."status", NEW."status");
   END IF;
 
   RETURN NEW;

@@ -91,6 +91,19 @@ suite("asset finance foundation: override binding to users and to the applicatio
     }
   })
 
+  it("refuses a decision with no decider or no decision time, so an approval always has a second person", () => {
+    const id = requested(ncaApplication())
+    expectRejected(
+      `UPDATE "NcaRegimeOverride" SET "status" = 'APPROVED', "decidedById" = NULL, "decidedAt" = CURRENT_TIMESTAMP WHERE "id" = '${id}'`,
+      "NcaRegimeOverride_decision_complete",
+    )
+    expectRejected(
+      `UPDATE "NcaRegimeOverride" SET "status" = 'APPROVED', "decidedById" = '${approverId}', "decidedAt" = NULL WHERE "id" = '${id}'`,
+      "NcaRegimeOverride_decision_complete",
+    )
+    expect(column(id, "status")).toBe("PENDING")
+  })
+
   it("lets a requester reject their own request, never approve it", () => {
     const overrideId = requested(ncaApplication())
     sql(`UPDATE "NcaRegimeOverride" SET "status" = 'REJECTED', "decidedById" = '${userId}', "decidedAt" = CURRENT_TIMESTAMP,

@@ -39,14 +39,28 @@ suite("asset finance foundation: entity application status and the NON_NCA loan 
   beforeAll(() => f.seed())
   afterAll(() => f.cleanup())
 
-  it("never reopens an approved entity application, directly or through DECLINED, so its regime stays frozen", () => {
+  it("never reopens an approved entity application, directly or through CANCELLED, so its regime stays frozen", () => {
     const id = f.nonNcaApplication()
     sql(f.approveApplication(id))
     for (const open of ["DRAFT", "SUBMITTED", "UNDER_REVIEW"]) expectRejected(setStatus(id, open), REOPEN)
-    sql(setStatus(id, "DECLINED"))
+    // An approved deal that falls through is CANCELLED, never DECLINED.
+    expectRejected(setStatus(id, "DECLINED"), "cannot move from APPROVED to DECLINED")
+    sql(setStatus(id, "CANCELLED"))
     for (const open of ["DRAFT", "SUBMITTED", "UNDER_REVIEW"]) expectRejected(setStatus(id, open), REOPEN)
-    expect(status(id)).toBe("DECLINED")
+    expect(status(id)).toBe("CANCELLED")
     expectRejected(`UPDATE "LoanApplication" SET "ncaRegime" = 'NCA' WHERE "id" = '${id}'`, "frozen once it is decided")
+  })
+
+  it("never moves a declined or cancelled entity application forward, and disburses only after approval", () => {
+    const declined = f.nonNcaApplication()
+    sql(setStatus(declined, "DECLINED"))
+    for (const next of ["APPROVED", "DISBURSED", "CANCELLED"]) expectRejected(setStatus(declined, next), "cannot move from DECLINED")
+    const cancelled = f.application({ entityId }, "NCA")
+    sql(`${cancelled}; ${setStatus(idOf(cancelled), "CANCELLED")}`)
+    expectRejected(setStatus(idOf(cancelled), "APPROVED"), "cannot move from CANCELLED")
+    const open = f.nonNcaApplication()
+    expectRejected(setStatus(open, "DISBURSED"), "cannot move from")
+    expect(status(open)).not.toBe("DISBURSED")
   })
 
   it("never reopens a cancelled entity application", () => {
