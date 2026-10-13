@@ -8,7 +8,7 @@
  * provisioned beside the seed instead: the one place the simulator writes a
  * row rather than driving the API.
  *
- * It upserts the operator for the "acme" tenant exactly as prisma/seed.ts
+ * It upserts the operator for the demo lender's tenant (DEMO_LENDER) exactly as prisma/seed.ts
  * upsertStaff does: bcrypt cost 12, a TOTP secret from lib/totp kept across
  * reruns, totpEnabled. A rerun updates the same row (new password), so there is
  * never a second operator; another SUPER_ADMIN in the tenant is refused.
@@ -33,10 +33,11 @@ import type { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
 
 import { generateTotpSecret } from "../../../lib/totp"
+import { demoLender } from "../../../prisma/demo-lender"
 import { STAFF, type StoredStaff } from "../breadth/staff"
 import { SIM_DB_SERVICE_ADDRESS } from "./env"
 
-export const OPERATOR_TENANT_SLUG = "acme"
+export const OPERATOR_TENANT_SLUG = demoLender().slug
 /** The demo-sim database's comment (SIM_DB_MARKER in scripts/demo/lib.sh). */
 export const SIM_DATABASE_MARKER = "credaflow-demo-sim"
 
@@ -58,7 +59,7 @@ export function targetRefusal(env: Record<string, string | undefined>): string |
 }
 
 /**
- * The acme tenant's id and the operator's row, if any, once the database is
+ * The demo lender tenant's id and the operator's row, if any, once the database is
  * known to be the sim's. Refuses an operator email held by another role or
  * tenant.
  */

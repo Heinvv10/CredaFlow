@@ -9,6 +9,7 @@
  * evidence the seed does not have, and faking it would defeat the guards.
  */
 import { PrismaClient } from "@prisma/client"
+import { demoLender } from "./demo-lender"
 
 if (process.env.NODE_ENV === "production") {
   process.stderr.write("Seed refused: NODE_ENV=production. The demo seed is for local and throwaway databases only.\n")
@@ -19,7 +20,8 @@ const prisma = new PrismaClient()
 const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS)
 const daysFromNow = (days: number) => new Date(Date.now() + days * DAY_MS)
-const STAFF_DOMAIN = "acme-lending.example"
+const LENDER = demoLender()
+const STAFF_DOMAIN = LENDER.staffDomain
 
 async function ensureOne<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
   return (await find()) ?? create()
@@ -28,9 +30,9 @@ async function ensureOne<T>(find: () => Promise<T | null>, create: () => Promise
 async function main() {
   console.log("Seeding staging workflow coverage...")
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: "acme" } })
+  const tenant = await prisma.tenant.findUnique({ where: { slug: LENDER.slug } })
   if (!tenant) throw new Error("Run prisma/seed.ts before prisma/seed-staging.ts")
-  // Every lookup is scoped to the Acme tenant: on a shared database a global
+  // Every lookup is scoped to the demo lender's tenant (DEMO_LENDER): on a shared database a global
   // key (email, reference) can name another tenant's row.
   const officer = await prisma.user.findFirst({ where: { tenantId: tenant.id, email: `credit.officer@${STAFF_DOMAIN}` } })
   const admin = await prisma.user.findFirst({ where: { tenantId: tenant.id, email: `admin@${STAFF_DOMAIN}` } })

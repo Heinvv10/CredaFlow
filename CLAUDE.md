@@ -221,7 +221,8 @@ app/
 - `lib/config/identity.ts` — the lender identity (`getLenderIdentity`)
 - `lib/loan-calculator.ts` — amortisation + NDI affordability
 - `lib/qualify.ts` — pre-qualification rules
-- `prisma/seed.ts` — neutral demo tenant ("Acme"), TOTP staff
+- `prisma/seed.ts` — neutral demo tenant ("Acme"; `DEMO_LENDER` picks another
+  from `prisma/demo-lender.ts`), TOTP staff
 
 ## Path-Scoped Rules
 

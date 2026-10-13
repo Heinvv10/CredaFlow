@@ -9,6 +9,10 @@
 #   --start  first simulated day; default: the 1st of the month six months
 #            back, so the window stays 6–7 months as the weeks pass.
 #
+#   DEMO_LENDER       the lender the snapshot is branded as (prisma/demo-lender.ts;
+#                     default acme). .env.demo-sim must use its slug.
+#   DEMO_LENDER_LOGO  optional PNG uploaded as the lender's logo during setup.
+#
 # Steps: rebuild the sim image on --image → fresh-stack.sh (DESTROYS the sim
 # volumes) → simulate.ts to today → check-dates → ledger invariant →
 # verify-pages → pg_dump -Fc + uploads tarball + meta.json → `latest` symlink
@@ -36,6 +40,8 @@ done
 [ -n "$image" ] || image="$(live_image)"
 [ -n "$start" ] || start="$(date -d "$(date +%Y-%m-01) -6 months" +%F)"
 docker image inspect "$image" >/dev/null 2>&1 || die "image $image not found"
+slug="$(demo_slug)"   # refuses an unknown DEMO_LENDER before anything starts
+[ -z "${DEMO_LENDER_LOGO:-}" ] || [ -r "$DEMO_LENDER_LOGO" ] || die "DEMO_LENDER_LOGO=$DEMO_LENDER_LOGO is not readable"
 
 mkdir -p "$SNAP_DIR"
 exec 9>"$BAKE_LOCK"
@@ -103,8 +109,8 @@ upload_files="$(tar -tzf "$work/uploads.tar.gz" | grep -vc '/$' || true)"
 cp scripts/demo/.sim-credentials.txt scripts/demo/.sim-staff.json scripts/demo/.sim-breadth-staff.json "$work/"
 npx tsx scripts/demo/sim/provision-operator.ts --forget "$work/.sim-breadth-staff.json"
 
-tenant_id="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = 'acme'")"
-[ -n "$tenant_id" ] || die "no acme tenant in the sim database"
+tenant_id="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = '$slug'")"
+[ -n "$tenant_id" ] || die "no $slug tenant in the sim database"
 counts="$(sim_sql "$SNAPSHOT_COUNTS_SQL")"
 
 jq -n \
@@ -114,12 +120,12 @@ jq -n \
   --arg worktreeTag "$(worktree_tag)" \
   --arg simStart "$(jq -r .start scripts/demo/.sim-state.json)" \
   --arg simUntil "$(jq -r .until scripts/demo/.sim-state.json)" \
-  --arg simClockEnd "$sim_end" --arg tenantId "$tenant_id" \
+  --arg simClockEnd "$sim_end" --arg tenantSlug "$slug" --arg tenantId "$tenant_id" \
   --argjson counts "$counts" --argjson uploadFiles "$upload_files" \
   '{stamp: $stamp, startedAt: $startedAt, finishedAt: $finishedAt,
     image: $image, imageId: $imageId, simImageId: $simImageId, worktreeTag: $worktreeTag,
     simWindow: {start: $simStart, until: $simUntil, clockEnd: $simClockEnd},
-    tenantSlug: "acme", tenantId: $tenantId, counts: ($counts + {uploadFiles: $uploadFiles}),
+    tenantSlug: $tenantSlug, tenantId: $tenantId, counts: ($counts + {uploadFiles: $uploadFiles}),
     checks: {simulate: "passed", checkDates: "passed", ledgerInvariant: "passed", verifyPages: "passed"}}' \
   > "$work/meta.json"
 

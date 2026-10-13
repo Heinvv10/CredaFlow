@@ -107,3 +107,27 @@ export function matchesMagic(head: Uint8Array, mime: string): boolean {
   if (!sig) return false
   return sig.every((seg) => seg.bytes.every((b, i) => head[seg.offset + i] === b))
 }
+
+/**
+ * Records that staff were shown content read out of client documents without
+ * opening the file itself, e.g. statement transactions quoted as credit-check
+ * evidence. One DocumentAccessLog row per document (POPIA).
+ */
+export async function logDocumentContentAccess(opts: {
+  documentIds: string[]
+  staffUserId: string
+  action: string
+  req: Request
+}): Promise<void> {
+  if (opts.documentIds.length === 0) return
+  await prisma.documentAccessLog.createMany({
+    data: [...new Set(opts.documentIds)].map((documentId) => ({
+      documentId,
+      accessorType: "staff",
+      accessorId: opts.staffUserId,
+      action: opts.action,
+      ipAddress: opts.req.headers.get("x-forwarded-for") ?? null,
+      userAgent: opts.req.headers.get("user-agent") ?? null,
+    })),
+  })
+}

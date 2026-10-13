@@ -63,8 +63,8 @@ export interface SessionUser {
   totpVerified?: boolean
 }
 
-/** A string is sent as-is (the caller sets its content-type); objects and arrays as JSON. */
-type Body = FormData | URLSearchParams | string | Record<string, unknown> | unknown[] | undefined
+/** A string or bytes are sent as-is (the caller sets the content-type); objects and arrays as JSON. */
+type Body = FormData | URLSearchParams | string | Uint8Array<ArrayBuffer> | Record<string, unknown> | unknown[] | undefined
 
 export class SimClient {
   private readonly cookies = new Map<string, string>()
@@ -74,8 +74,8 @@ export class SimClient {
 
   async request<T = unknown>(method: string, path: string, body?: Body, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
     const headers: Record<string, string> = { accept: "application/json", ...opts.headers }
-    let payload: FormData | URLSearchParams | string | undefined
-    if (body instanceof FormData || body instanceof URLSearchParams || typeof body === "string") {
+    let payload: FormData | URLSearchParams | string | Uint8Array<ArrayBuffer> | undefined
+    if (body instanceof FormData || body instanceof URLSearchParams || body instanceof Uint8Array || typeof body === "string") {
       payload = body
     } else if (body !== undefined) {
       payload = JSON.stringify(body)

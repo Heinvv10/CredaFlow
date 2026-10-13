@@ -10,6 +10,7 @@
 #                  runner.json  the runner's last update (update-runner.sh)
 #   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
 #   DEMO_RUNNER_DIR  the clean checkout cron runs from; default ~/Workspace/CredaFlow-demo-runner
+#   DEMO_LENDER    the lender a bake is branded as (prisma/demo-lender.ts); default acme
 #
 # Every Docker name the demo scripts touch is defined once, below. The live
 # project name can be overridden (DEMO_LIVE_PROJECT) only to point restore.sh
@@ -102,6 +103,11 @@ env_set() {
   printf '%s=%s\n' "$key" "$value" >> "$tmp"
   chmod --reference="$file" "$tmp"
   mv "$tmp" "$file"
+}
+
+# demo_slug — DEMO_LENDER's tenant slug.
+demo_slug() {
+  (cd "$DEMO_ROOT" && npx tsx prisma/demo-lender.ts slug) || die "DEMO_LENDER=${DEMO_LENDER:-} is not a known demo lender"
 }
 
 # The image the live staff container runs (the snapshot must match it).

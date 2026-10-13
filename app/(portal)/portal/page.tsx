@@ -87,7 +87,7 @@ async function getPortalData(email: string) {
   })
 
   const insurancePolicies = await prisma.insurancePolicy.findMany({
-    where: { clientId: client.id },
+    where: { tenantId, clientId: client.id },
     select: { id: true, policyNumber: true, status: true, premiumAmount: true, sumAssured: true },
     orderBy: { createdAt: "desc" },
   })

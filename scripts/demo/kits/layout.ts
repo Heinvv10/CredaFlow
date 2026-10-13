@@ -5,7 +5,10 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export const KITS_ROOT = join(homedir(), 'credaflow-demo-data', 'kits')
+/** DEMO_DATA_DIR as scripts/demo/lib.sh reads it, so each lender's kits sit beside its snapshots. */
+const DATA_DIR = process.env.DEMO_DATA_DIR || join(homedir(), 'credaflow-demo-data')
+
+export const KITS_ROOT = join(DATA_DIR, 'kits')
 
 export function defaultKitDir(asOf: string): string {
   return join(KITS_ROOT, asOf)
@@ -18,4 +21,4 @@ export function defaultKitDir(asOf: string): string {
  * are overwritten by the next simulator run, the snapshot's are not.
  */
 export const CREDENTIALS_SOURCE =
-  '.sim-credentials.txt in the snapshot the demo was restored from (~/credaflow-demo-data/snapshots/latest/); the LOAN_ADMIN is in .sim-staff.json beside it'
+  `.sim-credentials.txt in the snapshot the demo was restored from (${DATA_DIR.replace(homedir(), '~')}/snapshots/latest/); the LOAN_ADMIN is in .sim-staff.json beside it`

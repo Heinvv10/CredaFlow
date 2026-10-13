@@ -74,9 +74,10 @@ beforeEach(() => {
   mkdirSync(join(root, 'live'))
   writeFileSync(join(root, 'live', 'docker-compose.demo.yml'), '')
   writeFileSync(join(root, 'live', '.env.production'), 'DEBIT_MANDATE_CREDITOR_TENANT_ID=old\n')
+  writeFileSync(join(root, 'live', '.env'), 'NEXT_PUBLIC_TENANT_SLUG=acme\n')
   const snap = join(root, 'data', 'snapshots', 'latest')
   mkdirSync(snap, { recursive: true })
-  writeFileSync(join(snap, 'meta.json'), JSON.stringify({ image: IMAGE, tenantId: TENANT, counts: { ...COUNTS, uploadFiles: 9 } }))
+  writeFileSync(join(snap, 'meta.json'), JSON.stringify({ image: IMAGE, tenantSlug: 'acme', tenantId: TENANT, counts: { ...COUNTS, uploadFiles: 9 } }))
   writeFileSync(join(snap, 'db.dump'), 'x')
   writeFileSync(join(snap, 'uploads.tar.gz'), 'x')
 })
@@ -159,5 +160,28 @@ describe('restore.sh demo staff TOTP', () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/DEMO_MODE=true/)
     expect(clearCalls(r.calls)).toHaveLength(0)
+  })
+})
+
+describe('restore.sh lender guard', () => {
+  const meta = join('data', 'snapshots', 'latest', 'meta.json')
+  const setSlug = (slug: string | undefined) => {
+    const m = JSON.parse(readFileSync(join(root, meta), 'utf8'))
+    writeFileSync(join(root, meta), JSON.stringify({ ...m, tenantSlug: slug }))
+  }
+
+  it.each([['another lender', 'fairscore'], ['no slug', undefined]])('refuses a snapshot with %s before touching the stack', (_what, slug) => {
+    setSlug(slug)
+    const r = run()
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/the live stack serves 'acme'/)
+    expect(r.calls.some((c) => c.includes('RENAME') || c.startsWith('docker-compose'))).toBe(false)
+  })
+
+  it('refuses a live dir whose .env names no tenant slug', () => {
+    writeFileSync(join(root, 'live', '.env'), '')
+    const r = run()
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/no NEXT_PUBLIC_TENANT_SLUG/)
   })
 })

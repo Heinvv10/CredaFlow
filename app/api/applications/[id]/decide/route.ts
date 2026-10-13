@@ -40,6 +40,8 @@ import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-e
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { parseDeclineCategory } from "@/lib/applications/decline-category"
+import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
+import { payslipStateKey, statementSnapshot } from "@/lib/credit-checks/load-facts"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
@@ -1064,6 +1066,24 @@ export async function POST(
           },
         })
 
+        // Credit checks (lib/credit-checks) refer, they do not decide: every
+        // flag still OPEN after a fresh recompute blocks approval until a
+        // LOAN_ADMIN clears it with a reason. The transaction re-counts under
+        // the row lock and the LoanApplication trigger is the backstop.
+        const checks = await recomputeApplicationFlags(tenant.id, id, { userId: guard.user.id, email: guard.user.email })
+        const openChecks = (checks?.flags ?? []).filter((f) => f.status === "OPEN")
+        if (openChecks.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${openChecks.length} credit check${openChecks.length === 1 ? " is" : "s are"} open. Clear ${openChecks.length === 1 ? "it" : "them"} in Credit checks first.`,
+              // No summaries: they quote the statement, and this response is not
+              // a logged document access. The panel shows them, and logs it.
+              openChecks: openChecks.map((f) => ({ id: f.id, check: f.check, code: f.code })),
+            },
+            { status: 409 },
+          )
+        }
+
         // Re-read and rebuild the exact decision under coordinated database
         // locks immediately before the state write. Pinning only
         // LoanApplication.updatedAt did not detect a concurrent Client/debt or
@@ -1101,6 +1121,45 @@ export async function POST(
             // not demand biometrics; sign and disburse still do.
             if (!lockedKyc.okForOrigination) {
               return { ok: false as const, reason: "kyc_changed" as const }
+            }
+            const openFlags = await tx.applicationCheckFlag.count({
+              where: { tenantId: tenant.id, applicationId: id, status: "OPEN" },
+            })
+            if (openFlags > 0) {
+              return { ok: false as const, reason: "checks_open" as const }
+            }
+            // Evidence that arrived after the recompute read it has not been
+            // checked: new or deleted statements and payslips, new statement
+            // reads, or any payslip whose extraction changed since (started,
+            // finished, re-run). Payslip extraction takes the client evidence
+            // lock held here, so it cannot change between this and the write;
+            // an upload or a statement read does not take it, so one landing
+            // in that window (milliseconds) is not seen by this approval.
+            const clientId = locked.application.client.id
+            const asOf = checks?.evidenceAsOf ?? new Date(0)
+            const newEvidence = await tx.clientDocument.count({
+              where: {
+                tenantId: tenant.id,
+                clientId,
+                docType: { in: ["BANK_STATEMENT", "PAYSLIP"] },
+                OR: [{ createdAt: { gt: asOf } }, { deletedAt: { gt: asOf } }],
+              },
+            }) + await tx.statementAnalysis.count({
+              where: { tenantId: tenant.id, createdAt: { gt: asOf }, clientDocument: { clientId } },
+            })
+            const payslipsNow = await tx.clientDocument.findMany({
+              where: { tenantId: tenant.id, clientId, docType: "PAYSLIP", deletedAt: null, createdAt: { gte: checks?.evidenceSince ?? new Date(0) } },
+              select: { id: true, extractionStatus: true, extractionGeneration: true },
+            })
+            const seen = new Set(checks?.payslipSnapshot ?? [])
+            const payslipsChanged = payslipsNow.length !== seen.size || payslipsNow.some((d) => !seen.has(payslipStateKey(d)))
+            // Statements by set too, not only by timestamp, through the same
+            // query the recompute recorded them with.
+            const statementsNow = await statementSnapshot(tx, { tenantId: tenant.id, clientId, since: checks?.evidenceSince ?? new Date(0) })
+            const seenStatements = [...(checks?.statementSnapshot ?? [])].sort()
+            const statementsChanged = statementsNow.join("|") !== seenStatements.join("|")
+            if (newEvidence > 0 || payslipsChanged || statementsChanged) {
+              return { ok: false as const, reason: "checks_stale" as const }
             }
             const approved = await tx.loanApplication.updateMany({
               where: {
@@ -1268,6 +1327,13 @@ export async function POST(
               { status: 409 }
             )
           }
+          // The open-check-flags trigger: a flag raised after the count above.
+          if (String(error).includes("open credit-check flags")) {
+            return NextResponse.json(
+              { error: "Approval blocked: a credit check was raised while approving. Refresh Credit checks and clear it first." },
+              { status: 409 },
+            )
+          }
           throw error
         }
         if (!approvalWrite.ok) {
@@ -1277,6 +1343,18 @@ export async function POST(
                 error: "KYC evidence changed before the application could be approved; refresh and complete KYC again.",
                 kycEvidence: "changed",
               },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "checks_stale") {
+            return NextResponse.json(
+              { error: "Statements or payslips changed while approving (one arrived, was deleted, or finished extracting). Refresh Credit checks and review them first." },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "checks_open") {
+            return NextResponse.json(
+              { error: "Approval blocked: a credit check was raised while approving. Refresh Credit checks and clear it first." },
               { status: 409 },
             )
           }
