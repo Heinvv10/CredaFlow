@@ -1,3 +1,4 @@
+import { canWriteLeadActivity } from "@/lib/crm/lead-write-access"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -75,6 +76,9 @@ export default async function LeadDetailPage({
   // not exclusively, and a role floor would make the exception impossible.
   const canCreateTasks = role !== undefined && hasMinRole(role, "CREDIT_OFFICER")
   const canManageTasks = role !== undefined && hasMinRole(role, "CREDIT_OFFICER")
+  // Stage change / add activity / notes / pin: the actions gate on CREDIT_OFFICER,
+  // so below it the controls are not rendered (read-only lead).
+  const canWriteActivity = canWriteLeadActivity(role)
 
   const [lead, cannedReplies, tasks, dupes] = await Promise.all([
     getLead(id, tenantId),
@@ -138,6 +142,7 @@ export default async function LeadDetailPage({
         tasks={tasksSafe}
         canCreateTasks={canCreateTasks}
         canManageTasks={canManageTasks}
+        canWriteActivity={canWriteActivity}
         currentUserId={session?.user?.id ?? ""}
         duplicateCount={dupes.duplicates.length}
         duplicatesTruncated={dupes.truncated}

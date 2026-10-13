@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
 import { auditDocumentAccessRefusal } from "@/lib/audit-refusals"
-import { withTenantContext } from "@/lib/tenant"
+import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import {
   signingPacketLifecycle,
   type ReturnedPacketBinding,
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    return withTenantContext(req, async (tenant) => {
+    return withTenantContextLoggingRefusal(req, { documentId: `client:${clientId}:signing-packets`, caller }, async (tenant) => {
       const applications = await prisma.loanApplication.findMany({
         where: {
           tenantId: tenant.id,
