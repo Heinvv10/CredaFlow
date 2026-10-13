@@ -23,7 +23,7 @@ import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { CASH_RECEIPTS, cashPaidPercent, displayPaymentMethod } from "@/lib/payments/waiver"
 import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { getStatusTone } from "@/lib/status-style"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 import {
   OPEN_PORTAL_LOAN_STATUSES,
@@ -34,7 +34,7 @@ import {
 import { sastHour } from "@/lib/date/sast"
 
 async function getPortalData(email: string) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({ where: { email, tenantId } })
   if (!client) return null
@@ -87,7 +87,7 @@ async function getPortalData(email: string) {
   })
 
   const insurancePolicies = await prisma.insurancePolicy.findMany({
-    where: { clientId: client.id },
+    where: { tenantId, clientId: client.id },
     select: { id: true, policyNumber: true, status: true, premiumAmount: true, sumAssured: true },
     orderBy: { createdAt: "desc" },
   })
@@ -148,7 +148,7 @@ export default async function ClientPortalPage() {
   const data = await getPortalData(session.user.email)
   // Same tenant source as the page's own data above, so the contact
   // details and account name always belong to the lender whose loans are shown.
-  const identity = await getLenderIdentity(await getDefaultTenantId())
+  const identity = await getLenderIdentity(await getPortalTenantId())
   // SAST hour — see the staff dashboard.
   const hour = sastHour(new Date())
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"

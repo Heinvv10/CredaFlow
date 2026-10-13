@@ -5,14 +5,14 @@ import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { getAvatarColor, getInitials, getInitialsFromName } from "@/lib/avatar"
 import { Wallet, CheckCircle2, TrendingUp } from "lucide-react"
 import Link from "next/link"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastMonthBounds } from "@/lib/compliance/quarters"
 import { sastStartOfDay } from "@/lib/date/sast"
 import { requireMinRole } from "@/lib/auth-guards"
 import { borrowerDisplayName, hasClientBorrower } from "@/lib/borrower"
 
 async function getDisbursementsData() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const now = new Date()
   // SAST boundary: the container has no TZ, so date parts resolve in UTC and
   // land two hours inside the previous South African day.

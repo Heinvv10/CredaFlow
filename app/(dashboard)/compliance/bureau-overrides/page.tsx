@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import {
@@ -45,7 +45,7 @@ export default async function BureauOverridesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const sp = toSearchParams(await searchParams)
   const filter: BureauOverrideFilter = parseFilter(sp)

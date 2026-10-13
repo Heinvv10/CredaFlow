@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { requireMinRole, getDefaultTenantId, messageFindMany } = vi.hoisted(() => ({
+const { requireMinRole, getStaffTenantId, messageFindMany } = vi.hoisted(() => ({
   requireMinRole: vi.fn(),
-  getDefaultTenantId: vi.fn(),
+  getStaffTenantId: vi.fn(),
   messageFindMany: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId }))
 vi.mock("@/lib/prisma", () => ({
   prisma: { message: { findMany: messageFindMany } },
 }))
@@ -23,7 +23,7 @@ describe("MessageReconciliationPage authorization", () => {
       name: "Loan Admin",
       role: "LOAN_ADMIN",
     })
-    getDefaultTenantId.mockResolvedValue("tenant-1")
+    getStaffTenantId.mockResolvedValue("tenant-1")
     messageFindMany.mockResolvedValue([])
   })
 

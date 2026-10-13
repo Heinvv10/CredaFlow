@@ -38,7 +38,8 @@ export function KanbanColumn({
   leads: KanbanLead[]
   onDrop: (leadId: string, status: string) => void
   onOpen: (leadId: string, tab: TabKey) => void
-  onCallback: (leadId: string) => void
+  /** Absent when the viewer may not schedule callbacks: the card hides the button. */
+  onCallback?: (leadId: string) => void
 }) {
   const [dragOver, setDragOver] = useState(false)
 

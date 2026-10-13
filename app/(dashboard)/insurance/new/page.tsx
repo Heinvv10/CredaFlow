@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { PolicyCreationWizard } from "@/components/insurance/PolicyCreationWizard"
 
 async function getNewPolicyData() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [clients, advisors, products] = await Promise.all([
     prisma.client.findMany({
       where: { tenantId },
@@ -13,6 +13,7 @@ async function getNewPolicyData() {
     }),
     prisma.user.findMany({
       where: {
+        tenantId,
         active: true,
         role: { in: ["ADMIN", "INSURANCE_OFFICER", "LOAN_ADMIN"] },
       },

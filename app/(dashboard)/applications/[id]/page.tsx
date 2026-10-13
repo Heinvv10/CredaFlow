@@ -3,6 +3,7 @@ import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
 import { formatZAR, formatDate, formatTermDays } from "@/lib/utils"
+import { decisionAuditItem } from "@/lib/applications/decision-audit-item"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DataPanel } from "@/components/app-shell/DataPanel"
@@ -29,7 +30,7 @@ import { ApplicationSubmitButton } from "@/components/applications/ApplicationSu
 import { ApplicationReturnToReviewButton } from "@/components/applications/ApplicationReturnToReviewButton"
 import { auth } from "@/lib/auth"
 import { canDo } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   readCompositeKycState,
   type CoreDocumentGapState,
@@ -194,7 +195,7 @@ interface PageProps { params: Promise<{ id: string }> }
 
 export default async function ApplicationDetailPage({ params }: PageProps) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [application, session, collectionsEngineEnabled] = await Promise.all([
     getApplication(id, tenantId),
     auth(),
@@ -458,20 +459,11 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       ? [{ label: "Debit mandate pending", detail: "The customer must confirm verified banking and sign the exact debit authority before payout.", tone: "danger" as const }]
       : []),
   ]
+  const decisionItem = decisionAuditItem(application)
   const auditItems = [
     { label: `Created ${formatDate(application.createdAt)}`, detail: application.reference, tone: "neutral" as const },
     ...(application.assignedTo ? [{ label: "Assigned advisor", detail: application.assignedTo.name ?? application.assignedTo.email, tone: "info" as const }] : []),
-    ...(application.approvedAt ? [{
-      label: `Approved ${formatDate(application.approvedAt)}`,
-      detail: `${application.approvedBy?.name ?? "Approval recorded"} • ${
-        application.repaymentMethod === "EFT"
-          ? "EFT repayment"
-          : application.repaymentMethod === "DEBIT_ORDER"
-            ? "Debit-order repayment"
-            : "Repayment method missing"
-      }`,
-      tone: "success" as const,
-    }] : []),
+    ...(decisionItem ? [decisionItem] : []),
     ...(application.agreementSignedAt ? [{ label: `Signed ${formatDate(application.agreementSignedAt)}`, detail: agreementSignedDisplayMethod ?? "Agreement accepted", tone: "success" as const }] : []),
     ...(application.agreementCountersignedAt ? [{ label: `Provider countersigned ${formatDate(application.agreementCountersignedAt)}`, detail: application.agreementCountersignedByName ?? "Authorised representative", tone: "success" as const }] : []),
     ...(application.debitMandateSignedAt ? [{ label: `Debit mandate signed ${formatDate(application.debitMandateSignedAt)}`, detail: "Customer portal signature recorded", tone: "success" as const }] : []),

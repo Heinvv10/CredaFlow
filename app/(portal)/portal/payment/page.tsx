@@ -3,7 +3,7 @@ import { Building2, Mail, Phone } from "lucide-react"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { formatZAR } from "@/lib/utils"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { StitchPaymentForm } from "@/components/portal/StitchPaymentForm"
 import { ManualPaymentForm } from "@/components/portal/ManualPaymentForm"
@@ -16,7 +16,7 @@ export const metadata = {
 }
 
 async function getLoansForClient(email: string): Promise<LoanOption[]> {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({
     where: { email, tenantId },
@@ -95,7 +95,7 @@ export default async function PaymentPage() {
   const loans = await getLoansForClient(session.user.email)
   // Same tenant source as the page's own data above, so the contact
   // details and account name always belong to the lender whose loans are shown.
-  const identity = await getLenderIdentity(await getDefaultTenantId())
+  const identity = await getLenderIdentity(await getPortalTenantId())
   const bankRows = eftBankRows()
 
   return (

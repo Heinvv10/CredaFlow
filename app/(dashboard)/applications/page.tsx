@@ -6,7 +6,7 @@ import {
 } from "@/lib/applications/pipeline-view"
 import { readApplicationReadiness } from "@/lib/applications/readiness-data"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastMonthBounds } from "@/lib/compliance/quarters"
 
 async function getApplications() {
@@ -14,7 +14,7 @@ async function getApplications() {
   // SAST boundary: the container has no TZ, so date parts resolve in UTC and
   // land two hours inside the previous South African day.
   const monthStart = sastMonthBounds(now).start
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const [applications, monthlyCount, refusals, readiness] = await Promise.all([
     prisma.loanApplication.findMany({

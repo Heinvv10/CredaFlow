@@ -11,7 +11,7 @@ import {
 import { toApplicationProduct } from "@/lib/applications/product-mapper"
 import { compareProductsForCapture } from "@/lib/applications/product-order"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { hasClientBorrowerId } from "@/lib/borrower"
@@ -137,7 +137,7 @@ interface PageProps {
 
 export default async function NewApplicationPage({ searchParams }: PageProps) {
   const { id } = await searchParams
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [{ clients, products, creditLifeOffer }, draft] = await Promise.all([
     getData(tenantId),
     id ? loadDraftForResume(id, tenantId) : Promise.resolve(null),

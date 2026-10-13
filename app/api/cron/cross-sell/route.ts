@@ -5,9 +5,11 @@ import { CrossSellType, OpportunityStatus } from "@prisma/client"
 import { verifyCronSecret } from "@/lib/cron-auth"
 const ACTIVE_OPP_STATUSES: OpportunityStatus[] = ["PENDING", "CONTACTED", "INTERESTED"]
 
-async function hasExistingOpportunity(clientId: string, type: CrossSellType): Promise<boolean> {
+// CrossSellOpportunity is a tenant-scope model and a cron has no tenant frame:
+// every query names the tenant being swept.
+async function hasExistingOpportunity(clientId: string, tenantId: string, type: CrossSellType): Promise<boolean> {
   const count = await prisma.crossSellOpportunity.count({
-    where: { clientId, type, status: { in: ACTIVE_OPP_STATUSES } },
+    where: { tenantId, clientId, type, status: { in: ACTIVE_OPP_STATUSES } },
   })
   return count > 0
 }
@@ -67,7 +69,7 @@ export async function POST(req: NextRequest) {
         if (paidCount < 3) continue
         if (personalLoans.length > 0) continue
 
-        const exists = await hasExistingOpportunity(client.id, "PERSONAL_LOAN")
+        const exists = await hasExistingOpportunity(client.id, fallbackTenantId, "PERSONAL_LOAN")
         if (exists) continue
 
         await createOpportunity(client.id, fallbackTenantId, "PERSONAL_LOAN")
@@ -83,7 +85,7 @@ export async function POST(req: NextRequest) {
         const hasCreditLife = client.insurancePolicies.some((p) => p.type === "CREDIT_LIFE")
         if (hasCreditLife) continue
 
-        const exists = await hasExistingOpportunity(client.id, "CREDIT_LIFE")
+        const exists = await hasExistingOpportunity(client.id, fallbackTenantId, "CREDIT_LIFE")
         if (exists) continue
 
         await createOpportunity(client.id, fallbackTenantId, "CREDIT_LIFE")

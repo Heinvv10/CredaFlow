@@ -133,7 +133,9 @@ export function LeadCard({
   lead: KanbanLead
   /** Open the lead modal on a specific tab ("details" for the plain name click). */
   onOpen: (leadId: string, tab: TabKey) => void
-  onCallback: (leadId: string) => void
+  /** Absent when the viewer may not schedule callbacks (the callback route
+   *  requires CREDIT_OFFICER): the quick action is not rendered. */
+  onCallback?: (leadId: string) => void
 }) {
   return (
     // GHL click model: the card BODY opens the modal, the NAME navigates to
@@ -267,7 +269,7 @@ export function LeadCard({
         <button type="button" title="Tasks" aria-label="Open tasks" onClick={() => onOpen(lead.id, "tasks")} className={quickActionCls}>
           <ClipboardList className="h-3.5 w-3.5" />
         </button>
-        {lead.status !== "CONVERTED" && lead.status !== "LOST" && (
+        {onCallback && lead.status !== "CONVERTED" && lead.status !== "LOST" && (
           <button type="button" title="Schedule callback" aria-label="Schedule callback" onClick={() => onCallback(lead.id)} className={quickActionCls}>
             <CalendarClock className="h-3.5 w-3.5" />
           </button>

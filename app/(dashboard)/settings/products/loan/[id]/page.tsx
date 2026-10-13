@@ -4,13 +4,14 @@ import { LoanProductForm } from "@/components/products/LoanProductForm"
 import { nonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 export default async function EditLoanProductPage({ params }: { params: Promise<{ id: string }> }) {
   // Product edit is an ADMIN mutation — gate the form page to match.
-  // The session's tenant: the one the save (withTenantContext) is bound to.
-  const { tenantId } = await requireMinRole("ADMIN")
+  await requireMinRole("ADMIN")
   const { id } = await params
+  const tenantId = await getStaffTenantId()
   const [product, config] = await Promise.all([
     prisma.loanProduct.findUnique({ where: { id, tenantId } }),
     getTenantConfig(tenantId),

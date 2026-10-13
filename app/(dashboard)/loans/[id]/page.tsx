@@ -3,7 +3,7 @@ import Link from "next/link"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { prisma } from "@/lib/prisma"
 import { displayPaymentMethod } from "@/lib/payments/waiver"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getSession } from "@/lib/auth-session"
 import { hasMinRole } from "@/lib/auth-guards"
 import { formatZAR, formatDate, SAST_TIME_ZONE } from "@/lib/utils"
@@ -53,7 +53,7 @@ export default async function LoanDetailPage(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [loan, session] = await Promise.all([getLoan(id, tenantId), getSession()])
 
   if (!loan) {

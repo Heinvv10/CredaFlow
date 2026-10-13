@@ -17,12 +17,15 @@ export function LeadAppointmentTab({
   status,
   callbackDate,
   callbackNotes,
+  canSchedule,
   onChanged,
 }: {
   leadId: string
   status: string
   callbackDate: string | null
   callbackNotes: string | null
+  /** The callback route requires CREDIT_OFFICER; below it the tab is read-only. */
+  canSchedule: boolean
   onChanged: () => void
 }) {
   const current = callbackDate ? new Date(callbackDate) : null
@@ -103,7 +106,7 @@ export function LeadAppointmentTab({
         </div>
       </div>
 
-      <form onSubmit={handleSchedule} className="space-y-3 rounded-lg border border-gray-200 p-3">
+      {canSchedule && <form onSubmit={handleSchedule} className="space-y-3 rounded-lg border border-gray-200 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
           {current ? "Reschedule" : "Schedule a callback"}
         </p>
@@ -131,11 +134,11 @@ export function LeadAppointmentTab({
             {current ? "Reschedule" : "Schedule"}
           </button>
         </div>
-      </form>
+      </form>}
 
-      <p className="text-xs text-gray-500">
+      {canSchedule && <p className="text-xs text-gray-500">
         Scheduling a callback marks the lead as Contacted.
-      </p>
+      </p>}
     </div>
   )
 }

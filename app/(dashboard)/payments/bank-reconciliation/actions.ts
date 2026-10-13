@@ -1,7 +1,6 @@
 "use server"
 
 import { auth } from "@/lib/auth"
-import { getDefaultTenantId } from "@/lib/tenant"
 import { canDo } from "@/lib/auth-guards"
 import { applyBankTransaction, ignoreBankTransaction } from "@/lib/bank-sync/apply"
 import {
@@ -17,7 +16,9 @@ async function ctx() {
   if (!session?.user || !canDo(session.user.role, "record_payment")) {
     throw new Error("Insufficient permissions")
   }
-  const tenantId = await getDefaultTenantId()
+  // The staff session's tenant, never the deployment default; no tenant, no access.
+  const tenantId = session.user.tenantId
+  if (!tenantId) throw new Error("Insufficient permissions")
   return { tenantId, userId: session.user.id, userEmail: session.user.email }
 }
 

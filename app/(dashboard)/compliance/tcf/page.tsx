@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { TcfClient } from "@/components/compliance/TcfClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { currentQuarter } from "@/lib/compliance/quarters"
 
 // The SAST quarter, from the same helper the NCR and FSCA returns use — three
@@ -11,7 +11,7 @@ const currentPeriod = currentQuarter
 
 export default async function TcfPage() {
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const outcomes = await prisma.tcfOutcome.findMany({
     where: { tenantId },
     orderBy: { period: "desc" },

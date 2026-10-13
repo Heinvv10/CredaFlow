@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { AlertCircle } from "lucide-react"
+import { safeInternalPath } from "@/lib/safe-path"
 
 export type LoginVariant = "staff" | "client"
 
@@ -51,7 +52,9 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
   const router = useRouter()
   const searchParams = useSearchParams()
   const copy = COPY[variant]
-  const callbackUrl = searchParams.get("callbackUrl") || copy.fallbackDest
+  // Pushed after sign-in: anything but a same-origin path would make this
+  // form an open redirect.
+  const callbackUrl = safeInternalPath(searchParams.get("callbackUrl")) ?? copy.fallbackDest
   const errorMsg = searchParams.get("error")
 
   const [loading, setLoading] = useState(false)

@@ -5,7 +5,7 @@ import { CASH_RECEIPTS } from "@/lib/payments/waiver"
 import { collectibleLoanWhere, COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { auth } from "@/lib/auth"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { getAvatarColor, getInitials, getInitialsFromName } from "@/lib/avatar"
@@ -159,7 +159,7 @@ function taskTone(priority: string): string {
 export default async function DashboardPage() {
   const session = await auth()
   const userId = session?.user?.id
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [d, myTasks] = await Promise.all([
     getDashboardData(tenantId),
     userId ? getMyTasks(userId, tenantId) : Promise.resolve([]),
