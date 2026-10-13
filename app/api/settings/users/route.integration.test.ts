@@ -83,8 +83,11 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     officer: `user_rc_officer_${token}`,
     foreign: `user_rc_foreign_${token}`,
     root: `user_rc_root_${token}`,
+    superA: `user_rc_super_a_${token}`,
+    superB: `user_rc_super_b_${token}`,
     peerA: `user_rc_peer_a_${token}`,
     peerB: `user_rc_peer_b_${token}`,
+    shared: `user_rc_shared_${token}`,
     held: `user_rc_held_${token}`,
     heldVictim: `user_rc_held_victim_${token}`,
     raceAdmin: `user_rc_race_admin_${token}`,
@@ -143,6 +146,9 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
         user(ids.root, tenantA, "SUPER_ADMIN"),
         user(ids.peerA, tenantA, "ADMIN"),
         user(ids.peerB, tenantA, "ADMIN"),
+        user(ids.shared, tenantA, "CREDIT_OFFICER"),
+        user(ids.superA, tenantA, "SUPER_ADMIN"),
+        user(ids.superB, tenantA, "SUPER_ADMIN"),
         user(ids.held, tenantA, "CREDIT_OFFICER"),
         user(ids.heldVictim, tenantA, "READONLY"),
         user(ids.raceAdmin, tenantA, "ADMIN"),
@@ -231,6 +237,26 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     expect(res.status).toBe(201)
     expect(await db.user.findUniqueOrThrow({ where: { email }, select: { tenantId: true, role: true } }))
       .toEqual({ tenantId: tenantA, role: "LOAN_ADMIN" })
+  })
+
+  // Both requests pass the email probe (it runs before the password hash) and
+  // meet the unique index in their transactions: the loser must be a 409.
+  it("answers 409, never 500, for two concurrent creates of the same email, and creates one user", async () => {
+    const email = emailOf("concurrent")
+    const create = () => sessions.run(session(ids.admin, "ADMIN"), () =>
+      post({ name: "Synthetic Staff", email, password: "synthetic-pass-1", role: "LOAN_ADMIN" }))
+    const statuses = (await Promise.all([create(), create()])).map((res) => res.status).sort()
+
+    expect(statuses).toEqual([201, 409])
+    expect(await db.user.count({ where: { email } })).toBe(1)
+    expect(await db.auditLog.count({ where: { tenantId: tenantA, action: "USER_CREATED", newValue: { path: ["email"], equals: email } } })).toBe(1)
+  })
+
+  it("treats an email differing only in case as a duplicate", async () => {
+    signIn(ids.admin, "ADMIN")
+    const email = emailOf("casing")
+    expect((await post({ name: "Synthetic Staff", email, password: "synthetic-pass-1", role: "LOAN_ADMIN" })).status).toBe(201)
+    expect((await post({ name: "Synthetic Staff", email: email.toUpperCase(), password: "synthetic-pass-1", role: "LOAN_ADMIN" })).status).toBe(409)
   })
 
   it("applies a permitted role change and records the old and new role in the audit row", async () => {
@@ -343,10 +369,11 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
     })
 
     // Every path locks the caller's and target's rows in one statement, in id
-    // order. Two admins editing each other at once therefore queue rather than
-    // each holding one row and waiting for the other (a deadlock). The barrier
+    // order. Two admins editing the same user at once therefore queue rather
+    // than each holding their own row and waiting for the other's. The barrier
     // holds the first lock open until the second write has tried for its own.
-    it("lets two admins edit each other at the same time without a deadlock", async () => {
+    // (Peers cannot edit each other, so the contended row is a junior's.)
+    it("lets two admins edit the same user at the same time without a deadlock", async () => {
       let arrived = 0
       let release!: () => void
       const both = new Promise<void>((resolve) => { release = resolve })
@@ -356,15 +383,34 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
       }
       try {
         const [a, b] = await Promise.all([
-          sessions.run(session(ids.peerA, "ADMIN"), () => patch(ids.peerB, { name: "Edited By A" })),
-          sessions.run(session(ids.peerB, "ADMIN"), () => patch(ids.peerA, { name: "Edited By B" })),
+          sessions.run(session(ids.peerA, "ADMIN"), () => patch(ids.shared, { name: "Edited By A" })),
+          sessions.run(session(ids.peerB, "ADMIN"), () => patch(ids.shared, { name: "Edited By B" })),
         ])
         expect([a.status, b.status]).toEqual([200, 200])
       } finally {
         h.afterLock = null
       }
-      expect(await db.user.findMany({ where: { id: { in: [ids.peerA, ids.peerB] } }, select: { id: true, name: true }, orderBy: { id: "asc" } }))
-        .toEqual([{ id: ids.peerA, name: "Edited By B" }, { id: ids.peerB, name: "Edited By A" }])
+      expect(["Edited By A", "Edited By B"]).toContain((await db.user.findUniqueOrThrow({ where: { id: ids.shared } })).name)
+    })
+
+    it("refuses an admin editing a peer, and a SUPER_ADMIN editing or removing another SUPER_ADMIN, leaving the rows untouched", async () => {
+      const before = { peer: await stored(ids.peerB), root: await stored(ids.superB) }
+      signIn(ids.peerA, "ADMIN")
+      expect((await patch(ids.peerB, { password: "synthetic-pass-9", role: "READONLY" })).status).toBe(403)
+      signIn(ids.superA, "SUPER_ADMIN")
+      expect((await patch(ids.superB, { role: "ADMIN" })).status).toBe(403)
+      expect((await del(ids.superB)).status).toBe(403)
+
+      expect(await stored(ids.peerB)).toEqual(before.peer)
+      expect(await stored(ids.superB)).toEqual(before.root)
+      expect(await db.auditLog.count({ where: { tenantId: tenantA, action: "USER_WRITE_REFUSED", userId: { in: [ids.peerA, ids.superA] }, newValue: { path: ["reason"], equals: "target_same_rank" } } })).toBe(3)
+    })
+
+    it("lets an admin still edit their own profile fields", async () => {
+      signIn(ids.peerA, "ADMIN")
+      const res = await patch(ids.peerA, { name: "Own Name" })
+      expect(res.status).toBe(200)
+      expect((await db.user.findUniqueOrThrow({ where: { id: ids.peerA } })).name).toBe("Own Name")
     })
 
     it("still lets a SUPER_ADMIN delete a user with no history", async () => {

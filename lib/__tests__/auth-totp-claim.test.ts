@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   },
   findUser: vi.fn(),
   updateManyUser: vi.fn(),
+  findConfig: vi.fn(),
 }))
 
 vi.mock("next-auth", () => ({
@@ -31,6 +32,7 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (a: unknown) => h.updateManyUser(a),
       update: async () => ({}),
     },
+    tenantConfig: { findUnique: (a: unknown) => h.findConfig(a) },
     loginLog: { create: async () => ({}) },
     failedLoginAttempt: { create: async () => ({}) },
   },
@@ -54,6 +56,7 @@ const authorize = (credentials: Record<string, string>) =>
 beforeEach(() => {
   h.findUser.mockReset()
   h.updateManyUser.mockReset().mockResolvedValue({ count: 1 })
+  h.findConfig.mockReset().mockResolvedValue({ requireStaffTotp: false })
 })
 
 describe("totpVerified claim — authorize()", () => {
@@ -68,12 +71,108 @@ describe("totpVerified claim — authorize()", () => {
     await expect(authorize({ code: generateTotpCode(secret) })).resolves.toMatchObject({ totpVerified: true })
   })
 
+  // Enrolment and replacement store the counter of the code that proved the
+  // secret as lastTotpCounter, so signing in with that same code is a replay.
+  it("refuses a code whose counter was already claimed (the enrolment code, replayed at sign-in)", async () => {
+    const secret = generateTotpSecret()
+    h.findUser.mockResolvedValue(staff({ totpEnabled: true, totpSecret: secret }))
+    h.updateManyUser.mockResolvedValue({ count: 0 })
+    await expect(authorize({ code: generateTotpCode(secret) })).rejects.toBeInstanceOf(Error)
+    expect(h.updateManyUser).toHaveBeenCalledWith(expect.objectContaining({ data: { lastTotpCounter: Math.floor(Date.now() / 30000) } }))
+  })
+
   it("never mints a session for an enrolled account without a valid code", async () => {
     const secret = generateTotpSecret()
     h.findUser.mockResolvedValue(staff({ totpEnabled: true, totpSecret: secret }))
     await expect(authorize({})).rejects.toBeInstanceOf(Error)
     const wrong = String((Number(generateTotpCode(secret)) + 1) % 1_000_000).padStart(6, "0")
     await expect(authorize({ code: wrong })).rejects.toBeInstanceOf(Error)
+  })
+})
+
+// The per-lender policy (TenantConfig.requireStaffTotp, default on): a staff
+// user with no TOTP enrolled signs in, carrying a claim that proxy.ts and the
+// auth guards turn into "enrolment page only".
+describe("totpEnrolmentRequired claim — authorize()", () => {
+  it("is set for an unenrolled user while the tenant requires 2FA", async () => {
+    h.findConfig.mockResolvedValue({ requireStaffTotp: true })
+    h.findUser.mockResolvedValue(staff({}))
+    await expect(authorize({})).resolves.toMatchObject({ id: "u1", totpVerified: false, totpEnrolmentRequired: true })
+    expect(h.findConfig).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1" } }))
+  })
+
+  it("treats a tenant with no config row as requiring 2FA", async () => {
+    h.findConfig.mockResolvedValue(null)
+    h.findUser.mockResolvedValue(staff({}))
+    await expect(authorize({})).resolves.toMatchObject({ totpEnrolmentRequired: true })
+  })
+
+  it("is not set while the tenant does not require 2FA: no code is demanded of an unenrolled user", async () => {
+    h.findUser.mockResolvedValue(staff({}))
+    await expect(authorize({})).resolves.toMatchObject({ totpVerified: false, totpEnrolmentRequired: false })
+  })
+
+  it("is not set for an enrolled user who presents a valid code", async () => {
+    h.findConfig.mockResolvedValue({ requireStaffTotp: true })
+    const secret = generateTotpSecret()
+    h.findUser.mockResolvedValue(staff({ totpEnabled: true, totpSecret: secret }))
+    await expect(authorize({ code: generateTotpCode(secret) })).resolves.toMatchObject({ totpVerified: true, totpEnrolmentRequired: false })
+  })
+
+  it("an enrolled user is still refused without a code, whatever the policy", async () => {
+    h.findUser.mockResolvedValue(staff({ totpEnabled: true, totpSecret: generateTotpSecret() }))
+    await expect(authorize({})).rejects.toBeInstanceOf(Error)
+  })
+
+  it("fails the sign-in rather than skipping the policy when it cannot be read", async () => {
+    h.findConfig.mockRejectedValue(new Error("db down"))
+    h.findUser.mockResolvedValue(staff({}))
+    await expect(authorize({})).rejects.toThrow("db down")
+  })
+})
+
+describe("totpEnrolmentRequired claim — jwt/session callbacks", () => {
+  it("copies the claim into the token on sign-in, true only when true", async () => {
+    const forced = await h.config!.callbacks.jwt({ token: {}, user: { id: "u1", role: "ADMIN", tenantId: "t1", totpEnrolmentRequired: true } })
+    expect(forced?.totpEnrolmentRequired).toBe(true)
+    const free = await h.config!.callbacks.jwt({ token: {}, user: { id: "u1", role: "ADMIN", tenantId: "t1" } })
+    expect(free?.totpEnrolmentRequired).toBe(false)
+  })
+
+  it("keeps the claim across a token refresh", async () => {
+    h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0 })
+    const kept = await h.config!.callbacks.jwt({
+      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpEnrolmentRequired: true },
+    })
+    expect(kept?.totpEnrolmentRequired).toBe(true)
+  })
+
+  // A staff token minted before the claim existed says nothing about whether
+  // the user is held at enrolment. Reading that as "not held" would leave every
+  // such session free of the policy until it expires, so it is signed out.
+  it("signs out a staff token that carries no claim, and does not even consult the database", async () => {
+    h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0 })
+    for (const totpEnrolmentRequired of [undefined, "false", 0, null]) {
+      const refreshed = await h.config!.callbacks.jwt({
+        token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true, totpEnrolmentRequired },
+      })
+      expect(refreshed, String(totpEnrolmentRequired)).toBeNull()
+    }
+    expect(h.findUser).not.toHaveBeenCalled()
+  })
+
+  it("leaves a CLIENT token alone", async () => {
+    const kept = await h.config!.callbacks.jwt({ token: { id: "c1", role: "CLIENT", tenantId: "t1" } })
+    expect(kept).toMatchObject({ id: "c1", role: "CLIENT" })
+  })
+
+  it("puts it on the session only when the token says true", async () => {
+    for (const value of [undefined, false, "true", 1]) {
+      const session = await h.config!.callbacks.session({ session: { user: {} }, token: { id: "u1", role: "ADMIN", tenantId: "t1", totpEnrolmentRequired: value } })
+      expect(session.user.totpEnrolmentRequired).toBe(false)
+    }
+    const session = await h.config!.callbacks.session({ session: { user: {} }, token: { id: "u1", role: "ADMIN", tenantId: "t1", totpEnrolmentRequired: true } })
+    expect(session.user.totpEnrolmentRequired).toBe(true)
   })
 })
 
@@ -90,12 +189,12 @@ describe("totpVerified claim — jwt/session callbacks", () => {
   it("keeps a password-only session's claim false across token refreshes", async () => {
     h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0 })
     const refreshed = await h.config!.callbacks.jwt({
-      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false },
+      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: false },
     })
     expect(h.findUser).toHaveBeenCalled()
     expect(refreshed?.totpVerified).toBe(false)
     const kept = await h.config!.callbacks.jwt({
-      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true },
+      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true, totpEnrolmentRequired: false },
     })
     expect(kept?.totpVerified).toBe(true)
   })

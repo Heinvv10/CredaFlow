@@ -6,6 +6,8 @@ import { isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
 import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
+import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
+import { isImageRead } from "@/lib/proxy/static-image"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -25,7 +27,13 @@ const APP_MODE: AppMode =
 
 // Every response (redirects and 404s included) goes through applyDemoHeaders so
 // a demo deployment is never indexable; with DEMO_MODE unset it is a no-op.
-export default auth((req) => applyDemoHeaders(route(req)))
+const handle = auth((req) => applyDemoHeaders(route(req)))
+
+// Reads of images are answered before the session is decoded, as when the
+// matcher skipped them. Writes to such paths reach route() (lib/proxy/static-image.ts).
+export default function proxy(...args: Parameters<typeof handle>) {
+  return isImageRead(args[0]) ? NextResponse.next() : handle(...args)
+}
 
 function route(req: NextAuthRequest): Response {
   const path = req.nextUrl.pathname
@@ -242,6 +250,13 @@ function route(req: NextAuthRequest): Response {
   // Forward tenant slug to Server Components via request header
   const requestHeaders = buildTenantHeaders(req, tenantSlug)
 
+  // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts)
+  // reaches only the enrolment page, public paths included.
+  if (isHeldAtEnrolment(req.auth)) {
+    const refusal = enrolmentGate(req, isPublicRoute)
+    if (refusal) return refusal
+  }
+
   if (isPublicRoute) {
     if (isLoggedIn && (isLoginPage || isRegisterPage || isForgotPasswordPage)) {
       return NextResponse.redirect(new URL("/", req.url))
@@ -303,6 +318,6 @@ function route(req: NextAuthRequest): Response {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|webp|svg|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 }
