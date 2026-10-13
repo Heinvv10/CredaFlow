@@ -2,10 +2,19 @@ import Link from "next/link"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDate, formatZAR } from "@/lib/utils"
+import type { NcaRegime } from "@prisma/client"
+import { formatDate } from "@/lib/utils"
+import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import type { DealDetail } from "@/lib/asset-finance/deal-detail"
 import { PRESET_LABELS, RATE_BASIS_LABELS, ratePercent } from "@/lib/asset-finance/deal-labels"
-import { ENTITY_ROLE_LABELS, statusLabel } from "@/lib/asset-finance/labels"
+import {
+  BUREAU_OUTCOME_LABELS,
+  ENTITY_ROLE_LABELS,
+  NCA_REGIME_LABELS,
+  describeDecisionReason,
+  ncaRuleLabel,
+  statusLabel,
+} from "@/lib/asset-finance/labels"
 
 // Read-only panels of the staff deal page. No hooks: server-rendered.
 
@@ -35,13 +44,13 @@ export function DealSummaryPanel({ deal }: { deal: DealDetail }) {
         </Item>
         <Item label="Supplier">{deal.supplier.name}</Item>
         <Item label="Product">{deal.product.name}</Item>
-        <Item label="Cash price incl. VAT">{formatZAR(deal.asset.cashPriceExclVatCents + deal.asset.vatCents)}</Item>
-        <Item label="Deposit / trade-in">{formatZAR(terms.depositCents)} / {formatZAR(terms.tradeInCents)}</Item>
-        <Item label="Financed fees / balloon">{formatZAR(terms.financedFeesCents)} / {formatZAR(terms.balloonCents)}</Item>
-        <Item label="Financed amount">{formatZAR(deal.application.appliedAmount)}</Item>
+        <Item label="Cash price incl. VAT">{formatMoney(deal.asset.cashPriceExclVatCents + deal.asset.vatCents)}</Item>
+        <Item label="Deposit / trade-in">{formatMoney(terms.depositCents)} / {formatMoney(terms.tradeInCents)}</Item>
+        <Item label="Financed fees / balloon">{formatMoney(terms.financedFeesCents)} / {formatMoney(terms.balloonCents)}</Item>
+        <Item label="Financed amount">{formatMoney(deal.application.appliedAmount)}</Item>
         <Item label="Rate">{rate}</Item>
         <Item label="Structure">{PRESET_LABELS[terms.preset]} · {terms.weights.length} months</Item>
-        <Item label="First due">{terms.firstDueDate}</Item>
+        <Item label="First due">{formatIsoDate(terms.firstDueDate)}</Item>
         <Item label="Application">{deal.application.reference} · {statusLabel(deal.application.status)}</Item>
       </dl>
     </DataPanel>
@@ -57,17 +66,19 @@ export function ClassificationPanel({ deal, children }: { deal: DealDetail; chil
           {app.ncaRegime === null ? (
             <StatusPill>Not classified — submit the deal</StatusPill>
           ) : (
-            <StatusPill tone={app.ncaRegime === "NON_NCA" ? "success" : "warning"}>{app.ncaRegime}</StatusPill>
+            <StatusPill tone={app.ncaRegime === "NON_NCA" ? "success" : "warning"}>
+              {NCA_REGIME_LABELS[app.ncaRegime as NcaRegime] ?? app.ncaRegime}
+            </StatusPill>
           )}
-          {app.ncaClassificationRule && <span className="font-mono text-xs text-[var(--cf-text-secondary)]">{app.ncaClassificationRule}</span>}
-          {deal.awaitingRegimeApproval && <StatusPill tone="info">NON_NCA override awaits a second approver</StatusPill>}
+          {app.ncaClassificationRule && <span className="text-xs text-[var(--cf-text-secondary)]">{ncaRuleLabel(app.ncaClassificationRule)}</span>}
+          {deal.awaitingRegimeApproval && <StatusPill tone="info">Override to &quot;not regulated by the NCA&quot; awaits a second approver</StatusPill>}
         </div>
         {app.decisionReason && deal.status === "REFUSED_NCA" && (
-          <p className="text-[var(--cf-danger)]">{app.decisionReason}</p>
+          <p className="text-[var(--cf-danger)]">{describeDecisionReason(app.decisionReason)}</p>
         )}
         <p className="text-xs text-[var(--cf-text-muted)]">
-          Slice 1 finances non-NCA deals only. Sureties: {deal.sureties.length === 0 ? "none on the entity" : deal.sureties.map((s) => s.name).join(", ")}
-          {" "}(the entity&apos;s active SURETY relationships).
+          Only deals the NCA does not regulate can be financed for now. Sureties: {deal.sureties.length === 0 ? "none on the entity" : deal.sureties.map((s) => s.name).join(", ")}
+          {" "}(the entity&apos;s active sureties).
         </p>
         {children}
       </div>
@@ -96,7 +107,7 @@ export function BureauTable({ deal }: { deal: DealDetail }) {
           <TableRow key={`${b.clientId}-${b.at}-${i}`}>
             <TableCell>{b.name}</TableCell>
             <TableCell>
-              <StatusPill tone={b.outcome === "stored" ? "success" : b.outcome === "skipped" ? "warning" : "danger"}>{b.outcome}</StatusPill>
+              <StatusPill tone={b.outcome === "stored" ? "success" : b.outcome === "skipped" ? "warning" : "danger"}>{BUREAU_OUTCOME_LABELS[b.outcome]}</StatusPill>
               {b.detail && <span className="ml-2 text-xs text-[var(--cf-text-muted)]">{b.detail}</span>}
             </TableCell>
             <TableCell className="text-right">{b.score ?? "—"}</TableCell>

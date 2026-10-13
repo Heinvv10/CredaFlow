@@ -1,8 +1,13 @@
 import Link from "next/link"
+import type { AssetDealStatus, NcaRegime } from "@prisma/client"
 import { DataPanel } from "@/components/app-shell/DataPanel"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDate, formatZAR } from "@/lib/utils"
-import { statusLabel } from "@/lib/asset-finance/labels"
+import { StatusPill } from "@/components/app-shell/StatusPill"
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ScrollTable } from "@/components/asset-finance/ScrollTable"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
+import { NCA_REGIME_LABELS, statusLabel } from "@/lib/asset-finance/labels"
+import { DEAL_STATUS_TONE, dealStatusLabel } from "@/lib/asset-finance/deal-labels"
 import type { EntityRecords } from "@/lib/asset-finance/entity-detail"
 
 // The entity's applications, deals and loans, read-only. Shared by the staff
@@ -20,7 +25,7 @@ export function EntityRecordsTables({ records, loanHref }: { records: EntityReco
         {records.applications.length === 0 ? (
           <Empty what="applications" />
         ) : (
-          <Table>
+          <ScrollTable maxHeight="">
             <TableHeader>
               <TableRow>
                 <TableHead>Reference</TableHead>
@@ -34,14 +39,14 @@ export function EntityRecordsTables({ records, loanHref }: { records: EntityReco
               {records.applications.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell className="font-mono text-xs">{a.reference}</TableCell>
-                  <TableCell>{statusLabel(a.status)}</TableCell>
-                  <TableCell>{a.ncaRegime ? statusLabel(a.ncaRegime) : "Not classified"}</TableCell>
-                  <TableCell className="text-right">{formatZAR(a.appliedAmount)}</TableCell>
+                  <TableCell><StatusPill>{statusLabel(a.status)}</StatusPill></TableCell>
+                  <TableCell>{a.ncaRegime ? NCA_REGIME_LABELS[a.ncaRegime as NcaRegime] ?? a.ncaRegime : "Not classified"}</TableCell>
+                  <TableCell className="text-right">{formatMoney(a.appliedAmount)}</TableCell>
                   <TableCell>{formatDate(a.createdAt)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </ScrollTable>
         )}
       </DataPanel>
 
@@ -49,7 +54,7 @@ export function EntityRecordsTables({ records, loanHref }: { records: EntityReco
         {records.deals.length === 0 ? (
           <Empty what="deals" />
         ) : (
-          <Table>
+          <ScrollTable maxHeight="">
             <TableHeader>
               <TableRow>
                 <TableHead>Application</TableHead>
@@ -65,26 +70,30 @@ export function EntityRecordsTables({ records, loanHref }: { records: EntityReco
                   <TableCell className="font-mono text-xs">{d.applicationReference}</TableCell>
                   <TableCell>{d.assetDescription}</TableCell>
                   <TableCell>{statusLabel(d.contractType)}</TableCell>
-                  <TableCell>{statusLabel(d.status)}</TableCell>
+                  <TableCell><StatusPill tone={DEAL_STATUS_TONE[d.status as AssetDealStatus]}>{dealStatusLabel(d.status as AssetDealStatus)}</StatusPill></TableCell>
                   <TableCell>{formatDate(d.createdAt)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </ScrollTable>
         )}
       </DataPanel>
 
-      <DataPanel title="Loans" density="compact">
+      <DataPanel
+        title="Loans"
+        description="Principal is the capital the schedule repays: the amount financed plus any interest capitalised in lower- or no-payment months, so it can be more than the amount financed. Outstanding principal is what is left of it."
+        density="compact"
+      >
         {records.loans.length === 0 ? (
           <Empty what="loans" />
         ) : (
-          <Table>
+          <ScrollTable maxHeight="">
             <TableHeader>
               <TableRow>
                 <TableHead>Reference</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Principal</TableHead>
-                <TableHead className="text-right">Outstanding</TableHead>
+                <TableHead className="text-right">Outstanding principal</TableHead>
                 <TableHead>Started</TableHead>
               </TableRow>
             </TableHeader>
@@ -98,14 +107,14 @@ export function EntityRecordsTables({ records, loanHref }: { records: EntityReco
                       l.reference
                     )}
                   </TableCell>
-                  <TableCell>{statusLabel(l.status)}</TableCell>
-                  <TableCell className="text-right">{formatZAR(l.principal)}</TableCell>
-                  <TableCell className="text-right">{formatZAR(l.outstandingPrincipal)}</TableCell>
+                  <TableCell><StatusPill>{statusLabel(l.status)}</StatusPill></TableCell>
+                  <TableCell className="text-right">{formatMoney(l.principal)}</TableCell>
+                  <TableCell className="text-right">{formatMoney(l.outstandingPrincipal)}</TableCell>
                   <TableCell>{formatDate(l.startDate)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </ScrollTable>
         )}
       </DataPanel>
     </div>

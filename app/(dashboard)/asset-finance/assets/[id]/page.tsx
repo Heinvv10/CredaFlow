@@ -3,8 +3,9 @@ import { Header } from "@/components/layout/Header"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { prisma } from "@/lib/prisma"
-import { formatDate, formatZAR } from "@/lib/utils"
-import { formatStatusLabel } from "@/lib/status-style"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
+import { dealStatusLabel } from "@/lib/asset-finance/deal-labels"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS } from "@/lib/asset-finance/asset-labels"
@@ -32,7 +33,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
   if (!asset) notFound()
 
   const title = `${asset.year} ${asset.make} ${asset.model}`
-  const money = (cents: number | null) => (cents === null ? null : formatZAR(cents))
+  const money = (cents: number | null) => (cents === null ? null : formatMoney(cents))
   const count = (value: number | null) => (value === null ? null : value.toLocaleString("en-ZA"))
 
   return (
@@ -59,7 +60,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             <Detail label="Insurance" value={asset.insurer && `${asset.insurer}${asset.policyNumber ? ` · ${asset.policyNumber}` : ""}`} />
             <Detail label="Lender noted on policy" value={asset.lenderNotedConfirmed ? "Confirmed" : "Not confirmed"} />
             <Detail label="Book status" value={asset.releasedAt ? `Released ${formatDate(asset.releasedAt)}` : "On book"} />
-            <Detail label="Deals" value={asset.deals.length === 0 ? "None" : asset.deals.map((d) => formatStatusLabel(d.status)).join(", ")} />
+            <Detail label="Deals" value={asset.deals.length === 0 ? "None" : asset.deals.map((d) => dealStatusLabel(d.status)).join(", ")} />
             <Detail label="Registered" value={formatDate(asset.createdAt)} />
           </dl>
         </DataPanel>
@@ -84,7 +85,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                     <TableCell>{formatDate(isoOfDbDate(v.valuedOn))}</TableCell>
                     <TableCell>{VALUATION_SOURCE_LABELS[v.source]}</TableCell>
                     <TableCell>{v.valuerName}</TableCell>
-                    <TableCell className="text-right">{formatZAR(v.amountCents)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(v.amountCents)}</TableCell>
                     <TableCell className="font-mono text-xs">{v.documentId ?? "—"}</TableCell>
                   </TableRow>
                 ))}

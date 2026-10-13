@@ -4,6 +4,8 @@ import { formatDate } from "@/lib/utils"
 import type { StaffSigningPanel } from "@/lib/asset-finance/signing-view"
 import { DEAL_DOCUMENT_LABELS, SIGNED_DOC_TYPE, SIGNER_STATE_LABELS, type SignerState } from "@/lib/asset-finance/signing"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { fromDayNumber, toDayNumber } from "@/lib/asset-finance/dates"
+import { MAX_PLANNED_START_DAYS } from "@/lib/asset-finance/signing-prepare"
 import { DealActionButton } from "./DealActionButton"
 import { PrepareDocumentsForm } from "./PrepareDocumentsForm"
 import { WetInkControls } from "./WetInkControls"
@@ -21,11 +23,13 @@ const link = "text-[var(--cf-brand)] underline-offset-2 hover:underline"
 export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; canManage: boolean; userId: string }) {
   const { dealId, panel, canManage, userId } = props
   const open = panel.dealStatus === "APPROVED"
+  const today = sastCalendarDate(new Date())
+  const latest = fromDayNumber(toDayNumber(today) + MAX_PLANNED_START_DAYS)
   const complete = panel.signers.length > 0 && panel.missing.length === 0
     && panel.signers.every((s) => s.state === "SIGNED" || s.state === "CONFIRMED")
   const actions = canManage && open ? (
     <div className="flex flex-wrap gap-2">
-      {panel.canPrepare && <PrepareDocumentsForm dealId={dealId} today={sastCalendarDate(new Date())} again={panel.signers.length > 0} />}
+      {panel.canPrepare && <PrepareDocumentsForm dealId={dealId} today={today} latest={latest} again={panel.signers.length > 0} />}
       {panel.signers.length > 0 && (
         <DealActionButton url={`/api/asset-finance/deals/${dealId}/contract`} label="Mark contracted" busyLabel="Checking signatures…" />
       )}

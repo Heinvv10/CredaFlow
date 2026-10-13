@@ -44,6 +44,13 @@ export interface PortalContractView {
   maturityDate: string
   balloonCents: number
   outstandingCents: number
+  /**
+   * Default charges are live for this loan (lib/loan/charges-summary.ts
+   * loanSettlementFigures, the source the charges replay uses): then
+   * outstandingCents is the amount to settle today, otherwise the outstanding
+   * principal. Live charges may have no lines yet (nothing owed).
+   */
+  chargesLive: boolean
   chargeLines: Array<{ label: string; amount: number }>
   arrears: { amountCents: number; days: number }
   nextPayment: { dueDate: string; amountCents: number } | null
@@ -146,6 +153,7 @@ export async function loadPortalContract(
     maturityDate: loan.maturityDate.toISOString(),
     balloonCents: balloon,
     outstandingCents: portalOutstanding(balances.outstandingPrincipal, charges),
+    chargesLive: charges.settlementAmount !== null,
     chargeLines: charges.lines,
     arrears: { amountCents: balances.arrearsAmount, days: balances.daysInArrears },
     nextPayment: upcoming ? { dueDate: upcoming.dueDate.toISOString(), amountCents: upcoming.totalDue - upcoming.totalPaid } : null,

@@ -2,7 +2,7 @@
  * Fresh-database proof of the asset-finance demo seed (prisma/seed/
  * asset-finance.ts): on a database migrated from scratch, `npm run seed:base`
  * leaves (a) the trust's deal refused as NCA and (b) the company's deal
- * booked and part-paid, with every four-eyes step taken by two different
+ * booked today and part-paid by an early receipt, with every four-eyes step taken by two different
  * staff users and the known synthetic portal logins working. Rerun
  * idempotency is proved, for the whole seed, by prisma/seed.integration.test.ts.
  *
@@ -118,7 +118,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(await fresh().payoutChecklistItem.count({ where: { dealId: deal.id, required: true, confirmedAt: null } })).toBe(0)
   })
 
-  it("(b) the loan is part-paid through receipts, with the next instalment in arrears", async () => {
+  it("(b) the loan is booked today and part-paid by an early receipt of instalment 1, with no arrears", async () => {
     const loan = await fresh().loan.findFirstOrThrow({
       where: { entityId: { not: null } },
       include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } }, payments: true, taxInvoices: { include: { lines: true } }, contractRates: true },
@@ -129,15 +129,20 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const [invoice] = loan.taxInvoices
     expect(invoice).toMatchObject({ totalExclVatCents: 150_000_000, vatCents: 22_500_000, totalInclVatCents: 172_500_000 })
     expect(invoice.lines).toHaveLength(1)
-    expect(invoice.supplyDate.toISOString().slice(0, 10)).toBe(sastCalendarDate(loan.startDate))
-    expect(invoice.supplyDate.toISOString().slice(0, 10) < sastCalendarDate(new Date())).toBe(true)
+    // Booked through the normal rules: the loan starts today (SAST), the supply date with it.
+    const today = sastCalendarDate(new Date())
+    expect(sastCalendarDate(loan.startDate)).toBe(today)
+    expect(invoice.supplyDate.toISOString().slice(0, 10)).toBe(today)
 
-    const paid = loan.repaymentSchedule.slice(0, 3)
-    expect(loan.payments.map((p) => p.amount).sort()).toEqual(paid.map((r) => r.totalDue).sort())
-    expect(paid.every((r) => r.status === "PAID")).toBe(true)
-    expect(loan.totalPaid).toBe(paid.reduce((s, r) => s + r.totalDue, 0))
-    expect(loan.arrearsAmount).toBe(loan.repaymentSchedule[3].totalDue)
-    expect(loan.daysInArrears).toBeGreaterThan(0)
+    const [first, ...rest] = loan.repaymentSchedule
+    expect(sastCalendarDate(first.dueDate) > today).toBe(true)
+    expect(loan.payments.map((p) => [p.amount, p.allocationStatus])).toEqual([[first.totalDue, "ALLOCATED"]])
+    expect(first).toMatchObject({ status: "PAID", totalPaid: first.totalDue })
+    expect(rest.every((r) => r.status === "PENDING" && r.totalPaid === 0)).toBe(true)
+    expect(loan.totalPaid).toBe(first.totalDue)
+    expect(loan.outstandingPrincipal).toBe(loan.principal - first.principalDue)
+    expect([loan.arrearsAmount, loan.daysInArrears]).toEqual([0, 0])
+    expect(loan.nextPaymentDate?.getTime()).toBe(rest[0].dueDate.getTime())
   })
 
   it("seeds the director's portal login (entity access) and the surety's (no entity access) with the passwords set through the env", async () => {

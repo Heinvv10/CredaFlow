@@ -59,8 +59,9 @@ type Parsed<T> = { data: T } | { errors: Errors }
 
 function readIdentifier(record: Fields, key: "serialNumber" | "vin", out: Fields, errors: Errors, required: boolean, nullable: boolean): void {
   readText(record, key, out, errors, { required, nullable, max: 128 })
-  const raw = out[key]
-  if (typeof raw !== "string") return
+  const raw = record[key]
+  if (typeof out[key] !== "string" || typeof raw !== "string") return
+  // The untrimmed value: the character policy sees every character typed (a tab or BOM is refused, not trimmed).
   const parsed = parseAssetIdentifier(raw)
   if ("error" in parsed) {
     if (nullable && parsed.error === "is required") out[key] = null

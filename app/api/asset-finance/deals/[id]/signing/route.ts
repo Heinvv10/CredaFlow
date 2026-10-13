@@ -31,11 +31,12 @@ function parsePlannedStart(body: unknown): { plannedStartDate: string } | string
  * lib/asset-finance/signing-prepare.ts): render and store the agreement, the
  * resolution and a suretyship per surety, create the signer rows, and fix the
  * contract terms from the chosen start date. Body:
- * `{ plannedStartDate?: "YYYY-MM-DD" }` (default today, SAST; before the
- * first instalment). 409 once anything is signed or scanned, when the deal is
- * not APPROVED, or when nobody has authority to sign; 422 when the start date
- * is not before the first instalment, the lender identity is not configured
- * or the schedule cannot be solved.
+ * `{ plannedStartDate?: "YYYY-MM-DD" }` (default today, SAST; from today to
+ * 90 days ahead, before the first instalment). 409 once anything is signed or
+ * scanned, when the deal is not APPROVED, or when nobody has authority to
+ * sign; 422 (audited, invalid_start) when the start date is in the past, more
+ * than 90 days ahead or not before the first instalment; 422 when the lender
+ * identity is not configured or the schedule cannot be solved.
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params

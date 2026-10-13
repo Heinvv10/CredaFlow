@@ -24,7 +24,9 @@ const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
  * RECHECK_WINDOW_DAYS is not enquired on again (outcome "recent"): every
  * enquiry marks their credit record. Body `{ force: true }` re-checks them;
  * it needs decide_asset_finance (403, audited) and the run is audited as
- * ASSET_DEAL_BUREAU_FORCED_RERUN with the people re-checked.
+ * ASSET_DEAL_BUREAU_FORCED_RERUN with the people re-checked. Concurrent runs
+ * make one enquiry per person: runDealBureauCheck re-checks under a lock, and
+ * a forced run skips a person a concurrent run has just checked.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -65,12 +67,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "The entity has no active director or trustee to check" }, { status: 422 })
     }
 
-    const recent = await recentlyCheckedClientIds(tenant.id, deal.applicationId, subjects.map((s) => s.clientId))
+    const startedAt = new Date()
+    const recent = await recentlyCheckedClientIds(tenant.id, deal.applicationId, subjects.map((s) => s.clientId), startedAt)
     const results: Array<{ clientId: string; role: string; outcome: DealBureauOutcome }> = []
     for (const subject of subjects) {
       const outcome = recent.has(subject.clientId) && !force
         ? "recent" as const
-        : await runDealBureauCheck(tenant.id, deal.applicationId, subject)
+        : await runDealBureauCheck(tenant.id, deal.applicationId, subject, { force, startedAt })
       results.push({ clientId: subject.clientId, role: subject.role, outcome })
     }
     const rechecked = force ? subjects.map((s) => s.clientId).filter((clientId) => recent.has(clientId)) : []

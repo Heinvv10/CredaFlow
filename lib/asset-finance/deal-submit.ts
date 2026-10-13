@@ -12,11 +12,12 @@
  *   3. If the application is still NCA and NO pending NCA → NON_NCA override
  *      exists (classifier's or a manual request), slice 1 cannot finance it:
  *      the deal becomes REFUSED_NCA and the application DECLINED with
- *      decisionReason "NCA applies: slice 1 finances non-NCA deals only
- *      (<rule>)" (refuseNcaDeal). The refusal is audited.
+ *      decisionReason "NCA applies (<the rule in plain English>)"
+ *      (ncaRefusalReason). The refusal is audited with the rule id.
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { classifyApplication, lockApplicationForRegime, type RegimeTx } from "./classification"
+import { ncaRuleLabel } from "./labels"
 
 export interface DealActor {
   tenantId: string
@@ -24,8 +25,9 @@ export interface DealActor {
   userEmail?: string
 }
 
+/** The decision reason stored on a refused NCA deal's application, in plain English (the rule's label, never its id). */
 export function ncaRefusalReason(rule: string | null): string {
-  return `NCA applies: slice 1 finances non-NCA deals only (${rule ?? "unclassified"})`
+  return `NCA applies (${rule === null ? "not classified" : ncaRuleLabel(rule)})`
 }
 
 /** The deal's applicationId, with that application row locked for the transaction. */

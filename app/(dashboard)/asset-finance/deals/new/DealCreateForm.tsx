@@ -9,6 +9,8 @@ import { FormError, SelectField, sendJson } from "@/components/asset-finance/reg
 import { ScheduleTable } from "@/components/asset-finance/ScheduleTable"
 import { dealStructureBody, type DealFormValues } from "@/lib/asset-finance/deal-form-body"
 import { ratePercent } from "@/lib/asset-finance/deal-labels"
+import { dealFieldLabel, describeFieldErrors, describeSolverError } from "@/lib/asset-finance/labels"
+import { formatIsoDate } from "@/lib/asset-finance/format"
 import type { StructureResult } from "@/lib/asset-finance/types"
 import { DealStructureFields } from "./DealStructureFields"
 
@@ -35,6 +37,7 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
   const [parties, setParties] = useState({ entityId: "", supplierId: "", productId: "" })
   const [preview, setPreview] = useState<Preview | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewFields, setPreviewFields] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [fields, setFields] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
@@ -54,15 +57,23 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
           method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody, signal: controller.signal,
         })
         const data = (await res.json().catch(() => ({}))) as Preview & { error?: string; fields?: Record<string, string> }
-        if (res.ok) {
+        if (res.ok && data.error === undefined) {
           setPreview(data)
           setPreviewError(null)
+          setPreviewFields({})
         } else {
+          // 400 (field errors) and 200 { error } (the structure cannot be
+          // solved) are answers about the input: shown in the form, never thrown.
+          const fieldErrors = data.fields ?? {}
           setPreview(null)
-          setPreviewError([data.error, ...Object.entries(data.fields ?? {}).map(([k, m]) => `${k} ${m}`)].filter(Boolean).join(" · "))
+          setPreviewFields(fieldErrors)
+          const lines = Object.keys(fieldErrors).length > 0
+            ? describeFieldErrors(fieldErrors)
+            : [data.error ? describeSolverError(data.error) : `The preview could not be solved (${res.status})`]
+          setPreviewError(lines.join(" · "))
         }
-      } catch (e) {
-        if (!controller.signal.aborted) setPreviewError(e instanceof Error ? e.message : "Preview failed")
+      } catch {
+        if (!controller.signal.aborted) setPreviewError("The preview could not be loaded. Check your connection and try again.")
       }
     }, 400)
     return () => {
@@ -82,14 +93,15 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
     const result = await sendJson("/api/asset-finance/deals", "POST", { ...structure.body, ...parties })
     setSaving(false)
     if (!result.ok) {
-      setError(result.error)
+      const keys = Object.keys(result.fields)
+      setError(keys.length > 0 ? `Check the highlighted fields: ${keys.map(dealFieldLabel).join(", ")}` : describeSolverError(result.error))
       setFields(result.fields)
       return
     }
     router.push(`/asset-finance/deals/${(result.body as { id: string }).id}`)
   }
 
-  const allErrors = { ...structure.errors, ...fields }
+  const allErrors = { ...previewFields, ...structure.errors, ...fields }
   return (
     <div className="space-y-5">
       <DataPanel title="Parties and asset" density="loose">
@@ -102,8 +114,13 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
               onChange={set("assetId")} options={choices(options.assets, "Choose an asset")} error={fields.assetId} />
             <SelectField id="supplierId" label="Supplier" required value={parties.supplierId}
               onChange={(supplierId) => setParties((p) => ({ ...p, supplierId }))} options={choices(options.suppliers, "Choose a supplier")} error={fields.supplierId} />
-            <SelectField id="productId" label="Product" required value={parties.productId}
-              onChange={(productId) => setParties((p) => ({ ...p, productId }))} options={choices(options.products, "Choose a product")} error={fields.productId} />
+            <div className="space-y-1.5">
+              <SelectField id="productId" label="Product" required value={parties.productId}
+                onChange={(productId) => setParties((p) => ({ ...p, productId }))} options={choices(options.products, "Choose a product")} error={fields.productId} />
+              <p className="text-xs text-[var(--cf-text-muted)]">
+                Lists only products with non-NCA arrears terms (a default-interest margin) configured.
+              </p>
+            </div>
           </div>
         </div>
       </DataPanel>
@@ -112,7 +129,7 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
       </DataPanel>
       <DataPanel
         title="Schedule preview"
-        description={preview ? `Indicative from ${preview.startDate} at ${ratePercent(preview.rate.annualRate)} a year · ${preview.termDays} days` : undefined}
+        description={preview ? `Indicative from ${formatIsoDate(preview.startDate)} at ${ratePercent(preview.rate.annualRate)} a year · ${preview.termDays} days` : undefined}
       >
         {previewError && <FormError message={previewError} />}
         {!preview && !previewError && (

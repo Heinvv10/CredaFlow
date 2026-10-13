@@ -43,7 +43,7 @@ describe("submitDeal", () => {
     m.classify.mockResolvedValue(classified("NCA", "FINANCIALS_UNPROVEN", null))
     const { tx, asTx } = fakeTx()
     const result = await submitDeal(asTx, actor, "deal-1")
-    const reason = "NCA applies: slice 1 finances non-NCA deals only (FINANCIALS_UNPROVEN)"
+    const reason = "NCA applies (Turnover and asset value not proven by verified financial statements)"
     expect(result).toEqual({ kind: "refused_nca", reason, rule: "FINANCIALS_UNPROVEN" })
     expect(m.classify).toHaveBeenCalledWith(asTx, expect.objectContaining({ applicationId: "app-1", userId: "officer-a" }))
     expect(tx.loanApplication.update).toHaveBeenCalledWith({

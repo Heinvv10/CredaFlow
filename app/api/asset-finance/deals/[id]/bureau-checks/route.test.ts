@@ -78,7 +78,9 @@ describe("POST …/deals/[id]/bureau-checks: 30-day re-check window", () => {
     const res = await run()
     expect(res.status).toBe(200)
     expect(m.runCheck).toHaveBeenCalledTimes(1)
-    expect(m.runCheck).toHaveBeenCalledWith("tenant-1", "app-1", expect.objectContaining({ clientId: "c-new" }))
+    expect(m.runCheck).toHaveBeenCalledWith("tenant-1", "app-1", expect.objectContaining({ clientId: "c-new" }), {
+      force: false, startedAt: expect.any(Date),
+    })
     expect((await res.json()).results).toEqual([
       { clientId: "c-recent", role: "DIRECTOR", outcome: "recent" },
       { clientId: "c-new", role: "DIRECTOR", outcome: "stored" },
@@ -100,6 +102,9 @@ describe("POST …/deals/[id]/bureau-checks: 30-day re-check window", () => {
     const res = await run({ force: true })
     expect(res.status).toBe(200)
     expect(m.runCheck).toHaveBeenCalledTimes(2)
+    expect(m.runCheck).toHaveBeenCalledWith("tenant-1", "app-1", expect.objectContaining({ clientId: "c-recent" }), {
+      force: true, startedAt: expect.any(Date),
+    })
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "ASSET_DEAL_BUREAU_FORCED_RERUN",
       userId: "admin-1",

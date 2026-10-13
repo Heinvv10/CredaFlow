@@ -23,25 +23,20 @@
  *     who is also authorised signatory and surety, a separate surety; an
  *     excavator at R1 725 000 incl. VAT on ANNUAL_SEASONAL (Apr–Jun ×3,
  *     others ×0.5, 60 months), 20% balloon, PRIME + 1.00%; NON_NCA by the
- *     classifier's override, approved; signed, contracted, paid out, BOOKED
- *     on a date four months and five days ago, and its first three
- *     instalments paid, so the fourth is in arrears.
+ *     classifier's override, approved; signed, contracted, paid out and
+ *     BOOKED today, then part-paid by an early receipt of the first
+ *     instalment, so it shows a payment and a reduced balance, no arrears.
  *
- * BOOKING DATE. Booking takes its start date as a parameter (bookDeal's
- * `today`, the payout date the route passes as SAST today). The seed passes a
- * past date so instalments have fallen due; the tax invoice's supply date is
- * that past booking date, never a future one. The deal's indicative dates are
- * parsed against the same date. Rows are created now, so createdAt columns
- * are today's.
+ * DATES. Every rule runs as the app runs it, on today (SAST): the deal's
+ * first instalment is a month out, the documents are prepared with the
+ * planned start today, the deal is booked today (the tax invoice's supply
+ * date), and the receipt is dated now. No trigger is bypassed.
  *
  * Idempotent: each step runs only from the state before it.
  */
-import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { addMonthsClamped, fromDayNumber, isoOfDbDate, toDayNumber } from "@/lib/asset-finance/dates"
-import { dealStartDate } from "@/lib/asset-finance/deal-structure"
 import { ensureDocument, setFinancialsEvidence, verifyDocument } from "./asset-finance-documents"
 import { ensurePeople, ensureEntity, linkPerson } from "./asset-finance-parties"
 import { ensureAsset, ensurePrime, ensureProduct, ensureSupplier, ensureVatConfig } from "./asset-finance-book"
@@ -50,11 +45,6 @@ import { executeCompanyDeal } from "./asset-finance-execution"
 import { COMPANY, EXCAVATOR, TRACTOR, TRUST } from "./asset-finance-data"
 
 export type { SeedStaff } from "./asset-finance-deal"
-
-/** Four months and five days before today (SAST): four instalments have fallen due. */
-function defaultBookingDate(): string {
-  return fromDayNumber(toDayNumber(addMonthsClamped(sastCalendarDate(new Date()), -4)) - 5)
-}
 
 export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Promise<void> {
   const { officer, adminOne, adminTwo } = staff
@@ -88,13 +78,8 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
     const excavator = await ensureAsset(tenantId, officer, EXCAVATOR)
     const parties = { entityId: company.id, assetId: excavator, supplierId, productId }
 
-    const existing = await prisma.assetFinanceDeal.findFirst({
-      where: { tenantId, entityId: company.id, assetId: excavator },
-      select: { firstDueDate: true },
-    })
-    // A rerun keeps the booking date the deal was originated for.
-    const bookingDate = existing ? dealStartDate(isoOfDbDate(existing.firstDueDate)) : defaultBookingDate()
-    const dealId = await originateCompanyDeal(tenantId, staff, parties, bookingDate)
-    await executeCompanyDeal(tenantId, staff, dealId, { directorId: people.director, entityId: company.id }, bookingDate)
+    const today = sastCalendarDate(new Date())
+    const dealId = await originateCompanyDeal(tenantId, staff, parties, today)
+    await executeCompanyDeal(tenantId, staff, dealId, { directorId: people.director, entityId: company.id }, today)
   })
 }

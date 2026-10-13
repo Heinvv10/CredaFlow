@@ -6,7 +6,8 @@ import { EmptyState } from "@/components/app-shell/EmptyState"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { loadDealList } from "@/lib/asset-finance/deal-detail"
 import { DEAL_STATUS_TONE, dealStatusLabel } from "@/lib/asset-finance/deal-labels"
@@ -64,8 +65,8 @@ export default async function DealsPage() {
                     </TableCell>
                     <TableCell>{d.entityName}</TableCell>
                     <TableCell>{d.assetDescription}</TableCell>
-                    <TableCell className="text-right">{formatZAR(d.financedAmountCents)}</TableCell>
-                    <TableCell className="text-right">{d.baseInstalmentCents === null ? "—" : formatZAR(d.baseInstalmentCents)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(d.financedAmountCents)}</TableCell>
+                    <TableCell className="text-right">{d.baseInstalmentCents === null ? "—" : formatMoney(d.baseInstalmentCents)}</TableCell>
                     <TableCell>
                       <StatusPill tone={DEAL_STATUS_TONE[d.status]}>{dealStatusLabel(d.status)}</StatusPill>
                     </TableCell>

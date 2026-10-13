@@ -9,8 +9,8 @@
 // digest; every read of them is logged against the signer row's id.
 //
 // Preparation also fixes the contract terms on the deal (review item 1): the
-// planned start date staff chose (default today SAST, before the first
-// instalment), the instalment, rate and total interest of the schedule the
+// planned start date staff chose (default today SAST; from today to 90 days
+// ahead, before the first instalment), the instalment, rate and total interest of the schedule the
 // agreement prints, the arrears terms copied from the product (none = 0), and
 // the required signer set (preparedSigners). Booking reproduces and checks
 // those figures; the contract gate counts signatures against that set.
@@ -26,7 +26,7 @@ import { deleteFile, saveFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
-import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
+import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { deriveRequiredSigners, preparedSignerSet, requiredFromPrepared, type RequiredSigner } from "./signing"
 
 export type SigningTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -90,13 +90,28 @@ export async function preparedRequiredSigners(tx: SigningTx, tenantId: string, d
   return deal.preparedSigners === null ? [] : requiredFromPrepared(deal.preparedSigners)
 }
 
-/** Why `plannedStartDate` (YYYY-MM-DD) cannot start a deal whose first instalment is `firstDueDate`; null when it can. */
-export function plannedStartProblem(plannedStartDate: string, firstDueDate: string): string | null {
+/** How far ahead of today (SAST) a planned start may be (SQL: guardAssetDealPlannedStart). */
+export const MAX_PLANNED_START_DAYS = 90
+
+/**
+ * Why `plannedStartDate` (YYYY-MM-DD) cannot start a deal whose first
+ * instalment is `firstDueDate`, prepared on `today` (SAST); null when it can.
+ * The start is from today to MAX_PLANNED_START_DAYS ahead (never backdated:
+ * the loan would accrue interest before anyone signed) and before the first
+ * instalment. The database refuses the same window
+ * (AssetFinanceDeal_planned_start_window).
+ */
+export function plannedStartProblem(plannedStartDate: string, firstDueDate: string, today: string): string | null {
   let start: number
   try {
     start = toDayNumber(plannedStartDate, "plannedStartDate")
   } catch {
     return "plannedStartDate must be a calendar date YYYY-MM-DD"
+  }
+  const day = toDayNumber(today)
+  if (start < day) return `The planned start date may not be in the past (today is ${today})`
+  if (start > day + MAX_PLANNED_START_DAYS) {
+    return `The planned start date may be at most ${MAX_PLANNED_START_DAYS} days ahead (${fromDayNumber(day + MAX_PLANNED_START_DAYS)})`
   }
   return start < toDayNumber(firstDueDate) ? null : `The planned start date must be before the first instalment (${firstDueDate})`
 }
@@ -104,17 +119,19 @@ export function plannedStartProblem(plannedStartDate: string, firstDueDate: stri
 export async function prepareDealDocuments(
   actor: SigningActor,
   dealId: string,
-  plannedStartDate: string = sastCalendarDate(new Date()),
+  plannedStartDate?: string,
 ): Promise<PrepareResult> {
   const { tenantId } = actor
+  const today = sastCalendarDate(new Date())
   const status = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, firstDueDate: true } })
   if (!status) return { kind: "not_found" }
   if (status.status !== "APPROVED") return { kind: "not_approved", status: status.status }
-  const startProblem = plannedStartProblem(plannedStartDate, isoOfDbDate(status.firstDueDate))
+  const start = plannedStartDate ?? today
+  const startProblem = plannedStartProblem(start, isoOfDbDate(status.firstDueDate), today)
   if (startProblem) return { kind: "invalid_start", error: startProblem }
 
   // Throws DealDocumentError / LenderIdentityError: the caller refuses with the reason.
-  const data = await loadDealDocumentData(prisma, tenantId, dealId, { plannedStartDate })
+  const data = await loadDealDocumentData(prisma, tenantId, dealId, { plannedStartDate: start })
   if (!data) return { kind: "not_found" }
   if (!data.requiredSigners.some((s) => s.document === "AGREEMENT")) return { kind: "no_authority" }
 
@@ -158,7 +175,7 @@ export async function prepareDealDocuments(
       }
       const p = data.pricing
       const terms = {
-        plannedStartDate: dbDate(plannedStartDate),
+        plannedStartDate: dbDate(start),
         signedBaseInstalmentCents: p.baseInstalmentCents,
         signedResultingRate: new Prisma.Decimal(p.annualRate),
         signedTotalInterestCents: p.totalInterestCents,
@@ -177,7 +194,7 @@ export async function prepareDealDocuments(
           entityId: dealId,
           newValue: {
             signers: bound, removedSigners: stale.map(signerKey), legalWordingApproved: data.legalWordingApproved,
-            plannedStartDate, baseInstalmentCents: p.baseInstalmentCents, resultingRate: p.annualRate,
+            plannedStartDate: start, baseInstalmentCents: p.baseInstalmentCents, resultingRate: p.annualRate,
             totalInterestCents: p.totalInterestCents, arrearsMarginRate: p.arrearsMarginRate, collectionFeeCents: p.collectionFeeCents,
           },
         },

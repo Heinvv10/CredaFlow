@@ -5,9 +5,10 @@
  * separate surety's suretyship is signed in wet ink (scan uploaded by the
  * officer, confirmed by the first loan admin); contracted; every payout
  * checklist item confirmed with a staff evidence document; the payout created
- * by one loan admin and approved by the other; booked on `bookingDate`; then
- * part-paid through applyManualReceipt. Each step runs only from the state
- * before it, so a rerun writes nothing.
+ * by one loan admin and approved by the other; booked on `bookingDate` (today,
+ * SAST: the planned start the documents were prepared with); then part-paid
+ * by an early receipt through applyManualReceipt. Each step runs only from the
+ * state before it, so a rerun writes nothing.
  */
 import type { PayoutChecklistItemKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -23,9 +24,6 @@ import { approvePayout, createPayout } from "@/lib/asset-finance/payout"
 import { bookDeal } from "@/lib/asset-finance/booking"
 import { ensureDocument, syntheticUpload, type SeedActor } from "./asset-finance-documents"
 import { dealActor, type SeedStaff } from "./asset-finance-deal"
-import { PAID_INSTALMENTS } from "./asset-finance-data"
-
-const HOUR_MS = 3_600_000
 
 /** APPROVED → CONTRACTED: prepare (the loan starts on `bookingDate`), sign every required signer row, contract. */
 async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
@@ -99,30 +97,25 @@ async function payOutAndBook(tenantId: string, staff: SeedStaff, dealId: string,
 }
 
 /**
- * Part-payment: the first PAID_INSTALMENTS instalments, each paid in full on
- * its due date (10:00 SAST), through applyManualReceipt as a staff capture.
+ * Part-payment: one early receipt, now, of the first instalment's amount,
+ * through applyManualReceipt as a staff capture. Nothing has fallen due, so
+ * the loan shows a payment and a reduced balance with no arrears history.
  * Skipped once the loan has any payment.
  */
-async function recordReceipts(tenantId: string, officer: SeedActor, loanId: string): Promise<void> {
+async function recordReceipt(tenantId: string, officer: SeedActor, loanId: string): Promise<void> {
   if ((await prisma.payment.count({ where: { tenantId, loanId } })) > 0) return
   const loan = await prisma.loan.findFirstOrThrow({ where: { id: loanId, tenantId }, select: { reference: true } })
-  const rows = await prisma.repaymentSchedule.findMany({
+  const first = await prisma.repaymentSchedule.findFirstOrThrow({
     where: { tenantId, loanId, totalDue: { gt: 0 } },
     orderBy: { installmentNo: "asc" },
-    take: PAID_INSTALMENTS,
-    select: { installmentNo: true, dueDate: true, totalDue: true },
+    select: { installmentNo: true, totalDue: true },
   })
-  for (const row of rows) {
-    // dueDate is SAST midnight; 10 hours later is 10:00 SAST on the due day.
-    const receivedAt = new Date(row.dueDate.getTime() + 10 * HOUR_MS)
-    if (receivedAt > new Date()) break
-    await applyManualReceipt(prisma, {
-      loanId, tenantId, amount: row.totalDue, paymentMethod: "EFT", reference: loan.reference,
-      notes: `Synthetic receipt for instalment ${row.installmentNo} (demo seed)`,
-      capturedById: officer.id, capturedByEmail: officer.email,
-      idempotencyKey: `seed-af-${loan.reference}-${row.installmentNo}`, receivedAt,
-    })
-  }
+  await applyManualReceipt(prisma, {
+    loanId, tenantId, amount: first.totalDue, paymentMethod: "EFT", reference: loan.reference,
+    notes: `Synthetic early receipt of instalment ${first.installmentNo} (demo seed)`,
+    capturedById: officer.id, capturedByEmail: officer.email,
+    idempotencyKey: `seed-af-${loan.reference}-${first.installmentNo}`,
+  })
 }
 
 /** Take the APPROVED company deal through to a booked, part-paid loan. */
@@ -141,5 +134,5 @@ export async function executeCompanyDeal(
   }
   const deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { status: true, loanId: true } })
   if (deal.status !== "BOOKED" || !deal.loanId) throw new Error(`Seed: the company deal should be BOOKED, it is ${deal.status}`)
-  await recordReceipts(tenantId, staff.officer, deal.loanId)
+  await recordReceipt(tenantId, staff.officer, deal.loanId)
 }

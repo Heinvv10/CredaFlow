@@ -5,7 +5,9 @@ import { StatusPill } from "@/components/app-shell/StatusPill"
 import { FormError } from "@/components/asset-finance/register-form-controls"
 import { ScheduleTable } from "@/components/asset-finance/ScheduleTable"
 import { canDo } from "@/lib/auth-guards"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
+import { dealDecisionNote } from "@/lib/asset-finance/labels"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 import { MEMO_EDITABLE_STATUSES } from "@/lib/asset-finance/deal-financials"
@@ -28,6 +30,8 @@ const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: 
 const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
 const SIGNING_STATUSES = ["APPROVED", "CONTRACTED", "BOOKED"]
 const PAYOUT_STATUSES = ["CONTRACTED", "BOOKED"]
+// Closed after a decision: the panel states the end state under the decision.
+const CLOSED_AFTER_DECISION = ["CANCELLED", "BOOKED"]
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { user, tenantId, canManage } = await requireAssetFinanceStaffPage()
@@ -69,7 +73,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         <DataPanel
           title="Schedule"
           description={schedule.ok
-            ? `Indicative from ${schedule.startDate} at ${ratePercent(schedule.rate.annualRate)} a year; the contract schedule is solved from the start date chosen when the documents are prepared`
+            ? `Indicative from ${formatIsoDate(schedule.startDate)} at ${ratePercent(schedule.rate.annualRate)} a year; the contract schedule is solved from the start date chosen when the documents are prepared`
             : undefined}
         >
           {schedule.ok ? <ScheduleTable {...schedule.result} /> : <FormError message={`The schedule cannot be solved: ${schedule.error}`} />}
@@ -78,7 +82,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         <DataPanel
           title="Credit memo"
           description={financials
-            ? `DSCR ${financials.dscr ?? "n/a"} · gearing ${financials.gearing ?? "n/a"} · avg credits ${formatZAR(financials.avgMonthlyCreditsCents)}/month`
+            ? `DSCR ${financials.dscr ?? "n/a"} · gearing ${financials.gearing ?? "n/a"} · avg credits ${formatMoney(financials.avgMonthlyCreditsCents)}/month`
             : "DSCR = EBITDA ÷ (existing annual debt service + this deal's annualised instalments); gearing = liabilities ÷ assets"}
           density="loose"
         >
@@ -108,10 +112,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           {canDecide && DECIDABLE.includes(deal.status) ? (
             <DecidePanel dealId={id} />
           ) : (
-            !deal.decision.decision && (
-              <p className="text-sm text-[var(--cf-text-muted)]">
-                {DECIDABLE.includes(deal.status) ? "A user with the decide permission records the decision." : "Submit the deal to decide it."}
-              </p>
+            (!deal.decision.decision || CLOSED_AFTER_DECISION.includes(deal.status)) && (
+              <p className="text-sm text-[var(--cf-text-muted)]">{dealDecisionNote(deal.status)}</p>
             )
           )}
         </DataPanel>

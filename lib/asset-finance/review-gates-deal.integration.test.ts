@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupBookingFixture, type SessionUser } from "./payout-booking.integration-fixture"
 import { acceptedSql, createReviewGatesFixture, refusedSql, unsignAll, type ReviewGatesFixture } from "./review-gates.integration-fixture"
 
@@ -54,7 +55,7 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
   afterAll(async () => {
     vi.unstubAllEnvs()
     if (!db) return
-    await cleanupBookingFixture(db, fx)
+    await cleanupBookingFixture(db, fx ?? { tenantId: dealFixtureTenantId(t) })
     await db.$disconnect()
   })
 
@@ -179,13 +180,20 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
     expect(refusedSql("", `UPDATE "FinancedAsset" SET ${set} WHERE "id" = '${fx.assetA}'`)).toContain(`The asset's ${what} is attested on a payout checklist`)
   })
 
-  it("an asset is released only when no open deal and no active loan finance it", () => {
+  it("an asset is released only when no open deal and no open loan finance it", () => {
     const release = (asset: string) => `UPDATE "FinancedAsset" SET "releasedAt" = now() WHERE "id" = '${asset}'`
     const message = "An asset is released only when no open deal or active loan finances it"
     expect(refusedSql("", release(fx.assetA))).toContain(message)
     expect(refusedSql("", release(fx.assetB))).toContain(message)
     const cancelB = deal(B, `"status" = 'CANCELLED', "loanId" = NULL, "cancelledAt" = now(), "cancelledById" = '${fx.adminA}', "cancelReason" = 'Synthetic cancellation'`)
     expect(refusedSql(cancelB, release(fx.assetB))).toContain(message)
+    // Every loan not COMPLETED, WRITTEN_OFF or CANCELLED still finances the asset, not just an ACTIVE one.
+    for (const status of ["DEFAULTED", "PENDING_WRITE_OFF", "RESTRUCTURED"]) {
+      expect(refusedSql(`${cancelB}; UPDATE "Loan" SET "status" = '${status}' WHERE "id" = '${fx.loanB}'`, release(fx.assetB))).toContain(message)
+    }
+    for (const status of ["WRITTEN_OFF", "CANCELLED"]) {
+      acceptedSql(`${cancelB}; UPDATE "Loan" SET "status" = '${status}' WHERE "id" = '${fx.loanB}'`, release(fx.assetB))
+    }
     acceptedSql(`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = '${fx.loanB}'`, release(fx.assetB))
     acceptedSql(cancelA(), release(fx.assetA))
   })

@@ -75,7 +75,7 @@ describe("decideDeal", () => {
 
   it("APPROVE on an NCA application with no override refuses the deal: REFUSED_NCA, application DECLINED, audited", async () => {
     fake = fakeTx(deal({ ncaRegime: "NCA" }))
-    const reason = "NCA applies: slice 1 finances non-NCA deals only (JURISTIC_OVER_THRESHOLD)"
+    const reason = "NCA applies (Juristic person over the R1m threshold)"
     expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "refused_nca", reason })
     expect(fake.tx.loanApplication.update).toHaveBeenCalledWith({
       where: { id: "app-1", tenantId: "tenant-1" },

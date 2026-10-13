@@ -116,6 +116,7 @@ suite.sequential("portal contract view (real Postgres, booked deal, real routes)
     expect(view.schedule).toHaveLength(36)
     expect(view.schedule[35].balloonCents).toBe(20_000_000)
     expect(view.outstandingCents).toBe(172_500_000 - 17_250_000)
+    expect([view.chargesLive, view.chargeLines]).toEqual([false, []]) // charges off: the outstanding principal
     const visible = (view.documents as { signerId: string; document: string }[]).map((d) => d.document).sort()
     expect(visible).toEqual(["AGREEMENT", "RESOLUTION", "SURETYSHIP"]) // the director's own suretyship only
   })

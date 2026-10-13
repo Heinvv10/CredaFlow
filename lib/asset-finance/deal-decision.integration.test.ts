@@ -16,7 +16,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { addMonthsClamped } from "./dates"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { cleanupDealFixture, createDealFixture, dealRoutes, type DealFixture } from "./deal.integration-fixture"
+import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, dealRoutes, type DealFixture } from "./deal.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -54,7 +54,7 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
 
   afterAll(async () => {
     if (!db) return
-    await cleanupDealFixture(db, fx)
+    await cleanupDealFixture(db, fx ?? { tenantId: dealFixtureTenantId(t) })
     await db.$disconnect()
   })
 
@@ -87,7 +87,7 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     const response = await routes().submit(deals.refused)
     expect(response.status).toBe(200)
     const body = await response.json()
-    const reason = "NCA applies: slice 1 finances non-NCA deals only (FINANCIALS_UNPROVEN)"
+    const reason = "NCA applies (Turnover and asset value not proven by verified financial statements)"
     expect(body).toMatchObject({ refusedNca: true, reason, deal: { status: "REFUSED_NCA" } })
     const row = await dealRow(deals.refused)
     expect(row.status).toBe("REFUSED_NCA")

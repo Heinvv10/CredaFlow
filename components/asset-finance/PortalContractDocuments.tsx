@@ -1,5 +1,6 @@
 import { StatusPill } from "@/components/app-shell/StatusPill"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 import { DEAL_DOCUMENT_LABELS, SIGNER_STATE_LABELS } from "@/lib/asset-finance/signing"
 import type { PortalContractView } from "@/lib/asset-finance/portal-contract"
 
@@ -25,7 +26,7 @@ export function PortalContractDocuments({ view }: { view: PortalContractView }) 
           <p className="font-medium text-[var(--cf-text)]">Tax invoice</p>
           <p className="text-xs text-[var(--cf-text-muted)]">
             {view.taxInvoice
-              ? `${view.taxInvoice.invoiceNumber} · ${formatDate(view.taxInvoice.issueDate)} · ${formatZAR(view.taxInvoice.totalInclVatCents)} incl. VAT`
+              ? `${view.taxInvoice.invoiceNumber} · ${formatDate(view.taxInvoice.issueDate)} · ${formatMoney(view.taxInvoice.totalInclVatCents)} incl. VAT`
               : "No tax invoice has been issued for this contract."}
           </p>
         </div>

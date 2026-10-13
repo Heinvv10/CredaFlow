@@ -56,10 +56,17 @@ describe("serial attestation", () => {
     expect(serialAttestationMatches("TEST0000000000001", asset)).toBe(true)
   })
 
-  it("compares as the duplicate checks do: separators, inner and invisible spaces ignored", () => {
+  it("compares as the duplicate checks do: separators and Unicode spaces ignored, fullwidth folded", () => {
     expect(serialAttestationMatches("test-serial 0001", asset)).toBe(true)
-    expect(serialAttestationMatches("TEST.SERIAL\u00A0\u200B0001", asset)).toBe(true)
+    expect(serialAttestationMatches("TEST.SERIAL\u00A00001", asset)).toBe(true)
     expect(serialAttestationMatches("TEST 0000 0000 0000 1", asset)).toBe(true)
+    expect(serialAttestationMatches("\uFF34\uFF25\uFF33\uFF34SERIAL0001", asset)).toBe(true)
+  })
+
+  it("never matches a value the identifier policy refuses (zero-width, en dash, look-alike letters)", () => {
+    expect(serialAttestationMatches("TEST.SERIAL\u200B0001", asset)).toBe(false)
+    expect(serialAttestationMatches("TEST\u2013SERIAL0001", asset)).toBe(false)
+    expect(serialAttestationMatches("\u0422ESTSERIAL0001", asset)).toBe(false)
   })
 
   it("refuses a mismatch, a near-miss and a blank", () => {

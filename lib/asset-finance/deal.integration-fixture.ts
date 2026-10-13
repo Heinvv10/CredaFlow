@@ -15,6 +15,7 @@ import { POST as decideRoute } from "@/app/api/asset-finance/deals/[id]/decide/r
 import { POST as bureauRoute } from "@/app/api/asset-finance/deals/[id]/bureau-checks/route"
 import { PUT as financialsRoute } from "@/app/api/asset-finance/deals/[id]/financials/route"
 import { POST as decideOverrideRoute } from "@/app/api/asset-finance/nca-overrides/[overrideId]/decide/route"
+import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
 
 /** Asset 1's registration number. */
 export const ASSET_ONE_REGISTRATION = "TEST001GP"
@@ -33,8 +34,11 @@ export interface DealFixture {
   director: string
 }
 
+/** The fixture's tenant id for run token `t`, known before setup so a partial setup is cleaned up too. */
+export const dealFixtureTenantId = (t: string) => `t_af_deal_${t}`
+
 export async function createDealFixture(db: PrismaClient, t: string): Promise<DealFixture> {
-  const tenantId = `t_af_deal_${t}`
+  const tenantId = dealFixtureTenantId(t)
   const host = `af-deal-${t}.deal-it.test`
   await db.tenant.create({ data: { id: tenantId, slug: `af-deal-${t}`, name: "Deal IT", domain: host } })
   await db.tenantConfig.create({ data: { tenantId, featureAssetFinance: true } })
@@ -79,7 +83,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   const director = await db.client.create({
     data: {
       tenantId, firstName: "TEST", lastName: "Director", email: `director-${t}@client.invalid`, phone: `0000${t.slice(0, 6)}`,
-      idNumber: "8001015009087", popiaConsentGiven: true,
+      idNumber: syntheticSaIdNumber(), popiaConsentGiven: true,
     },
   })
   await db.entityRelationship.create({ data: { tenantId, entityId: evidenced.id, clientId: director.id, role: "DIRECTOR" } })
@@ -91,8 +95,12 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   }
 }
 
-/** Removes the fixture's rows; overrides and decided applications need triggers off for it. */
-export async function cleanupDealFixture(db: PrismaClient, fx: DealFixture | undefined): Promise<void> {
+/**
+ * Removes the fixture's rows by tenant, so it also cleans up after a setup
+ * that failed part-way (pass `{ tenantId: dealFixtureTenantId(t) }`);
+ * overrides and decided applications need triggers off for it.
+ */
+export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture, "tenantId"> | undefined): Promise<void> {
   if (!fx) return
   const tenantId = fx.tenantId
   await db.$transaction([

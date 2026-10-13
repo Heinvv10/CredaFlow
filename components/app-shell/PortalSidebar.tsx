@@ -8,18 +8,26 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { buildPortalNavigation, type NavItem } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
-// Bottom nav on mobile shows a 5-item subset of the main portal nav. Resolved
-// by href so it survives reordering of the portal navigation. Throws at module
-// init if any href is missing or mistyped — preferred over silently dropping
-// items from the bottom nav (which a `.filter(Boolean)` would do).
+// Bottom nav on mobile shows a subset of the main portal nav: five items, plus
+// Business for a client who may act for an entity (the same condition as the
+// sidebar link). Resolved by href so it survives reordering of the portal
+// navigation. Throws if any href is missing or mistyped — preferred over
+// silently dropping items from the bottom nav (which a `.filter(Boolean)` would do).
 const MOBILE_HREFS = ["/portal", "/portal/applications", "/portal/documents", "/portal/payment", "/portal/profile"] as const
-const mobileItems: NavItem[] = MOBILE_HREFS.map(h => {
-  const item = buildPortalNavigation(null).find(i => i.href === h)
-  if (!item) {
-    throw new Error(`PortalSidebar: MOBILE_HREFS includes "${h}" but it is not present in the portal navigation`)
-  }
-  return item
-})
+
+export function portalMobileItems(business: boolean): NavItem[] {
+  const navigation = buildPortalNavigation(null, { business })
+  const hrefs: string[] = business ? ["/portal", "/portal/business", ...MOBILE_HREFS.slice(1)] : [...MOBILE_HREFS]
+  return hrefs.map(h => {
+    const item = navigation.find(i => i.href === h)
+    if (!item) {
+      throw new Error(`PortalSidebar: MOBILE_HREFS includes "${h}" but it is not present in the portal navigation`)
+    }
+    return item
+  })
+}
+const mobileItems = portalMobileItems(false)
+const mobileItemsWithBusiness = portalMobileItems(true)
 
 function isActive(pathname: string, href: string) {
   if (href === "/portal") return pathname === "/portal"
@@ -39,6 +47,7 @@ type PortalSidebarProps = {
 export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, showBusiness = false }: PortalSidebarProps) {
   const pathname = usePathname()
   const portalNavigation = buildPortalNavigation(whatsappE164, { business: showBusiness })
+  const bottomItems = showBusiness ? mobileItemsWithBusiness : mobileItems
 
   return (
     <>
@@ -94,8 +103,11 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, sh
         </div>
       </aside>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 grid h-16 grid-cols-5 border-t border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:hidden">
-        {mobileItems.map(item => {
+      <nav className={cn(
+        "fixed inset-x-0 bottom-0 z-50 grid h-16 border-t border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:hidden",
+        bottomItems.length === 6 ? "grid-cols-6" : "grid-cols-5"
+      )}>
+        {bottomItems.map(item => {
           const Icon = item.icon
           const active = isActive(pathname, item.href)
 

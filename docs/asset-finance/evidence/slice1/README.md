@@ -20,8 +20,11 @@ database seeds, on the Acme demo tenant with `featureAssetFinance` on
   PRIME + 1.00%. NON_NCA through the classifier's override (approved by the
   second loan admin), credit memo, approved, signed (director e-sign; the
   surety's suretyship in wet ink, uploaded and confirmed by two staff
-  users), contracted, paid out, booked four months and five days before the
-  seed ran, first three instalments paid, the fourth in arrears.
+  users), contracted, paid out and booked on the day the seed ran (the
+  planned start and the tax invoice's supply date; first instalment a month
+  later), then part-paid by an early receipt equal to instalment 1: one
+  payment, instalment 1 paid, a reduced balance, no arrears. The seed takes
+  every step through the app's rules; no trigger is disabled.
 
 ## Portal logins
 
@@ -112,3 +115,15 @@ Taken on a throwaway seeded DB, Chrome 1280x800 (desk) and 375x667 (mob), light 
 - `walkthrough-26-portal-surety-contract-404-light-desk.png`
 - `walkthrough-26-portal-surety-contract-404-light-mob.png`
 - `walkthrough-27-portal-home-mobile-nav.png`
+- `walkthrough-30-portal-mobile-business-nav.png` — a director on a phone taps Business in the bottom nav
+
+Retaken after the browser review fixes (labels, money format, balances, mobile
+nav): 02, 03, 05, 07, 09–12, 20–23, 27 and the new 30, on a fresh throwaway
+seed, Chrome with `--lang=en-ZA` (the native date inputs follow the browser
+locale: dd/mm/yyyy), the Next.js dev indicator hidden.
+
+Note: walkthrough-09, -12 and -20 to -23 were taken on an earlier version of
+the seed that booked the company deal four months back (three instalments paid,
+one in arrears). The seed now books it on the run date and records one early
+receipt, so a fresh seed shows no arrears; the screens and flow are otherwise
+the same.

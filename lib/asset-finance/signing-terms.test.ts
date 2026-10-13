@@ -12,12 +12,20 @@ import { syntheticDealDocumentData } from "./documents/synthetic-deal.fixture"
 // date, the prepared signer set as stored, and the arrears terms printed in
 // section 5 of the agreement.
 describe("plannedStartProblem", () => {
+  const TODAY = "2026-10-13"
   it("accepts a start before the first instalment, refuses one on or after it and a malformed date", () => {
-    expect(plannedStartProblem("2026-10-13", "2026-11-13")).toBeNull()
-    expect(plannedStartProblem("2026-11-12", "2026-11-13")).toBeNull()
-    expect(plannedStartProblem("2026-11-13", "2026-11-13")).toMatch(/before the first instalment \(2026-11-13\)/)
-    expect(plannedStartProblem("2026-12-01", "2026-11-13")).toMatch(/before the first instalment/)
-    expect(plannedStartProblem("2026-02-30", "2026-11-13")).toMatch(/calendar date/)
+    expect(plannedStartProblem("2026-10-13", "2026-11-13", TODAY)).toBeNull()
+    expect(plannedStartProblem("2026-11-12", "2026-11-13", TODAY)).toBeNull()
+    expect(plannedStartProblem("2026-11-13", "2026-11-13", TODAY)).toMatch(/before the first instalment \(2026-11-13\)/)
+    expect(plannedStartProblem("2026-12-01", "2026-11-13", TODAY)).toMatch(/before the first instalment/)
+    expect(plannedStartProblem("2026-02-30", "2026-11-13", TODAY)).toMatch(/calendar date/)
+  })
+
+  it("refuses a backdated start and one more than 90 days ahead (today SAST is the floor)", () => {
+    expect(plannedStartProblem("2026-10-12", "2026-11-13", TODAY)).toMatch(/may not be in the past \(today is 2026-10-13\)/)
+    expect(plannedStartProblem("2020-02-01", "2026-11-13", TODAY)).toMatch(/may not be in the past/)
+    expect(plannedStartProblem("2027-01-11", "2027-06-01", TODAY)).toBeNull()
+    expect(plannedStartProblem("2027-01-12", "2027-06-01", TODAY)).toMatch(/at most 90 days ahead \(2027-01-11\)/)
   })
 })
 

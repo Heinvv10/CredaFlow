@@ -34,9 +34,13 @@
  * exactly, booking is refused (terms_changed): a reference rate approved
  * after signing, or any change to the deal, would book a contract nobody
  * signed. The arrears terms are the deal's signed ones (signedArrears*),
- * never the product's now. The first instalment must still fall after the
- * booking day (`today`, the payout date), which is also the tax invoice's
- * supply date. What is written is ./booking-plan.ts.
+ * never the product's now. The booking day (`today`, the payout date, also
+ * the tax invoice's supply date) may not be after the planned start
+ * (start_passed): the loan would start before it was paid out. The signed
+ * terms cannot be re-prepared once signing has started, so a deal whose start
+ * slipped is cancelled and done again with a new start date. The first
+ * instalment must still fall after the booking day. What is written is
+ * ./booking-plan.ts.
  *
  * The serial/VIN attested from the supplier invoice is checked against the
  * asset once more (guardAssetDealBooking checks it in the database too).
@@ -123,6 +127,9 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     const signed = signedTerms(deal)
     if (!signed) return refuse("not_prepared", "The deal's contract terms were never fixed; prepare its documents")
     const start = signed.startDate
+    if (today > start) {
+      return refuse("start_passed", `The signed start date ${start} has passed (booking date ${today}): cancel the deal and do it again with a new start date`)
+    }
     const rate = await resolveRate(tx, tenantId, terms.rate, start)
     if ("error" in rate) return refuse("rate_unavailable", rate.error)
     if (!new Prisma.Decimal(rate.annualRate).equals(signed.resultingRate)) {

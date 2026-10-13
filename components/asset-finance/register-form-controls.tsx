@@ -14,6 +14,8 @@ export function TextField(props: {
   placeholder?: string
   inputMode?: "text" | "numeric" | "decimal"
   type?: "text" | "date" | "email"
+  min?: string
+  max?: string
   error?: string
 }) {
   return (
@@ -27,6 +29,8 @@ export function TextField(props: {
         inputMode={props.inputMode}
         value={props.value}
         placeholder={props.placeholder}
+        min={props.min}
+        max={props.max}
         onChange={(e) => props.onChange(e.target.value)}
         aria-invalid={props.error ? true : undefined}
       />

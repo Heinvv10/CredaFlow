@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
-import { formatZAR } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { CLOSED_DEAL_STATUSES } from "@/lib/asset-finance/deal-create"
 import { DealCreateForm, type DealFormOptions } from "./DealCreateForm"
@@ -19,13 +19,20 @@ export default async function NewDealPage() {
       select: { id: true, year: true, make: true, model: true, serialNumber: true, cashPriceExclVatCents: true, vatCents: true },
     }),
     prisma.supplier.findMany({ where: { tenantId, active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.loanProduct.findMany({ where: { tenantId, active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // Asset-finance products only: there is no product-kind flag, so a product
+    // qualifies when its NON_NCA arrears terms are configured (a default-interest
+    // margin), which booking copies onto the loan.
+    prisma.loanProduct.findMany({
+      where: { tenantId, active: true, nonNcaDefaultInterestMargin: { not: null } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ])
   const options: DealFormOptions = {
     entities: entities.map((e) => ({ id: e.id, label: e.legalName })),
     assets: assets.map((a) => ({
       id: a.id,
-      label: `${a.year} ${a.make} ${a.model} · ${a.serialNumber} · ${formatZAR(a.cashPriceExclVatCents + a.vatCents)} incl. VAT`,
+      label: `${a.year} ${a.make} ${a.model} · ${a.serialNumber} · ${formatMoney(a.cashPriceExclVatCents + a.vatCents)} incl. VAT`,
     })),
     suppliers: suppliers.map((s) => ({ id: s.id, label: s.name })),
     products: products.map((p) => ({ id: p.id, label: p.name })),

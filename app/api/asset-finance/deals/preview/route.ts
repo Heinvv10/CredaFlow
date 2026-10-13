@@ -11,8 +11,10 @@ import { solveWithRate } from "@/lib/asset-finance/deal-structure"
  * Preview a deal structure (manage_asset_finance). Writes nothing: reads the
  * asset's cash price and the tenant's reference rate, runs the solver and
  * returns the schedule, base instalment and totals. The body is the structure
- * part of a create (lib/asset-finance/deal-input.ts). 422 with the solver's
- * reason when the structure cannot be solved.
+ * part of a create (lib/asset-finance/deal-input.ts). A structure that cannot
+ * be solved is an answer about the input, not a failed request: 200 with
+ * `{ error }` (the solver's reason) and no schedule. 400 for malformed fields,
+ * 422 when the asset is not on the register.
  */
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
     if (!asset) return NextResponse.json({ error: "The asset is not on this lender's register" }, { status: 422 })
 
     const solved = await solveWithRate(prisma, tenant.id, asset, parsed.data.terms)
-    if (!solved.ok) return NextResponse.json({ error: solved.error }, { status: 422 })
+    if (!solved.ok) return NextResponse.json({ error: solved.error })
     return NextResponse.json({
       startDate: solved.startDate,
       termDays: solved.termDays,

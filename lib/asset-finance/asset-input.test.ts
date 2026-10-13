@@ -22,19 +22,27 @@ describe("parseAssetCreate", () => {
   })
 
   it.each([
-    ["TEST F8"], ["test-f8"], ["TEST.F8"], ["TEST/F8"], ["TEST_F8"], ["TEST\u00A0F8"], ["TEST\u200BF8"], ["TESTF8\t"], ["TESTF8\n"], ["\uFEFFTESTF8"],
-  ])("stores serial %j as TESTF8, the key the duplicate checks compare", (serialNumber) => {
+    ["TEST F8"], ["test-f8"], ["TEST.F8"], ["TEST/F8"], ["TEST_F8"], ["TEST\u00A0F8"], ["TEST\u2003F8"], ["  TEST F8 "],
+    ["\uFF34\uFF25\uFF33\uFF34 F8"], ["TEST\u3000F8"],
+  ])("stores serial %j as TESTF8, the key the duplicate checks compare (NFKC folds it to ASCII)", (serialNumber) => {
     const parsed = parseAssetCreate({ ...valid, serialNumber, vin: serialNumber })
     expect(parsed).toEqual({ data: expect.objectContaining({ serialNumber: "TESTF8", vin: "TESTF8" }) })
   })
 
-  it("refuses an identifier with a control or invisible format character left after normalising; an invisible-only VIN is none", () => {
-    for (const serialNumber of ["TEST\u0007F8", "TEST\u202EF8", "TEST\u00ADF8"]) {
-      const parsed = parseAssetCreate({ ...valid, serialNumber })
-      expect("errors" in parsed && parsed.errors.serialNumber).toMatch(/control or invisible/)
+  it.each([
+    ["TEST\u2013F8"], ["TEST\u2014F8"], ["TEST\u2212F8"], ["TEST,F8"], ["TEST:F8"], ["TEST\\F8"], ["TESTF8#"], ["TEST(F8)"],
+    ["\u0422EST F8"], ["TEST \u0391F8"], ["STRA\u00DFE"], ["TEST\u00C9F8"], ["TEST\u00ADF8"], ["TEST\u200BF8"], ["\uFEFFTESTF8"],
+    ["TESTF8\t"], ["TESTF8\n"], ["TEST\u0007F8"], ["TEST\u202EF8"], ["\u200B - "],
+  ])("refuses serial %j: a character outside A-Z, 0-9 and space - / . _ after NFKC", (serialNumber) => {
+    for (const parsed of [parseAssetCreate({ ...valid, serialNumber }), parseAssetCreate({ ...valid, vin: serialNumber })]) {
+      expect("errors" in parsed && (parsed.errors.serialNumber ?? parsed.errors.vin)).toMatch(/may contain only the letters A-Z, digits 0-9/)
     }
-    expect(parseAssetCreate({ ...valid, serialNumber: "\u200B - " })).toEqual({ errors: { serialNumber: "is required" } })
-    expect(parseAssetCreate({ ...valid, vin: "\u200B" })).toEqual({ data: expect.objectContaining({ vin: null }) })
+  })
+
+  it("an identifier of separators only is required; a blank VIN is none", () => {
+    expect(parseAssetCreate({ ...valid, serialNumber: " - . " })).toEqual({ errors: { serialNumber: "is required" } })
+    expect(parseAssetCreate({ ...valid, vin: "  " })).toEqual({ data: expect.objectContaining({ vin: null }) })
+    expect(parseAssetCreate({ ...valid, vin: " - " })).toEqual({ data: expect.objectContaining({ vin: null }) })
   })
 
   it.each([

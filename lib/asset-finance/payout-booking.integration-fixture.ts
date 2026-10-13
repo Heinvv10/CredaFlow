@@ -15,7 +15,7 @@ import { NextRequest } from "next/server"
 import { expect } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped } from "./dates"
-import { ASSET_ONE_REGISTRATION, dealRoutes } from "./deal.integration-fixture"
+import { ASSET_ONE_REGISTRATION, dealFixtureTenantId, dealRoutes } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 import { POST as confirmRoute } from "@/app/api/asset-finance/deals/[id]/checklist/[item]/route"
 import { GET as panelRoute, POST as payoutRoute } from "@/app/api/asset-finance/deals/[id]/payout/route"
@@ -100,7 +100,7 @@ export interface BookingFixtureOptions {
 export async function createBookingFixture(
   db: PrismaClient, t: string, setSession: SetSession, options: BookingFixtureOptions = {},
 ): Promise<BookingFixture> {
-  const tenantId = `t_af_deal_${t}`
+  const tenantId = dealFixtureTenantId(t)
   const staff = (id: string, role: string) => setSession({ id, email: `${id}@booking-it.test`, role, tenantId })
   const fx = await createSigningFixture(db, t, (id, role) => staff(id, role))
   await db.tenantConfig.update({ where: { tenantId }, data: SYNTHETIC_IDENTITY })
@@ -145,7 +145,8 @@ export async function dealDocument(db: PrismaClient, fx: BookingFixture, dealId:
   })).id
 }
 
-export async function cleanupBookingFixture(db: PrismaClient, fx: BookingFixture | undefined): Promise<void> {
+/** By tenant: also after a setup that failed part-way (`{ tenantId: dealFixtureTenantId(t) }`). */
+export async function cleanupBookingFixture(db: PrismaClient, fx: Pick<BookingFixture, "tenantId"> | undefined): Promise<void> {
   if (!fx) return
   const tenantId = fx.tenantId
   const invoices = await db.taxInvoice.findMany({ where: { tenantId }, select: { id: true } })

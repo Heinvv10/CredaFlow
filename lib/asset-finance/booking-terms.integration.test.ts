@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto"
 import { NextRequest } from "next/server"
 import { PrismaClient, type PayoutChecklistItemKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
@@ -83,7 +84,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
   afterAll(async () => {
     vi.unstubAllEnvs()
     if (!db) return
-    await cleanupBookingFixture(db, fx)
+    await cleanupBookingFixture(db, fx ?? { tenantId: dealFixtureTenantId(t) })
     await db.$disconnect()
   })
 

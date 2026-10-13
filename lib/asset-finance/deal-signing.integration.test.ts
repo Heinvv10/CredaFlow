@@ -17,6 +17,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { PrismaClient, type DealDocumentKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
@@ -70,7 +71,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
   afterAll(async () => {
     vi.unstubAllEnvs()
     if (!db) return
-    await cleanupSigningFixture(db, fx)
+    await cleanupSigningFixture(db, fx ?? { tenantId: dealFixtureTenantId(t) })
     await db.$disconnect()
   })
 

@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient, type PayoutChecklistItemKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { NextRequest } from "next/server"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
 import { sweepTenantCharges, type SweepDb } from "@/lib/loan/charges-sweep"
@@ -24,6 +25,7 @@ import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import type { ChargesTx } from "@/lib/loan/charges-replay"
 import { GET as statementRoute } from "@/app/api/loans/[id]/statement/route"
 import { entityContactRecipients, type EntityContactsDb } from "./entity-contacts"
+import { loadPortalContract } from "./portal-contract"
 import { bookingRoutes, cleanupBookingFixture, createBookingFixture, dealDocument, type BookingFixture, type SessionUser } from "./payout-booking.integration-fixture"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -97,7 +99,7 @@ suite.sequential("asset-finance servicing: book → miss → charges → receipt
         db.loanNote.deleteMany({ where: { tenantId: fx.tenantId } }),
       ])
     }
-    await cleanupBookingFixture(db, fx)
+    await cleanupBookingFixture(db, fx ?? { tenantId: dealFixtureTenantId(t) })
     await db.$disconnect()
   })
 
@@ -156,6 +158,9 @@ suite.sequential("asset-finance servicing: book → miss → charges → receipt
     expect(l.balloonAmount).toBe(20_000_000)
     expect(figures.chargesOutstanding).toBe(0)
     expect(figures.totalToSettle).toBe(remaining.reduce((s, r) => s + r.totalDue, 0))
+    // The portal labels the balance from the live flag, not from charge lines: live charges with none owed is still a settlement figure.
+    const view = await loadPortalContract(fx.tenantId, fx.evidenced, loanId, fx.director, new Date())
+    expect(view).toMatchObject({ chargesLive: true, chargeLines: [], outstandingCents: figures.totalToSettle })
   })
 
   it("staff download the statement with the entity as borrower, and the access is logged; a client is refused", async () => {

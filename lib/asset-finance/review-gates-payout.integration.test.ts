@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient, type PayoutChecklistItemKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupBookingFixture, type SessionUser } from "./payout-booking.integration-fixture"
 import { acceptedSql, createReviewGatesFixture, refusedSql, reopenItem, type ReviewGatesFixture } from "./review-gates.integration-fixture"
 
@@ -53,7 +54,7 @@ suite.sequential("review gates: payout, booking, checklist and contract rate (re
   afterAll(async () => {
     vi.unstubAllEnvs()
     if (!db) return
-    await cleanupBookingFixture(db, fx)
+    await cleanupBookingFixture(db, fx ?? { tenantId: dealFixtureTenantId(t) })
     await db.$disconnect()
   })
 

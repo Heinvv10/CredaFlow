@@ -352,6 +352,28 @@ describe("an entity borrower's statement (asset finance)", () => {
     expect(text).not.toContain(pdfHex("Address"))
   })
 
+  it("states the contract rate as an annual rate to 2 decimals (11.75%)", async () => {
+    const { client: _c, ...entityBase } = statementInput(0.1175 / 12, "REDUCING_BALANCE")
+    const text = extractPdfContent(await generateStatementPdf({ ...entityBase, entity }))
+    expect(text).toContain(pdfHex("11.75% per year (nominal)"))
+    expect(text).not.toContain(pdfHex("% per month"))
+  })
+
+  it("names the outstanding figure as principal including capitalised interest, and the schedule balance as remaining", async () => {
+    const text = extractPdfContent(await generateStatementPdf({ ...base, entity }))
+    expect(text).toContain(pdfHex("Outstanding Principal"))
+    expect(text).toContain(pdfHex("R 10,000.00 (incl. capitalised interest)"))
+    expect(text).toContain(pdfHex("Balance Remaining"))
+    expect(text).not.toContain(pdfHex("Outstanding Balance"))
+  })
+
+  it("a consumer statement keeps its rate and balance wording", async () => {
+    const text = await statementText(0.01, "REDUCING_BALANCE")
+    expect(text).toContain(pdfHex("1.00% per month (12.0% per year (nominal))"))
+    expect(text).toContain(pdfHex("Outstanding Balance"))
+    expect(text).not.toContain(pdfHex("Outstanding Principal"))
+  })
+
   it("a consumer statement still prints the client block", async () => {
     const text = await statementText(0.01, "REDUCING_BALANCE")
     expect(text).toContain(pdfHex("CLIENT DETAILS"))

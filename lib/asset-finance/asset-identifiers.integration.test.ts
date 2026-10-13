@@ -2,9 +2,10 @@
  * Real-Postgres proof of the asset register rules added in review
  * (migration 20261013114100_asset_finance_review_assets), written straight
  * to the table so the database alone has to refuse them:
- *  - the duplicate checks compare assetIdentifierKey (case, every space incl.
- *    NBSP, and - / . _ ignored);
- *  - no control or zero-width character is stored (CHECK);
+ *  - the duplicate checks compare assetIdentifierKey (NFKC, case, spaces incl.
+ *    NBSP, and - / . _ ignored; migration 20261013114500);
+ *  - after NFKC only A-Z, a-z, 0-9 and space - / . _ are stored (CHECK
+ *    FinancedAsset_identifiers_valid): the breaker's look-alike variants;
  *  - one unreleased asset's serial is not another's VIN (trigger);
  *  - the VAT is the VAT on the exclusive price at today's rate (trigger);
  *  - releasedAt is set once and never cleared (trigger).
@@ -15,6 +16,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { expectRejected } from "./af-sql.integration-fixture"
 
 const RUN = process.env.RUN_ASSET_FINANCE_ASSETS_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -55,7 +57,7 @@ suite.sequential("asset identifiers, VAT and release (real Postgres)", () => {
     await db.$disconnect()
   })
 
-  it.each([["TEST F8"], ["TEST-F8"], ["test.f8"], ["TEST/F8"], ["TEST_F8"], ["TEST F8"], ["TEST F8"], [" TESTF8 "]])(
+  it.each([["TEST F8"], ["TEST-F8"], ["test.f8"], ["TEST/F8"], ["TEST_F8"], ["TEST\u00A0F8"], ["TEST\u2003F8"], [" TESTF8 "], ["\uFF34\uFF25\uFF33\uFF34F8"]])(
     "a serial %j is the same machine as TESTF8 (unique on assetIdentifierKey)",
     async (variant) => {
       if ((await database().financedAsset.count({ where: { tenantId, serialNumber: "TESTF8" } })) === 0) await asset("TESTF8")
@@ -64,20 +66,44 @@ suite.sequential("asset identifiers, VAT and release (real Postgres)", () => {
     },
   )
 
-  it.each([["TEST​F9"], ["TESTF9\t"], ["TESTF9\n"], ["﻿TESTF9"], ["TEST\u0007F9"]])(
-    "refuses a control or zero-width character in a serial or VIN: %j",
-    async (value) => {
-      expect(await refusal(() => asset(value))).toContain("FinancedAsset_identifiers_printable")
-      expect(await refusal(() => asset(`TESTF9-${randomUUID().slice(0, 4)}`, value))).toContain("FinancedAsset_identifiers_printable")
+  // The breaker's variants of TESTEX0000000001 (round 3).
+  it.each([["TESTEX 0000000001"], ["testex-0000000001"], ["\uFF34\uFF25\uFF33\uFF34\uFF25\uFF38\uFF10000000001"], ["TESTEX0000000001 "]])(
+    "the breaker's %j is the same machine as TESTEX0000000001",
+    async (variant) => {
+      if ((await database().financedAsset.count({ where: { tenantId, serialNumber: "TESTEX0000000001" } })) === 0) await asset("TESTEX0000000001")
+      expect(await refusal(() => asset(variant))).toMatch(/P2002[\s\S]*assetIdentifierKey\(serialNumber\)/)
     },
   )
 
+  it.each([
+    ["TESTEX\u20130000000001"], ["TESTEX\u20140000000001"], ["TESTEX\u22120000000001"], ["TESTEX,0000000001"], ["TESTEX:0000000001"],
+    ["TESTEX\\0000000001"], ["\u0422ESTEX0000000001"], ["TESTEX0000000001\u200B"], ["TESTEX0000000001\u00AD"], ["TESTEX0000000001#"],
+    ["TESTEX(0000000001)"], ["\u0391TESTEX1"], ["TESTF9\t"], ["TESTF9\n"], ["\uFEFFTESTF9"], ["TEST\u0007F9"], ["TEST\u202EF9"], ["STRA\u00DFE1"],
+  ])("refuses %j: after NFKC, only A-Z, 0-9 and space - / . _ (CHECK FinancedAsset_identifiers_valid)", async (value) => {
+    expect(await refusal(() => asset(value))).toContain("FinancedAsset_identifiers_valid")
+    expect(await refusal(() => asset(`TESTF9-${randomUUID().slice(0, 4)}`, value))).toContain("FinancedAsset_identifiers_valid")
+  })
+
+  it("different machines stay different: a letter O for a zero, a shorter prefix", async () => {
+    if ((await database().financedAsset.count({ where: { tenantId, serialNumber: "TESTEX0000000001" } })) === 0) await asset("TESTEX0000000001")
+    await expect(asset("TESTEXO000000001")).resolves.toMatchObject({ serialNumber: "TESTEXO000000001" })
+    await expect(asset("TEST0000000000001")).resolves.toMatchObject({ serialNumber: "TEST0000000000001" })
+  })
+
   it("refuses a serial that is another unreleased asset's VIN, and the reverse; one asset's own serial may be its VIN", async () => {
+    // Only guardAssetIdentifierAcrossColumns sees these: each column's own unique index does not.
+    // Prisma reports the trigger's 23505 as P2002 without a target; psql shows its constraint and message.
+    const crossKey = /P2002[\s\S]*Unique constraint failed on the \(not available\)/
     await asset("TESTS10", "TESTV10")
-    expect(await refusal(() => asset("TESTS11", "test-s10"))).toMatch(/P2002/)
-    expect(await refusal(() => asset("TEST V10"))).toMatch(/P2002/)
+    expect(await refusal(() => asset("TESTS11", "test-s10"))).toMatch(crossKey)
+    expect(await refusal(() => asset("TEST V10"))).toMatch(crossKey)
+    expect(await refusal(() => asset("\uFF34ESTV10"))).toMatch(crossKey)
+    const insert = `INSERT INTO "FinancedAsset" ("id", "tenantId", "assetClass", "make", "model", "year", "serialNumber", "vin",
+      "cashPriceExclVatCents", "vatCents", "updatedAt") VALUES ('raw_${t}', '${tenantId}', 'TLB', 'TEST', 'T-1', 2024, 'TESTS13', 'tests-10', 100000, 15000, now())`
+    expectRejected(insert, "An unreleased asset already carries this identifier as its serial number or VIN")
+    expectRejected(insert, "FinancedAsset_identifier_cross_key")
     const other = await asset("TESTS12")
-    expect(await refusal(() => database().financedAsset.update({ where: { id: other.id }, data: { vin: "TESTS10" } }))).toMatch(/P2002/)
+    expect(await refusal(() => database().financedAsset.update({ where: { id: other.id }, data: { vin: "TESTS10" } }))).toMatch(crossKey)
     await expect(asset("TESTSAME13", "TESTSAME13")).resolves.toMatchObject({ vin: "TESTSAME13" })
   })
 

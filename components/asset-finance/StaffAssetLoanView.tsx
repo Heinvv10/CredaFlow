@@ -1,8 +1,9 @@
 import Link from "next/link"
 import { CreditCard, Download } from "lucide-react"
 import { prisma } from "@/lib/prisma"
-import { formatDate, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
-import { displayPaymentMethod } from "@/lib/payments/waiver"
+import { formatDate, SAST_TIME_ZONE } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
+import { paymentMethodLabel, statusLabel } from "@/lib/asset-finance/labels"
 import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import type { SettlementLoanLike, SettlementScheduleRow } from "@/lib/loan/settlement"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -34,6 +35,8 @@ export interface StaffAssetLoan extends SettlementLoanLike {
   entity: { id: string; legalName: string; registrationNumber: string } | null
   asset: { id: string; make: string; model: string; year: number; serialNumber: string; registrationNumber: string | null } | null
   assetFinanceDeal: { id: string } | null
+  /** appliedAmount is the amount financed */
+  application: { appliedAmount: number } | null
   product: { name: string }
   repaymentSchedule: Array<SettlementScheduleRow & {
     id: string
@@ -46,6 +49,9 @@ export interface StaffAssetLoan extends SettlementLoanLike {
   }>
   payments: Array<{ id: string; amount: number; paymentMethod: string; receivedAt: Date; reversed: boolean; allocationStatus: string }>
 }
+
+// Sized so R 99,999,999.99 fits a card at 1280 and at 375 wide.
+const metric = (text: string) => <span className="block text-xl tabular-nums xl:text-2xl">{text}</span>
 
 const row = (label: string, value: React.ReactNode) => (
   <div className="flex justify-between gap-4">
@@ -69,6 +75,7 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
   const skipRows = loan.repaymentSchedule.filter((s) => s.totalDue === 0).length
   const balloon = loan.balloonAmount ?? 0
   const name = loan.entity?.legalName ?? loan.reference
+  const financed = loan.application?.appliedAmount ?? null
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -89,11 +96,16 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="space-y-6 lg:col-span-7">
           <DataPanel title="Asset finance loan" description={`Reference ${loan.reference} · ${loan.product.name}`} variant="raised" density="loose"
-            actions={<StatusPill tone={loan.daysInArrears > 0 ? "warning" : "neutral"}>{loan.status.replace(/_/g, " ")}</StatusPill>}>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <MetricCard label={charges || settlementAmount === balance ? "Balance Remaining" : "Balance at maturity"} value={formatZAR(balance)} />
-              <MetricCard label="Arrears" value={formatZAR(arrears)} tone={loan.daysInArrears > 0 ? "warning" : "neutral"} />
-              <MetricCard label="Next payment" value={nextPayment ? `${formatZAR(nextPayment.totalDue - nextPayment.totalPaid)} on ${formatDate(nextPayment.dueDate)}` : "-"} />
+            actions={<StatusPill tone={loan.daysInArrears > 0 ? "warning" : "neutral"}>{statusLabel(loan.status)}</StatusPill>}>
+            {/* While default charges are live the balance is the settlement figure (staffLoanFigures). */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <MetricCard label={charges ? "Amount to settle today" : "Balance remaining"} value={metric(formatMoney(balance))}
+                detail={charges ? "Settles the agreement today, default charges included" : "Principal + scheduled interest still to pay"} />
+              <MetricCard label="Outstanding principal" value={metric(formatMoney(loan.outstandingPrincipal))}
+                detail="Includes capitalised interest" />
+              <MetricCard label="Arrears" value={metric(formatMoney(arrears))} tone={loan.daysInArrears > 0 ? "warning" : "neutral"} />
+              <MetricCard label="Next payment" value={metric(nextPayment ? formatMoney(nextPayment.totalDue - nextPayment.totalPaid) : "None scheduled")}
+                detail={nextPayment ? `Due ${formatDate(nextPayment.dueDate)}` : undefined} />
             </div>
             {loan.daysInArrears > 0 && (
               <p className="mt-4 text-sm text-[var(--cf-text-muted)]">{loan.daysInArrears} days in arrears.</p>
@@ -102,7 +114,13 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
 
           <DataPanel title="Repayment schedule" variant="default" density="loose">
             <div className="mb-4 space-y-1 text-sm text-[var(--cf-text-muted)]">
-              {balloon > 0 && <p>The final instalment includes the balloon of {formatZAR(balloon)}.</p>}
+              {balloon > 0 && <p>The final instalment includes the balloon of {formatMoney(balloon)}.</p>}
+              {financed !== null && loan.principal > financed && (
+                <p>
+                  The principal ({formatMoney(loan.principal)}) is more than the {formatMoney(financed)} financed: interest that lower or
+                  skipped instalments do not cover is capitalised (added to the balance and repaid as principal).
+                </p>
+              )}
               {skipRows > 0 && (
                 <p>
                   {skipRows} period{skipRows === 1 ? " has" : "s have"} no payment (R0.00). Interest those periods accrue is capitalised: it is added
@@ -110,7 +128,11 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
                 </p>
               )}
             </div>
-            <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={false} />
+            {/* Money and dates on one line each; the table scrolls sideways in its own container. */}
+            <div className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
+              <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={false}
+                statusLabels={Object.fromEntries(loan.repaymentSchedule.map((s) => [s.status, statusLabel(s.status)]))} />
+            </div>
           </DataPanel>
         </div>
 
@@ -159,8 +181,8 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
                 {loan.payments.map((payment) => (
                   <div key={payment.id} className="flex items-center justify-between gap-4 border-b border-[var(--cf-border-subtle)] py-2 last:border-0">
                     <div>
-                      <p className={`whitespace-nowrap font-semibold ${payment.reversed ? "text-[var(--cf-text-muted)] line-through" : "text-[var(--cf-text)]"}`}>{formatZAR(payment.amount)}</p>
-                      <p className="text-xs text-[var(--cf-text-muted)]">{displayPaymentMethod(payment.paymentMethod, (method) => method)} - {formatDate(payment.receivedAt)}</p>
+                      <p className={`whitespace-nowrap font-semibold ${payment.reversed ? "text-[var(--cf-text-muted)] line-through" : "text-[var(--cf-text)]"}`}>{formatMoney(payment.amount)}</p>
+                      <p className="text-xs text-[var(--cf-text-muted)]">{paymentMethodLabel(payment.paymentMethod)} · {formatDate(payment.receivedAt)}</p>
                     </div>
                     <StatusPill tone={payment.reversed ? "neutral" : payment.allocationStatus === "ALLOCATED" ? "success" : "warning"}>
                       {payment.reversed ? "Reversed" : payment.allocationStatus === "ALLOCATED" ? "Allocated" : payment.allocationStatus === "REFUNDED" ? "Refund recorded" : "Allocation pending"}

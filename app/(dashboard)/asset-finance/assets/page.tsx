@@ -6,7 +6,8 @@ import { EmptyState } from "@/components/app-shell/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { prisma } from "@/lib/prisma"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { ASSET_CLASS_LABELS } from "@/lib/asset-finance/asset-labels"
 
@@ -74,7 +75,7 @@ export default async function AssetsPage() {
                       {a.serialNumber}
                       {a.vin && <p className="text-[var(--cf-text-muted)]">{a.vin}</p>}
                     </TableCell>
-                    <TableCell className="text-right">{formatZAR(a.cashPriceExclVatCents + a.vatCents)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(a.cashPriceExclVatCents + a.vatCents)}</TableCell>
                     <TableCell>{a.releasedAt ? `Released ${formatDate(a.releasedAt)}` : "On book"}</TableCell>
                     <TableCell>{formatDate(a.createdAt)}</TableCell>
                   </TableRow>

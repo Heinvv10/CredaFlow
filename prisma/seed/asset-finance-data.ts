@@ -147,6 +147,3 @@ export const CREDIT_MEMO = {
   returnedDebitsCount: 0,
   notes: "Synthetic credit memo: audited AFS (TEST) and six months of bank statements (TEST).",
 }
-
-/** Instalments paid by the seed's receipts (the first ones, each on its due date). */
-export const PAID_INSTALMENTS = 3

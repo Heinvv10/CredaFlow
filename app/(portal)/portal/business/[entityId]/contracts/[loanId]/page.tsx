@@ -9,7 +9,8 @@ import { loadPortalContract, type PortalContractView } from "@/lib/asset-finance
 import { ASSET_CLASS_LABELS } from "@/lib/asset-finance/asset-labels"
 import { RATE_BASIS_LABELS, ratePercent } from "@/lib/asset-finance/deal-labels"
 import { statusLabel } from "@/lib/asset-finance/labels"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 
 type Params = { params: Promise<{ entityId: string; loanId: string }> }
 
@@ -38,6 +39,9 @@ export default async function PortalContractPage({ params }: Params) {
   const view = await loadPortalContract(tenantId, entityId, loanId, clientId)
   if (!view) notFound()
   const asset = view.asset
+  // portalOutstanding: the settlement figure while default charges are live
+  // for the loan, otherwise the outstanding principal (capitalised interest included).
+  const settling = view.chargesLive
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 px-4 py-8 md:px-6">
@@ -55,20 +59,24 @@ export default async function PortalContractPage({ params }: Params) {
           />
           <Figure label="Rate" value={rateText(view.rate)} />
           <Figure label="Term" value={`${formatDate(view.startDate)} – ${formatDate(view.maturityDate)}`} sub="Start to maturity" />
-          <Figure label="Balloon" value={view.balloonCents > 0 ? formatZAR(view.balloonCents) : "None"} sub={view.balloonCents > 0 ? "Payable with the final instalment" : undefined} />
+          <Figure label="Balloon" value={view.balloonCents > 0 ? formatMoney(view.balloonCents) : "None"} sub={view.balloonCents > 0 ? "Payable with the final instalment" : undefined} />
           <Figure
-            label="Outstanding balance"
-            value={formatZAR(view.outstandingCents)}
-            sub={view.chargeLines.map((l) => `${l.label} ${formatZAR(l.amount)}`).join(" · ") || undefined}
+            label={settling ? "Amount to settle today" : "Outstanding principal"}
+            value={formatMoney(view.outstandingCents)}
+            sub={!settling
+              ? "Capital still to repay, including capitalised interest"
+              : view.chargeLines.length > 0
+                ? `Includes ${view.chargeLines.map((l) => `${l.label} ${formatMoney(l.amount)}`).join(" · ")}`
+                : "No default charges owed"}
           />
           <Figure
             label="Arrears"
-            value={view.arrears.amountCents > 0 ? formatZAR(view.arrears.amountCents) : "None"}
+            value={view.arrears.amountCents > 0 ? formatMoney(view.arrears.amountCents) : "None"}
             sub={view.arrears.days > 0 ? `${view.arrears.days} days overdue` : undefined}
           />
           <Figure
             label="Next payment"
-            value={view.nextPayment ? formatZAR(view.nextPayment.amountCents) : "None scheduled"}
+            value={view.nextPayment ? formatMoney(view.nextPayment.amountCents) : "None scheduled"}
             sub={view.nextPayment ? `Due ${formatDate(view.nextPayment.dueDate)}` : undefined}
           />
         </dl>

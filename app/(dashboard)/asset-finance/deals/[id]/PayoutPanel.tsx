@@ -2,7 +2,8 @@ import Link from "next/link"
 import type { EntityDocumentType } from "@prisma/client"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 import { CHECKLIST_EVIDENCE_TYPES, CHECKLIST_KINDS } from "@/lib/asset-finance/payout-checklist"
 import type { PayoutPanel as PayoutPanelData } from "@/lib/asset-finance/payout-view"
 import { statusLabel } from "@/lib/asset-finance/labels"
@@ -25,7 +26,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
   return (
     <DataPanel
       title="Payout"
-      description={`The supplier is owed ${formatZAR(panel.payoutAmountCents)} (cash price incl. VAT less deposit and trade-in)`
+      description={`The supplier is owed ${formatMoney(panel.payoutAmountCents)} (cash price incl. VAT less deposit and trade-in)`
         + (panel.approvedAccount
           ? `, paid to ${panel.approvedAccount.accountHolder}, ${panel.approvedAccount.bankName} …${panel.approvedAccount.accountNumberTail}.`
           : "; the supplier has no approved bank account yet.")}
@@ -87,7 +88,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
         {payout ? (
           <div className="flex flex-wrap items-center gap-3">
             <StatusPill tone={PAYOUT_TONE[payout.status]}>{statusLabel(payout.status)}</StatusPill>
-            <span className="text-[var(--cf-text)]">{formatZAR(payout.amountCents)}</span>
+            <span className="text-[var(--cf-text)]">{formatMoney(payout.amountCents)}</span>
             <span className="text-xs text-[var(--cf-text-muted)]">
               {`Created by ${payout.createdBy}`}
               {payout.approvedBy && ` · approved by ${payout.approvedBy}`}
@@ -98,7 +99,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
         ) : (
           <p className="text-[var(--cf-text-muted)]">
             {open.length > 0 ? `${open.length} required item(s) open before the payout can be created.` : "No payout yet."}
-            {panel.dualApprovalThresholdCents !== null && ` Payouts from ${formatZAR(panel.dualApprovalThresholdCents)} need a second approver.`}
+            {panel.dualApprovalThresholdCents !== null && ` Payouts from ${formatMoney(panel.dualApprovalThresholdCents)} need a second approver.`}
           </p>
         )}
         {canDecide && contracted && (

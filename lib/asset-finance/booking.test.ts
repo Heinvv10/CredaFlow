@@ -80,6 +80,7 @@ describe("bookDeal refusals: nothing is written", () => {
     ["terms_changed", { signedTotalInterestCents: (signedSolve.ok ? signedSolve.result.totalInterestCents : 0) - 1 }],
     ["terms_changed", { application: { ...deal().application, approvedAmount: 155_250_100 } }],
     ["not_prepared", { plannedStartDate: null }],
+    ["start_passed", { plannedStartDate: dbDate("2026-10-12") }],
   ])("%s for %j", async (reason, over) => {
     m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal(over))
     expect(await book()).toMatchObject({ kind: "refused", reason })
@@ -95,10 +96,10 @@ describe("bookDeal refusals: nothing is written", () => {
   it("resolves the rate on the planned start date, not the booking day", async () => {
     m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal({ checklist: [] }))
     await book()
-    m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal({ plannedStartDate: dbDate("2026-10-01") }))
+    m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal({ plannedStartDate: dbDate("2026-10-20") }))
     await book()
     expect(m.tx.referenceRate.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ effectiveDate: { lte: dbDate("2026-10-01") } }),
+      where: expect.objectContaining({ effectiveDate: { lte: dbDate("2026-10-20") } }),
     }))
   })
 

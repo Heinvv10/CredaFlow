@@ -6,6 +6,7 @@ import { canDo } from "@/lib/auth-guards"
 import { formatDate, formatDateTime } from "@/lib/utils"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { BANK_ACCOUNT_STATUS_LABELS } from "@/lib/asset-finance/asset-labels"
+import { bankAccountTypeLabel } from "@/lib/asset-finance/labels"
 import { supplierBankAccountView } from "@/lib/asset-finance/supplier-bank-view"
 import { BankAccountDecision } from "./BankAccountDecision"
 import { BankAccountRequestForm } from "./BankAccountRequestForm"
@@ -68,7 +69,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           </dl>
         </DataPanel>
 
-        <DataPanel title="Bank accounts" description="Payouts go only to the APPROVED account" density="loose">
+        <DataPanel title="Bank accounts" description="Payouts go only to the approved account" density="loose">
           <div className="space-y-3">
             {supplier.bankAccounts.length === 0 && (
               <p className="text-sm text-[var(--cf-text-muted)]">No bank account captured.</p>
@@ -78,7 +79,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-sm font-medium text-[var(--cf-text)]">
                     {a.bankName} · <span className="font-mono">{a.branchCode}</span> · <span className="font-mono">{supplierBankAccountView(a, user.role).accountNumber}</span>
-                    {a.accountType && <span className="text-[var(--cf-text-muted)]"> · {a.accountType}</span>}
+                    {a.accountType && <span className="text-[var(--cf-text-muted)]"> · {bankAccountTypeLabel(a.accountType)}</span>}
                   </p>
                   <span className={`text-xs font-semibold ${STATUS_TONE[a.status]}`}>{BANK_ACCOUNT_STATUS_LABELS[a.status]}</span>
                 </div>

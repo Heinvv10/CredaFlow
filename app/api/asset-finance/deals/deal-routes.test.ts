@@ -142,11 +142,11 @@ describe("asset-finance deal routes", () => {
     expect((await res.json()).error).toMatch(/open deal/)
   })
 
-  it("preview writes nothing and answers 422 with the solver's reason", async () => {
+  it("preview writes nothing and answers an unsolvable structure 200 with the solver's reason and no schedule", async () => {
     m.solveWithRate.mockResolvedValue({ ok: false, error: "balloonCents: must be less than the financed amount" })
     const res = await calls.preview()
-    expect(res.status).toBe(422)
-    expect((await res.json()).error).toMatch(/balloon/)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: "balloonCents: must be less than the financed amount" })
     expect(m.logAuditStrict).not.toHaveBeenCalled()
   })
 
@@ -160,7 +160,9 @@ describe("asset-finance deal routes", () => {
   it("bureau checks run once per director/trustee and are audited; none on file is 422", async () => {
     const res = await calls.bureau()
     expect(await res.json()).toMatchObject({ results: [{ clientId: "c-1", role: "DIRECTOR", outcome: "stored" }] })
-    expect(m.runCheck).toHaveBeenCalledWith("tenant-1", "app-1", { clientId: "c-1", role: "DIRECTOR", trusteeKind: null })
+    expect(m.runCheck).toHaveBeenCalledWith("tenant-1", "app-1", { clientId: "c-1", role: "DIRECTOR", trusteeKind: null }, {
+      force: false, startedAt: expect.any(Date),
+    })
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "ASSET_DEAL_BUREAU_CHECKED", entityId: "deal-1" }))
     m.subjects.mockResolvedValue([])
     expect((await calls.bureau()).status).toBe(422)

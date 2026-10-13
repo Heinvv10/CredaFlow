@@ -2,7 +2,8 @@ import Link from "next/link"
 import { Pencil } from "lucide-react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { Button } from "@/components/ui/button"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
+import { formatMoney } from "@/lib/asset-finance/format"
 import { ENTITY_TYPE_LABELS } from "@/lib/asset-finance/labels"
 import type { EntityCore } from "@/lib/asset-finance/entity-detail"
 
@@ -35,8 +36,8 @@ export function EntityDetailsPanel({ entity, canManage }: { entity: EntityCore; 
         {entity.type === "TRUST" && <Row label="Master's reference" value={entity.mastersReference} />}
         <Row label="Trading name" value={entity.tradingName} />
         <Row label="VAT number" value={entity.vatNumber} />
-        <Row label="Annual turnover" value={entity.annualTurnover === null ? null : formatZAR(entity.annualTurnover)} />
-        <Row label="Total asset value" value={entity.totalAssetValue === null ? null : formatZAR(entity.totalAssetValue)} />
+        <Row label="Annual turnover" value={entity.annualTurnover === null ? null : formatMoney(entity.annualTurnover)} />
+        <Row label="Total asset value" value={entity.totalAssetValue === null ? null : formatMoney(entity.totalAssetValue)} />
         <Row label="Financial year end" value={entity.financialYearEnd ? formatDate(entity.financialYearEnd) : null} />
         <Row
           label="Financials evidence"

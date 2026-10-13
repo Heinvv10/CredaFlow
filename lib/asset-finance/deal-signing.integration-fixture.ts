@@ -12,6 +12,7 @@ import { expect } from "vitest"
 import { addMonthsClamped } from "./dates"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, createDealFixture, dealRoutes, type DealFixture } from "./deal.integration-fixture"
+import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
 import { GET as panelRoute, POST as prepareRoute } from "@/app/api/asset-finance/deals/[id]/signing/route"
 import { POST as contractRoute } from "@/app/api/asset-finance/deals/[id]/contract/route"
 import { GET as staffDocumentRoute } from "@/app/api/asset-finance/deals/[id]/signers/[signerId]/document/route"
@@ -49,7 +50,7 @@ export async function createSigningFixture(
     (await db.client.create({
       data: {
         tenantId: fx.tenantId, firstName: "TEST", lastName: label, email: `${label}-${t}@client.invalid`,
-        phone: `0001${t.slice(0, 5)}${n}`, idNumber: `98${t.replace(/\D/g, "0").slice(0, 9)}${String(n).padStart(2, "0")}`,
+        phone: `0001${t.slice(0, 5)}${n}`, idNumber: syntheticSaIdNumber(),
       },
     })).id
   const suretyA = await client("suretya", 1)
@@ -84,7 +85,7 @@ export async function createSigningFixture(
 }
 
 /** Signer rows, documents and the files they point at go first; then the deal fixture. */
-export async function cleanupSigningFixture(db: PrismaClient, fx: SigningFixture | undefined): Promise<void> {
+export async function cleanupSigningFixture(db: PrismaClient, fx: Pick<SigningFixture, "tenantId"> | undefined): Promise<void> {
   if (!fx) return
   const tenantId = fx.tenantId
   const signers = await db.dealSigner.findMany({ where: { tenantId }, select: { id: true, documentStoragePath: true } })

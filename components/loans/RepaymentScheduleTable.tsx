@@ -36,6 +36,8 @@ interface RepaymentScheduleTableProps {
   schedule: ScheduleItem[]
   /** If false, admin action buttons are hidden (e.g. on completed/written-off loans) */
   allowAdminActions?: boolean
+  /** Badge text per instalment status (serialisable: a server page passes it); the raw status when absent. */
+  statusLabels?: Record<string, string>
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -54,6 +56,7 @@ export function RepaymentScheduleTable({
   loanId,
   schedule,
   allowAdminActions = true,
+  statusLabels = {},
 }: RepaymentScheduleTableProps) {
   const router = useRouter()
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -128,7 +131,7 @@ export function RepaymentScheduleTable({
                 </TableCell>
                 <TableCell>
                   <Badge className={STATUS_BADGE[item.status] ?? "bg-gray-100 text-gray-800"}>
-                    {item.status}
+                    {statusLabels[item.status] ?? item.status}
                   </Badge>
                 </TableCell>
                 <TableCell>
