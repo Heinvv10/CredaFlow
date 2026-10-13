@@ -34,12 +34,18 @@ export interface BookingFixture extends SigningFixture {
 
 export const REGISTRATION = ASSET_ONE_REGISTRATION
 
-export async function approveDeal(fx: SigningFixture, assetId: string, staff: (id: string, role: string) => void, db: PrismaClient) {
+export async function approveDeal(
+  fx: SigningFixture,
+  assetId: string,
+  staff: (id: string, role: string) => void,
+  db: PrismaClient,
+  firstDueMonths = 1,
+) {
   const routes = dealRoutes(fx.host)
   staff(fx.officer, "CREDIT_OFFICER")
   const created = await routes.create({
     assetId, depositCents: 17_250_000, balloonCents: 20_000_000,
-    firstDueDate: addMonthsClamped(sastCalendarDate(new Date()), 2),
+    firstDueDate: addMonthsClamped(sastCalendarDate(new Date()), firstDueMonths),
     preset: { kind: "MONTHLY", periods: 36 }, rateBasis: "PRIME", rateMargin: "0.0100",
     entityId: fx.evidenced, supplierId: fx.supplier, productId: fx.product,
   })

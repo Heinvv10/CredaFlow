@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient, type PayoutChecklistItemKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { fromDayNumber, toDayNumber } from "./dates"
+import { fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { signingRoutes } from "./deal-signing.integration-fixture"
 import {
@@ -117,18 +117,22 @@ suite.sequential("review round 3: planned start, frozen deal terms, released ass
       staff(fx.adminA, "LOAN_ADMIN")
       expect((await bookingRoutes(fx.host).createPayout(fx.dealB)).status).toBe(201)
 
-      // The route books as of today (SAST): tomorrow is after the start fixed today.
+      if (!b.plannedStartDate) throw new Error("fixture deal was not prepared")
+      const start = new Date(`${isoOfDbDate(b.plannedStartDate)}T12:00:00.000Z`)
+      // The route books as of the supplied SAST day: one day after the signed start is too late.
       vi.useFakeTimers({ toFake: ["Date"] })
-      vi.setSystemTime(new Date(Date.now() + 86_400_000))
+      vi.setSystemTime(new Date(start.getTime() + 86_400_000))
       const late = await bookingRoutes(fx.host).book(fx.dealB)
-      vi.useRealTimers()
       expect(late.status).toBe(409)
       expect((await late.json()).error).toMatch(/has passed .*cancel the deal and do it again/)
       expect(await refusals(fx.dealB, "ASSET_PAYOUT_REFUSED", "start_passed")).toBe(1)
       expect(await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealB } })).toMatchObject({ status: "CONTRACTED", loanId: null })
       expect(await database().loan.count({ where: { applicationId: b.applicationId } })).toBe(0)
 
-      expect((await bookingRoutes(fx.host).book(fx.dealB)).status).toBe(201)
+      vi.setSystemTime(start)
+      const onTime = await bookingRoutes(fx.host).book(fx.dealB)
+      expect(onTime.status).toBe(201)
+      vi.useRealTimers()
     })
   })
 

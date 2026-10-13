@@ -116,7 +116,11 @@ export async function loadPortalContract(
       where: { tenantId, loanId, effectiveDate: { lte: dbDate(sastCalendarDate(asOf)) } },
       orderBy: { effectiveDate: "desc" },
       select: { basis: true, margin: true, resultingRate: true, effectiveDate: true },
-    }),
+    }).then((current) => current ?? prisma.contractRate.findFirst({
+      where: { tenantId, loanId },
+      orderBy: { effectiveDate: "asc" },
+      select: { basis: true, margin: true, resultingRate: true, effectiveDate: true },
+    })),
     prisma.taxInvoice.findFirst({
       where: { tenantId, loanId },
       orderBy: { number: "asc" },

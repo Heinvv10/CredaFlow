@@ -19,6 +19,8 @@ import { PrismaClient, type DealDocumentKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
+import { dealStartDate } from "./deal-structure"
+import { isoOfDbDate } from "./dates"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -30,6 +32,7 @@ const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: SigningFixture
+let plannedStart = ""
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_FINANCE_SIGNING_IT=1 is required")
@@ -66,6 +69,8 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     fx = await createSigningFixture(database(), t, (userId, role) => {
       session.current = { user: { id: userId, email: `${userId}@signing-it.test`, role, tenantId: `t_af_deal_${t}` } }
     })
+    const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, select: { firstDueDate: true } })
+    plannedStart = dealStartDate(isoOfDbDate(deal.firstDueDate))
   })
 
   afterAll(async () => {
@@ -77,7 +82,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
 
   it("refuses to prepare documents while the lender identity is not configured (422, nothing written)", async () => {
     signIn(fx.officer, "CREDIT_OFFICER")
-    const response = await routes().prepare(fx.dealId)
+    const response = await routes().prepare(fx.dealId, { plannedStartDate: plannedStart })
     expect(response.status).toBe(422)
     expect((await response.json()).error).toMatch(/Lender identity is not configured/)
     expect(await database().dealSigner.count({ where: { dealId: fx.dealId } })).toBe(0)
@@ -86,7 +91,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
   it("prepares: one row per required signature, each binding stored bytes by sha256; again is idempotent", async () => {
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: SYNTHETIC_IDENTITY })
     signIn(fx.officer, "CREDIT_OFFICER")
-    expect((await routes().prepare(fx.dealId)).status).toBe(200)
+    expect((await routes().prepare(fx.dealId, { plannedStartDate: plannedStart })).status).toBe(200)
     const rows = await database().dealSigner.findMany({ where: { dealId: fx.dealId } })
     expect(rows.map((r) => `${r.document}:${r.clientId}:${r.role}`).sort()).toEqual([
       `AGREEMENT:${fx.director}:AUTHORISED_SIGNATORY`, `RESOLUTION:${fx.director}:AUTHORISED_SIGNATORY`,
@@ -98,7 +103,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     }
     expect(new Set(rows.filter((r) => r.document === "SURETYSHIP").map((r) => r.documentSha256)).size).toBe(3)
 
-    expect((await routes().prepare(fx.dealId)).status).toBe(200)
+    expect((await routes().prepare(fx.dealId, { plannedStartDate: plannedStart })).status).toBe(200)
     const again = await database().dealSigner.findMany({ where: { dealId: fx.dealId } })
     expect(again.map((r) => r.id).sort()).toEqual(rows.map((r) => r.id).sort())
     // Deterministic render: the same deal binds the same digests.
@@ -194,7 +199,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
       where: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: fx.suretyB, role: "SURETY" }, data: { active: false },
     }))).toContain("The entity has an approved deal: its sureties and signatories are fixed")
     signIn(fx.officer, "CREDIT_OFFICER")
-    expect((await routes().prepare(fx.dealId)).status).toBe(409)
+    expect((await routes().prepare(fx.dealId, { plannedStartDate: plannedStart })).status).toBe(409)
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })
     expect(deal.preparedSigners).not.toContainEqual(expect.objectContaining({ clientId: late.id }))
   })
@@ -205,7 +210,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     expect(response.status).toBe(200)
     expect((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })).status).toBe("CONTRACTED")
     expect(await database().auditLog.count({ where: { entityId: fx.dealId, action: "ASSET_DEAL_CONTRACTED", userId: fx.officer } })).toBe(1)
-    expect((await routes().prepare(fx.dealId)).status).toBe(409)
+    expect((await routes().prepare(fx.dealId, { plannedStartDate: plannedStart })).status).toBe(409)
     expect(await sqlError(() => database().dealSigner.create({
       data: {
         tenantId: fx.tenantId, dealId: fx.dealId, clientId: fx.suretyA, role: "AUTHORISED_SIGNATORY", document: "AGREEMENT",

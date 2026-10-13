@@ -164,7 +164,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
   })
 
   it("contract re-renders the agreement: a deal whose agreement no longer hashes to the signed digest is refused (409, audited)", async () => {
-    dealC = await approveDeal(fx, fx.assets[2], (id, role) => setSession({ id, email: `${id}@terms-it.test`, role, tenantId: fx.tenantId }), database())
+    dealC = await approveDeal(fx, fx.assets[2], (id, role) => setSession({ id, email: `${id}@terms-it.test`, role, tenantId: fx.tenantId }), database(), 2)
     const created = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC }, select: { firstDueDate: true } })
     dealCStart = dealStartDate(isoOfDbDate(created.firstDueDate))
     await prepareAndSign(fx, dealC, setSession, database(), [], dealCStart)

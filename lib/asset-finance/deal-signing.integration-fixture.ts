@@ -63,7 +63,7 @@ export async function createSigningFixture(
   signIn(fx.officer, "CREDIT_OFFICER")
   const created = await routes.create({
     assetId: fx.assets[0], depositCents: 17_250_000, balloonCents: 20_000_000,
-    firstDueDate: addMonthsClamped(sastCalendarDate(new Date()), 2),
+    firstDueDate: addMonthsClamped(sastCalendarDate(new Date()), 1),
     preset: { kind: "MONTHLY", periods: 36 }, rateBasis: "PRIME", rateMargin: "0.0100",
     entityId: fx.evidenced, supplierId: fx.supplier, productId: fx.product,
   })
