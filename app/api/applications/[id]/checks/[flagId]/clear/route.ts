@@ -27,13 +27,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { id, flagId } = await ctx.params
     const body = (await req.json().catch(() => ({}))) as { reason?: unknown }
     const reason = typeof body.reason === "string" ? body.reason.trim() : ""
-    if (reason.length < CLEAR_REASON_MIN_LENGTH) {
+    // Code points, as the database's char_length counts them: an emoji is one, not two.
+    const length = [...reason].length
+    if (length < CLEAR_REASON_MIN_LENGTH) {
       return NextResponse.json(
         { error: `Give a reason of at least ${CLEAR_REASON_MIN_LENGTH} characters.`, reason: "too_short" },
         { status: 400 },
       )
     }
-    if (reason.length > CLEAR_REASON_MAX_LENGTH) {
+    if (length > CLEAR_REASON_MAX_LENGTH) {
       return NextResponse.json(
         { error: `Keep the reason under ${CLEAR_REASON_MAX_LENGTH} characters.`, reason: "too_long" },
         { status: 400 },
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       // The application row lock a recompute and the approval also take: a
       // clearance cannot interleave with either, nor land after a decision.
       const locked = await tx.$queryRaw<Array<{ status: AppStatus }>>`
-        SELECT status FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR UPDATE`
+        SELECT status FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR NO KEY UPDATE`
       const flag = await tx.applicationCheckFlag.findFirst({
         where: { id: flagId, tenantId: tenant.id, applicationId: id },
         select: { id: true, check: true, code: true },

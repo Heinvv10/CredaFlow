@@ -165,6 +165,34 @@ suite("credit-check enforcement in the database", () => {
     }
   })
 
+  it("refuses a flag raised already cleared or superseded: every flag is born OPEN", () => {
+    for (const status of ["CLEARED", "SUPERSEDED"]) {
+      const result = run(`INSERT INTO "ApplicationCheckFlag" ("id", "tenantId", "applicationId", "check", "code", "fingerprint", "status", "summary", "evidence", "updatedAt", "clearedById", "clearedAt", "clearReason")
+        VALUES ('pre_${token}', '${tenantId}', '${appId}', 'RISK_BEHAVIOUR', 'GAMBLING', 'pre-${token}', '${status}', 'x', '{}', now(),
+          ${status === "CLEARED" ? `'${userId}', now(), 'Pre-cleared before anyone raised it'` : "NULL, NULL, NULL"})`)
+      expect(result.ok, status).toBe(false)
+      expect(result.output).toContain("ApplicationCheckFlag_born_open")
+    }
+  })
+
+  it("refuses changing a flag's identity, or clearing a superseded one without reopening it", () => {
+    for (const change of [`fingerprint = 'other'`, `code = 'OTHER'`, `"check" = 'MANUAL_REVIEW'`]) {
+      const result = run(`UPDATE "ApplicationCheckFlag" SET ${change} WHERE id = '${flagId}'`)
+      expect(result.ok, change).toBe(false)
+      expect(result.output).toContain("ApplicationCheckFlag_transition")
+    }
+    sql(`UPDATE "ApplicationCheckFlag" SET status = 'SUPERSEDED' WHERE id = '${flagId}'`)
+    const result = run(`UPDATE "ApplicationCheckFlag" SET status = 'CLEARED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = 'A reason long enough to pass' WHERE id = '${flagId}'`)
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain("ApplicationCheckFlag_transition")
+  })
+
+  it("refuses truncating the flags", () => {
+    const result = run(`TRUNCATE "ApplicationCheckFlag"`)
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain("ApplicationCheckFlag_no_delete")
+  })
+
   it("refuses a SUPERSEDED flag that carries a clearance", () => {
     const result = run(`UPDATE "ApplicationCheckFlag" SET status = 'SUPERSEDED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = 'A reason long enough to pass' WHERE id = '${flagId}'`)
     expect(result.ok).toBe(false)

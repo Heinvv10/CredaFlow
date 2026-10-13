@@ -328,7 +328,7 @@ describe("POST /api/documents", () => {
     const response = await POST(request("BANK_STATEMENT") as never)
 
     expect(response.status).toBe(201)
-    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1")
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", { onRead: expect.any(Function) })
   })
 
   it("does not read a statement a consentless client uploaded, nor any other document type", async () => {

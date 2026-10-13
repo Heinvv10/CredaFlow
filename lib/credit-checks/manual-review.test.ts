@@ -3,7 +3,7 @@ import { manualReview } from "./manual-review"
 import { codes, facts, statement } from "./facts.test-helpers"
 import type { ApplicationFacts } from "./types"
 
-const payslip = { documentId: "slip-1", validated: true, netPayCents: 1_845_000, payDate: "2026-09-25" }
+const payslip = { documentId: "slip-1", validated: true, matchesClient: true, netPayCents: 1_845_000, payDate: "2026-09-25" }
 const withSlip = (over: Partial<ApplicationFacts> = {}) => facts({ payslip, ...over })
 
 describe("manualReview", () => {
@@ -58,5 +58,27 @@ describe("manualReview", () => {
     for (const s of [photo, scan, unprofiled, forgedInfo]) {
       expect(codes(manualReview(withSlip({ statements: [s] })))).toEqual(["AUTHENTICITY_UNCHECKED"])
     }
+  })
+
+  it("raises READ_INCOMPLETE for a read without the holder or the period", () => {
+    const noHolder = statement([])
+    noHolder.read!.accountHolderName = null
+    expect(codes(manualReview(withSlip({ statements: [noHolder] })))).toEqual(["READ_INCOMPLETE"])
+    const noPeriod = statement([])
+    noPeriod.read!.periodEnd = null
+    expect(codes(manualReview(withSlip({ statements: [noPeriod] })))).toEqual(["READ_INCOMPLETE"])
+  })
+
+  it("raises STATEMENT_DELETED for each read statement since deleted, with or without statements left", () => {
+    expect(codes(manualReview(withSlip({ deletedStatementIds: ["gone-1"] })))).toEqual(["STATEMENT_DELETED"])
+    expect(codes(manualReview(withSlip({ statements: [], deletedStatementIds: ["gone-1", "gone-2"] }))))
+      .toEqual(["NO_STATEMENT", "STATEMENT_DELETED", "STATEMENT_DELETED"])
+  })
+
+  it("names the missing PDF tools rather than the vision reader", () => {
+    const s = statement([], { state: "PENDING", pendingReason: "reader_unavailable", read: null, analysisId: null, contentSha256: null, method: null, balanceCheck: null, authenticity: null })
+    const out = manualReview(withSlip({ statements: [s] }))
+    expect(codes(out)).toEqual(["NOT_READ"])
+    expect(out[0].summary).toContain("PDF tools")
   })
 })

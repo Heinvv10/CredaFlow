@@ -3,8 +3,9 @@
  *
  * For each month whose whole pay window (pay date ± SALARY_DATE_WINDOW_DAYS)
  * a statement covers, look for a credit within tolerance of the validated net
- * pay. Only payslip figures that passed validation are used: matching against
- * a misread payslip would clear or raise flags on numbers nobody verified.
+ * pay. Only validated figures from a payslip that names the client are used:
+ * matching against a misread or someone else's payslip would clear or raise
+ * flags on numbers nobody verified.
  */
 import { formatCents } from "@/lib/statement-analysis/money"
 import {
@@ -27,7 +28,16 @@ interface MonthResult {
 export function salaryMatch(f: ApplicationFacts): FlagCandidate[] {
   const slip = f.payslip
   const read = f.statements.filter((s) => s.state === "READ" && s.read?.periodStart && s.read.periodEnd)
-  if (!slip || read.length === 0) return []
+  if (!slip) return []
+  if (!slip.matchesClient) {
+    return [{
+      check: "SALARY_MATCH",
+      code: "PAYSLIP_NOT_CLIENTS",
+      key: slip.documentId,
+      summary: "The payslip's name or ID number does not match the client, so it was not used. Verify whose payslip it is.",
+      evidence: { payslipDocumentId: slip.documentId },
+    }]
+  }
   if (!slip.validated || slip.netPayCents === null || !slip.payDate) {
     return [{
       check: "SALARY_MATCH",
@@ -37,6 +47,7 @@ export function salaryMatch(f: ApplicationFacts): FlagCandidate[] {
       evidence: { payslipDocumentId: slip.documentId },
     }]
   }
+  if (read.length === 0) return []
   const net = slip.netPayCents
   const tolerance = Math.max(SALARY_AMOUNT_TOLERANCE_CENTS, Math.round((net * SALARY_AMOUNT_TOLERANCE_PCT) / 100))
   const payDay = Number(slip.payDate.slice(8, 10))
@@ -64,6 +75,17 @@ export function salaryMatch(f: ApplicationFacts): FlagCandidate[] {
   }
 
   const analysisKey = read.map(statementKey).sort().join(",")
+  if (months.size === 0) {
+    // No pay window fell wholly inside any statement (a pay date near month
+    // end on calendar-month statements, or a short statement): nothing was checked.
+    return [{
+      check: "SALARY_MATCH",
+      code: "SALARY_NOT_CHECKED",
+      key: `${slip.documentId}|${analysisKey}`,
+      summary: `No statement covers a whole pay window around the payslip's pay day (${slip.payDate.slice(8, 10)}), so the salary could not be matched. Check the salary credits by hand.`,
+      evidence: { payslipDocumentId: slip.documentId, documentId: read[0].documentId, documentIds: read.map((x) => x.documentId) },
+    }]
+  }
   return [...months].filter(([, r]) => !r.matched).map(([month, r]): FlagCandidate => {
     const evidence = {
       payslipDocumentId: slip.documentId,

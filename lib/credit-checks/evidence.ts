@@ -44,6 +44,11 @@ export async function flagViews(
   const ev = (f: ApplicationCheckFlag) => (f.evidence ?? {}) as Record<string, unknown>
   const analysisIds = [...new Set(flags.map((f) => ev(f).analysisId).filter((v): v is string => typeof v === "string"))]
   const docIds = [...new Set(flags.map((f) => ev(f).documentId).filter((v): v is string => typeof v === "string"))]
+  // Every document a summary draws on is accessed by showing it, not only the linked one.
+  const cited = [...new Set(flags.flatMap((f) => {
+    const e = ev(f)
+    return [e.documentId, e.payslipDocumentId, ...(Array.isArray(e.documentIds) ? e.documentIds : [])]
+  }).filter((v): v is string => typeof v === "string"))]
   const userIds = [...new Set(flags.map((f) => f.clearedById).filter((v): v is string => !!v))]
 
   const [analyses, docs, users] = await Promise.all([
@@ -56,7 +61,7 @@ export async function flagViews(
   const userOf = new Map(users.map((u) => [u.id, u.name ?? u.email]))
   // Bidi overrides and control characters in statement text can make a row
   // read differently from what it says; the panel shows text, so strip them.
-  const plain = (text: string) => text.replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+  const plain = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, "")
 
   const views = flags.map((f): FlagView => {
     const e = ev(f)
@@ -76,13 +81,13 @@ export async function flagViews(
       summary: plain(f.summary),
       raisedAt: f.raisedAt.toISOString(),
       clearedAt: f.clearedAt?.toISOString() ?? null,
-      clearReason: f.clearReason,
+      clearReason: f.clearReason === null ? null : plain(f.clearReason),
       clearedByName: f.clearedById ? userOf.get(f.clearedById) ?? null : null,
       documentId,
-      documentName: documentId ? nameOf.get(documentId) ?? null : null,
+      documentName: documentId ? plain(nameOf.get(documentId) ?? "") || null : null,
       pages,
       rows,
     }
   })
-  return { flags: views, documentIds: docIds }
+  return { flags: views, documentIds: cited }
 }

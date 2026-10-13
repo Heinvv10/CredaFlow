@@ -48,7 +48,7 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     expect(res.status).toBe(200)
     expect(requireApiRoleMock).toHaveBeenCalledWith("LOAN_ADMIN")
     // The application row lock is taken before the flag is read or written.
-    expect(String(lockMock.mock.calls[0][0])).toContain("FOR UPDATE")
+    expect(String(lockMock.mock.calls[0][0])).toContain("FOR NO KEY UPDATE")
     expect(lockMock.mock.invocationCallOrder[0]).toBeLessThan(updateManyMock.mock.invocationCallOrder[0])
     expect(updateManyMock).toHaveBeenCalledWith({
       where: { id: "flag-1", tenantId: "t1", status: "OPEN" },
@@ -80,6 +80,11 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     expect((await post({})).status).toBe(400)
     expect(findFirstMock).not.toHaveBeenCalled()
     expect((await post({ reason: "x".repeat(15) })).status).toBe(200)
+  })
+
+  it("counts characters as the database does: eight emoji are eight, not sixteen", async () => {
+    expect((await post({ reason: "🙂".repeat(8) })).status).toBe(400)
+    expect((await post({ reason: "🙂".repeat(15) })).status).toBe(200)
   })
 
   it("refuses a reason over 1000 characters", async () => {

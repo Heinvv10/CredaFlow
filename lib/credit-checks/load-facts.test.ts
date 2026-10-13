@@ -10,16 +10,17 @@ describe("payslipFacts", () => {
   })
 
   it("is validated only when every money field passed validation", () => {
-    expect(payslipFacts("slip-1", fields(true))).toEqual({ documentId: "slip-1", validated: true, netPayCents: 1_845_000, payDate: "2026-09-25" })
+    expect(payslipFacts("slip-1", fields(true), false)).toEqual({ documentId: "slip-1", validated: true, matchesClient: true, netPayCents: 1_845_000, payDate: "2026-09-25" })
+    expect(payslipFacts("slip-1", fields(true), true).matchesClient).toBe(false)
     const one = { ...fields(true), totalDeductions: { value: 155_000, validated: false } }
-    expect(payslipFacts("slip-1", one).validated).toBe(false)
-    expect(payslipFacts("slip-1", { netIncome: { value: 1, validated: true } }).validated).toBe(false)
+    expect(payslipFacts("slip-1", one, false).validated).toBe(false)
+    expect(payslipFacts("slip-1", { netIncome: { value: 1, validated: true } }, false).validated).toBe(false)
   })
 
   it("refuses a pay date or net pay it cannot read exactly", () => {
     const odd = { ...fields(true), netIncome: { value: "18450", validated: true }, payDate: { value: "25/09/2026", validated: true } }
-    expect(payslipFacts("slip-1", odd)).toMatchObject({ netPayCents: null, payDate: null })
-    expect(payslipFacts("slip-1", null)).toMatchObject({ validated: false, netPayCents: null })
+    expect(payslipFacts("slip-1", odd, false)).toMatchObject({ netPayCents: null, payDate: null })
+    expect(payslipFacts("slip-1", null, false)).toMatchObject({ validated: false, netPayCents: null })
   })
 })
 

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { saveFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
+import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
 import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
@@ -256,7 +257,8 @@ export async function POST(req: NextRequest) {
       // A bank statement is also read down to its transactions for the credit
       // checks (lib/statement-analysis), under the same consent gate.
       if (shouldExtract && docType === "BANK_STATEMENT") {
-        readStatementInBackground(tenant.id, doc.id)
+        // Its findings are raised as soon as it is read, before anyone opens the application.
+        readStatementInBackground(tenant.id, doc.id, { onRead: () => recomputeClientApplications(tenant.id, clientId) })
       }
 
       // Fire-and-forget VLM extraction + validation

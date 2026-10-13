@@ -43,8 +43,9 @@ describe("flagViews", () => {
       flag({ id: "b", evidence: { documentId: "doc-1" } }),
       flag({ id: "c", evidence: { documentId: "doc-2" } }),
       flag({ id: "d", evidence: {} }),
+      flag({ id: "e", code: "NO_SALARY_CREDIT", evidence: { payslipDocumentId: "slip-1", documentIds: ["doc-1", "doc-3"] } }),
     ])
-    expect(documentIds).toEqual(["doc-1", "doc-2"])
+    expect(documentIds.sort()).toEqual(["doc-1", "doc-2", "doc-3", "slip-1"])
   })
 
   it("shows superseded and cleared flags with who cleared them", async () => {

@@ -10,7 +10,7 @@ export interface StatementFacts {
   contentSha256: string | null
   state: "READ" | "UNREADABLE" | "UNSUPPORTED" | "PENDING"
   /** Why a PENDING statement has no read yet. */
-  pendingReason?: "vlm" | "consent" | "file_missing"
+  pendingReason?: "vlm" | "consent" | "file_missing" | "reader_unavailable"
   method: "TEXT" | "VLM" | null
   bank: string | null
   read: StatementRead | null
@@ -22,6 +22,8 @@ export interface PayslipFacts {
   documentId: string
   /** Every money field passed applyPayslipPostProcessing (validated === true). */
   validated: boolean
+  /** The extraction's name/ID check against the client passed (validationMismatch false). */
+  matchesClient: boolean
   netPayCents: number | null
   payDate: string | null
 }
@@ -40,6 +42,8 @@ export interface ApplicationFacts {
   /** Validated net pay if there is one, else the client's captured income. */
   monthlyIncomeCents: number | null
   statements: StatementFacts[]
+  /** Statements in the window that were read and later deleted: what they showed may be gone. */
+  deletedStatementIds: string[]
   payslip: PayslipFacts | null
   debts: DebtFacts[]
 }

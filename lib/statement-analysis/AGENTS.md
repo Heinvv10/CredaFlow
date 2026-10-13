@@ -34,7 +34,8 @@ one `StatementAnalysis` per (bytes, `PARSER_VERSION`). The credit checks
   erasing appended revisions: the upload route records the original's count
   on the DOCUMENT_DECRYPTED_AT_INTAKE audit row and `persist.ts` reads it.
 - **A read that fails is persisted** as UNREADABLE (signal READ_FAILED), never
-  thrown into a staff request; it is not retried until `PARSER_VERSION` moves.
+  thrown into a staff request; manual re-extract retries it (`retryFailed`).
+  Missing PDF tools are not the file's fault: pending `reader_unavailable`.
 - **Hostile-file bounds:** poppler runs async, pdfinfo before any text pass,
   text only up to `TEXT_MAX_PAGES`, Capitec lines over 400 chars skipped,
   amounts above `MAX_CENTS` refused, implausible periods dropped, duplicate

@@ -11,7 +11,7 @@ import { VlmUnavailableError } from "./vlm-reader"
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     clientDocument: { findFirst: vi.fn() },
-    statementAnalysis: { findFirst: vi.fn(), create: vi.fn() },
+    statementAnalysis: { findFirst: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
     auditLog: { findFirst: vi.fn() },
   },
 }))
@@ -233,3 +233,46 @@ describe("readStatementInBackground", () => {
     expect(vi.mocked(console.error).mock.calls[0][1]).toMatchObject({ documentId: "doc-bg-2", code: "X1" })
   })
 })
+
+describe("ensureStatementAnalysis: round-2 behaviours", () => {
+  const stored = (signals: string[], status = "UNREADABLE") => ({ id: "row-old", status, authenticity: { signals } })
+
+  it("persistedOnly returns a stored read and otherwise pending, never reading the file", async () => {
+    docFind.mockResolvedValue(doc({ contentSha256: BYTES_SHA }) as never)
+    expect(await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: false, persistedOnly: true }))
+      .toEqual({ state: "pending", reason: "vlm_deferred" })
+    saFind.mockResolvedValue(stored([], "READ") as never)
+    expect(await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: false, persistedOnly: true }))
+      .toMatchObject({ state: "read" })
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(analyse).not.toHaveBeenCalled()
+  })
+
+  it("retryFailed discards a READ_FAILED read and reads again; anything else stays cached", async () => {
+    docFind.mockResolvedValue(doc({ contentSha256: BYTES_SHA }) as never)
+    saFind.mockResolvedValueOnce(stored(["READ_FAILED"]) as never)
+    await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: true, retryFailed: true })
+    expect(prisma.statementAnalysis.deleteMany).toHaveBeenCalledWith({ where: { id: "row-old", tenantId: TENANT } })
+    expect(analyse).toHaveBeenCalled()
+
+    vi.mocked(analyse).mockClear()
+    saFind.mockResolvedValue(stored(["TEXT_LAYER_ABSENT"]) as never)
+    expect(await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: true, retryFailed: true })).toMatchObject({ state: "read" })
+    expect(analyse).not.toHaveBeenCalled()
+  })
+
+  it("does not store a failure caused by missing PDF tools: it says so and reads later", async () => {
+    analyse.mockRejectedValue(Object.assign(new Error("spawn"), { code: 127 }))
+    expect(await ensure()).toEqual({ state: "pending", reason: "reader_unavailable" })
+    analyse.mockRejectedValue(Object.assign(new Error("spawn sh ENOENT"), { code: "ENOENT" }))
+    expect(await ensure()).toEqual({ state: "pending", reason: "reader_unavailable" })
+    expect(saCreate).not.toHaveBeenCalled()
+  })
+
+  it("runs onRead after a background read is stored", async () => {
+    const onRead = vi.fn().mockResolvedValue(undefined)
+    readStatementInBackground(TENANT, "doc-onread", { onRead })
+    await vi.waitFor(() => expect(onRead).toHaveBeenCalledTimes(1))
+  })
+})
+

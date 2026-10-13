@@ -24,10 +24,12 @@ hard stops.
 - **Flags never vanish uncleared** (`recompute.ts`): an OPEN flag no longer
   raised supersedes only when absent evidence arrived (`SUPERSEDES_ON_ARRIVAL`)
   or its own statement was re-read. A deleted statement or an edited client
-  record leaves it OPEN. CLEARED never changes; the DB trigger
-  `ApplicationCheckFlag_guard_record` also refuses deletes and edits to it.
-  Recompute runs only before a decision, reloading facts under the
-  application row lock that the clear route and the approval also take.
+  record leaves it OPEN (and a deleted read statement raises
+  STATEMENT_DELETED). The DB trigger `ApplicationCheckFlag_guard_record`
+  holds the record: born OPEN, no delete/truncate, fixed identity, only
+  OPEN<->SUPERSEDED and OPEN->CLEARED. Recompute runs only before a decision,
+  reloading persisted facts under the row lock (`FOR NO KEY UPDATE`) that the
+  clear route and the approval also take, and on upload once a read lands.
 - **Consent:** a statement a client uploaded without POPIA consent is never
   read here either (NOT_READ_NO_CONSENT), matching the upload path.
 - **Open flags block approval three times**: the decide route's recompute,
@@ -43,13 +45,11 @@ hard stops.
 - **Showing evidence rows is document access**: `evidence.ts` returns every
   document id a flag cites, and the GET route logs them through
   `logDocumentContentAccess` (`lib/document-auth.ts`).
-- **Payslip money is used only when every money field is `validated`**;
-  otherwise SALARY_MATCH raises PAYSLIP_UNVALIDATED.
-- **Bureau accounts** come from `CreditBureauCheck.obligations.accounts`,
-  written by `lib/compliance/bureau-review.ts` from the parsers' `accounts`.
+- **Payslip money is used only when validated and the payslip names the
+  client** (PAYSLIP_UNVALIDATED / PAYSLIP_NOT_CLIENTS otherwise); income for
+  the gambling share is the lower of payslip and declared.
+- **Bureau accounts:** `obligations.accounts`, from `lib/compliance/bureau-review.ts`.
 
 ## Tests
-Unit tests per check (synthetic facts, `facts.test-helpers.ts`);
-`tamper-fixtures.test.ts` runs doctored PDFs through the real pipeline;
-`RUN_CREDIT_CHECKS_IT=1` runs `db-enforcement` and `recompute` integration
-suites against a migrated Postgres.
+Per-check units on synthetic facts; `tamper-fixtures.test.ts` (real PDFs);
+`RUN_CREDIT_CHECKS_IT=1` for `db-enforcement` and `recompute` on Postgres.

@@ -100,27 +100,42 @@ ALTER TABLE "ApplicationCheckFlag" ADD CONSTRAINT "ApplicationCheckFlag_clearanc
   AND ("status" = 'CLEARED' OR ("clearedById" IS NULL AND "clearedAt" IS NULL AND "clearReason" IS NULL))
 );
 
--- A flag is a record: it is never deleted, and a clearance never changes.
--- Only the recompute (OPEN <-> SUPERSEDED) and the clear route (OPEN ->
--- CLEARED) write flags; nothing else may make one disappear.
+-- A flag is a record. It is born OPEN, never deleted or truncated, keeps its
+-- identity, and moves only OPEN <-> SUPERSEDED (the recompute) or OPEN ->
+-- CLEARED (the clear route). A clearance never changes. Nothing else may make
+-- a flag disappear, or pre-clear one before the recompute raises it.
 CREATE OR REPLACE FUNCTION public."guardApplicationCheckFlagRecord"()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
 BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'Credit-check flag % cannot be deleted', OLD.id
+  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'Credit-check flags cannot be deleted'
       USING ERRCODE = '23514', CONSTRAINT = 'ApplicationCheckFlag_no_delete';
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'OPEN' THEN
+      RAISE EXCEPTION 'A credit-check flag is raised OPEN, not %', NEW.status
+        USING ERRCODE = '23514', CONSTRAINT = 'ApplicationCheckFlag_born_open';
+    END IF;
+    RETURN NEW;
   END IF;
   IF OLD.status = 'CLEARED' THEN
     RAISE EXCEPTION 'Credit-check flag % is cleared and cannot change', OLD.id
       USING ERRCODE = '23514', CONSTRAINT = 'ApplicationCheckFlag_cleared_immutable';
   END IF;
+  IF (NEW."tenantId", NEW."applicationId", NEW."check", NEW.code, NEW.fingerprint)
+     IS DISTINCT FROM (OLD."tenantId", OLD."applicationId", OLD."check", OLD.code, OLD.fingerprint)
+     OR (OLD.status = 'SUPERSEDED' AND NEW.status NOT IN ('SUPERSEDED', 'OPEN')) THEN
+    RAISE EXCEPTION 'Credit-check flag % cannot change identity or skip a step', OLD.id
+      USING ERRCODE = '23514', CONSTRAINT = 'ApplicationCheckFlag_transition';
+  END IF;
   RETURN NEW;
 END;
 $function$;
 
-CREATE TRIGGER "ApplicationCheckFlag_guard_record" BEFORE UPDATE OR DELETE ON "ApplicationCheckFlag" FOR EACH ROW EXECUTE FUNCTION "guardApplicationCheckFlagRecord"();
+CREATE TRIGGER "ApplicationCheckFlag_guard_record" BEFORE INSERT OR UPDATE OR DELETE ON "ApplicationCheckFlag" FOR EACH ROW EXECUTE FUNCTION "guardApplicationCheckFlagRecord"();
+CREATE TRIGGER "ApplicationCheckFlag_guard_truncate" BEFORE TRUNCATE ON "ApplicationCheckFlag" FOR EACH STATEMENT EXECUTE FUNCTION "guardApplicationCheckFlagRecord"();
 
 -- An application cannot reach APPROVED (or skip straight to DISBURSED) while
 -- one of its credit-check flags is OPEN. The decide route refuses first, with

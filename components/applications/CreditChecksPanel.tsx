@@ -51,7 +51,7 @@ function ClearForm({ applicationId, flagId, onDone }: {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const length = reason.trim().length
+  const length = [...reason.trim()].length
 
   async function submit() {
     setBusy(true)

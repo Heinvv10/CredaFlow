@@ -169,7 +169,8 @@ describe("POST /api/documents/[id]/extract", () => {
     const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
 
     expect(response.status).toBe(200)
-    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1")
+    // A re-extract retries a read that failed, and raises its findings once read.
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", { retryFailed: true, onRead: expect.any(Function) })
   })
 
   it("refuses to mutate a retained credit agreement", async () => {

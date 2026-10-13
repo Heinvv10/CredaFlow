@@ -45,14 +45,20 @@ function listFlags(tenantId: string, applicationId: string, db: Pick<typeof pris
   })
 }
 
-/** Codes about missing evidence: once the evidence exists, the flag has nothing left to say. */
-const SUPERSEDES_ON_ARRIVAL = new Set(["NO_STATEMENT", "NOT_READ", "NOT_READ_NO_CONSENT", "NO_PAYSLIP"])
+/** Codes about evidence absent from the application: once it exists, the flag has nothing left to say. */
+const SUPERSEDES_ON_ARRIVAL = new Set(["NO_STATEMENT", "NO_PAYSLIP"])
+/** Codes about a statement not yet read: they go once that statement is read, not if it is deleted. */
+const SUPERSEDES_ON_READ = new Set(["NOT_READ", "NOT_READ_NO_CONSENT"])
 
-function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts): boolean {
+export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts): boolean {
   if (SUPERSEDES_ON_ARRIVAL.has(flag.code)) return true
   const e = (flag.evidence ?? {}) as { documentId?: unknown; analysisId?: unknown }
   const current = facts.statements.find((s) => s.documentId === e.documentId)
+  if (SUPERSEDES_ON_READ.has(flag.code)) return !!current && current.state !== "PENDING"
+  // A newer parser re-read the same statement: its findings replace the old
+  // read's, but only from a read that reconciles.
   return !!current?.analysisId && typeof e.analysisId === "string" && current.analysisId !== e.analysisId
+    && current.balanceCheck === "PASS"
 }
 
 export async function recomputeApplicationFlags(
@@ -69,12 +75,13 @@ export async function recomputeApplicationFlags(
 
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ status: AppStatus }>>`
-      SELECT status FROM "LoanApplication" WHERE id = ${applicationId} AND "tenantId" = ${tenantId} FOR UPDATE`
+      SELECT status FROM "LoanApplication" WHERE id = ${applicationId} AND "tenantId" = ${tenantId} FOR NO KEY UPDATE`
     if (!locked[0] || !RECOMPUTE_STATUSES.includes(locked[0].status)) {
       return { recomputed: false, flags: await listFlags(tenantId, applicationId, tx) }
     }
-    // Facts again under the lock, so a slower recompute cannot act on older evidence.
-    const loaded = await loadApplicationFacts(tenantId, applicationId)
+    // Facts again under the lock, so a slower recompute cannot act on older
+    // evidence. Persisted reads only: no reader runs while the lock is held.
+    const loaded = await loadApplicationFacts(tenantId, applicationId, { persistedOnly: true })
     if (!loaded) return { recomputed: false, flags: [] }
     const candidates = runChecks(loaded.facts)
     const existing = new Map((await listFlags(tenantId, applicationId, tx)).map((f) => [f.fingerprint, f]))
@@ -124,4 +131,16 @@ export async function recomputeApplicationFlags(
     }
     return { recomputed: true, flags }
   }, { timeout: 30_000 })
+}
+
+/**
+ * After a statement is read: raise its findings on every undecided application
+ * of the client now, rather than when someone next opens one of them.
+ */
+export async function recomputeClientApplications(tenantId: string, clientId: string): Promise<void> {
+  const apps = await prisma.loanApplication.findMany({
+    where: { tenantId, clientId, status: { in: [...RECOMPUTE_STATUSES] } },
+    select: { id: true },
+  })
+  for (const app of apps) await recomputeApplicationFlags(tenantId, app.id, null)
 }

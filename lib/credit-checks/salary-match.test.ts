@@ -4,7 +4,7 @@ import { codes, facts, statement, tx } from "./facts.test-helpers"
 import type { PayslipFacts } from "./types"
 
 const payslip = (over: Partial<PayslipFacts> = {}): PayslipFacts => ({
-  documentId: "slip-1", validated: true, netPayCents: 1_845_000, payDate: "2026-09-25", ...over,
+  documentId: "slip-1", validated: true, matchesClient: true, netPayCents: 1_845_000, payDate: "2026-09-25", ...over,
 })
 // The statement covers 2026-07-01..2026-09-30: three pay dates, 25 Jul/Aug/Sep.
 const paid = (jul: number, aug: number, sep: number, day = "25") => statement([
@@ -60,5 +60,24 @@ describe("salaryMatch", () => {
   it("raises nothing without a payslip, and nothing without a read statement", () => {
     expect(salaryMatch(facts({ statements: [paid(1, 1, 1)] }))).toEqual([])
     expect(salaryMatch(facts({ payslip: payslip(), statements: [] }))).toEqual([])
+  })
+
+  it("raises PAYSLIP_UNVALIDATED even when no statement was read", () => {
+    expect(codes(salaryMatch(facts({ payslip: payslip({ validated: false }), statements: [] })))).toEqual(["PAYSLIP_UNVALIDATED"])
+  })
+
+  it("raises PAYSLIP_NOT_CLIENTS for a payslip that names someone else, and matches nothing against it", () => {
+    const out = salaryMatch(facts({ payslip: payslip({ matchesClient: false }), statements: [paid(1, 1, 1)] }))
+    expect(codes(out)).toEqual(["PAYSLIP_NOT_CLIENTS"])
+  })
+
+  it("raises SALARY_NOT_CHECKED when no pay window fits inside any statement", () => {
+    // Pay day the 28th on calendar-month statements: each window runs into the next month.
+    const s = paid(1_845_000, 1_845_000, 1_845_000, "28")
+    s.read!.periodEnd = "2026-07-31"
+    s.read!.transactions = s.read!.transactions.slice(0, 1)
+    const out = salaryMatch(facts({ payslip: payslip({ payDate: "2026-09-28" }), statements: [s] }))
+    expect(codes(out)).toEqual(["SALARY_NOT_CHECKED"])
+    expect(out[0].evidence).toMatchObject({ documentId: "doc-1" })
   })
 })

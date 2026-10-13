@@ -32,9 +32,11 @@ describe("migration 20261013120000_credit_checks_v1", () => {
   })
 
   it("keeps every flag as a record: no delete, and a clearance never changes", () => {
-    expect(baselineTriggerSql("ApplicationCheckFlag_guard_record")).toContain('BEFORE UPDATE OR DELETE ON "ApplicationCheckFlag"')
+    expect(baselineTriggerSql("ApplicationCheckFlag_guard_record")).toContain('BEFORE INSERT OR UPDATE OR DELETE ON "ApplicationCheckFlag"')
+    expect(baselineTriggerSql("ApplicationCheckFlag_guard_truncate")).toContain('BEFORE TRUNCATE ON "ApplicationCheckFlag" FOR EACH STATEMENT')
     const fn = baselineFunctionSql("guardApplicationCheckFlagRecord")
-    expect(fn).toContain("IF TG_OP = 'DELETE' THEN")
+    expect(fn).toContain("IF TG_OP IN ('DELETE', 'TRUNCATE') THEN")
+    expect(fn).toContain("IF NEW.status <> 'OPEN' THEN")
     expect(fn).toContain("IF OLD.status = 'CLEARED' THEN")
   })
 })

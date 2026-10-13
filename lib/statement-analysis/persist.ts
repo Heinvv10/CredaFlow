@@ -23,11 +23,15 @@ export interface EnsureOptions {
    * left unread rather than holding the request for minutes.
    */
   allowVlm: boolean
+  /** Return a persisted read or pending; never run a reader (see load-facts LoadOptions). */
+  persistedOnly?: boolean
+  /** Re-extract: a stored READ_FAILED read is discarded and the file read again. */
+  retryFailed?: boolean
 }
 
 export type EnsureResult =
   | { state: "read"; analysis: StatementAnalysis }
-  | { state: "pending"; reason: "vlm_deferred" | "vlm_unavailable" | "file_missing" }
+  | { state: "pending"; reason: "vlm_deferred" | "vlm_unavailable" | "file_missing" | "reader_unavailable" }
   | { state: "missing" }
 
 function toRow(tenantId: string, documentId: string, sha: string, r: StatementAnalysisResult) {
@@ -75,6 +79,10 @@ async function revisionsBeforeDecryption(tenantId: string, documentId: string): 
   return typeof n === "number" ? n : 0
 }
 
+function failedRead(a: StatementAnalysis): boolean {
+  return a.status === "UNREADABLE" && ((a.authenticity as { signals?: unknown } | null)?.signals as string[] | undefined)?.includes("READ_FAILED") === true
+}
+
 function findRead(tenantId: string, documentId: string, sha: string) {
   return prisma.statementAnalysis.findFirst({
     where: { tenantId, clientDocumentId: documentId, contentSha256: sha, parserVersion: PARSER_VERSION },
@@ -90,7 +98,19 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
   if (!doc?.storagePath) return { state: "missing" }
 
   const claimed = doc.contentSha256 ? await findRead(opts.tenantId, doc.id, doc.contentSha256) : null
-  if (claimed) return { state: "read", analysis: claimed }
+  if (claimed && opts.retryFailed && failedRead(claimed)) {
+    await prisma.statementAnalysis.deleteMany({ where: { id: claimed.id, tenantId: opts.tenantId } })
+  } else if (claimed) {
+    return { state: "read", analysis: claimed }
+  }
+  if (opts.persistedOnly) {
+    // A row without a recorded hash was read under the hash of its bytes: take the newest read.
+    const latest = doc.contentSha256 ? null : await prisma.statementAnalysis.findFirst({
+      where: { tenantId: opts.tenantId, clientDocumentId: doc.id, parserVersion: PARSER_VERSION },
+      orderBy: { createdAt: "desc" },
+    })
+    return latest ? { state: "read", analysis: latest } : { state: "pending", reason: "vlm_deferred" }
+  }
 
   let bytes: Buffer
   try {
@@ -112,6 +132,13 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
     if (err instanceof VlmUnavailableError) {
       if (opts.allowVlm) console.warn("[statement-analysis] vision reader unavailable:", { documentId: doc.id })
       return { state: "pending", reason: opts.allowVlm ? "vlm_unavailable" : "vlm_deferred" }
+    }
+    // The tools themselves missing (exit 126/127, spawn ENOENT) says nothing about
+    // the file: report it, store nothing, and read again once they are back.
+    const code = (err as { code?: unknown }).code
+    if (code === 126 || code === 127 || code === "ENOENT") {
+      console.error("[statement-analysis] PDF tools unavailable:", { documentId: doc.id, code })
+      return { state: "pending", reason: "reader_unavailable" }
     }
     console.warn("[statement-analysis] statement could not be read:", { documentId: doc.id, error: err instanceof Error ? err.name : "unknown" })
     analysed = readFailed()
@@ -139,12 +166,23 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
 let queue: Promise<unknown> = Promise.resolve()
 const queued = new Set<string>()
 
-/** Fire-and-forget read for the upload and re-extract paths. */
-export function readStatementInBackground(tenantId: string, documentId: string): void {
+/**
+ * Fire-and-forget read for the upload and re-extract paths. `onRead` runs
+ * after a read is stored, so the caller can raise its findings at once rather
+ * than when someone next opens the application.
+ */
+export function readStatementInBackground(
+  tenantId: string,
+  documentId: string,
+  opts: { retryFailed?: boolean; onRead?: () => Promise<unknown> } = {},
+): void {
   if (queued.has(documentId)) return
   queued.add(documentId)
   queue = queue
-    .then(() => ensureStatementAnalysis({ tenantId, documentId, allowVlm: true }))
+    .then(async () => {
+      const r = await ensureStatementAnalysis({ tenantId, documentId, allowVlm: true, retryFailed: opts.retryFailed })
+      if (r.state === "read" && opts.onRead) await opts.onRead()
+    })
     .catch((err) => {
       // Name and code only: a failed write can echo the statement's contents.
       console.error("[statement-analysis] read failed:", { documentId, error: err instanceof Error ? err.name : "unknown", code: (err as { code?: unknown })?.code })

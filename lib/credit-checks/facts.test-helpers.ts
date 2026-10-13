@@ -40,6 +40,7 @@ export function facts(over: Partial<ApplicationFacts> = {}): ApplicationFacts {
     clientName: "Thabo Tester",
     monthlyIncomeCents: 1_845_000,
     statements: [statement([])],
+    deletedStatementIds: [],
     payslip: null,
     debts: [],
     ...over,

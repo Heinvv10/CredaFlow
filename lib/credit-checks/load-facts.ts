@@ -5,7 +5,7 @@
  */
 import type { AppStatus, StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { ensureStatementAnalysis } from "@/lib/statement-analysis/persist"
+import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
 import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/lib/statement-analysis/types"
 import { PAYSLIP_MONEY_FIELDS, type ExtractedFields } from "@/lib/vlm-extract"
 import { STATEMENT_UPLOAD_LOOKBACK_DAYS } from "./policy"
@@ -38,13 +38,14 @@ export function statementFacts(documentId: string, a: StatementAnalysis): Statem
   }
 }
 
-export function payslipFacts(documentId: string, extraction: unknown): PayslipFacts {
+export function payslipFacts(documentId: string, extraction: unknown, validationMismatch: boolean): PayslipFacts {
   const fields = (extraction ?? {}) as ExtractedFields
   const net = fields.netIncome?.value
   const payDate = fields.payDate?.value
   return {
     documentId,
     validated: PAYSLIP_MONEY_FIELDS.every((k) => fields[k]?.validated === true),
+    matchesClient: !validationMismatch,
     netPayCents: typeof net === "number" && Number.isFinite(net) ? net : null,
     payDate: typeof payDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : null,
   }
@@ -64,9 +65,18 @@ export function bureauDebts(obligations: unknown): DebtFacts[] {
 
 const CLOSED_ACCOUNT = /CLOSED|SETTLED|PAID UP|WRITTEN OFF/i
 
+export interface LoadOptions {
+  /**
+   * Use only reads already persisted, never run the readers: for the reload
+   * under the application row lock, after a first pass has done the reading.
+   */
+  persistedOnly?: boolean
+}
+
 export async function loadApplicationFacts(
   tenantId: string,
   applicationId: string,
+  opts: LoadOptions = {},
 ): Promise<{ facts: ApplicationFacts; status: AppStatus } | null> {
   const app = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId },
@@ -79,15 +89,19 @@ export async function loadApplicationFacts(
   const applicationDate = isoDay(app.submittedAt ?? app.createdAt)!
   const since = new Date(app.createdAt.getTime() - STATEMENT_UPLOAD_LOOKBACK_DAYS * 86_400_000)
 
-  const [docs, slip, bureau] = await Promise.all([
+  const [docs, deleted, slip, bureau] = await Promise.all([
     prisma.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
       select: { id: true, uploadedByType: true },
       orderBy: { createdAt: "asc" },
     }),
+    prisma.clientDocument.findMany({
+      where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: { not: null }, createdAt: { gte: since }, statementAnalyses: { some: {} } },
+      select: { id: true },
+    }),
     prisma.clientDocument.findFirst({
       where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, extractionStatus: "done", createdAt: { gte: since } },
-      select: { id: true, extractionResult: true },
+      select: { id: true, extractionResult: true, validationMismatch: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.creditBureauCheck.findFirst({
@@ -108,12 +122,23 @@ export async function loadApplicationFacts(
       statements.push(pending(doc.id, "consent"))
       continue
     }
-    const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false })
+    const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false, persistedOnly: opts.persistedOnly })
     if (r.state === "read") statements.push(statementFacts(doc.id, r.analysis))
-    else if (r.state === "pending") statements.push(pending(doc.id, r.reason === "file_missing" ? "file_missing" : "vlm"))
+    else if (r.state === "pending") {
+      const reason = r.reason === "file_missing" || r.reason === "reader_unavailable" ? r.reason : "vlm"
+      statements.push(pending(doc.id, reason))
+      // A read the vision model has not done yet — the model was down, or the
+      // process restarted before its queue ran — is queued again here.
+      if (reason === "vlm" && !opts.persistedOnly) readStatementInBackground(tenantId, doc.id)
+    }
   }
 
-  const payslip = slip ? payslipFacts(slip.id, slip.extractionResult) : null
+  const payslip = slip ? payslipFacts(slip.id, slip.extractionResult, slip.validationMismatch) : null
+  // The lower of the payslip and the declared income: a payslip can only make
+  // the income-relative checks stricter, never looser.
+  const declared = app.client.monthlyIncome > 0 ? app.client.monthlyIncome : null
+  const slipNet = payslip?.validated && payslip.matchesClient ? payslip.netPayCents : null
+  const income = slipNet !== null && declared !== null ? Math.min(slipNet, declared) : slipNet ?? declared
   const debts: DebtFacts[] = [
     ...app.client.debtObligations.map((d) => ({ name: d.creditProvider, monthlyInstalmentCents: d.monthlyInstalment, source: "DECLARED" as const })),
     ...bureauDebts(bureau?.obligations),
@@ -124,10 +149,9 @@ export async function loadApplicationFacts(
       applicationId: app.id,
       applicationDate,
       clientName: `${app.client.firstName} ${app.client.lastName}`,
-      monthlyIncomeCents: payslip?.validated && payslip.netPayCents !== null
-        ? payslip.netPayCents
-        : app.client.monthlyIncome > 0 ? app.client.monthlyIncome : null,
+      monthlyIncomeCents: income,
       statements,
+      deletedStatementIds: deleted.map((d) => d.id),
       payslip,
       debts,
     },

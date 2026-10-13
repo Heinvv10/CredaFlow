@@ -9,6 +9,7 @@ const PENDING_SUMMARY = {
   vlm: "The statement has not been read yet (it needs the vision reader). Read it by hand or retry later.",
   consent: "The client uploaded this statement without POPIA consent to process it, so it was not read. Review it by hand or obtain consent.",
   file_missing: "The statement's file could not be found in storage, so it was not read. Review the original by hand.",
+  reader_unavailable: "The statement could not be read because the PDF tools are unavailable on the server. Read it by hand or retry later.",
 } as const
 
 /** Signals that mean the file-level authenticity checks had nothing to work with. */
@@ -41,6 +42,15 @@ function review(s: StatementFacts): FlagCandidate | null {
       evidence: { ...evidence, method: s.method, balanceCheck: s.balanceCheck },
     }
   }
+  // A read missing who or when cannot be name-matched, dated or salary-matched.
+  if (s.state === "READ" && (!s.read?.accountHolderName || !s.read.periodStart || !s.read.periodEnd)) {
+    return {
+      ...base,
+      code: "READ_INCOMPLETE",
+      summary: "The statement was read but its account holder or period could not be, so it was not name-matched, dated or salary-matched. Check them by hand.",
+      evidence: { ...evidence, holderRead: !!s.read?.accountHolderName, periodRead: !!(s.read?.periodStart && s.read.periodEnd) },
+    }
+  }
   // A reconciling read of a photo, a scan or an unprofiled bank's PDF has had
   // no file-level authenticity check at all: an edited image balances too.
   const signals = s.authenticity?.signals ?? []
@@ -63,9 +73,24 @@ export function manualReview(f: ApplicationFacts): FlagCandidate[] {
       key: f.applicationId,
       summary: "No recent bank statement is on file for this application.",
       evidence: {},
-    }]
+    }, ...f.deletedStatementIds.map((documentId): FlagCandidate => ({
+      check: "MANUAL_REVIEW",
+      code: "STATEMENT_DELETED",
+      key: documentId,
+      summary: "A bank statement read for this client was later deleted. Review what it showed before deciding.",
+      evidence: { documentId },
+    }))]
   }
   const out = f.statements.map(review).filter((c): c is FlagCandidate => c !== null)
+  for (const documentId of f.deletedStatementIds) {
+    out.push({
+      check: "MANUAL_REVIEW",
+      code: "STATEMENT_DELETED",
+      key: documentId,
+      summary: "A bank statement read for this client was later deleted. Review what it showed before deciding.",
+      evidence: { documentId },
+    })
+  }
   if (!f.payslip) {
     out.push({
       check: "MANUAL_REVIEW",
