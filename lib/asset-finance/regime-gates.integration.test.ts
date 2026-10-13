@@ -72,6 +72,9 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
       },
     })
     await db.user.create({ data: { id: userId, tenantId, email: `${t}@test.invalid`, password: "x", role: "SUPER_ADMIN" } })
+    const approverId = (await db.user.create({
+      data: { tenantId, email: `approver-${t}@test.invalid`, password: "x", role: "LOAN_ADMIN" },
+    })).id
     // One product for both: the bureau's product filter cannot be what excludes the entity loan.
     await db.loanProduct.create({
       data: {
@@ -105,10 +108,14 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
     })
     // NON_NCA only through a second person's approval, which the flip spends.
     const override = await db.ncaRegimeOverride.create({
-      data: { tenantId, applicationId: entityApp.id, fromRegime: "NCA", toRegime: "NON_NCA", reason: "Audited AFS on file", requestedById: userId },
+      data: {
+        tenantId, applicationId: entityApp.id, fromRegime: "NCA", toRegime: "NON_NCA", reason: "Audited AFS on file",
+        source: "MANUAL", requestedById: userId, approvedEntityId: entityId, approvedAppliedAmount: 300_000,
+        approvedProductId: productId, approvedClassificationRule: "TEST_RULE",
+      },
     })
     await db.ncaRegimeOverride.update({
-      where: { id: override.id }, data: { status: "APPROVED", decidedById: `approver_${t}`, decidedAt: new Date() },
+      where: { id: override.id }, data: { status: "APPROVED", decidedById: approverId, decidedAt: new Date() },
     })
     await db.loanApplication.update({ where: { id: entityApp.id }, data: { ncaRegime: "NON_NCA" } })
     await db.loanApplication.update({ where: { id: entityApp.id }, data: { status: "SUBMITTED" } })

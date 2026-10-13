@@ -11,6 +11,7 @@ const queryRawMock = vi.fn()
 const logAuditMock = vi.fn()
 const logAuditStrictMock = vi.fn()
 const loanFindManyMock = vi.fn()
+const applicationFindManyMock = vi.fn()
 const getNcrReturnDataMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
 
@@ -28,6 +29,9 @@ vi.mock("@/lib/prisma", () => ({
     },
     loan: {
       findMany: (args: unknown) => loanFindManyMock(args),
+    },
+    loanApplication: {
+      findMany: (args: unknown) => applicationFindManyMock(args),
     },
     tenantConfig: {
       findUnique: (args: unknown) => tenantConfigFindUniqueMock(args),
@@ -522,7 +526,19 @@ describe("GET reports export — NCA regime", () => {
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     tenantConfigFindUniqueMock.mockResolvedValue(null)
     loanFindManyMock.mockResolvedValue([])
+    applicationFindManyMock.mockResolvedValue([])
   })
+
+  for (const type of ["affordability", "reckless-lending"]) {
+    it(`${type}: the NCA consumer register leaves entity (asset finance) applications out`, async () => {
+      const res = await GET(request(`type=${type}`))
+      expect(res.status).toBe(200)
+      expect(applicationFindManyMock).toHaveBeenCalledTimes(1)
+      expect(applicationFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tenantId: "tenant-1", entityId: null }),
+      }))
+    })
+  }
 
   it("credit-agreements: the register of NCA credit agreements leaves NON_NCA agreements out", async () => {
     await GET(request("type=credit-agreements"))

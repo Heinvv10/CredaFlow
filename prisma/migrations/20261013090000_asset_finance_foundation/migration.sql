@@ -16,6 +16,9 @@ CREATE TYPE "TrusteeKind" AS ENUM ('NATURAL', 'JURISTIC');
 -- CreateEnum
 CREATE TYPE "NcaOverrideStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
+-- CreateEnum
+CREATE TYPE "NcaOverrideSource" AS ENUM ('CLASSIFIER', 'MANUAL');
+
 -- AlterEnum
 ALTER TYPE "LoanChargeType" ADD VALUE 'COLLECTION_FEE';
 
@@ -94,10 +97,15 @@ CREATE TABLE "NcaRegimeOverride" (
     "fromRegime" "NcaRegime" NOT NULL,
     "toRegime" "NcaRegime" NOT NULL,
     "reason" TEXT NOT NULL,
+    "source" "NcaOverrideSource" NOT NULL,
     "status" "NcaOverrideStatus" NOT NULL DEFAULT 'PENDING',
     "requestedById" TEXT NOT NULL,
     "decidedById" TEXT,
     "decidedAt" TIMESTAMP(3),
+    "approvedEntityId" TEXT,
+    "approvedAppliedAmount" INTEGER,
+    "approvedProductId" TEXT,
+    "approvedClassificationRule" TEXT,
     "decisionNote" TEXT,
     "appliedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -139,6 +147,12 @@ ALTER TABLE "EntityRelationship" ADD CONSTRAINT "EntityRelationship_tenantId_cli
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_applicationId_fkey" FOREIGN KEY ("applicationId") REFERENCES "LoanApplication"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_tenantId_requestedById_fkey" FOREIGN KEY ("tenantId", "requestedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_tenantId_decidedById_fkey" FOREIGN KEY ("tenantId", "decidedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_tenantId_entityId_fkey" FOREIGN KEY ("tenantId", "entityId") REFERENCES "BusinessEntity"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
@@ -172,10 +186,20 @@ ALTER TABLE "LoanProduct" ADD CONSTRAINT "LoanProduct_non_nca_arrears_terms" CHE
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_changes_regime" CHECK ("fromRegime" <> "toRegime");
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_decision_complete" CHECK (("status" = 'PENDING') = ("decidedById" IS NULL AND "decidedAt" IS NULL));
 -- The approver of an override that relaxes the regime (NCA → NON_NCA) is
--- never its requester; ids compare trimmed and case-folded, so padding or case
--- cannot pass the requester off as someone else. Moving to NCA only adds
--- protection; one person may.
-ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("decidedById" IS NULL OR "toRegime" = 'NCA' OR btrim(lower("decidedById")) <> btrim(lower("requestedById")));
+-- never its requester. Both ids are real users of the override's tenant
+-- (composite FKs NcaRegimeOverride_tenantId_requestedById_fkey and
+-- _decidedById_fkey), so they compare exactly: a padded or invented id names
+-- no user and fails the FK. Moving to NCA only adds protection, and a
+-- rejection grants nothing (the classifier rejects its own superseded
+-- requests); one person may do either.
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_four_eyes" CHECK ("status" <> 'APPROVED' OR "toRegime" = 'NCA' OR "decidedById" <> "requestedById");
+-- The application an override was requested on (borrower, amount, product,
+-- classification rule) is recorded whole, and always for a move to NON_NCA:
+-- that is what the approver agreed to (guardLoanApplicationNcaRegime).
+ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_non_nca_snapshot" CHECK (
+  num_nonnulls("approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule") IN (0, 4)
+  AND ("toRegime" <> 'NON_NCA' OR "approvedEntityId" IS NOT NULL)
+);
 -- Only an approval to NON_NCA is spent (guardLoanApplicationNcaRegime stamps it).
 ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_applied_requires_approval" CHECK ("appliedAt" IS NULL OR ("status" = 'APPROVED' AND "toRegime" = 'NON_NCA'));
 
@@ -829,16 +853,19 @@ ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_nca_classification
 --  - Regime. NULL until classified, never removed. A row is never INSERTed
 --    NON_NCA: it is inserted unclassified or NCA and then overridden. Every
 --    change TO NON_NCA spends one APPROVED NcaRegimeOverride to NON_NCA that
---    has not been applied yet: this trigger stamps its appliedAt, so each
---    approval authorises exactly one change, and an approval cannot be
---    replayed after the regime went back to NCA. A change to NCA (stricter)
---    is free. Regime changes only while the application is open; frozen once
---    it is decided.
+--    has not been applied yet and whose snapshot (borrower, amount, product,
+--    classification rule) is the application as it now stands: this trigger
+--    stamps its appliedAt, so each approval authorises exactly one change, of
+--    exactly the application the approver saw, and cannot be replayed after
+--    the regime went back to NCA. A change to NCA (stricter) is free. Regime
+--    changes only while the application is open; frozen once it is decided.
 --  - Borrower. Once classified, clientId / entityId never change: the
 --    classification was of that borrower.
 --  - Amount and product. While NON_NCA they never change (the classifier read
 --    the principal debt); re-classify via NCA first.
---  - Snapshot. Once decided, the ncaClassification* columns never change.
+--  - Snapshot. While NON_NCA, and once decided, the ncaClassification*
+--    columns never change: a new classification goes back to NCA first,
+--    which leaves the spent approval behind.
 CREATE OR REPLACE FUNCTION public."guardLoanApplicationNcaRegime"()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -873,7 +900,11 @@ BEGIN
       MESSAGE = 'A NON_NCA application''s amount and product cannot change; re-classify it NCA first';
   END IF;
 
-  IF OLD."status"::TEXT NOT IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW') AND (
+  IF (
+    OLD."status"::TEXT NOT IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW')
+    OR OLD."ncaRegime" = 'NON_NCA'
+    OR NEW."ncaRegime" = 'NON_NCA'
+  ) AND (
     NEW."ncaClassificationRule" IS DISTINCT FROM OLD."ncaClassificationRule"
     OR NEW."ncaClassificationInputs" IS DISTINCT FROM OLD."ncaClassificationInputs"
     OR NEW."ncaClassificationEvidenceIds" IS DISTINCT FROM OLD."ncaClassificationEvidenceIds"
@@ -882,7 +913,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
-      MESSAGE = 'An application''s NCA classification snapshot is frozen once it is decided';
+      MESSAGE = 'An application''s NCA classification snapshot is frozen while it is NON_NCA and once it is decided; re-classify it NCA first';
   END IF;
 
   IF NEW."ncaRegime" IS NOT DISTINCT FROM OLD."ncaRegime" THEN
@@ -912,6 +943,10 @@ BEGIN
         AND candidate."status" = 'APPROVED'
         AND candidate."toRegime" = 'NON_NCA'
         AND candidate."appliedAt" IS NULL
+        AND candidate."approvedEntityId" = NEW."entityId"
+        AND candidate."approvedAppliedAmount" = NEW."appliedAmount"
+        AND candidate."approvedProductId" = NEW."productId"
+        AND candidate."approvedClassificationRule" = NEW."ncaClassificationRule"
       ORDER BY candidate."decidedAt", candidate."id"
       LIMIT 1
       FOR UPDATE
@@ -919,6 +954,19 @@ BEGIN
     RETURNING override."id" INTO spent_override_id;
 
     IF spent_override_id IS NULL THEN
+      IF EXISTS (
+        SELECT 1
+        FROM public."NcaRegimeOverride" AS candidate
+        WHERE candidate."applicationId" = NEW."id"
+          AND candidate."tenantId" = NEW."tenantId"
+          AND candidate."status" = 'APPROVED'
+          AND candidate."toRegime" = 'NON_NCA'
+          AND candidate."appliedAt" IS NULL
+      ) THEN
+        RAISE EXCEPTION USING
+          ERRCODE = '23514',
+          MESSAGE = 'The NON_NCA approval no longer matches the application (borrower, amount, product or classification rule changed since it was requested)';
+      END IF;
       RAISE EXCEPTION USING
         ERRCODE = '23514',
         MESSAGE = 'A change to NON_NCA requires an approved NcaRegimeOverride that has not been applied';
@@ -936,8 +984,49 @@ CREATE TRIGGER "LoanApplication_guard_nca_regime_update" BEFORE UPDATE OF "ncaRe
   "ncaClassifiedAt", "ncaClassifiedById" ON "LoanApplication"
   FOR EACH ROW EXECUTE FUNCTION public."guardLoanApplicationNcaRegime"();
 
+-- An entity application's decision is final, so its frozen regime stays
+-- frozen: once it leaves DRAFT / SUBMITTED / UNDER_REVIEW it never re-enters
+-- them (directly, or through DECLINED / CANCELLED), and once DISBURSED with a
+-- loan its status never changes. A consumer application is untouched: its
+-- APPROVED → UNDER_REVIEW return-to-review is guarded by the PASQ triggers,
+-- and it is always NCA.
+CREATE OR REPLACE FUNCTION public."guardEntityApplicationStatus"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF (OLD."entityId" IS NULL AND NEW."entityId" IS NULL)
+    OR NEW."status" IS NOT DISTINCT FROM OLD."status"
+  THEN
+    RETURN NEW;
+  END IF;
+
+  IF OLD."status"::TEXT = 'DISBURSED' AND EXISTS (
+    SELECT 1 FROM public."Loan" AS loan WHERE loan."applicationId" = OLD."id"
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A disbursed entity application with a loan cannot change status';
+  END IF;
+
+  IF OLD."status"::TEXT NOT IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW')
+    AND NEW."status"::TEXT IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW')
+  THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A decided entity application cannot be reopened';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "LoanApplication_guard_entity_status" BEFORE UPDATE OF "status" ON "LoanApplication"
+  FOR EACH ROW EXECUTE FUNCTION public."guardEntityApplicationStatus"();
+
 -- A loan's borrower and regime are its application's, fixed at booking: a
 -- consumer loan cannot later be relabelled NON_NCA to escape s129 or the caps.
+-- Its contract type is fixed at booking too (repricing eligibility keys on it).
 -- A NON_NCA loan is booked only on a decided application (APPROVED or
 -- DISBURSED), whose regime is frozen; and a NON_NCA classification that rests
 -- on the large-agreement exclusion (s4(1)(b), s9(4)(b)) holds only for a
@@ -957,10 +1046,11 @@ BEGIN
       OR NEW."clientId" IS DISTINCT FROM OLD."clientId"
       OR NEW."entityId" IS DISTINCT FROM OLD."entityId"
       OR NEW."applicationId" IS DISTINCT FROM OLD."applicationId"
+      OR NEW."contractType" IS DISTINCT FROM OLD."contractType"
     THEN
       RAISE EXCEPTION USING
         ERRCODE = '23514',
-        MESSAGE = 'A loan''s borrower and NCA regime are fixed at booking';
+        MESSAGE = 'A loan''s borrower, NCA regime and contract type are fixed at booking';
     END IF;
     RETURN NEW;
   END IF;
@@ -1007,7 +1097,7 @@ $function$;
 
 CREATE TRIGGER "Loan_guard_borrower_regime_insert" BEFORE INSERT ON "Loan"
   FOR EACH ROW EXECUTE FUNCTION public."guardLoanBorrowerRegime"();
-CREATE TRIGGER "Loan_guard_borrower_regime_update" BEFORE UPDATE OF "ncaRegime", "clientId", "entityId", "applicationId" ON "Loan"
+CREATE TRIGGER "Loan_guard_borrower_regime_update" BEFORE UPDATE OF "ncaRegime", "clientId", "entityId", "applicationId", "contractType" ON "Loan"
   FOR EACH ROW EXECUTE FUNCTION public."guardLoanBorrowerRegime"();
 
 -- A collection fee is a NON_NCA contract charge (lib/asset-finance/non-nca-charges.ts);
@@ -1061,22 +1151,60 @@ CREATE TRIGGER "NcaRegimeOverride_guard_tenant" BEFORE INSERT OR UPDATE OF "tena
   FOR EACH ROW EXECUTE FUNCTION public."guardNcaRegimeOverrideTenant"();
 
 -- An override is the record of who asked for a regime change and who agreed:
--- never deleted; one to NON_NCA is inserted PENDING (a second person decides
--- it; a move to NCA may be decided as it is requested); the request (tenant,
--- application, from, to, reason, requester, creation) never changes; PENDING
--- is decided once, to APPROVED or REJECTED; after that the only write is
--- appliedAt going from NULL to a value, when guardLoanApplicationNcaRegime
--- spends the approval.
+-- never deleted or truncated; requested only on a classified application, its
+-- snapshot (when recorded; always for NON_NCA) being that application as it
+-- stands; one to NON_NCA is inserted PENDING (a second person decides it; a
+-- move to NCA may be decided as it is requested); the request (tenant,
+-- application, from, to, reason, source, requester, snapshot, creation) never
+-- changes; PENDING is decided once, to APPROVED or REJECTED; after that the
+-- only write is appliedAt going from NULL to a value, when
+-- guardLoanApplicationNcaRegime spends the approval.
 CREATE OR REPLACE FUNCTION public."guardNcaRegimeOverrideLifecycle"()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
+DECLARE
+  application_regime "NcaRegime";
+  application_entity_id TEXT;
+  application_amount INTEGER;
+  application_product_id TEXT;
+  application_rule TEXT;
 BEGIN
+  IF TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'An NCA regime override is never deleted (TRUNCATE refused)';
+  END IF;
+
   IF TG_OP = 'INSERT' THEN
     IF NEW."toRegime" = 'NON_NCA' AND (NEW."status" <> 'PENDING' OR NEW."appliedAt" IS NOT NULL) THEN
       RAISE EXCEPTION USING
         ERRCODE = '23514',
         MESSAGE = 'An override to NON_NCA is requested PENDING; a second person decides it';
+    END IF;
+
+    SELECT application."ncaRegime", application."entityId", application."appliedAmount",
+      application."productId", application."ncaClassificationRule"
+    INTO application_regime, application_entity_id, application_amount, application_product_id, application_rule
+    FROM public."LoanApplication" AS application
+    -- By id alone: NcaRegimeOverride_guard_tenant reports a tenant mismatch.
+    WHERE application."id" = NEW."applicationId";
+
+    IF application_regime IS NULL THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'An NCA regime override needs a classified application';
+    END IF;
+
+    IF NEW."approvedEntityId" IS NOT NULL AND (
+      NEW."approvedEntityId" IS DISTINCT FROM application_entity_id
+      OR NEW."approvedAppliedAmount" IS DISTINCT FROM application_amount
+      OR NEW."approvedProductId" IS DISTINCT FROM application_product_id
+      OR NEW."approvedClassificationRule" IS DISTINCT FROM application_rule
+    ) THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'An NCA regime override''s snapshot must be its application as it stands';
     END IF;
     RETURN NEW;
   END IF;
@@ -1093,7 +1221,12 @@ BEGIN
     OR NEW."fromRegime" IS DISTINCT FROM OLD."fromRegime"
     OR NEW."toRegime" IS DISTINCT FROM OLD."toRegime"
     OR NEW."reason" IS DISTINCT FROM OLD."reason"
+    OR NEW."source" IS DISTINCT FROM OLD."source"
     OR NEW."requestedById" IS DISTINCT FROM OLD."requestedById"
+    OR NEW."approvedEntityId" IS DISTINCT FROM OLD."approvedEntityId"
+    OR NEW."approvedAppliedAmount" IS DISTINCT FROM OLD."approvedAppliedAmount"
+    OR NEW."approvedProductId" IS DISTINCT FROM OLD."approvedProductId"
+    OR NEW."approvedClassificationRule" IS DISTINCT FROM OLD."approvedClassificationRule"
     OR NEW."createdAt" IS DISTINCT FROM OLD."createdAt"
   THEN
     RAISE EXCEPTION USING
@@ -1119,9 +1252,17 @@ $function$;
 
 CREATE TRIGGER "NcaRegimeOverride_guard_lifecycle" BEFORE INSERT OR UPDATE OR DELETE ON "NcaRegimeOverride"
   FOR EACH ROW EXECUTE FUNCTION public."guardNcaRegimeOverrideLifecycle"();
+CREATE TRIGGER "NcaRegimeOverride_refuse_truncate" BEFORE TRUNCATE ON "NcaRegimeOverride"
+  FOR EACH STATEMENT EXECUTE FUNCTION public."guardNcaRegimeOverrideLifecycle"();
 
 -- assertDisbursedCreditLifeCoverage: NON_NCA deals keep the loan/disbursement
--- commit-together rule and skip the credit-life coverage checks.
+-- commit-together rule and skip the credit-life coverage checks. A loan's
+-- regime must be its application's at commit, and a NON_NCA loan commits only
+-- beside a DISBURSED NON_NCA application of the same tenant and entity, at a
+-- principal its classification rule allows: guardLoanBorrowerRegime checks
+-- these at booking, and this holds them against whatever else the
+-- transaction writes before it commits (25000000 cents is
+-- NCA_LARGE_AGREEMENT_THRESHOLD_CENTS, as there).
 CREATE OR REPLACE FUNCTION public."assertDisbursedCreditLifeCoverage"(target_application_id text)
  RETURNS void
  LANGUAGE plpgsql
@@ -1131,10 +1272,14 @@ DECLARE
   application_disbursed_at TIMESTAMP(3);
   application_tenant_id TEXT;
   application_client_id TEXT;
+  application_entity_id TEXT;
   application_nca_regime "NcaRegime";
+  application_rule TEXT;
   loan_id TEXT;
   loan_tenant_id TEXT;
   loan_client_id TEXT;
+  loan_entity_id TEXT;
+  loan_nca_regime "NcaRegime";
   loan_principal INTEGER;
   loan_start_date TIMESTAMP(3);
   loan_maturity_date TIMESTAMP(3);
@@ -1151,10 +1296,14 @@ BEGIN
     application."disbursedAt",
     application."tenantId",
     application."clientId",
+    application."entityId",
     application."ncaRegime",
+    application."ncaClassificationRule",
     loan."id",
     loan."tenantId",
     loan."clientId",
+    loan."entityId",
+    loan."ncaRegime",
     loan."principal",
     loan."startDate",
     loan."maturityDate"
@@ -1163,10 +1312,14 @@ BEGIN
     application_disbursed_at,
     application_tenant_id,
     application_client_id,
+    application_entity_id,
     application_nca_regime,
+    application_rule,
     loan_id,
     loan_tenant_id,
     loan_client_id,
+    loan_entity_id,
+    loan_nca_regime,
     loan_principal,
     loan_start_date,
     loan_maturity_date
@@ -1184,6 +1337,28 @@ BEGIN
   IF loan_id IS NULL
      AND application_status <> 'DISBURSED'::"AppStatus" THEN
     RETURN;
+  END IF;
+
+  IF loan_id IS NOT NULL
+     AND loan_nca_regime IS DISTINCT FROM COALESCE(application_nca_regime, 'NCA'::"NcaRegime") THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A loan''s NCA regime must be its application''s at commit';
+  END IF;
+
+  IF loan_nca_regime = 'NON_NCA' AND (
+    application_status <> 'DISBURSED'::"AppStatus"
+    OR application_disbursed_at IS NULL
+    OR loan_tenant_id IS DISTINCT FROM application_tenant_id
+    OR loan_client_id IS NOT NULL
+    OR application_client_id IS NOT NULL
+    OR loan_entity_id IS NULL
+    OR loan_entity_id IS DISTINCT FROM application_entity_id
+    OR (application_rule = 'LARGE_AGREEMENT' AND loan_principal < 25000000)
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A NON_NCA loan commits only with its application DISBURSED, NON_NCA, for the same entity and at a principal its classification allows';
   END IF;
 
   -- A loan on an application that never reached approval carries no signed

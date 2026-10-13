@@ -2,7 +2,7 @@
  * Real-Postgres proof of the loan booking rules for the NCA regime
  * (20261013090000_asset_finance_foundation):
  *   - a loan carries its application's tenant, borrower and regime, fixed at
- *     booking (trigger guardLoanBorrowerRegime);
+ *     booking with its contract type (trigger guardLoanBorrowerRegime);
  *   - a NON_NCA loan is booked only on an approved application, and a NON_NCA
  *     large agreement only for a principal of at least R250 000;
  *   - a collection fee is charged only on a NON_NCA loan
@@ -41,6 +41,22 @@ suite("asset finance foundation: loan booking by NCA regime", () => {
     expect(sql(`SELECT "ncaRegime" FROM "Loan" WHERE "id" = '${idOf(ok)}'`)).toBe("NON_NCA")
     expectRejected(`UPDATE "Loan" SET "ncaRegime" = 'NCA' WHERE "id" = '${idOf(ok)}'`, "fixed at booking")
     expectRejected(`UPDATE "Loan" SET "entityId" = '${otherEntityId}' WHERE "id" = '${idOf(ok)}'`, "fixed at booking")
+  })
+
+  it("fixes a loan's contract type at booking, NON_NCA and NCA alike", () => {
+    const id = f.nonNcaApplication()
+    sql(f.approveApplication(id))
+    const nonNca = f.loan(id, { entityId }, "NON_NCA")
+    sql(bookAndDisburse(nonNca, id))
+    const consumer = f.freshClient()
+    const consumerApp = f.application({ clientId: consumer }, null)
+    sql(consumerApp)
+    const nca = f.loan(idOf(consumerApp), { clientId: consumer }, "NCA")
+    sql(nca)
+    for (const [loanId, to] of [[idOf(nonNca), "FINANCE_LEASE"], [idOf(nonNca), "LOAN"], [idOf(nca), "INSTALMENT_SALE"]]) {
+      expectRejected(`UPDATE "Loan" SET "contractType" = '${to}' WHERE "id" = '${loanId}'`, "contract type are fixed at booking")
+    }
+    expect(sql(`SELECT "contractType" FROM "Loan" WHERE "id" = '${idOf(nonNca)}'`)).toBe("INSTALMENT_SALE")
   })
 
   it("refuses a loan for entity B on entity A's application", () => {

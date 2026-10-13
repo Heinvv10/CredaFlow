@@ -35,10 +35,17 @@ suite("asset finance foundation: borrower XOR and entity rules", () => {
     expectRejected(f.application({ clientId, entityId }, null), "LoanApplication_borrower_xor")
   })
 
-  it("rejects a NON_NCA regime on a natural-person client's application, even with an approved override", () => {
+  it("rejects a NON_NCA regime on a natural-person client's application; no NON_NCA override can be requested for one", () => {
     const app = f.application({ clientId: f.freshClient() }, "NCA")
     sql(app)
-    expectRejected(f.toNonNca(idOf(app)), "LoanApplication_non_nca_requires_entity")
+    // A NON_NCA request records the entity it is for; a consumer has none.
+    expectRejected(f.pendingOverride(idOf(app)).statement, "NcaRegimeOverride_non_nca_snapshot")
+    // The regime trigger refuses the flip first (no approval): switch it off
+    // inside a rolled-back transaction so the CHECK itself is what is proven.
+    expectRejected(`BEGIN;
+      ALTER TABLE "LoanApplication" DISABLE TRIGGER "LoanApplication_guard_nca_regime_update";
+      UPDATE "LoanApplication" SET "ncaRegime" = 'NON_NCA' WHERE "id" = '${idOf(app)}';
+      ROLLBACK;`, "LoanApplication_non_nca_requires_entity")
   })
 
   it("rejects a Loan with no borrower, two borrowers, or a NON_NCA client", () => {

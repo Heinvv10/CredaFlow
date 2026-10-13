@@ -78,13 +78,19 @@ export function afSqlFixture(label: string) {
         CURRENT_TIMESTAMP)`
   }
 
-  /** INSERT a PENDING NCA → NON_NCA override requested by the fixture user. */
+  /**
+   * INSERT a PENDING NCA → NON_NCA override requested by the fixture user,
+   * its snapshot read from the application as it stands.
+   */
   function pendingOverride(applicationId: string): { id: string; statement: string } {
     const id = `ovr_${label}_${token}_${next()}`
     return {
       id,
-      statement: `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "requestedById")
-        VALUES ('${id}', '${tenantId}', '${applicationId}', 'NCA', 'NON_NCA', 'Audited AFS on file', '${ids.userId}')`,
+      statement: `INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason",
+          "source", "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule")
+        SELECT '${id}', '${tenantId}', '${applicationId}', 'NCA', 'NON_NCA', 'Audited AFS on file', 'MANUAL', '${ids.userId}',
+          application."entityId", application."appliedAmount", application."productId", application."ncaClassificationRule"
+        FROM "LoanApplication" AS application WHERE application."id" = '${applicationId}'`,
     }
   }
 
@@ -140,7 +146,8 @@ export function afSqlFixture(label: string) {
     sql(`
       INSERT INTO "Tenant" ("id", "slug", "name", "updatedAt") VALUES ('${tenantId}', '${label}-${token}', 'AF test', CURRENT_TIMESTAMP);
       INSERT INTO "User" ("id", "tenantId", "email", "password", "updatedAt")
-        VALUES ('${ids.userId}', '${tenantId}', '${label}-${token}@test.invalid', 'x', CURRENT_TIMESTAMP);
+        VALUES ('${ids.userId}', '${tenantId}', '${label}-${token}@test.invalid', 'x', CURRENT_TIMESTAMP),
+               ('${ids.approverId}', '${tenantId}', '${label}-approver-${token}@test.invalid', 'x', CURRENT_TIMESTAMP);
       INSERT INTO "Client" ("id", "tenantId", "reference", "idNumber", "firstName", "lastName", "email", "phone", "updatedAt")
         VALUES ('${ids.clientId}', '${tenantId}', 'CLI-${token}', 'ID-${token}', 'Test', 'Director', 'c-${token}@test.invalid', '+27820000000', CURRENT_TIMESTAMP);
       INSERT INTO "LoanProduct" ("id", "tenantId", "code", "name", "productType", "minAmount", "maxAmount",

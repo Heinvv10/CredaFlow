@@ -224,11 +224,12 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Collections Queue", rows }])
   } else if (type === "affordability") {
+    // Affordability (NCA s81) is assessed for a natural-person consumer; an
+    // entity (asset finance) application is not on this register.
     const applications = await prisma.loanApplication.findMany({
-      where: { tenantId: tenant.id, status: { in: ["APPROVED", "DISBURSED", "DECLINED"] } },
+      where: { tenantId: tenant.id, entityId: null, status: { in: ["APPROVED", "DISBURSED", "DECLINED"] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true } },
-        entity: { select: { legalName: true } },
         product: { select: { name: true } },
         approvedBy: { select: { name: true } },
       },
@@ -455,11 +456,12 @@ export async function GET(req: NextRequest) {
       newValue: { rowCount: records.length },
     })
   } else if (type === "reckless-lending") {
+    // The reckless-lending audit (NCA s80-81) covers natural-person consumers;
+    // an entity (asset finance) application is not on it.
     const applications = await prisma.loanApplication.findMany({
-      where: { tenantId: tenant.id, status: { in: ["APPROVED", "DISBURSED", "DECLINED"] } },
+      where: { tenantId: tenant.id, entityId: null, status: { in: ["APPROVED", "DISBURSED", "DECLINED"] } },
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true } },
-        entity: { select: { legalName: true } },
         product: { select: { name: true } },
         approvedBy: { select: { name: true } },
       },
