@@ -2,10 +2,12 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { TotpSetupClient } from "./TotpSetupClient"
 
 export default async function SecuritySettingsPage() {
+  const tenantId = await getStaffTenantId()
   const session = await auth()
   if (!session?.user) redirect("/login")
 
@@ -13,8 +15,7 @@ export default async function SecuritySettingsPage() {
     where: { id: session.user.id },
     select: { totpEnabled: true, email: true, name: true },
   })
-  const tenantId = session.user.tenantId
-  const required = tenantId ? await isStaffTotpRequired(tenantId) : true
+  const required = await isStaffTotpRequired(tenantId)
 
   return (
     <>
