@@ -24,7 +24,14 @@ export function GET(req: NextRequest): NextResponse {
   // Only accept a safe same-origin path (defence against open-redirect: "//x"
   // and "/\x" both leave the origin); anything else falls back to the staff
   // dashboard.
-  const callbackUrl = safeInternalPath(req.nextUrl.searchParams.get("callbackUrl")) ?? "/dashboard"
+  const requested = safeInternalPath(req.nextUrl.searchParams.get("callbackUrl"))
+  const isPortalPath = (path: string) => path === "/portal" || path.startsWith("/portal/")
+  // The client host serves no staff sign-in (proxy.ts 404s /login): it signs in
+  // at the portal, and only a portal destination survives.
+  const isClientHost = process.env.APP_MODE === "client"
+  const callbackUrl = isClientHost
+    ? requested && isPortalPath(requested) ? requested : "/portal"
+    : requested ?? "/dashboard"
 
   // Emit a RELATIVE Location. A route handler's `req.url` is the container's
   // internal bind address (e.g. http://0.0.0.0:3300), so an absolute URL built
@@ -35,8 +42,7 @@ export function GET(req: NextRequest): NextResponse {
   // A portal destination goes to the portal's own sign-in form: a client sent
   // to the staff /login cannot sign in there. With the cookie cleared below,
   // /portal/login renders its form rather than bouncing back to /portal.
-  const isPortal = callbackUrl === "/portal" || callbackUrl.startsWith("/portal/")
-  const loginPath = isPortal ? "/portal/login" : "/login"
+  const loginPath = isPortalPath(callbackUrl) ? "/portal/login" : "/login"
   const location = `${loginPath}?callbackUrl=${encodeURIComponent(callbackUrl)}`
   const res = new NextResponse(null, { status: 307, headers: { Location: location } })
 

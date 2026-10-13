@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   findUser: vi.fn(),
   updateManyUser: vi.fn(),
   findConfig: vi.fn(),
+  findClient: vi.fn(),
 }))
 
 vi.mock("next-auth", () => ({
@@ -33,6 +34,7 @@ vi.mock("@/lib/prisma", () => ({
       update: async () => ({}),
     },
     tenantConfig: { findUnique: (a: unknown) => h.findConfig(a) },
+    client: { findFirst: (a: unknown) => h.findClient(a) },
     loginLog: { create: async () => ({}) },
     failedLoginAttempt: { create: async () => ({}) },
   },
@@ -41,6 +43,7 @@ vi.mock("bcryptjs", () => ({ default: { compare: async () => true, hash: async (
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: () => ({ allowed: true }), callerIp: () => "127.0.0.1" }))
 
 import "@/lib/auth"
+import { clientCredentialStamp } from "@/lib/client-session"
 import { generateTotpCode, generateTotpSecret } from "@/lib/totp"
 
 const request = new Request("https://app.lender.example/api/auth/callback/credentials", {
@@ -161,8 +164,13 @@ describe("totpEnrolmentRequired claim — jwt/session callbacks", () => {
     expect(h.findUser).not.toHaveBeenCalled()
   })
 
-  it("leaves a CLIENT token alone", async () => {
-    const kept = await h.config!.callbacks.jwt({ token: { id: "c1", role: "CLIENT", tenantId: "t1" } })
+  it("leaves a CLIENT token alone (it has no enrolment claim; its own credential stamp is what counts)", async () => {
+    vi.stubEnv("AUTH_SECRET", "totp-claim-test-secret")
+    h.findClient.mockResolvedValue({ portalPassword: "hash" })
+    const kept = await h.config!.callbacks.jwt({
+      token: { id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", "hash") },
+    })
+    vi.unstubAllEnvs()
     expect(kept).toMatchObject({ id: "c1", role: "CLIENT" })
   })
 
