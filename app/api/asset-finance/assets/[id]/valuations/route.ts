@@ -5,7 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { dbDate } from "@/lib/asset-finance/rates-store"
+import { dbDate } from "@/lib/asset-finance/dates"
 import { parseValuation } from "@/lib/asset-finance/asset-input"
 
 type Params = { params: Promise<{ id: string }> }

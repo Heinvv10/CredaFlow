@@ -1,6 +1,6 @@
 /**
  * Real-Postgres fixture for the asset-finance deal suites: a tenant with the
- * flag on, staff, an asset-finance product, a PRIME reference rate, a
+ * flag on, staff, an asset-finance product, an APPROVED PRIME reference rate, a
  * supplier, three assets, an unevidenced company (classifier → NCA) and an
  * evidenced R2m-turnover company (classifier → NON_NCA) with a consenting
  * director. Every value is synthetic. The route helpers call the real
@@ -44,7 +44,16 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
       interestRatePm: 1.0, interestModel: "DAILY_ACCRUAL",
     },
   })
-  await db.referenceRate.create({ data: { tenantId, basis: "PRIME", effectiveDate: new Date("2020-01-01T00:00:00Z"), rate: "0.1075" } })
+  const officer = await user("officer", "CREDIT_OFFICER")
+  const adminA = await user("admin-a", "LOAN_ADMIN")
+  const adminB = await user("admin-b", "LOAN_ADMIN")
+  // Four-eyes: only an APPROVED rate counts, decided by a second real user.
+  await db.referenceRate.create({
+    data: {
+      tenantId, basis: "PRIME", effectiveDate: new Date("2020-01-01T00:00:00Z"), rate: "0.1075",
+      status: "APPROVED", requestedById: adminA, decidedById: adminB, decidedAt: new Date(),
+    },
+  })
   const supplier = await db.supplier.create({ data: { tenantId, name: "TEST Plant Sales (Pty) Ltd" } })
   const assets: string[] = []
   for (let i = 1; i <= 3; i++) {
@@ -73,9 +82,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   await db.entityRelationship.create({ data: { tenantId, entityId: evidenced.id, clientId: director.id, role: "DIRECTOR" } })
   return {
     tenantId, host,
-    officer: await user("officer", "CREDIT_OFFICER"),
-    adminA: await user("admin-a", "LOAN_ADMIN"),
-    adminB: await user("admin-b", "LOAN_ADMIN"),
+    officer, adminA, adminB,
     product: product.id, supplier: supplier.id, assets,
     unevidenced: unevidenced.id, evidenced: evidenced.id, director: director.id,
   }

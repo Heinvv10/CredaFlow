@@ -104,7 +104,8 @@ export function signingRoutes(host: string) {
   const request = (path: string, method: string, init?: { json?: unknown; body?: BodyInit }) =>
     new NextRequest(`http://${host}${path}`, {
       method,
-      headers: { host, "x-forwarded-for": "198.51.100.7", ...(init?.json !== undefined ? { "content-type": "application/json" } : {}) },
+      // A client-forged first hop, then the address one trusted proxy saw (TRUSTED_PROXY=1).
+      headers: { host, "x-forwarded-for": "192.0.2.66, 198.51.100.7", ...(init?.json !== undefined ? { "content-type": "application/json" } : {}) },
       body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
     })
   const deal = (id: string) => ({ params: Promise.resolve({ id }) })

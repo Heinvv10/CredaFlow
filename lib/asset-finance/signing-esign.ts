@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256, isSha256Digest } from "@/lib/documents/content-integrity"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { callerIp } from "@/lib/rate-limit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
 
@@ -121,7 +122,13 @@ export async function recordESignature(params: {
   return signed ? { kind: "signed", signedAt } : { kind: "not_signable", reason: "This document was signed or changed while you were signing" }
 }
 
-/** The caller's IP as the consumer signing route reads it. */
+/**
+ * The signer's IP for the evidence row, by the trusted-proxy rule (callerIp,
+ * TRUSTED_PROXY): X-Forwarded-For entries a client prepends are never read.
+ * Null when no trusted proxy vouches for an address ("unknown" is a rate-limit
+ * bucket, not an IP).
+ */
 export function requestIp(req: Request): string | null {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null
+  const ip = callerIp(req)
+  return ip === "unknown" ? null : ip
 }

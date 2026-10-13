@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { formatStatusLabel } from "@/lib/status-style"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
-import { isoOfDbDate } from "@/lib/asset-finance/rates-store"
+import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS } from "@/lib/asset-finance/asset-labels"
 import { ValuationForm } from "./ValuationForm"
 

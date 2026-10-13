@@ -44,7 +44,7 @@ const params = { params: Promise.resolve({ signerId: "signer-1" }) }
 const get = () => document(new NextRequest("http://localhost/api/portal/asset-finance/deal-signers/signer-1/document"), params)
 const post = (body: unknown) =>
   sign(new NextRequest("http://localhost/api/portal/asset-finance/deal-signers/signer-1/sign", {
-    method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9, 10.0.0.1" }, body: JSON.stringify(body),
+    method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "192.0.2.66, 203.0.113.9" }, body: JSON.stringify(body),
   }), params)
 const asClient = () => {
   m.session.current = { user: { id: "client-1", email: "surety@client.test", role: "CLIENT", tenantId: "tenant-1" } }
@@ -54,6 +54,7 @@ const PNG = `data:image/png;base64,${Buffer.concat([Buffer.from([0x89, 0x50, 0x4
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.unstubAllEnvs()
   m.flag.on = true
   asClient()
   m.signerFindFirst.mockResolvedValue({
@@ -108,7 +109,8 @@ describe("portal deal-signer routes", () => {
     expect(m.record).not.toHaveBeenCalled()
   })
 
-  it("signs a typed name or a drawn PNG for the session client, with the first forwarded IP", async () => {
+  it("signs a typed name or a drawn PNG for the session client, with the IP the trusted proxy saw", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
     expect((await post({ signature: "  TEST Surety  ", documentSha256: SHA })).status).toBe(200)
     expect(m.record).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: "tenant-1", clientId: "client-1", signerId: "signer-1", ip: "203.0.113.9",

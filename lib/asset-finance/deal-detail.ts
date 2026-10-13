@@ -9,7 +9,7 @@ import type { StructureTerms } from "./deal-input"
 import type { Solved } from "./deal-structure"
 import { DEAL_STRUCTURE_SELECT, solveStoredDeal, termsFromDeal } from "./deal-terms"
 import { loadDealBureauResults, type DealBureauResult } from "./deal-bureau-results"
-import { isoOfDbDate } from "./rates-store"
+import { isoOfDbDate } from "./dates"
 
 export interface DealPerson {
   clientId: string

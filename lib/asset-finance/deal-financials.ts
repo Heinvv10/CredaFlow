@@ -11,7 +11,7 @@ import { computeCreditMemo, type CreditMemoRatios } from "./credit-memo"
 import type { CreditMemoInput } from "./credit-memo-input"
 import { lockDeal, type DealActor } from "./deal-submit"
 import { DEAL_STRUCTURE_SELECT, solveStoredDeal } from "./deal-terms"
-import { dbDate } from "./rates-store"
+import { dbDate } from "./dates"
 
 export const MEMO_EDITABLE_STATUSES = ["DRAFT", "SUBMITTED", "REFERRED"]
 

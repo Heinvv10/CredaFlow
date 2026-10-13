@@ -4,7 +4,8 @@
 import type { Prisma, ReferenceRateBasis } from "@prisma/client"
 import { STRUCTURE_PRESETS, type StructurePresetName, type StructureTerms } from "./deal-input"
 import { solveWithRate, type AssetPrice, type Solved } from "./deal-structure"
-import { isoOfDbDate, type RatesDb } from "./rates-store"
+import { isoOfDbDate } from "./dates"
+import type { RatesDb } from "./rates-store"
 
 export interface StoredDealStructure {
   depositCents: number

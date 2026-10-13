@@ -23,7 +23,7 @@ import { generateReference } from "@/lib/utils"
 import type { RegimeTx } from "./classification"
 import type { DealCreateInput } from "./deal-input"
 import { solveWithRate } from "./deal-structure"
-import { dbDate } from "./rates-store"
+import { dbDate } from "./dates"
 
 export const CLOSED_DEAL_STATUSES = ["REFUSED_NCA", "DECLINED", "CANCELLED"] as const
 

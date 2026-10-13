@@ -60,6 +60,7 @@ const forceContract = () => database().assetFinanceDeal.update({ where: { id: fx
 
 suite.sequential("asset-finance deal signing (real Postgres, real routes)", () => {
   beforeAll(async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
     session.current = null
     fx = await createSigningFixture(database(), t, (userId, role) => {
       session.current = { user: { id: userId, email: `${userId}@signing-it.test`, role, tenantId: `t_af_deal_${t}` } }
@@ -67,6 +68,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
   })
 
   afterAll(async () => {
+    vi.unstubAllEnvs()
     if (!db) return
     await cleanupSigningFixture(db, fx)
     await db.$disconnect()
