@@ -120,8 +120,8 @@ export type BiometricEvidenceAssessment =
       idDocumentNotCurrent?: true
       /**
        * Set only when the ID-copy binding is the sole refusal, the client has
-       * NO verified ID copy, no earlier attempt returned an adverse face
-       * result, and the copy the match ran against is their
+       * NO verified ID copy, no earlier attempt is an adverse result, and the
+       * copy the match ran against is their
        * CURRENT one (the copy capture would choose now), not yet verified: a
        * first-time borrower who did not wait for staff. Not a failed attempt,
        * and not a pass: the identity check completes once that copy is verified.
@@ -218,41 +218,85 @@ export function biometricSubjectFingerprint(subject: BiometricSubjectClient): st
 }
 
 /**
- * Failure reasons that are a verdict on the face itself: a mismatch, or a
- * photo the check found is not a real face. Not capture problems (no face
- * found, poor quality, an unfinished check): those say nothing about whose
- * face it is.
+ * What an earlier failed selfie attempt says about the client. Keyed by the
+ * full failure-reason union, so a new reason cannot ship unclassified.
+ * "benign_capture" is a capture or transport problem that says nothing about
+ * whose face it is; everything else is adverse, including liveness, a record
+ * that changed under the check (which can mask a mismatch), and any reason
+ * this file does not know.
  */
-export const ADVERSE_FACE_RESULT_REASONS = [
-  "match_score_below_threshold",
-  "provider_verification_failed",
-  "id_document_portrait_invalid",
-  "selfie_not_real_photograph",
-] as const satisfies readonly BiometricEvidenceFailureReason[]
-
-type AdverseFaceResultReason = (typeof ADVERSE_FACE_RESULT_REASONS)[number]
-
-/**
- * The where-shape for selfie attempts that recorded an adverse face result,
- * deleted or not: a portal client may delete an unverified attempt, and that
- * must not erase the signal. matchesAdverseFaceResult is its in-memory twin.
- */
-export const ADVERSE_FACE_RESULT_CONDITIONS: {
-  docType: "SELFIE"
-  OR: Array<{ biometricResult: { path: ["biometricFailureReason"]; equals: AdverseFaceResultReason } }>
-} = {
-  docType: "SELFIE",
-  OR: ADVERSE_FACE_RESULT_REASONS.map((reason) => ({
-    biometricResult: { path: ["biometricFailureReason"] as ["biometricFailureReason"], equals: reason },
-  })),
+export const BIOMETRIC_FAILURE_REASON_CLASS: Record<
+  BiometricEvidenceFailureReason,
+  "benign_capture" | "adverse"
+> = {
+  extraction_incomplete: "benign_capture",
+  face_not_detected: "benign_capture",
+  face_count_invalid: "benign_capture",
+  image_unusable: "benign_capture",
+  // Written only over an attempt that PASSED, when a newer selfie landed
+  // while it ran (lib/kyc/selfie-biometric.server.ts).
+  superseded_biometric_evidence: "benign_capture",
+  biometric_evidence_missing: "adverse",
+  document_deleted: "adverse",
+  document_not_verified: "adverse",
+  subject_fingerprint_missing: "adverse",
+  subject_identity_changed: "adverse",
+  vlm_liveness_failed: "adverse",
+  validation_mismatch: "adverse",
+  match_score_below_threshold: "adverse",
+  liveness_score_below_threshold: "adverse",
+  provider_verification_missing: "adverse",
+  simulated_provider_evidence: "adverse",
+  provider_verification_failed: "adverse",
+  id_document_portrait_invalid: "adverse",
+  selfie_not_real_photograph: "adverse",
 }
 
-const ADVERSE_FACE_RESULTS = new Set<unknown>(ADVERSE_FACE_RESULT_REASONS)
+export const BENIGN_CAPTURE_REASONS: ReadonlySet<BiometricEvidenceFailureReason> = new Set(
+  (Object.keys(BIOMETRIC_FAILURE_REASON_CLASS) as BiometricEvidenceFailureReason[])
+    .filter((reason) => BIOMETRIC_FAILURE_REASON_CLASS[reason] === "benign_capture"),
+)
 
-/** The same predicate, against a row already in memory. */
-export function matchesAdverseFaceResult(row: { docType?: string; biometricResult: unknown }): boolean {
-  if (row.docType !== undefined && row.docType !== ADVERSE_FACE_RESULT_CONDITIONS.docType) return false
-  return ADVERSE_FACE_RESULTS.has(jsonRecord(row.biometricResult)?.biometricFailureReason)
+/**
+ * The where-shape for earlier selfie attempts that may be adverse, deleted or
+ * not (a portal client may delete an unverified attempt, and that must not
+ * erase the signal): every failed or skipped attempt, and every one staff
+ * rejected. isAdversePriorAttempt then decides each row.
+ */
+export const PRIOR_FAILED_ATTEMPT_CONDITIONS: {
+  docType: "SELFIE"
+  OR: [
+    { extractionStatus: { in: ["failed", "skipped"] } },
+    { verificationRejectedAt: { not: null } },
+    { verificationRejectedById: { not: null } },
+  ]
+} = {
+  docType: "SELFIE",
+  OR: [
+    { extractionStatus: { in: ["failed", "skipped"] } },
+    { verificationRejectedAt: { not: null } },
+    { verificationRejectedById: { not: null } },
+  ],
+}
+
+/**
+ * Whether an earlier selfie attempt is an adverse result. Fails closed: a
+ * failed or skipped attempt is adverse unless it recorded a benign capture
+ * reason, so a missing, unknown or new reason counts. A selfie staff rejected
+ * is adverse whatever its check said.
+ */
+export function isAdversePriorAttempt(row: {
+  docType?: string
+  extractionStatus: string | null
+  biometricResult: unknown
+  verificationRejectedAt?: Date | null
+  verificationRejectedById?: string | null
+}): boolean {
+  if (row.docType !== undefined && row.docType !== PRIOR_FAILED_ATTEMPT_CONDITIONS.docType) return false
+  if ((row.verificationRejectedAt ?? null) !== null || (row.verificationRejectedById ?? null) !== null) return true
+  if (row.extractionStatus !== "failed" && row.extractionStatus !== "skipped") return false
+  const reason = parseBiometricEvidenceFailureReason(jsonRecord(row.biometricResult)?.biometricFailureReason)
+  return reason === null || !BENIGN_CAPTURE_REASONS.has(reason)
 }
 
 /** An ID copy as the selfie gate needs it: which row, and its stored digest. */
@@ -306,18 +350,18 @@ export function assessBiometricEvidence(
      * among them, same digest, never rejected, verified, and not the newest
      * verified one (`idDocument`); or awaits staff verifying that copy
      * (idDocumentAwaitingVerification): only when there is no verified copy,
-     * no attempt recorded an adverse face result, and it is the CURRENT copy,
+     * no earlier attempt is an adverse result, and it is the CURRENT copy,
      * same digest, never rejected, and not verified. Anything else leaves the
      * refusal a failed attempt.
      */
     idDocumentCopies: readonly BiometricIdDocumentCopy[] | null
     /**
-     * Whether any selfie attempt of this client, deleted or not, recorded an
-     * adverse face result (matchesAdverseFaceResult), against any ID copy.
-     * Left undefined by a caller that did not read them: the awaiting state
-     * then never applies.
+     * Whether any selfie attempt of this client, deleted or not, against any
+     * ID copy, is an adverse result (isAdversePriorAttempt). Left undefined
+     * by a caller that did not read them: the awaiting state then never
+     * applies.
      */
-    priorAdverseFaceResult?: boolean
+    priorAdverseAttempt?: boolean
     requireDocumentVerified?: boolean
   },
 ): BiometricEvidenceAssessment {
@@ -441,8 +485,8 @@ export function assessBiometricEvidence(
   // before; deriveCompositeKycState projects it as pending. The client's
   // first ID copy, not yet verified: a borrower who did not wait for staff;
   // pending with origination BLOCKED until staff verify it, unless an earlier
-  // attempt returned an adverse face result (a mismatch against B, then a
-  // pass against an uploaded C is the substitute pattern). A match against
+  // attempt is an adverse result (a mismatch against B, then a pass against
+  // an uploaded C is the substitute pattern). A match against
   // an unverified copy while a verified one is on file stays a failure: it is
   // indistinguishable from a doctored substitute uploaded after a face
   // mismatch against the verified ID. So does one against a copy since
@@ -470,7 +514,7 @@ export function assessBiometricEvidence(
     }
     // No verified copy (`idDocument` null), so the bound copy is not verified.
     const awaitingVerification = options.idDocument === null &&
-      options.priorAdverseFaceResult === false &&
+      options.priorAdverseAttempt === false &&
       boundCopy !== undefined &&
       options.idDocumentCopies !== null &&
       currentIdDocumentCopy(options.idDocumentCopies)?.id === boundCopy.id &&

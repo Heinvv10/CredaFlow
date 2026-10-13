@@ -167,20 +167,23 @@ function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKyc
           docType: { in: string[] } | string
           biometricResult?: { path: string[]; equals: unknown }
           deletedAt?: null
-          OR?: Array<{ biometricResult?: { path: string[]; equals: unknown } }>
+          OR?: Array<{
+            extractionStatus?: { in: string[] }
+            verificationRejectedAt?: { not: null }
+            verificationRejectedById?: { not: null }
+          }>
         }
       }) => {
         const { docType, biometricResult } = args.where
         if (typeof docType === "string") {
           const mine = data.selfies.filter((row) => row.clientId === clientId)
           if (!biometricResult && args.where.deletedAt === undefined) {
-            // The adverse-face-result read: deleted or not, any OR'd reason.
-            return mine.filter((row) => {
-              const result = row.biometricResult as Record<string, unknown> | null
-              return (args.where.OR ?? []).some((clause) =>
-                clause.biometricResult !== undefined
-                && result?.[clause.biometricResult.path[0]] === clause.biometricResult.equals)
-            })
+            // The prior-failed-attempt read: deleted or not, any OR'd clause.
+            return mine.filter((row) => (args.where.OR ?? []).some((clause) =>
+              (clause.extractionStatus !== undefined
+                && clause.extractionStatus.in.includes(row.extractionStatus ?? ""))
+              || (clause.verificationRejectedAt !== undefined && (row.verificationRejectedAt ?? null) !== null)
+              || (clause.verificationRejectedById !== undefined && (row.verificationRejectedById ?? null) !== null)))
           }
           if (!biometricResult) {
             // The blocking-candidate read.
@@ -356,6 +359,34 @@ describe("inMemoryKycReader", () => {
       }),
     },
     {
+      name: "the same, after an earlier attempt that failed with no recorded reason",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [passedSelfie(`doc-ID_COPY-${CLIENT_ID}`), mismatchedSelfie({ biometricResult: null })],
+      }),
+    },
+    {
+      name: "the same, after an earlier attempt staff rejected",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          selfie({ id: "selfie-rejected", verified: false, verificationRejectedAt: new Date("2026-07-19T08:40:00.000Z"),
+            verificationRejectedById: "officer-1" }),
+        ],
+      }),
+    },
+    {
+      name: "the same, after an earlier attempt where no face was found",
+      data: rows({
+        coreDocuments: unverifiedFirstIdCopies(),
+        selfies: [
+          passedSelfie(`doc-ID_COPY-${CLIENT_ID}`),
+          mismatchedSelfie({ biometricResult: { biometricFailureReason: "face_not_detected" } }),
+        ],
+      }),
+    },
+    {
       name: "a rejected core document",
       data: rows({
         coreDocuments: [
@@ -412,6 +443,9 @@ describe("inMemoryKycReader", () => {
     ["a passed selfie against the client's first, unverified ID copy", true],
     ["the same, after a deleted earlier attempt with an adverse face result", false],
     ["the same, where only ANOTHER client had an adverse face result", true],
+    ["the same, after an earlier attempt that failed with no recorded reason", false],
+    ["the same, after an earlier attempt staff rejected", false],
+    ["the same, after an earlier attempt where no face was found", true],
   ])("awaits ID verification on the board for %s: %s", async (name, awaiting) => {
     const { data } = cases.find((c) => c.name === name)!
     expect((await readWith(inMemoryKycReader(CLIENT_ID, data))).biometricAwaitingIdVerification).toBe(awaiting)

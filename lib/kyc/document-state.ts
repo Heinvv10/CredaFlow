@@ -1,7 +1,7 @@
 import {
-  ADVERSE_FACE_RESULT_CONDITIONS,
+  PRIOR_FAILED_ATTEMPT_CONDITIONS,
   assessBiometricEvidence,
-  matchesAdverseFaceResult,
+  isAdversePriorAttempt,
   type BiometricDocumentEvidence,
   type BiometricEvidenceAssessment,
   type BiometricEvidenceFailureReason,
@@ -194,9 +194,14 @@ export interface CompositeKycReader {
         select: { biometricResult: true }
       }) => Promise<Array<{ biometricResult: unknown }>>) &
       ((args: {
-        where: { tenantId: string; clientId: string } & typeof ADVERSE_FACE_RESULT_CONDITIONS
-        select: { biometricResult: true }
-      }) => Promise<Array<{ biometricResult: unknown }>>) &
+        where: { tenantId: string; clientId: string } & typeof PRIOR_FAILED_ATTEMPT_CONDITIONS
+        select: { extractionStatus: true; biometricResult: true; verificationRejectedAt: true; verificationRejectedById: true }
+      }) => Promise<Array<{
+        extractionStatus: string | null
+        biometricResult: unknown
+        verificationRejectedAt: Date | null
+        verificationRejectedById: string | null
+      }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof BLOCKING_SELFIE_CONDITIONS
         select: { extractionStatus: true; biometricResult: true; createdAt: true }
@@ -463,7 +468,7 @@ export async function readCompositeKycState(
   /** The ID copy the latest selfie matched, when it awaits staff verification. */
   awaitingIdDocumentId: string | null
 }> {
-  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals, adverseAttempts] = await Promise.all([
+  const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals, failedAttempts] = await Promise.all([
     reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
@@ -542,15 +547,15 @@ export async function readCompositeKycState(
       },
       select: { biometricResult: true },
     }),
-    // Every attempt, deleted or not, that returned an adverse face result:
-    // one closes the awaiting-ID-verification state, whatever came after.
+    // Every failed or staff-rejected attempt, deleted or not: an adverse one
+    // closes the awaiting-ID-verification state, whatever came after.
     reader.clientDocument.findMany({
       where: {
         tenantId: args.tenantId,
         clientId: args.clientId,
-        ...ADVERSE_FACE_RESULT_CONDITIONS,
+        ...PRIOR_FAILED_ATTEMPT_CONDITIONS,
       },
-      select: { biometricResult: true },
+      select: { extractionStatus: true, biometricResult: true, verificationRejectedAt: true, verificationRejectedById: true },
     }),
   ])
   // Deterministic, and identical to the SQL predicate's row choice: verified
@@ -585,7 +590,7 @@ export async function readCompositeKycState(
         subject: args.subject,
         idDocument,
         idDocumentCopies,
-        priorAdverseFaceResult: adverseAttempts.some(matchesAdverseFaceResult),
+        priorAdverseAttempt: failedAttempts.some(isAdversePriorAttempt),
       })
     : { ok: false as const, reason: "biometric_evidence_missing" as const }
   const manualException = currentManualKycException(exceptionRecord, {

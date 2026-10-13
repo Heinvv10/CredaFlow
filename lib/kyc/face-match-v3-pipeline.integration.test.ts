@@ -532,15 +532,21 @@ suite("face match v3 through the real pipeline", () => {
       ["a face mismatch against B, since deleted, then a pass against C", "mismatch", "new copy", true],
       ["a face mismatch against B, then a pass against B", "mismatch", "same copy", false],
       ["an ID-portrait refusal of B, then a pass against an uploaded C", "portrait", "new copy", false],
+      // Liveness is adverse by default: not a capture problem.
+      ["a liveness failure, then a pass against B", "liveness", "same copy", false],
     ] as const)("keeps the first-ID match FAILED after %s", async (_label, adverse, passAgainst, deleteAdverse) => {
       const fixture = await seedClient()
       await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
       stubVlm(adverse === "mismatch"
         ? passingReply({ samePerson: "different", faceMatch: false, matchConfidence: 0.08 })
-        : passingReply({ idPhotoKind: "illustration", idPhotoIsRealPhotograph: false }))
+        : adverse === "portrait"
+          ? passingReply({ idPhotoKind: "illustration", idPhotoIsRealPhotograph: false })
+          : passingReply({ isLive: false }))
       const { result: first, selfie: firstSelfie } = await capture(fixture)
-      expect(["provider_verification_failed", "match_score_below_threshold", "id_document_portrait_invalid"])
-        .toContain(reasonOf(firstSelfie))
+      expect([
+        "provider_verification_failed", "match_score_below_threshold", "id_document_portrait_invalid",
+        "vlm_liveness_failed", "liveness_score_below_threshold",
+      ]).toContain(reasonOf(firstSelfie))
       if (deleteAdverse && first.ok) {
         await db.clientDocument.update({ where: { id: first.documentId }, data: { deletedAt: new Date(), deletedByType: "client" } })
       }
@@ -556,6 +562,20 @@ suite("face match v3 through the real pipeline", () => {
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
       expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
       expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
+    })
+
+    it("keeps the first-ID match FAILED after staff rejected an earlier selfie", async () => {
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      stubVlm(passingReply())
+      const { result: first } = await capture(fixture)
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
+      if (!first.ok) throw new Error("capture failed")
+      expect((await rejectDocument(fixture.clientId, first.documentId)).status).toBe(200)
+
+      await capture(fixture)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
     })
 
     it("still awaits ID verification after an earlier capture problem, then verifies", async () => {

@@ -754,7 +754,7 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
 
   function reader(
     idCopies: readonly CoreKycDocumentRow[],
-    earlierAttempts: readonly { biometricResult: unknown }[] = [],
+    earlierAttempts: readonly { extractionStatus: string; biometricResult: unknown }[] = [],
   ): CompositeKycReader {
     return {
       clientDocument: {
@@ -775,7 +775,7 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
 
   const read = (
     idCopies: readonly CoreKycDocumentRow[],
-    earlierAttempts: readonly { biometricResult: unknown }[] = [],
+    earlierAttempts: readonly { extractionStatus: string; biometricResult: unknown }[] = [],
   ) => readCompositeKycState(reader(idCopies, earlierAttempts), {
     tenantId: "tenant-1",
     clientId: subject.id,
@@ -821,12 +821,16 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
     }))
   })
 
-  it("projects FAILED when an earlier attempt, against any copy, returned an adverse face result", async () => {
+  it.each([
+    ["returned a face mismatch, against any copy", { biometricFailureReason: "provider_verification_failed", idDocumentId: "id-copy-gone" }],
+    ["recorded no reason", null],
+    ["recorded a reason this code does not know", { biometricFailureReason: "a_reason_added_later" }],
+  ])("projects FAILED when an earlier failed attempt %s", async (_label, biometricResult) => {
     // A mismatch against B, then a pass against an uploaded C, is the
     // substitute pattern; here the pass is against B itself.
     expect(await read([currentB], [
-      { biometricResult: { biometricFailureReason: "face_not_detected" } },
-      { biometricResult: { biometricFailureReason: "provider_verification_failed", idDocumentId: "id-copy-gone" } },
+      { extractionStatus: "failed", biometricResult: { biometricFailureReason: "face_not_detected" } },
+      { extractionStatus: "failed", biometricResult },
     ])).toEqual(expect.objectContaining({
       biometricAttemptFailed: true,
       biometricAwaitingIdVerification: false,
@@ -836,8 +840,8 @@ describe("composite KYC reader: a selfie matched against the client's first, unv
 
   it("still awaits ID verification after an earlier capture problem", async () => {
     expect(await read([currentB], [
-      { biometricResult: { biometricFailureReason: "face_not_detected" } },
-      { biometricResult: passedAgainstB.biometricResult },
+      { extractionStatus: "failed", biometricResult: { biometricFailureReason: "face_not_detected" } },
+      { extractionStatus: "done", biometricResult: passedAgainstB.biometricResult },
     ])).toEqual(expect.objectContaining({
       biometricAwaitingIdVerification: true,
       state: expect.objectContaining({ kycStatus: "PENDING" }),
