@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { requireMinRole } from "@/lib/auth-guards"
 import { logAudit, AuditAction } from "@/lib/audit"
-import { getDefaultTenantId } from "@/lib/tenant"
 import { isAssignableStaff } from "@/lib/crm/staff"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -17,7 +16,8 @@ export async function generateCrossSellOpportunities() {
   const session = await auth()
   if (!session?.user) throw new Error("Unauthorized")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = session.user.tenantId
+  if (!tenantId) throw new Error("Unauthorized")
 
   const activeLoans = await prisma.loan.findMany({
     where: { tenantId, status: "ACTIVE" },
@@ -89,7 +89,8 @@ export async function updateLeadStatus(leadId: string, status: string): Promise<
     return { ok: false, error: "Marking a lead LOST needs a reason — use the Mark-lost flow." }
   }
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = session.user.tenantId
+  if (!tenantId) throw new Error("Unauthorized")
 
   const txResult = await prisma.$transaction(async (tx) => {
     const existing = await tx.lead.findFirst({
@@ -151,7 +152,7 @@ export async function reassignLead(
   assignedToId: string | null
 ): Promise<ReassignLeadResult> {
   const user = await requireMinRole("CREDIT_OFFICER")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = user.tenantId
 
   // Neither Lead nor User is in TENANT_SCOPED_MODELS (lib/tenant-scope.ts),
   // so nothing auto-injects tenantId here — every filter below is manual and
@@ -223,7 +224,7 @@ export async function reassignLead(
 export async function resetStrandedConvertedLead(leadId: string) {
   const user = await requireMinRole("CREDIT_OFFICER")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = user.tenantId
 
   await prisma.$transaction(async (tx) => {
     // Only the migration can set conversionRecoveryRequired. Clearing it in
@@ -286,7 +287,8 @@ export async function addLeadActivity(data: {
     return { ok: false, error: "Invalid activity type" }
   }
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = session.user.tenantId
+  if (!tenantId) throw new Error("Unauthorized")
 
   const activity = await prisma.$transaction(async (tx) => {
     const lead = await tx.lead.findFirst({

@@ -4,7 +4,6 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { logAudit, AuditAction } from "@/lib/audit"
-import { getDefaultTenantId } from "@/lib/tenant"
 import { revalidatePath } from "next/cache"
 
 // Lead activity-feed actions. Separate module: app/actions/crm.ts is already
@@ -22,7 +21,8 @@ export async function toggleLeadActivityPinned(
   const session = await auth()
   if (!session?.user) throw new Error("Unauthorized")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = session.user.tenantId
+  if (!tenantId) throw new Error("Unauthorized")
 
   let result
   try {

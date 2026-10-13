@@ -7,6 +7,9 @@ const transactionMock = vi.fn()
 const logAuditMock = vi.fn()
 const revalidatePathMock = vi.fn()
 const redirectMock = vi.fn()
+const loanFindManyMock = vi.fn()
+const crossSellFindManyMock = vi.fn()
+const crossSellCreateManyMock = vi.fn()
 
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: (r: string) => requireMinRoleMock(r) }))
@@ -14,6 +17,11 @@ vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMoc
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: (fn: (tx: unknown) => Promise<unknown>) => transactionMock(fn),
+    loan: { findMany: (a: unknown) => loanFindManyMock(a) },
+    crossSellOpportunity: {
+      findMany: (a: unknown) => crossSellFindManyMock(a),
+      createMany: (a: unknown) => crossSellCreateManyMock(a),
+    },
   },
 }))
 vi.mock("@/lib/audit", () => ({
@@ -24,7 +32,13 @@ vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePathMock
 vi.mock("next/navigation", () => ({ redirect: (p: string) => redirectMock(p) }))
 vi.mock("@/lib/contact/provision", () => ({ provisionContactForClient: vi.fn() }))
 
-import { updateLeadStatus, reassignLead, resetStrandedConvertedLead } from "./crm"
+import {
+  updateLeadStatus,
+  reassignLead,
+  resetStrandedConvertedLead,
+  addLeadActivity,
+  generateCrossSellOpportunities,
+} from "./crm"
 
 // Server actions mask thrown error messages behind a generic digest in
 // production builds — updateLeadStatus must return validation failures as
@@ -34,8 +48,8 @@ import { updateLeadStatus, reassignLead, resetStrandedConvertedLead } from "./cr
 describe("updateLeadStatus — typed result for validation failures", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    authMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example" } })
-    getDefaultTenantIdMock.mockResolvedValue("t1")
+    authMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example", tenantId: "t1" } })
+    getDefaultTenantIdMock.mockResolvedValue("default-tenant")
   })
 
   it("returns ok:false instead of throwing for an invalid status", async () => {
@@ -110,8 +124,8 @@ describe("updateLeadStatus — typed result for validation failures", () => {
 describe("resetStrandedConvertedLead — migration recovery state", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example" })
-    getDefaultTenantIdMock.mockResolvedValue("t1")
+    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example", tenantId: "t1" })
+    getDefaultTenantIdMock.mockResolvedValue("default-tenant")
   })
 
   it("atomically clears only a migration-marked stranded row and writes its audit", async () => {
@@ -191,8 +205,8 @@ describe("reassignLead — assignee revalidation", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example" })
-    getDefaultTenantIdMock.mockResolvedValue("t1")
+    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example", tenantId: "t1" })
+    getDefaultTenantIdMock.mockResolvedValue("default-tenant")
   })
 
   it("gates on the CREDIT_OFFICER role", async () => {
@@ -319,5 +333,99 @@ describe("reassignLead — assignee revalidation", () => {
       })
     )
     expect(revalidatePathMock).toHaveBeenCalledWith("/crm/leads/lead-1")
+  })
+})
+
+// The default tenant (deployment env) differs from the staff member's tenant in
+// every test above; these pin that writes follow the authenticated user.
+describe("crm actions — tenant comes from the authenticated staff user, not the default", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    authMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example", tenantId: "t1" } })
+    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example", tenantId: "t1" })
+    getDefaultTenantIdMock.mockResolvedValue("default-tenant")
+  })
+
+  it("generateCrossSellOpportunities reads, writes and audits under the user's tenant", async () => {
+    loanFindManyMock.mockResolvedValue([{ clientId: "c1" }])
+    crossSellFindManyMock.mockResolvedValue([])
+    crossSellCreateManyMock.mockResolvedValue({ count: 1 })
+
+    await generateCrossSellOpportunities()
+
+    expect(loanFindManyMock).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", status: "ACTIVE" } }))
+    expect(crossSellCreateManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ tenantId: "t1", clientId: "c1" })] }),
+    )
+    expect(logAuditMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1" }))
+    expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
+  })
+
+  it("updateLeadStatus scopes the lead read/write and the audit to the user's tenant; a cross-tenant lead is not found", async () => {
+    const tx = { lead: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() } }
+    transactionMock.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => fn(tx))
+
+    const result = await updateLeadStatus("other-tenant-lead", "QUALIFIED")
+
+    expect(result).toEqual({ ok: false, error: "Lead not found" })
+    expect(tx.lead.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "other-tenant-lead", tenantId: "t1" } }))
+    expect(tx.lead.update).not.toHaveBeenCalled()
+  })
+
+  it("updateLeadStatus audits under the user's tenant on success", async () => {
+    const tx = {
+      lead: {
+        findFirst: vi.fn().mockResolvedValue({ status: "CONTACTED" }),
+        update: vi.fn().mockResolvedValue({ id: "lead-1" }),
+      },
+    }
+    transactionMock.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => fn(tx))
+    await updateLeadStatus("lead-1", "QUALIFIED")
+    expect(tx.lead.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "lead-1", tenantId: "t1" } }))
+    expect(logAuditMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1" }))
+  })
+
+  it("addLeadActivity refuses a cross-tenant lead and scopes the lookup to the user's tenant", async () => {
+    const tx = { lead: { findFirst: vi.fn().mockResolvedValue(null) }, crmActivity: { create: vi.fn() } }
+    transactionMock.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => fn(tx))
+
+    const result = await addLeadActivity({ leadId: "other-tenant-lead", type: "NOTE", subject: "s" })
+
+    expect(result.ok).toBe(false)
+    expect(tx.lead.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "other-tenant-lead", tenantId: "t1" } }))
+    expect(tx.crmActivity.create).not.toHaveBeenCalled()
+  })
+
+  it("addLeadActivity writes the activity and audit under the user's tenant", async () => {
+    const tx = {
+      lead: { findFirst: vi.fn().mockResolvedValue({ id: "lead-1" }), update: vi.fn() },
+      crmActivity: { create: vi.fn().mockResolvedValue({ id: "a1" }) },
+    }
+    transactionMock.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => fn(tx))
+
+    await addLeadActivity({ leadId: "lead-1", type: "NOTE", subject: "s" })
+
+    expect(tx.crmActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ tenantId: "t1" }) }),
+    )
+    expect(logAuditMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1" }))
+  })
+
+  it("resetStrandedConvertedLead audits under the user's tenant", async () => {
+    const tx = {
+      lead: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: "a" }) },
+    }
+    transactionMock.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => fn(tx))
+    await resetStrandedConvertedLead("lead-1")
+    expect(tx.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ tenantId: "t1" }) })
+  })
+
+  it("a session with no tenant is refused rather than defaulted", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1", email: "x@acme-lending.example" } })
+    await expect(generateCrossSellOpportunities()).rejects.toThrow("Unauthorized")
+    await expect(updateLeadStatus("lead-1", "QUALIFIED")).rejects.toThrow("Unauthorized")
+    await expect(addLeadActivity({ leadId: "l", type: "NOTE", subject: "s" })).rejects.toThrow("Unauthorized")
+    expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
   })
 })
