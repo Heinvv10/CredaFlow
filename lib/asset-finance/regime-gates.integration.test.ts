@@ -103,7 +103,7 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
     const entityApp = await db.loanApplication.create({
       data: {
         tenantId, reference: `APP-RG-E-${t}`, entityId, productId, appliedAmount: 300_000, appliedTermDays: 31,
-        ncaRegime: "NCA", ncaClassificationRule: "TEST_RULE", ncaClassifiedAt: new Date(), ncaClassifiedById: userId,
+        ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN", ncaClassifiedAt: new Date(), ncaClassifiedById: userId,
       },
     })
     // NON_NCA only through a second person's approval, which the flip spends.
@@ -111,7 +111,7 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
       data: {
         tenantId, applicationId: entityApp.id, fromRegime: "NCA", toRegime: "NON_NCA", reason: "Audited AFS on file",
         source: "MANUAL", requestedById: userId, approvedEntityId: entityId, approvedAppliedAmount: 300_000,
-        approvedProductId: productId, approvedClassificationRule: "TEST_RULE",
+        approvedProductId: productId, approvedClassificationRule: "FINANCIALS_UNPROVEN",
       },
     })
     await db.ncaRegimeOverride.update({

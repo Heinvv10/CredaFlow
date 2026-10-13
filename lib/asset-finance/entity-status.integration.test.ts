@@ -3,8 +3,13 @@
  * frozen regime stays frozen (20261013090000_asset_finance_foundation):
  *   - once it leaves DRAFT / SUBMITTED / UNDER_REVIEW an entity application
  *     never re-enters them, directly or through DECLINED / CANCELLED; once
- *     DISBURSED with a loan its status never changes
- *     (guardEntityApplicationStatus); a consumer application is untouched;
+ *     DISBURSED its status never changes, loan or no loan
+ *     (guardEntityApplicationStatus, which reads the row before and after the
+ *     write); a consumer application is untouched;
+ *   - an entity loan is never deleted or truncated (Loan_refuse_entity_delete,
+ *     _truncate), so it cannot be re-booked on other terms;
+ *   - a decided application's borrower never changes, consumer included
+ *     (guardLoanApplicationNcaRegime);
  *   - at commit, a loan carries its application's regime, and a NON_NCA loan
  *     sits beside a DISBURSED NON_NCA application of the same entity at a
  *     principal its classification allows (assertDisbursedCreditLifeCoverage,
@@ -26,7 +31,9 @@ suite("asset finance foundation: entity application status and the NON_NCA loan 
   const setStatus = (id: string, status: string) => `UPDATE "LoanApplication" SET "status" = '${status}' WHERE "id" = '${id}'`
   const status = (id: string) => sql(`SELECT "status" FROM "LoanApplication" WHERE "id" = '${id}'`)
   const REOPEN = "A decided entity application cannot be reopened"
-  const DISBURSED_FIXED = "A disbursed entity application with a loan cannot change status"
+  const DISBURSED_FIXED = "A disbursed entity application cannot change status"
+  const NO_DELETE = "An entity loan is never deleted"
+  const BORROWER_FIXED = "A decided application's borrower cannot change"
   const AT_COMMIT = "A NON_NCA loan commits only with its application DISBURSED"
 
   beforeAll(() => f.seed())
@@ -48,7 +55,7 @@ suite("asset finance foundation: entity application status and the NON_NCA loan 
     expectRejected(setStatus(idOf(app), "SUBMITTED"), REOPEN)
   })
 
-  it("never changes a disbursed entity application's status once its loan exists", () => {
+  it("never changes a disbursed entity application's status", () => {
     const id = f.nonNcaApplication()
     sql(f.approveApplication(id))
     sql(`${f.loan(id, { entityId }, "NON_NCA")}; ${f.disburse(id)}`)
@@ -56,6 +63,75 @@ suite("asset finance foundation: entity application status and the NON_NCA loan 
       expectRejected(setStatus(id, next), DISBURSED_FIXED)
     }
     expect(status(id)).toBe("DISBURSED")
+  })
+
+  it("never deletes an entity loan, so it cannot be re-booked on other terms", () => {
+    const open = f.application({ entityId }, "NCA")
+    const openLoan = f.loan(idOf(open), { entityId }, "NCA")
+    sql(`${open}; ${openLoan}`)
+    expectRejected(`DELETE FROM "Loan" WHERE "id" = '${idOf(openLoan)}'`, NO_DELETE)
+
+    const id = f.nonNcaApplication()
+    sql(f.approveApplication(id))
+    const booked = f.loan(id, { entityId }, "NON_NCA")
+    sql(`${booked}; ${f.disburse(id)}`)
+    // Delete, step back to APPROVED, re-book as a FINANCE_LEASE, disburse.
+    const rebooked = f.loan(id, { entityId }, "NON_NCA").replace("'INSTALMENT_SALE'", "'FINANCE_LEASE'")
+    expectRejected(`BEGIN; DELETE FROM "Loan" WHERE "id" = '${idOf(booked)}'; ${setStatus(id, "APPROVED")};
+      ${rebooked}; ${f.disburse(id)}; COMMIT;`, NO_DELETE)
+    expect(sql(`SELECT "contractType" FROM "Loan" WHERE "applicationId" = '${id}'`)).toBe("INSTALMENT_SALE")
+    // Rolled back either way, so a missing guard cannot empty the shared table.
+    expectRejected(`BEGIN; TRUNCATE "Loan" CASCADE; ROLLBACK;`, `${NO_DELETE} (TRUNCATE refused)`)
+  })
+
+  it("never moves a disbursed entity application off DISBURSED, even with its loan gone", () => {
+    const id = f.nonNcaApplication()
+    sql(f.approveApplication(id))
+    const booked = f.loan(id, { entityId }, "NON_NCA")
+    sql(`${booked}; ${f.disburse(id)}`)
+    // The delete guard would refuse first: switch it off inside a rolled-back
+    // transaction so the status rule is what is proven.
+    expectRejected(`BEGIN;
+      ALTER TABLE "Loan" DISABLE TRIGGER "Loan_refuse_entity_delete";
+      DELETE FROM "Loan" WHERE "id" = '${idOf(booked)}';
+      ${setStatus(id, "APPROVED")};
+      ROLLBACK;`, DISBURSED_FIXED)
+  })
+
+  it("never changes a decided application's borrower, entity or consumer, so it cannot be reopened as the other", () => {
+    const entityApp = f.application({ entityId }, null)
+    sql(`${entityApp}; ${setStatus(idOf(entityApp), "DECLINED")}`)
+    const consumer = f.freshClient()
+    expectRejected(
+      `UPDATE "LoanApplication" SET "entityId" = NULL, "clientId" = '${consumer}' WHERE "id" = '${idOf(entityApp)}'`,
+      BORROWER_FIXED,
+    )
+    const consumerApp = f.application({ clientId: f.freshClient() }, null)
+    sql(`${consumerApp}; ${setStatus(idOf(consumerApp), "DECLINED")}`)
+    expectRejected(
+      `UPDATE "LoanApplication" SET "clientId" = NULL, "entityId" = '${entityId}' WHERE "id" = '${idOf(consumerApp)}'`,
+      BORROWER_FIXED,
+    )
+    // Nor in the write that decides it.
+    const open = f.application({ entityId }, null)
+    sql(open)
+    expectRejected(
+      `UPDATE "LoanApplication" SET "status" = 'DECLINED', "entityId" = NULL, "clientId" = '${consumer}' WHERE "id" = '${idOf(open)}'`,
+      BORROWER_FIXED,
+    )
+    // An open, unclassified application's borrower may still change.
+    sql(`UPDATE "LoanApplication" SET "entityId" = NULL, "clientId" = '${consumer}' WHERE "id" = '${idOf(open)}'`)
+  })
+
+  it("treats an application as an entity one when the row before or after the write names an entity", () => {
+    const entityApp = f.application({ entityId }, null)
+    sql(`${entityApp}; ${setStatus(idOf(entityApp), "DECLINED")}`)
+    expectRejected(`UPDATE "LoanApplication" SET "status" = 'UNDER_REVIEW', "entityId" = NULL,
+      "clientId" = '${f.freshClient()}' WHERE "id" = '${idOf(entityApp)}'`, REOPEN)
+    const consumerApp = f.application({ clientId: f.freshClient() }, null)
+    sql(`${consumerApp}; ${setStatus(idOf(consumerApp), "DECLINED")}`)
+    expectRejected(`UPDATE "LoanApplication" SET "status" = 'UNDER_REVIEW', "clientId" = NULL,
+      "entityId" = '${entityId}' WHERE "id" = '${idOf(consumerApp)}'`, REOPEN)
   })
 
   it("leaves a consumer application's status transitions as they were", () => {

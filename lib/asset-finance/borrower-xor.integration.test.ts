@@ -3,6 +3,8 @@
  * rules (20261013090000_asset_finance_foundation):
  *   - Loan / LoanApplication carry exactly one of clientId / entityId;
  *   - only an entity borrower can be NON_NCA;
+ *   - a classification rule (application and override snapshot) is one of
+ *     the classifier's rule ids;
  *   - an entity's registration number is unique per tenant and type, and its
  *     relationships' trustee kind and ownership share are well-formed;
  *   - a NON_NCA entity application can go DRAFT → APPROVED → DISBURSED without
@@ -16,6 +18,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { afSqlFixture, expectRejected, idOf, sql } from "./af-sql.integration-fixture"
+import { NCA_RULE_IDS } from "./nca-classifier"
 
 const RUN = process.env.RUN_ASSET_FINANCE_FOUNDATION_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -136,6 +139,30 @@ suite("asset finance foundation: borrower XOR and entity rules", () => {
       `UPDATE "LoanApplication" SET "ncaClassifiedById" = NULL WHERE "id" = '${idOf(app)}'`,
       "LoanApplication_nca_classification_complete",
     )
+  })
+
+  it("records only the classifier's rule ids, so a padded or re-cased LARGE_AGREEMENT cannot dodge the R250 000 floor", () => {
+    const app = f.application({ entityId }, "NCA")
+    sql(app)
+    const setRule = (value: string) => `UPDATE "LoanApplication" SET "ncaClassificationRule" = ${value} WHERE "id" = '${idOf(app)}'`
+    const bogus = [`'LARGE_AGREEMENT '`, `E'LARGE_AGREEMENT\\n'`, `'large_agreement'`, `'MANUAL'`]
+    for (const value of bogus) expectRejected(setRule(value), "LoanApplication_nca_classification_rule_known")
+    expectRejected(
+      f.application({ entityId }, "NCA", "large_agreement"),
+      "LoanApplication_nca_classification_rule_known",
+    )
+    for (const rule of NCA_RULE_IDS) sql(setRule(`'${rule}'`))
+
+    // The override's snapshot trigger compares it with the application first:
+    // switch it off inside a rolled-back transaction so the CHECK is what is proven.
+    const override = f.pendingOverride(idOf(app))
+    for (const value of bogus) {
+      expectRejected(`BEGIN;
+        ALTER TABLE "NcaRegimeOverride" DISABLE TRIGGER "NcaRegimeOverride_guard_lifecycle";
+        ${override.statement.replace(`application."ncaClassificationRule"`, value)};
+        ROLLBACK;`, "NcaRegimeOverride_approved_classification_rule_known")
+    }
+    sql(override.statement)
   })
 
   it("keeps a product's NON_NCA arrears terms non-negative", () => {

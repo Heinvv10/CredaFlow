@@ -11,12 +11,15 @@
  *     snapshot (borrower, amount, product, rule) that is the application as
  *     it stands, required for a move to NON_NCA and immutable;
  *   - guardLoanApplicationNcaRegime spends an approval only on the application
- *     its snapshot describes;
+ *     its snapshot describes, and freezes the classification snapshot while an
+ *     approval to NON_NCA is unspent (an approval holds the application's row,
+ *     so a concurrent snapshot write waits for it and is refused);
  *   - the override table cannot be truncated.
  *
  *   RUN_ASSET_FINANCE_FOUNDATION_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/asset-finance/override-binding.integration.test.ts
  */
+import { spawn } from "node:child_process"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { afSqlFixture, expectRejected, idOf, sql } from "./af-sql.integration-fixture"
 
@@ -111,20 +114,19 @@ suite("asset finance foundation: override binding to users and to the applicatio
     expectRejected(insert("NON_NCA", "NCA", "NULL, NULL, NULL, NULL"), "NcaRegimeOverride_non_nca_snapshot")
     expectRejected(insert("NCA", "NON_NCA", "NULL, 150000000, NULL, NULL"), "NcaRegimeOverride_non_nca_snapshot")
     for (const wrong of [
-      `'${f.ids.otherEntityId}', 150000000, '${productId}', 'TEST_RULE'`,
-      `'${entityId}', 1, '${productId}', 'TEST_RULE'`,
-      `'${entityId}', 150000000, '${otherProductId}', 'TEST_RULE'`,
+      `'${f.ids.otherEntityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN'`,
+      `'${entityId}', 1, '${productId}', 'FINANCIALS_UNPROVEN'`,
+      `'${entityId}', 150000000, '${otherProductId}', 'FINANCIALS_UNPROVEN'`,
       `'${entityId}', 150000000, '${productId}', 'LARGE_AGREEMENT'`,
     ]) {
       expectRejected(insert("NON_NCA", "NCA", wrong), "snapshot must be its application as it stands")
     }
-    sql(insert("NON_NCA", "NCA", `'${entityId}', 150000000, '${productId}', 'TEST_RULE'`))
+    sql(insert("NON_NCA", "NCA", `'${entityId}', 150000000, '${productId}', 'FINANCIALS_UNPROVEN'`))
   })
 
   it.each([
     ["amount", `"appliedAmount" = 140000000`, `"appliedAmount" = 150000000`],
     ["product", `"productId" = '${otherProductId}'`, `"productId" = '${productId}'`],
-    ["classification rule", `"ncaClassificationRule" = 'LARGE_AGREEMENT'`, `"ncaClassificationRule" = 'TEST_RULE'`],
   ])("will not spend an approval once the application's %s changed; restored, it applies", (_label, change, restore) => {
     const id = ncaApplication()
     const overrideId = requested(id)
@@ -139,6 +141,58 @@ suite("asset finance foundation: override binding to users and to the applicatio
     expect(regime(id)).toBe("NON_NCA")
     expect(column(overrideId, "appliedAt")).not.toBe("null")
   })
+
+  it("will not spend an approval whose classification rule the application no longer has", () => {
+    const id = ncaApplication()
+    const overrideId = requested(id)
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationRule" = 'LARGE_AGREEMENT' WHERE "id" = '${id}'`)
+    sql(f.approve(overrideId))
+    expectRejected(flip(id), NO_MATCH)
+    expect(column(overrideId, "appliedAt")).toBe("null")
+  })
+
+  const AWAITS = "snapshot is frozen while an approved NON_NCA override awaits it"
+  const evidence = (id: string) =>
+    sql(`SELECT array_to_string("ncaClassificationEvidenceIds", ',') FROM "LoanApplication" WHERE "id" = '${id}'`)
+
+  it("freezes the classification snapshot while an approved NON_NCA override is unspent, so it applies as approved", () => {
+    const id = ncaApplication()
+    const overrideId = requested(id)
+    // While PENDING the classification may still change (a re-run does).
+    sql(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-approved'] WHERE "id" = '${id}'`)
+    sql(f.approve(overrideId))
+    for (const set of [
+      `"ncaClassificationRule" = 'JURISTIC_OVER_THRESHOLD'`,
+      `"ncaClassificationInputs" = '{"principalDebtCents": 1}'::jsonb`,
+      `"ncaClassificationEvidenceIds" = ARRAY['afs-swapped']`,
+      `"ncaClassifiedAt" = CURRENT_TIMESTAMP + INTERVAL '1 day'`,
+      `"ncaClassifiedById" = '${approverId}'`,
+    ]) {
+      expectRejected(`UPDATE "LoanApplication" SET ${set} WHERE "id" = '${id}'`, AWAITS)
+    }
+    sql(flip(id))
+    expect(regime(id)).toBe("NON_NCA")
+    expect(evidence(id)).toBe("afs-approved")
+  })
+
+  it("makes a snapshot write wait for a concurrent approval, then refuses it", async () => {
+    const id = ncaApplication()
+    const overrideId = requested(id)
+    const marker = `held_${token}`
+    // The approval commits two seconds after it is made, holding its locks.
+    const approval = spawn("psql", ["--no-psqlrc", "--dbname", process.env.DATABASE_URL ?? "", "-v", "ON_ERROR_STOP=1", "-At"])
+    const approvalExit = new Promise<number | null>((resolve) => approval.on("close", resolve))
+    approval.stdin.end(`BEGIN;\n${f.approve(overrideId)};\nSELECT pg_sleep(2) AS ${marker};\nCOMMIT;\n`)
+    const sleeping = () => sql(`SELECT count(*) FROM pg_stat_activity
+      WHERE state = 'active' AND query LIKE '%AS ${marker}%' AND pid <> pg_backend_pid()`) === "1"
+    for (const deadline = Date.now() + 10_000; !sleeping(); ) {
+      if (Date.now() > deadline) throw new Error("the approval never reached its sleep")
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    expectRejected(`UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'] WHERE "id" = '${id}'`, AWAITS)
+    expect(await approvalExit).toBe(0)
+    expect(column(overrideId, "status")).toBe("APPROVED")
+  }, 20_000)
 
   it("never rewrites the snapshot or source of a request", () => {
     const overrideId = requested(ncaApplication())

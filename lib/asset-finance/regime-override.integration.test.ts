@@ -38,7 +38,7 @@ suite("asset finance foundation: NCA regime and override rules", () => {
   afterAll(() => f.cleanup())
 
   it("refuses to insert an application NON_NCA, whatever its status", () => {
-    const insert = f.application({ entityId }, "NCA").replace(/'NCA', 'TEST_RULE'/, "'NON_NCA', 'TEST_RULE'")
+    const insert = f.application({ entityId }, "NCA").replace(/'NCA', 'FINANCIALS_UNPROVEN'/, "'NON_NCA', 'FINANCIALS_UNPROVEN'")
     expectRejected(insert, "cannot be inserted NON_NCA")
   })
 
@@ -54,7 +54,7 @@ suite("asset finance foundation: NCA regime and override rules", () => {
     const unclassified = f.application({ entityId }, null)
     sql(unclassified)
     expectRejected(
-      `UPDATE "LoanApplication" SET "ncaRegime" = 'NON_NCA', "ncaClassificationRule" = 'TEST_RULE',
+      `UPDATE "LoanApplication" SET "ncaRegime" = 'NON_NCA', "ncaClassificationRule" = 'FINANCIALS_UNPROVEN',
          "ncaClassifiedAt" = CURRENT_TIMESTAMP, "ncaClassifiedById" = '${userId}' WHERE "id" = '${idOf(unclassified)}'`,
       "classification snapshot is frozen while it is NON_NCA",
     )

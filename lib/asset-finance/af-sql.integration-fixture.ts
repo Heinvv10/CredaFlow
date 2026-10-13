@@ -66,7 +66,7 @@ export function afSqlFixture(label: string) {
   }
 
   /** INSERT an application, unclassified (null) or classified NCA with `rule`. */
-  function application(borrower: Borrower, regime: Regime | null, rule = "TEST_RULE", amount = 150_000_000): string {
+  function application(borrower: Borrower, regime: Regime | null, rule = "FINANCIALS_UNPROVEN", amount = 150_000_000): string {
     const n = next()
     return `
       INSERT INTO "LoanApplication" ("id", "tenantId", "reference", "clientId", "entityId", "productId",
@@ -106,7 +106,7 @@ export function afSqlFixture(label: string) {
   }
 
   /** INSERT an entity application, classified NCA, and take it to NON_NCA. Returns its id. */
-  function nonNcaApplication(entityId = ids.entityId, rule = "TEST_RULE", amount = 150_000_000): string {
+  function nonNcaApplication(entityId = ids.entityId, rule = "FINANCIALS_UNPROVEN", amount = 150_000_000): string {
     const statement = application({ entityId }, "NCA", rule, amount)
     sql(`${statement}; ${toNonNca(idOf(statement))}`)
     return idOf(statement)
