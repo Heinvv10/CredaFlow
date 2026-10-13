@@ -260,6 +260,22 @@ suite("tax invoices and credit notes (real DB)", () => {
       }))
       expect(note).toMatchObject({ exclVatCents: 20_005, vatCents: 3_000, inclVatCents: 23_005 })
     })
+
+    it("serialises concurrent credits before calculating the VAT remainder", async () => {
+      const invoice = await db.$transaction((tx) => issueTaxInvoice(tx, invoiceInput(transactionTenantId, 8)))
+      expect(invoice.vatCents).toBe(1)
+
+      const issue = () => db.$transaction((tx) => issueCreditNote(tx, {
+        tenantId: transactionTenantId,
+        invoiceId: invoice.id,
+        issueDate: "2026-10-14",
+        reason: "Test concurrent partial return",
+        exclVatCents: 4,
+      }))
+      const notes = await Promise.all([issue(), issue()])
+      expect(notes.map((note) => note.vatCents).sort()).toEqual([0, 1])
+      expect(notes.reduce((sum, note) => sum + note.inclVatCents, 0)).toBe(9)
+    })
   })
 
   it("(g) a deferred violation surfaces inside issueTaxInvoice and issueCreditNote, not at a COMMIT Prisma would report as success", async () => {

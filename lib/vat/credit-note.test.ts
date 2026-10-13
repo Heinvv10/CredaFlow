@@ -46,12 +46,16 @@ describe("issueCreditNote", () => {
         calls.push(sql)
         return 0
       }),
+      $executeRaw: vi.fn(async () => {
+        calls.push("lock")
+        return 0
+      }),
     }
     const note = await issueCreditNote(db as unknown as CreditNoteDb, {
       tenantId: "t1", invoiceId: "inv1", issueDate: "2026-10-14", reason: "Test correction", exclVatCents: 10,
     })
     expect(note).toMatchObject({ exclVatCents: 10, vatCents: 2, inclVatCents: 12 })
     expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", invoiceId: "inv1" } }))
-    expect(calls).toEqual(["create", "SET CONSTRAINTS ALL IMMEDIATE", "SET CONSTRAINTS ALL DEFERRED"])
+    expect(calls).toEqual(["lock", "create", "SET CONSTRAINTS ALL IMMEDIATE", "SET CONSTRAINTS ALL DEFERRED"])
   })
 })
