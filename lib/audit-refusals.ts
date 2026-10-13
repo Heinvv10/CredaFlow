@@ -106,12 +106,17 @@ export async function auditDocumentAccessRefusal(params: {
   actorEmail?: string | null
   /** Staff id when the caller is staff — an email alone loses the actor key. */
   actorUserId?: string | null
+  /**
+   * Store NO actor identity (no id, no email) and do not auto-fill one from the
+   * session. For a refusal filed in a tenant the actor does not belong to.
+   */
+  anonymous?: boolean
   /** Used only to resolve the tenant when one is not already in scope. */
   req?: Request
   detail?: Record<string, unknown>
 }): Promise<void> {
-  let email = params.actorEmail ?? null
-  if (!email) {
+  let email = params.anonymous ? null : (params.actorEmail ?? null)
+  if (!email && !params.anonymous) {
     try {
       const { auth } = await import("@/lib/auth")
       const session = await auth()
@@ -146,7 +151,7 @@ export async function auditDocumentAccessRefusal(params: {
     entity: "ClientDocument",
     entityId: params.documentId,
     tenantId,
-    userId: params.actorUserId ?? undefined,
+    userId: params.anonymous ? undefined : (params.actorUserId ?? undefined),
     userEmail: email,
     reason: params.reason,
     status: params.status,

@@ -4,6 +4,7 @@ import { AuditAction } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { auditWrapperRefusal } from "@/lib/documents/tenant-refusal"
 import { withTenantContext } from "@/lib/tenant"
 import {
   documentBytesMatchSha256,
@@ -37,7 +38,9 @@ export async function GET(req: Request, { params }: RouteParams) {
   // withTenantContext BEFORE the callback runs, so neither the 401 hook above
   // nor the ownership check inside ever sees it. Inspect the wrapper's own
   // response so a cross-tenant staff probe leaves a row too.
+  let handlerRan = false
   const outcome = await withTenantContext(req, async (tenant) => {
+    handlerRan = true
     try {
       const doc = await prisma.clientDocument.findFirst({ where: { id, tenantId: tenant.id } })
       if (!doc || doc.deletedAt || !doc.storagePath) {
@@ -285,8 +288,11 @@ export async function GET(req: Request, { params }: RouteParams) {
   // 4xx only, matching refusalReasonFrom: a 5xx is a crash, not a refusal, and
   // filing server failures here would pollute the trail.
   if (outcome instanceof Response && outcome.status >= 400 && outcome.status < 500) {
-    const alreadyLogged = outcome.status === 403 && loggedOwnershipRefusal
-    if (!alreadyLogged) {
+    if (!handlerRan) {
+      // The wrapper refused (e.g. a principal bound to another tenant): same
+      // per-tenant split as the other document routes.
+      await auditWrapperRefusal({ req, documentId: id, caller, status: outcome.status })
+    } else if (!(outcome.status === 403 && loggedOwnershipRefusal)) {
       await auditDocumentAccessRefusal({
         documentId: id,
         reason: outcome.status === 403 ? "tenant_scope_refused" : `unlabelled_${outcome.status}`,

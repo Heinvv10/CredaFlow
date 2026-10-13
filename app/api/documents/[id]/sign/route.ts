@@ -29,7 +29,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   const { id } = await params
   return withTenantContextLoggingRefusal(req, { documentId: id, caller }, async (tenant) => {
-
     const body = (await req.json()) as { method?: string }
     const method = body.method
     if (method !== "branch" && method !== "portal") {
