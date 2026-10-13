@@ -37,6 +37,8 @@ HOST_DB="$(env_get .env.demo-sim SIM_HOST_DATABASE_URL)"
 SLUG="$(demo_slug)"
 [ "$(env_get .env.demo-sim NEXT_PUBLIC_TENANT_SLUG)" = "$SLUG" ] \
   || die "NEXT_PUBLIC_TENANT_SLUG in .env.demo-sim is not '$SLUG' (DEMO_LENDER=${DEMO_LENDER:-acme})"
+[ "$(env_get .env.demo-sim TENANT_HOST_MAP)" = "localhost=$SLUG,127.0.0.1=$SLUG" ] \
+  || die "TENANT_HOST_MAP in .env.demo-sim must be localhost=$SLUG,127.0.0.1=$SLUG"
 
 # migrate deploy runs from the host against HOST_DB: refuse anything but the
 # sim db's own published port, so a stray URL cannot migrate another database.
