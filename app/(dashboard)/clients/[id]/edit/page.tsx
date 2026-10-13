@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
 import { ClientForm } from "@/components/clients/ClientFormLegacy"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { auth } from "@/lib/auth"
 import { canReassignReferralAgent } from "@/lib/clients/referral-update"
 
@@ -26,7 +26,7 @@ export default async function EditClientPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [client, session] = await Promise.all([getClient(id, tenantId), auth()])
   if (!client) notFound()
 

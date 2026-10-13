@@ -1,5 +1,5 @@
 import { Header } from "@/components/layout/Header"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireCommsAgentPage } from "@/lib/inbox/authz"
 import { listConversations, resolveQueueForConversation, getConversationSummary, type InboxQueue } from "@/lib/inbox/conversations"
 import { listCannedReplies } from "@/lib/inbox/canned-replies"
@@ -12,7 +12,7 @@ import { hasMinRole } from "@/lib/auth-guards"
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ conversationId?: string }> }) {
   const user = await requireCommsAgentPage()
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const now = new Date()
   const { conversationId } = await searchParams
   const canReconcile = hasMinRole(user.role, "LOAN_ADMIN")

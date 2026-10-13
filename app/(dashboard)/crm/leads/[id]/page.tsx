@@ -6,7 +6,7 @@ import { LeadDetailClient } from "@/components/crm/LeadDetailClient"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
 import { hasMinRole } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { listCannedReplies } from "@/lib/inbox/canned-replies"
 import { getContactComms } from "@/lib/inbox/contact-comms"
 import { listAssignableStaff, findAssignableStaff } from "@/lib/crm/staff"
@@ -54,7 +54,7 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const session = await auth()
   const role = session?.user?.role as AppRole | undefined
   // reassignLead gates on CREDIT_OFFICER, so anyone below it would get a

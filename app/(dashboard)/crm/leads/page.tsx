@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { LeadKanban } from "@/components/crm/LeadKanban"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { calculateLeadScore } from "@/lib/lead-scoring"
 import { countDuplicatesByPhone } from "@/lib/crm/lead-dedup"
 
@@ -15,7 +15,7 @@ async function getLeads(tenantId: string) {
 }
 
 export default async function LeadsPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const leads = await getLeads(tenantId)
 
   // Score is computed on read rather than persisted: it depends on lead age
