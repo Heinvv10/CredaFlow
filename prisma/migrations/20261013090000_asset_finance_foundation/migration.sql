@@ -953,19 +953,8 @@ BEGIN
   END IF;
 
   -- The approver agreed to the classification as it stood. An approval to
-  -- NON_NCA takes this row's lock (guardNcaRegimeOverrideLifecycle), so under
-  -- READ COMMITTED this read sees one committed before the write. Locking the
-  -- open overrides first makes a REPEATABLE READ / SERIALIZABLE writer whose
-  -- snapshot predates such an approval fail with a serialization error rather
-  -- than read the stale PENDING row.
-  IF snapshot_changed THEN
-    PERFORM 1
-    FROM public."NcaRegimeOverride" AS candidate
-    WHERE candidate."applicationId" = OLD."id"
-      AND candidate."status" IN ('PENDING', 'APPROVED')
-      AND candidate."appliedAt" IS NULL
-    FOR SHARE;
-  END IF;
+  -- NON_NCA writes this row (guardNcaRegimeOverrideLifecycle), so a write here
+  -- either sees it committed or fails to serialize against it.
   IF snapshot_changed AND EXISTS (
     SELECT 1
     FROM public."NcaRegimeOverride" AS approval
@@ -1352,14 +1341,16 @@ BEGIN
       MESSAGE = 'An NCA regime override is immutable once decided';
   END IF;
 
-  -- An approval to NON_NCA holds its application's row until commit, so a
-  -- concurrent write to the classification snapshot either commits before the
-  -- approval is made or waits for it and is refused by
-  -- guardLoanApplicationNcaRegime.
+  -- An approval to NON_NCA WRITES its application's row (a no-op touch of
+  -- updatedAt), so the row carries the approval's transaction:
+  --   - a READ COMMITTED snapshot write waits for the approval to commit, then
+  --     sees it and is refused by guardLoanApplicationNcaRegime;
+  --   - a REPEATABLE READ / SERIALIZABLE snapshot write whose snapshot predates
+  --     the approval (or the request) fails to serialize on that row.
   IF OLD."status" = 'PENDING' AND NEW."status" = 'APPROVED' AND NEW."toRegime" = 'NON_NCA' THEN
-    PERFORM 1 FROM public."LoanApplication" AS application
-    WHERE application."id" = NEW."applicationId"
-    FOR SHARE;
+    UPDATE public."LoanApplication" AS application
+    SET "updatedAt" = clock_timestamp()
+    WHERE application."id" = NEW."applicationId";
   END IF;
 
   RETURN NEW;

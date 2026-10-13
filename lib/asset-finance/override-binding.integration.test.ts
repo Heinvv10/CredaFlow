@@ -207,19 +207,20 @@ suite("asset finance foundation: override binding to users and to the applicatio
     expect(column(overrideId, "status")).toBe("APPROVED")
   }, 20_000)
 
-  it("refuses a REPEATABLE READ snapshot write whose snapshot predates the approval", async () => {
+  // A snapshot writer under REPEATABLE READ / SERIALIZABLE whose snapshot was
+  // taken before the approval (or even before the request) must fail to
+  // serialize: the approval writes the application row.
+  async function snapshotWriterRace(isolation: string, requestFirst: boolean) {
     const id = ncaApplication()
-    const overrideId = requested(id)
-    const marker = `rr_${token}`
-    // The writer takes its snapshot while the request is PENDING, sleeps, then
-    // writes after the approval has committed.
+    const marker = `rr_${token}_${isolation.replace(" ", "_")}_${requestFirst}`
+    const earlyRequest = requestFirst ? requested(id) : null
     const writer = spawn("psql", ["--no-psqlrc", "--dbname", process.env.DATABASE_URL ?? "", "-v", "ON_ERROR_STOP=1", "-At"])
     let output = ""
     writer.stdout.on("data", (chunk) => { output += String(chunk) })
     writer.stderr.on("data", (chunk) => { output += String(chunk) })
     const writerExit = new Promise<number | null>((resolve) => writer.on("close", resolve))
-    writer.stdin.end(`BEGIN ISOLATION LEVEL REPEATABLE READ;
-SELECT "status" FROM "NcaRegimeOverride" WHERE "id" = '${overrideId}';
+    writer.stdin.end(`BEGIN ISOLATION LEVEL ${isolation};
+SELECT "status" FROM "LoanApplication" WHERE "id" = '${id}';
 SELECT pg_sleep(2) AS ${marker};
 UPDATE "LoanApplication" SET "ncaClassificationEvidenceIds" = ARRAY['afs-swapped'] WHERE "id" = '${id}';
 COMMIT;
@@ -230,10 +231,19 @@ COMMIT;
       if (Date.now() > deadline) throw new Error("the writer never reached its sleep")
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    sql(f.approve(overrideId))
+    sql(f.approve(earlyRequest ?? requested(id)))
     expect(await writerExit).not.toBe(0)
     expect(output).toContain("could not serialize")
     expect(evidence(id)).not.toContain("afs-swapped")
+  }
+
+  it.each([
+    ["REPEATABLE READ", true],
+    ["REPEATABLE READ", false],
+    ["SERIALIZABLE", true],
+    ["SERIALIZABLE", false],
+  ])("refuses a %s snapshot write whose snapshot predates the approval (request already open: %s)", async (isolation, requestFirst) => {
+    await snapshotWriterRace(String(isolation), Boolean(requestFirst))
   }, 20_000)
 
   it("never rewrites the snapshot or source of a request", () => {
