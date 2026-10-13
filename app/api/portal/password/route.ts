@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { keepClientSessionAfterPasswordChange } from "@/lib/client-session-cookie"
 
 const PASSWORD_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
@@ -91,6 +92,10 @@ export async function POST(req: NextRequest) {
       newValue: { passwordChanged: true },
     })
 
-    return NextResponse.json({ success: true })
+    // The stored hash changed, which ends every session of this client that
+    // still carries the old stamp. Re-issue this one so the change doesn't end it.
+    const res = NextResponse.json({ success: true })
+    await keepClientSessionAfterPasswordChange(req, res, client.id, hashed)
+    return res
   })
 }

@@ -89,6 +89,15 @@ describe("jwt callback: client sessions are revalidated on refresh", () => {
     expect(await jwt({ token: clientToken() })).toBeNull()
   })
 
+  // The stamp of the old hash never matches a cleared password, so the test
+  // above would pass without the explicit check. A token stamped as if the
+  // cleared value were a credential ("null" is what an unguarded stamp of it
+  // would hash) only ends here because the cleared password is refused outright.
+  it("refuses a cleared portal password before any stamp comparison", async () => {
+    mocks.clientFindFirst.mockResolvedValue({ portalPassword: null })
+    expect(await jwt({ token: clientToken({ credentialStamp: clientCredentialStamp("null") }) })).toBeNull()
+  })
+
   it("ends the session after a password reset or change", async () => {
     mocks.clientFindFirst.mockResolvedValue({ portalPassword: "$2a$12$a-newer-hash-after-the-reset" })
     expect(await jwt({ token: clientToken() })).toBeNull()
