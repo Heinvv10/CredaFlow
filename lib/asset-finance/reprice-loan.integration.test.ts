@@ -16,7 +16,7 @@ import { currentSettlementAmount, projectReceipt } from "@/lib/loan/settlement"
 import { repriceTail } from "./reprice"
 import { repriceLoanForReference, type RepriceOutcome } from "./reprice-loan"
 import { runRepriceBatch } from "./reprice-batch"
-import { dbDate } from "./dates"
+import { dbDate, fromDayNumber, toDayNumber } from "./dates"
 import { toScheduleRecord } from "./schedule-records"
 import { expectRowIdentities } from "./__tests__/oracle-assertions"
 import { oracleDealFromInput, oracleReplay } from "./__tests__/structure-oracle"
@@ -155,6 +155,26 @@ suite("repriceLoanForReference against a migrated database", () => {
     expect(await repricedAudits(tenant.tenantId, racing)).toHaveLength(1)
     const rows = await scheduleOf(racing)
     expect(rows.slice(PAID_ROWS).map((r) => r.totalDue)).toEqual(expectedTail(effectiveDate).rows.map((r) => r.totalCents))
+  })
+
+  it("names the first payment after the notice window as the changed payment", async () => {
+    const noticeLoan = await createRepriceLoan(db, tenant)
+    const firstPendingDue = BOOKED.rows[PAID_ROWS].dueDate
+    const runDate = fromDayNumber(toDayNumber(firstPendingDue) - 1)
+    const outcome = await prisma.$transaction((tx) => repriceLoanForReference(tx, {
+      tenantId: tenant.tenantId,
+      loanId: noticeLoan,
+      basis: "PRIME",
+      effectiveDate,
+      runDate,
+    }))
+    expect(outcome.kind).toBe("repriced")
+
+    const bell = await db.notification.findFirstOrThrow({
+      where: { tenantId: tenant.tenantId, entityId: noticeLoan, type: "LOAN_REPRICED" },
+    })
+    expect(bell.body).toContain(`From the payment due ${BOOKED.rows[PAID_ROWS + 1].dueDate}`)
+    expect(bell.body).not.toContain(`From the payment due ${firstPendingDue}`)
   })
 
   it("the cron sweep reprices a linked loan once, skips a fixed-rate one, and re-running changes nothing", async () => {
