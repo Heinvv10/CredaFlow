@@ -33,6 +33,13 @@ describe("authenticated navigation", () => {
     expect(usersItem?.minRole).toBe("BRANCH_MANAGER")
   })
 
+  // The page requires ADMIN (app/(dashboard)/settings/security-policy/page.tsx).
+  it("lists Security & KYC policy at ADMIN, matching its page", () => {
+    const item = staffNavigation.flatMap(group => group.items).find(i => i.href === "/settings/security-policy")
+    expect(item?.label).toBe("Security & KYC policy")
+    expect(item?.minRole).toBe("ADMIN")
+  })
+
   // /settings/audit-log (all state-changing actions) and /settings/login-log
   // (sign-in events only) are distinct datasets that were previously
   // collapsed into one "Activity Log" item pointing only at login-log,
