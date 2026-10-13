@@ -1,9 +1,10 @@
 /**
- * The checks panel's view of an application's flags: each flag with the
- * statement rows its evidence points at, read from the StatementAnalysis the
- * flag was raised on. Quoting those rows is document access, so the caller
- * logs it (lib/document-auth.ts logDocumentContentAccess) for every document
- * listed in `documentIds`.
+ * The checks panel's view of an application's flags — superseded ones too, so
+ * an officer sees a finding that went away — each with the statement rows its
+ * evidence points at, read from the StatementAnalysis the flag was raised on.
+ * Summaries and rows quote the statement, which is document access: the
+ * caller logs every document listed in `documentIds`
+ * (lib/document-auth.ts logDocumentContentAccess).
  */
 import type { ApplicationCheckFlag } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -40,11 +41,10 @@ export async function flagViews(
   tenantId: string,
   flags: ApplicationCheckFlag[],
 ): Promise<{ flags: FlagView[]; documentIds: string[] }> {
-  const visible = flags.filter((f) => f.status !== "SUPERSEDED")
   const ev = (f: ApplicationCheckFlag) => (f.evidence ?? {}) as Record<string, unknown>
-  const analysisIds = [...new Set(visible.map((f) => ev(f).analysisId).filter((v): v is string => typeof v === "string"))]
-  const docIds = [...new Set(visible.map((f) => ev(f).documentId).filter((v): v is string => typeof v === "string"))]
-  const userIds = [...new Set(visible.map((f) => f.clearedById).filter((v): v is string => !!v))]
+  const analysisIds = [...new Set(flags.map((f) => ev(f).analysisId).filter((v): v is string => typeof v === "string"))]
+  const docIds = [...new Set(flags.map((f) => ev(f).documentId).filter((v): v is string => typeof v === "string"))]
+  const userIds = [...new Set(flags.map((f) => f.clearedById).filter((v): v is string => !!v))]
 
   const [analyses, docs, users] = await Promise.all([
     prisma.statementAnalysis.findMany({ where: { tenantId, id: { in: analysisIds } }, select: { id: true, transactions: true } }),
@@ -54,25 +54,26 @@ export async function flagViews(
   const txOf = new Map(analyses.map((a) => [a.id, a.transactions as unknown as StatementTransaction[]]))
   const nameOf = new Map(docs.map((d) => [d.id, d.fileName]))
   const userOf = new Map(users.map((u) => [u.id, u.name ?? u.email]))
-  const quoted = new Set<string>()
+  // Bidi overrides and control characters in statement text can make a row
+  // read differently from what it says; the panel shows text, so strip them.
+  const plain = (text: string) => text.replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
 
-  const views = visible.map((f): FlagView => {
+  const views = flags.map((f): FlagView => {
     const e = ev(f)
     const documentId = typeof e.documentId === "string" ? e.documentId : null
     const indexes = Array.isArray(e.transactionIndexes) ? (e.transactionIndexes as number[]).slice(0, MAX_ROWS) : []
     const all = typeof e.analysisId === "string" ? txOf.get(e.analysisId) ?? [] : []
     const rows = indexes.flatMap((index) => {
       const t = all[index]
-      return t ? [{ index, date: t.date, description: t.description, amountCents: t.amountCents, balanceCents: t.balanceCents, page: t.page }] : []
+      return t ? [{ index, date: t.date, description: plain(t.description), amountCents: t.amountCents, balanceCents: t.balanceCents, page: t.page }] : []
     })
-    if (rows.length > 0 && documentId) quoted.add(documentId)
     const pages = Array.isArray(e.pages) ? (e.pages as number[]) : [...new Set(rows.map((r) => r.page))]
     return {
       id: f.id,
       check: f.check,
       code: f.code,
       status: f.status,
-      summary: f.summary,
+      summary: plain(f.summary),
       raisedAt: f.raisedAt.toISOString(),
       clearedAt: f.clearedAt?.toISOString() ?? null,
       clearReason: f.clearReason,
@@ -83,5 +84,5 @@ export async function flagViews(
       rows,
     }
   })
-  return { flags: views, documentIds: [...quoted] }
+  return { flags: views, documentIds: docIds }
 }

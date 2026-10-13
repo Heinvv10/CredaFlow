@@ -8,6 +8,8 @@
  * than guess, because the balance check is only an oracle if every figure in
  * it is the printed one.
  */
+/** R100 billion: no statement line is larger, and past it cents stop being exact integers in storage. */
+export const MAX_CENTS = 10_000_000_000_000
 const AMOUNT = /^(-)?R?(-)?(\d{1,3}(?:[ ,]\d{3})*|\d+)\.(\d{2})\s*(Cr|Dr)?$/i
 
 export function parseRandToCents(text: string): number | null {
@@ -15,6 +17,7 @@ export function parseRandToCents(text: string): number | null {
   if (!m) return null
   const [, minusBefore, minusAfter, whole, cents, crDr] = m
   const value = Number(whole.replace(/[ ,]/g, "")) * 100 + Number(cents)
+  if (value > MAX_CENTS) return null
   const negative = Boolean(minusBefore || minusAfter) || crDr?.toLowerCase() === "dr"
   return negative ? -value : value
 }

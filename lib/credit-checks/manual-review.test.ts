@@ -1,34 +1,62 @@
 import { describe, expect, it } from "vitest"
 import { manualReview } from "./manual-review"
 import { codes, facts, statement } from "./facts.test-helpers"
+import type { ApplicationFacts } from "./types"
+
+const payslip = { documentId: "slip-1", validated: true, netPayCents: 1_845_000, payDate: "2026-09-25" }
+const withSlip = (over: Partial<ApplicationFacts> = {}) => facts({ payslip, ...over })
 
 describe("manualReview", () => {
-  it("raises nothing for a verified text read", () => {
-    expect(manualReview(facts())).toEqual([])
+  it("raises nothing for a verified text read of a profiled bank with a payslip on file", () => {
+    expect(manualReview(withSlip())).toEqual([])
   })
 
   it("raises NO_STATEMENT when the application has no bank statement", () => {
-    expect(codes(manualReview(facts({ statements: [] })))).toEqual(["NO_STATEMENT"])
+    expect(codes(manualReview(withSlip({ statements: [] })))).toEqual(["NO_STATEMENT"])
+  })
+
+  it("raises NO_PAYSLIP when statements exist but no payslip does", () => {
+    expect(codes(manualReview(facts()))).toEqual(["NO_PAYSLIP"])
   })
 
   it("raises UNVERIFIED_READ for a vision read that fails or cannot run the balance check", () => {
-    expect(codes(manualReview(facts({ statements: [statement([], { method: "VLM", balanceCheck: "FAIL" })] })))).toEqual(["UNVERIFIED_READ"])
-    expect(codes(manualReview(facts({ statements: [statement([], { method: "VLM", balanceCheck: "NOT_APPLICABLE" })] })))).toEqual(["UNVERIFIED_READ"])
-    expect(manualReview(facts({ statements: [statement([], { method: "VLM", balanceCheck: "PASS" })] }))).toEqual([])
+    expect(codes(manualReview(withSlip({ statements: [statement([], { method: "VLM", balanceCheck: "FAIL" })] })))).toEqual(["UNVERIFIED_READ"])
+    expect(codes(manualReview(withSlip({ statements: [statement([], { method: "VLM", balanceCheck: "NOT_APPLICABLE" })] })))).toEqual(["UNVERIFIED_READ"])
+    expect(manualReview(withSlip({ statements: [statement([], { method: "VLM", balanceCheck: "PASS" })] }))).toEqual([])
   })
 
   it("raises UNVERIFIED_READ for a text read without both balances", () => {
-    expect(codes(manualReview(facts({ statements: [statement([], { balanceCheck: "NOT_APPLICABLE" })] })))).toEqual(["UNVERIFIED_READ"])
+    expect(codes(manualReview(withSlip({ statements: [statement([], { balanceCheck: "NOT_APPLICABLE" })] })))).toEqual(["UNVERIFIED_READ"])
   })
 
   it("raises UNREADABLE for a statement no reader could read, or one too long to read", () => {
     const unreadable = statement([], { state: "UNREADABLE", read: null, balanceCheck: "NOT_APPLICABLE", method: "VLM" })
     const unsupported = statement([], { state: "UNSUPPORTED", read: null, balanceCheck: "NOT_APPLICABLE", method: "VLM", documentId: "doc-2", analysisId: "an-2" })
-    expect(codes(manualReview(facts({ statements: [unreadable, unsupported] })))).toEqual(["UNREADABLE", "UNREADABLE"])
+    expect(codes(manualReview(withSlip({ statements: [unreadable, unsupported] })))).toEqual(["UNREADABLE", "UNREADABLE"])
   })
 
-  it("raises NOT_READ for a statement still waiting for the vision reader", () => {
-    const pending = statement([], { state: "PENDING", read: null, analysisId: null, method: null, balanceCheck: null, authenticity: null })
-    expect(codes(manualReview(facts({ statements: [pending] })))).toEqual(["NOT_READ"])
+  it("raises NOT_READ for a statement waiting for the vision reader or missing its file", () => {
+    const pending = (pendingReason: "vlm" | "file_missing") =>
+      statement([], { state: "PENDING", pendingReason, read: null, analysisId: null, contentSha256: null, method: null, balanceCheck: null, authenticity: null })
+    const out = manualReview(withSlip({ statements: [pending("vlm")] }))
+    expect(codes(out)).toEqual(["NOT_READ"])
+    expect(out[0].summary).toContain("vision reader")
+    expect(manualReview(withSlip({ statements: [pending("file_missing")] }))[0].summary).toContain("could not be found")
+  })
+
+  it("raises NOT_READ_NO_CONSENT for a statement uploaded without POPIA consent", () => {
+    const s = statement([], { state: "PENDING", pendingReason: "consent", read: null, analysisId: null, contentSha256: null, method: null, balanceCheck: null, authenticity: null })
+    expect(codes(manualReview(withSlip({ statements: [s] })))).toEqual(["NOT_READ_NO_CONSENT"])
+  })
+
+  it("raises AUTHENTICITY_UNCHECKED for a reconciling read the file checks could not cover", () => {
+    const signals = (s: string[]) => ({ producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: s })
+    const photo = statement([], { method: "VLM", bank: null, authenticity: signals(["NOT_A_PDF"]) })
+    const scan = statement([], { method: "VLM", authenticity: signals(["TEXT_LAYER_ABSENT"]) })
+    const unprofiled = statement([], { method: "VLM", bank: "NEDBANK" })
+    const forgedInfo = statement([], { authenticity: signals(["METADATA_AMBIGUOUS"]) })
+    for (const s of [photo, scan, unprofiled, forgedInfo]) {
+      expect(codes(manualReview(withSlip({ statements: [s] })))).toEqual(["AUTHENTICITY_UNCHECKED"])
+    }
   })
 })

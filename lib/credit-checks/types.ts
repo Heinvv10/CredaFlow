@@ -4,9 +4,13 @@ import type { AuthenticityFacts, StatementRead } from "@/lib/statement-analysis/
 /** One bank statement as the checks see it: its stored read, or why there is none. */
 export interface StatementFacts {
   documentId: string
-  /** StatementAnalysis.id: ties a flag to the exact bytes and parser that raised it. */
+  /** StatementAnalysis.id of the read these facts come from. */
   analysisId: string | null
+  /** The bytes that were read: with documentId, the identity of the evidence. */
+  contentSha256: string | null
   state: "READ" | "UNREADABLE" | "UNSUPPORTED" | "PENDING"
+  /** Why a PENDING statement has no read yet. */
+  pendingReason?: "vlm" | "consent" | "file_missing"
   method: "TEXT" | "VLM" | null
   bank: string | null
   read: StatementRead | null
@@ -38,6 +42,15 @@ export interface ApplicationFacts {
   statements: StatementFacts[]
   payslip: PayslipFacts | null
   debts: DebtFacts[]
+}
+
+/**
+ * The evidence key for a statement: its document and exact bytes. Not the
+ * StatementAnalysis id, so re-reading the same bytes with a newer parser keeps
+ * a cleared finding cleared.
+ */
+export function statementKey(s: Pick<StatementFacts, "documentId" | "contentSha256">): string {
+  return `${s.documentId}:${s.contentSha256 ?? "unread"}`
 }
 
 export interface FlagCandidate {

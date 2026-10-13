@@ -10,8 +10,7 @@ import {
   RETURNED_DEBIT_MARKERS,
   mentions,
 } from "./policy"
-import { monthsCovered } from "./dates"
-import type { ApplicationFacts, FlagCandidate, StatementFacts } from "./types"
+import { statementKey, type ApplicationFacts, type FlagCandidate, type StatementFacts } from "./types"
 
 function indexesWhere(s: StatementFacts, test: (description: string, amountCents: number, nonPosting: boolean) => boolean): number[] {
   const out: number[] = []
@@ -23,7 +22,7 @@ function indexesWhere(s: StatementFacts, test: (description: string, amountCents
 
 function statementRisks(s: StatementFacts, monthlyIncomeCents: number | null): FlagCandidate[] {
   const out: FlagCandidate[] = []
-  const key = s.analysisId ?? s.documentId
+  const key = statementKey(s)
   const rows = s.read!.transactions
 
   const returned = indexesWhere(s, (d) => RETURNED_DEBIT_MARKERS.test(d))
@@ -40,9 +39,10 @@ function statementRisks(s: StatementFacts, monthlyIncomeCents: number | null): F
   const bets = indexesWhere(s, (d, amount, nonPosting) => amount < 0 && !nonPosting && GAMBLING_MERCHANTS.some((m) => mentions(d, m)))
   if (bets.length > 0) {
     const { periodStart, periodEnd } = s.read!
-    const months = periodStart && periodEnd ? Math.max(1, monthsCovered(periodStart, periodEnd).length) : 1
+    // Months by length, not calendar months touched: a 15 Jul–14 Aug statement is one month, not two.
+    const months = periodStart && periodEnd ? Math.max(1, (Date.parse(periodEnd) - Date.parse(periodStart) + 86_400_000) / (30.44 * 86_400_000)) : 1
     const monthlyCents = Math.round(bets.reduce((sum, i) => sum - rows[i].amountCents, 0) / months)
-    if (monthlyIncomeCents === null || monthlyCents >= monthlyIncomeCents * GAMBLING_INCOME_SHARE) {
+    if (monthlyIncomeCents === null || monthlyCents >= Math.round(monthlyIncomeCents * GAMBLING_INCOME_SHARE)) {
       out.push({
         check: "RISK_BEHAVIOUR",
         code: "GAMBLING",

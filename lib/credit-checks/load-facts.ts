@@ -28,6 +28,7 @@ export function statementFacts(documentId: string, a: StatementAnalysis): Statem
   return {
     documentId,
     analysisId: a.id,
+    contentSha256: a.contentSha256,
     state: a.status,
     method: a.method,
     bank: a.bank,
@@ -53,11 +54,15 @@ export function payslipFacts(documentId: string, extraction: unknown): PayslipFa
 export function bureauDebts(obligations: unknown): DebtFacts[] {
   const accounts = (obligations as { accounts?: unknown } | null)?.accounts
   if (!Array.isArray(accounts)) return []
-  return accounts.flatMap((a: { subscriber?: unknown; instalmentCents?: unknown }) =>
+  return accounts.flatMap((a: { subscriber?: unknown; instalmentCents?: unknown; status?: unknown }) =>
+    // A closed or settled account explains no current debit order.
     typeof a?.subscriber === "string" && typeof a.instalmentCents === "number"
+      && !(typeof a.status === "string" && CLOSED_ACCOUNT.test(a.status))
       ? [{ name: a.subscriber, monthlyInstalmentCents: a.instalmentCents, source: "BUREAU" as const }]
       : [])
 }
+
+const CLOSED_ACCOUNT = /CLOSED|SETTLED|PAID UP|WRITTEN OFF/i
 
 export async function loadApplicationFacts(
   tenantId: string,
@@ -67,7 +72,7 @@ export async function loadApplicationFacts(
     where: { id: applicationId, tenantId },
     select: {
       id: true, status: true, clientId: true, submittedAt: true, createdAt: true,
-      client: { select: { firstName: true, lastName: true, monthlyIncome: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
+      client: { select: { firstName: true, lastName: true, monthlyIncome: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
     },
   })
   if (!app) return null
@@ -77,11 +82,11 @@ export async function loadApplicationFacts(
   const [docs, slip, bureau] = await Promise.all([
     prisma.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
-      select: { id: true },
+      select: { id: true, uploadedByType: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.clientDocument.findFirst({
-      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, extractionStatus: "done" },
+      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, extractionStatus: "done", createdAt: { gte: since } },
       select: { id: true, extractionResult: true },
       orderBy: { createdAt: "desc" },
     }),
@@ -93,12 +98,19 @@ export async function loadApplicationFacts(
   ])
 
   const statements: StatementFacts[] = []
+  const pending = (documentId: string, pendingReason: StatementFacts["pendingReason"]): StatementFacts => ({
+    documentId, analysisId: null, contentSha256: null, state: "PENDING", pendingReason, method: null, bank: null, read: null, balanceCheck: null, authenticity: null,
+  })
   for (const doc of docs) {
+    // The upload path's consent gate (app/api/documents): a statement a client
+    // uploaded without POPIA consent is not processed here either.
+    if (doc.uploadedByType !== "staff" && !app.client.popiaConsentGiven) {
+      statements.push(pending(doc.id, "consent"))
+      continue
+    }
     const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false })
     if (r.state === "read") statements.push(statementFacts(doc.id, r.analysis))
-    else if (r.state === "pending") {
-      statements.push({ documentId: doc.id, analysisId: null, state: "PENDING", method: null, bank: null, read: null, balanceCheck: null, authenticity: null })
-    }
+    else if (r.state === "pending") statements.push(pending(doc.id, r.reason === "file_missing" ? "file_missing" : "vlm"))
   }
 
   const payslip = slip ? payslipFacts(slip.id, slip.extractionResult) : null

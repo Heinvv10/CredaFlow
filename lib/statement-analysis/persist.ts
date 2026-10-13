@@ -9,8 +9,9 @@
 import { Prisma, type StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
+import { AuditAction } from "@/lib/audit"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
-import { analyseStatement, PARSER_VERSION } from "./analyse"
+import { analyseStatement, PARSER_VERSION, type StatementAnalysisResult } from "./analyse"
 import { VlmUnavailableError } from "./vlm-reader"
 
 export interface EnsureOptions {
@@ -26,10 +27,10 @@ export interface EnsureOptions {
 
 export type EnsureResult =
   | { state: "read"; analysis: StatementAnalysis }
-  | { state: "pending"; reason: "vlm_deferred" | "vlm_unavailable" }
+  | { state: "pending"; reason: "vlm_deferred" | "vlm_unavailable" | "file_missing" }
   | { state: "missing" }
 
-function toRow(tenantId: string, documentId: string, sha: string, r: Awaited<ReturnType<typeof analyseStatement>>) {
+function toRow(tenantId: string, documentId: string, sha: string, r: StatementAnalysisResult) {
   return {
     tenantId,
     clientDocumentId: documentId,
@@ -51,6 +52,35 @@ function toRow(tenantId: string, documentId: string, sha: string, r: Awaited<Ret
   } satisfies Prisma.StatementAnalysisUncheckedCreateInput
 }
 
+/** A file the tools could not read at all is a result too: persisted, so it is not retried on every view. */
+function readFailed(): StatementAnalysisResult {
+  return {
+    method: "TEXT", status: "UNREADABLE", bank: null, read: null, balanceCheck: "NOT_APPLICABLE", balanceDiffCents: null,
+    authenticity: { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: ["READ_FAILED"] },
+  }
+}
+
+/**
+ * Intake strips a statement's password with a full rewrite
+ * (lib/documents/pdf-decrypt.ts), which erases any appended revisions. The
+ * upload route records the original file's count on that audit row.
+ */
+async function revisionsBeforeDecryption(tenantId: string, documentId: string): Promise<number | null> {
+  const row = await prisma.auditLog.findFirst({
+    where: { tenantId, entity: "ClientDocument", entityId: documentId, action: AuditAction.DOCUMENT_DECRYPTED_AT_INTAKE },
+    select: { newValue: true },
+  })
+  if (!row) return null
+  const n = (row.newValue as { originalIncrementalUpdates?: unknown } | null)?.originalIncrementalUpdates
+  return typeof n === "number" ? n : 0
+}
+
+function findRead(tenantId: string, documentId: string, sha: string) {
+  return prisma.statementAnalysis.findFirst({
+    where: { tenantId, clientDocumentId: documentId, contentSha256: sha, parserVersion: PARSER_VERSION },
+  })
+}
+
 /** The current read of a statement document, reading it first if needed. */
 export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<EnsureResult> {
   const doc = await prisma.clientDocument.findFirst({
@@ -59,28 +89,37 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
   })
   if (!doc?.storagePath) return { state: "missing" }
 
-  const existing = doc.contentSha256
-    ? await prisma.statementAnalysis.findFirst({
-        where: { tenantId: opts.tenantId, clientDocumentId: doc.id, contentSha256: doc.contentSha256, parserVersion: PARSER_VERSION },
-      })
-    : null
-  if (existing) return { state: "read", analysis: existing }
+  const claimed = doc.contentSha256 ? await findRead(opts.tenantId, doc.id, doc.contentSha256) : null
+  if (claimed) return { state: "read", analysis: claimed }
 
-  const bytes = await readFile(doc.storagePath)
+  let bytes: Buffer
+  try {
+    bytes = await readFile(doc.storagePath)
+  } catch {
+    return { state: "pending", reason: "file_missing" }
+  }
   // The read binds the bytes actually read, whatever the row claims.
   const sha = sha256DocumentBytes(bytes)
+  const existing = sha !== doc.contentSha256 ? await findRead(opts.tenantId, doc.id, sha) : null
+  if (existing) return { state: "read", analysis: existing }
   const mimeType = doc.mimeType ?? "application/octet-stream"
   if (!opts.allowVlm && mimeType !== "application/pdf") return { state: "pending", reason: "vlm_deferred" }
 
-  let analysed: Awaited<ReturnType<typeof analyseStatement>>
+  let analysed: StatementAnalysisResult
   try {
     analysed = await analyseStatement(bytes, mimeType, { allowVlm: opts.allowVlm })
   } catch (err) {
     if (err instanceof VlmUnavailableError) {
-      if (opts.allowVlm) console.warn("[statement-analysis] vision reader unavailable:", err.message)
+      if (opts.allowVlm) console.warn("[statement-analysis] vision reader unavailable:", { documentId: doc.id })
       return { state: "pending", reason: opts.allowVlm ? "vlm_unavailable" : "vlm_deferred" }
     }
-    throw err
+    console.warn("[statement-analysis] statement could not be read:", { documentId: doc.id, error: err instanceof Error ? err.name : "unknown" })
+    analysed = readFailed()
+  }
+  const before = await revisionsBeforeDecryption(opts.tenantId, doc.id)
+  if (before !== null) {
+    analysed.authenticity.incrementalUpdates = Math.max(analysed.authenticity.incrementalUpdates, before)
+    analysed.authenticity.signals.push("DECRYPTED_AT_INTAKE")
   }
   try {
     const analysis = await prisma.statementAnalysis.create({ data: toRow(opts.tenantId, doc.id, sha, analysed) })
@@ -88,18 +127,27 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
   } catch (err) {
     // A concurrent read of the same bytes won the unique key; use its row.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      const winner = await prisma.statementAnalysis.findFirst({
-        where: { tenantId: opts.tenantId, clientDocumentId: doc.id, contentSha256: sha, parserVersion: PARSER_VERSION },
-      })
+      const winner = await findRead(opts.tenantId, doc.id, sha)
       if (winner) return { state: "read", analysis: winner }
     }
     throw err
   }
 }
 
+// One background read at a time per process: each may make a dozen calls to
+// the shared vision model. A document already queued is not queued twice.
+let queue: Promise<unknown> = Promise.resolve()
+const queued = new Set<string>()
+
 /** Fire-and-forget read for the upload and re-extract paths. */
 export function readStatementInBackground(tenantId: string, documentId: string): void {
-  void ensureStatementAnalysis({ tenantId, documentId, allowVlm: true }).catch((err) => {
-    console.error("[statement-analysis] read failed:", { documentId }, err)
-  })
+  if (queued.has(documentId)) return
+  queued.add(documentId)
+  queue = queue
+    .then(() => ensureStatementAnalysis({ tenantId, documentId, allowVlm: true }))
+    .catch((err) => {
+      // Name and code only: a failed write can echo the statement's contents.
+      console.error("[statement-analysis] read failed:", { documentId, error: err instanceof Error ? err.name : "unknown", code: (err as { code?: unknown })?.code })
+    })
+    .finally(() => queued.delete(documentId))
 }

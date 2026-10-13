@@ -35,6 +35,18 @@ function textReader(bank: BankCode, pdf: PdfContent): StatementRead | null {
   return null
 }
 
+/** Statements cover days to months; a longer or inverted period is a misread (or a forgery's typo). */
+const MAX_PERIOD_DAYS = 400
+
+/** Drops a period that cannot be a statement's: inverted, absurdly long, or ending in the future. */
+function plausiblePeriod(read: StatementRead): StatementRead {
+  const { periodStart, periodEnd } = read
+  if (!periodStart || !periodEnd) return read
+  const days = (Date.parse(periodEnd) - Date.parse(periodStart)) / 86_400_000
+  const future = Date.parse(periodEnd) > Date.now() + 31 * 86_400_000
+  return days < 0 || days > MAX_PERIOD_DAYS || future ? { ...read, periodStart: null, periodEnd: null } : read
+}
+
 function result(
   method: "TEXT" | "VLM",
   bank: BankCode | null,
@@ -46,7 +58,7 @@ function result(
     return { method, status: unreadable, bank, read: null, balanceCheck: "NOT_APPLICABLE", balanceDiffCents: null, authenticity }
   }
   const balance = checkBalance(read)
-  return { method, status: "READ", bank, read, balanceCheck: balance.result, balanceDiffCents: balance.diffCents, authenticity }
+  return { method, status: "READ", bank, read: plausiblePeriod(read), balanceCheck: balance.result, balanceDiffCents: balance.diffCents, authenticity }
 }
 
 /**
@@ -78,7 +90,7 @@ export async function analyseStatement(
     createdAt: pdf.info.createdAt,
     modifiedAt: pdf.info.modifiedAt,
     incrementalUpdates: countIncrementalUpdates(bytes),
-    signals: hasText ? [] : ["TEXT_LAYER_ABSENT"],
+    signals: [...(hasText ? [] : ["TEXT_LAYER_ABSENT"]), ...(pdf.info.metadataAmbiguous ? ["METADATA_AMBIGUOUS"] : [])],
   }
   const bank = hasText ? detectBank(text) : null
 

@@ -16,6 +16,8 @@ export interface SynthTx {
   category?: string
   amountCents: number
   feeCents?: number
+  /** Printed with its amount but leaving the balance unmoved (FNB's EDO Collection Attempt). */
+  nonPosting?: true
 }
 
 export interface SynthStatement {
@@ -57,7 +59,7 @@ const fnbNum = (c: number) => `${formatCents(Math.abs(c)).replace("R", "").repla
 
 export function balances(s: SynthStatement): number[] {
   let running = s.openingCents
-  return s.transactions.map((t) => (running += t.amountCents + (t.feeCents ?? 0)))
+  return s.transactions.map((t) => (t.nonPosting ? running : (running += t.amountCents + (t.feeCents ?? 0))))
 }
 
 async function render(lines: string[][], opts: BuildOptions, fallback: { producer: string; creator: string }): Promise<Uint8Array> {

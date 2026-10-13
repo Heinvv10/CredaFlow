@@ -23,7 +23,7 @@ const groceries = { CAPITEC: ["-845.50", "-945.50"], FNB: ["845.50", "945.50"] }
 
 function asFacts(r: StatementAnalysisResult): StatementFacts {
   return {
-    documentId: "doc-fx", analysisId: "an-fx", state: r.status, method: r.method, bank: r.bank,
+    documentId: "doc-fx", analysisId: "an-fx", contentSha256: "sha-fx", state: r.status, method: r.method, bank: r.bank,
     read: r.read, balanceCheck: r.balanceCheck, authenticity: r.authenticity,
   }
 }

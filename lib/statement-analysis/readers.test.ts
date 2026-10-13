@@ -57,3 +57,34 @@ describe("analyseStatement routing", () => {
     await expect(analyseStatement(Buffer.from([0xff, 0xd8, 0xff]), "image/jpeg", { allowVlm: false })).rejects.toThrow("deferred")
   })
 })
+
+describe("FNB rows that move no money", () => {
+  it("reads a collection attempt as non-posting, keeps the balance check passing, and still raises the returned debit", async () => {
+    const s = syntheticStatement({ bank: "FNB", start: "2026-07-01", collectionAttempt: true })
+    const r = await read("FNB", s)
+    expect(r.balanceCheck).toBe("PASS")
+    const attempt = r.read!.transactions.find((t) => t.description.startsWith("EDO Collection Attempt"))
+    expect(attempt).toMatchObject({ nonPosting: true, amountCents: 125_000 })
+    const { riskBehaviour } = await import("@/lib/credit-checks/risk-behaviour")
+    const flags = riskBehaviour({
+      applicationId: "app", applicationDate: "2026-10-05", clientName: "T Tester", monthlyIncomeCents: 1_845_000, payslip: null, debts: [],
+      statements: [{ documentId: "d", analysisId: "a", contentSha256: "s", state: "READ", method: "TEXT", bank: "FNB", read: r.read, balanceCheck: r.balanceCheck, authenticity: r.authenticity }],
+    })
+    expect(flags.map((f) => f.code)).toContain("RETURNED_DEBIT")
+  })
+
+  it("does not treat a row as non-posting for the word alone when it moved the balance", async () => {
+    const s = syntheticStatement({ bank: "FNB", start: "2026-07-01" })
+    s.transactions.push({ date: "2026-09-29", description: "Payment To: ATTEMPT 3 BETS", amountCents: -20_000 })
+    const r = await read("FNB", s)
+    expect(r.balanceCheck).toBe("PASS")
+    expect(r.read!.transactions.find((t) => t.description.includes("ATTEMPT"))?.nonPosting).toBeUndefined()
+  })
+
+  it("dates rows across a year end from the statement period", async () => {
+    const r = await read("FNB", syntheticStatement({ bank: "FNB", start: "2026-11-01" }))
+    expect(r.balanceCheck).toBe("PASS")
+    const months = new Set(r.read!.transactions.map((t) => t.date.slice(0, 7)))
+    expect([...months]).toEqual(["2026-11", "2026-12", "2027-01"])
+  })
+})

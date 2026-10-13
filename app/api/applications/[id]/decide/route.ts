@@ -1075,7 +1075,9 @@ export async function POST(
           return NextResponse.json(
             {
               error: `Approval blocked: ${openChecks.length} credit check${openChecks.length === 1 ? " is" : "s are"} open. Clear ${openChecks.length === 1 ? "it" : "them"} in Credit checks first.`,
-              openChecks: openChecks.map((f) => ({ id: f.id, check: f.check, code: f.code, summary: f.summary })),
+              // No summaries: they quote the statement, and this response is not
+              // a logged document access. The panel shows them, and logs it.
+              openChecks: openChecks.map((f) => ({ id: f.id, check: f.check, code: f.code })),
             },
             { status: 409 },
           )

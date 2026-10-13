@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { saveFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
+import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import {
@@ -245,6 +246,9 @@ export async function POST(req: NextRequest) {
             contentSha256,
             uploadedByType: caller.type,
             reason: "Password-protected PDF; encryption stripped so the document can be extracted and previewed",
+            // The rewrite erases appended revisions; the statement checks read
+            // this count instead (lib/statement-analysis/persist.ts).
+            originalIncrementalUpdates: countIncrementalUpdates(uploaded),
           },
         })
       }

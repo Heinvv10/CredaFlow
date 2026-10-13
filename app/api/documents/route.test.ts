@@ -75,6 +75,7 @@ vi.mock("@/lib/audit", () => ({
 
 import { POST } from "./route"
 import { decryptPdfIfEncrypted } from "@/lib/documents/pdf-decrypt"
+import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
 
 // Deliberately NOT mocked: a mocked decryptor cannot prove a PDF actually
 // opens, which is the whole point of the intake change.
@@ -182,6 +183,8 @@ describe("POST /api/documents", () => {
         action: "DOCUMENT_DECRYPTED_AT_INTAKE",
         entity: "ClientDocument",
         entityId: "doc-1",
+        // The rewrite erases appended revisions; the statement checks read this instead.
+        newValue: expect.objectContaining({ originalIncrementalUpdates: countIncrementalUpdates(ENCRYPTED_PDF) }),
       }),
     )
   })

@@ -16,7 +16,7 @@ import {
 } from "@/lib/vlm-extract"
 
 export async function renderPdfPages(bytes: Buffer, pageCount: number): Promise<Buffer[]> {
-  const { execFileSync } = await import("child_process")
+  const { execFile, execFileSync } = await import("child_process")
   const { readFileSync, writeFileSync } = await import("fs")
   const { join } = await import("path")
   return withPrivateTempDir(async (dir) => {
@@ -29,19 +29,23 @@ export async function renderPdfPages(bytes: Buffer, pageCount: number): Promise<
     const out: Buffer[] = []
     for (let page = 1; page <= pageCount; page++) {
       const prefix = join(dir, `p${page}`)
-      execFileSync(
-        "sh",
-        [
-          "-c",
-          `ulimit -v ${MAX_RENDER_MEMORY_KB}; ` +
-            `exec pdftoppm -f ${page} -l ${page} -scale-to-x ${target.widthPx} -scale-to-y ${target.heightPx} ` +
-            `-jpeg -cropbox -singlefile "$1" "$2"`,
+      // Asynchronous: one page can take seconds, and the process serves other requests meanwhile.
+      await new Promise<void>((resolve, reject) => {
+        execFile(
           "sh",
-          input,
-          prefix,
-        ],
-        { timeout: 30_000, stdio: "ignore" },
-      )
+          [
+            "-c",
+            `ulimit -v ${MAX_RENDER_MEMORY_KB}; ` +
+              `exec pdftoppm -f ${page} -l ${page} -scale-to-x ${target.widthPx} -scale-to-y ${target.heightPx} ` +
+              `-jpeg -cropbox -singlefile "$1" "$2" >/dev/null 2>&1`,
+            "sh",
+            input,
+            prefix,
+          ],
+          { timeout: 30_000 },
+          (err) => (err ? reject(err) : resolve()),
+        )
+      })
       const jpeg = readFileSync(`${prefix}.jpg`)
       if (!isFullPageRender(jpeg, expected)) {
         const got = jpegSizePx(jpeg)

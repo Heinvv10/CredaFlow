@@ -9,6 +9,8 @@
 
 /** The clear route and the DB CHECK (migration 20261013120000) both demand this. */
 export const CLEAR_REASON_MIN_LENGTH = 15
+/** A reason is a sentence or two; this bounds what a clearance writes to the flag and the audit row. */
+export const CLEAR_REASON_MAX_LENGTH = 1000
 
 // ── Which statements count ─────────────────────────────────────────────────
 

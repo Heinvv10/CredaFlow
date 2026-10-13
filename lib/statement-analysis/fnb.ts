@@ -23,7 +23,12 @@ import type { StatementRead, StatementTransaction } from "./types"
 const AMOUNT_WORD = /^\d{1,3}(?:,\d{3})*\.\d{2}(Cr|Dr)?$/
 const DAY = /^\d{2}$/
 const MON = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/
-/** A row FNB prints without posting it ("EDO Collection Attempt" and kin): see StatementTransaction.nonPosting. */
+/**
+ * A row FNB prints without posting it ("EDO Collection Attempt" and kin): see
+ * StatementTransaction.nonPosting. The word alone is not enough — a client can
+ * put it in their own payment reference — so the row must also leave the
+ * printed balance where it was (markNonPosting).
+ */
 const NON_POSTING = /\bAttempt\b/i
 const PERIOD = /Statement Period\s*:\s*(\d{1,2} [A-Za-z]+ \d{4})\s+to\s+(\d{1,2} [A-Za-z]+ \d{4})/
 /** How far (pt) a figure's right edge may sit from its column's. */
@@ -109,7 +114,6 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     amountCents,
     balanceCents: figures.balance ? fnbCents(figures.balance) : null,
     page,
-    ...(NON_POSTING.test(text) ? { nonPosting: true as const } : {}),
   }
 }
 
@@ -128,6 +132,16 @@ function readRows(words: PdfWord[][], periodStart: string | null): StatementTran
   return rows
 }
 
+/** Flags attempt rows whose printed balance equals the balance before them. */
+function markNonPosting(rows: StatementTransaction[], opening: number | null): StatementTransaction[] {
+  let before = opening
+  return rows.map((t) => {
+    const unmoved = t.balanceCents !== null && before !== null && t.balanceCents === before && t.amountCents !== 0
+    if (t.balanceCents !== null) before = t.balanceCents
+    return NON_POSTING.test(t.description) && unmoved ? { ...t, nonPosting: true as const } : t
+  })
+}
+
 /** Reads an FNB statement's text layer, or null when it is not one. */
 export function readFnb(pages: string[], words: PdfWord[][]): StatementRead | null {
   const all = pages.join("\n")
@@ -141,6 +155,6 @@ export function readFnb(pages: string[], words: PdfWord[][]): StatementRead | nu
     periodEnd: isoFromDayMonthYear(period[2]),
     openingBalanceCents: headerBalance(all, "Opening Balance"),
     closingBalanceCents: headerBalance(all, "Closing Balance"),
-    transactions: readRows(words, periodStart),
+    transactions: markNonPosting(readRows(words, periodStart), headerBalance(all, "Opening Balance")),
   }
 }

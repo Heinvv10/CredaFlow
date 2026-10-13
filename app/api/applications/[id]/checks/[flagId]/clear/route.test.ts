@@ -5,7 +5,9 @@ const requireApiRoleMock = vi.fn()
 const findFirstMock = vi.fn()
 const updateManyMock = vi.fn()
 const logAuditStrictMock = vi.fn()
+const lockMock = vi.fn()
 const tx = {
+  $queryRaw: (...a: unknown[]) => lockMock(...a),
   applicationCheckFlag: {
     findFirst: (a: unknown) => findFirstMock(a),
     updateMany: (a: unknown) => updateManyMock(a),
@@ -34,7 +36,8 @@ const REASON = "Salary paid in cash; confirmed with the employer."
 beforeEach(() => {
   vi.resetAllMocks()
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@test.invalid", role: "LOAN_ADMIN", tenantId: "t1", totpVerified: true } })
-  findFirstMock.mockResolvedValue({ id: "flag-1", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT", application: { status: "UNDER_REVIEW" } })
+  lockMock.mockResolvedValue([{ status: "UNDER_REVIEW" }])
+  findFirstMock.mockResolvedValue({ id: "flag-1", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT" })
   updateManyMock.mockResolvedValue({ count: 1 })
   logAuditStrictMock.mockResolvedValue(undefined)
 })
@@ -44,6 +47,9 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     const res = await post({ reason: `  ${REASON}  ` })
     expect(res.status).toBe(200)
     expect(requireApiRoleMock).toHaveBeenCalledWith("LOAN_ADMIN")
+    // The application row lock is taken before the flag is read or written.
+    expect(String(lockMock.mock.calls[0][0])).toContain("FOR UPDATE")
+    expect(lockMock.mock.invocationCallOrder[0]).toBeLessThan(updateManyMock.mock.invocationCallOrder[0])
     expect(updateManyMock).toHaveBeenCalledWith({
       where: { id: "flag-1", tenantId: "t1", status: "OPEN" },
       data: { status: "CLEARED", clearedById: "u1", clearedAt: expect.any(Date), clearReason: REASON },
@@ -67,12 +73,20 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     expect(updateManyMock).not.toHaveBeenCalled()
   })
 
-  it("refuses a reason under 15 characters once trimmed", async () => {
-    const res = await post({ reason: "   fourteen chrs   ".replace("chrs", "chr") })
+  it("refuses a reason of 14 characters once trimmed and accepts 15", async () => {
+    const res = await post({ reason: `   ${"x".repeat(14)}   ` })
     expect(res.status).toBe(400)
     expect(await res.json()).toMatchObject({ reason: "too_short" })
     expect((await post({})).status).toBe(400)
     expect(findFirstMock).not.toHaveBeenCalled()
+    expect((await post({ reason: "x".repeat(15) })).status).toBe(200)
+  })
+
+  it("refuses a reason over 1000 characters", async () => {
+    const res = await post({ reason: "x".repeat(1001) })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ reason: "too_long" })
+    expect((await post({ reason: "x".repeat(1000) })).status).toBe(200)
   })
 
   it("404s a flag of another application or tenant", async () => {
@@ -87,8 +101,8 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     expect(logAuditStrictMock).not.toHaveBeenCalled()
   })
 
-  it("409s a flag on a decided application", async () => {
-    findFirstMock.mockResolvedValue({ id: "flag-1", check: "SALARY_MATCH", code: "X", application: { status: "APPROVED" } })
+  it("409s a flag on a decided application, read under the lock", async () => {
+    lockMock.mockResolvedValue([{ status: "APPROVED" }])
     expect((await post({ reason: REASON })).status).toBe(409)
     expect(updateManyMock).not.toHaveBeenCalled()
   })

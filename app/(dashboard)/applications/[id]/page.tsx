@@ -30,7 +30,7 @@ import { ApplicationReturnToDraftButton } from "@/components/applications/Applic
 import { ApplicationSubmitButton } from "@/components/applications/ApplicationSubmitButton"
 import { ApplicationReturnToReviewButton } from "@/components/applications/ApplicationReturnToReviewButton"
 import { auth } from "@/lib/auth"
-import { canDo } from "@/lib/auth-guards"
+import { canDo, hasMinRole } from "@/lib/auth-guards"
 import { getDefaultTenantId } from "@/lib/tenant"
 import {
   readCompositeKycState,
@@ -203,6 +203,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const userRole = session?.user?.role ?? "READONLY"
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
+  // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
+  const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")
+  const checksUndecided = application.status === "DRAFT" || application.status === "SUBMITTED" || application.status === "UNDER_REVIEW"
   const openChecks = await prisma.applicationCheckFlag.count({
     where: { tenantId, applicationId: application.id, status: "OPEN" },
   })
@@ -806,11 +809,14 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
         />
 
-        <CreditChecksPanel
-          applicationId={application.id}
-          canClear={canApprove && (application.status === "DRAFT" || application.status === "SUBMITTED" || application.status === "UNDER_REVIEW")}
-          initialOpenCount={openChecks}
-        />
+        {canReadChecks && (
+          <CreditChecksPanel
+            applicationId={application.id}
+            canClear={canApprove && session?.user?.totpVerified === true && checksUndecided}
+            needsTotp={canApprove && session?.user?.totpVerified !== true && checksUndecided}
+            initialOpenCount={openChecks}
+          />
+        )}
 
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (

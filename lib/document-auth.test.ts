@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 // document-auth.ts pulls in auth/prisma/tenant at module load; stub them so the
 // pure magic-byte helper can be imported in isolation.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("@/lib/prisma", () => ({ prisma: { documentAccessLog: { createMany: vi.fn() } } }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn() }))
 
 import { matchesMagic, MAGIC_BYTE_PREFIX } from "./document-auth"
@@ -54,5 +54,23 @@ describe("matchesMagic", () => {
     // reads past the end (undefined !== 0x57), so it fails to match rather than
     // throwing — the real risk for a tiny uploaded file.
     expect(matchesMagic(new Uint8Array([0x52, 0x49, 0x46, 0x46]), "image/webp")).toBe(false)
+  })
+})
+
+describe("logDocumentContentAccess", () => {
+  it("writes one staff access row per distinct document, and nothing for none", async () => {
+    const { prisma } = await import("@/lib/prisma")
+    const createMany = vi.mocked(prisma.documentAccessLog.createMany)
+    const { logDocumentContentAccess } = await import("@/lib/document-auth")
+    const req = new Request("https://acme.example/x", { headers: { "user-agent": "test-agent" } })
+    await logDocumentContentAccess({ documentIds: [], staffUserId: "u1", action: "credit_check_evidence", req })
+    expect(createMany).not.toHaveBeenCalled()
+    await logDocumentContentAccess({ documentIds: ["d1", "d2", "d1"], staffUserId: "u1", action: "credit_check_evidence", req })
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        { documentId: "d1", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+        { documentId: "d2", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+      ],
+    })
   })
 })

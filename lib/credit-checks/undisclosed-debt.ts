@@ -11,7 +11,7 @@ import {
   INSTALMENT_MATCH_PCT,
   mentions,
 } from "./policy"
-import type { ApplicationFacts, DebtFacts, FlagCandidate } from "./types"
+import { statementKey, type ApplicationFacts, type DebtFacts, type FlagCandidate } from "./types"
 
 /** Words too generic to tie a debit order to a named debt. */
 const GENERIC = new Set(["FINANCE", "FINANCIAL", "LOAN", "LOANS", "CREDIT", "BANK", "PERSONAL", "SERVICES", "PTY", "LTD", "LIMITED", "DEBIT", "ORDER", "PAYMENT"])
@@ -29,7 +29,8 @@ export function counterpartyKey(description: string): string {
 }
 
 function distinctive(name: string): string[] {
-  return name.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length >= 4 && !GENERIC.has(w))
+  // Three letters, so MFC and RCS can match themselves.
+  return name.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length >= 3 && !GENERIC.has(w))
 }
 
 function namesOverlap(a: string, b: string): boolean {
@@ -54,7 +55,7 @@ function matchesDebt(counterparty: string, monthlyCents: number, debts: DebtFact
 
 interface Group {
   documentId: string
-  analysisId: string | null
+  statement: string
   indexes: number[]
   amounts: number[]
   months: Set<string>
@@ -71,7 +72,7 @@ export function undisclosedDebt(f: ApplicationFacts): FlagCandidate[] {
       if (t.nonPosting || t.amountCents >= 0) return
       const key = counterpartyKey(t.description)
       if (!key) return
-      const g = groups.get(key) ?? { documentId: s.documentId, analysisId: s.analysisId, indexes: [], amounts: [], months: new Set<string>(), marked: false, creditLike: false }
+      const g = groups.get(key) ?? { documentId: s.documentId, statement: statementKey(s), indexes: [], amounts: [], months: new Set<string>(), marked: false, creditLike: false }
       g.indexes.push(i)
       g.amounts.push(-t.amountCents)
       g.months.add(t.date.slice(0, 7))
@@ -86,7 +87,7 @@ export function undisclosedDebt(f: ApplicationFacts): FlagCandidate[] {
       out.push({
         check: "UNDISCLOSED_DEBT",
         code: "UNDISCLOSED_DEBIT_ORDER",
-        key: `${g.analysisId ?? g.documentId}|${counterparty}`,
+        key: `${g.statement}|${counterparty}`,
         summary: `Recurring debit of about ${formatCents(monthlyCents)} to "${counterparty}" matches no declared debt or bureau account.`,
         evidence: {
           documentId: g.documentId,

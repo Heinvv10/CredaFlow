@@ -529,7 +529,7 @@ it("refuses approval while a credit check is open, naming it, before the approve
   expect(res.status).toBe(409)
   expect(await res.json()).toEqual({
     error: "Approval blocked: 1 credit check is open. Clear it in Credit checks first.",
-    openChecks: [{ id: "f1", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT", summary: "No salary credit near 2026-09-25." }],
+    openChecks: [{ id: "f1", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT" }],
   })
   expect(recomputeApplicationFlagsMock).toHaveBeenCalledWith("t1", expect.any(String), expect.objectContaining({ userId: expect.any(String) }))
   expect(transactionMock).not.toHaveBeenCalled()

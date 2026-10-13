@@ -2,7 +2,9 @@
  * Behavioural proof for the credit-check enforcement in migration
  * 20261013120000_credit_checks_v1 (goal §8.5):
  *
- *   - LoanApplication_a0_guard_open_check_flags refuses APPROVED while a flag is OPEN
+ *   - LoanApplication_a0_guard_open_check_flags refuses APPROVED (or a jump to
+ *     DISBURSED) while a flag is OPEN
+ *   - ApplicationCheckFlag_guard_record refuses deleting a flag or changing a cleared one
  *   - ApplicationCheckFlag_clearance_complete refuses a CLEARED flag without
  *     who/when/a reason of 15+ characters
  *   - once the flag is cleared, the same approval write goes through
@@ -94,7 +96,11 @@ suite("credit-check enforcement in the database", () => {
 
   afterEach(() => {
     sql(`
+      BEGIN;
+      ALTER TABLE "ApplicationCheckFlag" DISABLE TRIGGER "ApplicationCheckFlag_guard_record";
       DELETE FROM "ApplicationCheckFlag" WHERE "tenantId" = '${tenantId}';
+      ALTER TABLE "ApplicationCheckFlag" ENABLE TRIGGER "ApplicationCheckFlag_guard_record";
+      COMMIT;
       DELETE FROM "LoanApplication" WHERE "tenantId" = '${tenantId}';
     `)
   })
@@ -125,12 +131,44 @@ suite("credit-check enforcement in the database", () => {
   it("refuses CLEARED without a reason, or with one under 15 characters after trimming", () => {
     const clear = (reason: string) =>
       run(`UPDATE "ApplicationCheckFlag" SET status = 'CLEARED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = ${reason} WHERE id = '${flagId}'`)
-    for (const reason of ["NULL", "''", `'   fourteen chr   '`.replace("fourteen chr", "fourteen chrs")]) {
+    for (const reason of ["NULL", "''", `'   ${"x".repeat(14)}   '`]) {
       const result = clear(reason)
       expect(result.ok, reason).toBe(false)
       expect(result.output).toContain(CHECK)
     }
-    expect(clear(`'Salary paid in cash; confirmed with the employer.'`).ok).toBe(true)
+    expect(clear(`'${"x".repeat(15)}'`).ok).toBe(true)
+  })
+
+  it("refuses a jump straight to DISBURSED while a flag is OPEN", () => {
+    const result = run(`UPDATE "LoanApplication" SET status = 'DISBURSED' WHERE id = '${appId}'`)
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain("open credit-check flags")
+  })
+
+  it("refuses deleting a flag, whatever its status", () => {
+    const result = run(`DELETE FROM "ApplicationCheckFlag" WHERE id = '${flagId}'`)
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain("ApplicationCheckFlag_no_delete")
+    expect(sql(`SELECT count(*) FROM "ApplicationCheckFlag" WHERE id = '${flagId}'`)).toBe("1")
+  })
+
+  it("refuses any change to a cleared flag: reopening it, superseding it or rewriting its reason", () => {
+    sql(`UPDATE "ApplicationCheckFlag" SET status = 'CLEARED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = 'Salary paid in cash; confirmed with the employer.' WHERE id = '${flagId}'`)
+    for (const change of [
+      `status = 'OPEN', "clearedById" = NULL, "clearedAt" = NULL, "clearReason" = NULL`,
+      `status = 'SUPERSEDED', "clearedById" = NULL, "clearedAt" = NULL, "clearReason" = NULL`,
+      `"clearReason" = 'A different reason entirely, written later.'`,
+    ]) {
+      const result = run(`UPDATE "ApplicationCheckFlag" SET ${change} WHERE id = '${flagId}'`)
+      expect(result.ok, change).toBe(false)
+      expect(result.output).toContain("ApplicationCheckFlag_cleared_immutable")
+    }
+  })
+
+  it("refuses a SUPERSEDED flag that carries a clearance", () => {
+    const result = run(`UPDATE "ApplicationCheckFlag" SET status = 'SUPERSEDED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = 'A reason long enough to pass' WHERE id = '${flagId}'`)
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain(CHECK)
   })
 
   it("refuses CLEARED without who cleared it and when", () => {
@@ -145,10 +183,12 @@ suite("credit-check enforcement in the database", () => {
     expect(result.output).toContain(CHECK)
   })
 
-  it("approves once the flag is cleared (or superseded)", () => {
-    sql(`UPDATE "ApplicationCheckFlag" SET status = 'CLEARED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = 'Salary paid in cash; confirmed with the employer.' WHERE id = '${flagId}'`)
-    expect(sql(isolatedApproval()).split("\n")).toContain("APPROVED")
+  it("approves once the flag is superseded, and once it is cleared", () => {
     sql(`UPDATE "ApplicationCheckFlag" SET status = 'SUPERSEDED' WHERE id = '${flagId}'`)
+    expect(sql(isolatedApproval()).split("\n")).toContain("APPROVED")
+    sql(`UPDATE "ApplicationCheckFlag" SET status = 'OPEN' WHERE id = '${flagId}'`)
+    expect(run(isolatedApproval()).ok).toBe(false)
+    sql(`UPDATE "ApplicationCheckFlag" SET status = 'CLEARED', "clearedById" = '${userId}', "clearedAt" = now(), "clearReason" = 'Salary paid in cash; confirmed with the employer.' WHERE id = '${flagId}'`)
     expect(sql(isolatedApproval()).split("\n")).toContain("APPROVED")
   })
 

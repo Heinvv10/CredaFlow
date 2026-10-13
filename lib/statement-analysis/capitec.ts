@@ -17,6 +17,12 @@ const AMOUNT_TOKEN = /-?\d{1,3}(?: \d{3})*\.\d{2}/g
 const ROW_DATE = /^\s*(\d{2}\/\d{2}\/\d{4})\s+(.*)$/
 const TABLE_HEADER = /^\s*Date\s+Description\s+(Category\s+)?Money In\s+Money Out/
 const TABLE_END = /Includes VAT|Client Care Centre|Unique Document No/
+/**
+ * Statement lines are under 200 characters. A longer one is not a row, and
+ * running the amount pattern over it is quadratic in its length, so a hostile
+ * file of very long lines could stall the reader.
+ */
+const MAX_LINE_CHARS = 400
 
 function headerAmount(text: string, label: string): number | null {
   const m = new RegExp(`${label}:\\s*(-?R?-?[\\d ]+\\.\\d{2})`).exec(text)
@@ -49,11 +55,12 @@ function columnsOf(header: string): Columns {
   return { moneyFrom: category >= 0 ? category + "Category".length : header.indexOf("Money In") - 2 }
 }
 
-function readRows(pages: string[]): StatementTransaction[] | null {
+function readRows(pages: string[]): StatementTransaction[] {
   const rows: StatementTransaction[] = []
   pages.forEach((page, p) => {
     let cols: Columns | null = null
     for (const line of page.split("\n")) {
+      if (line.length > MAX_LINE_CHARS) continue
       if (TABLE_HEADER.test(line)) {
         cols = columnsOf(line)
         continue
@@ -95,7 +102,6 @@ export function readCapitec(pages: string[]): StatementRead | null {
   const all = pages.join("\n")
   if (!/Transaction History/.test(all) || !/Opening Balance:/.test(all)) return null
   const transactions = readRows(pages)
-  if (!transactions) return null
   return {
     accountHolderName: holder(pages[0] ?? ""),
     accountNumberLast4: last4(pages[0] ?? "", /^\s*Account(?::[^\d\n]*)?\s+(\d{6,})/m),

@@ -15,14 +15,14 @@ import {
   MODIFIED_AFTER_CREATION_TOLERANCE_MS,
   STALE_STATEMENT_DAYS,
 } from "./policy"
-import type { ApplicationFacts, FlagCandidate, StatementFacts } from "./types"
+import { statementKey, type ApplicationFacts, type FlagCandidate, type StatementFacts } from "./types"
 import { addDays } from "./dates"
 
 function flag(s: StatementFacts, code: string, summary: string, evidence: Record<string, unknown> = {}): FlagCandidate {
   return {
     check: "DOCUMENT_AUTHENTICITY",
     code,
-    key: s.analysisId ?? s.documentId,
+    key: statementKey(s),
     summary,
     evidence: { documentId: s.documentId, ...evidence },
   }
@@ -31,7 +31,8 @@ function flag(s: StatementFacts, code: string, summary: string, evidence: Record
 function producerExpected(bank: string, producer: string | null, creator: string | null): boolean {
   const expected = EXPECTED_PRODUCERS[bank]
   if (!expected) return true
-  const starts = (value: string | null, allowed: string[]) => allowed.some((p) => (value ?? "").startsWith(p))
+  // "" means the bank writes none: the value must be absent, not merely start with nothing.
+  const starts = (value: string | null, allowed: string[]) => allowed.some((p) => (p === "" ? !value : (value ?? "").startsWith(p)))
   return starts(producer, expected.producer) && starts(creator, expected.creator)
 }
 
@@ -63,8 +64,8 @@ function checkStatement(s: StatementFacts, f: ApplicationFacts): FlagCandidate[]
   // A scan has no bank producer to compare: the scanner wrote that file.
   if (a && s.bank && !a.signals.includes("TEXT_LAYER_ABSENT") && !producerExpected(s.bank, a.producer, a.creator)) {
     out.push(flag(s, "PRODUCER_UNEXPECTED",
-      `The PDF was written by "${a.producer ?? a.creator ?? "an unnamed program"}", not the program ${s.bank} statements come from.`,
-      { producer: a.producer, creator: a.creator, bank: s.bank }))
+      `The PDF was written by "${(a.producer ?? a.creator ?? "an unnamed program").slice(0, 80)}", not the program ${s.bank} statements come from.`,
+      { producer: a.producer?.slice(0, 200) ?? null, creator: a.creator?.slice(0, 200) ?? null, bank: s.bank }))
   }
   if (a?.createdAt && a.modifiedAt) {
     const gap = Date.parse(a.modifiedAt) - Date.parse(a.createdAt)

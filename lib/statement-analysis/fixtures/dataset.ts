@@ -15,6 +15,8 @@ export interface Scenario {
   gambling?: boolean
   paydayLender?: boolean
   returnedDebit?: boolean
+  /** FNB: a creditor's failed early debit order, printed but not posted. */
+  collectionAttempt?: boolean
   /** Capitec rows carry a Fee column; FNB prints fees as their own rows. */
   bank: "CAPITEC" | "FNB"
 }
@@ -52,6 +54,7 @@ export function syntheticStatement(s: Scenario): SynthStatement {
     tx.push({ date: day(m, 27), description: "Payment To: SYNTH RENTALS", category: "Transfer", amountCents: -650_000, ...fee(350) })
   }
   if (s.paydayLender) tx.push({ date: day(months[1], 9), description: "Payment Received: LENDPLUS", category: "Other Income", amountCents: 150_000 })
+  if (s.collectionAttempt) tx.push({ date: day(months[2], 7), description: "EDO Collection Attempt SYNTHLEND", amountCents: 125_000, nonPosting: true })
   if (s.returnedDebit) tx.push({ date: day(months[2], 6), description: "DebiCheck Insufficient Funds Fee", category: "Fees", amountCents: -1_000 })
   tx.sort((a, b) => a.date.localeCompare(b.date))
   return {

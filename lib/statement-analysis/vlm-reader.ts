@@ -11,6 +11,7 @@
  * fetch; corpus runs happen only after hours (see .claude.md).
  */
 import { getVlmConfig, parseVlmResponse } from "@/lib/vlm-extract"
+import { MAX_CENTS } from "./money"
 import type { StatementRead, StatementTransaction } from "./types"
 
 /** A longer statement goes to manual review rather than tying up the model. */
@@ -33,7 +34,9 @@ summary or subtotal rows. Use null for anything this page does not print.`
 const ISO = /^\d{4}-\d{2}-\d{2}$/
 
 function cents(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) : null
+  if (typeof v !== "number" || !Number.isFinite(v)) return null
+  const c = Math.round(v * 100)
+  return Math.abs(c) > MAX_CENTS ? null : c
 }
 
 function str(v: unknown): string | null {

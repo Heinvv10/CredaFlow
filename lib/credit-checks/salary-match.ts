@@ -14,7 +14,7 @@ import {
   SALARY_DATE_WINDOW_DAYS,
 } from "./policy"
 import { addDays, dayInMonth, monthsCovered } from "./dates"
-import type { ApplicationFacts, FlagCandidate } from "./types"
+import { statementKey, type ApplicationFacts, type FlagCandidate } from "./types"
 
 interface MonthResult {
   expectedDate: string
@@ -63,10 +63,12 @@ export function salaryMatch(f: ApplicationFacts): FlagCandidate[] {
     }
   }
 
-  const analysisKey = read.map((s) => s.analysisId ?? s.documentId).sort().join(",")
+  const analysisKey = read.map(statementKey).sort().join(",")
   return [...months].filter(([, r]) => !r.matched).map(([month, r]): FlagCandidate => {
     const evidence = {
       payslipDocumentId: slip.documentId,
+      // The statement to open from the panel; a candidate below names its own.
+      documentId: [...r.documentIds][0],
       documentIds: [...r.documentIds],
       month,
       expectedDate: r.expectedDate,

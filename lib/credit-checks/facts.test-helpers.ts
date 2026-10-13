@@ -14,6 +14,7 @@ export function statement(transactions: StatementTransaction[], over: Partial<St
   return {
     documentId: "doc-1",
     analysisId: "an-1",
+    contentSha256: "sha-1",
     state: "READ",
     method: "TEXT",
     bank: "CAPITEC",

@@ -36,6 +36,15 @@ describe("bureauDebts", () => {
     expect(bureauDebts(obligations)).toEqual([{ name: "SYNTHLEND", monthlyInstalmentCents: 125_000, source: "BUREAU" }])
   })
 
+  it("leaves out closed and settled accounts: they explain no current debit order", () => {
+    const obligations = { accounts: [
+      { subscriber: "SYNTHLEND", instalmentCents: 125_000, status: "ACCOUNT CLOSED" },
+      { subscriber: "OTHERCO", instalmentCents: 50_000, status: "PAID UP" },
+      { subscriber: "THIRDCO", instalmentCents: 10_000, status: "OPEN/CURRENT" },
+    ] }
+    expect(bureauDebts(obligations).map((d) => d.name)).toEqual(["THIRDCO"])
+  })
+
   it("is empty for a check that stored no accounts", () => {
     expect(bureauDebts({ totalMonthly: 1 })).toEqual([])
     expect(bureauDebts(null)).toEqual([])

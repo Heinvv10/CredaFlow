@@ -93,27 +93,51 @@ ALTER TABLE "ApplicationCheckFlag" ADD CONSTRAINT "ApplicationCheckFlag_tenantId
 
 -- A cleared flag names who cleared it, when, and why. The reason must say
 -- something: 15 characters after trimming, the same floor the clear route
--- applies (lib/credit-checks/policy.ts CLEAR_REASON_MIN_LENGTH). An OPEN flag
--- carries no clearance at all, so a reopened flag cannot keep a stale one.
+-- applies (lib/credit-checks/policy.ts CLEAR_REASON_MIN_LENGTH). Any other
+-- status carries no clearance at all.
 ALTER TABLE "ApplicationCheckFlag" ADD CONSTRAINT "ApplicationCheckFlag_clearance_complete" CHECK (
   ("status" <> 'CLEARED' OR ("clearedById" IS NOT NULL AND "clearedAt" IS NOT NULL AND char_length(btrim(coalesce("clearReason", ''))) >= 15))
-  AND ("status" <> 'OPEN' OR ("clearedById" IS NULL AND "clearedAt" IS NULL AND "clearReason" IS NULL))
+  AND ("status" = 'CLEARED' OR ("clearedById" IS NULL AND "clearedAt" IS NULL AND "clearReason" IS NULL))
 );
 
--- An application cannot become APPROVED while one of its credit-check flags is
--- OPEN. The decide route refuses first, with the list of flags; this is the
--- backstop for any other writer.
+-- A flag is a record: it is never deleted, and a clearance never changes.
+-- Only the recompute (OPEN <-> SUPERSEDED) and the clear route (OPEN ->
+-- CLEARED) write flags; nothing else may make one disappear.
+CREATE OR REPLACE FUNCTION public."guardApplicationCheckFlagRecord"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Credit-check flag % cannot be deleted', OLD.id
+      USING ERRCODE = '23514', CONSTRAINT = 'ApplicationCheckFlag_no_delete';
+  END IF;
+  IF OLD.status = 'CLEARED' THEN
+    RAISE EXCEPTION 'Credit-check flag % is cleared and cannot change', OLD.id
+      USING ERRCODE = '23514', CONSTRAINT = 'ApplicationCheckFlag_cleared_immutable';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "ApplicationCheckFlag_guard_record" BEFORE UPDATE OR DELETE ON "ApplicationCheckFlag" FOR EACH ROW EXECUTE FUNCTION "guardApplicationCheckFlagRecord"();
+
+-- An application cannot reach APPROVED (or skip straight to DISBURSED) while
+-- one of its credit-check flags is OPEN. The decide route refuses first, with
+-- the list of flags; this is the backstop for any other writer.
 CREATE OR REPLACE FUNCTION public."guardLoanApplicationOpenCheckFlags"()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
 BEGIN
-  IF NEW.status = 'APPROVED' AND OLD.status IS DISTINCT FROM 'APPROVED' AND EXISTS (
-    SELECT 1 FROM "ApplicationCheckFlag" f
-    WHERE f."applicationId" = NEW.id
-      AND f."tenantId" = NEW."tenantId"
-      AND f.status = 'OPEN'
-  ) THEN
+  IF NEW.status IN ('APPROVED', 'DISBURSED')
+    AND (TG_OP = 'INSERT' OR OLD.status NOT IN ('APPROVED', 'DISBURSED'))
+    AND EXISTS (
+      SELECT 1 FROM "ApplicationCheckFlag" f
+      WHERE f."applicationId" = NEW.id
+        AND f."tenantId" = NEW."tenantId"
+        AND f.status = 'OPEN'
+    ) THEN
     RAISE EXCEPTION 'Application % has open credit-check flags; clear them before approval', NEW.id
       USING ERRCODE = '23514', CONSTRAINT = 'LoanApplication_no_open_check_flags_on_approval';
   END IF;
@@ -124,4 +148,4 @@ $function$;
 -- Named to sort first: Postgres fires same-event triggers in name order, and
 -- an application with open flags should be refused for that reason rather
 -- than for whichever other approval guard happens to run before it.
-CREATE TRIGGER "LoanApplication_a0_guard_open_check_flags" BEFORE UPDATE OF status ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationOpenCheckFlags"();
+CREATE TRIGGER "LoanApplication_a0_guard_open_check_flags" BEFORE INSERT OR UPDATE OF status ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationOpenCheckFlags"();

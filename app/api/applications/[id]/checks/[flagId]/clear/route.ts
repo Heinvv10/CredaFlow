@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
+import type { AppStatus } from "@prisma/client"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
+import { CLEAR_REASON_MAX_LENGTH, CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
 import { RECOMPUTE_STATUSES } from "@/lib/credit-checks/recompute"
 
 /**
@@ -32,14 +33,24 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         { status: 400 },
       )
     }
+    if (reason.length > CLEAR_REASON_MAX_LENGTH) {
+      return NextResponse.json(
+        { error: `Keep the reason under ${CLEAR_REASON_MAX_LENGTH} characters.`, reason: "too_long" },
+        { status: 400 },
+      )
+    }
 
     const outcome = await prisma.$transaction(async (tx) => {
+      // The application row lock a recompute and the approval also take: a
+      // clearance cannot interleave with either, nor land after a decision.
+      const locked = await tx.$queryRaw<Array<{ status: AppStatus }>>`
+        SELECT status FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR UPDATE`
       const flag = await tx.applicationCheckFlag.findFirst({
         where: { id: flagId, tenantId: tenant.id, applicationId: id },
-        include: { application: { select: { status: true } } },
+        select: { id: true, check: true, code: true },
       })
-      if (!flag) return { status: 404 as const, error: "Check not found" }
-      if (!RECOMPUTE_STATUSES.includes(flag.application.status)) {
+      if (!flag || !locked[0]) return { status: 404 as const, error: "Check not found" }
+      if (!RECOMPUTE_STATUSES.includes(locked[0].status)) {
         return { status: 409 as const, error: "The application has been decided; its checks can no longer change." }
       }
       const clearedAt = new Date()

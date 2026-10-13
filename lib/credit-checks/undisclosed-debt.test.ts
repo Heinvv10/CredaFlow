@@ -42,6 +42,37 @@ describe("undisclosedDebt", () => {
     expect(codes(undisclosedDebt(facts({ statements: [lender()], debts })))).toEqual(["UNDISCLOSED_DEBIT_ORDER"])
   })
 
+  it("matches within 10% of the instalment, and not a cent beyond", () => {
+    const debt = (cents: number) => [{ name: "Synthlend Finance", monthlyInstalmentCents: cents, source: "DECLARED" as const }]
+    const debit = (cents: number) => statement([tx("2026-07-01", "DebiCheck Debit: SYNTHLEND FINANCE", -cents)])
+    expect(undisclosedDebt(facts({ statements: [debit(110_000)], debts: debt(100_000) }))).toEqual([])
+    expect(codes(undisclosedDebt(facts({ statements: [debit(110_001)], debts: debt(100_000) })))).toEqual(["UNDISCLOSED_DEBIT_ORDER"])
+  })
+
+  it("uses the median debit, so one odd month does not hide the instalment", () => {
+    const s = statement([
+      tx("2026-07-01", "DebiCheck Debit: SYNTHLEND FINANCE", -100_000),
+      tx("2026-08-01", "DebiCheck Debit: SYNTHLEND FINANCE", -100_000),
+      tx("2026-09-01", "DebiCheck Debit: SYNTHLEND FINANCE", -900_000),
+    ])
+    expect(undisclosedDebt(facts({ statements: [s] }))[0].evidence).toMatchObject({ monthlyCents: 100_000 })
+  })
+
+  it("ignores money from a lender and rows that moved no money", () => {
+    const s = statement([
+      tx("2026-07-03", "Payment Received: SYNTHLEND LOANS", 500_000),
+      tx("2026-08-03", "Payment Received: SYNTHLEND LOANS", 500_000),
+      { ...tx("2026-08-05", "EDO Collection Attempt SYNTHLEND FINANCE", -125_000), nonPosting: true },
+    ])
+    expect(undisclosedDebt(facts({ statements: [s] }))).toEqual([])
+  })
+
+  it("lets a three-letter provider match its own declared debt", () => {
+    const s = statement([tx("2026-07-03", "DebiCheck Debit: MFC 0042", -300_000), tx("2026-08-03", "DebiCheck Debit: MFC 0043", -300_000)])
+    const debts = [{ name: "MFC", monthlyInstalmentCents: 300_000, source: "BUREAU" as const }]
+    expect(undisclosedDebt(facts({ statements: [s], debts }))).toEqual([])
+  })
+
   it("raises for a listed credit provider even without a credit word in the description", () => {
     const s = statement([tx("2026-07-03", "DebiCheck Debit: MOBICRED 1", -40_000), tx("2026-08-03", "DebiCheck Debit: MOBICRED 2", -40_000)])
     expect(codes(undisclosedDebt(facts({ statements: [s] })))).toEqual(["UNDISCLOSED_DEBIT_ORDER"])

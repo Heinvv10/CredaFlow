@@ -63,10 +63,16 @@ suite("recomputeApplicationFlags against Postgres", () => {
 
   afterAll(async () => {
     await prisma.auditLog.deleteMany({ where: { tenantId } })
-    await prisma.applicationCheckFlag.deleteMany({ where: { tenantId } })
+    // Flags are records the database refuses to delete; the test's own rows go with its guard lifted.
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe(`ALTER TABLE "ApplicationCheckFlag" DISABLE TRIGGER "ApplicationCheckFlag_guard_record"`),
+      prisma.$executeRawUnsafe(`DELETE FROM "ApplicationCheckFlag" WHERE "tenantId" = '${tenantId}'`),
+      prisma.$executeRawUnsafe(`ALTER TABLE "ApplicationCheckFlag" ENABLE TRIGGER "ApplicationCheckFlag_guard_record"`),
+    ])
     await prisma.statementAnalysis.deleteMany({ where: { tenantId } })
     await prisma.clientDocument.deleteMany({ where: { tenantId } })
     await prisma.loanApplication.deleteMany({ where: { tenantId } })
+    await prisma.existingDebtObligation.deleteMany({ where: { clientId } })
     await prisma.loanProduct.deleteMany({ where: { tenantId } })
     await prisma.client.deleteMany({ where: { tenantId } })
     await prisma.user.deleteMany({ where: { tenantId } })
@@ -77,7 +83,7 @@ suite("recomputeApplicationFlags against Postgres", () => {
   it("reads the statement once, persists the read, and raises its flags", async () => {
     const result = await recomputeApplicationFlags(tenantId, appId, { userId })
     expect(result?.recomputed).toBe(true)
-    expect(await openCodes()).toEqual(["GAMBLING", "PAYDAY_LENDER", "RETURNED_DEBIT", "UNDISCLOSED_DEBIT_ORDER"])
+    expect(await openCodes()).toEqual(["GAMBLING", "NO_PAYSLIP", "PAYDAY_LENDER", "RETURNED_DEBIT", "UNDISCLOSED_DEBIT_ORDER"])
 
     const reads = await prisma.statementAnalysis.findMany({ where: { tenantId, clientDocumentId: docId } })
     expect(reads).toHaveLength(1)
@@ -93,12 +99,12 @@ suite("recomputeApplicationFlags against Postgres", () => {
     const before = await prisma.applicationCheckFlag.findMany({ where: { tenantId }, orderBy: { id: "asc" } })
     await recomputeApplicationFlags(tenantId, appId, { userId })
     const after = await prisma.applicationCheckFlag.findMany({ where: { tenantId }, orderBy: { id: "asc" } })
-    expect(after.map((f) => [f.id, f.status, f.fingerprint])).toEqual(before.map((f) => [f.id, f.status, f.fingerprint]))
+    expect(after.map((f) => [f.id, f.status, f.fingerprint, f.updatedAt.getTime()])).toEqual(before.map((f) => [f.id, f.status, f.fingerprint, f.updatedAt.getTime()]))
     expect(await prisma.statementAnalysis.count({ where: { tenantId } })).toBe(1)
     expect(await prisma.auditLog.count({ where: { tenantId, action: "CREDIT_CHECKS_RECOMPUTED" } })).toBe(1)
   })
 
-  it("keeps a cleared flag cleared, and supersedes open flags whose statement is gone", async () => {
+  it("keeps a cleared flag cleared through every later recompute", async () => {
     const gambling = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { tenantId, applicationId: appId, code: "GAMBLING" } })
     await prisma.applicationCheckFlag.update({
       where: { id: gambling.id, tenantId },
@@ -106,19 +112,57 @@ suite("recomputeApplicationFlags against Postgres", () => {
     })
     await recomputeApplicationFlags(tenantId, appId, { userId })
     expect((await prisma.applicationCheckFlag.findFirstOrThrow({ where: { id: gambling.id, tenantId } })).status).toBe("CLEARED")
+  })
 
+  it("does not let an edited client record make an open flag disappear", async () => {
+    // Declaring the debt the statement shows makes the finding stop being
+    // raised; only an officer may close it.
+    await prisma.existingDebtObligation.create({
+      data: { clientId, creditProvider: "Synthlend Finance", accountType: "PERSONAL_LOAN", outstandingBalance: 1_000_000, monthlyInstalment: 125_000 },
+    })
+    await recomputeApplicationFlags(tenantId, appId, { userId })
+    expect(await openCodes()).toContain("UNDISCLOSED_DEBIT_ORDER")
+  })
+
+  it("does not let a deleted statement make its open flags disappear, and says a statement is missing", async () => {
     await prisma.clientDocument.update({ where: { id: docId, tenantId }, data: { deletedAt: new Date() } })
     await recomputeApplicationFlags(tenantId, appId, { userId })
-    expect(await openCodes()).toEqual(["NO_STATEMENT"])
-    const statuses = await prisma.applicationCheckFlag.groupBy({ by: ["status"], where: { tenantId }, _count: true })
-    expect(Object.fromEntries(statuses.map((s) => [s.status, s._count]))).toEqual({ OPEN: 1, CLEARED: 1, SUPERSEDED: 3 })
+    // NO_PAYSLIP is only asked of an application with statements; it is about absent evidence, so it may go.
+    expect(await openCodes()).toEqual(["NO_STATEMENT", "PAYDAY_LENDER", "RETURNED_DEBIT", "UNDISCLOSED_DEBIT_ORDER"])
+  })
+
+  it("supersedes a missing-evidence flag when the evidence returns, and reopens one raised again", async () => {
+    const noPayslip = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { tenantId, applicationId: appId, code: "NO_PAYSLIP" } })
+    expect(noPayslip.status).toBe("SUPERSEDED")
+    await prisma.clientDocument.update({ where: { id: docId, tenantId }, data: { deletedAt: null } })
+    await recomputeApplicationFlags(tenantId, appId, { userId })
+    expect(await openCodes()).toEqual(["NO_PAYSLIP", "PAYDAY_LENDER", "RETURNED_DEBIT", "UNDISCLOSED_DEBIT_ORDER"])
+    const reopened = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { id: noPayslip.id, tenantId } })
+    expect(reopened).toMatchObject({ status: "OPEN", clearedById: null, clearReason: null })
+    expect((await prisma.applicationCheckFlag.findFirstOrThrow({ where: { tenantId, applicationId: appId, code: "NO_STATEMENT" } })).status).toBe("SUPERSEDED")
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { tenantId, action: "CREDIT_CHECKS_RECOMPUTED" }, orderBy: { createdAt: "desc" } })
+    expect(audit.newValue).toMatchObject({ reopened: [`NO_PAYSLIP:${noPayslip.id}`], superseded: [expect.stringMatching(/^NO_STATEMENT:/)] })
+  })
+
+  it("does not read a statement the client uploaded without POPIA consent", async () => {
+    const otherDoc = `${docId}_portal`
+    await prisma.clientDocument.create({
+      data: {
+        id: otherDoc, tenantId, clientId, docType: "BANK_STATEMENT", fileUrl: "", fileName: "portal.pdf",
+        mimeType: "application/pdf", storagePath: join(dir, "statement.pdf"), uploadedByType: "client", extractionStatus: "skipped",
+      },
+    })
+    await recomputeApplicationFlags(tenantId, appId, { userId })
+    expect(await openCodes()).toContain("NOT_READ_NO_CONSENT")
+    expect(await prisma.statementAnalysis.count({ where: { tenantId, clientDocumentId: otherDoc } })).toBe(0)
   })
 
   it("does not recompute a decided application", async () => {
+    const before = await openCodes()
     await prisma.loanApplication.update({ where: { id: appId, tenantId }, data: { status: "DECLINED", decisionReason: "Test" } })
-    await prisma.clientDocument.update({ where: { id: docId, tenantId }, data: { deletedAt: null } })
+    await prisma.clientDocument.update({ where: { id: docId, tenantId }, data: { deletedAt: new Date() } })
     const result = await recomputeApplicationFlags(tenantId, appId, { userId })
     expect(result?.recomputed).toBe(false)
-    expect(await openCodes()).toEqual(["NO_STATEMENT"])
+    expect(await openCodes()).toEqual(before)
   })
 })

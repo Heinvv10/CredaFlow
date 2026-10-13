@@ -45,6 +45,26 @@ describe("documentAuthenticity", () => {
     expect(codes(documentAuthenticity(facts({ statements: [s] })))).toEqual(["PRODUCER_UNEXPECTED"])
   })
 
+  it("requires a Capitec original to carry no creator at all, and FNB's to name its own", () => {
+    const capitec = clean()
+    capitec.authenticity!.creator = "Microsoft Word"
+    expect(codes(documentAuthenticity(facts({ statements: [capitec] })))).toEqual(["PRODUCER_UNEXPECTED"])
+    const fnb = clean()
+    fnb.bank = "FNB"
+    fnb.authenticity!.producer = "Compart MFFPDF I/O Filter 2023-09-19 11:31:13"
+    fnb.authenticity!.creator = "Compart Docponent API (202310-STABLE)"
+    expect(documentAuthenticity(facts({ statements: [fnb] }))).toEqual([])
+    fnb.authenticity!.creator = "Microsoft Word"
+    expect(codes(documentAuthenticity(facts({ statements: [fnb] })))).toEqual(["PRODUCER_UNEXPECTED"])
+  })
+
+  it("does not producer-check a scan: the scanner wrote that file", () => {
+    const s = clean()
+    s.authenticity!.producer = "SomeScanner 1.0"
+    s.authenticity!.signals = ["TEXT_LAYER_ABSENT"]
+    expect(documentAuthenticity(facts({ statements: [s] }))).toEqual([])
+  })
+
   it("does not producer-check a bank with no allow-list", () => {
     const s = clean()
     s.bank = "NEDBANK"

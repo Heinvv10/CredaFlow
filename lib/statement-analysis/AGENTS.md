@@ -30,8 +30,16 @@ one `StatementAnalysis` per (bytes, `PARSER_VERSION`). The credit checks
   overdrawn. "EDO Collection Attempt" rows print an amount but move no money
   (`nonPosting`). FNB rows are read from word boxes (`pdftotext -bbox`): its
   proportional font makes `-layout` columns drift.
-- **Intake decryption rewrites the file** (`lib/documents/pdf-decrypt.ts`), so a
-  user-password statement loses its incremental-update history before we see it.
+- **Intake decryption rewrites the file** (`lib/documents/pdf-decrypt.ts`),
+  erasing appended revisions: the upload route records the original's count
+  on the DOCUMENT_DECRYPTED_AT_INTAKE audit row and `persist.ts` reads it.
+- **A read that fails is persisted** as UNREADABLE (signal READ_FAILED), never
+  thrown into a staff request; it is not retried until `PARSER_VERSION` moves.
+- **Hostile-file bounds:** poppler runs async, pdfinfo before any text pass,
+  text only up to `TEXT_MAX_PAGES`, Capitec lines over 400 chars skipped,
+  amounts above `MAX_CENTS` refused, implausible periods dropped, duplicate
+  pdfinfo fields distrusted (METADATA_AMBIGUOUS), one background vision read
+  at a time per process.
 
 ## Corpus (real client data)
 - Off-repo at `STATEMENT_CORPUS_DIR`; runner in `accuracy/` (README there).

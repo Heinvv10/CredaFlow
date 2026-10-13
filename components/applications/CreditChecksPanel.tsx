@@ -5,46 +5,19 @@ import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { CLEAR_REASON_MAX_LENGTH, CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
+import type { FlagView as ServerFlagView } from "@/lib/credit-checks/evidence"
 
-type CheckKind =
-  | "DOCUMENT_AUTHENTICITY"
-  | "SALARY_MATCH"
-  | "UNDISCLOSED_DEBT"
-  | "RISK_BEHAVIOUR"
-  | "MANUAL_REVIEW"
-
-interface FlagRow {
-  index: number
-  date: string
-  description: string
-  amountCents: number
-  balanceCents: number | null
-  page: number
-}
-
-interface FlagView {
-  id: string
-  check: CheckKind
-  code: string
-  status: "OPEN" | "CLEARED"
-  summary: string
-  raisedAt: string
-  clearedAt: string | null
-  clearReason: string | null
-  clearedByName: string | null
-  documentId: string | null
-  documentName: string | null
-  pages: number[]
-  rows: FlagRow[]
-}
+type FlagView = Omit<ServerFlagView, "status"> & { status: "OPEN" | "CLEARED" | "SUPERSEDED" }
+type CheckKind = FlagView["check"]
 
 interface Props {
   applicationId: string
   canClear: boolean
   initialOpenCount: number
+  /** A LOAN_ADMIN whose session did not verify two-factor authentication: say why Clear is missing. */
+  needsTotp?: boolean
 }
-
-const MIN_REASON = 15
 
 const GROUPS: Array<{ check: CheckKind; heading: string }> = [
   { check: "DOCUMENT_AUTHENTICITY", heading: "Document authenticity" },
@@ -107,17 +80,19 @@ function ClearForm({ applicationId, flagId, onDone }: {
   return (
     <div className="mt-2 space-y-2">
       <Textarea
+        autoFocus
         rows={2}
+        maxLength={CLEAR_REASON_MAX_LENGTH}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         placeholder="Why is this check being cleared? (min 15 characters)"
       />
-      <p className="text-xs text-[var(--cf-text-muted)]">{length} / {MIN_REASON} characters minimum</p>
+      <p className="text-xs text-[var(--cf-text-muted)]">{length} / {CLEAR_REASON_MIN_LENGTH} characters minimum</p>
       {error && (
         <p role="alert" className="text-sm text-[var(--cf-danger)]">{error}</p>
       )}
       <div className="flex gap-2">
-        <Button size="sm" onClick={submit} disabled={length < MIN_REASON || busy}>Confirm clear</Button>
+        <Button size="sm" onClick={submit} disabled={length < CLEAR_REASON_MIN_LENGTH || busy}>Confirm clear</Button>
         <Button size="sm" variant="outline" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
       </div>
     </div>
@@ -173,12 +148,17 @@ function Evidence({ flag }: { flag: FlagView }) {
   )
 }
 
-export function CreditChecksPanel({ applicationId, canClear, initialOpenCount }: Props) {
+const sastDate = (iso: string) => new Date(iso).toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg" })
+
+export function CreditChecksPanel({ applicationId, canClear, initialOpenCount, needsTotp = false }: Props) {
   const router = useRouter()
   const [flags, setFlags] = useState<FlagView[] | null>(null)
   const [openCount, setOpenCount] = useState(initialOpenCount)
   const [error, setError] = useState<string | null>(null)
   const refreshedOnce = useRef(false)
+  // Read through a ref so the server refresh below does not refire the fetch:
+  // each fetch recomputes and logs a document access.
+  const initialOpen = useRef(initialOpenCount)
 
   const load = useCallback(async () => {
     let next: { openCount: number; flags: FlagView[] } | string
@@ -198,11 +178,11 @@ export function CreditChecksPanel({ applicationId, canClear, initialOpenCount }:
     setError(null)
     setFlags(next.flags)
     setOpenCount(next.openCount)
-    if (!refreshedOnce.current && next.openCount !== initialOpenCount) {
+    if (!refreshedOnce.current && next.openCount !== initialOpen.current) {
       refreshedOnce.current = true
       router.refresh()
     }
-  }, [applicationId, initialOpenCount, router])
+  }, [applicationId, router])
 
   useEffect(() => {
     // Fetch-on-mount: the state is set after the request resolves.
@@ -225,6 +205,11 @@ export function CreditChecksPanel({ applicationId, canClear, initialOpenCount }:
         <span className="text-xs text-[var(--cf-text-muted)]">{openCount} open</span>
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-[var(--cf-danger)]">{error}</p>}
+      {needsTotp && openCount > 0 && (
+        <p className="mt-3 text-xs text-[var(--cf-text-muted)]">
+          Clearing a check needs a session signed in with two-factor authentication.
+        </p>
+      )}
       {!error && flags === null && (
         <p role="status" className="mt-3 text-sm text-[var(--cf-text-muted)]">Loading credit checks...</p>
       )}
@@ -245,8 +230,8 @@ export function CreditChecksPanel({ applicationId, canClear, initialOpenCount }:
                   className="rounded-md border border-[var(--cf-border-subtle)] p-3"
                 >
                   <div className="flex items-center gap-2">
-                    <Badge variant={flag.status === "OPEN" ? "warning" : "success"}>
-                      {flag.status === "OPEN" ? "Open" : "Cleared"}
+                    <Badge variant={flag.status === "OPEN" ? "warning" : flag.status === "CLEARED" ? "success" : "secondary"}>
+                      {flag.status === "OPEN" ? "Open" : flag.status === "CLEARED" ? "Cleared" : "Superseded"}
                     </Badge>
                     <span className="font-mono text-xs text-[var(--cf-text-muted)]">{flag.code}</span>
                   </div>
@@ -255,7 +240,7 @@ export function CreditChecksPanel({ applicationId, canClear, initialOpenCount }:
                   {flag.status === "CLEARED" && (
                     <p className="mt-2 text-xs text-[var(--cf-text-secondary)]">
                       Cleared by {flag.clearedByName ?? "unknown"}
-                      {flag.clearedAt ? ` on ${flag.clearedAt.slice(0, 10)}` : ""}: {flag.clearReason}
+                      {flag.clearedAt ? ` on ${sastDate(flag.clearedAt)}` : ""}: {flag.clearReason}
                     </p>
                   )}
                   {flag.status === "OPEN" && canClear && (

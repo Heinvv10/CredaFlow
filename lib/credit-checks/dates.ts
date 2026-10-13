@@ -6,10 +6,6 @@ export function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-export function daysBetween(a: string, b: string): number {
-  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000)
-}
-
 /** YYYY-MM of each calendar month the range touches. */
 export function monthsCovered(start: string, end: string): string[] {
   const out: string[] = []
