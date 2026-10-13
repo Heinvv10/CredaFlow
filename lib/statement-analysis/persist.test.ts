@@ -12,7 +12,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     clientDocument: { findFirst: vi.fn() },
     statementAnalysis: { findFirst: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
-    auditLog: { findFirst: vi.fn() },
+    auditLog: { findFirst: vi.fn(), create: vi.fn() },
+    $transaction: vi.fn(),
   },
 }))
 vi.mock("@/lib/storage", () => ({ readFile: vi.fn() }))
@@ -60,6 +61,7 @@ beforeEach(() => {
   saCreate.mockImplementation((async (args: { data: unknown }) => ({ id: "row-1", ...(args.data as object) })) as never)
   auditFind.mockResolvedValue(null)
   readFileMock.mockResolvedValue(BYTES)
+  vi.mocked(prisma.$transaction).mockImplementation((async (cb: (tx: typeof prisma) => Promise<unknown>) => cb(prisma)) as never)
   analyse.mockResolvedValue(analysed())
 })
 
@@ -251,8 +253,12 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
   it("retryFailed discards a READ_FAILED read and reads again; anything else stays cached", async () => {
     docFind.mockResolvedValue(doc({ contentSha256: BYTES_SHA }) as never)
     saFind.mockResolvedValueOnce(stored(["READ_FAILED"]) as never)
-    await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: true, retryFailed: true })
+    await ensureStatementAnalysis({ tenantId: TENANT, documentId: DOC, allowVlm: true, retryFailed: true, actorUserId: "officer-1" })
     expect(prisma.statementAnalysis.deleteMany).toHaveBeenCalledWith({ where: { id: "row-old", tenantId: TENANT } })
+    // Discarding a stored read is audited, naming who asked.
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ tenantId: TENANT, userId: "officer-1", action: "STATEMENT_READ_RETRIED", entity: "StatementAnalysis", entityId: "row-old" }),
+    })
     expect(analyse).toHaveBeenCalled()
 
     vi.mocked(analyse).mockClear()
@@ -273,6 +279,15 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
     const onRead = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-onread", { onRead })
     await vi.waitFor(() => expect(onRead).toHaveBeenCalledTimes(1))
+  })
+
+  it("carries a retry asked for while the document already waits onto that run", async () => {
+    docFind.mockResolvedValue(doc({ id: "doc-retry", contentSha256: BYTES_SHA }) as never)
+    saFind.mockResolvedValue({ id: "row-failed", status: "UNREADABLE", authenticity: { signals: ["READ_FAILED"] } } as never)
+    // The first call queues a plain read; the second, while it waits, asks for a retry.
+    readStatementInBackground(TENANT, "doc-retry")
+    readStatementInBackground(TENANT, "doc-retry", { retryFailed: true, actorUserId: "officer-1" })
+    await vi.waitFor(() => expect(prisma.statementAnalysis.deleteMany).toHaveBeenCalledWith({ where: { id: "row-failed", tenantId: TENANT } }))
   })
 })
 

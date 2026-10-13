@@ -9,7 +9,7 @@
 import { Prisma, type StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
-import { AuditAction } from "@/lib/audit"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { analyseStatement, PARSER_VERSION, type StatementAnalysisResult } from "./analyse"
 import { VlmUnavailableError } from "./vlm-reader"
@@ -27,6 +27,8 @@ export interface EnsureOptions {
   persistedOnly?: boolean
   /** Re-extract: a stored READ_FAILED read is discarded and the file read again. */
   retryFailed?: boolean
+  /** Who asked for the retry: named on the audit row of the discarded read. */
+  actorUserId?: string
 }
 
 export type EnsureResult =
@@ -83,6 +85,21 @@ function failedRead(a: StatementAnalysis): boolean {
   return a.status === "UNREADABLE" && ((a.authenticity as { signals?: unknown } | null)?.signals as string[] | undefined)?.includes("READ_FAILED") === true
 }
 
+/** Deleting a stored read is a state change: it is audited, with the read it removed. */
+async function discardFailedRead(read: StatementAnalysis, opts: EnsureOptions): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.statementAnalysis.deleteMany({ where: { id: read.id, tenantId: opts.tenantId } })
+    await logAuditStrict({
+      tenantId: opts.tenantId,
+      userId: opts.actorUserId,
+      action: AuditAction.STATEMENT_READ_RETRIED,
+      entity: "StatementAnalysis",
+      entityId: read.id,
+      oldValue: { documentId: read.clientDocumentId, status: read.status, contentSha256: read.contentSha256, parserVersion: read.parserVersion },
+    }, tx)
+  })
+}
+
 function findRead(tenantId: string, documentId: string, sha: string) {
   return prisma.statementAnalysis.findFirst({
     where: { tenantId, clientDocumentId: documentId, contentSha256: sha, parserVersion: PARSER_VERSION },
@@ -99,7 +116,7 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
 
   const claimed = doc.contentSha256 ? await findRead(opts.tenantId, doc.id, doc.contentSha256) : null
   if (claimed && opts.retryFailed && failedRead(claimed)) {
-    await prisma.statementAnalysis.deleteMany({ where: { id: claimed.id, tenantId: opts.tenantId } })
+    await discardFailedRead(claimed, opts)
   } else if (claimed) {
     return { state: "read", analysis: claimed }
   }
@@ -123,7 +140,7 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
   const sha = sha256DocumentBytes(bytes)
   const existing = sha !== doc.contentSha256 ? await findRead(opts.tenantId, doc.id, sha) : null
   if (existing && opts.retryFailed && failedRead(existing)) {
-    await prisma.statementAnalysis.deleteMany({ where: { id: existing.id, tenantId: opts.tenantId } })
+    await discardFailedRead(existing, opts)
   } else if (existing) {
     return { state: "read", analysis: existing }
   }
@@ -170,6 +187,8 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
 // the shared vision model. A document already queued is not queued twice.
 let queue: Promise<unknown> = Promise.resolve()
 const queued = new Set<string>()
+/** A retry asked for while the document already waits is carried onto that run, not dropped. */
+const retryAsked = new Map<string, string | undefined>()
 
 /**
  * Fire-and-forget read for the upload and re-extract paths. `onRead` runs
@@ -179,13 +198,17 @@ const queued = new Set<string>()
 export function readStatementInBackground(
   tenantId: string,
   documentId: string,
-  opts: { retryFailed?: boolean; onRead?: () => Promise<unknown> } = {},
+  opts: { retryFailed?: boolean; actorUserId?: string; onRead?: () => Promise<unknown> } = {},
 ): void {
+  if (opts.retryFailed) retryAsked.set(documentId, opts.actorUserId)
   if (queued.has(documentId)) return
   queued.add(documentId)
   queue = queue
     .then(async () => {
-      const r = await ensureStatementAnalysis({ tenantId, documentId, allowVlm: true, retryFailed: opts.retryFailed })
+      const retry = retryAsked.has(documentId)
+      const actorUserId = retryAsked.get(documentId)
+      retryAsked.delete(documentId)
+      const r = await ensureStatementAnalysis({ tenantId, documentId, allowVlm: true, retryFailed: retry, actorUserId })
       if (r.state === "read" && opts.onRead) await opts.onRead()
     })
     .catch((err) => {

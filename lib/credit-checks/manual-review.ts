@@ -64,7 +64,9 @@ function review(s: StatementFacts): FlagCandidate[] {
     out.push({
       ...base,
       code: "AUTHENTICITY_UNCHECKED",
-      summary: "This statement is a photo, a scan, an unrecognised layout or from a bank without a known PDF profile, so its authenticity could not be checked automatically. Compare it with the bank's original.",
+      summary: signals.includes("METADATA_AMBIGUOUS")
+        ? "The PDF's metadata contradicts itself (a field appears twice), so its authenticity could not be checked. Treat it as possibly altered and compare it with the bank's original."
+        : "This statement is a photo, a scan, an unrecognised layout or from a bank without a known PDF profile, so its authenticity could not be checked automatically. Compare it with the bank's original.",
       evidence: { ...evidence, signals, bank: s.bank },
     })
   }
@@ -79,7 +81,7 @@ export function manualReview(f: ApplicationFacts): FlagCandidate[] {
   const out: FlagCandidate[] = f.statements.length === 0
     ? [{ check: "MANUAL_REVIEW", code: "NO_STATEMENT", key: f.applicationId, summary: "No recent bank statement is on file for this application.", evidence: {} }]
     : f.statements.flatMap(review)
-  if (f.statements.length > 0 && !f.payslip) {
+  if (f.statements.length > 0 && !f.payslip && f.unreadPayslipIds.length === 0) {
     out.push({
       check: "MANUAL_REVIEW",
       code: "NO_PAYSLIP",
@@ -88,6 +90,7 @@ export function manualReview(f: ApplicationFacts): FlagCandidate[] {
       evidence: {},
     })
   }
+  out.push(...each(f.unreadPayslipIds, "PAYSLIP_NOT_READ", "A payslip is on file but its figures were not extracted (extraction failed, was skipped for lack of consent, or is still running). Read it by hand.", "payslipDocumentId"))
   out.push(...each(f.deletedStatementIds, "STATEMENT_DELETED", "A bank statement read for this client was later deleted. Review what it showed before deciding."))
   out.push(...each(f.deletedPayslipIds, "PAYSLIP_DELETED", "A payslip extracted for this client was later deleted. Review what it showed before deciding.", "payslipDocumentId"))
   out.push(...each(f.priorOpenFlagApplicationIds, "PRIOR_OPEN_FLAGS", "The client has a cancelled application from the same period with credit checks still open. Review them before deciding on this one.", "applicationId"))

@@ -243,6 +243,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         readStatementInBackground(tenant.id, start.doc.id, {
           // Discarding a failed read is for credit staff, not every staff role.
           retryFailed: hasMinRole(caller.role, "CREDIT_OFFICER"),
+          actorUserId: caller.userId,
           onRead: () => recomputeClientApplications(tenant.id, clientId),
         })
       }

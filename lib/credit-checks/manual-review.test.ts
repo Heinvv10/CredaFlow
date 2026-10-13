@@ -104,5 +104,16 @@ describe("manualReview", () => {
     expect(codes(out)).toEqual(["PAYSLIP_DELETED", "PRIOR_OPEN_FLAGS"])
     expect(out.find((c) => c.code === "PRIOR_OPEN_FLAGS")!.evidence).toEqual({ applicationId: "app-cancelled" })
   })
+
+  it("raises PAYSLIP_NOT_READ for a payslip on file that was not extracted, in place of NO_PAYSLIP", () => {
+    const out = manualReview(facts({ unreadPayslipIds: ["slip-failed"] }))
+    expect(codes(out)).toEqual(["PAYSLIP_NOT_READ"])
+    expect(out[0].evidence).toEqual({ payslipDocumentId: "slip-failed" })
+  })
+
+  it("says contradictory metadata may mean an altered file, on a statement that was read too", () => {
+    const s = statement([], { authenticity: { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: ["METADATA_AMBIGUOUS"] } })
+    expect(manualReview(withSlip({ statements: [s] }))[0].summary).toContain("possibly altered")
+  })
 })
 

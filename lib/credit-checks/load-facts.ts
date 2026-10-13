@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
 import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/lib/statement-analysis/types"
 import { PAYSLIP_MONEY_FIELDS, type ExtractedFields } from "@/lib/vlm-extract"
+import { areNamesSimilar } from "@/lib/ocr/name-matching"
 import { STATEMENT_UPLOAD_LOOKBACK_DAYS } from "./policy"
 import type { ApplicationFacts, DebtFacts, PayslipFacts, StatementFacts } from "./types"
 
@@ -38,14 +39,33 @@ export function statementFacts(documentId: string, a: StatementAnalysis): Statem
   }
 }
 
-export function payslipFacts(documentId: string, extraction: unknown, validationMismatch: boolean): PayslipFacts {
+export interface ClientIdentity {
+  fullName: string
+  idNumber: string | null
+}
+
+/**
+ * Whether the payslip is the client's: the employee ID number printed on it,
+ * or failing that the employee name, against the client record. The upload
+ * validator only warns on a payslip, so this check is the one that decides.
+ * Neither readable means it is not confirmed — fail closed.
+ */
+export function payslipNamesClient(fields: ExtractedFields, client: ClientIdentity): boolean {
+  const digits = (v: unknown) => (typeof v === "string" ? v.replace(/\D/g, "") : "")
+  const printedId = digits(fields.employeeIdNumber?.value)
+  if (printedId.length === 13) return printedId === digits(client.idNumber)
+  const printedName = fields.employeeName?.value
+  return typeof printedName === "string" && printedName.trim() !== "" && areNamesSimilar(printedName, client.fullName)
+}
+
+export function payslipFacts(documentId: string, extraction: unknown, validationMismatch: boolean, client: ClientIdentity): PayslipFacts {
   const fields = (extraction ?? {}) as ExtractedFields
   const net = fields.netIncome?.value
   const payDate = fields.payDate?.value
   return {
     documentId,
     validated: PAYSLIP_MONEY_FIELDS.every((k) => fields[k]?.validated === true),
-    matchesClient: !validationMismatch,
+    matchesClient: !validationMismatch && payslipNamesClient(fields, client),
     netPayCents: typeof net === "number" && Number.isFinite(net) ? net : null,
     payDate: typeof payDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : null,
   }
@@ -79,41 +99,45 @@ export async function loadApplicationFacts(
   tenantId: string,
   applicationId: string,
   opts: LoadOptions = {},
-): Promise<{ facts: ApplicationFacts; status: AppStatus } | null> {
+): Promise<{ facts: ApplicationFacts; status: AppStatus; payslipIds: string[]; since: Date } | null> {
   const app = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId },
     select: {
       id: true, status: true, clientId: true, submittedAt: true, createdAt: true,
-      client: { select: { firstName: true, lastName: true, monthlyIncome: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
+      client: { select: { firstName: true, lastName: true, idNumber: true, monthlyIncome: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
     },
   })
   if (!app) return null
   const applicationDate = isoDay(app.submittedAt ?? app.createdAt)!
   const since = new Date(app.createdAt.getTime() - STATEMENT_UPLOAD_LOOKBACK_DAYS * 86_400_000)
+  // A document deleted recently counts however long ago it was uploaded: waiting
+  // out the window and then deleting must not hide what it showed.
+  const deletedInWindow = { deletedAt: { not: null }, OR: [{ createdAt: { gte: since } }, { deletedAt: { gte: since } }] }
+  const identity: ClientIdentity = { fullName: `${app.client.firstName} ${app.client.lastName}`, idNumber: app.client.idNumber }
 
-  const [docs, deleted, slips, deletedSlips, cancelled, bureau] = await Promise.all([
+  const [docs, deleted, payslipDocs, deletedSlips, priorFlagged, bureau] = await Promise.all([
     prisma.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
       select: { id: true, uploadedByType: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.clientDocument.findMany({
-      where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", deletedAt: { not: null }, createdAt: { gte: since }, statementAnalyses: { some: {} } },
+      where: { tenantId, clientId: app.clientId, docType: "BANK_STATEMENT", ...deletedInWindow, statementAnalyses: { some: {} } },
       select: { id: true },
     }),
     prisma.clientDocument.findMany({
-      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, extractionStatus: "done", createdAt: { gte: since } },
-      select: { id: true, extractionResult: true, validationMismatch: true },
+      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, createdAt: { gte: since } },
+      select: { id: true, extractionStatus: true, extractionResult: true, validationMismatch: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.clientDocument.findMany({
-      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: { not: null }, extractionStatus: "done", createdAt: { gte: since } },
+      where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", ...deletedInWindow },
       select: { id: true },
     }),
-    // Cancelling an application and starting another must not leave its open
-    // findings behind where no one looks.
+    // Starting another application — cancelling, declining or abandoning this
+    // one, however long ago — must not leave its open findings where no one looks.
     prisma.loanApplication.findMany({
-      where: { tenantId, clientId: app.clientId, id: { not: applicationId }, status: "CANCELLED", createdAt: { gte: since }, checkFlags: { some: { status: "OPEN" } } },
+      where: { tenantId, clientId: app.clientId, id: { not: applicationId }, checkFlags: { some: { status: "OPEN" } } },
       select: { id: true },
     }),
     prisma.creditBureauCheck.findFirst({
@@ -145,8 +169,9 @@ export async function loadApplicationFacts(
     }
   }
 
-  const slip = slips[0]
-  const payslip = slip ? payslipFacts(slip.id, slip.extractionResult, slip.validationMismatch) : null
+  const slips = payslipDocs.filter((d) => d.extractionStatus === "done")
+  const slipFacts = slips.map((d) => payslipFacts(d.id, d.extractionResult, d.validationMismatch, identity))
+  const payslip = slipFacts[0] ?? null
   // The lower of the payslip and the declared income: a payslip can only make
   // the income-relative checks stricter, never looser.
   const declared = app.client.monthlyIncome > 0 ? app.client.monthlyIncome : null
@@ -158,6 +183,8 @@ export async function loadApplicationFacts(
   ]
   return {
     status: app.status,
+    payslipIds: slips.map((d) => d.id),
+    since,
     facts: {
       applicationId: app.id,
       applicationDate,
@@ -165,9 +192,10 @@ export async function loadApplicationFacts(
       monthlyIncomeCents: income,
       statements,
       deletedStatementIds: deleted.map((d) => d.id),
-      mismatchedPayslipIds: slips.filter((s) => s.validationMismatch).map((s) => s.id),
+      mismatchedPayslipIds: slipFacts.filter((s) => !s.matchesClient).map((s) => s.documentId),
+      unreadPayslipIds: payslipDocs.filter((d) => d.extractionStatus !== "done").map((d) => d.id),
       deletedPayslipIds: deletedSlips.map((d) => d.id),
-      priorOpenFlagApplicationIds: cancelled.map((a) => a.id),
+      priorOpenFlagApplicationIds: priorFlagged.map((a) => a.id),
       payslip,
       debts,
     },

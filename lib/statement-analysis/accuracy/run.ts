@@ -52,6 +52,7 @@ export function outcomeOf(id: string, r: StatementAnalysisResult): Outcome {
     debts: [],
     deletedStatementIds: [],
     mismatchedPayslipIds: [],
+    unreadPayslipIds: [],
     deletedPayslipIds: [],
     priorOpenFlagApplicationIds: [],
     statements: [{

@@ -25,6 +25,7 @@ import { loadApplicationFacts } from "./load-facts"
 const slipFields = (net: number) => ({
   grossIncome: { value: net + 100_000, validated: true }, totalDeductions: { value: 100_000, validated: true },
   netIncome: { value: net, validated: true }, payDate: { value: "2026-09-25", validated: true },
+  employeeIdNumber: { value: "9001015000080", validated: true },
 })
 
 type Where = { docType?: string; deletedAt?: unknown }
@@ -40,7 +41,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   appFind.mockResolvedValue({
     id: "app-1", status: "UNDER_REVIEW", clientId: "client-1", submittedAt: null, createdAt: new Date("2026-10-05T08:00:00Z"),
-    client: { firstName: "Thabo", lastName: "Tester", monthlyIncome: 1_800_000, popiaConsentGiven: false, debtObligations: [] },
+    client: { firstName: "Thabo", lastName: "Tester", idNumber: "9001015000080", monthlyIncome: 1_800_000, popiaConsentGiven: false, debtObligations: [] },
   })
   appFindMany.mockResolvedValue([])
   bureauFind.mockResolvedValue(null)
@@ -49,20 +50,27 @@ beforeEach(() => {
 
 describe("loadApplicationFacts", () => {
   it("takes the lower of the payslip's net pay and the declared income", async () => {
-    documents({ payslips: [{ id: "slip-1", extractionResult: slipFields(2_500_000), validationMismatch: false }] })
+    documents({ payslips: [{ id: "slip-1", extractionStatus: "done", extractionResult: slipFields(2_500_000), validationMismatch: false }] })
     expect((await loadApplicationFacts("t1", "app-1"))!.facts.monthlyIncomeCents).toBe(1_800_000)
-    documents({ payslips: [{ id: "slip-1", extractionResult: slipFields(1_500_000), validationMismatch: false }] })
+    documents({ payslips: [{ id: "slip-1", extractionStatus: "done", extractionResult: slipFields(1_500_000), validationMismatch: false }] })
     expect((await loadApplicationFacts("t1", "app-1"))!.facts.monthlyIncomeCents).toBe(1_500_000)
   })
 
   it("ignores a payslip that names someone else for income, and lists every mismatched payslip", async () => {
+    const stranger = { ...slipFields(900_000), employeeIdNumber: { value: "8501015000081", validated: true } }
     documents({ payslips: [
-      { id: "slip-new", extractionResult: slipFields(9_000_000), validationMismatch: true },
-      { id: "slip-old", extractionResult: slipFields(9_000_000), validationMismatch: true },
+      { id: "slip-new", extractionStatus: "done", extractionResult: stranger, validationMismatch: false },
+      { id: "slip-old", extractionStatus: "done", extractionResult: slipFields(9_000_000), validationMismatch: true },
     ] })
     const { facts } = (await loadApplicationFacts("t1", "app-1"))!
     expect(facts.monthlyIncomeCents).toBe(1_800_000)
     expect(facts.mismatchedPayslipIds).toEqual(["slip-new", "slip-old"])
+  })
+
+  it("lists payslips on file that were not extracted, and does not use them", async () => {
+    documents({ payslips: [{ id: "slip-failed", extractionStatus: "failed", extractionResult: null, validationMismatch: false }] })
+    const { facts } = (await loadApplicationFacts("t1", "app-1"))!
+    expect(facts).toMatchObject({ unreadPayslipIds: ["slip-failed"], payslip: null })
   })
 
   it("does not read a statement the client uploaded without consent, and reads a staff upload", async () => {
@@ -92,9 +100,12 @@ describe("loadApplicationFacts", () => {
     appFindMany.mockResolvedValue([{ id: "app-cancelled" }])
     const { facts } = (await loadApplicationFacts("t1", "app-1"))!
     expect(facts).toMatchObject({ deletedStatementIds: ["gone-1"], deletedPayslipIds: ["slip-gone"], priorOpenFlagApplicationIds: ["app-cancelled"] })
-    expect(appFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", id: { not: "app-1" }, status: "CANCELLED", checkFlags: { some: { status: "OPEN" } } }),
-    }))
+    // Any other application with open flags, whatever its status or age.
+    const priorWhere = (appFindMany.mock.calls[0][0] as { where: Record<string, unknown> }).where
+    expect(priorWhere).toEqual({ tenantId: "t1", clientId: "client-1", id: { not: "app-1" }, checkFlags: { some: { status: "OPEN" } } })
+    // A document deleted recently counts however long ago it was uploaded.
+    const deletedWhere = docFindMany.mock.calls.map((c) => (c[0] as { where: Record<string, unknown> }).where).find((w) => w.deletedAt !== null)!
+    expect(deletedWhere.OR).toEqual([{ createdAt: { gte: expect.any(Date) } }, { deletedAt: { gte: expect.any(Date) } }])
   })
 
   it("scopes every query to the tenant", async () => {

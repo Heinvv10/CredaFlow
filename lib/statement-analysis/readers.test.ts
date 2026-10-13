@@ -67,7 +67,7 @@ describe("FNB rows that move no money", () => {
     expect(attempt).toMatchObject({ nonPosting: true, amountCents: 125_000 })
     const { riskBehaviour } = await import("@/lib/credit-checks/risk-behaviour")
     const flags = riskBehaviour({
-      applicationId: "app", applicationDate: "2026-10-05", clientName: "T Tester", monthlyIncomeCents: 1_845_000, payslip: null, debts: [], deletedStatementIds: [], mismatchedPayslipIds: [], deletedPayslipIds: [], priorOpenFlagApplicationIds: [],
+      applicationId: "app", applicationDate: "2026-10-05", clientName: "T Tester", monthlyIncomeCents: 1_845_000, payslip: null, debts: [], deletedStatementIds: [], mismatchedPayslipIds: [], unreadPayslipIds: [], deletedPayslipIds: [], priorOpenFlagApplicationIds: [],
       statements: [{ documentId: "d", analysisId: "a", contentSha256: "s", state: "READ", method: "TEXT", bank: "FNB", read: r.read, balanceCheck: r.balanceCheck, authenticity: r.authenticity }],
     })
     expect(flags.map((f) => f.code)).toContain("RETURNED_DEBIT")

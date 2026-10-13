@@ -174,7 +174,7 @@ describe("POST /api/documents/[id]/extract", () => {
 
     expect(response.status).toBe(200)
     // A re-extract retries a read that failed, and raises its findings once read.
-    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", { retryFailed: true, onRead: expect.any(Function) })
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", { retryFailed: true, actorUserId: "officer-1", onRead: expect.any(Function) })
   })
 
   it("lets only credit staff discard a failed read when re-extracting", async () => {

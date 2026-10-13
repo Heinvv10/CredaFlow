@@ -46,9 +46,11 @@ export interface ApplicationFacts {
   deletedStatementIds: string[]
   /** Payslips in the window whose name/ID check against the client failed, newest or not. */
   mismatchedPayslipIds: string[]
-  /** Payslips in the window that were extracted and later deleted. */
+  /** Payslips in the window that were not extracted (failed, skipped for consent, still running). */
+  unreadPayslipIds: string[]
+  /** Payslips deleted in or since the window, extracted or not. */
   deletedPayslipIds: string[]
-  /** The client's cancelled applications in the window that still carry OPEN flags. */
+  /** The client's other applications, in any status, that still carry OPEN flags. */
   priorOpenFlagApplicationIds: string[]
   payslip: PayslipFacts | null
   debts: DebtFacts[]

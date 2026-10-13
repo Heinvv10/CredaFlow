@@ -36,6 +36,11 @@ export interface RecomputeActor {
 export interface RecomputeResult {
   recomputed: boolean
   flags: ApplicationCheckFlag[]
+  /** When the evidence the flags rest on was read, under the lock: anything newer was not checked. */
+  evidenceAsOf?: Date
+  /** The extracted payslips that evidence included, and the start of the window it covered. */
+  payslipIds?: string[]
+  evidenceSince?: Date
 }
 
 function listFlags(tenantId: string, applicationId: string, db: Pick<typeof prisma, "applicationCheckFlag"> = prisma) {
@@ -80,6 +85,7 @@ export async function recomputeApplicationFlags(
     }
     // Facts again under the lock, so a slower recompute cannot act on older
     // evidence. Persisted reads only: no reader runs while the lock is held.
+    const evidenceAsOf = new Date()
     const pendingReasons = new Map(warm.facts.statements.flatMap((s) => (s.pendingReason ? [[s.documentId, s.pendingReason] as const] : [])))
     const loaded = await loadApplicationFacts(tenantId, applicationId, { persistedOnly: true, pendingReasons })
     if (!loaded) return { recomputed: false, flags: [] }
@@ -129,7 +135,7 @@ export async function recomputeApplicationFlags(
         newValue: { ...changed, open: flags.filter((f) => f.status === "OPEN").length },
       }, tx)
     }
-    return { recomputed: true, flags }
+    return { recomputed: true, flags, evidenceAsOf, payslipIds: loaded.payslipIds, evidenceSince: loaded.since }
   }, { timeout: 30_000 })
 }
 

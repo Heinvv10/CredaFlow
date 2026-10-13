@@ -42,6 +42,7 @@ export function facts(over: Partial<ApplicationFacts> = {}): ApplicationFacts {
     statements: [statement([])],
     deletedStatementIds: [],
     mismatchedPayslipIds: [],
+    unreadPayslipIds: [],
     deletedPayslipIds: [],
     priorOpenFlagApplicationIds: [],
     payslip: null,

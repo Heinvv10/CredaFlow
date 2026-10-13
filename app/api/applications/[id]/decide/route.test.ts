@@ -568,6 +568,26 @@ it("refuses an approval when a statement or payslip arrived after the checks ran
   expect(txUpdateManyMock).not.toHaveBeenCalled()
 })
 
+it("compares new evidence with the time and payslips the recompute actually read", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  const evidenceAsOf = new Date("2026-10-13T10:00:00Z")
+  const evidenceSince = new Date("2026-07-15T00:00:00Z")
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf, evidenceSince, payslipIds: ["slip-1"] })
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txDocumentCountMock).toHaveBeenCalledWith({ where: {
+    tenantId: "t1", clientId: expect.any(String), docType: { in: ["BANK_STATEMENT", "PAYSLIP"] },
+    OR: [{ createdAt: { gt: evidenceAsOf } }, { deletedAt: { gt: evidenceAsOf } }],
+  } })
+  expect(txAnalysisCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", createdAt: { gt: evidenceAsOf }, clientDocument: { clientId: expect.any(String) } } })
+  expect(txDocumentCountMock).toHaveBeenCalledWith({ where: {
+    tenantId: "t1", clientId: expect.any(String), docType: "PAYSLIP", deletedAt: null, createdAt: { gte: evidenceSince },
+    OR: [{ extractionStatus: "processing" }, { extractionStatus: "done", id: { notIn: ["slip-1"] } }],
+  } })
+})
+
 it("refuses an approval when a statement was read after the checks ran", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
   txAnalysisCountMock.mockResolvedValue(1)

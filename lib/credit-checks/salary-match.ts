@@ -29,7 +29,7 @@ const notClients = (payslipDocumentId: string): FlagCandidate => ({
   check: "SALARY_MATCH",
   code: "PAYSLIP_NOT_CLIENTS",
   key: payslipDocumentId,
-  summary: "The payslip's name or ID number does not match the client, so it was not used. Verify whose payslip it is.",
+  summary: "The payslip's ID number or name does not match the client, or could not be read, so it was not used. Verify whose payslip it is.",
   evidence: { payslipDocumentId },
 })
 
