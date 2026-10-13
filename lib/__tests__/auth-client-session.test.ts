@@ -55,7 +55,7 @@ const clientToken = (over: Record<string, unknown> = {}) => ({
   id: "c1",
   role: "CLIENT",
   tenantId: "t1",
-  credentialStamp: clientCredentialStamp(HASH),
+  credentialStamp: clientCredentialStamp("c1", "t1", HASH),
   ...over,
 })
 
@@ -95,7 +95,7 @@ describe("jwt callback: client sessions are revalidated on refresh", () => {
   // would hash) only ends here because the cleared password is refused outright.
   it("refuses a cleared portal password before any stamp comparison", async () => {
     mocks.clientFindFirst.mockResolvedValue({ portalPassword: null })
-    expect(await jwt({ token: clientToken({ credentialStamp: clientCredentialStamp("null") }) })).toBeNull()
+    expect(await jwt({ token: clientToken({ credentialStamp: clientCredentialStamp("c1", "t1", "null") }) })).toBeNull()
   })
 
   it("ends the session after a password reset or change", async () => {
@@ -107,6 +107,14 @@ describe("jwt callback: client sessions are revalidated on refresh", () => {
     mocks.clientFindFirst.mockResolvedValue({ portalPassword: HASH })
     const { credentialStamp: _drop, ...legacy } = clientToken()
     expect(await jwt({ token: legacy })).toBeNull()
+  })
+
+  it("ends a token naming another client who shares the same password hash", async () => {
+    // c2's row holds the very hash c1's stamp was computed from.
+    mocks.clientFindFirst.mockResolvedValue({ portalPassword: HASH })
+    const forged = clientToken({ id: "c2", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
+    expect(await jwt({ token: forged })).toBeNull()
+    expect(await jwt({ token: clientToken({ id: "c2", credentialStamp: clientCredentialStamp("c2", "t1", HASH) }) })).not.toBeNull()
   })
 
   it("keeps a session whose credential is unchanged", async () => {
@@ -145,23 +153,29 @@ describe("jwt callback: client sessions are revalidated on refresh", () => {
 
 describe("clientCredentialStamp", () => {
   it("is keyed: it is not a bare digest of the hash and does not contain it", () => {
-    const stamp = clientCredentialStamp(HASH)
+    const stamp = clientCredentialStamp("c1", "t1", HASH)
     expect(stamp).toMatch(/^[0-9a-f]{32}$/)
     expect(stamp).not.toContain(HASH)
     expect(stamp).not.toBe(createHash("sha256").update(HASH).digest("hex").slice(0, 32))
   })
 
+  it("is bound to the client and the tenant, not just the hash", () => {
+    const a = clientCredentialStamp("c1", "t1", HASH)
+    expect(clientCredentialStamp("c2", "t1", HASH)).not.toBe(a)
+    expect(clientCredentialStamp("c1", "t2", HASH)).not.toBe(a)
+  })
+
   it("changes with AUTH_SECRET and with the hash", () => {
-    const a = clientCredentialStamp(HASH)
-    expect(clientCredentialStamp(HASH + "x")).not.toBe(a)
+    const a = clientCredentialStamp("c1", "t1", HASH)
+    expect(clientCredentialStamp("c1", "t1", HASH + "x")).not.toBe(a)
     vi.stubEnv("AUTH_SECRET", "test-secret-two")
-    expect(clientCredentialStamp(HASH)).not.toBe(a)
+    expect(clientCredentialStamp("c1", "t1", HASH)).not.toBe(a)
   })
 
   it("refuses to stamp without a secret", () => {
     vi.stubEnv("AUTH_SECRET", "")
     vi.stubEnv("NEXTAUTH_SECRET", "")
-    expect(() => clientCredentialStamp(HASH)).toThrow(/AUTH_SECRET/)
+    expect(() => clientCredentialStamp("c1", "t1", HASH)).toThrow(/AUTH_SECRET/)
   })
 })
 
@@ -176,7 +190,7 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
   it("a client sign-in carries the credential stamp for the jwt callback", async () => {
     mocks.clientFindUnique.mockResolvedValue(clientRow)
     const user = await authorize(asClient("stamp@example.test"))
-    expect(user).toMatchObject({ id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp(HASH) })
+    expect(user).toMatchObject({ id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
   })
 
   it("APP_MODE=client refuses loginType=staff before any staff lookup", async () => {

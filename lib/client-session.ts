@@ -10,15 +10,18 @@ import { withoutTenantScope } from "@/lib/tenant-scope"
  * change or staff clearing the password changes the hash, so the old stamp no
  * longer matches and the session ends.
  *
+ * The stamp also names the client and tenant, so a token for one client cannot
+ * be satisfied by another client who happens to share the same hash.
+ *
  * Keyed with AUTH_SECRET so the token never carries a bare hash-derived value:
  * the cookie is signed and encrypted, but a value that is a plain digest of the
  * hash would still help anyone who got hold of the hash.
  */
-export function clientCredentialStamp(portalPassword: string): string {
+export function clientCredentialStamp(clientId: string, tenantId: string, portalPassword: string): string {
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET
   if (!secret) throw new Error("AUTH_SECRET is required to stamp a client session")
   return createHmac("sha256", secret)
-    .update(`portal-credential:${portalPassword}`)
+    .update(`portal-credential:${clientId}:${tenantId}:${portalPassword}`)
     .digest("hex")
     .slice(0, 32)
 }
@@ -67,5 +70,5 @@ export async function revalidateClientPrincipal(
   }
 
   if (!fresh || !fresh.portalPassword) return null
-  return stampsMatch(clientCredentialStamp(fresh.portalPassword), stamp) ? "valid" : null
+  return stampsMatch(clientCredentialStamp(clientId, tenantId, fresh.portalPassword), stamp) ? "valid" : null
 }

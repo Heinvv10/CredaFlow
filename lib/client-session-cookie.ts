@@ -23,6 +23,7 @@ export async function keepClientSessionAfterPasswordChange(
   req: NextRequest,
   res: NextResponse,
   clientId: string,
+  tenantId: string,
   newPasswordHash: string,
 ): Promise<void> {
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET
@@ -30,9 +31,9 @@ export async function keepClientSessionAfterPasswordChange(
   if (!secret) throw new Error("AUTH_SECRET is required to re-issue a client session")
 
   const token = await getToken({ req, secret, salt: cookie.name, cookieName: cookie.name })
-  if (!token || token.role !== "CLIENT" || token.id !== clientId) return
+  if (!token || token.role !== "CLIENT" || token.id !== clientId || token.tenantId !== tenantId) return
 
-  token.credentialStamp = clientCredentialStamp(newPasswordHash)
+  token.credentialStamp = clientCredentialStamp(clientId, tenantId, newPasswordHash)
   const value = await encode({ token, secret, salt: cookie.name, maxAge: SESSION_MAX_AGE_SECONDS })
   res.cookies.set(cookie.name, value, {
     ...cookie.options,

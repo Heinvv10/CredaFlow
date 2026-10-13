@@ -80,7 +80,7 @@ suite("POST /api/portal/password racing a password reset", () => {
       await db.client.update({ where: { id: client.id }, data: { portalPassword: resetHash } })
     }
 
-    const token = { id: client.id, sub: client.id, role: "CLIENT", tenantId: currentTenant, email, credentialStamp: clientCredentialStamp(oldHash) }
+    const token = { id: client.id, sub: client.id, role: "CLIENT", tenantId: currentTenant, email, credentialStamp: clientCredentialStamp(client.id, currentTenant, oldHash) }
     const req = new NextRequest("http://localhost/api/portal/password", {
       method: "POST",
       headers: { "content-type": "application/json", cookie: `${COOKIE}=${await encode({ token, secret: SECRET, salt: COOKIE })}` },

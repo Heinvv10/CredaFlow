@@ -168,7 +168,7 @@ describe("totpEnrolmentRequired claim — jwt/session callbacks", () => {
     vi.stubEnv("AUTH_SECRET", "totp-claim-test-secret")
     h.findClient.mockResolvedValue({ portalPassword: "hash" })
     const kept = await h.config!.callbacks.jwt({
-      token: { id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("hash") },
+      token: { id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", "hash") },
     })
     vi.unstubAllEnvs()
     expect(kept).toMatchObject({ id: "c1", role: "CLIENT" })

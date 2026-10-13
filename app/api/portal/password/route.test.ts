@@ -34,7 +34,7 @@ const NEW_HASH = "$2a$12$new-hash-after-change"
 
 const sessionToken = (over: Record<string, unknown> = {}) => ({
   id: "c1", role: "CLIENT", tenantId: "t1", email: "client@example.test",
-  credentialStamp: clientCredentialStamp(OLD_HASH), ...over,
+  credentialStamp: clientCredentialStamp("c1", "t1", OLD_HASH), ...over,
 })
 
 async function change(token: Record<string, unknown> | null, body: Record<string, unknown> = {}) {
@@ -68,7 +68,7 @@ describe("POST /api/portal/password keeps the changing session signed in", () =>
     const res = await change(sessionToken())
     expect(res.status).toBe(200)
     expect(await reissuedToken(res)).toMatchObject({
-      id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp(NEW_HASH),
+      id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", NEW_HASH),
     })
   })
 
@@ -79,12 +79,12 @@ describe("POST /api/portal/password keeps the changing session signed in", () =>
     findFirstClient.mockResolvedValue({ id: "c1", portalPassword: NEW_HASH })
     expect(await revalidateClientPrincipal("c1", "t1", fresh!.credentialStamp)).toBe("valid")
     // A second browser still carries the stamp of the old hash.
-    expect(await revalidateClientPrincipal("c1", "t1", clientCredentialStamp(OLD_HASH))).toBeNull()
+    expect(await revalidateClientPrincipal("c1", "t1", clientCredentialStamp("c1", "t1", OLD_HASH))).toBeNull()
   })
 
   it("derives the stamp from the stored hash, never from anything the caller sends", async () => {
     const res = await change(sessionToken(), { credentialStamp: "forged", stamp: "forged" })
-    expect((await reissuedToken(res))!.credentialStamp).toBe(clientCredentialStamp(NEW_HASH))
+    expect((await reissuedToken(res))!.credentialStamp).toBe(clientCredentialStamp("c1", "t1", NEW_HASH))
   })
 
   it("does not mint a session from a request that carries none", async () => {

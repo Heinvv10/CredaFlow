@@ -118,7 +118,7 @@ suite("password change under the real proxy: the route's session cookie is the l
     const stale = await db.client.findUniqueOrThrow({ where: { id: clientId }, select: { portalPassword: true } })
     process.env.AUTH_SECRET = SECRET
     const cookie = await encode({
-      token: { id: clientId, role: "CLIENT", tenantId, email: `${t}@client.invalid`, credentialStamp: clientCredentialStamp(stale.portalPassword!) },
+      token: { id: clientId, role: "CLIENT", tenantId, email: `${t}@client.invalid`, credentialStamp: clientCredentialStamp(clientId, tenantId, stale.portalPassword!) },
       secret: SECRET,
       salt: COOKIE,
     })
@@ -137,7 +137,7 @@ suite("password change under the real proxy: the route's session cookie is the l
 
     const stored = await db.client.findUniqueOrThrow({ where: { id: clientId }, select: { portalPassword: true } })
     expect(stored.portalPassword).not.toBe(stale.portalPassword)
-    expect(token?.credentialStamp).toBe(clientCredentialStamp(stored.portalPassword!))
-    expect(token?.credentialStamp).not.toBe(clientCredentialStamp(stale.portalPassword!))
+    expect(token?.credentialStamp).toBe(clientCredentialStamp(clientId, tenantId, stored.portalPassword!))
+    expect(token?.credentialStamp).not.toBe(clientCredentialStamp(clientId, tenantId, stale.portalPassword!))
   }, 120_000)
 })

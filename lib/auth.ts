@@ -274,7 +274,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: `${client.firstName} ${client.lastName}`,
           role: "CLIENT" as const,
           tenantId: client.tenantId,
-          credentialStamp: clientCredentialStamp(client.portalPassword),
+          credentialStamp: clientCredentialStamp(client.id, client.tenantId, client.portalPassword),
         }
       },
     }),

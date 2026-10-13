@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     // The stored hash changed, which ends every session of this client that
     // still carries the old stamp. Re-issue this one so the change doesn't end it.
     const res = NextResponse.json({ success: true })
-    await keepClientSessionAfterPasswordChange(req, res, client.id, hashed)
+    await keepClientSessionAfterPasswordChange(req, res, client.id, tenant.id, hashed)
     return res
   })
 }
