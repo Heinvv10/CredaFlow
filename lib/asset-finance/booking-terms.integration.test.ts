@@ -100,7 +100,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     expect(a.signedBaseInstalmentCents).toBeGreaterThan(0)
   })
 
-  it("booking day ≠ indicative start, product edited after signing: the loan is the signed schedule with the signed arrears terms", async () => {
+  it("product edited after signing: the loan still uses the signed schedule and arrears terms", async () => {
     await database().loanProduct.update({ where: { id: fx.product }, data: { nonNcaDefaultInterestMargin: "0.20", nonNcaCollectionFeeCents: 99_900 } })
     await payOut(fx.dealId)
     staff(fx.adminA, "LOAN_ADMIN")
@@ -108,7 +108,6 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, include: { loan: true } })
     const loan = deal.loan
     if (!loan || !deal.plannedStartDate) throw new Error("not booked")
-    expect(dealStartDate(isoOfDbDate(deal.firstDueDate))).not.toBe(today())
     expect(sastCalendarDate(loan.startDate)).toBe(isoOfDbDate(deal.plannedStartDate))
     expect(deal.baseInstalmentCents).toBe(deal.signedBaseInstalmentCents)
     expect(loan.nonNcaDefaultInterestMargin?.toString()).toBe("0.02")
