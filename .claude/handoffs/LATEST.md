@@ -43,6 +43,20 @@ its final commit:
 | #53 | `fix/pages-session-tenant` | All 64 staff and portal pages read the session's tenant (`lib/session-tenant.ts`: `getStaffTenantId` / `getPortalTenantId`), not the default or the host. Fixed reads of another lender's data: `insurance/[id]` (any lender's policy), unfiltered insurance/opportunity/settings lists, settings pages including email logs, the FSCA annual export, and report export/advisor trusting the host. `lib/safe-path.ts` closes an open redirect in `LoginForm` and the expired-session route. `lib/__tests__/pages-session-tenant-fence.test.ts` fails on any new `getDefaultTenantId` in pages, or `getResolvedTenantId` outside seven guarded files |
 | #56 | `fix/insurance-tenant-scope` | **Open at the time of writing.** `InsurancePolicy`, `InsuranceClaim`, `PremiumPayment` and `CrossSellOpportunity` join `TENANT_SCOPED_MODELS`, so a missed tenant filter throws `missing-context`. The insurance-renewal cron sweeps per tenant and no longer needs `NEXT_PUBLIC_TENANT_SLUG`; cross-sell, `bindQuote`'s replay lookup and the portal overview page pass the tenant. Real-PG suite `lib/insurance/tenant-scope.integration.test.ts` (`RUN_DB_IT`) |
 
+**Credit checks v1, PR #54 (open, not merged; 2026-10-13).** Branch
+`feat/credit-checks-v1`. It reads bank statements (Capitec and FNB text
+readers, other banks and scans through the local vision model) into
+`StatementAnalysis`. Four checks plus manual-review codes raise REFER flags
+(`ApplicationCheckFlag`) with the statement rows as evidence. An open flag
+blocks approval in the decide route, under the row lock, and in the trigger
+`LoanApplication_a0_guard_open_check_flags`. Clearing needs LOAN_ADMIN, a
+TOTP-verified session and a reason of at least 15 characters (CHECK
+`ApplicationCheckFlag_clearance_complete`). Flags cannot be deleted, and a
+cleared flag cannot change. Real-PG suite: `RUN_CREDIT_CHECKS_IT`. Read
+`lib/statement-analysis/.claude.md` and `lib/credit-checks/.claude.md` first.
+Open decision for Hein: demo stacks strip TOTP, so no one can clear a flag
+there, and approving a flagged application answers 409.
+
 **CI is not running** (2026-10-13): GitHub Actions refuses to start jobs
 ("recent account payments have failed or your spending limit needs to be
 increased"). #53's merge commit had the same tree as its CI-green head; #56
