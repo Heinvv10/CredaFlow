@@ -420,10 +420,10 @@ describe("assessBiometricEvidence", () => {
     })
   })
 
-  describe("a match against the client's current ID copy, not yet verified", () => {
-    // Verified copy A on file; the borrower uploads B and takes the selfie
-    // before staff review B. Capture compares against B, the newest copy that
-    // is neither deleted nor rejected.
+  describe("a match against the client's first ID copy, not yet verified", () => {
+    // No verified ID copy on file; the borrower uploads B and takes the
+    // selfie before staff review B. Capture compares against B, the newest
+    // copy that is neither deleted nor rejected.
     const verifiedA = {
       id: "id-doc-A", contentSha256: "a".repeat(64), verified: true,
       verificationRejectedAt: null, verificationRejectedById: null,
@@ -438,34 +438,40 @@ describe("assessBiometricEvidence", () => {
       ...passingEvidence,
       biometricResult: { ...boundProviderResult, idDocumentId: currentB.id, idDocumentSha256: currentB.contentSha256 },
     }
-    const newestVerifiedA = { id: verifiedA.id, contentSha256: verifiedA.contentSha256 }
     const awaiting = { ok: false, reason: "subject_identity_changed", idDocumentAwaitingVerification: true }
     const failed = { ok: false, reason: "subject_identity_changed" }
 
-    it("marks it awaiting ID verification while a verified copy A is on file (L1 shape)", () => {
-      expect(assessBiometricEvidence(boundToB, {
-        subject, idDocument: newestVerifiedA, idDocumentCopies: [verifiedA, currentB],
-      })).toEqual(awaiting)
-    })
-
-    it("marks it awaiting ID verification when B is the client's only ID copy", () => {
+    it("marks it awaiting ID verification when the client has no verified ID copy", () => {
       expect(assessBiometricEvidence(boundToB, {
         subject, idDocument: null, idDocumentCopies: [currentB],
       })).toEqual(awaiting)
+      // An older copy, unverified too, changes nothing: B is the current one.
+      expect(assessBiometricEvidence(boundToB, {
+        subject, idDocument: null,
+        idDocumentCopies: [{ ...currentB, id: "id-doc-older", contentSha256: "c".repeat(64), createdAt: verifiedA.createdAt }, currentB],
+      })).toEqual(awaiting)
+    })
+
+    it("keeps it a failed attempt while a verified copy A is on file (the L1 substitute pattern)", () => {
+      expect(assessBiometricEvidence(boundToB, {
+        subject,
+        idDocument: { id: verifiedA.id, contentSha256: verifiedA.contentSha256 },
+        idDocumentCopies: [verifiedA, currentB],
+      })).toEqual(failed)
     })
 
     it.each([
-      ["staff rejected B (verificationRejectedAt)", [verifiedA, { ...currentB, verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z") }]],
-      ["a named reviewer rejected B (verificationRejectedById)", [verifiedA, { ...currentB, verificationRejectedById: "officer-1" }]],
-      ["B was deleted (absent from the non-deleted copies)", [verifiedA]],
-      ["B's stored digest is not the one matched", [verifiedA, { ...currentB, contentSha256: "e".repeat(64) }]],
-      ["B has no usable digest", [verifiedA, { ...currentB, contentSha256: "not-a-digest" }]],
-      ["a later upload C buried B unreviewed", [verifiedA, currentB, { ...currentB, id: "id-doc-C", contentSha256: "f".repeat(64), createdAt: new Date("2026-07-22T08:00:00.000Z") }]],
-      ["C, written in the same instant, sorts after B by id", [verifiedA, currentB, { ...currentB, id: "id-doc-C", contentSha256: "f".repeat(64) }]],
+      ["staff rejected B (verificationRejectedAt)", [{ ...currentB, verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z") }]],
+      ["a named reviewer rejected B (verificationRejectedById)", [{ ...currentB, verificationRejectedById: "officer-1" }]],
+      ["B was deleted (absent from the non-deleted copies)", []],
+      ["B's stored digest is not the one matched", [{ ...currentB, contentSha256: "e".repeat(64) }]],
+      ["B has no usable digest", [{ ...currentB, contentSha256: "not-a-digest" }]],
+      ["a later upload C buried B unreviewed", [currentB, { ...currentB, id: "id-doc-C", contentSha256: "f".repeat(64), createdAt: new Date("2026-07-22T08:00:00.000Z") }]],
+      ["C, written in the same instant, sorts after B by id", [currentB, { ...currentB, id: "id-doc-C", contentSha256: "f".repeat(64) }]],
       ["the caller did not read the copies", null],
     ] as const)("keeps it a failed attempt when %s", (_label, copies) => {
       expect(assessBiometricEvidence(boundToB, {
-        subject, idDocument: newestVerifiedA, idDocumentCopies: copies,
+        subject, idDocument: null, idDocumentCopies: copies,
       })).toEqual(failed)
     })
 
@@ -473,7 +479,7 @@ describe("assessBiometricEvidence", () => {
       expect(assessBiometricEvidence({
         ...boundToB,
         biometricResult: { ...boundProviderResult, idDocumentId: currentB.id, idDocumentSha256: null },
-      }, { subject, idDocument: newestVerifiedA, idDocumentCopies: [verifiedA, { ...currentB, contentSha256: null }] })).toEqual(failed)
+      }, { subject, idDocument: null, idDocumentCopies: [{ ...currentB, contentSha256: null }] })).toEqual(failed)
     })
 
     it("keeps it a failed attempt when the match names another client's copy", () => {
@@ -481,18 +487,18 @@ describe("assessBiometricEvidence", () => {
       expect(assessBiometricEvidence({
         ...boundToB,
         biometricResult: { ...boundProviderResult, idDocumentId: "other-client-id-copy", idDocumentSha256: currentB.contentSha256 },
-      }, { subject, idDocument: newestVerifiedA, idDocumentCopies: [verifiedA, currentB] })).toEqual(failed)
+      }, { subject, idDocument: null, idDocumentCopies: [currentB] })).toEqual(failed)
     })
 
     it("names the other refusal when B's match also fails a check", () => {
       expect(assessBiometricEvidence({ ...boundToB, biometricMatchScore: 69 }, {
-        subject, idDocument: newestVerifiedA, idDocumentCopies: [verifiedA, currentB],
+        subject, idDocument: null, idDocumentCopies: [currentB],
       })).toEqual({ ok: false, reason: "match_score_below_threshold" })
     })
 
     it("does not mark a fingerprint mismatch against B as awaiting", () => {
       expect(assessBiometricEvidence(boundToB, {
-        subject: { ...subject, lastName: "Changed" }, idDocument: newestVerifiedA, idDocumentCopies: [verifiedA, currentB],
+        subject: { ...subject, lastName: "Changed" }, idDocument: null, idDocumentCopies: [currentB],
       })).toEqual(failed)
     })
 
@@ -500,7 +506,7 @@ describe("assessBiometricEvidence", () => {
       expect(assessBiometricEvidence(boundToB, {
         subject,
         idDocument: { id: currentB.id, contentSha256: currentB.contentSha256 },
-        idDocumentCopies: [verifiedA, { ...currentB, verified: true }],
+        idDocumentCopies: [{ ...currentB, verified: true }],
       })).toEqual({ ok: true })
     })
   })

@@ -693,6 +693,39 @@ it("rejects cached VERIFIED KYC when the composite evidence is incomplete", asyn
   expect(txUpdateManyMock).not.toHaveBeenCalled()
 })
 
+it("names the ID copy as the approval blocker while the selfie awaits its verification", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  readCompositeKycStateMock.mockResolvedValueOnce({
+    ok: false,
+    okForOrigination: false,
+    biometricAwaitingIdVerification: true,
+    state: {
+      kycStatus: "PENDING",
+      kycVerifiedAt: null,
+      kycVerifiedById: null,
+      kycVerificationMethod: null,
+    },
+    missingCoreDocuments: ["ID_COPY"],
+    biometricEvidence: "subject_identity_changed",
+    latestSelfieId: "selfie-1",
+    awaitingIdDocumentId: "id-doc-1",
+  })
+
+  const response = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(response.status).toBe(422)
+  expect(await response.json()).toEqual({
+    error: "The client's ID copy must be verified before approval; the selfie already matched it.",
+    kycStatus: "PENDING",
+    missingDocs: ["ID_COPY"],
+    biometricEvidence: "subject_identity_changed",
+    idCopyAwaitingVerification: true,
+    documentId: "selfie-1",
+    idDocumentId: "id-doc-1",
+  })
+  expect(transactionMock).not.toHaveBeenCalled()
+})
+
 it("rechecks composite KYC inside the approval transaction and blocks a mid-flight change", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
   readCompositeKycStateMock

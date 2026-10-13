@@ -741,6 +741,22 @@ export async function POST(
         )
         // Origination-grade: approval does not require biometrics. Payout
         // does — disburse/route.ts still requires the strict `ok`.
+        if (!currentKyc.okForOrigination && currentKyc.biometricAwaitingIdVerification) {
+          // The selfie matched the client's first ID copy before staff
+          // verified it; verifying that copy is the remedy.
+          return NextResponse.json(
+            {
+              error: "The client's ID copy must be verified before approval; the selfie already matched it.",
+              kycStatus: currentKyc.state.kycStatus,
+              missingDocs: currentKyc.missingCoreDocuments,
+              biometricEvidence: currentKyc.biometricEvidence,
+              idCopyAwaitingVerification: true,
+              documentId: currentKyc.latestSelfieId,
+              idDocumentId: currentKyc.awaitingIdDocumentId,
+            },
+            { status: 422 }
+          )
+        }
         if (!currentKyc.okForOrigination) {
           return NextResponse.json(
             {

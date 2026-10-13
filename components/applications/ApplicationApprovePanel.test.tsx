@@ -149,6 +149,17 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
       expected: "KYC incomplete (PENDING) - missing: ID DOCUMENT",
     },
     {
+      label: "ID copy awaiting verification",
+      status: 422,
+      body: {
+        error: "The client's ID copy must be verified before approval; the selfie already matched it.",
+        kycStatus: "PENDING",
+        missingDocs: ["ID_COPY"],
+        idCopyAwaitingVerification: true,
+      },
+      expected: "The client's ID copy must be verified before approval; the selfie already matched it.",
+    },
+    {
       label: "immutable affordability",
       status: 422,
       body: {

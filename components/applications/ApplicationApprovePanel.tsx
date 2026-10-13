@@ -31,6 +31,7 @@ type DecisionErrorBody = {
   bureauMissing?: boolean
   kycStatus?: string
   missingDocs?: string[]
+  idCopyAwaitingVerification?: boolean
   affordabilitySnapshot?: string
   bureauOverrideValidation?: "reason_too_short"
 }
@@ -54,6 +55,7 @@ function parseDecisionErrorBody(value: unknown): DecisionErrorBody {
       ? record.kycStatus
       : undefined,
     missingDocs,
+    idCopyAwaitingVerification: record.idCopyAwaitingVerification === true ? true : undefined,
     affordabilitySnapshot: typeof record.affordabilitySnapshot === "string"
       ? record.affordabilitySnapshot
       : undefined,
@@ -103,6 +105,12 @@ export function ApplicationApprovePanel({ applicationId, canApprove }: Props) {
           bureauMissing: body.bureauMissing === true,
         })
         setPhase("override")
+      } else if (res.status === 422 && body.idCopyAwaitingVerification) {
+        // The ID copy is listed as missing, but the remedy is verifying the
+        // copy already on file: say that, not "KYC incomplete".
+        setErrorMsg(body.error ?? "The client's ID copy must be verified before approval.")
+        setPhase("idle")
+        setBureauGate(null)
       } else if (res.status === 422 && body.missingDocs) {
         setKycError({ kycStatus: body.kycStatus ?? "PENDING", missingDocs: body.missingDocs ?? [] })
         setPhase("idle")

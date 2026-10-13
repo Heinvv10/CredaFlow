@@ -321,6 +321,47 @@ it("blocks review when a valid selfie is missing verified core documents", async
   })
 })
 
+it("blocks review with its own reason while the selfie awaits verification of the client's first ID copy", async () => {
+  findUniqueMock.mockResolvedValue(applicationWithClient)
+  // The selfie passed against id-doc-1, which staff have not verified yet.
+  clientDocumentFindManyMock.mockImplementation((args: { where?: { docType?: string | { in?: string[] } } }) => (
+    typeof args.where?.docType === "object" && "in" in args.where.docType
+      ? Promise.resolve(verifiedCoreDocuments.map((document) => document.docType === "ID_COPY"
+        ? { ...document, verified: false, verificationRejectedAt: null, verificationRejectedById: null, createdAt: new Date("2026-07-18T09:00:00.000Z") }
+        : document))
+      : Promise.resolve([])
+  ))
+
+  const response = await POST(makeReq(), ctx)
+
+  expect(response.status).toBe(422)
+  expect(await response.json()).toEqual({
+    error: "The client's ID copy must be verified before review; the selfie already matched it.",
+    missingDocs: ["ID_COPY"],
+    documentId: "selfie-current",
+    idDocumentId: "id-doc-1",
+  })
+  expect(updateManyMock).not.toHaveBeenCalled()
+  expect(runBureauReviewCheckMock).not.toHaveBeenCalled()
+  expect(auditLogCreateMock).toHaveBeenCalledTimes(1)
+  expect(auditLogCreateMock).toHaveBeenCalledWith({
+    data: expect.objectContaining({
+      action: "KYC_VERIFICATION_BLOCKED",
+      entity: "LoanApplication",
+      entityId: "app-1",
+      oldValue: { status: "SUBMITTED", latestSelfieId: "selfie-current" },
+      newValue: {
+        attemptedStatus: "UNDER_REVIEW",
+        blocked: true,
+        reason: "id_copy_awaiting_verification",
+        latestSelfieId: "selfie-current",
+        idDocumentId: "id-doc-1",
+        missingDocs: ["ID_COPY"],
+      },
+    }),
+  })
+})
+
 it("surfaces the core-documents blocker when docs are unverified AND the selfie failed", async () => {
   // Regression: with unverified core documents, `biometricEvidence` is often
   // non-null too (a failed or absent selfie). The route used to lead with the

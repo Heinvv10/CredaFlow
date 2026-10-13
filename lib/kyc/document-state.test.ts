@@ -168,8 +168,9 @@ describe("composite KYC state", () => {
 
   it("projects a match against the current, unverified ID copy as PENDING with origination blocked", () => {
     const awaiting = { ok: false as const, reason: "subject_identity_changed" as const, idDocumentAwaitingVerification: true as const }
-    // Verified copy A on file (L1 shape): the core documents are complete,
-    // so only the awaiting state can close origination.
+    // Not reachable through the reader (awaiting implies no verified ID copy,
+    // so the ID copy is outstanding), but the derivation closes origination
+    // on the awaiting state by itself.
     expect(deriveCompositeKycState({
       documents: verifiedCoreDocuments,
       biometricDocumentPresent: true,
@@ -699,7 +700,7 @@ describe("composite KYC exception reader", () => {
   })
 })
 
-describe("composite KYC reader: a selfie matched against the client's current, unverified ID copy", () => {
+describe("composite KYC reader: a selfie matched against the client's first, unverified ID copy", () => {
   const subject = {
     id: "client-awaiting",
     idNumber: "9001015009087",
@@ -774,13 +775,14 @@ describe("composite KYC reader: a selfie matched against the client's current, u
   })
 
   it("awaits ID verification, origination blocked, and does not offer the in-person route the selfie closes", async () => {
-    const result = await read([verifiedA, currentB])
+    const result = await read([currentB])
     expect(result).toEqual(expect.objectContaining({
       ok: false,
       okForOrigination: false,
       biometricAttemptFailed: false,
       biometricAwaitingIdVerification: true,
-      missingCoreDocuments: [],
+      awaitingIdDocumentId: currentB.id,
+      missingCoreDocuments: ["ID_COPY"],
       state: expect.objectContaining({ kycStatus: "PENDING" }),
     }))
     // The route refuses (409) while this passed selfie names a current copy.
@@ -795,20 +797,23 @@ describe("composite KYC reader: a selfie matched against the client's current, u
   })
 
   it.each([
-    ["staff rejected B", [verifiedA, { ...currentB, verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z"), verificationRejectedById: "officer-1" }]],
-    ["B was deleted", [verifiedA]],
-    ["a later upload buried B", [verifiedA, currentB, { ...currentB, id: "id-copy-C", contentSha256: "c".repeat(64), createdAt: new Date("2026-07-22T08:00:00.000Z") }]],
+    // L1 shape: a verified A is on file and the match ran against a newer B.
+    ["a verified copy A is on file", [verifiedA, currentB]],
+    ["staff rejected B", [{ ...currentB, verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z"), verificationRejectedById: "officer-1" }]],
+    ["B was deleted", []],
+    ["a later upload buried B", [currentB, { ...currentB, id: "id-copy-C", contentSha256: "c".repeat(64), createdAt: new Date("2026-07-22T08:00:00.000Z") }]],
   ] as const)("projects FAILED with origination blocked once %s", async (_label, idCopies) => {
     expect(await read(idCopies)).toEqual(expect.objectContaining({
       okForOrigination: false,
       biometricAttemptFailed: true,
       biometricAwaitingIdVerification: false,
+      awaitingIdDocumentId: null,
       state: expect.objectContaining({ kycStatus: "FAILED" }),
     }))
   })
 
   it("verifies the client once staff verify B", async () => {
-    expect(await read([verifiedA, { ...currentB, verified: true }])).toEqual(expect.objectContaining({
+    expect(await read([{ ...currentB, verified: true }])).toEqual(expect.objectContaining({
       ok: true,
       okForOrigination: true,
       biometricAwaitingIdVerification: false,

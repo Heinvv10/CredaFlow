@@ -129,9 +129,9 @@ export type CompositeKycResult = {
   biometricIdDocumentNotCurrent: boolean
   /**
    * The latest selfie matched the client's current ID copy, which staff have
-   * not verified yet. PENDING, not FAILED, but origination stays blocked:
-   * the same state follows a face mismatch against the verified ID and a
-   * substitute upload, so staff must look at and verify that copy first.
+   * not verified yet, and no verified ID copy exists: a first-time borrower
+   * who did not wait for staff. PENDING, not FAILED, but origination stays
+   * blocked until staff look at and verify that copy.
    */
   biometricAwaitingIdVerification: boolean
   manualExceptionActive: boolean
@@ -451,7 +451,12 @@ export async function readCompositeKycState(
     }
     preserveVerifiedProvenance?: boolean
   },
-): Promise<CompositeKycResult & { latestSelfieId: string | null; inPersonRoute: InPersonRouteState }> {
+): Promise<CompositeKycResult & {
+  latestSelfieId: string | null
+  inPersonRoute: InPersonRouteState
+  /** The ID copy the latest selfie matched, when it awaits staff verification. */
+  awaitingIdDocumentId: string | null
+}> {
   const [documents, latestSelfie, blockingCandidates, exceptionRecord, portraitRefusals] = await Promise.all([
     reader.clientDocument.findMany({
       where: {
@@ -608,9 +613,14 @@ export async function readCompositeKycState(
     },
     preserveVerifiedProvenance: args.preserveVerifiedProvenance,
   })
+  const boundIdDocumentId = (latestSelfie?.biometricResult as { idDocumentId?: unknown } | null)?.idDocumentId
   return {
     ...result,
     latestSelfieId: latestSelfie?.id ?? null,
+    // Set only with the flag, which matched this id against a current copy.
+    awaitingIdDocumentId: result.biometricAwaitingIdVerification && typeof boundIdDocumentId === "string"
+      ? boundIdDocumentId
+      : null,
     inPersonRoute: {
       blockingBiometricAttempt,
       // The copy the route would attest against: the newest verified one,

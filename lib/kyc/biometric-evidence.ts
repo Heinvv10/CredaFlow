@@ -119,9 +119,10 @@ export type BiometricEvidenceAssessment =
        */
       idDocumentNotCurrent?: true
       /**
-       * Set only when the ID-copy binding is the sole refusal and the copy the
-       * match ran against is the client's CURRENT one (the copy capture would
-       * choose now) but staff have not verified it yet. Not a failed attempt,
+       * Set only when the ID-copy binding is the sole refusal, the client has
+       * NO verified ID copy, and the copy the match ran against is their
+       * CURRENT one (the copy capture would choose now), not yet verified: a
+       * first-time borrower who did not wait for staff. Not a failed attempt,
        * and not a pass: the identity check completes once that copy is verified.
        */
       idDocumentAwaitingVerification?: true
@@ -265,9 +266,9 @@ export function assessBiometricEvidence(
      * copy the match ran against is a SUPERSEDED VERIFIED copy, i.e. still
      * among them, same digest, never rejected, verified, and not the newest
      * verified one (`idDocument`); or awaits staff verifying that copy
-     * (idDocumentAwaitingVerification): only when it is the CURRENT copy,
-     * same digest, never rejected, and not verified. Anything else leaves the
-     * refusal a failed attempt.
+     * (idDocumentAwaitingVerification): only when there is no verified copy
+     * and it is the CURRENT copy, same digest, never rejected, and not
+     * verified. Anything else leaves the refusal a failed attempt.
      */
     idDocumentCopies: readonly BiometricIdDocumentCopy[] | null
     requireDocumentVerified?: boolean
@@ -390,13 +391,14 @@ export function assessBiometricEvidence(
   // last, so that refusing here means every other check passed. Two ID
   // states are not a failed attempt. A superseded verified copy: staff
   // verified a new copy after a match against the copy they had verified
-  // before; deriveCompositeKycState projects it as pending. The current copy,
-  // not yet verified: a borrower who did not wait for staff. That is also
-  // what a doctored substitute uploaded after a face mismatch against the
-  // verified ID looks like, so it projects pending with origination BLOCKED
-  // until staff look at and verify that copy. A match against a copy since
+  // before; deriveCompositeKycState projects it as pending. The client's
+  // first ID copy, not yet verified: a borrower who did not wait for staff;
+  // pending with origination BLOCKED until staff verify it. A match against
+  // an unverified copy while a verified one is on file stays a failure: it is
+  // indistinguishable from a doctored substitute uploaded after a face
+  // mismatch against the verified ID. So does one against a copy since
   // rejected, deleted, rewritten or buried under a later upload, or not this
-  // client's, stays a failure.
+  // client's.
   if (
     !options.idDocument ||
     !isSha256Digest(options.idDocument.contentSha256) ||
@@ -417,7 +419,8 @@ export function assessBiometricEvidence(
     if (pendingIdChange) {
       return { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
     }
-    const awaitingVerification = boundCopy !== undefined &&
+    const awaitingVerification = options.idDocument === null &&
+      boundCopy !== undefined &&
       options.idDocumentCopies !== null &&
       currentIdDocumentCopy(options.idDocumentCopies)?.id === boundCopy.id &&
       isSha256Digest(boundCopy.contentSha256) &&
