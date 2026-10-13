@@ -35,6 +35,7 @@ suite("tax invoices and credit notes (real DB)", () => {
   let tenantId = ""
   let raceTenantId = ""
   let bareTenantId = ""
+  let transactionTenantId = ""
 
   const invoiceInput = (tenant: string, unitExclVatCents = 1_000_000_00): IssueTaxInvoiceInput => ({
     tenantId: tenant,
@@ -45,12 +46,12 @@ suite("tax invoices and credit notes (real DB)", () => {
   })
 
   beforeAll(async () => {
-    for (const suffix of ["main", "race", "bare"]) {
+    for (const suffix of ["main", "race", "bare", "transaction"]) {
       const tenant = await db.tenant.create({ data: { name: `VAT IT ${tag} ${suffix}`, slug: `vat-it-${tag}-${suffix}` } })
       tenantIds.push(tenant.id)
     }
-    ;[tenantId, raceTenantId, bareTenantId] = tenantIds
-    for (const id of [tenantId, raceTenantId]) {
+    ;[tenantId, raceTenantId, bareTenantId, transactionTenantId] = tenantIds
+    for (const id of [tenantId, raceTenantId, transactionTenantId]) {
       await db.vatConfig.create({
         data: { tenantId: id, vatNumber: "4000000000", registeredName: "Test Lender (Pty) Ltd", address: "1 Test Street" },
       })
@@ -86,8 +87,8 @@ suite("tax invoices and credit notes (real DB)", () => {
 
   it("issues two invoices inside one caller-owned transaction", async () => {
     const issued = await db.$transaction(async (tx) => [
-      await issueTaxInvoice(tx, invoiceInput(tenantId, 100)),
-      await issueTaxInvoice(tx, invoiceInput(tenantId, 200)),
+      await issueTaxInvoice(tx, invoiceInput(transactionTenantId, 100)),
+      await issueTaxInvoice(tx, invoiceInput(transactionTenantId, 200)),
     ])
     expect(issued.map((invoice) => invoice.lines[0].exclVatCents)).toEqual([100, 200])
   })
