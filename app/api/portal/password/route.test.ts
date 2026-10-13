@@ -98,6 +98,12 @@ describe("POST /api/portal/password keeps the changing session signed in", () =>
     expect(await reissuedToken(res)).toBeNull()
   })
 
+  it("does not re-issue a cookie that names another tenant, even if its id matches", async () => {
+    const res = await change(sessionToken({ tenantId: "other-tenant" }))
+    expect(res.status).toBe(200)
+    expect(await reissuedToken(res)).toBeNull()
+  })
+
   it("does not re-issue a non-CLIENT cookie even if its id matches", async () => {
     const res = await change(sessionToken({ role: "ADMIN" }))
     expect(await reissuedToken(res)).toBeNull()
