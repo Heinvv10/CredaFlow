@@ -40,6 +40,7 @@ import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-e
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { parseDeclineCategory } from "@/lib/applications/decline-category"
+import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
@@ -1064,6 +1065,22 @@ export async function POST(
           },
         })
 
+        // Credit checks (lib/credit-checks) refer, they do not decide: every
+        // flag still OPEN after a fresh recompute blocks approval until a
+        // LOAN_ADMIN clears it with a reason. The transaction re-counts under
+        // the row lock and the LoanApplication trigger is the backstop.
+        const checks = await recomputeApplicationFlags(tenant.id, id, { userId: guard.user.id, email: guard.user.email })
+        const openChecks = (checks?.flags ?? []).filter((f) => f.status === "OPEN")
+        if (openChecks.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${openChecks.length} credit check${openChecks.length === 1 ? " is" : "s are"} open. Clear ${openChecks.length === 1 ? "it" : "them"} in Credit checks first.`,
+              openChecks: openChecks.map((f) => ({ id: f.id, check: f.check, code: f.code, summary: f.summary })),
+            },
+            { status: 409 },
+          )
+        }
+
         // Re-read and rebuild the exact decision under coordinated database
         // locks immediately before the state write. Pinning only
         // LoanApplication.updatedAt did not detect a concurrent Client/debt or
@@ -1101,6 +1118,12 @@ export async function POST(
             // not demand biometrics; sign and disburse still do.
             if (!lockedKyc.okForOrigination) {
               return { ok: false as const, reason: "kyc_changed" as const }
+            }
+            const openFlags = await tx.applicationCheckFlag.count({
+              where: { tenantId: tenant.id, applicationId: id, status: "OPEN" },
+            })
+            if (openFlags > 0) {
+              return { ok: false as const, reason: "checks_open" as const }
             }
             const approved = await tx.loanApplication.updateMany({
               where: {
@@ -1268,6 +1291,13 @@ export async function POST(
               { status: 409 }
             )
           }
+          // The open-check-flags trigger: a flag raised after the count above.
+          if (String(error).includes("open credit-check flags")) {
+            return NextResponse.json(
+              { error: "Approval blocked: a credit check was raised while approving. Refresh Credit checks and clear it first." },
+              { status: 409 },
+            )
+          }
           throw error
         }
         if (!approvalWrite.ok) {
@@ -1277,6 +1307,12 @@ export async function POST(
                 error: "KYC evidence changed before the application could be approved; refresh and complete KYC again.",
                 kycEvidence: "changed",
               },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "checks_open") {
+            return NextResponse.json(
+              { error: "Approval blocked: a credit check was raised while approving. Refresh Credit checks and clear it first." },
               { status: 409 },
             )
           }

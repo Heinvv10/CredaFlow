@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
+import { readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import { getDocumentCaller } from "@/lib/document-auth"
@@ -231,6 +232,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         tenantId: tenant.id,
         clientId: start.doc.clientId,
         generation,
+      }
+
+      // A manual re-extract also (re)reads a statement for the credit checks;
+      // a no-op when these bytes already have a read by this parser.
+      if (start.doc.docType === "BANK_STATEMENT") {
+        readStatementInBackground(tenant.id, start.doc.id)
       }
 
       const buffer = await readFile(start.doc.storagePath)

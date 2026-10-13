@@ -22,6 +22,7 @@ import { AffordabilityCapture } from "@/components/applications/AffordabilityCap
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
+import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
 import { ApplicationStartReviewButton } from "@/components/applications/ApplicationStartReviewButton"
@@ -202,6 +203,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const userRole = session?.user?.role ?? "READONLY"
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
+  const openChecks = await prisma.applicationCheckFlag.count({
+    where: { tenantId, applicationId: application.id, status: "OPEN" },
+  })
   const agreementSignedDisplayMethod =
     application.agreementSignedMethod === "branch"
     && application.agreementSignatureData?.startsWith("signed-packet-v1:")
@@ -487,7 +491,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       )}
       {application.status === "UNDER_REVIEW" && (
         <>
-          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} />
+          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
           <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
           <ApplicationReturnToDraftButton applicationId={application.id} />
         </>
@@ -800,6 +804,12 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           recklessDone={application.recklessLendingAssessed}
           recklessNote={application.recklessLendingNote}
           affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
+        />
+
+        <CreditChecksPanel
+          applicationId={application.id}
+          canClear={canApprove && (application.status === "DRAFT" || application.status === "SUBMITTED" || application.status === "UNDER_REVIEW")}
+          initialOpenCount={openChecks}
         />
 
         {/* Credit Bureau Check */}

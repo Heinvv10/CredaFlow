@@ -10,6 +10,7 @@ const transactionMock = vi.fn()
 const readFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
+const readStatementInBackgroundMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -45,6 +46,9 @@ vi.mock("@/lib/storage", () => ({
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (args: unknown) => extractDocumentDataMock(args),
+}))
+vi.mock("@/lib/statement-analysis/persist", () => ({
+  readStatementInBackground: (...args: unknown[]) => readStatementInBackgroundMock(...args),
 }))
 vi.mock("@/lib/ocr/documentValidationService", () => ({
   validateDocumentAgainstClient: (...args: unknown[]) => validateDocumentAgainstClientMock(...args),
@@ -159,6 +163,13 @@ describe("POST /api/documents/[id]/extract", () => {
       "client-1",
       tx,
     )
+  })
+
+  it("re-reads a bank statement for the credit checks on a manual re-extract", async () => {
+    const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+
+    expect(response.status).toBe(200)
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1")
   })
 
   it("refuses to mutate a retained credit agreement", async () => {

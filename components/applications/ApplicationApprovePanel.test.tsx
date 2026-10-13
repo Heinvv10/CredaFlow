@@ -59,7 +59,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -102,7 +102,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -259,7 +259,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -297,7 +297,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -332,7 +332,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -362,7 +362,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -399,7 +399,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
     await act(async () => {
@@ -435,7 +435,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -468,7 +468,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -516,7 +516,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <ApplicationApprovePanel applicationId="application-1" canApprove />,
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
       )
     })
 
@@ -538,6 +538,23 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
       "Retryable override reason",
     )
     expect(refresh).not.toHaveBeenCalled()
+
+    await act(async () => renderer.unmount())
+  })
+
+  it("disables Approve and shows a warning while checks are open", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={2} />,
+      )
+    })
+
+    const warning = renderer.root.findByProps({ "data-testid": "open-checks-warning" })
+    expect(childText(warning.props.children)).toContain("2 open checks")
+    expect(button(renderer, "Approve").props.disabled).toBe(true)
+    expect(button(renderer, "Decline").props.disabled).toBe(false)
 
     await act(async () => renderer.unmount())
   })

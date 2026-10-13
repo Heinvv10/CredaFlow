@@ -16,6 +16,7 @@ const applicationFindFirstMock = vi.fn()
 const saveFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
+const readStatementInBackgroundMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -59,6 +60,9 @@ vi.mock("@/lib/storage", () => ({
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (args: unknown) => extractDocumentDataMock(args),
+}))
+vi.mock("@/lib/statement-analysis/persist", () => ({
+  readStatementInBackground: (...args: unknown[]) => readStatementInBackgroundMock(...args),
 }))
 vi.mock("@/lib/ocr/documentValidationService", () => ({
   validateDocumentAgainstClient: (...args: unknown[]) => validateDocumentAgainstClientMock(...args),
@@ -315,6 +319,21 @@ describe("POST /api/documents", () => {
     }))
     expect(extractDocumentDataMock).not.toHaveBeenCalled()
     expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("reads a staff-uploaded bank statement for the credit checks", async () => {
+    const response = await POST(request("BANK_STATEMENT") as never)
+
+    expect(response.status).toBe(201)
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1")
+  })
+
+  it("does not read a statement a consentless client uploaded, nor any other document type", async () => {
+    await POST(request("ID_COPY") as never)
+    getDocumentCallerMock.mockResolvedValue({ type: "client", clientId: "client-1", email: "client@test.invalid" })
+    await POST(request("BANK_STATEMENT") as never)
+
+    expect(readStatementInBackgroundMock).not.toHaveBeenCalled()
   })
 
   it("releases the processing lease when background extraction fails", async () => {

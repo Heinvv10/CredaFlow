@@ -140,6 +140,7 @@ describe("bureau review generation binding", () => {
         clientId: "client-1",
         reviewGeneration: "review-generation-1",
         subjectFingerprint: "a".repeat(64),
+        obligations: { totalMonthly: 25_000 },
       }),
     })
     expect(complianceRecordCreateMock).toHaveBeenCalledWith({
@@ -149,6 +150,17 @@ describe("bureau review generation binding", () => {
           reviewGeneration: "review-generation-1",
         }),
       }),
+    })
+  })
+
+  it("stores the report's account list beside the total, for the credit checks", async () => {
+    const accounts = [{ subscriber: "SYNTHLEND", accountType: "PERSONAL LOAN", instalmentCents: 125_000, status: "OPEN/CURRENT" }]
+    getCreditReportMock.mockResolvedValue({ ok: true, score: 612, adverseInfo: [], totalMonthlyObligations: 25_000, accounts })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    expect(bureauCheckCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ obligations: { totalMonthly: 25_000, accounts } }),
     })
   })
 })

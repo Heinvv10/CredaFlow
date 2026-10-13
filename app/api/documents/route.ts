@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { saveFile } from "@/lib/storage"
+import { readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import {
@@ -246,6 +247,12 @@ export async function POST(req: NextRequest) {
             reason: "Password-protected PDF; encryption stripped so the document can be extracted and previewed",
           },
         })
+      }
+
+      // A bank statement is also read down to its transactions for the credit
+      // checks (lib/statement-analysis), under the same consent gate.
+      if (shouldExtract && docType === "BANK_STATEMENT") {
+        readStatementInBackground(tenant.id, doc.id)
       }
 
       // Fire-and-forget VLM extraction + validation

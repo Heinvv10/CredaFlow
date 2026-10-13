@@ -85,6 +85,10 @@ describe("tenant-scope — ALS primitives", () => {
       // POPIA security-compromise register — non-null tenantId, passed
       // explicitly by its routes and page.
       "BreachLog",
+      // Credit checks v1 — non-null tenantId, passed explicitly because the
+      // statement read runs after its upload request has returned.
+      "StatementAnalysis",
+      "ApplicationCheckFlag",
     ])
   })
 

@@ -65,6 +65,10 @@ export const AuditAction = {
   LOAN_CANCELLED: "LOAN_CANCELLED",
   LOAN_STATUS_CHANGED: "LOAN_STATUS_CHANGED",
   LOAN_BUREAU_OVERRIDE: "LOAN_BUREAU_OVERRIDE",
+  // Credit checks (lib/credit-checks): flags raised/superseded by a recompute,
+  // and an officer clearing one with a reason.
+  CREDIT_CHECKS_RECOMPUTED: "CREDIT_CHECKS_RECOMPUTED",
+  CREDIT_CHECK_FLAG_CLEARED: "CREDIT_CHECK_FLAG_CLEARED",
   PRODUCT_PRICING_UPDATED: "PRODUCT_PRICING_UPDATED",
 
   // Agreement

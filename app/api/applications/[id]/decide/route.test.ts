@@ -26,8 +26,13 @@ const verifyPasqDocumentArtifactMock = vi.fn()
 const runBureauReviewCheckMock = vi.fn()
 const readCompositeKycStateMock = vi.fn()
 const nonOverridableBlockMock = vi.fn()
+const recomputeApplicationFlagsMock = vi.fn()
+const txCheckFlagCountMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/credit-checks/recompute", () => ({
+  recomputeApplicationFlags: (...a: unknown[]) => recomputeApplicationFlagsMock(...a),
+}))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (req: unknown, cb: (t: { id: string; name: string }) => Promise<unknown>) =>
     cb({ id: "t1", name: "Acme Lending" }),
@@ -397,8 +402,11 @@ beforeEach(() => {
   txDocumentUpdateManyMock.mockResolvedValue({ count: 0 })
   txCreditLifeOfferFindFirstMock.mockResolvedValue(null)
   txExecuteRawUnsafeMock.mockResolvedValue(0)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [] })
+  txCheckFlagCountMock.mockResolvedValue(0)
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({
     loanApplication: { updateMany: txUpdateManyMock },
+    applicationCheckFlag: { count: (a: unknown) => txCheckFlagCountMock(a) },
     clientDocument: { updateMany: (a: unknown) => txDocumentUpdateManyMock(a) },
     auditLog: { create: txAuditLogCreateMock },
     $executeRawUnsafe: (sql: string) => txExecuteRawUnsafeMock(sql),
@@ -503,6 +511,54 @@ it("409s an approval of an application that already has a loan, and does not not
   expect(await res.json()).toEqual({
     error: "This application already has a loan booked against it, so it cannot be approved.",
   })
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("refuses approval while a credit check is open, naming it, before the approve transaction", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({
+    recomputed: true,
+    flags: [
+      { id: "f1", status: "OPEN", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT", summary: "No salary credit near 2026-09-25." },
+      { id: "f2", status: "CLEARED", check: "RISK_BEHAVIOUR", code: "GAMBLING", summary: "Betting." },
+    ],
+  })
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({
+    error: "Approval blocked: 1 credit check is open. Clear it in Credit checks first.",
+    openChecks: [{ id: "f1", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT", summary: "No salary credit near 2026-09-25." }],
+  })
+  expect(recomputeApplicationFlagsMock).toHaveBeenCalledWith("t1", expect.any(String), expect.objectContaining({ userId: expect.any(String) }))
+  expect(transactionMock).not.toHaveBeenCalled()
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("re-counts open checks under the row lock and refuses before writing the approval", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txCheckFlagCountMock.mockResolvedValue(1)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toContain("credit check was raised while approving")
+  expect(txCheckFlagCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", applicationId: expect.any(String), status: "OPEN" } })
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("409s when the open-check-flags trigger refuses the approval write", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txUpdateManyMock.mockRejectedValueOnce(new Error(
+    "Raw query failed. Code: `23514`. Message: `Application app_1 has open credit-check flags; clear them before approval`",
+  ))
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toContain("credit check was raised while approving")
   expect(triggerNotificationMock).not.toHaveBeenCalled()
 })
 

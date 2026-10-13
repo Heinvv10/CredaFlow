@@ -65,6 +65,10 @@ export const TENANT_SCOPED_MODELS = [
   // page pass it explicitly, so the rewriter is the backstop for a query that
   // forgets to.
   "BreachLog",
+  // Credit checks v1. Non-null tenantId; the statement read also runs after
+  // its upload request has returned, so every query passes it explicitly.
+  "StatementAnalysis",
+  "ApplicationCheckFlag",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

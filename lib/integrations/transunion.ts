@@ -4,6 +4,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { bureauAccounts, type BureauAccount } from "@/lib/integrations/bureau-accounts"
 
 interface CreditReportOptions {
   tenantId: string
@@ -20,6 +21,8 @@ interface CreditReportResult {
   riskGrade?: string
   adverseInfo?: string[]
   totalMonthlyObligations?: number  // in cents — sum of all active credit account instalments
+  /** Every account on the report, for the credit checks; not part of any total. */
+  accounts?: BureauAccount[]
   raw?: unknown
   error?: string
 }
@@ -139,12 +142,24 @@ export async function getCreditReport(opts: CreditReportOptions): Promise<Credit
       if (sum > 0) totalMonthlyObligations = Math.round(sum * 100)
     }
 
+    // UNTESTED against a live report: field names are the ones the totals
+    // above already read, plus the usual names for the creditor and status.
+    const accounts = Array.isArray(data.creditAccounts)
+      ? bureauAccounts(data.creditAccounts as Array<Record<string, unknown>>, (a) => ({
+          subscriber: a.subscriberName ?? a.creditorName ?? a.subscriber,
+          accountType: a.accountType,
+          instalmentRands: a.monthlyInstalment ?? a.installment,
+          status: a.accountStatus ?? a.status,
+        }))
+      : []
+
     return {
       ok: true,
       score: typeof score === "number" ? score : undefined,
       riskGrade: typeof riskGrade === "string" ? riskGrade : undefined,
       adverseInfo,
       totalMonthlyObligations,
+      accounts,
       raw: data,
     }
   } catch (e) {

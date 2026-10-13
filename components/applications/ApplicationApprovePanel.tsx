@@ -20,6 +20,7 @@ interface KycError {
 interface Props {
   applicationId: string
   canApprove: boolean
+  openChecks: number
 }
 
 type Phase = "idle" | "override" | "declining" | "refreshing"
@@ -66,7 +67,7 @@ function parseDecisionErrorBody(value: unknown): DecisionErrorBody {
   }
 }
 
-export function ApplicationApprovePanel({ applicationId, canApprove }: Props) {
+export function ApplicationApprovePanel({ applicationId, canApprove, openChecks }: Props) {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>("idle")
   const [bureauGate, setBureauGate] = useState<BureauGate | null>(null)
@@ -251,6 +252,14 @@ export function ApplicationApprovePanel({ applicationId, canApprove }: Props) {
       {errorMsg && (
         <p role="alert" className="w-full rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-1.5 text-sm text-[var(--cf-danger)]">{errorMsg}</p>
       )}
+      {openChecks > 0 && (
+        <p
+          data-testid="open-checks-warning"
+          className="w-full rounded border border-[rgba(217,154,58,0.28)] bg-[rgba(217,154,58,0.08)] px-3 py-1.5 text-sm text-[var(--cf-warning)]"
+        >
+          {openChecks} open {openChecks === 1 ? "check" : "checks"} — clear {openChecks === 1 ? "it" : "them"} in Credit checks before approving.
+        </p>
+      )}
       <fieldset className="w-full rounded-lg border border-[var(--cf-border-subtle)] p-3">
         <legend className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">
           Repayment method
@@ -292,7 +301,7 @@ export function ApplicationApprovePanel({ applicationId, canApprove }: Props) {
             action: "approve",
             repaymentMethod: repaymentMethod ?? "",
           })}
-          disabled={!repaymentMethod || submitting}
+          disabled={!repaymentMethod || submitting || openChecks > 0}
         >
           <CheckCircle className="h-4 w-4" />Approve
         </Button>
