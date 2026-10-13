@@ -93,6 +93,14 @@ export function manualReview(f: ApplicationFacts): FlagCandidate[] {
   out.push(...each(f.unreadPayslipIds, "PAYSLIP_NOT_READ", "A payslip is on file but its figures were not extracted (extraction failed, was skipped for lack of consent, or is still running). Read it by hand.", "payslipDocumentId"))
   out.push(...each(f.deletedStatementIds, "STATEMENT_DELETED", "A bank statement read for this client was later deleted. Review what it showed before deciding."))
   out.push(...each(f.deletedPayslipIds, "PAYSLIP_DELETED", "A payslip extracted for this client was later deleted. Review what it showed before deciding.", "payslipDocumentId"))
-  out.push(...each(f.priorOpenFlagApplicationIds, "PRIOR_OPEN_FLAGS", "The client has a cancelled application from the same period with credit checks still open. Review them before deciding on this one.", "applicationId"))
+  for (const prior of f.priorOpenFlagApplications) {
+    out.push({
+      check: "MANUAL_REVIEW",
+      code: "PRIOR_OPEN_FLAGS",
+      key: prior.id,
+      summary: `The client's application ${prior.reference} (${prior.status.toLowerCase().replace(/_/g, " ")}) still has credit checks open. Review them before deciding on this one.`,
+      evidence: { applicationId: prior.id, reference: prior.reference, status: prior.status },
+    })
+  }
   return out
 }

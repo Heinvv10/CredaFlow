@@ -51,9 +51,14 @@ export interface ClientIdentity {
  * Neither readable means it is not confirmed — fail closed.
  */
 export function payslipNamesClient(fields: ExtractedFields, client: ClientIdentity): boolean {
-  const digits = (v: unknown) => (typeof v === "string" ? v.replace(/\D/g, "") : "")
+  // The model may answer a number as a JSON number; read it as text either way.
+  const digits = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v).replace(/\D/g, "") : "")
   const printedId = digits(fields.employeeIdNumber?.value)
-  if (printedId.length === 13) return printedId === digits(client.idNumber)
+  const clientId = digits(client.idNumber)
+  // Any digits printed as the ID decide it: they must carry the client's ID.
+  // A misread, an employee number or a stranger's ID never falls through to
+  // the more lenient name match.
+  if (printedId) return clientId.length === 13 && printedId.includes(clientId)
   const printedName = fields.employeeName?.value
   return typeof printedName === "string" && printedName.trim() !== "" && areNamesSimilar(printedName, client.fullName)
 }
@@ -85,6 +90,11 @@ export function bureauDebts(obligations: unknown): DebtFacts[] {
 
 const CLOSED_ACCOUNT = /CLOSED|SETTLED|PAID UP|WRITTEN OFF/i
 
+/** A payslip's identity and extraction state: any change means the checks did not see it. */
+export function payslipStateKey(d: { id: string; extractionStatus: string; extractionGeneration: string | null }): string {
+  return `${d.id}:${d.extractionStatus}:${d.extractionGeneration ?? ""}`
+}
+
 export interface LoadOptions {
   /**
    * Use only reads already persisted, never run the readers: for the reload
@@ -99,7 +109,7 @@ export async function loadApplicationFacts(
   tenantId: string,
   applicationId: string,
   opts: LoadOptions = {},
-): Promise<{ facts: ApplicationFacts; status: AppStatus; payslipIds: string[]; since: Date } | null> {
+): Promise<{ facts: ApplicationFacts; status: AppStatus; payslipSnapshot: string[]; since: Date } | null> {
   const app = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId },
     select: {
@@ -127,7 +137,7 @@ export async function loadApplicationFacts(
     }),
     prisma.clientDocument.findMany({
       where: { tenantId, clientId: app.clientId, docType: "PAYSLIP", deletedAt: null, createdAt: { gte: since } },
-      select: { id: true, extractionStatus: true, extractionResult: true, validationMismatch: true },
+      select: { id: true, extractionStatus: true, extractionGeneration: true, extractionResult: true, validationMismatch: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.clientDocument.findMany({
@@ -135,10 +145,11 @@ export async function loadApplicationFacts(
       select: { id: true },
     }),
     // Starting another application — cancelling, declining or abandoning this
-    // one, however long ago — must not leave its open findings where no one looks.
+    // one, however long ago — must not leave its open findings where no one
+    // looks. Substantive findings only: a PRIOR flag does not breed more.
     prisma.loanApplication.findMany({
-      where: { tenantId, clientId: app.clientId, id: { not: applicationId }, checkFlags: { some: { status: "OPEN" } } },
-      select: { id: true },
+      where: { tenantId, clientId: app.clientId, id: { not: applicationId }, checkFlags: { some: { status: "OPEN", code: { not: "PRIOR_OPEN_FLAGS" } } } },
+      select: { id: true, reference: true, status: true },
     }),
     prisma.creditBureauCheck.findFirst({
       where: { tenantId, applicationId, ok: true },
@@ -183,7 +194,8 @@ export async function loadApplicationFacts(
   ]
   return {
     status: app.status,
-    payslipIds: slips.map((d) => d.id),
+    // Every payslip in the window as it stood: the approval refuses if it changed.
+    payslipSnapshot: payslipDocs.map(payslipStateKey),
     since,
     facts: {
       applicationId: app.id,
@@ -195,7 +207,8 @@ export async function loadApplicationFacts(
       mismatchedPayslipIds: slipFacts.filter((s) => !s.matchesClient).map((s) => s.documentId),
       unreadPayslipIds: payslipDocs.filter((d) => d.extractionStatus !== "done").map((d) => d.id),
       deletedPayslipIds: deletedSlips.map((d) => d.id),
-      priorOpenFlagApplicationIds: priorFlagged.map((a) => a.id),
+      extractedPayslipIds: slips.map((d) => d.id),
+      priorOpenFlagApplications: priorFlagged,
       payslip,
       debts,
     },

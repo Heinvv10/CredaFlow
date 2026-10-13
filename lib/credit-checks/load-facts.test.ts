@@ -36,6 +36,19 @@ describe("payslipNamesClient", () => {
     expect(payslipNamesClient(slip({ employeeIdNumber: { value: "8501015000081", validated: true }, employeeName: { value: "Thabo Tester", validated: true } }), client)).toBe(false)
   })
 
+  it("reads an ID the model answered as a number", () => {
+    expect(payslipNamesClient(slip({ employeeIdNumber: { value: 9001015000080, validated: true } }), client)).toBe(true)
+    expect(payslipNamesClient(slip({ employeeIdNumber: { value: 8501015000081, validated: true }, employeeName: { value: "T Tester", validated: true } }), client)).toBe(false)
+  })
+
+  it("never falls back to the name when ID digits were printed but are not the client's", () => {
+    const named = { employeeName: { value: "MR T TESTER", validated: true } }
+    expect(payslipNamesClient(slip({ ...named, employeeIdNumber: { value: "900101500008", validated: true } }), client)).toBe(false)
+    expect(payslipNamesClient(slip({ ...named, employeeIdNumber: { value: "Emp 4471", validated: true } }), client)).toBe(false)
+    // The client's ID printed beside an employee number still matches.
+    expect(payslipNamesClient(slip({ employeeIdNumber: { value: "9001015000080 / Emp 4471", validated: true } }), client)).toBe(true)
+  })
+
   it("falls back to the employee name when no ID number is printed", () => {
     expect(payslipNamesClient(slip({ employeeName: { value: "MR T TESTER", validated: true } }), client)).toBe(true)
     expect(payslipNamesClient(slip({ employeeName: { value: "Sipho Synthetic", validated: true } }), client)).toBe(false)

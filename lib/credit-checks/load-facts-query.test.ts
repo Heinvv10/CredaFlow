@@ -70,7 +70,7 @@ describe("loadApplicationFacts", () => {
   it("lists payslips on file that were not extracted, and does not use them", async () => {
     documents({ payslips: [{ id: "slip-failed", extractionStatus: "failed", extractionResult: null, validationMismatch: false }] })
     const { facts } = (await loadApplicationFacts("t1", "app-1"))!
-    expect(facts).toMatchObject({ unreadPayslipIds: ["slip-failed"], payslip: null })
+    expect(facts).toMatchObject({ unreadPayslipIds: ["slip-failed"], extractedPayslipIds: [], payslip: null })
   })
 
   it("does not read a statement the client uploaded without consent, and reads a staff upload", async () => {
@@ -97,12 +97,13 @@ describe("loadApplicationFacts", () => {
 
   it("lists deleted read statements, deleted payslips and cancelled applications with open flags", async () => {
     documents({ deletedStatements: [{ id: "gone-1" }], deletedPayslips: [{ id: "slip-gone" }] })
-    appFindMany.mockResolvedValue([{ id: "app-cancelled" }])
+    appFindMany.mockResolvedValue([{ id: "app-cancelled", reference: "APP-9", status: "CANCELLED" }])
     const { facts } = (await loadApplicationFacts("t1", "app-1"))!
-    expect(facts).toMatchObject({ deletedStatementIds: ["gone-1"], deletedPayslipIds: ["slip-gone"], priorOpenFlagApplicationIds: ["app-cancelled"] })
+    expect(facts).toMatchObject({ deletedStatementIds: ["gone-1"], deletedPayslipIds: ["slip-gone"], priorOpenFlagApplications: [{ id: "app-cancelled", reference: "APP-9", status: "CANCELLED" }] })
     // Any other application with open flags, whatever its status or age.
     const priorWhere = (appFindMany.mock.calls[0][0] as { where: Record<string, unknown> }).where
-    expect(priorWhere).toEqual({ tenantId: "t1", clientId: "client-1", id: { not: "app-1" }, checkFlags: { some: { status: "OPEN" } } })
+    // A PRIOR flag on that application does not count, or flags would breed flags.
+    expect(priorWhere).toEqual({ tenantId: "t1", clientId: "client-1", id: { not: "app-1" }, checkFlags: { some: { status: "OPEN", code: { not: "PRIOR_OPEN_FLAGS" } } } })
     // A document deleted recently counts however long ago it was uploaded.
     const deletedWhere = docFindMany.mock.calls.map((c) => (c[0] as { where: Record<string, unknown> }).where).find((w) => w.deletedAt !== null)!
     expect(deletedWhere.OR).toEqual([{ createdAt: { gte: expect.any(Date) } }, { deletedAt: { gte: expect.any(Date) } }])

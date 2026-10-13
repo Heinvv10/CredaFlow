@@ -186,34 +186,60 @@ export async function ensureStatementAnalysis(opts: EnsureOptions): Promise<Ensu
 // One background read at a time per process: each may make a dozen calls to
 // the shared vision model. A document already queued is not queued twice.
 let queue: Promise<unknown> = Promise.resolve()
-const queued = new Set<string>()
-/** A retry asked for while the document already waits is carried onto that run, not dropped. */
-const retryAsked = new Map<string, string | undefined>()
+
+interface ReadRequest {
+  retryFailed?: boolean
+  actorUserId?: string
+  onRead?: () => Promise<unknown>
+}
+
+/**
+ * Requests per document, merged: a retry or a callback asked for while the
+ * document already waits rides on that run, and one asked for while it is
+ * being read runs once that read is done. None is dropped.
+ */
+const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>> }>()
+const running = new Set<string>()
+
+function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
+  const w = waiting.get(documentId) ?? { tenantId, onReads: [] }
+  if (opts.retryFailed) w.retry = opts.actorUserId ?? null
+  if (opts.onRead) w.onReads.push(opts.onRead)
+  waiting.set(documentId, w)
+}
 
 /**
  * Fire-and-forget read for the upload and re-extract paths. `onRead` runs
  * after a read is stored, so the caller can raise its findings at once rather
  * than when someone next opens the application.
  */
-export function readStatementInBackground(
-  tenantId: string,
-  documentId: string,
-  opts: { retryFailed?: boolean; actorUserId?: string; onRead?: () => Promise<unknown> } = {},
-): void {
-  if (opts.retryFailed) retryAsked.set(documentId, opts.actorUserId)
-  if (queued.has(documentId)) return
-  queued.add(documentId)
+export function readStatementInBackground(tenantId: string, documentId: string, opts: ReadRequest = {}): void {
+  const alreadyWaiting = waiting.has(documentId)
+  merge(tenantId, documentId, opts)
+  if (alreadyWaiting || running.has(documentId)) return
+  schedule(documentId)
+}
+
+function schedule(documentId: string): void {
   queue = queue
     .then(async () => {
-      const retry = retryAsked.has(documentId)
-      const actorUserId = retryAsked.get(documentId)
-      retryAsked.delete(documentId)
-      const r = await ensureStatementAnalysis({ tenantId, documentId, allowVlm: true, retryFailed: retry, actorUserId })
-      if (r.state === "read" && opts.onRead) await opts.onRead()
+      const w = waiting.get(documentId)
+      if (!w) return
+      waiting.delete(documentId)
+      running.add(documentId)
+      const r = await ensureStatementAnalysis({
+        tenantId: w.tenantId, documentId, allowVlm: true,
+        retryFailed: w.retry !== undefined, actorUserId: w.retry ?? undefined,
+      })
+      if (r.state === "read") for (const onRead of w.onReads) await onRead()
     })
     .catch((err) => {
       // Name and code only: a failed write can echo the statement's contents.
       console.error("[statement-analysis] read failed:", { documentId, error: err instanceof Error ? err.name : "unknown", code: (err as { code?: unknown })?.code })
     })
-    .finally(() => queued.delete(documentId))
+    .finally(() => {
+      running.delete(documentId)
+      // Asked for while it was being read: read again now.
+      if (waiting.has(documentId)) schedule(documentId)
+    })
 }

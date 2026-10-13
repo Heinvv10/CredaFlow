@@ -38,8 +38,8 @@ export interface RecomputeResult {
   flags: ApplicationCheckFlag[]
   /** When the evidence the flags rest on was read, under the lock: anything newer was not checked. */
   evidenceAsOf?: Date
-  /** The extracted payslips that evidence included, and the start of the window it covered. */
-  payslipIds?: string[]
+  /** Every payslip in the window as the evidence saw it (payslipStateKey), and the window's start. */
+  payslipSnapshot?: string[]
   evidenceSince?: Date
 }
 
@@ -57,7 +57,9 @@ const SUPERSEDES_ON_READ = new Set(["NOT_READ", "NOT_READ_NO_CONSENT"])
 
 export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts): boolean {
   if (SUPERSEDES_ON_ARRIVAL.has(flag.code)) return true
-  const e = (flag.evidence ?? {}) as { documentId?: unknown }
+  const e = (flag.evidence ?? {}) as { documentId?: unknown; payslipDocumentId?: unknown }
+  // A payslip that could not be read goes once it has been extracted.
+  if (flag.code === "PAYSLIP_NOT_READ") return typeof e.payslipDocumentId === "string" && facts.extractedPayslipIds.includes(e.payslipDocumentId)
   const current = facts.statements.find((s) => s.documentId === e.documentId)
   // Every other finding stays until an officer clears it — even after a newer
   // parser re-reads its statement, since the finding may have gone for reasons
@@ -135,7 +137,7 @@ export async function recomputeApplicationFlags(
         newValue: { ...changed, open: flags.filter((f) => f.status === "OPEN").length },
       }, tx)
     }
-    return { recomputed: true, flags, evidenceAsOf, payslipIds: loaded.payslipIds, evidenceSince: loaded.since }
+    return { recomputed: true, flags, evidenceAsOf, payslipSnapshot: loaded.payslipSnapshot, evidenceSince: loaded.since }
   }, { timeout: 30_000 })
 }
 

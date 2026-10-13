@@ -289,5 +289,17 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
     readStatementInBackground(TENANT, "doc-retry", { retryFailed: true, actorUserId: "officer-1" })
     await vi.waitFor(() => expect(prisma.statementAnalysis.deleteMany).toHaveBeenCalledWith({ where: { id: "row-failed", tenantId: TENANT } }))
   })
+
+  it("runs a request made while the document is being read once that read is done", async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((r) => { release = r })
+    analyse.mockImplementationOnce((async () => { await gate; return analysed() }) as never)
+    const late = vi.fn().mockResolvedValue(undefined)
+    readStatementInBackground(TENANT, "doc-inflight")
+    await vi.waitFor(() => expect(analyse).toHaveBeenCalledTimes(1))
+    readStatementInBackground(TENANT, "doc-inflight", { onRead: late })
+    release()
+    await vi.waitFor(() => expect(late).toHaveBeenCalledTimes(1))
+  })
 })
 

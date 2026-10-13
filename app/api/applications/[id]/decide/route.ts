@@ -41,6 +41,7 @@ import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
+import { payslipStateKey } from "@/lib/credit-checks/load-facts"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
@@ -1129,8 +1130,9 @@ export async function POST(
             }
             // Evidence that arrived after the recompute read it has not been
             // checked: new or deleted statements and payslips, new statement
-            // reads, a payslip still extracting, or one extracted since. The
-            // client evidence lock held here is the one extraction takes.
+            // reads, or any payslip whose extraction changed since (started,
+            // finished, re-run). The client evidence lock held here is the one
+            // extraction takes, so none can land between this and the write.
             const clientId = locked.application.client.id
             const asOf = checks?.evidenceAsOf ?? new Date(0)
             const newEvidence = await tx.clientDocument.count({
@@ -1142,17 +1144,14 @@ export async function POST(
               },
             }) + await tx.statementAnalysis.count({
               where: { tenantId: tenant.id, createdAt: { gt: asOf }, clientDocument: { clientId } },
-            }) + await tx.clientDocument.count({
-              where: {
-                tenantId: tenant.id,
-                clientId,
-                docType: "PAYSLIP",
-                deletedAt: null,
-                createdAt: { gte: checks?.evidenceSince ?? new Date(0) },
-                OR: [{ extractionStatus: "processing" }, { extractionStatus: "done", id: { notIn: checks?.payslipIds ?? [] } }],
-              },
             })
-            if (newEvidence > 0) {
+            const payslipsNow = await tx.clientDocument.findMany({
+              where: { tenantId: tenant.id, clientId, docType: "PAYSLIP", deletedAt: null, createdAt: { gte: checks?.evidenceSince ?? new Date(0) } },
+              select: { id: true, extractionStatus: true, extractionGeneration: true },
+            })
+            const seen = new Set(checks?.payslipSnapshot ?? [])
+            const payslipsChanged = payslipsNow.length !== seen.size || payslipsNow.some((d) => !seen.has(payslipStateKey(d)))
+            if (newEvidence > 0 || payslipsChanged) {
               return { ok: false as const, reason: "checks_stale" as const }
             }
             const approved = await tx.loanApplication.updateMany({
@@ -1342,7 +1341,7 @@ export async function POST(
           }
           if (approvalWrite.reason === "checks_stale") {
             return NextResponse.json(
-              { error: "New statements or payslips arrived while approving. Refresh Credit checks and review them first." },
+              { error: "Statements or payslips changed while approving (one arrived, was deleted, or finished extracting). Refresh Credit checks and review them first." },
               { status: 409 },
             )
           }

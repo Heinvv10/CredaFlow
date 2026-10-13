@@ -50,8 +50,10 @@ export interface ApplicationFacts {
   unreadPayslipIds: string[]
   /** Payslips deleted in or since the window, extracted or not. */
   deletedPayslipIds: string[]
-  /** The client's other applications, in any status, that still carry OPEN flags. */
-  priorOpenFlagApplicationIds: string[]
+  /** Payslips in the window whose figures were extracted. */
+  extractedPayslipIds: string[]
+  /** The client's other applications, in any status, that still carry OPEN findings. */
+  priorOpenFlagApplications: Array<{ id: string; reference: string; status: string }>
   payslip: PayslipFacts | null
   debts: DebtFacts[]
 }

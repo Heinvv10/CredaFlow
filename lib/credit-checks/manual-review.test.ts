@@ -100,9 +100,12 @@ describe("manualReview", () => {
   })
 
   it("raises PAYSLIP_DELETED and PRIOR_OPEN_FLAGS for each one", () => {
-    const out = manualReview(withSlip({ deletedPayslipIds: ["slip-old"], priorOpenFlagApplicationIds: ["app-cancelled"] }))
+    const prior = { id: "app-declined", reference: "APP-0001", status: "DECLINED" }
+    const out = manualReview(withSlip({ deletedPayslipIds: ["slip-old"], priorOpenFlagApplications: [prior] }))
     expect(codes(out)).toEqual(["PAYSLIP_DELETED", "PRIOR_OPEN_FLAGS"])
-    expect(out.find((c) => c.code === "PRIOR_OPEN_FLAGS")!.evidence).toEqual({ applicationId: "app-cancelled" })
+    const flag = out.find((c) => c.code === "PRIOR_OPEN_FLAGS")!
+    expect(flag.evidence).toEqual({ applicationId: "app-declined", reference: "APP-0001", status: "DECLINED" })
+    expect(flag.summary).toContain("APP-0001 (declined)")
   })
 
   it("raises PAYSLIP_NOT_READ for a payslip on file that was not extracted, in place of NO_PAYSLIP", () => {

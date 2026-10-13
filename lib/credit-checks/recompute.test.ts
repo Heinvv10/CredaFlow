@@ -26,6 +26,12 @@ describe("maySupersede: an OPEN flag that is no longer raised", () => {
     expect(maySupersede(flag("GAMBLING", { documentId: "doc-1", analysisId: "an-old" }), facts())).toBe(false)
   })
 
+  it("lets PAYSLIP_NOT_READ go once that payslip has been extracted, and not before", () => {
+    const f = flag("PAYSLIP_NOT_READ", { payslipDocumentId: "slip-1" })
+    expect(maySupersede(f, facts({ extractedPayslipIds: ["slip-1"] }))).toBe(true)
+    expect(maySupersede(f, facts({ extractedPayslipIds: ["slip-2"] }))).toBe(false)
+  })
+
   it("stays when its statement was deleted or the client record changed", () => {
     expect(maySupersede(flag("GAMBLING", { documentId: "doc-1", analysisId: "an-old" }), facts({ statements: [] }))).toBe(false)
     expect(maySupersede(flag("UNDISCLOSED_DEBIT_ORDER", { documentId: "doc-1", analysisId: "an-1" }), facts({ debts: [{ name: "X", monthlyInstalmentCents: 1, source: "DECLARED" }] }))).toBe(false)
