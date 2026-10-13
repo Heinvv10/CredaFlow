@@ -76,6 +76,10 @@ model User {
   mentionedIn                  MessageMention[]
   ncaOverridesRequested        NcaRegimeOverride[] @relation("NcaOverridesRequested")
   ncaOverridesDecided          NcaRegimeOverride[] @relation("NcaOverridesDecided")
+  payoutChecklistConfirmed     PayoutChecklistItem[] @relation("PayoutChecklistConfirmedBy")
+  payoutsCreated               Payout[]            @relation("PayoutsCreatedBy")
+  payoutsApproved              Payout[]            @relation("PayoutsApprovedBy")
+  payoutsReleased              Payout[]            @relation("PayoutsReleasedBy")
 
   @@unique([tenantId, id])
 }
@@ -4175,6 +4179,7 @@ model EntityDocument {
   deletedById        String?
   createdAt          DateTime           @default(now())
   signerScans        DealSigner[]       @relation("DealSignerScan")
+  checklistEvidence  PayoutChecklistItem[] @relation("PayoutChecklistEvidence")
 
   @@unique([tenantId, id])
   @@index([tenantId, entityId])
@@ -4469,6 +4474,12 @@ enum PayoutChecklistItemKind {
   NATIS_TITLEHOLDER
 }
 
+// One payout-gate item of a CONTRACTED deal (DESIGN D8). The rows are created
+// when the deal is contracted (lib/asset-finance/payout-checklist.ts holds the
+// requirement table; payoutChecklistRequiredKinds is its SQL twin). Staff
+// confirm each one with its evidence; a confirmed item is immutable, and the
+// Payout insert is refused unless every required item is confirmed
+// (hand-written guards: guardPayoutChecklistItem, guardPayout).
 model PayoutChecklistItem {
   id                 String                  @id @default(cuid())
   tenantId           String
@@ -4477,8 +4488,10 @@ model PayoutChecklistItem {
   item               PayoutChecklistItemKind
   required           Boolean                 @default(true)
   confirmedById      String?
+  confirmedBy        User?                   @relation("PayoutChecklistConfirmedBy", fields: [tenantId, confirmedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   confirmedAt        DateTime?
   evidenceDocumentId String?
+  evidenceDocument   EntityDocument?         @relation("PayoutChecklistEvidence", fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   note               String?
 
   @@unique([dealId, item])
@@ -4490,9 +4503,14 @@ enum PayoutStatus {
   RELEASED
 }
 
-// The supplier payout for a deal. The DB refuses it unless every required
-// checklist item is confirmed and the account is APPROVED; at or above the
-// tenant threshold it needs a second, different approver.
+// The supplier payout for a deal: the asset's cash price incl. VAT less the
+// deposit and the trade-in, i.e. what the supplier is still owed (financed
+// fees stay with the lender). The DB refuses it unless the deal is
+// CONTRACTED, every required checklist item is confirmed and the account is
+// the supplier's APPROVED one; at or above the tenant threshold
+// (dualApprovalRequired, set by the insert trigger) a second, different
+// user approves it, otherwise the creator's creation is the approval. It is
+// RELEASED by booking and then never changes (guardPayout, CHECKs).
 model Payout {
   id                    String              @id @default(cuid())
   tenantId              String
@@ -4502,11 +4520,15 @@ model Payout {
   supplierBankAccount   SupplierBankAccount @relation(fields: [tenantId, supplierBankAccountId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   amountCents           Int
   status                PayoutStatus        @default(PENDING_APPROVAL)
+  dualApprovalRequired  Boolean             @default(false)
   createdById           String
+  createdBy             User                @relation("PayoutsCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   approvedById          String?
+  approvedBy            User?               @relation("PayoutsApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   approvedAt            DateTime?
   releasedAt            DateTime?
   releasedById          String?
+  releasedBy            User?               @relation("PayoutsReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt             DateTime            @default(now())
 
   @@unique([tenantId, dealId])

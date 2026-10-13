@@ -1,9 +1,11 @@
 // APPROVED → CONTRACTED once every required signature is in (goal §4.9). The
 // route answers 409 with the outstanding signers; the database refuses the
 // same move on its own (guardAssetDealContract), so no other path can skip it.
+// The payout checklist is created in the same transaction (§4.10).
 import type { AssetDealStatus, DealDocumentKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { createPayoutChecklist } from "./payout-checklist-store"
 import { outstandingSigners, type Outstanding } from "./signing"
 import { currentRequiredSigners, lockDeal, type SigningActor } from "./signing-prepare"
 
@@ -43,6 +45,7 @@ export async function contractDeal(actor: SigningActor, dealId: string): Promise
       return { kind: "incomplete", outstanding: outstanding.map((o) => ({ ...o, name: names.get(o.clientId) ?? o.clientId })) }
     }
     await tx.assetFinanceDeal.updateMany({ where: { id: dealId, tenantId, status: "APPROVED" }, data: { status: "CONTRACTED" } })
+    await createPayoutChecklist(tx, tenantId, dealId)
     const signed: { clientId: string; document: DealDocumentKind; method: string | null }[] = rows.map((r) => ({
       clientId: r.clientId, document: r.document, method: r.method,
     }))

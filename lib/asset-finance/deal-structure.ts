@@ -67,9 +67,17 @@ export async function resolveRate(
   }
 }
 
-/** Solve a structure for an asset at a resolved rate; solver refusals come back as `error`. */
-export function solveDealStructure(asset: AssetPrice, terms: StructureTerms, rate: ResolvedRate): Solved {
-  const startDate = dealStartDate(terms.firstDueDate)
+/**
+ * Solve a structure for an asset at a resolved rate; solver refusals come back
+ * as `error`. `startDate` defaults to the indicative start; booking passes the
+ * payout date (and resolves the rate on it).
+ */
+export function solveDealStructure(
+  asset: AssetPrice,
+  terms: StructureTerms,
+  rate: ResolvedRate,
+  startDate: string = dealStartDate(terms.firstDueDate),
+): Solved {
   let result: StructureResult
   try {
     result = solveStructure({

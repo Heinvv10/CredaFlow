@@ -17,11 +17,14 @@ import { DecidePanel } from "./DecidePanel"
 import { OverrideDecision } from "./OverrideDecision"
 import { SigningPanel } from "./SigningPanel"
 import { loadStaffSigningPanel } from "@/lib/asset-finance/signing-view"
+import { loadPayoutPanel } from "@/lib/asset-finance/payout-view"
+import { PayoutPanel } from "./PayoutPanel"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
 const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
 const SIGNING_STATUSES = ["APPROVED", "CONTRACTED", "BOOKED"]
+const PAYOUT_STATUSES = ["CONTRACTED", "BOOKED"]
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { user, tenantId, canManage } = await requireAssetFinanceStaffPage()
@@ -31,6 +34,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   if (!deal) notFound()
   const { schedule, financials } = deal
   const signing = SIGNING_STATUSES.includes(deal.status) ? await loadStaffSigningPanel(tenantId, id) : null
+  const payout = PAYOUT_STATUSES.includes(deal.status) ? await loadPayoutPanel(tenantId, id) : null
 
   const submit = canManage && deal.status === "DRAFT"
     ? <DealActionButton url={`/api/asset-finance/deals/${id}/submit`} label="Submit deal" busyLabel="Classifying…" />
@@ -109,6 +113,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         </DataPanel>
 
         {signing && <SigningPanel dealId={id} panel={signing} canManage={canManage} userId={user.id} />}
+
+        {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} />}
       </div>
     </>
   )

@@ -7,15 +7,17 @@ import { Button } from "@/components/ui/button"
 import { ENTITY_DOCUMENT_LABELS } from "@/lib/asset-finance/labels"
 import { SELECT_CLASS } from "./form-fields"
 
-/** Multipart upload of one entity document to `apiBase` (…/documents). */
+/** Multipart upload of one entity document to `apiBase` (…/documents), filed on `dealId` when given. */
 export function DocumentUploadForm({
   apiBase,
   docTypes,
   onUploaded,
+  dealId,
 }: {
   apiBase: string
   docTypes: readonly EntityDocumentType[]
   onUploaded: () => void
+  dealId?: string
 }) {
   const [docType, setDocType] = useState<EntityDocumentType | "">("")
   const [uploading, setUploading] = useState(false)
@@ -30,6 +32,7 @@ export function DocumentUploadForm({
     const form = new FormData()
     form.set("docType", docType)
     form.set("file", file)
+    if (dealId) form.set("dealId", dealId)
     setUploading(true)
     try {
       const res = await fetch(apiBase, { method: "POST", body: form })

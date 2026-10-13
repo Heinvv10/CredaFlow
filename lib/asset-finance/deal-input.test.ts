@@ -54,8 +54,14 @@ describe("parseDealPreview", () => {
     [{ preset: { kind: "SKIP_N", periods: 12, skipFirst: 12 } }, "preset"],
     [{ preset: { kind: "BIANNUAL", periods: 12, months: [3] } }, "preset.months"],
     [{ assetId: "" }, "assetId"],
+    [{ vatDeferralPeriodIndex: 2 }, "vatDeferralPeriodIndex"], // reference-linked: no VAT deferral in slice 1
   ])("refuses %j on %s", (override, field) => {
     expect(errorsOf({ ...base, ...override })).toHaveProperty(field)
+  })
+
+  it("allows VAT deferral on a fixed rate", () => {
+    const result = parseDealPreview({ ...base, rateBasis: "FIXED", rateMargin: undefined, fixedRate: "0.13", vatDeferralPeriodIndex: 2 }, TODAY)
+    expect("data" in result && result.data.terms.vatDeferralPeriodIndex).toBe(2)
   })
 
   it("accepts a negative margin (prime minus) and a fixed rate", () => {

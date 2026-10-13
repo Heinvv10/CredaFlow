@@ -482,4 +482,13 @@ export const AuditAction = {
   ASSET_DEAL_WET_INK_CONFIRMED: "ASSET_DEAL_WET_INK_CONFIRMED",
   ASSET_DEAL_CONTRACTED: "ASSET_DEAL_CONTRACTED",
   ASSET_DEAL_SIGNING_REFUSED: "ASSET_DEAL_SIGNING_REFUSED",
+  // Payout gate and booking (lib/asset-finance/payout*.ts, booking.ts): each
+  // checklist confirmation with its evidence, the payout's creation and its
+  // (second-user) approval, and the booking that creates the Loan and
+  // releases the payout. Refusals of any of these are audited too.
+  ASSET_PAYOUT_CHECKLIST_CONFIRMED: "ASSET_PAYOUT_CHECKLIST_CONFIRMED",
+  ASSET_PAYOUT_CREATED: "ASSET_PAYOUT_CREATED",
+  ASSET_PAYOUT_APPROVED: "ASSET_PAYOUT_APPROVED",
+  ASSET_PAYOUT_REFUSED: "ASSET_PAYOUT_REFUSED",
+  ASSET_DEAL_BOOKED: "ASSET_DEAL_BOOKED",
 } as const

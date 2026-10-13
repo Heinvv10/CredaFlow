@@ -179,6 +179,11 @@ export function parseDealPreview(body: unknown, today: string): Result<DealPrevi
   const firstDueDate = readFirstDueDate(record, errors, today)
   const structure = presetWeights(record.preset, firstDueDate, errors)
   const rate = readRate(record, errors)
+  // Slice 1: repricing cannot carry a pending VAT lump (reprice-loan.ts PARTIAL),
+  // so VAT deferral is offered on a fixed rate only; booking refuses it too.
+  if (rate && rate.basis !== "FIXED" && out.vatDeferralPeriodIndex !== null && out.vatDeferralPeriodIndex !== undefined) {
+    errors.vatDeferralPeriodIndex = "is available on a fixed rate only (a reference-linked deal cannot defer VAT in slice 1)"
+  }
   if (Object.keys(errors).length > 0 || !structure || !rate || !firstDueDate) return { errors }
   return {
     data: {
