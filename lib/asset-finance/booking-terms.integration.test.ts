@@ -110,6 +110,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     if (!loan || !deal.plannedStartDate) throw new Error("not booked")
     expect(sastCalendarDate(loan.startDate)).toBe(isoOfDbDate(deal.plannedStartDate))
     expect(deal.baseInstalmentCents).toBe(deal.signedBaseInstalmentCents)
+    expect(loan.assetFinanceWeights).toEqual(deal.weights)
     expect(loan.nonNcaDefaultInterestMargin?.toString()).toBe("0.02")
     expect(loan.nonNcaCollectionFeeCents).toBe(45_000)
 

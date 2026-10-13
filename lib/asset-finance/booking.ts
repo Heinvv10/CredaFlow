@@ -163,6 +163,7 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         ncaRegime: "NON_NCA",
         contractType: deal.contractType,
         balloonAmount: deal.balloonCents > 0 ? deal.balloonCents : null,
+        assetFinanceWeights: deal.weights as Prisma.InputJsonValue,
         assetId: asset.id,
         principal: plan.principal,
         totalInterest: plan.totalInterest,
