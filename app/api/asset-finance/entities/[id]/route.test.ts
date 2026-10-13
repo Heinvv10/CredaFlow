@@ -8,9 +8,11 @@ const m = vi.hoisted(() => ({
   tx: {
     $queryRaw: vi.fn(),
     businessEntity: { findFirst: vi.fn(), update: vi.fn() },
+    assetFinanceDeal: { count: vi.fn() },
   },
   findFirst: vi.fn(),
   logAuditStrict: vi.fn(),
+  auditRefusal: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
@@ -32,6 +34,7 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit")>()),
   logAuditStrict: m.logAuditStrict,
 }))
+vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: m.auditRefusal }))
 
 import { PATCH } from "./route"
 
@@ -44,6 +47,7 @@ const BODY = {
 }
 const before = (over: Record<string, unknown> = {}) => ({
   id: "ent-1", tenantId: "tenant-1", type: "COMPANY", legalName: BODY.legalName, registrationNumber: BODY.registrationNumber,
+  tradingName: null, mastersReference: null, vatNumber: null, addressLine1: null, addressLine2: null, city: null, province: null, postalCode: null,
   annualTurnover: 150_000_000, totalAssetValue: null, financialYearEnd: new Date("2026-02-28T00:00:00Z"),
   financialsEvidenceIds: ["afs-1"], ...over,
 })
@@ -58,6 +62,7 @@ beforeEach(() => {
   m.flag.on = true
   m.tx.$queryRaw.mockResolvedValue([{ id: "ent-1" }])
   m.tx.businessEntity.findFirst.mockResolvedValue(before())
+  m.tx.assetFinanceDeal.count.mockResolvedValue(0)
   m.findFirst.mockResolvedValue({ ...before(), createdAt: new Date(), updatedAt: new Date() })
 })
 
@@ -108,5 +113,19 @@ describe("PATCH /api/asset-finance/entities/[id]", () => {
       }),
       m.tx,
     )
+  })
+
+  it("refuses and audits a signed identity change once a deal is approved", async () => {
+    m.tx.assetFinanceDeal.count.mockResolvedValue(1)
+    const res = await patch({ ...BODY, legalName: "TEST Changed Name (Pty) Ltd" })
+
+    expect(res.status).toBe(409)
+    expect(m.tx.businessEntity.update).not.toHaveBeenCalled()
+    expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({
+      action: "BUSINESS_ENTITY_UPDATE_REFUSED",
+      entityId: "ent-1",
+      reason: "signed_identity_frozen",
+      detail: { fields: ["legalName"] },
+    }))
   })
 })

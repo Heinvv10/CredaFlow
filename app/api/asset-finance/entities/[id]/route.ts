@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { financialsChanged, parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
 import {
@@ -14,6 +16,7 @@ import {
 } from "@/lib/asset-finance/entity-detail"
 import { lockBusinessEntity } from "@/lib/asset-finance/entity-documents"
 import { nullableFigureFromDb } from "@/lib/asset-finance/big-cents"
+import { signedEntityChanges } from "@/lib/asset-finance/entity-freeze"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -66,6 +69,19 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           totalAssetValue: nullableFigureFromDb(row.totalAssetValue),
         }
         if (before.type !== input.data.type) return "type_changed" as const
+        const identityChanges = signedEntityChanges(before, input.data)
+        if (identityChanges.length > 0 && await tx.assetFinanceDeal.count({
+          where: {
+            tenantId: tenant.id,
+            entityId: id,
+            OR: [
+              { status: { in: ["CONTRACTED", "BOOKED"] } },
+              { status: "APPROVED", preparedSigners: { not: Prisma.DbNull } },
+            ],
+          },
+        }) > 0) {
+          return { kind: "identity_frozen" as const, fields: identityChanges }
+        }
         const clearEvidence = financialsChanged(before, input.data) && before.financialsEvidenceIds.length > 0
         await tx.businessEntity.update({
           where: { id, tenantId: tenant.id },
@@ -107,8 +123,38 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           { status: 400 },
         )
       }
+      if (typeof outcome === "object" && outcome.kind === "identity_frozen") {
+        await auditRefusal({
+          action: AuditAction.BUSINESS_ENTITY_UPDATE_REFUSED,
+          entity: "BusinessEntity",
+          entityId: id,
+          tenantId: tenant.id,
+          userId: guard.user.id,
+          userEmail: guard.user.email,
+          reason: "signed_identity_frozen",
+          status: 409,
+          detail: { fields: outcome.fields },
+        })
+        return NextResponse.json(
+          { error: `The entity has prepared or contracted documents; signed identity fields can no longer change: ${outcome.fields.join(", ")}` },
+          { status: 409 },
+        )
+      }
       return NextResponse.json(await loadEntityCore(tenant.id, id))
     } catch (error) {
+      if (isCheckViolation(error)) {
+        await auditRefusal({
+          action: AuditAction.BUSINESS_ENTITY_UPDATE_REFUSED,
+          entity: "BusinessEntity",
+          entityId: id,
+          tenantId: tenant.id,
+          userId: guard.user.id,
+          userEmail: guard.user.email,
+          reason: "signed_identity_frozen",
+          status: 409,
+        })
+        return NextResponse.json({ error: "The database refused the edit because the entity has an approved deal" }, { status: 409 })
+      }
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return NextResponse.json(
           { error: `A ${input.data.type} with registration number ${input.data.registrationNumber} already exists` },

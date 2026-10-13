@@ -6,6 +6,7 @@
  *  - booking after the planned start is refused (409 start_passed, audited);
  *  - an APPROVED or CONTRACTED deal's parties, asset, supplier, money,
  *    structure and rate are fixed (the deal-row asset swap);
+ *  - an entity's agreement identity is fixed once documents are prepared;
  *  - a deal never names a released asset.
  * Deals A and B are CONTRACTED (./payout-booking.integration-fixture.ts);
  * deal C is APPROVED here. Database probes run in rolled-back transactions
@@ -172,6 +173,33 @@ suite.sequential("review round 3: planned start, frozen deal terms, released ass
         SELECT 'swap_${t}', "tenantId", "assetClass", 'TEST OtherMake', 'TEST Swapped', 2015, 'SWAP${t.toUpperCase()}',
           "cashPriceExclVatCents", "vatCents", now() FROM "FinancedAsset" WHERE "id" = '${fx.assets[0]}'`
       expect(refusedSql(swap, deal(fx.dealId, `"assetId" = 'swap_${t}'`))).toContain(FROZEN)
+    })
+  })
+
+  describe("prepared or contracted documents fix the entity identity printed in the agreement", () => {
+    const entityUpdate = (dealId: string, set: string) => `UPDATE "BusinessEntity" SET ${set}
+      WHERE "id" = (SELECT "entityId" FROM "AssetFinanceDeal" WHERE "id" = '${dealId}')`
+    const message = "The entity has prepared or contracted documents: its signed identity is fixed"
+    const preparedApproved = () => `UPDATE "AssetFinanceDeal" SET "entityId" = '${fx.unevidenced}'
+      WHERE "entityId" = (SELECT "entityId" FROM "AssetFinanceDeal" WHERE "id" = '${fx.dealId}') AND "id" <> '${fx.dealId}';
+      ${deal(fx.dealId, `"status" = 'APPROVED'`)}`
+
+    it("refuses every signed identity field for prepared APPROVED and CONTRACTED deals", () => {
+      const changes = [
+        `"type" = 'CC'`, `"legalName" = 'TEST Changed Entity'`, `"tradingName" = 'TEST Changed Trading'`,
+        `"registrationNumber" = '2099/999999/23'`, `"mastersReference" = 'IT9999/2099'`, `"vatNumber" = '4999999999'`,
+        `"addressLine1" = '99 Changed Road'`, `"addressLine2" = 'Changed Park'`, `"city" = 'Changed City'`,
+        `"province" = 'Changed Province'`, `"postalCode" = '9999'`,
+      ]
+      for (const change of changes) {
+        expect(refusedSql(preparedApproved(), entityUpdate(fx.dealId, change))).toContain(message)
+        expect(refusedSql("", entityUpdate(fx.dealId, change))).toContain(message)
+      }
+    })
+
+    it("still allows classifier financials and identity completion before document preparation", () => {
+      acceptedSql("", entityUpdate(dealC, `"annualTurnover" = COALESCE("annualTurnover", 0) + 1`))
+      acceptedSql("", `UPDATE "BusinessEntity" SET "legalName" = 'TEST Unprepared Changed' WHERE "id" = '${fx.unevidenced}'`)
     })
   })
 
