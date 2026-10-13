@@ -56,6 +56,12 @@ describe("serial attestation", () => {
     expect(serialAttestationMatches("TEST0000000000001", asset)).toBe(true)
   })
 
+  it("compares as the duplicate checks do: separators, inner and invisible spaces ignored", () => {
+    expect(serialAttestationMatches("test-serial 0001", asset)).toBe(true)
+    expect(serialAttestationMatches("TEST.SERIAL\u00A0\u200B0001", asset)).toBe(true)
+    expect(serialAttestationMatches("TEST 0000 0000 0000 1", asset)).toBe(true)
+  })
+
   it("refuses a mismatch, a near-miss and a blank", () => {
     expect(serialAttestationMatches("TESTSERIAL0002", asset)).toBe(false)
     expect(serialAttestationMatches("TESTSERIAL000", asset)).toBe(false)

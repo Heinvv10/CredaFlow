@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       case "not_contracted":
         return refuse("not_contracted", 409, `A payout is created only for a CONTRACTED deal; this one is ${result.status}`)
       case "exists":
-        return NextResponse.json({ error: "This deal already has a payout" }, { status: 409 })
+        return refuse("exists", 409, "This deal already has a payout")
       case "checklist_open":
         return refuse("checklist_open", 409, "Every required checklist item must be confirmed first", { open: result.open })
       case "no_approved_account":

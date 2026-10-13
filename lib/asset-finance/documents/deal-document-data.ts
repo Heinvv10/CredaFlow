@@ -6,15 +6,26 @@
 // Lender identity comes from getLenderIdentity: an unconfigured identity
 // throws LenderIdentityError and the documents refuse to render, as the NCA
 // documents do (lib/pdf/.claude.md). The schedule is the deal's stored
-// structure solved at the reference rate in effect on its start date
-// (./../deal-structure.ts); an unsolvable structure refuses too.
-import type { BusinessEntityType, Prisma, ReferenceRateBasis } from "@prisma/client"
+// structure solved from its contract start date at the APPROVED reference
+// rate in effect on it (./../deal-structure.ts), the solve booking repeats;
+// an unsolvable structure refuses too.
+//
+// TWO MODES. Preparing (`prepare` given): the start date is the one staff
+// chose, the arrears terms are the product's now (none = 0) and the signers
+// are the entity's required people now; signing-prepare.ts snapshots exactly
+// these onto the deal. Otherwise (e-sign, contract): everything comes from
+// that snapshot (plannedStartDate, signedArrears*, preparedSigners), so a
+// re-render reproduces the prepared bytes unless the deal, its asset or the
+// reference rate changed.
+import { Prisma, type BusinessEntityType, type ReferenceRateBasis } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { getLenderIdentity, type LenderIdentity } from "@/lib/config/identity"
 import type { ScheduleRow } from "../types"
 import { ASSET_CLASS_LABELS } from "../asset-labels"
-import { DEAL_STRUCTURE_SELECT, solveStoredDeal } from "../deal-terms"
-import { deriveRequiredSigners, type RequiredSigner } from "../signing"
+import { isoOfDbDate } from "../dates"
+import { resolveRate, solveDealStructure } from "../deal-structure"
+import { DEAL_STRUCTURE_SELECT, termsFromDeal } from "../deal-terms"
+import { deriveRequiredSigners, requiredFromPrepared, type RequiredSigner } from "../signing"
 
 export class DealDocumentError extends Error {
   constructor(message: string) {
@@ -74,6 +85,10 @@ export interface DealDocumentData {
     reference: { effectiveDate: string; rate: string } | null
     structurePreset: string
     startDate: string
+    /** Default interest above the contract rate, annual decimal ("0" = none). */
+    arrearsMarginRate: string
+    /** Collection fee per missed instalment (0 = none). */
+    collectionFeeCents: number
   }
   schedule: ScheduleRow[]
   /** Who signs the agreement and the resolution. */
@@ -93,15 +108,30 @@ const person = (c: { id: string; firstName: string; lastName: string; idNumber: 
   idNumber: c.idNumber,
 })
 
-/** null when the deal is not this tenant's. Throws DealDocumentError / LenderIdentityError when it cannot render. */
-export async function loadDealDocumentData(db: DocumentDataDb, tenantId: string, dealId: string): Promise<DealDocumentData | null> {
+/**
+ * null when the deal is not this tenant's. Throws DealDocumentError /
+ * LenderIdentityError when it cannot render. `prepare`: the start date chosen
+ * at preparation (see the header).
+ */
+export async function loadDealDocumentData(
+  db: DocumentDataDb,
+  tenantId: string,
+  dealId: string,
+  prepare?: { plannedStartDate: string },
+): Promise<DealDocumentData | null> {
   const deal = await db.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId },
     select: {
       decidedAt: true,
       entityId: true,
       ...DEAL_STRUCTURE_SELECT,
-      application: { select: { reference: true } },
+      plannedStartDate: true,
+      signedArrearsMarginRate: true,
+      signedCollectionFeeCents: true,
+      preparedSigners: true,
+      application: {
+        select: { reference: true, product: { select: { nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } } },
+      },
       entity: true,
       asset: true,
       supplier: { select: { name: true, registrationNumber: true, vatNumber: true } },
@@ -119,11 +149,22 @@ export async function loadDealDocumentData(db: DocumentDataDb, tenantId: string,
       select: { clientId: true, role: true, active: true, client: { select: { id: true, firstName: true, lastName: true, idNumber: true } } },
     }),
   ])
-  const solved = await solveStoredDeal(db, tenantId, deal, deal.asset)
+  const product = deal.application.product
+  const terms = prepare
+    ? {
+        startDate: prepare.plannedStartDate,
+        arrearsMarginRate: (product.nonNcaDefaultInterestMargin ?? new Prisma.Decimal(0)).toString(),
+        collectionFeeCents: product.nonNcaCollectionFeeCents ?? 0,
+      }
+    : preparedTerms(deal)
+  const structure = termsFromDeal(deal)
+  const rate = await resolveRate(db, tenantId, structure.rate, terms.startDate)
+  if ("error" in rate) throw new DealDocumentError(`The schedule cannot be solved: ${rate.error}`)
+  const solved = solveDealStructure(deal.asset, structure, rate, terms.startDate)
   if (!solved.ok) throw new DealDocumentError(`The schedule cannot be solved: ${solved.error}`)
 
   const entityType = deal.entity.type
-  const requiredSigners = deriveRequiredSigners(entityType, relationships)
+  const requiredSigners = prepare ? deriveRequiredSigners(entityType, relationships) : requiredFromPrepared(deal.preparedSigners)
   const people = new Map(relationships.map((r) => [r.clientId, person(r.client)]))
   const peopleFor = (document: RequiredSigner["document"]) =>
     requiredSigners.filter((s) => s.document === document).map((s) => people.get(s.clientId)).filter((p): p is DocumentPerson => p !== undefined)
@@ -180,11 +221,31 @@ export async function loadDealDocumentData(db: DocumentDataDb, tenantId: string,
       reference: solved.rate.reference,
       structurePreset: deal.structurePreset,
       startDate: solved.startDate,
+      arrearsMarginRate: terms.arrearsMarginRate,
+      collectionFeeCents: terms.collectionFeeCents,
     },
     schedule: r.rows,
     signatories: peopleFor("AGREEMENT"),
     sureties: peopleFor("SURETYSHIP"),
     requiredSigners,
+  }
+}
+
+interface PreparedColumns {
+  plannedStartDate: Date | null
+  signedArrearsMarginRate: Prisma.Decimal | null
+  signedCollectionFeeCents: number | null
+}
+
+/** The terms snapshotted at preparation; refuses a deal whose documents were never prepared. */
+function preparedTerms(deal: PreparedColumns): { startDate: string; arrearsMarginRate: string; collectionFeeCents: number } {
+  if (!deal.plannedStartDate || deal.signedArrearsMarginRate === null || deal.signedCollectionFeeCents === null) {
+    throw new DealDocumentError("The deal's documents have not been prepared")
+  }
+  return {
+    startDate: isoOfDbDate(deal.plannedStartDate),
+    arrearsMarginRate: deal.signedArrearsMarginRate.toString(),
+    collectionFeeCents: deal.signedCollectionFeeCents,
   }
 }
 

@@ -4,19 +4,24 @@ import { StatusPill } from "@/components/app-shell/StatusPill"
 import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
 import { requirePortalAssetFinancePage } from "@/lib/asset-finance/portal-page"
+import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
 import { DEAL_DOCUMENT_LABELS, SIGNER_STATE_LABELS, signerState } from "@/lib/asset-finance/signing"
 import { DealSignClient } from "./DealSignClient"
 
 /**
  * Read and e-sign ONE deal document. Keyed by the signer row and the session
  * client: a surety with no authority over the entity reaches their own
- * suretyship here and nothing else; any other row is a 404.
+ * suretyship here and nothing else; any other row is a 404, as is the
+ * client's own row once the relationship authorising it has ended.
  */
 export default async function DealSignerPage({ params }: { params: Promise<{ signerId: string }> }) {
   const { signerId } = await params
   const { tenantId, clientId } = await requirePortalAssetFinancePage()
   const signer = await prisma.dealSigner.findFirst({
-    where: { id: signerId, tenantId, clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] } } },
+    where: {
+      id: signerId, tenantId, clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] } },
+      AND: [portalSignerAuthorityWhere(tenantId, clientId)],
+    },
     select: {
       id: true, document: true, documentSha256: true, method: true, signedAt: true, signatureSha256: true,
       scanDocumentId: true, confirmedById: true, confirmedAt: true,

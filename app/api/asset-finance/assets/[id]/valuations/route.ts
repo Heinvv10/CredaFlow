@@ -33,7 +33,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 /**
  * Records a dated valuation of an asset: source, valuer, amount in cents and
- * optionally the entity document holding the valuation report.
+ * optionally the entity document holding the valuation report. That document
+ * must be a live VALUATION document; once a deal references the asset it must
+ * also belong to the entity of one of those deals, so a valuation never cites
+ * another borrower's file.
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const guard = await requireApiRole("READONLY")
@@ -53,12 +56,23 @@ export async function POST(req: NextRequest, { params }: Params) {
     const asset = await prisma.financedAsset.findFirst({ where: { id, tenantId: tenant.id }, select: { id: true } })
     if (!asset) return NextResponse.json({ error: "Asset not found" }, { status: 404 })
     if (input.documentId) {
+      const deals = await prisma.assetFinanceDeal.findMany({
+        where: { tenantId: tenant.id, assetId: id },
+        select: { entityId: true },
+      })
+      const entityIds = [...new Set(deals.map((d) => d.entityId))]
       const document = await prisma.entityDocument.findFirst({
-        where: { id: input.documentId, tenantId: tenant.id, deletedAt: null },
+        where: {
+          id: input.documentId, tenantId: tenant.id, deletedAt: null, docType: "VALUATION",
+          ...(entityIds.length > 0 ? { entityId: { in: entityIds } } : {}),
+        },
         select: { id: true },
       })
       if (!document) {
-        return NextResponse.json({ error: "Invalid valuation", fields: { documentId: "is not a document on file" } }, { status: 400 })
+        const reason = entityIds.length > 0
+          ? "is not a valuation document of the borrower on this asset's deal"
+          : "is not a valuation document on file"
+        return NextResponse.json({ error: "Invalid valuation", fields: { documentId: reason } }, { status: 400 })
       }
     }
 

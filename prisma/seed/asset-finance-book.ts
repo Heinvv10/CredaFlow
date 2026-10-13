@@ -13,7 +13,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { parseReferenceRateInput } from "@/lib/asset-finance/reference-rate-input"
 import { decideReferenceRate } from "@/lib/asset-finance/reference-rate-decision"
 import { parseBankAccountRequest, parseSupplierCreate } from "@/lib/asset-finance/supplier-input"
-import { supplierAvsNotRun } from "@/lib/asset-finance/supplier-avs"
+import { decideSupplierBankAccount } from "@/lib/asset-finance/supplier-bank-decision"
 import { parseAssetCreate } from "@/lib/asset-finance/asset-input"
 import { dbDate } from "@/lib/asset-finance/dates"
 import type { SeedActor } from "./asset-finance-documents"
@@ -114,25 +114,13 @@ export async function ensureSupplier(tenantId: string, requester: SeedActor, app
   }
   if (account.status === "PENDING") {
     const accountId = account.id
-    // As POST …/bank-accounts/[accountId]/decide approves: AVS is recorded as
-    // not run (company AVS unsupported) with the approver's manual evidence.
-    await prisma.$transaction(async (tx) => {
-      const decidedAt = new Date()
-      const verification = supplierAvsNotRun({ note: SUPPLIER_ACCOUNT_NOTE, verifiedById: approver.id, verifiedAt: decidedAt })
-      await tx.supplierBankAccount.update({
-        where: { id: accountId },
-        data: { status: "APPROVED", decidedById: approver.id, decidedAt, avsResult: verification.avsResult, avsPassed: verification.avsPassed },
-      })
-      await logAuditStrict({
-        tenantId, userId: approver.id, userEmail: approver.email,
-        action: AuditAction.SUPPLIER_BANK_ACCOUNT_DECIDED, entity: "SupplierBankAccount", entityId: accountId,
-        oldValue: { status: "PENDING" },
-        newValue: {
-          supplierId: supplier.id, status: "APPROVED", note: SUPPLIER_ACCOUNT_NOTE, requestedById: requester.id,
-          supersededAccountId: null, avs: "NOT_RUN",
-        },
-      }, tx)
-    })
+    // The decide route's own decision: AVS recorded as not run (company AVS
+    // unsupported) with the approver's manual evidence.
+    const outcome = await prisma.$transaction((tx) => decideSupplierBankAccount(tx, {
+      tenantId, supplierId: supplier.id, accountId, decision: "APPROVE", note: SUPPLIER_ACCOUNT_NOTE,
+      decider: { id: approver.id, email: approver.email },
+    }))
+    if (outcome.kind !== "decided") throw new Error(`Seed: supplier bank account approval refused (${outcome.kind})`)
   }
   return supplier.id
 }

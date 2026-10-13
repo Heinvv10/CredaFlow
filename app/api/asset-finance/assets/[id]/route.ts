@@ -6,7 +6,11 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { CONTRACT_FIELDS, duplicateAssetMessage, parseAssetUpdate } from "@/lib/asset-finance/asset-input"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
+import { loadRateOn } from "@/lib/vat/vat-rate"
+import { CONTRACT_FIELDS, duplicateAssetMessage, parseAssetUpdate, vatProblem } from "@/lib/asset-finance/asset-input"
+import { frozenAssetChanges, loadAssetFreezeState } from "@/lib/asset-finance/asset-freeze"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -32,9 +36,13 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 /**
- * Edits an asset. Its identity and price (CONTRACT_FIELDS) are frozen once it
- * is on a booked loan; a released asset is history and is not edited. The row
- * is locked so a concurrent booking sees the edit or the edit sees the loan.
+ * Edits an asset. Its identity and price are frozen once a deal on it is
+ * APPROVED (and CONTRACT_FIELDS, the residual included, once it is on a
+ * booked loan); insurance, tracker and eNaTIS facts once the checklist item
+ * attesting them is confirmed (lib/asset-finance/asset-freeze.ts). The VAT
+ * must be the VAT on the exclusive price at today's rate. A released asset is
+ * history and is not edited. The row is locked so a concurrent booking sees
+ * the edit or the edit sees the loan. The database refuses the same.
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
   const guard = await requireApiRole("READONLY")
@@ -67,9 +75,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         if (before._count.loans > 0 && contractChanges.length > 0) {
           return { kind: "booked" as const, fields: contractChanges }
         }
+        const frozen = frozenAssetChanges(changes, await loadAssetFreezeState(tx, tenant.id, id))
+        if (frozen.length > 0) return { kind: "frozen" as const, frozen }
         const residual = changes.residualCents !== undefined ? changes.residualCents : before.residualCents
-        const total = (changes.cashPriceExclVatCents ?? before.cashPriceExclVatCents) + (changes.vatCents ?? before.vatCents)
-        if (residual !== null && residual > total) return { kind: "residual" as const }
+        const price = changes.cashPriceExclVatCents ?? before.cashPriceExclVatCents
+        const vat = changes.vatCents ?? before.vatCents
+        if (residual !== null && residual > price + vat) return { kind: "residual" as const }
+        if (changes.cashPriceExclVatCents !== undefined || changes.vatCents !== undefined) {
+          const problem = vatProblem(price, vat, (await loadRateOn(tx, sastCalendarDate(new Date()))).rateTenThousandths)
+          if (problem) return { kind: "vat" as const, problem }
+        }
 
         const updated = await tx.financedAsset.update({ where: { id }, data: changes })
         const oldValue: Record<string, unknown> = {}
@@ -97,6 +112,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             { error: `The asset is on a booked loan; ${result.fields.join(", ")} can no longer change` },
             { status: 409 },
           )
+        case "frozen":
+          return NextResponse.json(
+            { error: `These fields can no longer change: ${result.frozen.map((f) => `${f.field} (${f.reason})`).join(", ")}` },
+            { status: 409 },
+          )
+        case "vat":
+          return NextResponse.json({ error: "Invalid asset", fields: { vatCents: result.problem } }, { status: 400 })
         case "residual":
           return NextResponse.json(
             { error: "Invalid asset", fields: { residualCents: "cannot exceed the cash price including VAT" } },
@@ -106,6 +128,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           return NextResponse.json(result.asset)
       }
     } catch (error) {
+      if (isCheckViolation(error)) {
+        return NextResponse.json({ error: "The database refused the edit: the asset is on an approved deal or attested on its checklist. Reload and try again" }, { status: 409 })
+      }
       const duplicate = duplicateAssetMessage(error)
       if (!duplicate) throw error
       await auditRefusal({

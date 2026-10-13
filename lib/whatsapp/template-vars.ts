@@ -157,8 +157,6 @@ export const WABA_BODY_TEMPLATES: Record<string, string> = {
   loan_overdue_1d:
     "Hi {{firstName}},\n\n⚠️ Your payment of *{{amount}}* on loan *{{reference}}* is overdue.\n\nPlease pay urgently to avoid additional charges. Contact us immediately if you are experiencing difficulty.",
 
-  // From WA_TEMPLATES.payment_overdue_7d. The fixed "7 days" became the real
-  // count: today its only caller is the 60-day DEFAULTED escalation.
   // Asset finance (goal §4.11): the borrower is a company or trust, and these
   // go to the people who act for it (lib/asset-finance/entity-contacts.ts).
   // The consumer bodies say "your loan" / "your payment" to the borrower, which
@@ -174,6 +172,8 @@ export const WABA_BODY_TEMPLATES: Record<string, string> = {
   entity_payment_received:
     "Hi {{firstName}},\n\nWe have received a payment of *{{amount}}* on the account of *{{entityName}}*.\n\nOutstanding balance: *{{outstanding}}*. Thank you. {{lenderName}}",
 
+  // From WA_TEMPLATES.payment_overdue_7d. The fixed "7 days" became the real
+  // count: today its only caller is the 60-day DEFAULTED escalation.
   loan_overdue_7d:
     "URGENT - {{firstName}}\n\nLoan *{{reference}}* is *{{daysOverdue}} days overdue*. Outstanding: *{{amount}}*.\n\nPlease contact us immediately: {{supportPhone}}\n\nFurther action will be taken if payment is not received.",
 }

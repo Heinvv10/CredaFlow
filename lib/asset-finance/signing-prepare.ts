@@ -8,16 +8,26 @@
 // or mistaken for executed evidence. The signer row holds the bytes' path and
 // digest; every read of them is logged against the signer row's id.
 //
+// Preparation also fixes the contract terms on the deal (review item 1): the
+// planned start date staff chose (default today SAST, before the first
+// instalment), the instalment, rate and total interest of the schedule the
+// agreement prints, the arrears terms copied from the product (none = 0), and
+// the required signer set (preparedSigners). Booking reproduces and checks
+// those figures; the contract gate counts signatures against that set.
+//
 // Idempotent while nothing is recorded: preparing again re-renders, re-binds
-// the rows and drops rows no longer required. Once any signature or scan is
-// on record it is refused (and guardDealSigner refuses it in the database).
+// the rows, drops rows no longer required and re-fixes the terms. Once any
+// signature or scan is on record it is refused (guardDealSigner and
+// guardAssetDealSignedTerms refuse it in the database).
 import { Prisma, type AssetDealStatus, type DealDocumentKind } from "@prisma/client"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
-import { deriveRequiredSigners, type RequiredSigner } from "./signing"
+import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
+import { deriveRequiredSigners, preparedSignerSet, requiredFromPrepared, type RequiredSigner } from "./signing"
 
 export type SigningTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
@@ -33,6 +43,7 @@ export type PrepareResult =
   | { kind: "signing_started" }
   | { kind: "no_authority" }
   | { kind: "people_changed" }
+  | { kind: "invalid_start"; error: string }
   | { kind: "prepared"; signers: number }
 
 interface StoredDocument {
@@ -73,14 +84,37 @@ export async function currentRequiredSigners(
   return deriveRequiredSigners(entity.type, relationships)
 }
 
-export async function prepareDealDocuments(actor: SigningActor, dealId: string): Promise<PrepareResult> {
+/** The signer set a deal was prepared with (AssetFinanceDeal.preparedSigners); empty before preparation. */
+export async function preparedRequiredSigners(tx: SigningTx, tenantId: string, dealId: string): Promise<RequiredSigner[]> {
+  const deal = await tx.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { preparedSigners: true } })
+  return deal.preparedSigners === null ? [] : requiredFromPrepared(deal.preparedSigners)
+}
+
+/** Why `plannedStartDate` (YYYY-MM-DD) cannot start a deal whose first instalment is `firstDueDate`; null when it can. */
+export function plannedStartProblem(plannedStartDate: string, firstDueDate: string): string | null {
+  let start: number
+  try {
+    start = toDayNumber(plannedStartDate, "plannedStartDate")
+  } catch {
+    return "plannedStartDate must be a calendar date YYYY-MM-DD"
+  }
+  return start < toDayNumber(firstDueDate) ? null : `The planned start date must be before the first instalment (${firstDueDate})`
+}
+
+export async function prepareDealDocuments(
+  actor: SigningActor,
+  dealId: string,
+  plannedStartDate: string = sastCalendarDate(new Date()),
+): Promise<PrepareResult> {
   const { tenantId } = actor
-  const status = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true } })
+  const status = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, firstDueDate: true } })
   if (!status) return { kind: "not_found" }
   if (status.status !== "APPROVED") return { kind: "not_approved", status: status.status }
+  const startProblem = plannedStartProblem(plannedStartDate, isoOfDbDate(status.firstDueDate))
+  if (startProblem) return { kind: "invalid_start", error: startProblem }
 
   // Throws DealDocumentError / LenderIdentityError: the caller refuses with the reason.
-  const data = await loadDealDocumentData(prisma, tenantId, dealId)
+  const data = await loadDealDocumentData(prisma, tenantId, dealId, { plannedStartDate })
   if (!data) return { kind: "not_found" }
   if (!data.requiredSigners.some((s) => s.document === "AGREEMENT")) return { kind: "no_authority" }
 
@@ -116,12 +150,23 @@ export async function prepareDealDocuments(actor: SigningActor, dealId: string):
         if (!doc) throw new Error(`No rendered document for ${signerKey(signer)}`)
         const binding = { documentSha256: doc.sha256, documentStoragePath: doc.storagePath }
         await tx.dealSigner.upsert({
-          where: { dealId_clientId_document: { dealId, clientId: signer.clientId, document: signer.document } },
+          where: { dealId_clientId_document: { dealId, clientId: signer.clientId, document: signer.document }, tenantId },
           create: { tenantId, dealId, clientId: signer.clientId, role: signer.role, document: signer.document, ...binding },
           update: binding,
         })
         bound.push({ clientId: signer.clientId, document: signer.document, documentSha256: doc.sha256 })
       }
+      const p = data.pricing
+      const terms = {
+        plannedStartDate: dbDate(plannedStartDate),
+        signedBaseInstalmentCents: p.baseInstalmentCents,
+        signedResultingRate: new Prisma.Decimal(p.annualRate),
+        signedTotalInterestCents: p.totalInterestCents,
+        signedArrearsMarginRate: new Prisma.Decimal(p.arrearsMarginRate),
+        signedCollectionFeeCents: p.collectionFeeCents,
+        preparedSigners: preparedSignerSet(now),
+      }
+      await tx.assetFinanceDeal.updateMany({ where: { id: dealId, tenantId, status: "APPROVED" }, data: terms })
       await logAuditStrict(
         {
           tenantId,
@@ -130,7 +175,11 @@ export async function prepareDealDocuments(actor: SigningActor, dealId: string):
           action: AuditAction.ASSET_DEAL_DOCUMENTS_PREPARED,
           entity: "AssetFinanceDeal",
           entityId: dealId,
-          newValue: { signers: bound, removedSigners: stale.map(signerKey), legalWordingApproved: data.legalWordingApproved },
+          newValue: {
+            signers: bound, removedSigners: stale.map(signerKey), legalWordingApproved: data.legalWordingApproved,
+            plannedStartDate, baseInstalmentCents: p.baseInstalmentCents, resultingRate: p.annualRate,
+            totalInterestCents: p.totalInterestCents, arrearsMarginRate: p.arrearsMarginRate, collectionFeeCents: p.collectionFeeCents,
+          },
         },
         tx,
       )

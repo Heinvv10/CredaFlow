@@ -88,6 +88,32 @@ export function deriveRequiredSigners(
   ]
 }
 
+// A type, not an interface, so it is a Prisma JSON value as it stands.
+export type PreparedSigner = {
+  clientId: string
+  document: DealDocumentKind
+}
+
+const DOCUMENTS: readonly DealDocumentKind[] = ["AGREEMENT", "RESOLUTION", "SURETYSHIP"]
+
+/** AssetFinanceDeal.preparedSigners: the required set at preparation, in signing order. */
+export function preparedSignerSet(required: readonly RequiredSigner[]): PreparedSigner[] {
+  return required.map(({ clientId, document }) => ({ clientId, document }))
+}
+
+/** The required set a deal was prepared with, read back from preparedSigners. Throws on a malformed value. */
+export function requiredFromPrepared(value: unknown): RequiredSigner[] {
+  if (!Array.isArray(value)) throw new TypeError("AssetFinanceDeal.preparedSigners must be a JSON array")
+  return value.map((entry: unknown) => {
+    const record = typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>) : {}
+    const document = DOCUMENTS.find((d) => d === record.document)
+    if (typeof record.clientId !== "string" || !document) {
+      throw new TypeError("AssetFinanceDeal.preparedSigners entries are { clientId, document }")
+    }
+    return { clientId: record.clientId, document, role: document === "SURETYSHIP" ? "SURETY" : "AUTHORISED_SIGNATORY" }
+  })
+}
+
 export interface SignerEvidence {
   method: SignatureMethod | null
   signedAt: Date | null

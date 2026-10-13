@@ -6,6 +6,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { serveEntityDocument } from "@/lib/asset-finance/entity-document-io"
 import { lockBusinessEntity } from "@/lib/asset-finance/entity-documents"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 
 type Params = { params: Promise<{ id: string; documentId: string }> }
 
@@ -30,7 +31,9 @@ export async function GET(req: NextRequest, { params }: Params) {
 /**
  * Soft-delete the document. If it was financials evidence it leaves the
  * entity's financialsEvidenceIds in the same transaction, so the classifier
- * never relies on a deleted document.
+ * never relies on a deleted document. A document that is signing or payout
+ * evidence is kept by the database (triggers EntityDocument_signing_evidence
+ * and EntityDocument_payout_evidence, SQLSTATE 23514): 409.
  */
 export async function DELETE(req: NextRequest, { params }: Params) {
   // manage_asset_finance
@@ -42,7 +45,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     if (disabled) return disabled
     const { id, documentId } = await params
 
-    const deleted = await prisma.$transaction(async (tx) => {
+    const softDelete = () => prisma.$transaction(async (tx) => {
       if (!(await lockBusinessEntity(tx, tenant.id, id))) return false
       const { count } = await tx.entityDocument.updateMany({
         where: { id: documentId, entityId: id, tenantId: tenant.id, deletedAt: null },
@@ -74,6 +77,18 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       )
       return true
     })
+    let deleted: boolean
+    try {
+      deleted = await softDelete()
+    } catch (error) {
+      if (isCheckViolation(error)) {
+        return NextResponse.json(
+          { error: "This document is evidence for a signed deal document or a payout checklist item and cannot be deleted" },
+          { status: 409 },
+        )
+      }
+      throw error
+    }
     if (!deleted) return NextResponse.json({ error: "Document not found" }, { status: 404 })
     return NextResponse.json({ id: documentId, deleted: true })
   })

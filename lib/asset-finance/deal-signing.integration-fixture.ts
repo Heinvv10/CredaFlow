@@ -113,7 +113,7 @@ export function signingRoutes(host: string) {
   const base = (id: string) => `/api/asset-finance/deals/${id}`
   return {
     panel: (id: string) => panelRoute(request(`${base(id)}/signing`, "GET"), deal(id)),
-    prepare: (id: string) => prepareRoute(request(`${base(id)}/signing`, "POST"), deal(id)),
+    prepare: (id: string, body?: { plannedStartDate: string }) => prepareRoute(request(`${base(id)}/signing`, "POST", body && { json: body }), deal(id)),
     contract: (id: string) => contractRoute(request(`${base(id)}/contract`, "POST"), deal(id)),
     staffDocument: (id: string, signerId: string) =>
       staffDocumentRoute(request(`${base(id)}/signers/${signerId}/document`, "GET"), signer(id, signerId)),

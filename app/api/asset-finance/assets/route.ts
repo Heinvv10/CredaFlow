@@ -5,7 +5,9 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { duplicateAssetMessage, parseAssetCreate } from "@/lib/asset-finance/asset-input"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { loadRateOn } from "@/lib/vat/vat-rate"
+import { duplicateAssetMessage, parseAssetCreate, vatProblem } from "@/lib/asset-finance/asset-input"
 
 /** The tenant's asset register, newest first. */
 export async function GET(req: NextRequest) {
@@ -26,8 +28,11 @@ export async function GET(req: NextRequest) {
 
 /**
  * Registers a financed asset. A serial number or VIN already on an unreleased
- * asset in this tenant is refused by the database (DESIGN D8, book-wide
- * duplicate check); the route answers 409 and audits the attempt.
+ * asset in this tenant, as either, is refused by the database (DESIGN D8,
+ * book-wide duplicate check, on the normalised identifiers); the route
+ * answers 409 and audits the attempt. The VAT must be the VAT on the
+ * exclusive cash price at the rate in force today (400 otherwise; the
+ * database checks it too).
  */
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -43,6 +48,8 @@ export async function POST(req: NextRequest) {
     const parsed = parseAssetCreate(await req.json().catch(() => null))
     if ("errors" in parsed) return NextResponse.json({ error: "Invalid asset", fields: parsed.errors }, { status: 400 })
     const data = parsed.data
+    const problem = vatProblem(data.cashPriceExclVatCents, data.vatCents, (await loadRateOn(prisma, sastCalendarDate(new Date()))).rateTenThousandths)
+    if (problem) return NextResponse.json({ error: "Invalid asset", fields: { vatCents: problem } }, { status: 400 })
 
     try {
       const asset = await prisma.$transaction(async (tx) => {

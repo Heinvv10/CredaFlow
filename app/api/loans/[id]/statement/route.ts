@@ -8,6 +8,7 @@ import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
 import { hasClientBorrower } from "@/lib/borrower"
 import { renderEntityStatementPdf } from "@/lib/asset-finance/documents/statement-pdf"
+import { recordedCallerIp } from "@/lib/rate-limit"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: "staff",
           accessorId: staff.user.id,
           action: "download",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })

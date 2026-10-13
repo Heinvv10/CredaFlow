@@ -81,6 +81,8 @@ export function syntheticDealDocumentData(overrides: Partial<DealDocumentData> =
       reference: { effectiveDate: "2026-05-29", rate: PRIME },
       structurePreset: "ANNUAL_SEASONAL",
       startDate: "2026-12-31",
+      arrearsMarginRate: "0.02",
+      collectionFeeCents: 45_000,
     },
     schedule: solved.rows,
     signatories: [{ clientId: "client-director", name: "TEST Director", idNumber: "0000000000001" }],

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { checkRateLimit } from "@/lib/rate-limit"
 import { withPortalEntity } from "@/lib/asset-finance/portal-route"
+import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
+import { PORTAL_SIGN_RATE_LIMIT } from "@/lib/asset-finance/portal-rate-limits"
 import { parseSignatureInput, recordESignature, requestIp } from "@/lib/asset-finance/signing-esign"
 import { signingErrorResponse } from "@/lib/asset-finance/signing-route"
 import { AuditAction } from "@/lib/audit"
@@ -8,14 +12,28 @@ import { auditRefusal } from "@/lib/audit-refusals"
 /**
  * E-sign the client's own deal document. Body `{ signature, documentSha256 }`:
  * a drawn PNG data URL or a typed name, and the digest the sign page showed.
- * 404 for anyone else's signer row; 409 when it is signed already, the deal
- * is not open for signing, or the document changed since it was shown.
+ * 404 for anyone else's signer row, and for the client's own row once they no
+ * longer hold the relationship that authorises it (portalSignerAuthorityWhere);
+ * 409 when it is signed already, the deal is not open for signing, or the
+ * document changed since it was shown; 429 past PORTAL_SIGN_RATE_LIMIT.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ signerId: string }> }) {
   const { signerId } = await params
   return withPortalEntity(req, null, async ({ tenantId, client }) => {
+    const gate = checkRateLimit(`portal:af-sign:${tenantId}:${client.clientId}`, PORTAL_SIGN_RATE_LIMIT)
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { error: "Too many signing attempts. Please wait a few minutes and try again." },
+        { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+      )
+    }
     const input = parseSignatureInput(await req.json().catch(() => null))
     if ("error" in input) return NextResponse.json({ error: input.error }, { status: input.status })
+    const authorised = await prisma.dealSigner.findFirst({
+      where: { id: signerId, tenantId, clientId: client.clientId, AND: [portalSignerAuthorityWhere(tenantId, client.clientId)] },
+      select: { id: true },
+    })
+    if (!authorised) return NextResponse.json({ error: "Not found" }, { status: 404 })
     let result: Awaited<ReturnType<typeof recordESignature>>
     try {
       result = await recordESignature({

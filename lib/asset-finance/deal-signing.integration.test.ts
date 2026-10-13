@@ -181,26 +181,24 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     expect(await signerOf(fx.suretyB, "SURETYSHIP")).toMatchObject({ confirmedById: fx.adminA })
   })
 
-  it("a surety added after preparation has no suretyship row: refused by route and DB until resolved", async () => {
+  it("the prepared signer set is fixed: a later surety is not required, and a prepared surety cannot be deactivated (DB)", async () => {
     const late = await database().client.create({
       data: {
         tenantId: fx.tenantId, firstName: "TEST", lastName: "late", email: `late-${t}@client.invalid`,
         phone: `0002${t.slice(0, 6)}`, idNumber: `97${t.replace(/\D/g, "0").slice(0, 11)}`,
       },
     })
-    const relationship = await database().entityRelationship.create({
-      data: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: late.id, role: "SURETY" },
-    })
+    await database().entityRelationship.create({ data: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: late.id, role: "SURETY" } })
+    expect(await sqlError(() => database().entityRelationship.updateMany({
+      where: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: fx.suretyB, role: "SURETY" }, data: { active: false },
+    }))).toContain("The entity has an approved deal: its sureties and signatories are fixed")
     signIn(fx.officer, "CREDIT_OFFICER")
-    const response = await routes().contract(fx.dealId)
-    expect(response.status).toBe(409)
-    expect((await response.json()).outstanding).toEqual([expect.objectContaining({ clientId: late.id, state: "MISSING" })])
-    expect(await sqlError(forceContract)).toContain("Every active surety signs a suretyship")
     expect((await routes().prepare(fx.dealId)).status).toBe(409)
-    await database().entityRelationship.update({ where: { id: relationship.id }, data: { active: false } })
+    const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })
+    expect(deal.preparedSigners).not.toContainEqual(expect.objectContaining({ clientId: late.id }))
   })
 
-  it("all satisfied → CONTRACTED, audited; signer rows are then closed to change", async () => {
+  it("all prepared signers satisfied → CONTRACTED (the later surety is not required), audited; signer rows are then closed to change", async () => {
     signIn(fx.officer, "CREDIT_OFFICER")
     const response = await routes().contract(fx.dealId)
     expect(response.status).toBe(200)

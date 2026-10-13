@@ -11,7 +11,7 @@ import {
 } from "@/lib/document-auth"
 import { documentBytesMatchSha256, sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { ENTITY_DOCUMENT_VIEW_SELECT, toEntityDocumentView, type EntityDocumentView } from "./entity-documents"
+import { ENTITY_DOCUMENT_VIEW_SELECT, lockBusinessEntity, toEntityDocumentView, type EntityDocumentView } from "./entity-documents"
 
 // Upload and download of EntityDocument bytes, shared by the staff and portal
 // routes. Uploads pass the same MIME allow-list, size cap and magic-byte check
@@ -65,17 +65,28 @@ export interface EntityDocumentUploader {
   email?: string
 }
 
+/** The entity already holds `cap` live documents; nothing was stored. */
+export class EntityDocumentCapError extends Error {
+  constructor(readonly cap: number) {
+    super(`The entity already holds ${cap} documents; delete one before uploading another`)
+    this.name = "EntityDocumentCapError"
+  }
+}
+
 /**
  * Store the bytes, then the row and its audit entry in one transaction.
  * `withinTransaction` runs in that transaction after the row exists (the
  * wet-ink signing flow binds the scan to its signer there); if it throws,
- * nothing is kept.
+ * nothing is kept. With `liveDocumentCap` the entity row is locked and an
+ * entity already holding that many live documents throws
+ * EntityDocumentCapError (the lock makes concurrent uploads count in turn).
  */
 export async function storeEntityDocument(params: {
   tenantId: string
   entityId: string
   upload: ParsedEntityUpload
   uploader: EntityDocumentUploader
+  liveDocumentCap?: number
   withinTransaction?: (tx: EntityDocumentTx, document: { id: string; contentSha256: string }) => Promise<void>
 }): Promise<EntityDocumentView> {
   const { tenantId, entityId, upload, uploader } = params
@@ -84,6 +95,11 @@ export async function storeEntityDocument(params: {
   const contentSha256 = sha256DocumentBytes(buffer)
   try {
     const row = await prisma.$transaction(async (tx) => {
+      if (params.liveDocumentCap !== undefined) {
+        await lockBusinessEntity(tx, tenantId, entityId)
+        const live = await tx.entityDocument.count({ where: { tenantId, entityId, deletedAt: null } })
+        if (live >= params.liveDocumentCap) throw new EntityDocumentCapError(params.liveDocumentCap)
+      }
       const created = await tx.entityDocument.create({
         data: {
           tenantId,

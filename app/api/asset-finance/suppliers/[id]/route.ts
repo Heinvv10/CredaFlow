@@ -5,10 +5,11 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseSupplierUpdate } from "@/lib/asset-finance/supplier-input"
+import { supplierBankAccountView } from "@/lib/asset-finance/supplier-bank-view"
 
 type Params = { params: Promise<{ id: string }> }
 
-/** One supplier with its bank accounts, newest first. */
+/** One supplier with its bank accounts, newest first (account numbers masked without decide_asset_finance). */
 export async function GET(req: NextRequest, { params }: Params) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
@@ -22,7 +23,10 @@ export async function GET(req: NextRequest, { params }: Params) {
       include: { bankAccounts: { orderBy: { createdAt: "desc" } } },
     })
     if (!supplier) return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
-    return NextResponse.json(supplier)
+    return NextResponse.json({
+      ...supplier,
+      bankAccounts: supplier.bankAccounts.map((account) => supplierBankAccountView(account, guard.user.role)),
+    })
   })
 }
 

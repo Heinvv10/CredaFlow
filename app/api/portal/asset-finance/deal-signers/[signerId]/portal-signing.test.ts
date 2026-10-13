@@ -38,6 +38,9 @@ vi.mock("@/lib/asset-finance/signing-esign", async (importOriginal) => ({
 
 import { GET as document } from "./document/route"
 import { POST as sign } from "./sign/route"
+import { _resetRateLimitStore } from "@/lib/rate-limit"
+import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
+import { PORTAL_SIGN_RATE_LIMIT } from "@/lib/asset-finance/portal-rate-limits"
 
 const SHA = "b".repeat(64)
 const params = { params: Promise.resolve({ signerId: "signer-1" }) }
@@ -55,6 +58,7 @@ const PNG = `data:image/png;base64,${Buffer.concat([Buffer.from([0x89, 0x50, 0x4
 beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllEnvs()
+  _resetRateLimitStore()
   m.flag.on = true
   asClient()
   m.signerFindFirst.mockResolvedValue({
@@ -127,5 +131,38 @@ describe("portal deal-signer routes", () => {
       expect((await post({ signature: "TEST Surety", documentSha256: SHA })).status).toBe(409)
       expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({ reason: kind, entityId: "signer-1" }))
     }
+  })
+})
+
+describe("portal deal-signer authority and limits", () => {
+  const authority = portalSignerAuthorityWhere("tenant-1", "client-1")
+
+  it("reads the document only while the client holds the relationship authorising the row", async () => {
+    expect((await get()).status).toBe(200)
+    expect(m.signerFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "signer-1", clientId: "client-1", AND: [authority] }),
+    }))
+    // The relationship ended (or never authorised this row): the query finds nothing.
+    m.signerFindFirst.mockResolvedValue(null)
+    expect((await get()).status).toBe(404)
+    expect(m.serve).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses to sign 404, recording nothing, once the authorising relationship has ended", async () => {
+    m.signerFindFirst.mockResolvedValue(null)
+    expect((await post({ signature: "TEST Surety", documentSha256: SHA })).status).toBe(404)
+    expect(m.signerFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "signer-1", tenantId: "tenant-1", clientId: "client-1", AND: [authority] },
+    }))
+    expect(m.record).not.toHaveBeenCalled()
+  })
+
+  it("answers 429 past the per-client signing limit without recording a signature", async () => {
+    for (let i = 0; i < PORTAL_SIGN_RATE_LIMIT.limit; i++) expect((await post({ signature: "TEST Surety", documentSha256: SHA })).status).toBe(200)
+    m.record.mockClear()
+    const res = await post({ signature: "TEST Surety", documentSha256: SHA })
+    expect(res.status).toBe(429)
+    expect(res.headers.get("retry-after")).toBeTruthy()
+    expect(m.record).not.toHaveBeenCalled()
   })
 })

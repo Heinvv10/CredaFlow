@@ -5,10 +5,11 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseBankAccountRequest } from "@/lib/asset-finance/supplier-input"
+import { supplierBankAccountView } from "@/lib/asset-finance/supplier-bank-view"
 
 type Params = { params: Promise<{ id: string }> }
 
-/** A supplier's bank accounts, newest first. */
+/** A supplier's bank accounts, newest first (account numbers masked without decide_asset_finance). */
 export async function GET(req: NextRequest, { params }: Params) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       where: { tenantId: tenant.id, supplierId: id },
       orderBy: { createdAt: "desc" },
     })
-    return NextResponse.json(accounts)
+    return NextResponse.json(accounts.map((account) => supplierBankAccountView(account, guard.user.role)))
   })
 }
 
@@ -74,6 +75,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       }, tx)
       return row
     })
-    return NextResponse.json(account, { status: 201 })
+    return NextResponse.json(supplierBankAccountView(account, guard.user.role), { status: 201 })
   })
 }

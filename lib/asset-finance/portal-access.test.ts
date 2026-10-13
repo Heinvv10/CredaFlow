@@ -6,6 +6,7 @@ import {
   authorisedEntityIdsForClient,
   loadPortalEntityDocuments,
   PORTAL_AUTHORITY_ROLES,
+  portalSignerAuthorityWhere,
   portalVisibleEntityDocumentWhere,
   requirePortalEntityAccess,
 } from "./portal-access"
@@ -56,5 +57,27 @@ describe("portal entity documents (POPIA: another surety's signed suretyship)", 
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: "t1", entityId: "e1", deletedAt: null, ...portalVisibleEntityDocumentWhere("c1") },
     }))
+  })
+})
+
+describe("portal deal signer authority (M1)", () => {
+  const relationship = (roles: string[]) => ({
+    deal: { entity: { relationships: { some: { tenantId: "t1", clientId: "c1", active: true, role: { in: roles } } } } },
+  })
+
+  it("a SURETY row needs an active SURETY relationship; any other row an active authorising one", () => {
+    expect(portalSignerAuthorityWhere("t1", "c1")).toEqual({
+      OR: [
+        { role: "SURETY", ...relationship(["SURETY"]) },
+        { role: { not: "SURETY" }, ...relationship(["DIRECTOR", "TRUSTEE", "AUTHORISED_SIGNATORY"]) },
+      ],
+    })
+  })
+
+  it("never lets a SURETY relationship authorise an agreement or resolution row", () => {
+    const branches = portalSignerAuthorityWhere("t1", "c1").OR ?? []
+    const nonSurety = branches.find((b) => typeof b.role === "object")
+    const roles = (nonSurety?.deal as { entity: { relationships: { some: { role: { in: string[] } } } } }).entity.relationships.some.role.in
+    expect(roles).not.toContain("SURETY")
   })
 })

@@ -202,6 +202,49 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
   })
 })
 
+describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
+  const personal = { ...before, code: "PLANT", name: "Plant instalment sale", productType: "PERSONAL", interestModel: "REDUCING_BALANCE",
+    minTermDays: 180, maxTermDays: 1_800, nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null }
+  const edit = (change: Record<string, unknown>) => PUT(request({
+    code: personal.code, name: personal.name, productType: personal.productType, interestModel: personal.interestModel,
+    minTermDays: personal.minTermDays, maxTermDays: personal.maxTermDays, ...change,
+  }), context)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    findUnique.mockResolvedValue(personal)
+    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...personal, ...data }))
+    queryRaw.mockResolvedValue([])
+    auditCreate.mockResolvedValue({ id: "audit-1" })
+    transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
+      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, auditLog: { create: auditCreate },
+    }))
+  })
+
+  it("updates the terms and audits them before and after", async () => {
+    expect((await edit({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 })).status).toBe(200)
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 }),
+    }))
+    const audit = auditCreate.mock.calls[0][0].data
+    expect(audit.oldValue).toMatchObject({ nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null })
+    expect(audit.newValue).toMatchObject({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 })
+  })
+
+  it("leaves stored terms untouched when the form does not send them", async () => {
+    expect((await edit({})).status).toBe(200)
+    const data = update.mock.calls[0][0].data as Record<string, unknown>
+    expect("nonNcaDefaultInterestMargin" in data).toBe(false)
+    expect("nonNcaCollectionFeeCents" in data).toBe(false)
+  })
+
+  it("refuses a negative fee 422 before any write", async () => {
+    expect((await edit({ nonNcaCollectionFeeCents: -1 })).status).toBe(422)
+    expect(transaction).not.toHaveBeenCalled()
+  })
+})
+
 describe("DELETE /api/products/loan/[id] MICRO30 guard", () => {
   beforeEach(() => {
     vi.clearAllMocks()

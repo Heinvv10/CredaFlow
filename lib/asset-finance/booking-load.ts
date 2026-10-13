@@ -22,11 +22,18 @@ const BOOKING_SELECT = {
   id: true,
   status: true,
   contractType: true,
+  plannedStartDate: true,
+  signedBaseInstalmentCents: true,
+  signedResultingRate: true,
+  signedTotalInterestCents: true,
+  signedArrearsMarginRate: true,
+  signedCollectionFeeCents: true,
+  checklist: {
+    where: { item: "SUPPLIER_INVOICE_MATCHES_ASSET", confirmedAt: { not: null } },
+    select: { attestedIdentifier: true },
+  },
   application: {
-    select: {
-      id: true, status: true, ncaRegime: true, productId: true, appliedAmount: true, approvedAmount: true,
-      product: { select: { nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } },
-    },
+    select: { id: true, status: true, ncaRegime: true, productId: true, appliedAmount: true, approvedAmount: true },
   },
   asset: { select: { id: true, make: true, model: true, year: true, serialNumber: true, vin: true, cashPriceExclVatCents: true, vatCents: true } },
   entity: {

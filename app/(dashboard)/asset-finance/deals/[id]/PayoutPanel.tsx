@@ -12,7 +12,7 @@ import { EvidenceUpload } from "./EvidenceUpload"
 
 const link = "text-[var(--cf-brand)] underline-offset-2 hover:underline"
 const EVIDENCE_TYPES = [...new Set(CHECKLIST_KINDS.flatMap((k) => CHECKLIST_EVIDENCE_TYPES[k]))] as EntityDocumentType[]
-const PAYOUT_TONE = { PENDING_APPROVAL: "warning", APPROVED: "info", RELEASED: "success" } as const
+const PAYOUT_TONE = { PENDING_APPROVAL: "warning", APPROVED: "info", RELEASED: "success", CANCELLED: "neutral" } as const
 
 /** The deal page's "Payout" panel (goal §4.10): checklist, payout, booking. */
 export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; canManage: boolean; canDecide: boolean; userId: string }) {

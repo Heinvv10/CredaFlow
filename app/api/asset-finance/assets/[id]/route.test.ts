@@ -6,6 +6,9 @@ const m = vi.hoisted(() => {
   const tx = {
     $queryRaw: vi.fn(),
     financedAsset: { findFirst: vi.fn(), update: vi.fn() },
+    assetFinanceDeal: { findMany: vi.fn() },
+    // The national rate table: 15% from 1 April 2018.
+    vatRate: { findFirst: async () => ({ effectiveDate: new Date("2018-04-01T00:00:00Z"), rate: "0.1500" }) },
   }
   return {
     tx,
@@ -62,6 +65,7 @@ beforeEach(() => {
   m.tx.$queryRaw.mockResolvedValue([{ id: "asset-1" }])
   m.tx.financedAsset.findFirst.mockResolvedValue(stored())
   m.tx.financedAsset.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...stored(), ...data }))
+  m.tx.assetFinanceDeal.findMany.mockResolvedValue([])
 })
 
 describe("/api/asset-finance/assets/[id]", () => {
@@ -99,6 +103,41 @@ describe("/api/asset-finance/assets/[id]", () => {
     expect((await patch({ insurer: "TEST Insurer" })).status).toBe(200)
   })
 
+  it("freezes identity and price once a deal on the asset is APPROVED (409, nothing written), not the insurance", async () => {
+    m.tx.assetFinanceDeal.findMany.mockResolvedValue([{ status: "APPROVED", checklist: [] }])
+    for (const change of [{ serialNumber: "TEST0000000000002" }, { make: "OTHER" }, { registrationNumber: "TEST2GP" }, { cashPriceExclVatCents: 1 }]) {
+      const res = await patch(change)
+      expect(res.status).toBe(409)
+      expect((await res.json()).error).toMatch(/on an approved deal/)
+    }
+    expect(m.tx.financedAsset.update).not.toHaveBeenCalled()
+    expect((await patch({ insurer: "TEST Insurer" })).status).toBe(200)
+    m.tx.assetFinanceDeal.findMany.mockResolvedValue([{ status: "CANCELLED", checklist: [] }])
+    expect((await patch({ make: "OTHER" })).status).toBe(200)
+  })
+
+  it("freezes a fact once the checklist item attesting it is confirmed", async () => {
+    m.tx.assetFinanceDeal.findMany.mockResolvedValue([{ status: "CONTRACTED", checklist: [{ item: "INSURANCE_NOTES_LENDER" }, { item: "TRACKER_CONFIRMED" }] }])
+    for (const change of [{ insurer: "TEST Insurer" }, { policyNumber: "P2" }, { lenderNotedConfirmed: false }, { trackerId: "TRK-2" }]) {
+      const res = await patch(change)
+      expect(res.status).toBe(409)
+      expect((await res.json()).error).toMatch(/attested on the payout checklist/)
+    }
+    expect((await patch({ natisTitleholder: "TEST LENDER" })).status).toBe(200)
+  })
+
+  it("refuses a price whose stored VAT is no longer the VAT at today's rate (400)", async () => {
+    const res = await patch({ cashPriceExclVatCents: 120_000_000 })
+    expect(res.status).toBe(400)
+    expect((await res.json()).fields).toEqual({ vatCents: expect.stringMatching(/must be 18000000 cents/) })
+    expect((await patch({ cashPriceExclVatCents: 120_000_000, vatCents: 18_000_000 })).status).toBe(200)
+  })
+
+  it("answers a database guard refusal 409", async () => {
+    m.tx.financedAsset.update.mockRejectedValue(Object.assign(new Error("The asset is on an approved deal: its identity and price are fixed"), { code: "23514" }))
+    expect((await patch({ make: "OTHER" })).status).toBe(409)
+  })
+
   it("does not edit a released asset", async () => {
     m.tx.financedAsset.findFirst.mockResolvedValue(stored({ releasedAt: new Date() }))
     expect((await patch({ insurer: "TEST Insurer" })).status).toBe(409)
@@ -113,7 +152,7 @@ describe("/api/asset-finance/assets/[id]", () => {
 
   it("maps a duplicate serial on edit to 409 and audits it", async () => {
     m.tx.financedAsset.update.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("dup", {
-      code: "P2002", clientVersion: "test", meta: { target: ["tenantId", "upper(btrim(serialNumber))"] },
+      code: "P2002", clientVersion: "test", meta: { target: ["tenantId", "assetIdentifierKey(serialNumber)"] },
     }))
     const res = await patch({ serialNumber: "TEST0000000000002" })
     expect(res.status).toBe(409)

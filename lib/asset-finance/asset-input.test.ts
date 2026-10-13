@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { duplicateAssetMessage, parseAssetCreate, parseAssetUpdate, parseValuation } from "./asset-input"
+import { duplicateAssetMessage, parseAssetCreate, parseAssetUpdate, parseValuation, vatProblem } from "./asset-input"
 
 const valid = {
   assetClass: "EXCAVATOR",
@@ -12,13 +12,29 @@ const valid = {
 }
 
 describe("parseAssetCreate", () => {
-  it("accepts a minimal asset, trims and upper-cases identifiers, defaults the optionals", () => {
+  it("accepts a minimal asset, normalises identifiers, defaults the optionals", () => {
     const parsed = parseAssetCreate({ ...valid, vin: " vin-test-1 " })
     expect(parsed).toEqual({
       data: expect.objectContaining({
-        serialNumber: "TEST0000000000001", vin: "VIN-TEST-1", residualCents: null, lenderNotedConfirmed: false, insurer: null,
+        serialNumber: "TEST0000000000001", vin: "VINTEST1", residualCents: null, lenderNotedConfirmed: false, insurer: null,
       }),
     })
+  })
+
+  it.each([
+    ["TEST F8"], ["test-f8"], ["TEST.F8"], ["TEST/F8"], ["TEST_F8"], ["TEST\u00A0F8"], ["TEST\u200BF8"], ["TESTF8\t"], ["TESTF8\n"], ["\uFEFFTESTF8"],
+  ])("stores serial %j as TESTF8, the key the duplicate checks compare", (serialNumber) => {
+    const parsed = parseAssetCreate({ ...valid, serialNumber, vin: serialNumber })
+    expect(parsed).toEqual({ data: expect.objectContaining({ serialNumber: "TESTF8", vin: "TESTF8" }) })
+  })
+
+  it("refuses an identifier with a control or invisible format character left after normalising; an invisible-only VIN is none", () => {
+    for (const serialNumber of ["TEST\u0007F8", "TEST\u202EF8", "TEST\u00ADF8"]) {
+      const parsed = parseAssetCreate({ ...valid, serialNumber })
+      expect("errors" in parsed && parsed.errors.serialNumber).toMatch(/control or invisible/)
+    }
+    expect(parseAssetCreate({ ...valid, serialNumber: "\u200B - " })).toEqual({ errors: { serialNumber: "is required" } })
+    expect(parseAssetCreate({ ...valid, vin: "\u200B" })).toEqual({ data: expect.objectContaining({ vin: null }) })
   })
 
   it.each([
@@ -83,10 +99,24 @@ describe("parseValuation", () => {
   })
 })
 
+describe("vatProblem", () => {
+  it("accepts exactly the half-up VAT on the exclusive price, and names the right figure otherwise", () => {
+    expect(vatProblem(150_000_000, 22_500_000, 1500)).toBeNull()
+    expect(vatProblem(3, 0, 1500)).toBeNull() // 0.45 cent rounds down
+    expect(vatProblem(10, 2, 1500)).toBeNull() // 1.5 cents rounds up
+    expect(vatProblem(150_000_000, 22_500_001, 1500)).toMatch(/must be 22500000 cents/)
+    expect(vatProblem(10, 1, 1500)).toMatch(/must be 2 cents/)
+  })
+})
+
 describe("duplicateAssetMessage", () => {
   it("names the serial or the VIN from Prisma's expression-index target", () => {
-    expect(duplicateAssetMessage({ code: "P2002", meta: { target: ["tenantId", "upper(btrim(serialNumber))"] } })).toMatch(/serial number/)
-    expect(duplicateAssetMessage({ code: "P2002", meta: { target: ["tenantId", "upper(btrim(vin))"] } })).toMatch(/VIN/)
+    expect(duplicateAssetMessage({ code: "P2002", meta: { target: ["tenantId", "assetIdentifierKey(serialNumber)"] } })).toMatch(/serial number/)
+    expect(duplicateAssetMessage({ code: "P2002", meta: { target: ["tenantId", "assetIdentifierKey(vin)"] } })).toMatch(/VIN/)
+  })
+
+  it("reads a target-less unique violation as the cross-column check (a serial that is another asset's VIN)", () => {
+    expect(duplicateAssetMessage({ code: "P2002", meta: { modelName: "FinancedAsset", target: null } })).toMatch(/serial number or VIN/)
   })
 
   it("leaves any other error alone", () => {

@@ -1,10 +1,15 @@
 /**
  * Validation of a financed asset (POST/PATCH /api/asset-finance/assets) and of
  * an asset valuation (POST /api/asset-finance/assets/[id]/valuations).
- * Money is integer cents. Serial numbers and VINs are stored trimmed and upper
- * case; the database's duplicate check compares them the same way.
+ * Money is integer cents. Serial numbers and VINs are stored normalised
+ * (./asset-identifier.ts: no spaces, zero-width characters or - / . _,
+ * upper case); the database's duplicate checks compare them the same way.
+ * The VAT must be the VAT on the exclusive price at the rate in force (the
+ * routes pass it; the database checks it too, guardFinancedAssetVat).
  */
 import type { AssetClass, ValuationSource } from "@prisma/client"
+import { vatOnExclusive } from "@/lib/vat/amounts"
+import { parseAssetIdentifier } from "./asset-identifier"
 import { toDayNumber } from "./dates"
 import {
   asRecord, MAX_INT, readBool, readEnum, readInt, readText,
@@ -52,6 +57,20 @@ export const CONTRACT_FIELDS = [
 
 type Parsed<T> = { data: T } | { errors: Errors }
 
+function readIdentifier(record: Fields, key: "serialNumber" | "vin", out: Fields, errors: Errors, required: boolean, nullable: boolean): void {
+  readText(record, key, out, errors, { required, nullable, max: 128 })
+  const raw = out[key]
+  if (typeof raw !== "string") return
+  const parsed = parseAssetIdentifier(raw)
+  if ("error" in parsed) {
+    if (nullable && parsed.error === "is required") out[key] = null
+    else errors[key] = parsed.error
+    return
+  }
+  if (parsed.value.length > 64) errors[key] = "must be at most 64 characters"
+  else out[key] = parsed.value
+}
+
 function parseAsset(body: unknown, partial: boolean): Parsed<Fields> {
   const record = asRecord(body)
   if (!record) return { errors: { body: "must be a JSON object" } }
@@ -62,8 +81,8 @@ function parseAsset(body: unknown, partial: boolean): Parsed<Fields> {
   readText(record, "make", out, errors, { required, nullable: false, max: 100 })
   readText(record, "model", out, errors, { required, nullable: false, max: 100 })
   readInt(record, "year", out, errors, { required, nullable: false, min: 1950, max: new Date().getUTCFullYear() + 1 })
-  readText(record, "serialNumber", out, errors, { required, nullable: false, max: 64, upper: true })
-  readText(record, "vin", out, errors, { required: false, nullable: true, max: 64, upper: true })
+  readIdentifier(record, "serialNumber", out, errors, required, false)
+  readIdentifier(record, "vin", out, errors, false, true)
   readText(record, "engineNumber", out, errors, { required: false, nullable: true, max: 64, upper: true })
   readText(record, "registrationNumber", out, errors, { required: false, nullable: true, max: 32, upper: true })
   readInt(record, "hours", out, errors, { required: false, nullable: true, min: 0, max: MAX_INT })
@@ -85,6 +104,15 @@ function parseAsset(body: unknown, partial: boolean): Parsed<Fields> {
   if (Object.keys(errors).length > 0) return { errors }
   if (partial && Object.keys(out).length === 0) return { errors: { body: "has no asset fields to change" } }
   return { data: out }
+}
+
+/**
+ * The VAT the asset must carry: VAT on the exclusive cash price at
+ * `rateTenThousandths` (the rate in force today), half-up. Null when right.
+ */
+export function vatProblem(cashPriceExclVatCents: number, vatCents: number, rateTenThousandths: number): string | null {
+  const expected = vatOnExclusive(cashPriceExclVatCents, rateTenThousandths)
+  return vatCents === expected ? null : `must be ${expected} cents: the VAT on the exclusive cash price at the rate in force today`
 }
 
 /** A new asset: every required field present. */
@@ -137,13 +165,18 @@ export function parseValuation(body: unknown, today: string): Parsed<ValuationFi
 /**
  * The 409 message for a unique violation (Prisma P2002) on the book-wide
  * duplicate indexes, or null if the violation is something else. Prisma names
- * an expression index by its expressions, e.g. `upper(btrim(vin))`.
+ * an expression index by its expressions, e.g. `assetIdentifierKey(vin)`.
  */
 export function duplicateAssetMessage(error: unknown): string | null {
   if (typeof error !== "object" || error === null) return null
   const { code, meta } = error as { code?: unknown; meta?: { target?: unknown } }
   if (code !== "P2002") return null
-  const target = Array.isArray(meta?.target) ? meta.target.join(",") : String(meta?.target ?? "")
+  // The cross-column trigger (a serial that is another asset's VIN, or the
+  // reverse) raises a unique violation Prisma reports without a target.
+  if (meta?.target === null || meta?.target === undefined) {
+    return "An unreleased asset on the book already carries this identifier as its serial number or VIN"
+  }
+  const target = Array.isArray(meta.target) ? meta.target.join(",") : String(meta.target)
   if (target.includes("serialNumber")) {
     return "An asset with this serial number is already on the book and has not been released"
   }

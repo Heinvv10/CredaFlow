@@ -47,6 +47,28 @@ export async function isPortalEntityAuthorised(
 }
 
 /**
+ * The deal signer rows a portal client may still read and sign: their own row
+ * (the caller adds `clientId`) only while they hold, on the deal's entity, an
+ * ACTIVE relationship that authorises the row's role. A SURETY row needs an
+ * active SURETY relationship; any other row (AUTHORISED_SIGNATORY: agreement,
+ * resolution) needs an active director, trustee or authorised-signatory one.
+ * A person removed from the entity after the documents were prepared loses
+ * the document and the signature at once (404). Combine with AND: the caller's
+ * own `deal` filter would otherwise be overwritten.
+ */
+export function portalSignerAuthorityWhere(tenantId: string, clientId: string): Prisma.DealSignerWhereInput {
+  const holds = (roles: readonly EntityRole[]): Prisma.DealSignerWhereInput => ({
+    deal: { entity: { relationships: { some: { tenantId, clientId, active: true, role: { in: [...roles] } } } } },
+  })
+  return {
+    OR: [
+      { role: "SURETY", ...holds(["SURETY"]) },
+      { role: { not: "SURETY" }, ...holds(PORTAL_AUTHORITY_ROLES) },
+    ],
+  }
+}
+
+/**
  * null when the client may act for the entity; otherwise the 404 to return.
  * Pages call `notFound()` on a non-null answer.
  */

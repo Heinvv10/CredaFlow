@@ -17,7 +17,8 @@ const m = vi.hoisted(() => ({
   readFile: vi.fn(),
   saveFile: vi.fn(),
   logAudit: vi.fn(),
-  tx: { entityDocument: { create: vi.fn() } },
+  deleteFile: vi.fn(),
+  tx: { $queryRaw: vi.fn(), entityDocument: { create: vi.fn(), count: vi.fn() }, auditLog: { create: vi.fn() } },
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => m.session.current) }))
@@ -31,7 +32,7 @@ vi.mock("@/lib/prisma", () => ({
     $transaction: (fn: (tx: unknown) => unknown) => fn(m.tx),
   },
 }))
-vi.mock("@/lib/storage", () => ({ saveFile: m.saveFile, readFile: m.readFile, deleteFile: vi.fn() }))
+vi.mock("@/lib/storage", () => ({ saveFile: m.saveFile, readFile: m.readFile, deleteFile: m.deleteFile }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant")>()),
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "tenant-1" }),
@@ -45,6 +46,8 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 import { GET as list } from "./route"
 import { POST as upload } from "./[id]/documents/route"
 import { GET as download } from "./[id]/documents/[documentId]/route"
+import { _resetRateLimitStore } from "@/lib/rate-limit"
+import { PORTAL_ENTITY_DOCUMENT_CAP, PORTAL_ENTITY_UPLOAD_RATE_LIMIT } from "@/lib/asset-finance/portal-rate-limits"
 
 const PDF = Buffer.from("%PDF-1.4 synthetic portal document")
 const BASE = "http://localhost/api/portal/asset-finance/entities"
@@ -55,6 +58,7 @@ const signInClient = () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  _resetRateLimitStore()
   m.flag.on = true
   signInClient()
   m.relFindFirst.mockResolvedValue({ id: "rel-1" })
@@ -63,7 +67,21 @@ beforeEach(() => {
     contentSha256: createHash("sha256").update(PDF).digest("hex"),
   })
   m.readFile.mockResolvedValue(PDF)
+  m.saveFile.mockResolvedValue({ storagePath: "/uploads/new.pdf", fileSize: PDF.length })
+  m.tx.$queryRaw.mockResolvedValue([{ id: "ent-1" }])
+  m.tx.entityDocument.count.mockResolvedValue(3)
+  m.tx.entityDocument.create.mockResolvedValue({
+    id: "doc-9", entityId: "ent-1", dealId: null, docType: "AFS", fileName: "afs.pdf", mimeType: "application/pdf",
+    fileSize: PDF.length, uploadedByType: "client", verifiedAt: null, verifiedById: null, createdAt: new Date("2026-10-13T08:00:00Z"),
+  })
 })
+
+const uploadAfs = () => {
+  const f = new FormData()
+  f.set("docType", "AFS")
+  f.set("file", new File([new Uint8Array(PDF)], "afs.pdf", { type: "application/pdf" }))
+  return upload(new NextRequest(`${BASE}/ent-1/documents`, { method: "POST", body: f }), { params: Promise.resolve({ id: "ent-1" }) })
+}
 
 describe("portal asset-finance routes", () => {
   it("answer 401 to staff and to no session", async () => {
@@ -116,5 +134,31 @@ describe("portal asset-finance routes", () => {
     const res = await list(new NextRequest(BASE))
     expect(res.status).toBe(200)
     expect(m.entityFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1", id: { in: ["ent-1"] } } }))
+  })
+})
+
+describe("portal entity document upload limits", () => {
+  it("stores an upload under the cap, counting live documents under the entity lock", async () => {
+    expect((await uploadAfs()).status).toBe(201)
+    expect(m.tx.$queryRaw).toHaveBeenCalled()
+    expect(m.tx.entityDocument.count).toHaveBeenCalledWith({ where: { tenantId: "tenant-1", entityId: "ent-1", deletedAt: null } })
+    expect(m.tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(m.tx.entityDocument.count.mock.invocationCallOrder[0])
+  })
+
+  it(`refuses an upload once the entity holds ${PORTAL_ENTITY_DOCUMENT_CAP} live documents 409, keeping no bytes`, async () => {
+    m.tx.entityDocument.count.mockResolvedValue(PORTAL_ENTITY_DOCUMENT_CAP)
+    const res = await uploadAfs()
+    expect(res.status).toBe(409)
+    expect(m.tx.entityDocument.create).not.toHaveBeenCalled()
+    expect(m.deleteFile).toHaveBeenCalledWith("/uploads/new.pdf")
+  })
+
+  it("answers 429 past the per-client upload limit, before reading the upload", async () => {
+    for (let i = 0; i < PORTAL_ENTITY_UPLOAD_RATE_LIMIT.limit; i++) expect((await uploadAfs()).status).toBe(201)
+    m.saveFile.mockClear()
+    const res = await uploadAfs()
+    expect(res.status).toBe(429)
+    expect(res.headers.get("retry-after")).toBeTruthy()
+    expect(m.saveFile).not.toHaveBeenCalled()
   })
 })

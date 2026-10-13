@@ -80,6 +80,10 @@ model User {
   payoutsCreated               Payout[]            @relation("PayoutsCreatedBy")
   payoutsApproved              Payout[]            @relation("PayoutsApprovedBy")
   payoutsReleased              Payout[]            @relation("PayoutsReleasedBy")
+  payoutsCancelled             Payout[]            @relation("PayoutsCancelledBy")
+  supplierAccountsRequested    SupplierBankAccount[] @relation("SupplierAccountRequestedBy")
+  supplierAccountsDecided      SupplierBankAccount[] @relation("SupplierAccountDecidedBy")
+  assetDealsCancelled          AssetFinanceDeal[]  @relation("AssetDealCancelledBy")
   referenceRatesRequested      ReferenceRate[]     @relation("ReferenceRatesRequested")
   referenceRatesDecided        ReferenceRate[]     @relation("ReferenceRatesDecided")
 
@@ -4302,7 +4306,9 @@ model SupplierBankAccount {
   accountType    String?
   status         SupplierBankAccountStatus @default(PENDING)
   requestedById  String
+  requestedBy    User                      @relation("SupplierAccountRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   decidedById    String?
+  decidedBy      User?                     @relation("SupplierAccountDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   decidedAt      DateTime?
   avsResult      Json?
   avsPassed      Boolean?
@@ -4362,6 +4368,21 @@ model AssetFinanceDeal {
   rateMargin          Decimal?            @db.Decimal(9, 6)
   fixedRate           Decimal?            @db.Decimal(9, 6)
   baseInstalmentCents Int?
+  // The contract terms fixed when the documents are prepared
+  // (lib/asset-finance/signing-prepare.ts): the start date and the figures the
+  // agreement prints. Booking must reproduce them exactly. Null until prepared.
+  plannedStartDate          DateTime? @db.Date
+  signedBaseInstalmentCents Int?
+  signedResultingRate       Decimal?  @db.Decimal(9, 6)
+  signedTotalInterestCents  Int?
+  signedArrearsMarginRate   Decimal?  @db.Decimal(9, 6)
+  signedCollectionFeeCents  Int?
+  // The required signer set at preparation: [{ clientId, document }], in signing order.
+  preparedSigners           Json?
+  cancelledAt         DateTime?
+  cancelledById       String?
+  cancelledBy         User?               @relation("AssetDealCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelReason        String?
   decision            CreditDecision?
   decisionReasons     String[]            @default([])
   decidedById         String?
@@ -4488,6 +4509,8 @@ model PayoutChecklistItem {
   confirmedAt        DateTime?
   evidenceDocumentId String?
   evidenceDocument   EntityDocument?         @relation("PayoutChecklistEvidence", fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // SUPPLIER_INVOICE_MATCHES_ASSET: the serial or VIN typed off the invoice, normalised.
+  attestedIdentifier String?
   note               String?
 
   @@unique([dealId, item])
@@ -4497,6 +4520,7 @@ enum PayoutStatus {
   PENDING_APPROVAL
   APPROVED
   RELEASED
+  CANCELLED
 }
 
 // The supplier payout for a deal: the asset's cash price incl. VAT less the
@@ -4525,6 +4549,9 @@ model Payout {
   releasedAt            DateTime?
   releasedById          String?
   releasedBy            User?               @relation("PayoutsReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelledAt           DateTime?
+  cancelledById         String?
+  cancelledBy           User?               @relation("PayoutsCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt             DateTime            @default(now())
 
   @@unique([tenantId, dealId])

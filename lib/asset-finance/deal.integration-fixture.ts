@@ -16,6 +16,9 @@ import { POST as bureauRoute } from "@/app/api/asset-finance/deals/[id]/bureau-c
 import { PUT as financialsRoute } from "@/app/api/asset-finance/deals/[id]/financials/route"
 import { POST as decideOverrideRoute } from "@/app/api/asset-finance/nca-overrides/[overrideId]/decide/route"
 
+/** Asset 1's registration number. */
+export const ASSET_ONE_REGISTRATION = "TEST001GP"
+
 export interface DealFixture {
   tenantId: string
   host: string
@@ -59,6 +62,8 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
       data: {
         tenantId, assetClass: "EXCAVATOR", make: "TEST", model: `EX-${i}`, year: 2025,
         serialNumber: `TEST${t.toUpperCase()}${i}`, cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000,
+        // Asset 1 is registered (an eNaTIS item on its payout checklist). Identity is fixed from approval.
+        registrationNumber: i === 1 ? ASSET_ONE_REGISTRATION : null,
       },
     })).id)
   }

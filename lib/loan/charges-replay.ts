@@ -101,24 +101,17 @@ interface NonNcaTerms<D> {
 }
 
 /**
- * A NON_NCA agreement's arrears terms: the margin and collection fee COPIED
- * ONTO THE LOAN at booking (lib/asset-finance/booking.ts), so editing the
- * product never reprices a signed agreement's default interest or fee.
- *
- * Fallback, for loans booked before the loan carried the terms: when BOTH loan
- * columns are null the product's current terms apply. Known limit: a loan
- * booked from a product with no terms at all also stores two nulls, and would
- * pick up terms the product gains later. Booking copies whatever the product
- * held, so the fallback only differs for such a loan; if it matters, record
- * explicit zeros on the product before booking (0 margin = contract rate only,
- * 0 fee = no fee).
+ * A NON_NCA agreement's arrears terms: the ones ON THE LOAN, never the
+ * product's. Booking (lib/asset-finance/booking.ts) copies them from the
+ * deal's signed terms, fixed when the agreement was prepared (none = explicit
+ * 0), so editing the product never reprices a signed agreement's default
+ * interest or fee, and guardAssetDealBooking holds the loan to them. A null
+ * term means no charge.
  */
-export function nonNcaArrearsTerms<D>(loan: NonNcaTerms<D> & { product: NonNcaTerms<D> }): NonNcaTerms<D> {
-  const booked = loan.nonNcaDefaultInterestMargin !== null || loan.nonNcaCollectionFeeCents !== null
-  const source = booked ? loan : loan.product
+export function nonNcaArrearsTerms<D>(loan: NonNcaTerms<D>): NonNcaTerms<D> {
   return {
-    nonNcaDefaultInterestMargin: source.nonNcaDefaultInterestMargin,
-    nonNcaCollectionFeeCents: source.nonNcaCollectionFeeCents,
+    nonNcaDefaultInterestMargin: loan.nonNcaDefaultInterestMargin,
+    nonNcaCollectionFeeCents: loan.nonNcaCollectionFeeCents,
   }
 }
 
@@ -164,7 +157,7 @@ export async function loadChargesReplay(
       monthlyServiceFee: true,
       nonNcaDefaultInterestMargin: true,
       nonNcaCollectionFeeCents: true,
-      product: { select: { code: true, monthlyServiceFee: true, nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } },
+      product: { select: { code: true, monthlyServiceFee: true } },
       application: { select: { affordabilityResult: true } },
       tenant: {
         select: {

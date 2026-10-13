@@ -22,7 +22,12 @@ import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { getCreditReport } from "@/lib/integrations/experian"
 import { buildExperianEnquiryInput } from "@/lib/integrations/experian-input"
 
-export type DealBureauOutcome = "stored" | "skipped" | "failed"
+/** "recent": a check stored for this application within RECHECK_WINDOW_DAYS; no enquiry was made. */
+export type DealBureauOutcome = "stored" | "skipped" | "failed" | "recent"
+
+/** A person checked for this application this recently is not checked again unless the run is forced. */
+export const RECHECK_WINDOW_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
 
 export interface DealBureauSubject {
   clientId: string
@@ -58,6 +63,28 @@ export async function dealBureauSubjects(tenantId: string, entityId: string): Pr
     select: { clientId: true, role: true, trusteeKind: true },
   })
   return rows.map((r) => ({ clientId: r.clientId, role: r.role as DealBureauSubject["role"], trusteeKind: r.trusteeKind }))
+}
+
+/**
+ * Of `clientIds`, those with a successful check stored for this application
+ * within the last RECHECK_WINDOW_DAYS. Each consumer enquiry leaves a footprint
+ * on the person's credit record, so a re-run inside the window needs `force`.
+ */
+export async function recentlyCheckedClientIds(
+  tenantId: string,
+  applicationId: string,
+  clientIds: string[],
+  now: Date = new Date(),
+): Promise<Set<string>> {
+  if (clientIds.length === 0) return new Set()
+  const rows = await prisma.creditBureauCheck.findMany({
+    where: {
+      tenantId, applicationId, clientId: { in: clientIds }, ok: true,
+      createdAt: { gte: new Date(now.getTime() - RECHECK_WINDOW_DAYS * DAY_MS) },
+    },
+    select: { clientId: true },
+  })
+  return new Set(rows.map((r) => r.clientId))
 }
 
 export async function runDealBureauCheck(

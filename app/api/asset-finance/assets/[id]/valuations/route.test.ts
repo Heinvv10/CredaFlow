@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   flag: { on: true },
   findAsset: vi.fn(),
   findDocument: vi.fn(),
+  findDeals: vi.fn(),
   create: vi.fn(),
   requireApiRole: vi.fn(),
   logAuditStrict: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@/lib/prisma", () => ({
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
     financedAsset: { findFirst: m.findAsset },
     entityDocument: { findFirst: m.findDocument },
+    assetFinanceDeal: { findMany: m.findDeals },
     $transaction: (fn: (tx: unknown) => unknown) => fn({ assetValuation: { create: m.create } }),
   },
 }))
@@ -48,6 +50,7 @@ beforeEach(() => {
   signIn("officer-a", "CREDIT_OFFICER")
   m.findAsset.mockResolvedValue({ id: "asset-1" })
   m.findDocument.mockResolvedValue({ id: "doc-1" })
+  m.findDeals.mockResolvedValue([])
   m.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "val-1", ...data }))
 })
 
@@ -80,7 +83,33 @@ describe("POST /api/asset-finance/assets/[id]/valuations", () => {
     m.findDocument.mockResolvedValue(null)
     const res = await post({ ...valuation, documentId: "doc-x" })
     expect(res.status).toBe(400)
-    expect(m.findDocument).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "doc-x", tenantId: "tenant-1", deletedAt: null } }))
+    expect(m.findDocument).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "doc-x", tenantId: "tenant-1", deletedAt: null, docType: "VALUATION" },
+    }))
+    expect(m.create).not.toHaveBeenCalled()
+  })
+
+  it("with no deal on the asset, accepts only a VALUATION document of the tenant", async () => {
+    expect((await post({ ...valuation, documentId: "doc-1" })).status).toBe(201)
+    expect(m.findDeals).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1", assetId: "asset-1" } }))
+    const where = m.findDocument.mock.calls[0][0].where
+    expect(where).toEqual({ id: "doc-1", tenantId: "tenant-1", deletedAt: null, docType: "VALUATION" })
+  })
+
+  it("once deals reference the asset, requires the document to belong to one of their entities", async () => {
+    m.findDeals.mockResolvedValue([{ entityId: "ent-a" }, { entityId: "ent-b" }, { entityId: "ent-a" }])
+    expect((await post({ ...valuation, documentId: "doc-1" })).status).toBe(201)
+    expect(m.findDocument.mock.calls[0][0].where).toEqual({
+      id: "doc-1", tenantId: "tenant-1", deletedAt: null, docType: "VALUATION", entityId: { in: ["ent-a", "ent-b"] },
+    })
+  })
+
+  it("refuses another borrower's document (or a non-valuation one) 400, recording nothing", async () => {
+    m.findDeals.mockResolvedValue([{ entityId: "ent-a" }])
+    m.findDocument.mockResolvedValue(null)
+    const res = await post({ ...valuation, documentId: "doc-other" })
+    expect(res.status).toBe(400)
+    expect((await res.json()).fields.documentId).toMatch(/borrower on this asset's deal/)
     expect(m.create).not.toHaveBeenCalled()
   })
 

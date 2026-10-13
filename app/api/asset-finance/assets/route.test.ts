@@ -17,6 +17,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
     financedAsset: { findMany: m.findMany },
+    // The national rate table: 15% from 1 April 2018.
+    vatRate: { findFirst: async () => ({ effectiveDate: new Date("2018-04-01T00:00:00Z"), rate: "0.1500" }) },
     $transaction: (fn: (tx: unknown) => unknown) => fn({ financedAsset: { create: m.create } }),
   },
 }))
@@ -47,7 +49,7 @@ const asset = {
 const post = (body: unknown) => POST(new NextRequest("http://localhost/api/asset-finance/assets", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
 }))
-const uniqueViolation = (target: string[]) => new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+const uniqueViolation = (target: string[] | null) => new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
   code: "P2002", clientVersion: "test", meta: { modelName: "FinancedAsset", target },
 })
 
@@ -100,8 +102,9 @@ describe("/api/asset-finance/assets", () => {
   })
 
   it.each([
-    [["tenantId", "upper(btrim(serialNumber))"], /serial number is already on the book/],
-    [["tenantId", "upper(btrim(vin))"], /VIN is already on the book/],
+    [["tenantId", "assetIdentifierKey(serialNumber)"], /serial number is already on the book/],
+    [["tenantId", "assetIdentifierKey(vin)"], /VIN is already on the book/],
+    [null, /already carries this identifier as its serial number or VIN/],
   ])("maps the duplicate index %j to 409 and audits the refusal", async (target, message) => {
     m.create.mockRejectedValue(uniqueViolation(target))
     const res = await post(asset)
@@ -110,6 +113,13 @@ describe("/api/asset-finance/assets", () => {
     expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({
       action: "ASSET_DUPLICATE_REFUSED", reason: "duplicate_unreleased_asset", status: 409, tenantId: "tenant-1",
     }))
+  })
+
+  it("refuses VAT that is not the VAT on the exclusive price at today's rate (400, nothing written)", async () => {
+    const res = await post({ ...asset, vatCents: 22_500_001 })
+    expect(res.status).toBe(400)
+    expect((await res.json()).fields).toEqual({ vatCents: expect.stringMatching(/must be 22500000 cents/) })
+    expect(m.create).not.toHaveBeenCalled()
   })
 
   it("rethrows a database error that is not the duplicate check", async () => {

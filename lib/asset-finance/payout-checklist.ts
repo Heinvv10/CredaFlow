@@ -22,6 +22,7 @@
  * are not paid out. guardPayout refuses any other amount.
  */
 import type { $Enums, ContractType, EntityDocumentType, PayoutChecklistItemKind } from "@prisma/client"
+import { identifierMatchesAsset } from "./asset-identifier"
 
 export const CHECKLIST_KINDS = [
   "SIGNED_AGREEMENT",
@@ -85,11 +86,9 @@ export function normaliseName(value: string): string {
   return value.trim().replace(/\s+/g, " ").toUpperCase()
 }
 
-/** The typed serial (or VIN) is the asset's, ignoring case and spaces around it. */
+/** The typed serial (or VIN) is the asset's, as the duplicate checks compare them (./asset-identifier.ts). */
 export function serialAttestationMatches(typed: string, asset: Pick<ChecklistAsset, "serialNumber" | "vin">): boolean {
-  const value = typed.trim().toUpperCase()
-  if (value === "") return false
-  return value === asset.serialNumber.trim().toUpperCase() || (asset.vin !== null && value === asset.vin.trim().toUpperCase())
+  return identifierMatchesAsset(typed, asset)
 }
 
 /**

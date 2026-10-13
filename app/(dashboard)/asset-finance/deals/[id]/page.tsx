@@ -15,10 +15,13 @@ import { CreditMemoForm } from "./CreditMemoForm"
 import { DealActionButton } from "./DealActionButton"
 import { DecidePanel } from "./DecidePanel"
 import { OverrideDecision } from "./OverrideDecision"
+import { NcaOverrideRequest } from "./NcaOverrideRequest"
 import { SigningPanel } from "./SigningPanel"
 import { loadStaffSigningPanel } from "@/lib/asset-finance/signing-view"
 import { loadPayoutPanel } from "@/lib/asset-finance/payout-view"
 import { PayoutPanel } from "./PayoutPanel"
+import { CancelDealForm } from "./CancelDealForm"
+import { CANCELLABLE_DEAL_STATUSES } from "@/lib/asset-finance/deal-cancel"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
@@ -60,12 +63,13 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           {canDecide && deal.awaitingRegimeApproval && deal.pendingOverrideId && (
             <OverrideDecision overrideId={deal.pendingOverrideId} />
           )}
+          <NcaOverrideRequest application={deal.application} pendingOverride={deal.pendingOverrideId !== null} canManage={canManage} />
         </ClassificationPanel>
 
         <DataPanel
           title="Schedule"
           description={schedule.ok
-            ? `Indicative from ${schedule.startDate} at ${ratePercent(schedule.rate.annualRate)} a year; booking re-solves from the payout date`
+            ? `Indicative from ${schedule.startDate} at ${ratePercent(schedule.rate.annualRate)} a year; the contract schedule is solved from the start date chosen when the documents are prepared`
             : undefined}
         >
           {schedule.ok ? <ScheduleTable {...schedule.result} /> : <FormError message={`The schedule cannot be solved: ${schedule.error}`} />}
@@ -115,6 +119,16 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         {signing && <SigningPanel dealId={id} panel={signing} canManage={canManage} userId={user.id} />}
 
         {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} />}
+
+        {canDecide && CANCELLABLE_DEAL_STATUSES.includes(deal.status) && (
+          <DataPanel
+            title="Cancel the deal"
+            description="Cancels an unreleased payout and the application, and releases the asset so it can be financed on a new deal."
+            density="loose"
+          >
+            <CancelDealForm dealId={id} />
+          </DataPanel>
+        )}
       </div>
     </>
   )

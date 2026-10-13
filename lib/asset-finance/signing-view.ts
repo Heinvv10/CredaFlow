@@ -3,6 +3,7 @@
 import type { AssetDealStatus, DealDocumentKind, DealSignerRole, SignatureMethod } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { signerState, type SignerState } from "./signing"
+import { portalSignerAuthorityWhere } from "./portal-access"
 import { currentRequiredSigners } from "./signing-prepare"
 
 export interface StaffSignerView {
@@ -26,7 +27,12 @@ export interface StaffSigningPanel {
   entityId: string
   legalWordingApproved: boolean
   signers: StaffSignerView[]
-  /** Required now but without a signer row (someone added since preparation). */
+  /**
+   * Required now but without a signer row (someone added since preparation),
+   * while the documents can still be prepared again. Once signing has started
+   * the prepared signer set is the contract's (preparedSigners): nobody added
+   * later is required.
+   */
   missing: { clientId: string; name: string; document: DealDocumentKind }[]
   /** Documents can be (re)prepared: APPROVED and nothing recorded yet. */
   canPrepare: boolean
@@ -47,7 +53,8 @@ export async function loadStaffSigningPanel(tenantId: string, dealId: string): P
     }),
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetFinanceLegalWordingApproved: true } }),
   ])
-  const required = deal.status === "APPROVED" ? await currentRequiredSigners(prisma, tenantId, deal.entityId) : []
+  const canPrepare = deal.status === "APPROVED" && rows.every((r) => r.method === null)
+  const required = canPrepare ? await currentRequiredSigners(prisma, tenantId, deal.entityId) : []
   const present = new Set(rows.map((r) => `${r.document}:${r.clientId}`))
   const missingRequired = required.filter((s) => !present.has(`${s.document}:${s.clientId}`))
   const missingClients = await prisma.client.findMany({
@@ -62,7 +69,7 @@ export async function loadStaffSigningPanel(tenantId: string, dealId: string): P
     dealStatus: deal.status,
     entityId: deal.entityId,
     legalWordingApproved: config?.assetFinanceLegalWordingApproved === true,
-    canPrepare: deal.status === "APPROVED" && rows.every((r) => r.method === null),
+    canPrepare,
     missing: missingRequired.map((s) => ({ clientId: s.clientId, name: missingNames.get(s.clientId) ?? s.clientId, document: s.document })),
     signers: [...rows].sort((a, b) => DOCUMENT_ORDER[a.document] - DOCUMENT_ORDER[b.document]).map((r) => ({
       id: r.id,
@@ -95,7 +102,11 @@ export interface PortalSignerView {
 /** The client's OWN signer rows, optionally for one entity's deals. Never anyone else's. */
 export async function loadPortalSigners(tenantId: string, clientId: string, entityId?: string): Promise<PortalSignerView[]> {
   const rows = await prisma.dealSigner.findMany({
-    where: { tenantId, clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] }, ...(entityId ? { entityId } : {}) } },
+    // Only rows the client may still open: a surety while SURETY, a signatory while they hold authority.
+    where: {
+      tenantId, clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] }, ...(entityId ? { entityId } : {}) },
+      AND: [portalSignerAuthorityWhere(tenantId, clientId)],
+    },
     orderBy: { createdAt: "asc" },
     select: {
       id: true, document: true, method: true, signedAt: true, signatureSha256: true,

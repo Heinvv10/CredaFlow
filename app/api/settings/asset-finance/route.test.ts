@@ -1,0 +1,97 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
+
+// The asset-finance switch and payout threshold: ADMIN only, audited per
+// change, the legal-wording gate never written. Session, Prisma and the cache
+// are stubbed; the route, its parser and the role map are real.
+const m = vi.hoisted(() => ({
+  session: { role: "ADMIN" as string },
+  findUnique: vi.fn(),
+  upsert: vi.fn(),
+  logAuditStrict: vi.fn(),
+  revalidateTag: vi.fn(),
+}))
+
+vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
+vi.mock("next/cache", () => ({ revalidateTag: m.revalidateTag }))
+vi.mock("@/lib/auth", () => ({
+  auth: vi.fn(async () => ({ user: { id: "admin-1", email: "admin@lender.test", role: m.session.role, tenantId: "tenant-1" } })),
+}))
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    tenantConfig: { findUnique: m.findUnique },
+    $transaction: (fn: (tx: unknown) => unknown) => fn({ tenantConfig: { findUnique: m.findUnique, upsert: m.upsert } }),
+  },
+}))
+vi.mock("@/lib/tenant", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/tenant")>()),
+  withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "tenant-1" }),
+}))
+vi.mock("@/lib/audit", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/audit")>()),
+  logAuditStrict: m.logAuditStrict,
+}))
+
+import { GET, PATCH } from "./route"
+
+const current = { featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false }
+const patch = (body: unknown) => PATCH(new NextRequest("http://localhost/api/settings/asset-finance", {
+  method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+}))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  m.session.role = "ADMIN"
+  m.findUnique.mockResolvedValue(current)
+  m.upsert.mockImplementation(async ({ update }: { update: Record<string, unknown> }) => ({ ...current, ...update }))
+})
+
+describe("/api/settings/asset-finance", () => {
+  it.each(["LOAN_ADMIN", "CREDIT_OFFICER", "READONLY"])("refuses %s 403 and writes nothing", async (role) => {
+    m.session.role = role
+    expect((await patch({ featureAssetFinance: true })).status).toBe(403)
+    expect((await GET(new NextRequest("http://localhost/api/settings/asset-finance"))).status).toBe(403)
+    expect(m.upsert).not.toHaveBeenCalled()
+  })
+
+  it("reads the three values, the legal gate included, with schema defaults for a tenant with no row", async () => {
+    m.findUnique.mockResolvedValue(null)
+    expect(await (await GET(new NextRequest("http://localhost/api/settings/asset-finance"))).json()).toEqual(current)
+  })
+
+  it("switches the module on: one audit row with old and new, and the cached config invalidated", async () => {
+    const res = await patch({ featureAssetFinance: true })
+    expect(res.status).toBe(200)
+    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1" }, update: { featureAssetFinance: true }, create: { tenantId: "tenant-1", featureAssetFinance: true },
+    }))
+    expect(m.logAuditStrict).toHaveBeenCalledTimes(1)
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ASSET_FINANCE_MODULE_ENABLED", entity: "TenantConfig", entityId: "tenant-1", userId: "admin-1",
+      oldValue: { featureAssetFinance: false }, newValue: { featureAssetFinance: true },
+    }), expect.anything())
+    expect(m.revalidateTag).toHaveBeenCalledWith("tenant-config-tenant-1", "max")
+  })
+
+  it("audits a threshold change on its own action and nothing when a value is unchanged", async () => {
+    await patch({ featureAssetFinance: false, assetPayoutDualApprovalCents: 25_000_000 })
+    expect(m.logAuditStrict).toHaveBeenCalledTimes(1)
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ASSET_PAYOUT_DUAL_APPROVAL_CHANGED",
+      oldValue: { assetPayoutDualApprovalCents: 100_000_000 }, newValue: { assetPayoutDualApprovalCents: 25_000_000 },
+    }), expect.anything())
+  })
+
+  it("refuses to set the legal-wording approval 400, writing nothing", async () => {
+    const res = await patch({ assetFinanceLegalWordingApproved: true })
+    expect(res.status).toBe(400)
+    expect((await res.json()).fields.assetFinanceLegalWordingApproved).toMatch(/set by CredaFlow/)
+    expect(m.upsert).not.toHaveBeenCalled()
+    expect(m.logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("refuses an invalid threshold 400", async () => {
+    expect((await patch({ assetPayoutDualApprovalCents: -5 })).status).toBe(400)
+    expect(m.upsert).not.toHaveBeenCalled()
+  })
+})

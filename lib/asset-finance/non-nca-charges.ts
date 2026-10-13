@@ -43,7 +43,7 @@ import {
 //    on or after it; receipts are still allocated.
 
 export interface NonNcaArrearsTerms {
-  /** Loan.nonNcaDefaultInterestMargin (copied from the product at booking; charges-replay nonNcaArrearsTerms): annual decimal over the contract rate; null = no default interest */
+  /** Loan.nonNcaDefaultInterestMargin (the deal's signed term, copied at booking; charges-replay nonNcaArrearsTerms): annual decimal over the contract rate; null = no default interest */
   defaultInterestMargin: number | null
   /** Loan.nonNcaCollectionFeeCents (copied at booking): per missed instalment; null = none */
   collectionFeeCents: number | null

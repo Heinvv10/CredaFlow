@@ -3,12 +3,13 @@
 // marked placeholder until the lender's legal team supplies the wording
 // (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
 // every page carries the DRAFT — NOT FOR EXECUTION watermark.
+import { Prisma } from "@prisma/client"
 import { formatDatePdf, formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { PRESET_LABELS } from "../deal-labels"
 import { STRUCTURE_PRESETS } from "../deal-input"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "./pdf-layout"
-import { assetRows, entityRows, lenderLetterhead, lenderRows, rateDescription, supplierRows } from "./document-parts"
+import { assetRows, entityRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, supplierRows } from "./document-parts"
 
 /** Clause topics only. The wording of each is a placeholder for the legal team. */
 const CLAUSES = [
@@ -36,6 +37,11 @@ const SCHEDULE_COLUMNS: TableColumn[] = [
   { header: "Balloon", x: MARGIN + 342, width: 72, align: "right" },
   { header: "Balance", x: MARGIN + 420, width: 91, align: "right" },
 ]
+
+/** The arrears margin as data: "Contract rate plus 2.00% a year", or none. */
+function arrearsMarginDescription(margin: string): string {
+  return new Prisma.Decimal(margin).isZero() ? "None above the contract rate" : `Contract rate plus ${percentPdf(margin)} a year`
+}
 
 function presetLabel(name: string): string {
   const preset = STRUCTURE_PRESETS.find((p) => p === name)
@@ -76,6 +82,8 @@ export async function renderInstalmentSaleAgreement(data: DealDocumentData): Pro
     ["Total interest", formatZarPdf(p.totalInterestCents)],
     ["Total payable", formatZarPdf(p.totalPayableCents)],
     ["Schedule start date", formatIsoDatePdf(p.startDate)],
+    ["Default interest on arrears", arrearsMarginDescription(p.arrearsMarginRate)],
+    ["Collection fee per missed instalment", p.collectionFeeCents > 0 ? formatZarPdf(p.collectionFeeCents) : "None"],
   ])
 
   w.table(

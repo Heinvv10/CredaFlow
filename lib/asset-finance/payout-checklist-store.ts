@@ -17,8 +17,9 @@ import {
   requiredChecklistKinds,
   serialAttestationMatches,
 } from "./payout-checklist"
+import { normaliseAssetIdentifier } from "./asset-identifier"
 import { outstandingSigners } from "./signing"
-import { currentRequiredSigners, lockDeal, type SigningActor, type SigningTx } from "./signing-prepare"
+import { lockDeal, preparedRequiredSigners, type SigningActor, type SigningTx } from "./signing-prepare"
 
 const SIGNING_DOCUMENT: Partial<Record<PayoutChecklistItemKind, DealDocumentKind>> = {
   SIGNED_AGREEMENT: "AGREEMENT",
@@ -83,8 +84,9 @@ async function evidenceProblem(
   return null
 }
 
-async function signingProblem(tx: SigningTx, tenantId: string, dealId: string, entityId: string, document: DealDocumentKind) {
-  const required = await currentRequiredSigners(tx, tenantId, entityId)
+async function signingProblem(tx: SigningTx, tenantId: string, dealId: string, document: DealDocumentKind) {
+  // The signer set fixed when the documents were prepared, as the contract gate counts it.
+  const required = await preparedRequiredSigners(tx, tenantId, dealId)
   const rows = await tx.dealSigner.findMany({
     where: { tenantId, dealId },
     select: { clientId: true, document: true, method: true, signedAt: true, signatureSha256: true, scanDocumentId: true, confirmedById: true, confirmedAt: true },
@@ -117,7 +119,7 @@ export async function confirmChecklistItem(
     if (evidence) return evidence
     const document = SIGNING_DOCUMENT[item]
     if (document) {
-      const signing = await signingProblem(tx, tenantId, dealId, locked.entityId, document)
+      const signing = await signingProblem(tx, tenantId, dealId, document)
       if (signing) return signing
     }
     if (item === "SUPPLIER_INVOICE_MATCHES_ASSET" && !serialAttestationMatches(input.attestedSerial ?? "", deal.asset)) {
@@ -132,12 +134,13 @@ export async function confirmChecklistItem(
     if (blocker) return refused("asset_not_ready", blocker)
 
     const confirmedAt = new Date()
-    const note = item === "SUPPLIER_INVOICE_MATCHES_ASSET"
-      ? [`Serial/VIN attested from the invoice: ${(input.attestedSerial ?? "").trim().toUpperCase()}`, input.note].filter(Boolean).join(" · ")
+    const attestedIdentifier = item === "SUPPLIER_INVOICE_MATCHES_ASSET" ? normaliseAssetIdentifier(input.attestedSerial ?? "") : null
+    const note = attestedIdentifier !== null
+      ? [`Serial/VIN attested from the invoice: ${attestedIdentifier}`, input.note].filter(Boolean).join(" · ")
       : input.note
     const updated = await tx.payoutChecklistItem.updateMany({
       where: { id: row.id, tenantId, confirmedAt: null },
-      data: { confirmedById: actor.userId, confirmedAt, evidenceDocumentId: input.evidenceDocumentId, note },
+      data: { confirmedById: actor.userId, confirmedAt, evidenceDocumentId: input.evidenceDocumentId, attestedIdentifier, note },
     })
     if (updated.count !== 1) return { kind: "already_confirmed" }
     await logAuditStrict({
@@ -147,7 +150,7 @@ export async function confirmChecklistItem(
       action: AuditAction.ASSET_PAYOUT_CHECKLIST_CONFIRMED,
       entity: "PayoutChecklistItem",
       entityId: row.id,
-      newValue: { dealId, item, evidenceDocumentId: input.evidenceDocumentId, note, signingItem: SIGNING_ITEMS.includes(item) },
+      newValue: { dealId, item, evidenceDocumentId: input.evidenceDocumentId, attestedIdentifier, note, signingItem: SIGNING_ITEMS.includes(item) },
     }, tx)
     return { kind: "confirmed" }
   })

@@ -85,6 +85,12 @@ export const TENANT_SCOPED_MODELS = [
   "SupplierBankAccount",
   "AssetFinanceDeal",
   "EntityFinancials",
+  // Deal signing and payout (lib/asset-finance/signing-*.ts, payout*.ts).
+  // Non-null tenantId, passed explicitly on every query; the seed runs
+  // inside runWithTenant (prisma/seed/asset-finance.ts).
+  "DealSigner",
+  "PayoutChecklistItem",
+  "Payout",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

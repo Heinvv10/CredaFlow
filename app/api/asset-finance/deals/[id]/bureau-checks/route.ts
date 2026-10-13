@@ -3,8 +3,11 @@ import { prisma } from "@/lib/prisma"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { dealBureauSubjects, runDealBureauCheck, type DealBureauOutcome } from "@/lib/asset-finance/deal-bureau"
+import {
+  dealBureauSubjects, recentlyCheckedClientIds, RECHECK_WINDOW_DAYS, runDealBureauCheck, type DealBureauOutcome,
+} from "@/lib/asset-finance/deal-bureau"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 
 const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
@@ -16,6 +19,12 @@ const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
  * against the deal's application (lib/asset-finance/deal-bureau.ts) and the
  * run is audited with every person's outcome. 422 when the entity has no
  * director or trustee; 409 once the deal is decided.
+ *
+ * A person with a check stored for this application in the last
+ * RECHECK_WINDOW_DAYS is not enquired on again (outcome "recent"): every
+ * enquiry marks their credit record. Body `{ force: true }` re-checks them;
+ * it needs decide_asset_finance (403, audited) and the run is audited as
+ * ASSET_DEAL_BUREAU_FORCED_RERUN with the people re-checked.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -28,6 +37,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Running bureau checks needs the manage_asset_finance permission" }, { status: 403 })
     }
     const { id } = await params
+    const body: unknown = await req.json().catch(() => null)
+    const force = typeof body === "object" && body !== null && (body as { force?: unknown }).force === true
+    if (force && !canDo(guard.user.role, "decide_asset_finance")) {
+      await auditRefusal({
+        action: AuditAction.ASSET_DEAL_BUREAU_FORCE_REFUSED,
+        entity: "AssetFinanceDeal",
+        entityId: id,
+        tenantId: tenant.id,
+        userId: guard.user.id,
+        userEmail: guard.user.email,
+        reason: "insufficient_role",
+        status: 403,
+      })
+      return NextResponse.json({ error: "Re-running a bureau check inside 30 days needs the decide_asset_finance permission" }, { status: 403 })
+    }
     const deal = await prisma.assetFinanceDeal.findFirst({
       where: { id, tenantId: tenant.id },
       select: { id: true, status: true, entityId: true, applicationId: true },
@@ -41,18 +65,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "The entity has no active director or trustee to check" }, { status: 422 })
     }
 
+    const recent = await recentlyCheckedClientIds(tenant.id, deal.applicationId, subjects.map((s) => s.clientId))
     const results: Array<{ clientId: string; role: string; outcome: DealBureauOutcome }> = []
     for (const subject of subjects) {
-      results.push({ clientId: subject.clientId, role: subject.role, outcome: await runDealBureauCheck(tenant.id, deal.applicationId, subject) })
+      const outcome = recent.has(subject.clientId) && !force
+        ? "recent" as const
+        : await runDealBureauCheck(tenant.id, deal.applicationId, subject)
+      results.push({ clientId: subject.clientId, role: subject.role, outcome })
     }
+    const rechecked = force ? subjects.map((s) => s.clientId).filter((clientId) => recent.has(clientId)) : []
     await logAuditStrict({
       tenantId: tenant.id,
       userId: guard.user.id,
       userEmail: guard.user.email,
-      action: AuditAction.ASSET_DEAL_BUREAU_CHECKED,
+      action: force ? AuditAction.ASSET_DEAL_BUREAU_FORCED_RERUN : AuditAction.ASSET_DEAL_BUREAU_CHECKED,
       entity: "AssetFinanceDeal",
       entityId: deal.id,
-      newValue: { applicationId: deal.applicationId, provider: "experian", results },
+      newValue: {
+        applicationId: deal.applicationId, provider: "experian", results,
+        ...(force ? { forced: true, recheckedWithinDays: RECHECK_WINDOW_DAYS, recheckedClientIds: [...new Set(rechecked)] } : {}),
+      },
     })
     return NextResponse.json({ results, deal: await loadDealDetail(tenant.id, deal.id) })
   })

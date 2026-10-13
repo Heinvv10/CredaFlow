@@ -23,12 +23,23 @@
  * releases only for a BOOKED deal; guardAssetDealBooking books only with the
  * payout APPROVED).
  *
- * START DATE = the booking day in SAST (the payout date). The structure is
- * re-solved from it with the deal's firstDueDate (refused when that is not
- * after the start) at the rate in force on it: FIXED, or the approved
- * reference on the start date plus the margin (./deal-structure.ts
- * resolveRate; the ContractRate row records exactly that). What is written is
- * ./booking-plan.ts.
+ * THE BOOKED LOAN IS THE SIGNED AGREEMENT. The loan starts on the deal's
+ * plannedStartDate, fixed when the documents were prepared
+ * (./signing-prepare.ts), not on the booking day. The structure is re-solved
+ * from it with the deal's firstDueDate at the rate in force on it: FIXED, or
+ * the APPROVED reference on the start date plus the margin (./deal-structure.ts
+ * resolveRate; the ContractRate row records exactly that). Unless that rate,
+ * the base instalment and the total interest equal the figures signed
+ * (signedResultingRate, signedBaseInstalmentCents, signedTotalInterestCents)
+ * exactly, booking is refused (terms_changed): a reference rate approved
+ * after signing, or any change to the deal, would book a contract nobody
+ * signed. The arrears terms are the deal's signed ones (signedArrears*),
+ * never the product's now. The first instalment must still fall after the
+ * booking day (`today`, the payout date), which is also the tax invoice's
+ * supply date. What is written is ./booking-plan.ts.
+ *
+ * The serial/VIN attested from the supplier invoice is checked against the
+ * asset once more (guardAssetDealBooking checks it in the database too).
  *
  * SLICE-1 LIMITATION: a reference-linked deal with a VAT-deferral period is
  * refused. Repricing cannot see a pending VAT lump (./reprice-loan.ts
@@ -40,8 +51,9 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { generateReference } from "@/lib/utils"
 import { issueInstalmentSaleInvoice } from "@/lib/vat/tax-invoice"
 import { planBooking } from "./booking-plan"
-import { loadBookingDeal, recipientAddress, type BookingRefusal } from "./booking-load"
-import { dbDate } from "./dates"
+import { loadBookingDeal, recipientAddress, type BookingDeal, type BookingRefusal } from "./booking-load"
+import { identifierMatchesAsset } from "./asset-identifier"
+import { dbDate, isoOfDbDate } from "./dates"
 import { resolveRate, solveDealStructure } from "./deal-structure"
 import { termsFromDeal } from "./deal-terms"
 import { payoutAmountCents } from "./payout-checklist"
@@ -60,6 +72,30 @@ export type BookingResult =
   | { kind: "booked"; loanId: string; loanReference: string; taxInvoiceId: string; invoiceNumber: string }
 
 const refuse = (reason: string, error: string): BookingRefusal => ({ kind: "refused", reason, error })
+
+interface SignedTerms {
+  startDate: string
+  baseInstalmentCents: number
+  resultingRate: Prisma.Decimal
+  totalInterestCents: number
+  arrearsMarginRate: Prisma.Decimal
+  collectionFeeCents: number
+}
+
+/** The terms fixed at preparation; null if the deal was never prepared (CHECK: all or none). */
+function signedTerms(deal: BookingDeal): SignedTerms | null {
+  const { plannedStartDate, signedBaseInstalmentCents, signedResultingRate, signedTotalInterestCents, signedArrearsMarginRate, signedCollectionFeeCents } = deal
+  if (plannedStartDate === null || signedBaseInstalmentCents === null || signedResultingRate === null
+    || signedTotalInterestCents === null || signedArrearsMarginRate === null || signedCollectionFeeCents === null) return null
+  return {
+    startDate: isoOfDbDate(plannedStartDate),
+    baseInstalmentCents: signedBaseInstalmentCents,
+    resultingRate: signedResultingRate,
+    totalInterestCents: signedTotalInterestCents,
+    arrearsMarginRate: signedArrearsMarginRate,
+    collectionFeeCents: signedCollectionFeeCents,
+  }
+}
 
 export async function bookDeal(actor: SigningActor, dealId: string, today: string): Promise<BookingResult> {
   const { tenantId } = actor
@@ -80,13 +116,26 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     if (terms.firstDueDate <= today) {
       return refuse("first_due_passed", `The first instalment (${terms.firstDueDate}) must fall after the booking date ${today}`)
     }
-    const rate = await resolveRate(tx, tenantId, terms.rate, today)
+    const attested = deal.checklist[0]?.attestedIdentifier ?? null
+    if (attested === null || !identifierMatchesAsset(attested, asset)) {
+      return refuse("asset_changed", "The serial/VIN attested from the supplier invoice is not the asset's")
+    }
+    const signed = signedTerms(deal)
+    if (!signed) return refuse("not_prepared", "The deal's contract terms were never fixed; prepare its documents")
+    const start = signed.startDate
+    const rate = await resolveRate(tx, tenantId, terms.rate, start)
     if ("error" in rate) return refuse("rate_unavailable", rate.error)
-    const solved = solveDealStructure(asset, terms, rate, today)
+    if (!new Prisma.Decimal(rate.annualRate).equals(signed.resultingRate)) {
+      return refuse("terms_changed", `The rate in force on the start date ${start} is ${rate.annualRate}, not the signed ${signed.resultingRate.toString()}`)
+    }
+    const solved = solveDealStructure(asset, terms, rate, start)
     if (!solved.ok) return refuse("structure_unsolvable", solved.error)
     const approved = application.approvedAmount ?? application.appliedAmount
     if (solved.result.financedAmountCents !== approved) {
       return refuse("terms_changed", `The financed amount ${solved.result.financedAmountCents} is not the approved ${approved} cents`)
+    }
+    if (solved.result.baseInstalmentCents !== signed.baseInstalmentCents || solved.result.totalInterestCents !== signed.totalInterestCents) {
+      return refuse("terms_changed", `The schedule solved now (instalment ${solved.result.baseInstalmentCents}, interest ${solved.result.totalInterestCents} cents) is not the signed one (${signed.baseInstalmentCents}, ${signed.totalInterestCents})`)
     }
     const address = recipientAddress(entity)
     if (!address) return refuse("entity_address_missing", "Record the entity's address first: the tax invoice needs it")
@@ -94,7 +143,7 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
       ? { fixedRate: new Prisma.Decimal(rate.annualRate) }
       : terms.rate.margin !== null ? { margin: new Prisma.Decimal(terms.rate.margin) } : null
     if (!rateColumns) return refuse("rate_unavailable", "A reference-linked deal needs a margin")
-    const plan = planBooking({ result: solved.result, startDate: today, balloonCents: deal.balloonCents, payoutCents: payout.amountCents })
+    const plan = planBooking({ result: solved.result, startDate: start, balloonCents: deal.balloonCents, payoutCents: payout.amountCents })
 
     const annualRate = new Prisma.Decimal(rate.annualRate)
     const loan = await tx.loan.create({
@@ -120,8 +169,8 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         interestRatePm: annualRate.div(12).toNumber(),
         interestModel: "REDUCING_BALANCE",
         monthlyServiceFee: 0,
-        nonNcaDefaultInterestMargin: application.product.nonNcaDefaultInterestMargin,
-        nonNcaCollectionFeeCents: application.product.nonNcaCollectionFeeCents,
+        nonNcaDefaultInterestMargin: signed.arrearsMarginRate,
+        nonNcaCollectionFeeCents: signed.collectionFeeCents,
       },
       select: { id: true, reference: true },
     })
@@ -136,7 +185,7 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     if (disbursed.count !== 1) throw new BookingRaceError("The application")
     const contractRate = await tx.contractRate.create({
       data: {
-        tenantId, loanId: loan.id, effectiveDate: dbDate(today), basis: terms.rate.basis,
+        tenantId, loanId: loan.id, effectiveDate: dbDate(start), basis: terms.rate.basis,
         ...rateColumns,
         resultingRate: annualRate,
         newInstalmentCents: plan.baseInstalmentCents,
@@ -174,11 +223,12 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
       oldValue: { status: "CONTRACTED", applicationStatus: "APPROVED", payoutStatus: "APPROVED" },
       newValue: {
         status: "BOOKED", loanId: loan.id, loanReference: loan.reference, applicationId: application.id,
-        payoutId: payout.id, payoutAmountCents: payout.amountCents, startDate: today, firstDueDate: terms.firstDueDate,
+        payoutId: payout.id, payoutAmountCents: payout.amountCents, startDate: start, bookingDate: today, firstDueDate: terms.firstDueDate,
         annualRate: rate.annualRate, reference: rate.reference, contractRateId: contractRate.id,
         baseInstalmentCents: plan.baseInstalmentCents, financedAmountCents: solved.result.financedAmountCents,
         principal: plan.principal, totalInterest: plan.totalInterest, totalRepayable: plan.totalRepayable,
         balloonCents: deal.balloonCents, instalments: plan.records.length,
+        arrearsMarginRate: signed.arrearsMarginRate.toString(), collectionFeeCents: signed.collectionFeeCents,
         taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, interestModel: "REDUCING_BALANCE",
       },
     }, tx)

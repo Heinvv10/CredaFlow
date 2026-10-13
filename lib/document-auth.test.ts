@@ -6,7 +6,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn() }))
 
-import { matchesMagic, MAGIC_BYTE_PREFIX } from "./document-auth"
+import { logDocumentAccess, matchesMagic, MAGIC_BYTE_PREFIX } from "./document-auth"
 
 // Pad an arbitrary byte prefix out to the number of bytes callers actually read.
 function head(bytes: number[]): Uint8Array {
@@ -54,5 +54,32 @@ describe("matchesMagic", () => {
     // reads past the end (undefined !== 0x57), so it fails to match rather than
     // throwing — the real risk for a tiny uploaded file.
     expect(matchesMagic(new Uint8Array([0x52, 0x49, 0x46, 0x46]), "image/webp")).toBe(false)
+  })
+})
+
+describe("logDocumentAccess", () => {
+  const write = async (headers: Record<string, string>) => {
+    const create = vi.fn()
+    await logDocumentAccess({ documentAccessLog: { create } } as unknown as Parameters<typeof logDocumentAccess>[0], {
+      documentId: "doc-1",
+      accessorType: "client",
+      accessorId: "client-1",
+      action: "view",
+      req: new Request("http://localhost/x", { headers }),
+    })
+    return create.mock.calls[0][0].data as { ipAddress: string | null; userAgent: string | null }
+  }
+
+  it("records the address the trusted proxy saw, not the caller-written left of X-Forwarded-For", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    const data = await write({ "x-forwarded-for": "198.51.100.7, 203.0.113.9", "user-agent": "vitest" })
+    expect(data).toMatchObject({ ipAddress: "203.0.113.9", userAgent: "vitest" })
+    vi.unstubAllEnvs()
+  })
+
+  it("records no IP when no proxy is trusted: the header is the caller's own claim", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "0")
+    expect((await write({ "x-forwarded-for": "198.51.100.7" })).ipAddress).toBeNull()
+    vi.unstubAllEnvs()
   })
 })

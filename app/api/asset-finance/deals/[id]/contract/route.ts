@@ -7,7 +7,8 @@ import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
  * APPROVED → CONTRACTED (manage_asset_finance) once every required signer is
  * satisfied: e-signed, or a wet-ink scan confirmed by a second user. 409 lists
  * the outstanding signers (audited); the database refuses the same move on its
- * own (guardAssetDealContract).
+ * own (guardAssetDealContract). 409 (audited) when the agreement re-rendered
+ * now does not hash to the digest that was signed.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -22,6 +23,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("no_authority", 409, "Nobody can sign for this entity; the deal cannot be contracted")
       case "incomplete":
         return refuse("signers_outstanding", 409, "Signatures are outstanding", { outstanding: result.outstanding })
+      case "agreement_changed":
+        return refuse(
+          "agreement_changed", 409,
+          "The agreement rendered from the deal as it stands is not the one that was signed (the deal, its asset or the reference rate changed); cancel the deal and start again",
+        )
       case "contracted":
         return NextResponse.json(await loadDealDetail(tenantId, id))
     }

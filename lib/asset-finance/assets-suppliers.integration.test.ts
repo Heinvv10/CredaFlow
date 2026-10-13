@@ -128,7 +128,7 @@ suite.sequential("asset register and supplier bank accounts (real Postgres)", ()
       UPDATE "FinancedAsset" SET "year" = 1900 WHERE "tenantId" = ${tenantId}
     `)).rejects.toThrow(/FinancedAsset_year_range/)
     await expect(database().$executeRaw(Prisma.sql`
-      UPDATE "FinancedAsset" SET "vatCents" = -1 WHERE "tenantId" = ${tenantId}
+      UPDATE "FinancedAsset" SET "cashPriceExclVatCents" = -1, "vatCents" = 0 WHERE "tenantId" = ${tenantId}
     `)).rejects.toThrow(/FinancedAsset_amounts_non_negative/)
     await expect(database().$executeRaw(Prisma.sql`
       UPDATE "FinancedAsset" SET "hours" = -1 WHERE "tenantId" = ${tenantId}

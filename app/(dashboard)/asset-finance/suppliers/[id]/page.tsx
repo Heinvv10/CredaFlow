@@ -6,6 +6,7 @@ import { canDo } from "@/lib/auth-guards"
 import { formatDate, formatDateTime } from "@/lib/utils"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { BANK_ACCOUNT_STATUS_LABELS } from "@/lib/asset-finance/asset-labels"
+import { supplierBankAccountView } from "@/lib/asset-finance/supplier-bank-view"
 import { BankAccountDecision } from "./BankAccountDecision"
 import { BankAccountRequestForm } from "./BankAccountRequestForm"
 
@@ -76,7 +77,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               <div key={a.id} className="rounded-md border border-[var(--cf-border-subtle)] p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-sm font-medium text-[var(--cf-text)]">
-                    {a.bankName} · <span className="font-mono">{a.branchCode}</span> · <span className="font-mono">{a.accountNumber}</span>
+                    {a.bankName} · <span className="font-mono">{a.branchCode}</span> · <span className="font-mono">{supplierBankAccountView(a, user.role).accountNumber}</span>
                     {a.accountType && <span className="text-[var(--cf-text-muted)]"> · {a.accountType}</span>}
                   </p>
                   <span className={`text-xs font-semibold ${STATUS_TONE[a.status]}`}>{BANK_ACCOUNT_STATUS_LABELS[a.status]}</span>

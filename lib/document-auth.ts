@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getDefaultTenantId } from "@/lib/tenant"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import type { UserRole } from "@prisma/client"
 
 const STAFF_ROLES: UserRole[] = [
@@ -111,6 +112,8 @@ export function matchesMagic(head: Uint8Array, mime: string): boolean {
 // One writer for a DocumentAccessLog row, shaped exactly like the row
 // app/api/documents/[id]/view writes for a ClientDocument. Write it BEFORE the
 // bytes are read, so an access that fails half-way is still on the register.
+// The IP is recordedCallerIp (lib/rate-limit.ts): the address the trusted proxy saw,
+// not the raw X-Forwarded-For, whose leading entries the caller writes.
 
 export type DocumentAccessAction = "view" | "download"
 
@@ -130,7 +133,7 @@ export async function logDocumentAccess(
       accessorType: params.accessorType,
       accessorId: params.accessorId,
       action: params.action,
-      ipAddress: params.req.headers.get("x-forwarded-for") ?? null,
+      ipAddress: recordedCallerIp(params.req),
       userAgent: params.req.headers.get("user-agent") ?? null,
     },
   })

@@ -49,7 +49,9 @@ vi.mock("@/lib/asset-finance/deal-decision", async (importOriginal) => ({
 }))
 vi.mock("@/lib/asset-finance/deal-financials", () => ({ recordDealFinancials: m.recordDealFinancials }))
 vi.mock("@/lib/asset-finance/deal-structure", () => ({ solveWithRate: m.solveWithRate }))
-vi.mock("@/lib/asset-finance/deal-bureau", () => ({ dealBureauSubjects: m.subjects, runDealBureauCheck: m.runCheck }))
+vi.mock("@/lib/asset-finance/deal-bureau", () => ({
+  dealBureauSubjects: m.subjects, runDealBureauCheck: m.runCheck, recentlyCheckedClientIds: async () => new Set(), RECHECK_WINDOW_DAYS: 30,
+}))
 vi.mock("@/lib/asset-finance/deal-detail", () => ({ loadDealDetail: async (_t: string, id: string) => ({ id }) }))
 
 import { POST as create } from "./route"

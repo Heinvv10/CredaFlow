@@ -27,12 +27,12 @@ import { PAID_INSTALMENTS } from "./asset-finance-data"
 
 const HOUR_MS = 3_600_000
 
-/** APPROVED → CONTRACTED: prepare, sign every required signer row, contract. */
-async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string): Promise<void> {
+/** APPROVED → CONTRACTED: prepare (the loan starts on `bookingDate`), sign every required signer row, contract. */
+async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
   const officer = dealActor(tenantId, staff.officer)
   const signers = await prisma.dealSigner.count({ where: { tenantId, dealId, method: { not: null } } })
   if (signers === 0) {
-    const prepared = await prepareDealDocuments(officer, dealId)
+    const prepared = await prepareDealDocuments(officer, dealId, bookingDate)
     if (prepared.kind !== "prepared") throw new Error(`Seed: documents not prepared (${prepared.kind})`)
   }
   const rows = await prisma.dealSigner.findMany({
@@ -134,7 +134,7 @@ export async function executeCompanyDeal(
   bookingDate: string,
 ): Promise<void> {
   const status = async () => (await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { status: true } })).status
-  if ((await status()) === "APPROVED") await signAndContract(tenantId, staff, dealId, people.directorId)
+  if ((await status()) === "APPROVED") await signAndContract(tenantId, staff, dealId, people.directorId, bookingDate)
   if ((await status()) === "CONTRACTED") {
     await confirmChecklist(tenantId, staff.officer, dealId, people.entityId)
     await payOutAndBook(tenantId, staff, dealId, bookingDate)

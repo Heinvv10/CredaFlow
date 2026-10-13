@@ -15,7 +15,7 @@ import { NextRequest } from "next/server"
 import { expect } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped } from "./dates"
-import { dealRoutes } from "./deal.integration-fixture"
+import { ASSET_ONE_REGISTRATION, dealRoutes } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 import { POST as confirmRoute } from "@/app/api/asset-finance/deals/[id]/checklist/[item]/route"
 import { GET as panelRoute, POST as payoutRoute } from "@/app/api/asset-finance/deals/[id]/payout/route"
@@ -31,9 +31,9 @@ export interface BookingFixture extends SigningFixture {
   accountId: string
 }
 
-export const REGISTRATION = "TEST001GP"
+export const REGISTRATION = ASSET_ONE_REGISTRATION
 
-async function approveDeal(fx: SigningFixture, assetId: string, staff: (id: string, role: string) => void, db: PrismaClient) {
+export async function approveDeal(fx: SigningFixture, assetId: string, staff: (id: string, role: string) => void, db: PrismaClient) {
   const routes = dealRoutes(fx.host)
   staff(fx.officer, "CREDIT_OFFICER")
   const created = await routes.create({
@@ -60,15 +60,18 @@ async function approveDeal(fx: SigningFixture, assetId: string, staff: (id: stri
 }
 
 /**
- * Prepare the documents, then sign every signer row: the suretyships of the
- * clients in `wetInkSureties` as wet-ink scans (officer uploads, adminA
- * confirms), every other row e-signed as its client. Then contract.
+ * Prepare the documents (from today, the route's default), then sign every
+ * signer row: the suretyships of the clients in `wetInkSureties` as wet-ink
+ * scans (officer uploads, adminA confirms), every other row e-signed as its
+ * client.
  */
-async function signAndContract(fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, wetInkSureties: string[] = []) {
+export async function prepareAndSign(
+  fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, wetInkSureties: string[] = [], plannedStartDate?: string,
+) {
   const routes = signingRoutes(fx.host)
   const staff = (id: string, role: string) => setSession({ id, email: `${id}@booking-it.test`, role, tenantId: fx.tenantId })
   staff(fx.officer, "CREDIT_OFFICER")
-  expect((await routes.prepare(dealId)).status).toBe(200)
+  expect((await routes.prepare(dealId, plannedStartDate ? { plannedStartDate } : undefined)).status).toBe(200)
   for (const row of await db.dealSigner.findMany({ where: { dealId } })) {
     if (row.document === "SURETYSHIP" && wetInkSureties.includes(row.clientId)) {
       staff(fx.officer, "CREDIT_OFFICER")
@@ -80,11 +83,23 @@ async function signAndContract(fx: SigningFixture, dealId: string, setSession: S
     setSession({ id: row.clientId, email: `${row.clientId}@booking-it.test`, role: "CLIENT", tenantId: fx.tenantId })
     expect((await routes.portalSign(row.id, { signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256 })).status).toBe(200)
   }
-  setSession({ id: fx.officer, email: "officer@booking-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })
-  expect((await routes.contract(dealId)).status).toBe(200)
 }
 
-export async function createBookingFixture(db: PrismaClient, t: string, setSession: SetSession): Promise<BookingFixture> {
+/** prepareAndSign, then contract. */
+async function signAndContract(fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, wetInkSureties: string[] = []) {
+  await prepareAndSign(fx, dealId, setSession, db, wetInkSureties)
+  setSession({ id: fx.officer, email: "officer@booking-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })
+  expect((await signingRoutes(fx.host).contract(dealId)).status).toBe(200)
+}
+
+/** The product's arrears terms while deal A's documents are prepared (copied onto it); cleared before deal B's. */
+export interface BookingFixtureOptions {
+  dealAArrears?: { margin: string; feeCents: number }
+}
+
+export async function createBookingFixture(
+  db: PrismaClient, t: string, setSession: SetSession, options: BookingFixtureOptions = {},
+): Promise<BookingFixture> {
   const tenantId = `t_af_deal_${t}`
   const staff = (id: string, role: string) => setSession({ id, email: `${id}@booking-it.test`, role, tenantId })
   const fx = await createSigningFixture(db, t, (id, role) => staff(id, role))
@@ -93,7 +108,7 @@ export async function createBookingFixture(db: PrismaClient, t: string, setSessi
   await db.businessEntity.update({ where: { id: fx.evidenced }, data: { addressLine1: "9 Test Yard", city: "Testville", postalCode: "0002", vatNumber: "4000000002" } })
   await db.financedAsset.update({
     where: { id: fx.assets[0] },
-    data: { registrationNumber: REGISTRATION, natisTitleholder: SYNTHETIC_IDENTITY.legalName.toUpperCase() },
+    data: { natisTitleholder: SYNTHETIC_IDENTITY.legalName.toUpperCase() },
   })
   for (const id of fx.assets.slice(0, 2)) {
     await db.financedAsset.update({ where: { id }, data: { trackerId: `TRK-${id.slice(-6)}`, trackerProvider: "TEST Tracking", lenderNotedConfirmed: true } })
@@ -109,7 +124,13 @@ export async function createBookingFixture(db: PrismaClient, t: string, setSessi
     data: { status: "APPROVED", decidedById: fx.adminB, decidedAt: new Date(), avsResult: { manual: "company: bank letter on file" } },
   })
   const dealB = await approveDeal(fx, fx.assets[1], staff, db)
+  const arrears = (terms: BookingFixtureOptions["dealAArrears"]) => db.loanProduct.update({
+    where: { id: fx.product },
+    data: { nonNcaDefaultInterestMargin: terms?.margin ?? null, nonNcaCollectionFeeCents: terms?.feeCents ?? null },
+  })
+  if (options.dealAArrears) await arrears(options.dealAArrears)
   await signAndContract(fx, fx.dealId, setSession, db, [fx.director, fx.suretyA])
+  if (options.dealAArrears) await arrears(undefined)
   await signAndContract(fx, dealB, setSession, db)
   return { ...fx, dealB, accountId: account.id }
 }

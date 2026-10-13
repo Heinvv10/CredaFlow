@@ -62,8 +62,8 @@ suite.sequential("asset-finance servicing: book → miss → charges → receipt
   beforeAll(async () => {
     vi.stubEnv("TRUSTED_PROXY", "1")
     const d = database()
-    fx = await createBookingFixture(d, t, setSession)
-    await d.loanProduct.update({ where: { id: fx.product }, data: { nonNcaDefaultInterestMargin: BOOKED_MARGIN, nonNcaCollectionFeeCents: BOOKED_FEE } })
+    // The product's terms when deal A's documents are prepared: the signed terms.
+    fx = await createBookingFixture(d, t, setSession, { dealAArrears: { margin: BOOKED_MARGIN, feeCents: BOOKED_FEE } })
     // One approver: the payout is created APPROVED.
     await d.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000 } })
     const serial = (await d.assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, include: { asset: true } })).asset.serialNumber
@@ -101,7 +101,7 @@ suite.sequential("asset-finance servicing: book → miss → charges → receipt
     await db.$disconnect()
   })
 
-  it("booking copied the product's arrears terms onto the loan", async () => {
+  it("booking copied the deal's signed arrears terms (the product's at preparation) onto the loan", async () => {
     expect(await loan()).toMatchObject({ ncaRegime: "NON_NCA", nonNcaCollectionFeeCents: BOOKED_FEE, clientId: null })
     expect((await loan()).nonNcaDefaultInterestMargin?.toString()).toBe(BOOKED_MARGIN)
   })

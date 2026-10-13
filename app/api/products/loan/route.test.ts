@@ -151,3 +151,33 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(create).not.toHaveBeenCalled()
   })
 })
+
+describe("POST /api/products/loan NON_NCA arrears terms", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    create.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "product-9", ...data }))
+  })
+
+  it("stores the margin as an annual decimal and the fee in cents", async () => {
+    const response = await POST(request({ nonNcaDefaultInterestMargin: "0.02", nonNcaCollectionFeeCents: 25_000 }))
+    expect(response.status).toBe(201)
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ nonNcaDefaultInterestMargin: "0.02", nonNcaCollectionFeeCents: 25_000 }),
+    })
+  })
+
+  it("leaves both out when not sent (a consumer product)", async () => {
+    await POST(request())
+    const data = create.mock.calls[0][0].data as Record<string, unknown>
+    expect("nonNcaDefaultInterestMargin" in data).toBe(false)
+    expect("nonNcaCollectionFeeCents" in data).toBe(false)
+  })
+
+  it("refuses a percentage where the decimal belongs, and a fractional fee, 422 without writing", async () => {
+    const response = await POST(request({ nonNcaDefaultInterestMargin: "2", nonNcaCollectionFeeCents: 250.5 }))
+    expect(response.status).toBe(422)
+    expect((await response.json()).invalidFields).toEqual(["nonNcaDefaultInterestMargin", "nonNcaCollectionFeeCents"])
+    expect(create).not.toHaveBeenCalled()
+  })
+})

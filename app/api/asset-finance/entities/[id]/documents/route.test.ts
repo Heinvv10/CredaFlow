@@ -189,4 +189,21 @@ describe("POST …/verify and DELETE", () => {
       data: { financialsEvidenceIds: ["doc-2"] },
     })
   })
+
+  it("answers 409, not 500, when the database keeps the document as signing or payout evidence (23514)", async () => {
+    // The shape Prisma gives a trigger's RAISE ... ERRCODE '23514' on an update.
+    const refusal = Object.assign(new Error("A signed scan on record for a deal signer cannot be deleted"), {
+      code: "P2010", meta: { code: "23514", message: "A signed scan on record for a deal signer cannot be deleted" },
+    })
+    m.tx.entityDocument.updateMany.mockRejectedValue(refusal)
+    const res = await remove(new NextRequest(`${BASE}/doc-1`, { method: "DELETE" }), docParams)
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/cannot be deleted/)
+    expect(m.logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("still throws any other database failure", async () => {
+    m.tx.entityDocument.updateMany.mockRejectedValue(new Error("connection reset"))
+    await expect(remove(new NextRequest(`${BASE}/doc-1`, { method: "DELETE" }), docParams)).rejects.toThrow("connection reset")
+  })
 })
