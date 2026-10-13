@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
   dealFindFirst: vi.fn(),
   checkFindMany: vi.fn(),
+  clientFindMany: vi.fn(),
   subjects: vi.fn(),
   runCheck: vi.fn(),
   logAuditStrict: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/prisma", () => ({
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: true }) },
     assetFinanceDeal: { findFirst: m.dealFindFirst },
     creditBureauCheck: { findMany: m.checkFindMany },
+    client: { findMany: m.clientFindMany },
   },
 }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
@@ -44,6 +46,7 @@ vi.mock("@/lib/asset-finance/deal-bureau", async (importOriginal) => ({
 vi.mock("@/lib/asset-finance/deal-detail", () => ({ loadDealDetail: async (_t: string, id: string) => ({ id }) }))
 
 import { POST } from "./route"
+import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 
 const signIn = (role: string, id = "user-1") =>
   m.requireApiRole.mockResolvedValue({ user: { id, email: `${id}@lender.test`, role, tenantId: "tenant-1" } })
@@ -59,7 +62,15 @@ beforeEach(() => {
     { clientId: "c-recent", role: "DIRECTOR", trusteeKind: null },
     { clientId: "c-new", role: "DIRECTOR", trusteeKind: null },
   ])
-  m.checkFindMany.mockResolvedValue([{ clientId: "c-recent" }])
+  const clients = ["c-recent", "c-new"].map((id) => ({
+    id, idNumber: id === "c-recent" ? "9001015009087" : "9101015009086",
+    firstName: "Test", lastName: id, gender: "MALE" as const, dateOfBirth: new Date("1990-01-01"),
+  }))
+  m.clientFindMany.mockResolvedValue(clients)
+  m.checkFindMany.mockResolvedValue([{
+    clientId: "c-recent",
+    subjectFingerprint: bureauSubjectFingerprint(clients[0]),
+  }])
   m.runCheck.mockResolvedValue("stored")
 })
 
@@ -86,6 +97,16 @@ describe("POST …/deals/[id]/bureau-checks: 30-day re-check window", () => {
       { clientId: "c-new", role: "DIRECTOR", outcome: "stored" },
     ])
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "ASSET_DEAL_BUREAU_CHECKED" }))
+  })
+
+  it("does not reuse a recent check after the person's enquiry identity changed", async () => {
+    m.checkFindMany.mockResolvedValue([{ clientId: "c-recent", subjectFingerprint: "0".repeat(64) }])
+
+    const res = await run()
+
+    expect(res.status).toBe(200)
+    expect(m.runCheck).toHaveBeenCalledTimes(2)
+    expect((await res.json()).results[0]).toEqual({ clientId: "c-recent", role: "DIRECTOR", outcome: "stored" })
   })
 
   it("refuses force to a user without decide_asset_finance 403, audited, enquiring on no one", async () => {

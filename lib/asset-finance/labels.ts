@@ -112,10 +112,11 @@ export function bankAccountTypeLabel(type: string): string {
 }
 
 /** Director and trustee bureau check outcomes (deal-bureau-results.ts). */
-export const BUREAU_OUTCOME_LABELS: Record<"stored" | "skipped" | "failed", string> = {
+export const BUREAU_OUTCOME_LABELS: Record<"stored" | "skipped" | "failed" | "stale", string> = {
   stored: "Stored",
   skipped: "Skipped",
   failed: "Failed",
+  stale: "Identity changed",
 }
 
 /**

@@ -107,7 +107,7 @@ export function BureauTable({ deal }: { deal: DealDetail }) {
           <TableRow key={`${b.clientId}-${b.at}-${i}`}>
             <TableCell>{b.name}</TableCell>
             <TableCell>
-              <StatusPill tone={b.outcome === "stored" ? "success" : b.outcome === "skipped" ? "warning" : "danger"}>{BUREAU_OUTCOME_LABELS[b.outcome]}</StatusPill>
+              <StatusPill tone={b.outcome === "stored" ? "success" : b.outcome === "failed" ? "danger" : "warning"}>{BUREAU_OUTCOME_LABELS[b.outcome]}</StatusPill>
               {b.detail && <span className="ml-2 text-xs text-[var(--cf-text-muted)]">{b.detail}</span>}
             </TableCell>
             <TableCell className="text-right">{b.score ?? "—"}</TableCell>

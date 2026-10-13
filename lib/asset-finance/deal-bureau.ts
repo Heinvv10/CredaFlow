@@ -18,7 +18,7 @@
  */
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
+import { bureauCheckMatchesSubject, bureauSubjectFingerprint, type BureauSubjectClient } from "@/lib/compliance/bureau-subject"
 import { getCreditReport } from "@/lib/integrations/experian"
 import { buildExperianEnquiryInput } from "@/lib/integrations/experian-input"
 
@@ -92,14 +92,26 @@ export async function recentlyCheckedClientIds(
   now: Date = new Date(),
 ): Promise<Set<string>> {
   if (clientIds.length === 0) return new Set()
-  const rows = await prisma.creditBureauCheck.findMany({
-    where: {
-      tenantId, applicationId, clientId: { in: clientIds }, ok: true,
-      createdAt: { gte: new Date(now.getTime() - RECHECK_WINDOW_DAYS * DAY_MS) },
-    },
-    select: { clientId: true },
-  })
-  return new Set(rows.map((r) => r.clientId))
+  const [rows, clients] = await Promise.all([
+    prisma.creditBureauCheck.findMany({
+      where: {
+        tenantId, applicationId, clientId: { in: clientIds }, ok: true,
+        createdAt: { gte: new Date(now.getTime() - RECHECK_WINDOW_DAYS * DAY_MS) },
+      },
+      select: { clientId: true, subjectFingerprint: true },
+    }),
+    prisma.client.findMany({
+      where: { tenantId, id: { in: clientIds } },
+      select: { id: true, idNumber: true, firstName: true, lastName: true, gender: true, dateOfBirth: true },
+    }),
+  ])
+  const current = new Map(clients.map((client) => [client.id, client]))
+  return new Set(rows
+    .filter((row) => {
+      const client = current.get(row.clientId)
+      return client ? bureauCheckMatchesSubject(row, client) : false
+    })
+    .map((row) => row.clientId))
 }
 
 /**
@@ -134,8 +146,13 @@ export async function runDealBureauCheck(
   try {
     return await prisma.$transaction(async (tx) => {
       if (!(await lockPerson(tx, `deal-bureau:${tenantId}:${applicationId}:${clientId}`))) return "busy"
+      const current = await tx.client.findFirst({
+        where: { id: clientId, tenantId },
+        select: { id: true, idNumber: true, firstName: true, lastName: true, gender: true, dateOfBirth: true },
+      })
+      const subjectFingerprint = current ? bureauSubjectFingerprint(current as BureauSubjectClient) : "missing-subject"
       const stored = await tx.creditBureauCheck.count({
-        where: { tenantId, applicationId, clientId, ok: true, createdAt: { gte: since } },
+        where: { tenantId, applicationId, clientId, subjectFingerprint, ok: true, createdAt: { gte: since } },
       })
       return stored > 0 ? "recent" : enquire(tx, tenantId, applicationId, clientId, enquiry)
     }, { timeout: ENQUIRY_TRANSACTION_MS })

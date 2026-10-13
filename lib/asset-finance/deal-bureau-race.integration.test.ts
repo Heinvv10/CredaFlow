@@ -107,6 +107,14 @@ suite.sequential("bureau checks: one enquiry per person under concurrency (real 
     expect(m.enquiries).toBe(1)
   })
 
+  it("does not reuse a recent check after the enquiry identity changes", async () => {
+    m.enquiries = 0
+    await database().client.update({ where: { id: fx.director }, data: { firstName: "Corrected" } })
+
+    expect(await runDealBureauCheck(fx.tenantId, applicationId, subject(), { force: false, startedAt: new Date() })).toBe("stored")
+    expect(m.enquiries).toBe(1)
+  })
+
   it("a person's lock held elsewhere is waited for a bounded time: busy, no enquiry, nothing recorded", async () => {
     m.enquiries = 0
     const before = await attempts()

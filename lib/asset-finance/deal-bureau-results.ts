@@ -3,11 +3,12 @@
 // that produced none (consent missing, a juristic trustee, an error), which
 // exist only as CREDIT_BUREAU_CHECK ComplianceRecords.
 import { prisma } from "@/lib/prisma"
+import { bureauCheckMatchesSubject, type BureauSubjectClient } from "@/lib/compliance/bureau-subject"
 
 export interface DealBureauResult {
   clientId: string
   name: string
-  outcome: "stored" | "skipped" | "failed"
+  outcome: "stored" | "skipped" | "failed" | "stale"
   provider: string
   score: number | null
   riskGrade: string | null
@@ -38,9 +39,9 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
       where: { tenantId, applicationId },
       orderBy: { createdAt: "desc" },
       select: {
-        clientId: true, provider: true, score: true, riskGrade: true, hasAdverse: true, deceased: true,
+        clientId: true, subjectFingerprint: true, provider: true, score: true, riskGrade: true, hasAdverse: true, deceased: true,
         underDebtReview: true, hasJudgement: true, ok: true, errorMessage: true, createdAt: true,
-        client: { select: { firstName: true, lastName: true } },
+        client: { select: { id: true, idNumber: true, firstName: true, lastName: true, gender: true, dateOfBirth: true } },
       },
     }),
     prisma.complianceRecord.findMany({
@@ -53,7 +54,7 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
   const results: DealBureauResult[] = checks.map((c) => ({
     clientId: c.clientId,
     name: `${c.client.firstName} ${c.client.lastName}`,
-    outcome: c.ok ? "stored" : "failed",
+    outcome: c.ok ? bureauResultOutcome(c, c.client) : "failed",
     provider: c.provider,
     score: c.score,
     riskGrade: c.riskGrade,
@@ -61,7 +62,9 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
     deceased: c.deceased,
     underDebtReview: c.underDebtReview,
     hasJudgement: c.hasJudgement,
-    detail: c.errorMessage,
+    detail: c.ok && !bureauCheckMatchesSubject(c, c.client)
+      ? "The person's identity changed after this enquiry; run a new bureau check"
+      : c.errorMessage,
     at: c.createdAt.toISOString(),
   }))
 
@@ -89,4 +92,11 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
     }
   }
   return results.sort((a, b) => b.at.localeCompare(a.at))
+}
+
+export function bureauResultOutcome(
+  check: { clientId: string; subjectFingerprint: string | null },
+  client: BureauSubjectClient,
+): "stored" | "stale" {
+  return bureauCheckMatchesSubject(check, client) ? "stored" : "stale"
 }

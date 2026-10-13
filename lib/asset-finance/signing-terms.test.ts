@@ -5,7 +5,7 @@ import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
 import { plannedStartProblem } from "./signing-prepare"
-import { preparedTermProblem, snapshotArrearsMargin } from "./documents/deal-document-data"
+import { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./documents/deal-document-data"
 import { deriveRequiredSigners, preparedSignerSet, requiredFromPrepared } from "./signing"
 import { renderInstalmentSaleAgreement } from "./documents/agreement-pdf"
 import { syntheticDealDocumentData } from "./documents/synthetic-deal.fixture"
@@ -38,6 +38,15 @@ describe("preparedTermProblem", () => {
     expect(preparedTermProblem(29, 365, 30, 730)).toMatch(/outside the product/)
     expect(preparedTermProblem(365, 365, 30, 730)).toBeNull()
     expect(preparedTermProblem(300, 365, 30, 730)).toBeNull()
+  })
+})
+
+describe("approvedTermProblem", () => {
+  it("does not apply a product edit to an agreement that was already prepared", () => {
+    expect(approvedTermProblem(365, 365)).toBeNull()
+    expect(documentTermProblem(false, 365, 365, 30, 300)).toBeNull()
+    expect(documentTermProblem(true, 365, 365, 30, 300)).toMatch(/outside the product/)
+    expect(approvedTermProblem(366, 365)).toMatch(/exceeds the approved term/)
   })
 })
 

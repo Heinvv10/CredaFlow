@@ -166,7 +166,13 @@ export async function loadDealDocumentData(
   if ("error" in rate) throw new DealDocumentError(`The schedule cannot be solved: ${rate.error}`)
   const solved = solveDealStructure(deal.asset, structure, rate, terms.startDate)
   if (!solved.ok) throw new DealDocumentError(`The schedule cannot be solved: ${solved.error}`)
-  const termProblem = preparedTermProblem(solved.termDays, deal.application.approvedTermDays, product.minTermDays, product.maxTermDays)
+  const termProblem = documentTermProblem(
+    prepare !== undefined,
+    solved.termDays,
+    deal.application.approvedTermDays,
+    product.minTermDays,
+    product.maxTermDays,
+  )
   if (termProblem) throw new DealDocumentError(termProblem)
 
   const entityType = deal.entity.type
@@ -259,10 +265,26 @@ export function preparedTermProblem(termDays: number, approvedTermDays: number |
   if (termDays < minTermDays || termDays > maxTermDays) {
     return `The prepared term of ${termDays} days is outside the product's ${minTermDays}–${maxTermDays}`
   }
-  if (approvedTermDays === null || termDays > approvedTermDays) {
-    return `The prepared term of ${termDays} days exceeds the approved term${approvedTermDays === null ? "" : ` of ${approvedTermDays} days`}; obtain a new credit decision`
-  }
-  return null
+  return approvedTermProblem(termDays, approvedTermDays)
+}
+
+/** Existing prepared documents remain governed by their credit decision, not later product edits. */
+export function approvedTermProblem(termDays: number, approvedTermDays: number | null): string | null {
+  return approvedTermDays === null || termDays > approvedTermDays
+    ? `The prepared term of ${termDays} days exceeds the approved term${approvedTermDays === null ? "" : ` of ${approvedTermDays} days`}; obtain a new credit decision`
+    : null
+}
+
+export function documentTermProblem(
+  preparing: boolean,
+  termDays: number,
+  approvedTermDays: number | null,
+  minTermDays: number,
+  maxTermDays: number,
+): string | null {
+  return preparing
+    ? preparedTermProblem(termDays, approvedTermDays, minTermDays, maxTermDays)
+    : approvedTermProblem(termDays, approvedTermDays)
 }
 
 export function snapshotArrearsMargin(margin: Prisma.Decimal | null): string | null {
