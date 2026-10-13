@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { verifyLockedCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
@@ -551,9 +552,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       ) {
         throw new Error("Managed storage returned unexpected debit-mandate metadata")
       }
-      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-        ?? req.headers.get("x-real-ip")
-        ?? null
+      const ip = recordedCallerIp(req)
 
       const result = await prisma.$transaction(async (tx) => {
         const locked = await verifyLockedCurrentAffordabilityApproval(tx, {

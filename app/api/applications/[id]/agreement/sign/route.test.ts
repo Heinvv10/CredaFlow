@@ -223,7 +223,7 @@ function request(body: unknown) {
     : body
   return new NextRequest("http://localhost/api/applications/app-1/agreement/sign", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": "127.0.0.1" },
+    headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.7, 127.0.0.1" },
     body: JSON.stringify(withEcho),
   })
 }
@@ -232,6 +232,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date("2026-07-20T10:00:00.000Z"))
   vi.clearAllMocks()
+  vi.stubEnv("TRUSTED_PROXY", "1")
   verifyStoredPasqBindingMock.mockReset()
   verifyPasqDocumentArtifactMock.mockReset()
   authMock.mockResolvedValue({
@@ -313,6 +314,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllEnvs()
 })
 
 describe("identity must be established before the consumer is bound", () => {
@@ -428,6 +430,7 @@ describe("agreement signature evidence binding", () => {
       data: expect.objectContaining({
         agreementSignedMethod: "portal",
         agreementSignatureData: "Jane Doe",
+        agreementSignedByIp: "127.0.0.1",
       }),
     }))
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -452,6 +455,7 @@ describe("agreement signature evidence binding", () => {
       data: expect.objectContaining({
         action: "AGREEMENT_SIGNED",
         entityId: "app-1",
+        ipAddress: "127.0.0.1",
         newValue: expect.objectContaining({
           documentId: "agreement-doc-1",
           documentSha256: agreementPdfSha256,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const {
@@ -54,10 +54,15 @@ const PENDING_DOC = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv("TRUSTED_PROXY", "1")
   findFirstClientDocument.mockResolvedValue(PENDING_DOC)
   updateClientDocument.mockResolvedValue({ ...PENDING_DOC, signatureState: "signed" })
   createDocumentAccessLog.mockResolvedValue({})
   logAudit.mockResolvedValue(undefined)
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe("POST /api/documents/[id]/sign", () => {
@@ -95,7 +100,7 @@ describe("POST /api/documents/[id]/sign", () => {
       data: expect.objectContaining({
         signatureState: "signed",
         signedAt: expect.any(Date),
-        signedByIp: "41.1.2.3",
+        signedByIp: "10.0.0.1",
       }),
     })
 
@@ -106,7 +111,7 @@ describe("POST /api/documents/[id]/sign", () => {
         action: "DOCUMENT_SIGNED",
         entity: "ClientDocument",
         entityId: "doc1",
-        ipAddress: "41.1.2.3",
+        ipAddress: "10.0.0.1",
       })
     )
 
@@ -116,6 +121,7 @@ describe("POST /api/documents/[id]/sign", () => {
         accessorType: "staff",
         accessorId: "u1",
         action: "signed",
+        ipAddress: "10.0.0.1",
       }),
     })
   })

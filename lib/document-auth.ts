@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import type { UserRole } from "@prisma/client"
 
 const STAFF_ROLES: UserRole[] = [
@@ -126,7 +127,7 @@ export async function logDocumentContentAccess(opts: {
       accessorType: "staff",
       accessorId: opts.staffUserId,
       action: opts.action,
-      ipAddress: opts.req.headers.get("x-forwarded-for") ?? null,
+      ipAddress: recordedCallerIp(opts.req),
       userAgent: opts.req.headers.get("user-agent") ?? null,
     })),
   })

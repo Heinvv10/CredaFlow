@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { checkRateLimit, callerIp, _resetRateLimitStore } from "../rate-limit"
+import { checkRateLimit, callerIp, recordedCallerIp, _resetRateLimitStore } from "../rate-limit"
 
 beforeEach(() => {
   _resetRateLimitStore()
@@ -106,5 +106,15 @@ describe("callerIp", () => {
   it("trusts x-real-ip when TRUSTED_PROXY=1 and no XFF", () => {
     vi.stubEnv("TRUSTED_PROXY", "1")
     expect(callerIp(makeReq({ "x-real-ip": "5.5.5.5" }))).toBe("5.5.5.5")
+  })
+
+  it("returns null for records when no trusted caller address is available", () => {
+    vi.stubEnv("TRUSTED_PROXY", "0")
+    expect(recordedCallerIp(makeReq({ "x-forwarded-for": "attacker" }))).toBeNull()
+  })
+
+  it("returns the trusted-proxy caller address for records", () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    expect(recordedCallerIp(makeReq({ "x-forwarded-for": "attacker, 203.0.113.9" }))).toBe("203.0.113.9")
   })
 })

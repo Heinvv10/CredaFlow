@@ -108,3 +108,9 @@ export function callerIp(req: Request): string {
 
   return "unknown"
 }
+
+/** Trusted caller address for persisted evidence; null rather than the rate-limit bucket sentinel. */
+export function recordedCallerIp(req: Request): string | null {
+  const ip = callerIp(req)
+  return ip === "unknown" ? null : ip
+}
