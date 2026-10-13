@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatDate, formatZAR } from "@/lib/utils"
@@ -5,13 +6,14 @@ import { statusLabel } from "@/lib/asset-finance/labels"
 import type { EntityRecords } from "@/lib/asset-finance/entity-detail"
 
 // The entity's applications, deals and loans, read-only. Shared by the staff
-// entity page and the portal entity page; neither links into a contract yet.
+// entity page and the portal entity page; `loanHref`, when given, links each
+// loan's reference to its contract page.
 
 function Empty({ what }: { what: string }) {
   return <p className="text-sm text-[var(--cf-text-muted)]">No {what} yet.</p>
 }
 
-export function EntityRecordsTables({ records }: { records: EntityRecords }) {
+export function EntityRecordsTables({ records, loanHref }: { records: EntityRecords; loanHref?: (loanId: string) => string }) {
   return (
     <div className="space-y-5">
       <DataPanel title="Applications" density="compact">
@@ -89,7 +91,13 @@ export function EntityRecordsTables({ records }: { records: EntityRecords }) {
             <TableBody>
               {records.loans.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell className="font-mono text-xs">{l.reference}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {loanHref ? (
+                      <Link href={loanHref(l.id)} className="text-[var(--cf-brand)] underline-offset-2 hover:underline">{l.reference}</Link>
+                    ) : (
+                      l.reference
+                    )}
+                  </TableCell>
                   <TableCell>{statusLabel(l.status)}</TableCell>
                   <TableCell className="text-right">{formatZAR(l.principal)}</TableCell>
                   <TableCell className="text-right">{formatZAR(l.outstandingPrincipal)}</TableCell>

@@ -43,7 +43,7 @@ export default async function PortalEntityPage({ params }: { params: Promise<{ e
         canUpload
         canManage={false}
       />
-      <EntityRecordsTables records={records} />
+      <EntityRecordsTables records={records} loanHref={(loanId) => `/portal/business/${entityId}/contracts/${loanId}`} />
     </div>
   )
 }
