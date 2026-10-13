@@ -2,7 +2,7 @@
 
 Runbook for standing up one lender on its own stack and database, written from
 what `scripts/lender/` actually does. `docs/DEPLOY.md` has the detail behind each
-step and the full environment-variable list. Items marked **TODO** are not done by
+step and `docs/DEPLOY-ENV.md` the full environment-variable list. Items marked **TODO** are not done by
 any script and need a human, a credential or a sign-off.
 
 ## 0. Gather first
