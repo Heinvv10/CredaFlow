@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { bureauDebts, payslipFacts, payslipNamesClient } from "./load-facts"
 
 const client = { fullName: "Thabo Tester", idNumber: "9001015000080" }
@@ -91,6 +91,21 @@ describe("bureauDebts", () => {
       { subscriber: "THIRDCO", instalmentCents: 10_000, status: "OPEN/CURRENT" },
     ] }
     expect(bureauDebts(obligations).map((d) => d.name)).toEqual(["THIRDCO"])
+  })
+
+  describe("a simulated check", () => {
+    afterEach(() => vi.unstubAllEnvs())
+    const simulated = { simulated: true, accounts: [{ subscriber: "SYNTHLEND", instalmentCents: 125_000, status: "OPEN/CURRENT" }] }
+
+    it("explains no debit order where this deployment forbids simulation", () => {
+      vi.stubEnv("NODE_ENV", "production")
+      expect(bureauDebts(simulated)).toEqual([])
+    })
+
+    it("is read where simulation is permitted", () => {
+      vi.stubEnv("NODE_ENV", "development")
+      expect(bureauDebts(simulated)).toHaveLength(1)
+    })
   })
 
   it("is empty for a check that stored no accounts", () => {

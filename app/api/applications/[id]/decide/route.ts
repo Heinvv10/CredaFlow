@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
+import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { Prisma } from "@prisma/client"
@@ -850,6 +851,20 @@ export async function POST(
           )
         }
 
+        // A simulated check is fabricated evidence wherever this deployment
+        // forbids Experian simulation; an override reason cannot approve on it.
+        const simulatedStop = simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations))
+        if (simulatedStop.blocked) {
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${simulatedStop.reason} This cannot be overridden.`,
+              simulatedBureauBlock: true,
+              requiresOverride: false,
+            },
+            { status: 422 },
+          )
+        }
+
         // NCA s.81 (reckless lending) requires a credit assessment before
         // entering into a credit agreement. The earlier review path runs the
         // bureau check, but it can be skipped (missing POPIA consent), fail
@@ -881,6 +896,7 @@ export async function POST(
               underDebtReview: bureauCheck.underDebtReview,
               hasJudgement: bureauCheck.hasJudgement,
               hasNotice: bureauCheck.hasNotice,
+              obligations: bureauCheck.obligations,
             },
             { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
           )

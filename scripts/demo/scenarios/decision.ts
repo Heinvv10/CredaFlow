@@ -11,6 +11,11 @@
  * server recomputes NDI; an admin records the reckless-lending assessment and
  * the consumer's affordability declaration (PATCH …/compliance).
  *
+ * Credit checks (lib/credit-checks): every flag the evidence checks raise must
+ * be cleared with a reason before approval. The specimens are generated, so
+ * the document-authenticity check flags their statements; the admin reads the
+ * flags (GET …/checks, which recomputes them) and clears each one.
+ *
  * Decision (POST …/decide, multipart, LOAN_ADMIN): approve for debit-order
  * repayment, or decline. A persona meant to decline must be refused by the
  * product, not by the script: the approval is attempted and must come back
@@ -41,6 +46,29 @@ export interface AffordabilityResult {
 }
 
 export type Decision = "approve" | "decline"
+
+interface CheckFlag {
+  id: string
+  check: string
+  code: string
+  status: string
+}
+
+function clearReason(f: CheckFlag): string {
+  return f.check === "DOCUMENT_AUTHENTICITY"
+    ? "Statement is a demo specimen generated for this sample application, not a bank original; figures checked against the payslips."
+    : `Reviewed ${f.check} (${f.code}) against the payslips, bank statement and bureau report; no concern for this application.`
+}
+
+async function clearCreditChecks(ctx: OriginationContext, p: Persona, applicationId: string): Promise<void> {
+  const view = (await ctx.admin.get<{ flags: CheckFlag[] }>(`/api/applications/${applicationId}/checks`)).json
+  if (!view) throw new Error(`GET /api/applications/${applicationId}/checks returned no JSON`)
+  const open = view.flags.filter((f) => f.status === "OPEN")
+  for (const f of open) {
+    await ctx.admin.post(`/api/applications/${applicationId}/checks/${f.id}/clear`, { reason: clearReason(f) }, { expect: [200] })
+  }
+  if (open.length > 0) log(`${p.id}: cleared ${open.length} credit check(s): ${open.map((f) => `${f.check}/${f.code}`).join(", ")}`)
+}
 
 export async function startReview(ctx: OriginationContext, applicationId: string): Promise<ReviewResult> {
   const res = await ctx.officer.post<ReviewResult>(`/api/applications/${applicationId}/review`)
@@ -100,6 +128,7 @@ export async function decide(
   affordability: AffordabilityResult,
 ): Promise<"APPROVED" | "DECLINED"> {
   const path = `/api/applications/${applicationId}/decide`
+  await clearCreditChecks(ctx, p, applicationId)
   if (decision === "approve") {
     if (!affordability.isAffordable) throw new Error(`${p.id}: approval requested but the assessment found it unaffordable`)
     await ctx.admin.post(path, decideForm({ action: "approve", repaymentMethod: "DEBIT_ORDER" }), { expect: [200] })

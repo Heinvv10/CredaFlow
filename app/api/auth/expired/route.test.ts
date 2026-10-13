@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { afterEach, describe, it, expect, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { authBaseConfig } from "@/lib/auth-config"
 import { GET } from "./route"
@@ -91,5 +91,50 @@ describe("GET /api/auth/expired (stale-session loop-breaker)", () => {
   it("does not treat a path that merely starts with the letters 'portal' as the portal", () => {
     const res = call(`${ORIGIN}/api/auth/expired?callbackUrl=${encodeURIComponent("/portalx")}`)
     expect(location(res).url.pathname).toBe("/login")
+  })
+})
+
+// The client host 404s /login (proxy.ts), so there every redirect goes to the
+// portal sign-in and no destination outside the portal survives.
+describe("GET /api/auth/expired on the client host (APP_MODE=client)", () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  const target = (query: string) => {
+    vi.stubEnv("APP_MODE", "client")
+    const res = call(`${ORIGIN}/api/auth/expired${query}`)
+    return { res, ...location(res) }
+  }
+
+  it("with no callbackUrl goes to /portal/login with callbackUrl=/portal", () => {
+    const { res, raw, url } = target("")
+    expect(res.status).toBe(307)
+    expect(raw).toBe("/portal/login?callbackUrl=%2Fportal")
+    expect(url.pathname).toBe("/portal/login")
+    expect(res.cookies.get(COOKIE)?.maxAge).toBe(0)
+  })
+
+  it.each(["/portal", "/portal/loans", "/portal/applications/abc123"])("keeps the portal destination %s", (dest) => {
+    expect(target(`?callbackUrl=${encodeURIComponent(dest)}`).raw).toBe(
+      `/portal/login?callbackUrl=${encodeURIComponent(dest)}`,
+    )
+  })
+
+  it.each(["/dashboard", "/settings/users", "/portalx", "/login", "/"])(
+    "sends the non-portal destination %s to the portal home",
+    (dest) => {
+      expect(target(`?callbackUrl=${encodeURIComponent(dest)}`).raw).toBe("/portal/login?callbackUrl=%2Fportal")
+    },
+  )
+
+  it.each(["//evil.example", "/\\evil.example", "https://evil.example/portal", "/portal/../dashboard", "/portal?x=1"])(
+    "sends the rejected callbackUrl %j to the portal home",
+    (dest) => {
+      expect(target(`?callbackUrl=${encodeURIComponent(dest)}`).raw).toBe("/portal/login?callbackUrl=%2Fportal")
+    },
+  )
+
+  it.each(["staff", "all"])("APP_MODE=%s keeps the staff behaviour (no callbackUrl → /login, /dashboard)", (mode) => {
+    vi.stubEnv("APP_MODE", mode)
+    expect(location(call(`${ORIGIN}/api/auth/expired`)).raw).toBe("/login?callbackUrl=%2Fdashboard")
   })
 })

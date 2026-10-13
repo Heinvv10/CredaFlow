@@ -51,6 +51,7 @@ import {
   type AffordabilityExpenseInput,
   type BureauDecisionCheckInput,
 } from "@/lib/affordability/snapshot"
+import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
 import {
   requireClientBorrowerId,
@@ -65,6 +66,7 @@ export type CurrentApprovalEvidenceReason =
   | "submission_changed"
   | "bureau_missing"
   | "bureau_subject_changed"
+  | "bureau_simulated"
   | "override_incomplete"
   | "kyc_changed"
   | "mle_justification_missing"
@@ -448,6 +450,9 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "bureau_subject_changed" }
   }
+  if (simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations)).blocked) {
+    return { ok: false, reason: "bureau_simulated" }
+  }
 
   const expenseEvidence = createAffordabilityExpenseEvidence(application.client)
   if (affordabilityExpenseEvidenceNeedsMleJustification(expenseEvidence)) {
@@ -637,6 +642,9 @@ export function verifyCurrentAffordabilityApproval(args: {
   }
   if (bureauCheck && !bureauCheckMatchesSubject(bureauCheck, application.client)) {
     return { ok: false, reason: "bureau_subject_changed" }
+  }
+  if (simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations)).blocked) {
+    return { ok: false, reason: "bureau_simulated" }
   }
   if (
     hasBureauOverride &&

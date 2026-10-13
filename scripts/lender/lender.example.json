@@ -1,0 +1,43 @@
+{
+  "slug": "staging-lender",
+  "name": "Staging Lender (Pty) Ltd",
+  "domain": null,
+  "colours": {
+    "primaryColor": "#1F4E79",
+    "secondaryColor": "#245E92",
+    "darkColor": "#0F1115"
+  },
+  "features": {
+    "lms": true,
+    "crm": false,
+    "ims": false,
+    "bureauSubmission": false,
+    "marketing": false,
+    "portal": true,
+    "reports": true
+  },
+  "identity": {
+    "legalName": "Staging Lender (Pty) Ltd",
+    "brandName": "Staging Lender",
+    "ncrNumber": "NCRCP90001",
+    "fscaNumber": "90001",
+    "companyRegNumber": "2000/000001/07",
+    "registeredOffice": "1 Example Road\nSandton\n2196",
+    "publicEmail": "hello@staging-lender.example",
+    "publicPhone": "+27 11 000 0100",
+    "publicWhatsapp": null,
+    "collectionsEmail": "collections@staging-lender.example",
+    "collectionsPhone": "+27 11 000 0101",
+    "collectionsPhoneSecondary": null,
+    "brandTagline": null,
+    "ncrRegistrationDate": null,
+    "fscaAuthorisationDate": null,
+    "ncrStatus": null,
+    "headOfficeCity": "Johannesburg"
+  },
+  "statutoryConfirm": {
+    "ncrNumber": "NCRCP90001",
+    "fscaNumber": "90001",
+    "companyRegNumber": "2000/000001/07"
+  }
+}

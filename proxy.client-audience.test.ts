@@ -20,7 +20,7 @@ const clientHost = await proxyIn("client")
 const singleHost = await proxyIn("all")
 
 const CLIENT = { user: { id: "client-1", role: "CLIENT", tenantId: "tenant-1" } }
-const OFFICER = { user: { id: "user-1", role: "CREDIT_OFFICER", tenantId: "tenant-1" } }
+const OFFICER = { user: { id: "user-1", role: "CREDIT_OFFICER", tenantId: "tenant-1", totpEnrolmentRequired: false } }
 
 function visit(handler: Handler, pathname: string, session: typeof CLIENT | null, method = "GET") {
   const req = new NextRequest(`http://localhost${pathname}`, { method }) as NextRequest & { auth: unknown }

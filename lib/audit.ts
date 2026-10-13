@@ -423,6 +423,10 @@ export const AuditAction = {
   // Letterhead logo (lib/config/lender-logo.ts): the file's sha256, never the bytes.
   LENDER_LOGO_UPDATED: "LENDER_LOGO_UPDATED",
   LENDER_LOGO_REMOVED: "LENDER_LOGO_REMOVED",
+  // First SUPER_ADMIN of a lender and the break-glass reset of a locked-out
+  // one (scripts/lender/bootstrap-admin.ts). Never carry a credential.
+  SUPER_ADMIN_BOOTSTRAPPED: "SUPER_ADMIN_BOOTSTRAPPED",
+  SUPER_ADMIN_BREAK_GLASS_RESET: "SUPER_ADMIN_BREAK_GLASS_RESET",
 
   // Complaints and POPIA data subject requests (app/api/complaints,
   // app/api/dsar). Identifiers, statuses and dates only: the description,
@@ -443,4 +447,14 @@ export const AuditAction = {
   NCA_OVERRIDE_DECISION_REFUSED: "NCA_OVERRIDE_DECISION_REFUSED",
   // A classification refused (not an entity borrower, or already decided).
   NCA_CLASSIFY_REFUSED: "NCA_CLASSIFY_REFUSED",
+  // Staff two-factor (lib/security/staff-totp-policy.ts, app/api/settings/totp,
+  // app/api/settings/users/[id]/totp). Identifiers and the policy flag only,
+  // never a secret or a code.
+  STAFF_TOTP_POLICY_UPDATED: "STAFF_TOTP_POLICY_UPDATED",
+  TOTP_ENROLLED: "TOTP_ENROLLED",
+  TOTP_DISABLED: "TOTP_DISABLED",
+  TOTP_REPLACED: "TOTP_REPLACED",
+  // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
+  TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
+  TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
 } as const
