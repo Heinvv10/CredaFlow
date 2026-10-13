@@ -105,3 +105,33 @@ export function matchesMagic(head: Uint8Array, mime: string): boolean {
   if (!sig) return false
   return sig.every((seg) => seg.bytes.every((b, i) => head[seg.offset + i] === b))
 }
+
+// ── Access logging (POPIA) ───────────────────────────────────────────────────
+//
+// One writer for a DocumentAccessLog row, shaped exactly like the row
+// app/api/documents/[id]/view writes for a ClientDocument. Write it BEFORE the
+// bytes are read, so an access that fails half-way is still on the register.
+
+export type DocumentAccessAction = "view" | "download"
+
+export async function logDocumentAccess(
+  db: Pick<typeof prisma, "documentAccessLog">,
+  params: {
+    documentId: string
+    accessorType: "staff" | "client"
+    accessorId: string
+    action: DocumentAccessAction
+    req: Request
+  },
+): Promise<void> {
+  await db.documentAccessLog.create({
+    data: {
+      documentId: params.documentId,
+      accessorType: params.accessorType,
+      accessorId: params.accessorId,
+      action: params.action,
+      ipAddress: params.req.headers.get("x-forwarded-for") ?? null,
+      userAgent: params.req.headers.get("user-agent") ?? null,
+    },
+  })
+}

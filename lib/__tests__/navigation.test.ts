@@ -99,3 +99,29 @@ describe("compliance navigation is not gated on the insurance module", () => {
     expect(groupFor("/compliance")).not.toBe(groupFor("/insurance"))
   })
 })
+
+describe("asset finance navigation", () => {
+  const assetFinanceHrefs = [
+    "/asset-finance/entities",
+    "/asset-finance/deals",
+    "/asset-finance/assets",
+    "/asset-finance/suppliers",
+    "/asset-finance/reference-rates",
+  ]
+
+  it("puts every asset finance page in one group behind the assetFinance flag", () => {
+    const groups = new Set(assetFinanceHrefs.map((href) => staffNavigation.find(g => g.items.some(i => i.href === href))))
+    expect(groups.size).toBe(1)
+    const [group] = [...groups]
+    expect(group?.label).toBe("Asset Finance")
+    expect(group?.feature).toBe("assetFinance")
+    expect(group?.items.map(i => i.href)).toEqual(assetFinanceHrefs)
+  })
+})
+
+describe("portal business navigation", () => {
+  it("offers the Business page only to a client who may act for an entity", () => {
+    expect(buildPortalNavigation(null).some(item => item.href === "/portal/business")).toBe(false)
+    expect(buildPortalNavigation(null, { business: true }).some(item => item.href === "/portal/business")).toBe(true)
+  })
+})

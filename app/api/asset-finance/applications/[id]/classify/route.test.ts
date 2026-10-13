@@ -8,6 +8,7 @@ const m = vi.hoisted(() => {
     $queryRaw: vi.fn(),
     loanApplication: { findFirst: vi.fn(), update: vi.fn() },
     businessEntity: { findFirst: vi.fn() },
+    entityDocument: { findMany: vi.fn() },
     ncaRegimeOverride: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   }
   return {
@@ -74,6 +75,7 @@ beforeEach(() => {
   m.tx.$queryRaw.mockResolvedValue([{ id: "app-1" }])
   m.tx.loanApplication.findFirst.mockResolvedValue(application())
   m.tx.businessEntity.findFirst.mockResolvedValue(company())
+  m.tx.entityDocument.findMany.mockResolvedValue([])
   m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(null)
   m.tx.ncaRegimeOverride.create.mockResolvedValue({ id: "ov-new" })
   m.transactionError.current = null
@@ -86,16 +88,6 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
   it("answers 404 when the tenant has not enabled asset finance", async () => {
     m.flag.on = false
     expect((await classify({})).status).toBe(404)
-    expect(m.transaction).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    [{ trusteeEvidenceIds: "doc-1" }],
-    [{ trusteeEvidenceIds: [""] }],
-    [{ trusteeEvidenceIds: [7] }],
-    [[]],
-  ])("answers 400 for %j", async (body) => {
-    expect((await classify(body)).status).toBe(400)
     expect(m.transaction).not.toHaveBeenCalled()
   })
 
@@ -224,7 +216,9 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
       financialsEvidenceIds: ["afs-1"],
       relationships: [{ trusteeKind: "NATURAL" }, { trusteeKind: "NATURAL" }, { trusteeKind: "NATURAL" }],
     }))
-    const res = await classify({ trusteeEvidenceIds: [" loa-1 ", "loa-1"] })
+    // Trustee evidence is the entity's verified Letters of Authority only.
+    m.tx.entityDocument.findMany.mockResolvedValue([{ id: "loa-1" }])
+    const res = await classify({})
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({
       regime: "NCA", pendingOverrideId: "ov-new", classification: { regime: "NON_NCA", rule: "JURISTIC_OVER_THRESHOLD" },

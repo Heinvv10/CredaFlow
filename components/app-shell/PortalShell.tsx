@@ -8,10 +8,11 @@ import { getResolvedTenantId } from "@/lib/tenant"
 type PortalShellProps = {
   userName: string
   userEmail: string
+  showBusiness?: boolean
   children: React.ReactNode
 }
 
-export async function PortalShell({ userName, userEmail, children }: PortalShellProps) {
+export async function PortalShell({ userName, userEmail, showBusiness = false, children }: PortalShellProps) {
   const firstName = userName.split(" ")[0] || "there"
   // Throws LenderIdentityError when the lender is unconfigured: the portal
   // refuses to render rather than show another lender's contact line.
@@ -24,6 +25,7 @@ export async function PortalShell({ userName, userEmail, children }: PortalShell
         userEmail={userEmail}
         brandName={identity.tradingName}
         whatsappE164={identity.publicWhatsappE164}
+        showBusiness={showBusiness}
       />
 
       <header className="sticky top-[var(--cf-demo-banner-h)] z-30 flex items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 py-3 backdrop-blur md:hidden">

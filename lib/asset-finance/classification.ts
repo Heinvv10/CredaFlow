@@ -4,6 +4,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { classifyNcaRegime, type NcaClassification } from "./nca-classifier"
 import { reconcileOpenOverride } from "./classifier-overrides"
 import type { SnapshotSource } from "./override-snapshot"
+import { verifiedTrusteeEvidenceIds } from "./entity-documents"
 
 // Runs the NCA classifier for an entity application and snapshots the result
 // on it (DESIGN D5). Every move to NON_NCA goes through four-eyes: a classifier
@@ -61,13 +62,6 @@ export interface ClassifyApplicationParams {
   userEmail?: string
   /** Defaults to the application's appliedAmount (cents). */
   principalDebtCents?: number
-  /**
-   * Letters of Authority document ids for a trust. There is no entity
-   * document store yet (goal §4.5), so the caller supplies them.
-   * PARTIAL: the ids are recorded as given; nothing yet checks that they name
-   * real documents belonging to this entity.
-   */
-  trusteeEvidenceIds?: string[]
 }
 
 type Regime = "NCA" | "NON_NCA"
@@ -143,7 +137,8 @@ export async function classifyApplication(
     financialsVerified:
       entity.financialsEvidenceIds.length > 0 &&
       (entity.annualTurnover !== null || entity.totalAssetValue !== null),
-    trusteeEvidenceIds: params.trusteeEvidenceIds ?? [],
+    // The entity's verified, live Letters of Authority (lib/asset-finance/entity-documents.ts).
+    trusteeEvidenceIds: await verifiedTrusteeEvidenceIds(tx, tenantId, application.entityId),
     principalDebtCents: params.principalDebtCents ?? application.appliedAmount,
   })
 

@@ -79,6 +79,11 @@ export const TENANT_SCOPED_MODELS = [
   "CreditNote",
   "TaxDocumentCounter",
   "VatConfig",
+  "EntityDocument",
+  "FinancedAsset",
+  "AssetValuation",
+  "Supplier",
+  "SupplierBankAccount",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

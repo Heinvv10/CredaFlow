@@ -32,11 +32,13 @@ type PortalSidebarProps = {
   brandName: string
   /** The lender's `publicWhatsappE164`; null hides the Support link. */
   whatsappE164: string | null
+  /** The client may act for a business entity (asset finance). */
+  showBusiness?: boolean
 }
 
-export function PortalSidebar({ userName, userEmail, brandName, whatsappE164 }: PortalSidebarProps) {
+export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, showBusiness = false }: PortalSidebarProps) {
   const pathname = usePathname()
-  const portalNavigation = buildPortalNavigation(whatsappE164)
+  const portalNavigation = buildPortalNavigation(whatsappE164, { business: showBusiness })
 
   return (
     <>
