@@ -99,6 +99,8 @@ tenant_cli=(npx tsx scripts/lender/bootstrap-tenant-cli.ts --config /config/lend
 mount=(-v "$LENDER_DIR/lender.json:/config/lender.json:ro" -e NODE_ENV=production)
 tools_run "$tools" "${mount[@]}" -- "${tenant_cli[@]}" --dry-run
 tools_run "$tools" "${mount[@]}" -- "${tenant_cli[@]}"
+# Debit mandates refuse to render unless this equals the tenant id (lib/config/debit-mandate.ts).
+add DEBIT_MANDATE_CREDITOR_TENANT_ID "$(psql_db "$PGDB" "SELECT id FROM \"Tenant\" WHERE slug = '$SLUG'")"
 
 # 5. First SUPER_ADMIN, once.
 admins="$(psql_db "$PGDB" "SELECT count(*) FROM \"User\" u JOIN \"Tenant\" t ON t.id = u.\"tenantId\" WHERE t.slug = '$SLUG' AND u.role = 'SUPER_ADMIN'")"

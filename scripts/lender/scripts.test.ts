@@ -228,6 +228,25 @@ describe("restore.sh", () => {
   })
 })
 
+describe("docker-compose.lender.yml", () => {
+  const compose = spawnSync("sh", ["-c", "docker compose version >/dev/null 2>&1 && echo 'docker compose' || (docker-compose version >/dev/null 2>&1 && echo docker-compose)"], { encoding: "utf8" }).stdout.trim()
+
+  it.skipIf(!compose)("is valid compose that publishes only the app port and pins no container name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lender-compose-"))
+    cpSync(join(SRC, "docker-compose.lender.yml"), join(dir, "docker-compose.yml"))
+    writeFileSync(join(dir, ".env"), "")
+    const env = { ...process.env, APP_IMAGE: "cf:x", APP_PORT: "3999", POSTGRES_USER: "u", POSTGRES_PASSWORD: "p", POSTGRES_DB: "d", NEXTAUTH_SECRET: "s" }
+    const [bin, ...sub] = compose.split(" ")
+    const r = spawnSync(bin, [...sub, "-p", "x", "-f", join(dir, "docker-compose.yml"), "--project-directory", dir, "config", "--format", "json"], { env, encoding: "utf8" })
+    rmSync(dir, { recursive: true, force: true })
+    expect(r.status, r.stderr).toBe(0)
+    const cfg = JSON.parse(r.stdout) as { services: Record<string, { ports?: { published: string; host_ip: string }[]; container_name?: string }> }
+    expect(cfg.services.db.ports).toBeUndefined()
+    expect(cfg.services.app.ports).toEqual([expect.objectContaining({ published: "3999", host_ip: "127.0.0.1" })])
+    expect(Object.values(cfg.services).some((s) => s.container_name)).toBe(false)
+  })
+})
+
 describe("provision-lender.sh", () => {
   it("refuses a lender directory inside the git checkout", () => {
     writeFileSync(join(root, "cfg.json"), JSON.stringify({ slug: "stub-lender" }))

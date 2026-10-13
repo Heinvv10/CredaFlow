@@ -27,7 +27,7 @@ services:
       - pgdata:/var/lib/postgresql/data
 
   app:
-    image: ${APP_IMAGE:?APP_IMAGE is unset: deploy with deploy.sh, which writes state/image.env}
+    image: "${APP_IMAGE:?APP_IMAGE is unset, deploy with deploy.sh (it writes state/image.env)}"
     pull_policy: never
     depends_on:
       db:
