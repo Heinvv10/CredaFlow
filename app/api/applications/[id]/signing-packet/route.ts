@@ -34,6 +34,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         agreementDocumentId: true,
         agreementDocumentSha256: true,
         agreementGeneratedAt: true,
+        agreementExecutedDocumentId: true,
       },
     })
     if (!application) {
@@ -41,6 +42,20 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     }
     const access = await requireOwnerOrStaff(application.clientId)
     if (access.error) return access.error
+    // Once countersigned, the executed agreement is the signed document and
+    // this URL must not keep handing out the unsigned packet in its place. The
+    // document route verifies its hash and application binding and logs the
+    // read, so it is redirected to rather than re-implemented here. Ownership
+    // was checked above, so an outsider learns nothing from the Location.
+    if (application.agreementExecutedDocumentId) {
+      return new Response(null, {
+        status: 307,
+        headers: {
+          Location: `/api/documents/${application.agreementExecutedDocumentId}/view`,
+          "Cache-Control": "private, no-store",
+        },
+      })
+    }
     if (
       !application.agreementGeneratedAt
       || !application.pasqDocumentId
