@@ -1344,6 +1344,10 @@ model Loan {
   contractType              ContractType           @default(LOAN)
   // Cents; the final scheduled payment on top of the last instalment.
   balloonAmount             Int?
+  // Original payment-shape weights for a booked asset-finance contract.
+  // Repricing reads these instead of inferring the final weight from a row
+  // whose payment includes the solver's rounding residue.
+  assetFinanceWeights       Json?
   // The financed asset (FinancedAsset, asset finance). FK added with that table.
   assetId                   String?
   asset                     FinancedAsset?         @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)

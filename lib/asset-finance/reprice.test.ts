@@ -124,7 +124,6 @@ describe("repriceRemaining refuses invalid input", () => {
     ["fractional paidThroughIndex", { paidThroughIndex: 10.5 }],
     ["reprice date before the last paid due date", { repriceDate: "2027-01-14" }],
     ["reprice date on the first pending due date", { repriceDate: due(PAID_THROUGH + 1) }],
-    ["balance not above the balloon", { balanceAtRepriceCents: INPUT.balloonCents }],
     ["non-integer balance", { balanceAtRepriceCents: 1.5 }],
     ["rate path starting after the reprice date", { ratePath: [{ effectiveDate: "2027-02-01", annualRate: 0.12 }] }],
     ["rows not indexed 0..n-1", { rows: ORIGINAL.rows.slice(1) }],
@@ -148,6 +147,7 @@ describe("repricing skip and seasonal schedules: weights derived from the stored
     const read = storedScheduleForReprice({
       stored: storedRows(result, 1), balloonCents: BASE.balloonCents,
       recordedBaseCents: recorded ? result.baseInstalmentCents : null, ratePath: BASE.ratePath, startDate: BASE.startDate,
+      contractualWeights: weights,
     })
     if ("error" in read) throw new Error(read.error)
     const settled = read.paidThroughIndex
@@ -177,14 +177,48 @@ describe("repricing skip and seasonal schedules: weights derived from the stored
     expect(reprice("SEASONAL", true).derived.rows.filter((r) => r.totalCents > 0 && r.totalCents < r.interestCents).length).toBeGreaterThan(3)
   })
 
-  it.each(Object.keys(PATTERNS))("%s with no recorded base: within half a cent × w / w_R per row of the true re-solve", (name) => {
+  it.each(Object.keys(PATTERNS))("%s with no recorded base: preserves the persisted contractual weights exactly", (name) => {
     const { read, derived, truth } = reprice(name, false)
-    // Worst case: R is the payment of the smallest positive weight.
-    const positive = truth.rows.map((r) => r.weight).filter((w) => w > 0)
-    const bound = Math.ceil((0.5 * Math.max(...positive)) / Math.min(...positive)) + 1
-    derived.rows.slice(0, -1).forEach((row, i) => expect(Math.abs(regular(row) - regular(truth.rows[i]))).toBeLessThanOrEqual(bound))
+    expect(derived).toEqual(truth)
     expect(derived.rows.map((r) => r.totalCents === 0)).toEqual(truth.rows.map((r) => r.totalCents === 0))
     expectRowIdentities(derived.rows, read.capitalOutstandingCents, BASE.balloonCents)
+  })
+
+  it("does not turn the final row's rounding residue into a contractual weight", () => {
+    const weights = Array(60).fill(1)
+    const input = { ...BASE, cashPriceCents: 100_000, depositCents: 0, financedFeesCents: 0, balloonCents: 0, weights }
+    const result = solveStructure(input)
+    const read = storedScheduleForReprice({
+      stored: storedRows(result, -1), balloonCents: 0, recordedBaseCents: result.baseInstalmentCents,
+      ratePath: input.ratePath, startDate: input.startDate, contractualWeights: weights,
+    })
+    if ("error" in read) throw new Error(read.error)
+    const tail = {
+      paidThroughIndex: -1, balanceAtRepriceCents: result.financedAmountCents, repriceDate: input.startDate,
+      ratePath: [...input.ratePath, { effectiveDate: "2026-02-01", annualRate: 0.1375 }], balloonCents: 0,
+    }
+
+    expect(repriceTail({ ...tail, rows: read.rows })).toEqual(repriceTail({ ...tail, rows: result.rows }))
+  })
+
+  it("reprices a capitalising tail whose interim balance is below its balloon", () => {
+    const weights = [100, ...Array(11).fill(0.2)]
+    const input = { ...BASE, cashPriceCents: 10_000_000, depositCents: 0, financedFeesCents: 0, balloonCents: 5_000_000, weights }
+    const result = solveStructure(input)
+    const read = storedScheduleForReprice({
+      stored: storedRows(result, 0), balloonCents: input.balloonCents, recordedBaseCents: result.baseInstalmentCents,
+      ratePath: input.ratePath, startDate: input.startDate, contractualWeights: weights,
+    })
+    if ("error" in read) throw new Error(read.error)
+    expect(read.capitalOutstandingCents).toBeLessThan(input.balloonCents)
+
+    const repriced = repriceTail({
+      rows: read.rows, paidThroughIndex: read.paidThroughIndex,
+      balanceAtRepriceCents: read.capitalOutstandingCents, repriceDate: result.rows[0].dueDate,
+      ratePath: [...input.ratePath, { effectiveDate: "2026-02-01", annualRate: 0.1375 }], balloonCents: input.balloonCents,
+    })
+    expect(repriced.baseInstalmentCents).toBeGreaterThan(0)
+    expectRowIdentities(repriced.rows, read.capitalOutstandingCents, input.balloonCents)
   })
 })
 

@@ -31,10 +31,6 @@
  * onward. When every pending row is inside the notice window nothing is
  * repriced (within_notice_period).
  *
- * BALLOON REACHED: when the balance after the last settled row is already at
- * or below the balloon there is nothing left to amortise at any rate, so the
- * loan is not_eligible (balloon_reached) rather than an error.
- *
  * WRITES: the ContractRate row (with the new base instalment), each pending
  * RepaymentSchedule row in place (pinned to PENDING, nothing paid), the loan's
  * principal, outstandingPrincipal, totalInterest and totalRepayable by the
@@ -90,7 +86,6 @@ export type NotEligibleReason =
   | "not_linked_to_basis"
   | "superseded" // the loan already has a contract rate from a later date
   | "within_notice_period" // every pending row falls due inside the notice window
-  | "balloon_reached" // the balance after the last settled row is at or below the balloon
   | StoredScheduleError
 
 export type RepriceOutcome =
@@ -123,6 +118,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     select: {
       id: true, reference: true, status: true, contractType: true, ncaRegime: true,
       entityId: true, balloonAmount: true, startDate: true, interestRatePm: true,
+      assetFinanceWeights: true,
       contractualTotalInterest: true, contractualTotalRepayable: true,
     },
   })
@@ -170,9 +166,9 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const history = await contractRatePath(tx, tenantId, loanId) // all before effectiveDate: none later, none on it
   const schedule = storedScheduleForReprice({
     stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents ?? null, ratePath: history, startDate,
+    contractualWeights: loan.assetFinanceWeights,
   })
   if ("error" in schedule) return notEligible(schedule.error)
-  if (schedule.capitalOutstandingCents <= balloonCents) return notEligible("balloon_reached")
 
   const paid = schedule.paidThroughIndex
   const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)

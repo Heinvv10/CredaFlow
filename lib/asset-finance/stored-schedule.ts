@@ -49,6 +49,8 @@ export interface StoredScheduleInput {
   recordedBaseCents: number | null // latest ContractRate.newInstalmentCents, if any
   ratePath: RatePoint[] // the contract rate path the pending rows were solved under
   startDate: string // contract start: row 1's period runs from the day after it
+  /** Original deal weights. Unlike stored final payments, these contain no rounding residue. */
+  contractualWeights?: unknown
 }
 
 export interface StoredSchedule {
@@ -112,7 +114,16 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
   const referenceInstalmentCents =
     input.recordedBaseCents ?? modalPositive(regulars.slice(0, -1)) ?? regulars[regulars.length - 1]
   if (!(referenceInstalmentCents > 0)) return { error: "unsupported_schedule" }
-  const weights = deriveWeights(regulars, referenceInstalmentCents, stored.length)
+  let weights = deriveWeights(regulars, referenceInstalmentCents, stored.length)
+  if (input.contractualWeights !== undefined) {
+    if (!Array.isArray(input.contractualWeights)
+        || input.contractualWeights.length !== stored.length
+        || input.contractualWeights.some((weight) => typeof weight !== "number" || !Number.isFinite(weight) || weight < 0)
+        || !(input.contractualWeights[input.contractualWeights.length - 1] > 0)) {
+      return { error: "unsupported_schedule" }
+    }
+    weights = input.contractualWeights.slice(first)
+  }
 
   const rows: ScheduleRow[] = []
   let opening = capitalOutstandingCents
