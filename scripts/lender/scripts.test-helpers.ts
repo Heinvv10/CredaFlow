@@ -36,7 +36,7 @@ case "$*" in
       '{services:{db:{}, app:{environment:({AUTH_SECRET:$s,NEXTAUTH_SECRET:$sh} + (if $leak != "" then {STAFF_AUTH_SECRET:$leak} else {} end)), ports:[{host_ip:$b,published:$ap}]}, "app-portal":{environment:{AUTH_SECRET:$p,NEXTAUTH_SECRET:$sh}, ports:[{host_ip:$b,published:$pp}]}}}' ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
   "image inspect "*) exit 0 ;;
-  "ps -a -q "*) echo "$STUB_OUR_CONTAINER" ;;
+  "ps -q --filter label=com.docker.compose.project="*"status=running --filter status=restarting") echo "$STUB_OUR_CONTAINER" ;;
   "inspect -f {{range"*) echo "$STUB_PS_PORTS" ;;
   "ps -a "*) [ -z "$STUB_PROJECT_DIR" ] || { [ "$STUB_PROJECT_DIR" = BLANK ] && echo "dir=" || echo "dir=$STUB_PROJECT_DIR"; } ;;
   "volume ls"*|"network ls"*) [ -z "$STUB_FOREIGN_VOLUME" ] || echo "$STUB_FOREIGN_VOLUME" ;;

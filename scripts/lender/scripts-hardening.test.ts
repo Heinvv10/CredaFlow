@@ -152,6 +152,18 @@ describe("deploy failure paths", () => {
     expect(r.status).toBe(0)
   })
 
+  it("counts a listener on its port as foreign when this lender's container is NOT running (stopped stack, port taken by someone else)", async () => {
+    const server = createServer()
+    await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok))
+    const port = (server.address() as { port: number }).port
+    writeFileSync(join(lender, ".env"), readFileSync(join(lender, ".env"), "utf8").replace("APP_PORT=3999", `APP_PORT=${port}`))
+    // no running container of ours: the stub answers nothing to the running/restarting filter
+    const r = sh("deploy.sh", [lender, "cf:new"], { STUB_OUR_CONTAINER: "" })
+    server.close()
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/already in use/)
+  })
+
   it("a failing `compose up` goes through the rollback path and is logged", () => {
     writeFileSync(join(lender, "state/current-image"), "cf:old\n")
     // the new image would be healthy: only `compose up` fails, so only the rollback path can catch it

@@ -88,12 +88,13 @@ wait_stack_health() {
   wait_host "$APP_PORT" /login "$1" "$deadline" && wait_host "$PORTAL_PORT" /portal/login "$1" "$deadline"
 }
 
-# port_is_ours PORT — one of this lender's containers is CONFIGURED to publish
-# PORT, whatever its state. (A crash-looping container publishes nothing between
-# restarts, so `docker ps` Ports would call its own port foreign.)
+# port_is_ours PORT — a RUNNING (or restarting) container of this lender is
+# configured to publish PORT. A crash-looping container still holds its bindings
+# between restarts, so `docker ps` Ports would call its own port foreign; but an
+# exited or created one holds nothing, so a listener on that port is someone else's.
 port_is_ours() {
   local id
-  for id in $(docker ps -a -q --filter "label=com.docker.compose.project=$PROJECT"); do
+  for id in $(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter status=running --filter status=restarting); do
     docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$id" | tr ' ' '\n' | grep -qx "$1" && return 0
   done
   return 1
