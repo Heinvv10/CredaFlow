@@ -101,6 +101,7 @@ export function LeadDetailClient({
   canCreateTasks,
   canManageTasks,
   canWriteActivity,
+  canConvert,
   currentUserId,
   duplicateCount,
   duplicatesTruncated,
@@ -119,6 +120,9 @@ export function LeadDetailClient({
   canManageTasks: boolean
   /** May change stage / log activity — CREDIT_OFFICER and above, like the actions. */
   canWriteActivity: boolean
+  /** May convert a lead or reset a stranded conversion — mirrors the convert
+   *  route and resetStrandedConvertedLead (CREDIT_OFFICER). */
+  canConvert: boolean
   /** Session user id — the Tasks panel decides completion per row from it. */
   currentUserId: string
   /** Leads sharing this one's phone or email. 0 renders no banner. */
@@ -412,7 +416,7 @@ export function LeadDetailClient({
                   Schedule Callback
                 </button>
               )}
-              {canConvertLead(
+              {canConvert && canConvertLead(
                 lead.status,
                 lead.convertedToClientId,
                 lead.convertedToApplicationId,
@@ -423,7 +427,7 @@ export function LeadDetailClient({
                   Convert to Client
                 </Link>
               )}
-              {strandedConversion && (
+              {canConvert && strandedConversion && (
                 <button
                   onClick={handleResetConversion}
                   disabled={resettingConversion}

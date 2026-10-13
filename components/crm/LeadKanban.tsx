@@ -31,7 +31,7 @@ function modalUrl(next: { id: string; tab: TabKey } | null): string {
   return url.toString()
 }
 
-export function LeadKanban({ initialLeads }: { initialLeads: Lead[] }) {
+export function LeadKanban({ initialLeads, canWriteActivity }: { initialLeads: Lead[]; canWriteActivity: boolean }) {
   const [leads, setLeads] = useState(initialLeads)
   const [dropError, setDropError] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState("ALL")
@@ -94,7 +94,9 @@ export function LeadKanban({ initialLeads }: { initialLeads: Lead[] }) {
     }
 
     if (newStatus === "LOST") {
-      setLostModalLeadId(leadId)
+      // The lost route requires CREDIT_OFFICER: below it, no modal to fill in
+      // only to be refused.
+      if (canWriteActivity) setLostModalLeadId(leadId)
       return
     }
 

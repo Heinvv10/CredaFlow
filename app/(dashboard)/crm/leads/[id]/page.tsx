@@ -79,6 +79,9 @@ export default async function LeadDetailPage({
   // Stage change / add activity / notes / pin: the actions gate on CREDIT_OFFICER,
   // so below it the controls are not rendered (read-only lead).
   const canWriteActivity = canWriteLeadActivity(role)
+  // Convert / reset a stranded conversion: POST /api/crm/leads/[id]/convert
+  // and resetStrandedConvertedLead both gate on CREDIT_OFFICER.
+  const canConvert = role !== undefined && hasMinRole(role, "CREDIT_OFFICER")
 
   const [lead, cannedReplies, tasks, dupes] = await Promise.all([
     getLead(id, tenantId),
@@ -143,6 +146,7 @@ export default async function LeadDetailPage({
         canCreateTasks={canCreateTasks}
         canManageTasks={canManageTasks}
         canWriteActivity={canWriteActivity}
+        canConvert={canConvert}
         currentUserId={session?.user?.id ?? ""}
         duplicateCount={dupes.duplicates.length}
         duplicatesTruncated={dupes.truncated}

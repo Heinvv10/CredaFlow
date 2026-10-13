@@ -31,6 +31,7 @@ vi.mock("@/components/messaging/MessageClientButton", () => ({ MessageClientButt
 import { LeadDetailClient } from "@/components/crm/LeadDetailClient"
 import { LeadNotesTab } from "@/components/crm/LeadNotesTab"
 import { LeadActivityTab } from "@/components/crm/LeadActivityTab"
+import { LeadAppointmentTab } from "@/components/crm/LeadAppointmentTab"
 import { canWriteLeadActivity } from "@/lib/crm/lead-write-access"
 
 const lead = {
@@ -55,10 +56,12 @@ const lead = {
   activities: [],
 }
 
-function detail(canWriteActivity: boolean) {
+// READONLY → both flags false; CREDIT_OFFICER → both true (the page derives
+// each from its own CREDIT_OFFICER bar).
+function detail(canWriteActivity: boolean, leadOverrides: Partial<typeof lead> = {}) {
   return renderToStaticMarkup(
     <LeadDetailClient
-      lead={lead}
+      lead={{ ...lead, ...leadOverrides }}
       hasContact={false}
       cannedReplies={[]}
       commsMessages={[]}
@@ -69,6 +72,7 @@ function detail(canWriteActivity: boolean) {
       canCreateTasks={false}
       canManageTasks={false}
       canWriteActivity={canWriteActivity}
+      canConvert={canWriteActivity}
       currentUserId="user-1"
       duplicateCount={0}
       duplicatesTruncated={false}
@@ -120,6 +124,51 @@ describe("lead detail — write controls follow the role", () => {
     const html = detail(true)
     expect(html).toContain("Schedule Callback")
     expect(html).toContain("Mark as Lost")
+  })
+
+  // The convert route and resetStrandedConvertedLead both require CREDIT_OFFICER.
+  it("READONLY is not offered Convert to Client", () => {
+    expect(detail(false)).not.toContain("Convert to Client")
+  })
+
+  it("CREDIT_OFFICER is offered Convert to Client", () => {
+    expect(detail(true)).toContain("Convert to Client")
+  })
+
+  it("READONLY is not offered Reset & Retry Conversion on a stranded lead", () => {
+    const html = detail(false, { status: "CONVERTED" })
+    expect(html).not.toContain("Reset &amp; Retry Conversion")
+  })
+
+  it("CREDIT_OFFICER is offered Reset & Retry Conversion on a stranded lead", () => {
+    const html = detail(true, { status: "CONVERTED" })
+    expect(html).toContain("Reset &amp; Retry Conversion")
+  })
+})
+
+describe("slide-over appointment tab", () => {
+  const tab = (canSchedule: boolean) => renderToStaticMarkup(
+    <LeadAppointmentTab
+      leadId="lead-1"
+      status="CONTACTED"
+      callbackDate="2099-01-01T08:00:00.000Z"
+      callbackNotes="Synthetic callback note"
+      canSchedule={canSchedule}
+      onChanged={() => {}}
+    />,
+  )
+
+  it("READONLY sees the scheduled callback but no schedule/reschedule form", () => {
+    const html = tab(false)
+    expect(html).toContain("Synthetic callback note")
+    expect(html).not.toContain("<form")
+    expect(html).not.toContain("Reschedule")
+  })
+
+  it("CREDIT_OFFICER gets the reschedule form", () => {
+    const html = tab(true)
+    expect(html).toContain("<form")
+    expect(html).toContain("Reschedule")
   })
 })
 

@@ -71,9 +71,11 @@ describe("getPortalTenantId", () => {
     expect(mockGetDefaultTenantId).not.toHaveBeenCalled()
   })
 
-  it("client session without a tenant → /portal/login, not the default tenant", async () => {
+  // Not /portal/login: that page sends a signed-in client back to /portal, a
+  // loop. The stale-session route clears the cookie first.
+  it("client session without a tenant → the stale-session route, not the default tenant", async () => {
     mockGetSession.mockResolvedValue(session({ role: "CLIENT", tenantId: null }))
-    await expect(getPortalTenantId()).rejects.toThrow("REDIRECT:/portal/login")
+    await expect(getPortalTenantId()).rejects.toThrow("REDIRECT:/api/auth/expired")
     expect(mockGetDefaultTenantId).not.toHaveBeenCalled()
   })
 
