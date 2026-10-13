@@ -243,7 +243,10 @@ export async function GET(req: NextRequest) {
       "Assessed By": a.approvedBy?.name ?? "",
       Status: a.status,
       "Submitted At": a.submittedAt?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
-      "Approved At": a.approvedAt?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
+      // A decline stores its decision time in approvedAt; it was not approved.
+      "Approved At": a.status === "DECLINED"
+        ? ""
+        : a.approvedAt?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
     }))
 
     wb = createWorkbook([{ name: "Affordability Register", rows }])
