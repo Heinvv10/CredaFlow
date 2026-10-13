@@ -18,7 +18,7 @@ let lender: string
 let log: string
 
 const DOCKER = String.raw`#!/bin/sh
-echo "$*" >> "$STUB_LOG"
+echo "$* APP_IMAGE=$APP_IMAGE" >> "$STUB_LOG"
 case "$*" in
   "compose version") exit 0 ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
@@ -141,6 +141,11 @@ describe("deploy.sh", () => {
     expect(r.out).toMatch(/ROLLED BACK to cf:old/)
   })
 
+  it("lets state/image.env win: no APP_IMAGE in the environment once an image is deployed", () => {
+    const r = sh("deploy.sh", [lender, "cf:new"])
+    expect(r.calls.filter((c) => c.includes("up -d --no-deps app")).every((c) => c.endsWith("APP_IMAGE="))).toBe(true)
+  })
+
   it("stops the app when the very first deploy is unhealthy", () => {
     const r = sh("deploy.sh", [lender, "cf:bad", "--health-timeout", "1"])
     expect(r.status).not.toBe(0)
@@ -210,6 +215,13 @@ describe("restore.sh", () => {
     expect(stop).toBeGreaterThan(-1)
     expect(alter).toBeGreaterThan(stop)
     expect(readdirSync(join(lender, "backups")).some((x) => x.includes("pre-restore") && x.endsWith(".dump.gpg"))).toBe(true)
+  })
+
+  it("works before any deploy: compose is given a placeholder image that cannot be pulled", () => {
+    const f = backup()
+    const r = sh("restore.sh", [lender, f])
+    expect(r.status).toBe(0)
+    expect(r.calls.some((c) => c.includes("up -d db") && c.endsWith("APP_IMAGE=credaflow-undeployed:none"))).toBe(true)
   })
 
   it("fails and drops the scratch database when the counts differ from the sidecar", () => {

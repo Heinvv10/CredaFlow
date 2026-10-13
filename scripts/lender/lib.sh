@@ -56,12 +56,15 @@ load_lender() {
 # are explicit so a COMPOSE_PROJECT_NAME or COMPOSE_FILE in the caller's
 # environment cannot point `down`/`up` at another stack.
 lcompose() {
-  local envs=(--env-file "$ENV_FILE")
-  [ -f "$STATE_DIR/image.env" ] && envs+=(--env-file "$STATE_DIR/image.env")
+  local envs=(--env-file "$ENV_FILE") pre=(env)
+  # Compose interpolates the whole file even for `up db`. Before the first deploy
+  # there is no state/image.env, so name an image that cannot exist (a stray
+  # `up app` then fails: pull_policy never) instead of failing every command.
+  if [ -f "$STATE_DIR/image.env" ]; then envs+=(--env-file "$STATE_DIR/image.env"); else pre+=(APP_IMAGE=credaflow-undeployed:none); fi
   if docker compose version >/dev/null 2>&1; then
-    docker compose -p "$PROJECT" -f "$LENDER_DIR/docker-compose.yml" --project-directory "$LENDER_DIR" "${envs[@]}" "$@"
+    "${pre[@]}" docker compose -p "$PROJECT" -f "$LENDER_DIR/docker-compose.yml" --project-directory "$LENDER_DIR" "${envs[@]}" "$@"
   else
-    docker-compose -p "$PROJECT" -f "$LENDER_DIR/docker-compose.yml" --project-directory "$LENDER_DIR" "${envs[@]}" "$@"
+    "${pre[@]}" docker-compose -p "$PROJECT" -f "$LENDER_DIR/docker-compose.yml" --project-directory "$LENDER_DIR" "${envs[@]}" "$@"
   fi
 }
 
