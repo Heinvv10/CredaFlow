@@ -901,13 +901,15 @@ model NcaRegimeOverride {
   decidedAt     DateTime?
   // The application as it stood when the override was requested. An approval
   // to NON_NCA authorises the change for exactly this borrower, amount,
-  // product and classification rule: guardLoanApplicationNcaRegime refuses to
-  // spend it on an application that no longer matches. Required for toRegime
-  // NON_NCA (CHECK NcaRegimeOverride_non_nca_snapshot).
+  // product and classification (rule, and the ncaClassifiedAt of the run the
+  // approver saw): guardLoanApplicationNcaRegime refuses to spend it on an
+  // application that no longer matches, so a re-classification makes it
+  // stale. Required for toRegime NON_NCA (CHECK NcaRegimeOverride_non_nca_snapshot).
   approvedEntityId           String?
   approvedAppliedAmount      Int?
   approvedProductId          String?
   approvedClassificationRule String?
+  approvedClassifiedAt       DateTime?
   decisionNote  String?
   // Set by trigger guardLoanApplicationNcaRegime when it spends this approval
   // on the NCA → NON_NCA change it authorises: one approval, one change.

@@ -233,16 +233,19 @@ suite.sequential("NCA regime override four-eyes (real Postgres, real routes)", (
       requestedById: ids.officerC, reason: `Classifier: JURISTIC_OVER_THRESHOLD — ${body.classification.reason}`,
     })
 
-    // Classifying again re-uses the open request.
-    const again = await postClassify(ids.evidencedApplicationId)
-    expect((await again.json()).pendingOverrideId).toBe(body.pendingOverrideId)
-    expect(await database().ncaRegimeOverride.count({ where: { applicationId: ids.evidencedApplicationId } })).toBe(1)
+    // Classifying again replaces the open request: it named the earlier run.
+    const again = await (await postClassify(ids.evidencedApplicationId)).json()
+    expect(again).toMatchObject({ supersededOverrideId: body.pendingOverrideId })
+    expect(again.pendingOverrideId).not.toBe(body.pendingOverrideId)
+    expect(await database().ncaRegimeOverride.count({
+      where: { applicationId: ids.evidencedApplicationId, status: "PENDING" },
+    })).toBe(1)
 
     // A second user with credit authority approves it: the application becomes NON_NCA.
     signIn(ids.adminB, "LOAN_ADMIN")
-    const decided = await postDecision(body.pendingOverrideId, { decision: "APPROVE", note: "AFS agree with the CIPC filing" })
+    const decided = await postDecision(again.pendingOverrideId, { decision: "APPROVE", note: "AFS agree with the CIPC filing" })
     expect(decided.status).toBe(200)
     expect(await regime(ids.evidencedApplicationId)).toBe("NON_NCA")
-    expect(await overrideRow(body.pendingOverrideId)).toMatchObject({ status: "APPROVED", decidedById: ids.adminB })
+    expect(await overrideRow(again.pendingOverrideId)).toMatchObject({ status: "APPROVED", decidedById: ids.adminB })
   })
 })
