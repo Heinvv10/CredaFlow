@@ -22,7 +22,7 @@ case "$*" in
   "inspect credaflow-demo-"*) exit 0 ;;
   *"com.docker.compose.project.working_dir"*) echo "$STUB_LIVE_DIR" ;;
   *"com.docker.compose.project"*) echo credaflow-demo ;;
-  *"range .Config.Env"*) echo DEMO_MODE=true ;;
+  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE" ;;
   "inspect -f {{.Config.Image}} "*) echo "$STUB_IMAGE" ;;
   *"range .Mounts"*) echo uploads-vol ;;
   *"HostPort"*) echo 3300 ;;
@@ -47,7 +47,7 @@ function run(env: Record<string, string> = {}) {
     env: {
       PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: root,
       DEMO_DATA_DIR: join(root, 'data'), LIVE_DIR: join(root, 'live'),
-      STUB_LOG: log, STUB_LIVE_DIR: join(root, 'live'), STUB_IMAGE: IMAGE, STUB_COUNTS: JSON.stringify(COUNTS),
+      STUB_LOG: log, STUB_LIVE_DIR: join(root, 'live'), STUB_IMAGE: IMAGE, STUB_DEMO_MODE: 'true', STUB_COUNTS: JSON.stringify(COUNTS),
       ...env,
     },
     encoding: 'utf8',
@@ -67,9 +67,9 @@ beforeEach(() => {
     chmodSync(join(root, 'bin', name), 0o755)
   }
   stub('docker', DOCKER_STUB)
-  stub('docker-compose', '#!/bin/sh\nexit 0\n')
+  stub('docker-compose', '#!/bin/sh\necho "docker-compose $*" >> "$STUB_LOG"\nexit 0\n')
   stub('sleep', '#!/bin/sh\nexit 0\n')
-  stub('curl', '#!/bin/sh\n[ -z "$STUB_HEALTH_FAIL" ]\n')
+  stub('curl', '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\n[ -z "$STUB_HEALTH_FAIL" ]\n')
   mkdirSync(join(root, 'live'))
   writeFileSync(join(root, 'live', 'docker-compose.demo.yml'), '')
   writeFileSync(join(root, 'live', '.env.production'), 'DEBIT_MANDATE_CREDITOR_TENANT_ID=old\n')
@@ -93,9 +93,12 @@ describe('restore.sh demo staff TOTP', () => {
     expect(clears[0]).toContain('DB=demo ')
     expect(clears[0]).toContain('"totpEnabled" = false, "totpSecret" = NULL, "lastTotpCounter" = NULL')
     expect(r.out).toMatch(/TOTP cleared for 3 non-SUPER_ADMIN users/)
-    // After the swap, the app start and the drop of the old db.
+    // After the swap and the app start, before the drop of the old db.
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
     expect(idx('UPDATE "User"')).toBeGreaterThan(idx('RENAME TO "demo"'))
+    expect(idx('UPDATE "User"')).toBeGreaterThan(idx('docker-compose'))
+    expect(r.calls.filter((c) => c.startsWith('curl ')).length).toBe(2)
+    expect(idx('UPDATE "User"')).toBeGreaterThan(r.calls.map((c) => c.startsWith('curl ')).lastIndexOf(true))
     expect(idx('UPDATE "User"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
   })
 
@@ -117,9 +120,16 @@ describe('restore.sh demo staff TOTP', () => {
     expect(clearCalls(r.calls)).toHaveLength(0)
   })
 
-  it('does not clear TOTP on a target that is not a DEMO_MODE stack', () => {
+  it('does not clear TOTP on a target started from another working_dir', () => {
     const r = run({ STUB_LIVE_DIR: join(root, 'elsewhere') })
     expect(r.status).not.toBe(0)
+    expect(clearCalls(r.calls)).toHaveLength(0)
+  })
+
+  it('does not clear TOTP on a stack whose labels match but DEMO_MODE is not true', () => {
+    const r = run({ STUB_DEMO_MODE: 'false' })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/DEMO_MODE=true/)
     expect(clearCalls(r.calls)).toHaveLength(0)
   })
 })
