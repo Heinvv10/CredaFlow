@@ -183,23 +183,15 @@ function route(req: NextAuthRequest): Response {
   //     APP_MODE=all keeps the legacy single-host behaviour for backward
   //     compatibility.
   if (APP_MODE !== "all") {
-    const isStaffOnlyPage =
-      isLoginPage ||
-      isRegisterPage ||
-      isForgotPasswordPage ||
-      isResetPasswordPage ||
-      path === "/dashboard" || path.startsWith("/dashboard/") ||
-      path === "/applications" || path.startsWith("/applications/") ||
-      path === "/clients" || path.startsWith("/clients/") ||
-      path === "/collections" || path.startsWith("/collections/") ||
-      path === "/compliance" || path.startsWith("/compliance/") ||
-      path === "/crm" || path.startsWith("/crm/") ||
-      path === "/disbursements" || path.startsWith("/disbursements/") ||
-      path === "/insurance" || path.startsWith("/insurance/") ||
-      path === "/loans" || path.startsWith("/loans/") ||
-      path === "/payments" || path.startsWith("/payments/") ||
-      path === "/reports" || path.startsWith("/reports/") ||
-      path === "/settings" || path.startsWith("/settings/")
+    // The client host serves an allow-list of pages: the portal, plus the
+    // public routes minus the staff sign-in pages. Anything else is a staff
+    // page, or no page at all, and 404s. A deny-list of staff prefixes missed
+    // /inbox, /contacts and /learn, and would miss the next staff page added.
+    const isStaffSignInPage =
+      isLoginPage || isRegisterPage || isForgotPasswordPage || isResetPasswordPage
+    const isUnlistedPage =
+      !path.startsWith("/api/") &&
+      !(isPortalPath || (isPublicRoute && !isStaffSignInPage))
     const isClientOnlyPage = isPortalLoginPage || isPortalPath
     const isStaffOnlyApi =
       path.startsWith("/api/") &&
@@ -218,7 +210,7 @@ function route(req: NextAuthRequest): Response {
     if (APP_MODE === "staff" && (isClientOnlyPage || isClientOnlyApi)) {
       return reject(isClientOnlyApi)
     }
-    if (APP_MODE === "client" && (isStaffOnlyPage || isStaffOnlyApi)) {
+    if (APP_MODE === "client" && (isUnlistedPage || isStaffOnlyApi)) {
       return reject(isStaffOnlyApi)
     }
   }

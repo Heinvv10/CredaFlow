@@ -6,6 +6,7 @@ import { checkRateLimit, callerIp } from "./rate-limit"
 import { authBaseConfig, type AppRole } from "./auth-config"
 import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
+import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
 
 class TotpRequiredError extends CredentialsSignin {
   code = "totp_required"
@@ -134,6 +135,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!emailGate.allowed || !ipGate.allowed || !combinedGate.allowed) {
           await recordFailure("rate_limited")
           throw new RateLimitedError()
+        }
+
+        // The host serves one audience (APP_MODE, as proxy.ts reads it): a
+        // staff sign-in is refused on the client host and a portal sign-in on
+        // the staff host, so a session never exists on a host that 404s its
+        // pages. Same response as an unknown email.
+        const hostMode = process.env.APP_MODE
+        if (
+          (hostMode === "client" && loginType === "staff") ||
+          (hostMode === "staff" && loginType === "client")
+        ) {
+          await equalizeAuthTiming(String(credentials.password))
+          await recordFailure("wrong_audience")
+          throw new WrongAudienceError()
         }
 
         // Staff audience — look up in User table only. Client emails get a
@@ -265,6 +280,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: `${client.firstName} ${client.lastName}`,
           role: "CLIENT" as const,
           tenantId: client.tenantId,
+          credentialStamp: clientCredentialStamp(client.portalPassword),
         }
       },
     }),
@@ -282,12 +298,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.tokenVersion = user.tokenVersion ?? 0
         token.tenantId = user.tenantId
         token.totpVerified = user.totpVerified === true
+        if (user.credentialStamp) token.credentialStamp = user.credentialStamp
         return token
       }
 
-      // CLIENT sessions use the Client table (no tokenVersion concept yet);
-      // skip revalidation for them. Staff (any other role) hit the User table.
+      // CLIENT sessions are revalidated against the Client table by credential
+      // stamp (lib/client-session.ts); staff (any other role) against the User
+      // table by tokenVersion.
       const tokenId = token.id
+      if (typeof tokenId === "string" && token.role === "CLIENT") {
+        if (typeof token.tenantId !== "string") return null
+        const fresh = await revalidateClientPrincipal(tokenId, token.tenantId, token.credentialStamp)
+        // Same as staff: a transient failure retains the (tenant-bound) token.
+        if (fresh === null) return null   // client gone, portal access off, or credential changed
+      }
       if (typeof tokenId === "string" && token.role && token.role !== "CLIENT") {
         const tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : 0
         const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion)

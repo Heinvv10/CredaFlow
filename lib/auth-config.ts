@@ -11,6 +11,8 @@ declare module "next-auth" {
     tenantId?: string | null
     /** True only when THIS sign-in verified a TOTP code (lib/auth.ts). */
     totpVerified?: boolean
+    /** Keyed fingerprint of the portal credential (CLIENT only); lib/client-session.ts. */
+    credentialStamp?: string
   }
   interface Session {
     user: {
