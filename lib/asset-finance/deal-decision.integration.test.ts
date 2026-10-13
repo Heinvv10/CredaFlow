@@ -38,7 +38,7 @@ const signIn = (userId: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => {
   session.current = { user: { id: userId, email: `${userId}@deal-it.test`, role, tenantId: fx.tenantId } }
 }
 const signInClient = (clientId: string) => {
-  session.current = { user: { id: clientId, email: `${clientId}@client.invalid`, role: "CLIENT", tenantId: fx.tenantId } }
+  session.current = { user: { id: clientId, email: fx.directorEmail, role: "CLIENT", tenantId: fx.tenantId } }
 }
 const routes = () => dealRoutes(fx.host)
 const firstDueDate = addMonthsClamped(sastCalendarDate(new Date()), 2)
@@ -99,6 +99,11 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
   })
 
   it("takes a natural-person asset deal through business-income s81 and approval", async () => {
+    const insurer = await database().insurer.create({ data: { tenantId: fx.tenantId, name: "TEST Life Underwriter", fspNumber: "99999" } })
+    await database().insuranceProduct.create({ data: {
+      tenantId: fx.tenantId, code: `CL-${t}`, name: "TEST Asset Credit Life", type: "CREDIT_LIFE",
+      premiumAmount: 1, sumAssured: 1, insurerId: insurer.id,
+    } })
     signIn(fx.officer, "CREDIT_OFFICER")
     const created = await routes().create({ ...structure(fx.assets[3]), clientId: fx.director, supplierId: fx.supplier, productId: fx.product })
     expect(created.status).toBe(201)
@@ -114,15 +119,80 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     signIn(fx.adminA, "LOAN_ADMIN")
     expect((await routes().affordability(deals.natural, { recklessLendingNote: "Verified business bank credits and personal NDI support the proposed instalment." })).status).toBe(200)
     signInClient(fx.director)
-    expect((await routes().creditLife(deals.natural, { election: "DECLINED" })).status).toBe(200)
+    expect((await routes().creditLife(deals.natural, { election: "ACCEPTED" })).status).toBe(200)
     signIn(fx.adminA, "LOAN_ADMIN")
     const decided = await routes().decide(deals.natural, { decision: "APPROVE", reasons: ["Affordable on verified business income and personal NDI"] })
     expect(decided.status).toBe(200)
     expect(await dealRow(deals.natural)).toMatchObject({ status: "APPROVED", application: { status: "APPROVED", ncaRegime: "NCA" } })
     const issued = await routes().ncaQuote(deals.natural)
     expect(issued.status).toBe(201)
-    expect(await issued.json()).toMatchObject({ kind: "issued", sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
-    expect((await dealRow(deals.natural)).application).toMatchObject({ pasqVersion: "pasq-v3", pasqDocumentId: expect.any(String) })
+    const quote = await issued.json() as { documentId: string; sha256: string }
+    expect(quote).toMatchObject({ kind: "issued", sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect((await dealRow(deals.natural)).application).toMatchObject({ pasqVersion: "pasq-v3", pasqDocumentId: quote.documentId })
+    signInClient(fx.director)
+    expect((await routes().viewDocument(quote.documentId)).status).toBe(200)
+    expect((await routes().acknowledgePasq(row.applicationId, { documentSha256: quote.sha256 })).status).toBe(200)
+    signIn(fx.adminA, "LOAN_ADMIN")
+    const agreementResponse = await routes().ncaAgreement(deals.natural)
+    expect(agreementResponse.status).toBe(201)
+    const agreement = await agreementResponse.json() as { documentId: string; sha256: string }
+    signInClient(fx.director)
+    expect((await routes().viewDocument(agreement.documentId)).status).toBe(200)
+    expect((await routes().signNcaAgreement(deals.natural, { signature: "Test Director", documentSha256: agreement.sha256 })).status).toBe(200)
+    signIn(fx.adminA, "LOAN_ADMIN")
+    expect((await routes().countersignNcaAgreement(deals.natural, { signature: "Test Provider" })).status).toBe(200)
+    expect((await dealRow(deals.natural)).application).toMatchObject({
+      agreementDocumentId: agreement.documentId, agreementDocumentSha256: agreement.sha256,
+      agreementSignedMethod: "portal", agreementCountersignedAt: expect.any(Date),
+    })
+    await database().vatConfig.create({ data: {
+      tenantId: fx.tenantId, vatNumber: "4000000001", registeredName: "TEST Asset Credit (Pty) Ltd", address: "1 Synthetic Road, Johannesburg",
+    } })
+    await database().financedAsset.update({ where: { id: fx.assets[3] }, data: {
+      trackerId: "TRK-NCA-001", trackerProvider: "TEST Tracking", lenderNotedConfirmed: true,
+    } })
+    const accountId = randomUUID()
+    await database().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+      await tx.supplierBankAccount.create({ data: {
+        id: accountId, tenantId: fx.tenantId, supplierId: fx.supplier, bankName: "TEST Bank", branchCode: "000001",
+        accountNumber: "0000000001", accountHolder: "TEST Plant Sales (Pty) Ltd", status: "APPROVED",
+        requestedById: fx.officer, decidedById: fx.adminB, decidedAt: new Date(), avsResult: { synthetic: true },
+      } })
+      const evidenceTypes = {
+        SUPPLIER_INVOICE_MATCHES_ASSET: "SUPPLIER_INVOICE", SUPPLIER_BANK_VERIFIED: "BANK_STATEMENT",
+        INSURANCE_NOTES_LENDER: "INSURANCE_NOTING", TRACKER_CONFIRMED: "TRACKER_CERTIFICATE",
+        DELIVERY_AND_ACCEPTANCE: "DELIVERY_ACCEPTANCE", NATIS_TITLEHOLDER: "NATIS_DOCUMENT",
+      } as const
+      const evidence = new Map<string, string>()
+      for (const [item, docType] of Object.entries(evidenceTypes)) {
+        evidence.set(item, (await tx.entityDocument.create({ data: {
+          tenantId: fx.tenantId, entityId: fx.evidenced, dealId: deals.natural, docType,
+          fileName: `${docType}.pdf`, mimeType: "application/pdf", fileSize: 1,
+          storagePath: `/synthetic/${docType}.pdf`, contentSha256: "0".repeat(64), uploadedByType: "staff", uploadedById: fx.adminA,
+        } })).id)
+      }
+      for (const row of await tx.payoutChecklistItem.findMany({ where: { tenantId: fx.tenantId, dealId: deals.natural } })) {
+        await tx.payoutChecklistItem.update({ where: { id: row.id }, data: {
+          confirmedById: fx.adminA, confirmedAt: new Date(), evidenceDocumentId: evidence.get(row.item) ?? null,
+          attestedIdentifier: row.item === "SUPPLIER_INVOICE_MATCHES_ASSET" ? `TEST${t.toUpperCase()}4` : null,
+          note: "Synthetic integration evidence",
+        } })
+      }
+      await tx.payout.create({ data: {
+        tenantId: fx.tenantId, dealId: deals.natural, supplierBankAccountId: accountId, amountCents: 155_250_000,
+        status: "APPROVED", createdById: fx.adminA, approvedById: fx.adminA, approvedAt: new Date(),
+      } })
+    })
+    signIn(fx.adminA, "LOAN_ADMIN")
+    const booked = await routes().book(deals.natural)
+    const bookedBody = await booked.json()
+    expect(booked.status, JSON.stringify(bookedBody)).toBe(201)
+    const bookedDeal = await dealRow(deals.natural)
+    expect(bookedDeal).toMatchObject({ status: "BOOKED", application: { status: "DISBURSED", ncaRegime: "NCA" } })
+    expect(await database().insurancePolicy.count({ where: {
+      tenantId: fx.tenantId, linkedLoanId: bookedDeal.loanId, type: "CREDIT_LIFE", policySource: "BUNDLED_CREDIT_AGREEMENT",
+    } })).toBe(1)
   })
 
   it("submits the evidenced R2m company's deal: SUBMITTED, awaiting the second approver", async () => {

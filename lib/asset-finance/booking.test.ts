@@ -71,7 +71,7 @@ describe("bookDeal refusals: nothing is written", () => {
     ["payout_not_approved", { payout: { ...deal().payout, status: "PENDING_APPROVAL" } }],
     ["account_not_approved", { payout: { ...deal().payout, supplierBankAccount: { status: "SUPERSEDED" } } }],
     ["application_not_ready", { application: { ...deal().application, status: "UNDER_REVIEW" } }],
-    ["application_not_ready", { application: { ...deal().application, ncaRegime: "NCA" } }],
+    ["entity_nca_booking_not_ready", { application: { ...deal().application, ncaRegime: "NCA" } }],
     ["asset_changed", { payout: { ...deal().payout, amountCents: 155_250_001 } }],
     ["asset_changed", { checklist: [{ attestedIdentifier: "TESTSERIAL2" }] }],
     ["asset_changed", { checklist: [] }],

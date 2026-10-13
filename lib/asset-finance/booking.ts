@@ -59,6 +59,8 @@ import { loadBookingDeal, recipientAddress, type BookingDeal, type BookingRefusa
 import { identifierMatchesAsset } from "./asset-identifier"
 import { dbDate, isoOfDbDate } from "./dates"
 import { resolveRate, solveDealStructure } from "./deal-structure"
+import { solveNcaDealStructure } from "./nca-structure"
+import { pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { termsFromDeal } from "./deal-terms"
 import { payoutAmountCents } from "./payout-checklist"
 import type { SigningActor } from "./signing-prepare"
@@ -107,7 +109,10 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     const loaded = await loadBookingDeal(tx, tenantId, dealId)
     if (loaded.kind !== "loaded") return loaded
     const { deal } = loaded
-    const { application, asset, entity, payout } = deal
+    const { application, asset, entity, client, payout } = deal
+    const ncaRegime = application.ncaRegime
+    if (!ncaRegime) return refuse("application_not_ready", "The application has no NCA classification")
+    const isNca = ncaRegime === "NCA"
 
     const terms = termsFromDeal(deal)
     if (terms.vatDeferralPeriodIndex !== null && terms.rate.basis !== "FIXED") {
@@ -135,7 +140,7 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     if (!new Prisma.Decimal(rate.annualRate).equals(signed.resultingRate)) {
       return refuse("terms_changed", `The rate in force on the start date ${start} is ${rate.annualRate}, not the signed ${signed.resultingRate.toString()}`)
     }
-    const solved = solveDealStructure(asset, terms, rate, start)
+    const solved = isNca ? solveNcaDealStructure(asset, terms, rate, start) : solveDealStructure(asset, terms, rate, start)
     if (!solved.ok) return refuse("structure_unsolvable", solved.error)
     const approved = application.approvedAmount ?? application.appliedAmount
     if (solved.result.financedAmountCents !== approved) {
@@ -144,13 +149,44 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     if (solved.result.baseInstalmentCents !== signed.baseInstalmentCents || solved.result.totalInterestCents !== signed.totalInterestCents) {
       return refuse("terms_changed", `The schedule solved now (instalment ${solved.result.baseInstalmentCents}, interest ${solved.result.totalInterestCents} cents) is not the signed one (${signed.baseInstalmentCents}, ${signed.totalInterestCents})`)
     }
-    const address = recipientAddress(entity)
-    if (!address) return refuse("entity_address_missing", "Record the entity's address first: the tax invoice needs it")
+    const borrower = entity ?? client
+    if (!borrower) return refuse("borrower_missing", "The borrower is missing")
+    const address = recipientAddress(borrower)
+    if (!address) return refuse("borrower_address_missing", "Record the borrower's address first: the tax invoice needs it")
     const rateColumns = terms.rate.basis === "FIXED"
       ? { fixedRate: new Prisma.Decimal(rate.annualRate) }
       : terms.rate.margin !== null ? { margin: new Prisma.Decimal(terms.rate.margin) } : null
     if (!rateColumns) return refuse("rate_unavailable", "A reference-linked deal needs a margin")
-    const plan = planBooking({ result: solved.result, startDate: start, balloonCents: deal.balloonCents, payoutCents: payout.amountCents })
+    const basePlan = planBooking({ result: solved.result, startDate: start, balloonCents: deal.balloonCents, payoutCents: payout.amountCents })
+    const ncaEvidence = isNca && pasqEvidenceIsIntact(application.pasqEvidence) ? application.pasqEvidence : null
+    if (isNca && !ncaEvidence) return refuse("pasq_evidence", "The acknowledged NCA quotation evidence is not intact")
+    if (ncaEvidence && ncaEvidence.billing.schedule.length !== basePlan.records.length) return refuse("terms_changed", "The signed NCA schedule length no longer matches")
+    const records = ncaEvidence ? basePlan.records.map((record, index) => {
+      const agreed = ncaEvidence.billing.schedule[index]
+      if (record.principalDue !== agreed.principalDueCents || record.interestDue !== agreed.interestDueCents || record.feesDue !== agreed.baseFeesDueCents) {
+        throw new BookingRaceError("The signed NCA schedule")
+      }
+      return { ...record, feesDue: agreed.feesDueCents, creditLifePremiumDue: agreed.creditLifePremiumDueCents, totalDue: agreed.totalDueCents }
+    }) : basePlan.records
+    const plan = ncaEvidence ? {
+      ...basePlan, records, principal: ncaEvidence.calculator.principalCents,
+      totalInterest: ncaEvidence.calculator.totalInterestCents,
+      totalRepayable: ncaEvidence.billing.totalRepayableCents,
+    } : basePlan
+    let creditLifeBundle: { clientId: string; productId: string; insurerId: string | null; commissionRate: Prisma.Decimal; premiumAmount: number } | null = null
+    if (ncaEvidence?.creditLife.election === "ACCEPTED") {
+      if (!application.creditLifeProductId || !application.creditLifeMonthlyPremiumCents || !client) {
+        return refuse("credit_life_evidence", "Accepted credit life is missing its product or premium evidence")
+      }
+      const product = await tx.insuranceProduct.findFirst({ where: {
+        id: application.creditLifeProductId, tenantId, type: "CREDIT_LIFE", active: true,
+      }, select: { id: true, insurerId: true, commissionRate: true } })
+      if (!product) return refuse("credit_life_product", "The elected credit-life product is no longer active")
+      creditLifeBundle = {
+        clientId: client.id, productId: product.id, insurerId: product.insurerId,
+        commissionRate: product.commissionRate, premiumAmount: application.creditLifeMonthlyPremiumCents / 100,
+      }
+    }
 
     const annualRate = new Prisma.Decimal(rate.annualRate)
     const loan = await tx.loan.create({
@@ -158,16 +194,18 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         tenantId,
         reference: generateReference("LN"),
         applicationId: application.id,
-        entityId: entity.id,
+        clientId: client?.id ?? null,
+        entityId: entity?.id ?? null,
         productId: application.productId,
-        ncaRegime: "NON_NCA",
+        ncaRegime,
         contractType: deal.contractType,
         balloonAmount: deal.balloonCents > 0 ? deal.balloonCents : null,
         assetFinanceWeights: deal.weights as Prisma.InputJsonValue,
         assetId: asset.id,
         principal: plan.principal,
         totalInterest: plan.totalInterest,
-        initiationFee: 0,
+        initiationFee: ncaEvidence?.calculator.initiationFeeCents ?? 0,
+        creditLifePremiums: ncaEvidence?.creditLife.totalPremiumCents ?? 0,
         totalRepayable: plan.totalRepayable,
         outstandingPrincipal: plan.principal,
         status: "ACTIVE",
@@ -176,9 +214,10 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         nextPaymentDate: plan.nextPaymentDate,
         interestRatePm: annualRate.div(12).toNumber(),
         interestModel: "REDUCING_BALANCE",
-        monthlyServiceFee: 0,
-        nonNcaDefaultInterestMargin: signed.arrearsMarginRate,
-        nonNcaCollectionFeeCents: signed.collectionFeeCents,
+        monthlyServiceFee: ncaEvidence ? Math.round(ncaEvidence.calculator.serviceFeesCents / ncaEvidence.calculator.schedule.length) : 0,
+        agreementDocId: application.agreementDocumentId,
+        nonNcaDefaultInterestMargin: isNca ? null : signed.arrearsMarginRate,
+        nonNcaCollectionFeeCents: isNca ? null : signed.collectionFeeCents,
       },
       select: { id: true, reference: true },
     })
@@ -191,9 +230,18 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         assetFinanceOpeningBalanceCents: solved.result.rows[i].openingBalanceCents,
       })),
     })
+    if (creditLifeBundle) {
+      const commissionAmount = Number((creditLifeBundle.premiumAmount * Number(creditLifeBundle.commissionRate)).toFixed(2))
+      await tx.insurancePolicy.create({ data: {
+        tenantId, policyNumber: generateReference("CL"), clientId: creditLifeBundle.clientId, type: "CREDIT_LIFE", status: "ACTIVE",
+        premiumAmount: creditLifeBundle.premiumAmount, sumAssured: plan.principal / 100, linkedLoanId: loan.id,
+        startDate: plan.startDate, renewalDate: plan.maturityDate, productId: creditLifeBundle.productId, insurerId: creditLifeBundle.insurerId,
+        commissionRate: creditLifeBundle.commissionRate, commissionAmount, policySource: "BUNDLED_CREDIT_AGREEMENT",
+      } })
+    }
     const disbursedAt = new Date()
     const disbursed = await tx.loanApplication.updateMany({
-      where: { id: application.id, tenantId, status: "APPROVED", ncaRegime: "NON_NCA" },
+      where: { id: application.id, tenantId, status: "APPROVED", ncaRegime },
       data: { status: "DISBURSED", disbursedAt },
     })
     if (disbursed.count !== 1) throw new BookingRaceError("The application")
@@ -211,7 +259,10 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
       tenantId,
       loanId: loan.id,
       bookingDate: today,
-      recipient: { name: entity.legalName, address, vatNumber: entity.vatNumber },
+      recipient: {
+        name: entity?.legalName ?? `${client?.firstName ?? ""} ${client?.lastName ?? ""}`.trim(),
+        address, vatNumber: entity?.vatNumber ?? null,
+      },
       asset,
       cashPriceCents: asset.cashPriceExclVatCents + asset.vatCents,
       createdById: actor.userId,

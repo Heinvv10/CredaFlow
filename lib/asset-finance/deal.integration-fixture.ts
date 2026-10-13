@@ -19,6 +19,12 @@ import { PUT as affordabilityRoute } from "@/app/api/asset-finance/deals/[id]/af
 import { POST as decideOverrideRoute } from "@/app/api/asset-finance/nca-overrides/[overrideId]/decide/route"
 import { POST as creditLifeRoute } from "@/app/api/portal/asset-finance/deals/[id]/credit-life/route"
 import { POST as ncaQuoteRoute } from "@/app/api/asset-finance/deals/[id]/nca-quote/route"
+import { POST as pasqAcknowledgeRoute } from "@/app/api/applications/[id]/pasq/acknowledge/route"
+import { GET as documentViewRoute } from "@/app/api/documents/[id]/view/route"
+import { POST as ncaAgreementRoute } from "@/app/api/asset-finance/deals/[id]/nca-agreement/route"
+import { POST as ncaAgreementSignRoute } from "@/app/api/portal/asset-finance/deals/[id]/nca-agreement/sign/route"
+import { POST as ncaAgreementCountersignRoute } from "@/app/api/asset-finance/deals/[id]/nca-agreement/countersign/route"
+import { POST as bookRoute } from "@/app/api/asset-finance/deals/[id]/book/route"
 import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
 
 /** Asset 1's registration number. */
@@ -36,6 +42,7 @@ export interface DealFixture {
   unevidenced: string
   evidenced: string
   director: string
+  directorEmail: string
 }
 
 /** The fixture's tenant id for run token `t`, known before setup so a partial setup is cleaned up too. */
@@ -93,10 +100,12 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
       annualTurnover: 200_000_000, financialYearEnd: new Date("2026-02-28T00:00:00Z"), financialsEvidenceIds: [`afs-${t}`],
     },
   })
+  const directorEmail = `director-${t}@client.invalid`
   const director = await db.client.create({
     data: {
-      tenantId, firstName: "TEST", lastName: "Director", email: `director-${t}@client.invalid`, phone: `0000${t.slice(0, 6)}`,
+      tenantId, firstName: "TEST", lastName: "Director", email: directorEmail, phone: `0000${t.slice(0, 6)}`,
       idNumber: syntheticSaIdNumber(), popiaConsentGiven: true,
+      addressLine1: "7 Synthetic Close", city: "Johannesburg", province: "Gauteng", postalCode: "2000",
     },
   })
   await db.entityRelationship.create({ data: { tenantId, entityId: evidenced.id, clientId: director.id, role: "DIRECTOR" } })
@@ -104,7 +113,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
     tenantId, host,
     officer, adminA, adminB,
     product: product.id, supplier: supplier.id, assets,
-    unevidenced: unevidenced.id, evidenced: evidenced.id, director: director.id,
+    unevidenced: unevidenced.id, evidenced: evidenced.id, director: director.id, directorEmail,
   }
 }
 
@@ -117,14 +126,25 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
   if (!fx) return
   const tenantId = fx.tenantId
   const documents = await db.clientDocument.findMany({ where: { tenantId }, select: { id: true, storagePath: true } })
+  const invoices = await db.taxInvoice.findMany({ where: { tenantId }, select: { id: true } })
   const documentIds = documents.map((document) => document.id)
   await Promise.all(documents.flatMap((document) => document.storagePath ? [unlink(document.storagePath).catch(() => undefined)] : []))
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+    db.documentAccessLog.deleteMany({ where: { documentId: { in: [...documentIds, ...invoices.map((invoice) => invoice.id)] } } }),
+    db.taxInvoiceLine.deleteMany({ where: { invoice: { tenantId } } }),
+    db.taxInvoice.deleteMany({ where: { tenantId } }),
+    db.insurancePolicy.deleteMany({ where: { tenantId } }),
+    db.payout.deleteMany({ where: { tenantId } }),
+    db.payoutChecklistItem.deleteMany({ where: { tenantId } }),
+    db.contractRate.deleteMany({ where: { tenantId } }),
+    db.repaymentSchedule.deleteMany({ where: { tenantId } }),
+    db.assetFinanceDeal.updateMany({ where: { tenantId }, data: { loanId: null } }),
+    db.loan.deleteMany({ where: { tenantId } }),
+    db.supplierBankAccount.deleteMany({ where: { tenantId } }),
     db.auditLog.deleteMany({ where: { tenantId } }),
     db.complianceRecord.deleteMany({ where: { tenantId } }),
     db.creditBureauCheck.deleteMany({ where: { tenantId } }),
-    db.documentAccessLog.deleteMany({ where: { documentId: { in: documentIds } } }),
     db.clientDocument.deleteMany({ where: { tenantId } }),
     db.assetFinanceAffordabilityAssessment.deleteMany({ where: { tenantId } }),
     db.entityFinancials.deleteMany({ where: { tenantId } }),
@@ -137,7 +157,10 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
     db.financedAsset.deleteMany({ where: { tenantId } }),
     db.supplier.deleteMany({ where: { tenantId } }),
     db.referenceRate.deleteMany({ where: { tenantId } }),
+    db.insuranceProduct.deleteMany({ where: { tenantId } }),
+    db.insurer.deleteMany({ where: { tenantId } }),
     db.loanProduct.deleteMany({ where: { tenantId } }),
+    db.vatConfig.deleteMany({ where: { tenantId } }),
     db.tenantConfig.deleteMany({ where: { tenantId } }),
     db.user.deleteMany({ where: { tenantId } }),
     db.tenant.deleteMany({ where: { id: tenantId } }),
@@ -148,7 +171,7 @@ export function dealRoutes(host: string) {
   const request = (path: string, method: string, body: unknown) => new NextRequest(`http://${host}${path}`, {
     method,
     headers: { host, "content-type": "application/json" },
-    body: JSON.stringify(body),
+    ...(method === "GET" || method === "HEAD" ? {} : { body: JSON.stringify(body) }),
   })
   const id = (value: string) => ({ params: Promise.resolve({ id: value }) })
   return {
@@ -163,6 +186,15 @@ export function dealRoutes(host: string) {
     creditLife: (dealId: string, body: unknown) =>
       creditLifeRoute(request(`/api/portal/asset-finance/deals/${dealId}/credit-life`, "POST", body), id(dealId)),
     ncaQuote: (dealId: string) => ncaQuoteRoute(request(`/api/asset-finance/deals/${dealId}/nca-quote`, "POST", {}), id(dealId)),
+    viewDocument: (documentId: string) => documentViewRoute(request(`/api/documents/${documentId}/view`, "GET", {}), id(documentId)),
+    acknowledgePasq: (applicationId: string, body: unknown) =>
+      pasqAcknowledgeRoute(request(`/api/applications/${applicationId}/pasq/acknowledge`, "POST", body), id(applicationId)),
+    ncaAgreement: (dealId: string) => ncaAgreementRoute(request(`/api/asset-finance/deals/${dealId}/nca-agreement`, "POST", {}), id(dealId)),
+    signNcaAgreement: (dealId: string, body: unknown) =>
+      ncaAgreementSignRoute(request(`/api/portal/asset-finance/deals/${dealId}/nca-agreement/sign`, "POST", body), id(dealId)),
+    countersignNcaAgreement: (dealId: string, body: unknown) =>
+      ncaAgreementCountersignRoute(request(`/api/asset-finance/deals/${dealId}/nca-agreement/countersign`, "POST", body), id(dealId)),
+    book: (dealId: string) => bookRoute(request(`/api/asset-finance/deals/${dealId}/book`, "POST", {}), id(dealId)),
     decide: (dealId: string, body: unknown) => decideRoute(request(`/api/asset-finance/deals/${dealId}/decide`, "POST", body), id(dealId)),
     decideOverride: (overrideId: string, body: unknown) =>
       decideOverrideRoute(request(`/api/asset-finance/nca-overrides/${overrideId}/decide`, "POST", body), {

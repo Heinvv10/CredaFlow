@@ -4,7 +4,8 @@ import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-e
 import { deleteFile, saveFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { RegimeTx } from "./classification"
-import { dealStartDate, resolveRate } from "./deal-structure"
+import { resolveRate } from "./deal-structure"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { termsFromDeal, DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { solveNcaDealStructure } from "./nca-structure"
 import { createAssetPasqEvidence, pasqJson } from "./nca-evidence"
@@ -47,7 +48,8 @@ export async function issueAssetNcaQuote(
   const creditLife = verifyAppliedCreditLifeDisclosure(deal.application)
   if (!creditLife.ok) return { kind: "not_ready", reason: `Record the client's credit-life election first (${creditLife.reason})` }
   const terms = termsFromDeal(deal)
-  const startDate = dealStartDate(terms.firstDueDate)
+  const generatedAt = new Date()
+  const startDate = sastCalendarDate(generatedAt)
   const rate = await resolveRate(tx, actor.tenantId, terms.rate, startDate)
   if ("error" in rate) return { kind: "not_ready", reason: rate.error }
   const solved = solveNcaDealStructure(deal.asset, terms, rate, startDate)
@@ -55,10 +57,9 @@ export async function issueAssetNcaQuote(
   if (solved.result.rows.some((row) => row.principalCents < 0)) {
     return { kind: "not_ready", reason: "NCA schedules may not capitalise unpaid interest; adjust the payment weights" }
   }
-  const generatedAt = new Date()
   const evidence = createAssetPasqEvidence({
     tenantId: actor.tenantId, applicationId: deal.application.id, clientId: deal.clientId,
-    productId: deal.application.productId, termDays: solved.termDays, generatedAt, solved,
+    productId: deal.application.productId, termDays: deal.application.appliedTermDays, generatedAt, solved,
     initiationFeeCents: terms.financedFeesCents, creditLife: creditLife.evidence,
   })
   const lender = await getLenderIdentity(actor.tenantId)
@@ -90,7 +91,7 @@ export async function issueAssetNcaQuote(
   try {
     await tx.clientDocument.create({ data: {
       id: documentId, tenantId: actor.tenantId, clientId: deal.clientId, docType: "FORM_20_PRE_AGREEMENT",
-      fileUrl: `/api/portal/asset-finance/deals/${deal.id}/nca-quote`, fileName: `asset-pasq-${deal.application.reference}.pdf`,
+      fileUrl: `/api/documents/${documentId}/view`, fileName: `asset-pasq-${deal.application.reference}.pdf`,
       storagePath: stored.storagePath, fileSize: stored.fileSize, mimeType: "application/pdf", contentSha256: sha256,
       uploadedByType: "staff", uploadedById: actor.userId, extractionStatus: "skipped",
     } })
