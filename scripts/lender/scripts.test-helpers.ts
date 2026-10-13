@@ -2,13 +2,15 @@ import { spawnSync } from "node:child_process"
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, beforeEach } from "vitest"
+import { afterEach, beforeEach, vi } from "vitest"
 
 // Fixture for the lender shell-script tests (scripts.test.ts, scripts-provision.test.ts).
 // docker, curl and sleep are shell stubs on PATH that answer what the scripts ask and log
 // every call; gpg and flock are real. The scripts are copied into a throwaway git repo so
 // their REPO_ROOT (the checkout they build from) is under test control. The real Docker run
 // is the proof in docs/DEPLOY.md; these tests pin the ORDER and the GUARDS.
+// The scripts shell out to gpg, flock and real sleeps; a loaded build host needs more than the default 5 s.
+vi.setConfig({ testTimeout: 60_000 })
 // Importing this module registers the beforeEach/afterEach that rebuild the fixture.
 
 export const SRC = __dirname
@@ -19,17 +21,23 @@ export let log: string
 
 const DOCKER = String.raw`#!/bin/sh
 echo "$* APP_IMAGE=$APP_IMAGE" >> "$STUB_LOG"
+if [ -n "$STUB_FAIL_MATCH" ]; then case "$*" in *"$STUB_FAIL_MATCH"*) exit 1 ;; esac; fi
 case "$*" in
   "compose version") exit 0 ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
   "image inspect "*) exit 0 ;;
+  "ps -a "*|"volume ls"*|"network ls"*) [ -z "$STUB_PROJECT_DIR" ] || { [ "$STUB_PROJECT_DIR" = BLANK ] && echo "dir=" || echo "dir=$STUB_PROJECT_DIR"; } ;;
+  "ps -q "*) echo "$STUB_SERVING" ;;
+  "ps --filter"*) echo "$STUB_PS_PORTS" ;;
+  *"up -d --no-deps"*) if grep -qE "bad|upfail" "$STUB_LENDER/state/image.env" 2>/dev/null; then exit 1; fi ;;
   *"pg_dump"*) printf 'PGDMP-stub-%s' "$$" ;;
+  *"lender-counts"*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
   *"pg_restore --list"*) d="$(cat)"; case "$d" in PGDMP*) ;; *) exit 1 ;; esac ;;
   *"pg_restore"*) cat > /dev/null ;;
   *"u.role = 'SUPER_ADMIN'"*) echo 1 ;;
   *"to_regclass"*) echo "$STUB_HAS_MIGRATIONS" ;;
-  *"FILTER"*) echo "0|5" ;;
-  *"count(*) FROM \"Tenant\""*|*"Tenant="*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
+  *"FILTER"*) echo "0 5" ;;
+  *"Tenant="*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
   "run --rm "*) exit "$STUB_MIGRATE_RC" ;;
 esac
 exit 0

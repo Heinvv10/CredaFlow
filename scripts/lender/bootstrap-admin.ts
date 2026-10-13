@@ -27,13 +27,15 @@ export type AdminBootstrapInput = {
   name?: string
   mode: AdminMode
   dryRun: boolean
+  /** Break-glass only: allow resetting a SUPER_ADMIN that was deliberately deactivated. */
+  reactivate?: boolean
   /** Who ran the CLI (OS user @ host), recorded in the audit row. */
   operator: string
 }
 
 export type AdminBootstrapResult =
   | { kind: "dry-run"; action: "create" | "break-glass"; tenantSlug: string; email: string }
-  | { kind: "created" | "reset"; userId: string; email: string; password: string; totpSecret: string; otpauthUri: string }
+  | { kind: "created" | "reset"; userId: string; email: string; password: string; totpSecret: string; otpauthUri: string; reactivated: boolean }
 
 export type RefusalCode =
   | "INVALID_EMAIL"
@@ -41,6 +43,7 @@ export type RefusalCode =
   | "SUPER_ADMIN_EXISTS"
   | "EMAIL_IN_USE"
   | "NO_SUCH_SUPER_ADMIN"
+  | "REACTIVATE_REQUIRED"
 
 export class BootstrapRefusal extends Error {
   readonly code: RefusalCode
@@ -103,16 +106,25 @@ export async function bootstrapSuperAdmin(db: PrismaClient, input: AdminBootstra
         entityId: user.id,
         newValue: { email, role: "SUPER_ADMIN", totpEnrolled: true, operator: input.operator },
       }, auditDb(tx))
-      return { kind: "created", userId: user.id, email, ...secrets.shown }
+      return { kind: "created", userId: user.id, email, reactivated: false, ...secrets.shown }
     }
 
     // Break-glass: only ever an existing SUPER_ADMIN of this tenant.
     if (!existing || existing.role !== "SUPER_ADMIN" || existing.tenantId !== tenant.id) {
       throw new BootstrapRefusal("NO_SUCH_SUPER_ADMIN", `${email} is not a SUPER_ADMIN of tenant "${input.tenantSlug}"; break-glass never creates or promotes a user.`)
     }
+    // A deactivated SUPER_ADMIN may have been switched off on purpose (a departed
+    // owner, a compromised account): resetting it must not silently turn it back on.
+    if (!existing.active && !input.reactivate) {
+      throw new BootstrapRefusal(
+        "REACTIVATE_REQUIRED",
+        `${email} is DEACTIVATED. Break-glass would switch the account back on; if that is what you want, rerun with --reactivate.`,
+      )
+    }
     if (input.dryRun) return { kind: "dry-run", action: "break-glass", ...base }
 
     const before = { active: existing.active, totpEnabled: existing.totpEnabled }
+    const reactivated = !existing.active
     const secrets = await newCredentials(email, issuer)
     await tx.user.update({
       where: { id: existing.id },
@@ -130,9 +142,9 @@ export async function bootstrapSuperAdmin(db: PrismaClient, input: AdminBootstra
       entity: "User",
       entityId: existing.id,
       oldValue: before,
-      newValue: { email, active: true, passwordReset: true, totpReset: true, sessionsRevoked: true, operator: input.operator },
+      newValue: { email, active: true, reactivated, passwordReset: true, totpReset: true, sessionsRevoked: true, operator: input.operator },
     }, auditDb(tx))
-    return { kind: "reset", userId: existing.id, email, ...secrets.shown }
+    return { kind: "reset", userId: existing.id, email, reactivated, ...secrets.shown }
   })
 }
 

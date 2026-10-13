@@ -15,8 +15,10 @@
 # Never a pull/build/restart inside a live directory: the image exists before
 # the switch, and the switch is one `compose up -d app`.
 #
-# Failure before the switch (backup, migration): nothing changed, app untouched.
-# Failure after it (unhealthy): the previous image is put back and re-checked.
+# Failure before the switch (ports taken, backup, migration): nothing changed, app untouched.
+# Failure after it (a failing `compose up`, or unhealthy): the previous image is
+# put back and re-checked. A redeploy of the SAME tag has nothing to roll back to:
+# it is logged and reported and the stack is left running, never stopped.
 # A migration is NOT reverted. The pre-migration backup path is printed; undoing
 # the schema means restore.sh --over-live from that file (see docs/DEPLOY.md).
 set -euo pipefail
@@ -38,16 +40,22 @@ done
 need docker curl jq flock
 load_lender "$dir"
 check_auth_secrets
-exec 9>"$STATE_DIR/deploy.lock"
-flock -n 9 || die "another deploy of $SLUG is running"
+acquire_lender_lock "$LENDER_DIR"
 
 log() { printf '%s %s image=%s commit=%s %s\n' "$(utc_stamp)" "$1" "$image" "${expected:-?}" "${2:-}" >> "$STATE_DIR/deploys.log"; }
 set_image() { printf 'APP_IMAGE=%s\n' "$1" > "$STATE_DIR/image.env.tmp"; mv "$STATE_DIR/image.env.tmp" "$STATE_DIR/image.env"; }
+# switch_to IMAGE EXPECT_COMMIT — point both hosts at IMAGE; 0 only when `compose up` AND both health probes succeed.
+switch_to() {
+  set_image "$1"
+  lcompose up -d --no-deps app app-portal >/dev/null && wait_stack_health "$2" "$timeout"
+}
 
 ensure_images "$image" "$build"
 tools="$(tools_image_of "$image")"
 expected="$(image_commit "$image")"
 prev="$(cat "$STATE_DIR/current-image" 2>/dev/null || true)"
+check_ports_free
+serving="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=app" --filter status=running)"
 
 lcompose up -d db >/dev/null
 wait_db
@@ -70,9 +78,7 @@ if ! tools_run "$tools" npx prisma migrate deploy; then
 fi
 
 note "switching app to $image"
-set_image "$image"
-lcompose up -d --no-deps app app-portal >/dev/null
-if wait_stack_health "$expected" "$timeout"; then
+if switch_to "$image" "$expected"; then
   printf '%s\n' "$image" > "$STATE_DIR/current-image"
   [ -z "$prev" ] || [ "$prev" = "$image" ] || printf '%s\n' "$prev" > "$STATE_DIR/previous-image"
   log DEPLOYED "backup=${backup:-none} previous=${prev:-none}"
@@ -80,19 +86,25 @@ if wait_stack_health "$expected" "$timeout"; then
   exit 0
 fi
 
-note "health check FAILED for $image (no 200/ok/commit=$expected within ${timeout}s)"
-log HEALTH_FAILED "backup=${backup:-none}"
+note "switch to $image FAILED (compose up error, or no 200/ok/commit=$expected on both hosts within ${timeout}s)"
+log SWITCH_FAILED "backup=${backup:-none}"
 if [ -n "$prev" ] && [ "$prev" != "$image" ]; then
   note "rolling the app back to $prev"
-  set_image "$prev"
-  lcompose up -d --no-deps app app-portal >/dev/null
-  if wait_stack_health "$(image_commit "$prev" 2>/dev/null || true)" "$timeout"; then
+  if switch_to "$prev" "$(image_commit "$prev" 2>/dev/null || true)"; then
     log ROLLED_BACK "to=$prev"
-    die "ROLLED BACK to $prev: $image failed its health check. Migrations are NOT reverted (backup before them: ${backup:-none})"
+    die "ROLLED BACK to $prev: $image failed to start or pass its health check. Migrations are NOT reverted (backup before them: ${backup:-none})"
   fi
   log ROLLBACK_FAILED "to=$prev"
-  die "rollback to $prev is ALSO unhealthy; investigate: compose logs app. Backup before the migration: ${backup:-none}"
+  die "rollback to $prev is ALSO unhealthy or failed to start; investigate: compose logs. Backup before the migration: ${backup:-none}"
+fi
+if [ "$prev" = "$image" ]; then
+  log SAME_TAG_UNHEALTHY "left running, not stopped"
+  die "redeploy of the same image $image is unhealthy and there is no other image to roll back to. Left running, NOT stopped: inspect (compose logs), fix .env or the data, and redeploy. Backup before the migration: ${backup:-none}"
+fi
+if [ -n "$serving" ]; then
+  log UNHEALTHY_NO_PREVIOUS "left running, not stopped"
+  die "$image is unhealthy; no previous image is recorded but the stack was already serving, so it is left running, NOT stopped. Backup before the migration: ${backup:-none}"
 fi
 lcompose stop app app-portal >/dev/null
-log STOPPED "no previous image"
-die "no previous image to roll back to; app stopped. Backup before the migration: ${backup:-none}"
+log STOPPED "first deploy, nothing was serving"
+die "first deploy failed; app stopped (nothing was serving). Backup before the migration: ${backup:-none}"

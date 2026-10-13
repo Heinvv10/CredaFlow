@@ -15,7 +15,7 @@
 #                 second container with its own session secret (STAFF_AUTH_SECRET
 #                 and PORTAL_AUTH_SECRET are generated distinct, in secrets/auth.env)
 #   --admin-email the first SUPER_ADMIN; required until one exists
-#   --image       name:tag to run (default credaflow-<slug>:<git sha>)
+#   --image       name:tag to run (default credaflow-lender-<slug>:<git sha>)
 #   --build       build the images from this (clean) checkout first
 #
 # The first admin's one-time password and TOTP secret are printed to this
@@ -24,9 +24,9 @@ set -euo pipefail
 # shellcheck source=scripts/lender/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-USAGE="usage: provision-lender.sh <lender-dir> --config <lender.json> --port <N> --public-url <url> --portal-port <N> --portal-url <url> [--admin-email <email>] [--image name:tag] [--build] [--bind <addr>]"
+USAGE="usage: provision-lender.sh <lender-dir> --config <lender.json> --port <N> --public-url <url> --portal-port <N> --portal-url <url> [--admin-email <email>] [--image name:tag] [--build] [--bind <addr>] [--update-settings]"
 target="${1:-}"; shift || true
-config="" port="" portal_port="" portal_url="" public_url="" admin_email="" image="" build=false bind=""
+config="" port="" portal_port="" portal_url="" public_url="" admin_email="" image="" build=false bind="" update_settings=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --config) config="${2:?$USAGE}"; shift 2 ;;
@@ -38,6 +38,7 @@ while [ $# -gt 0 ]; do
     --image) image="${2:?$USAGE}"; shift 2 ;;
     --bind) bind="${2:?$USAGE}"; shift 2 ;;
     --build) build=true; shift ;;
+    --update-settings) update_settings=true; shift ;;
     *) die "$USAGE" ;;
   esac
 done
@@ -47,13 +48,17 @@ done
 need docker jq openssl gpg curl
 SLUG="$(jq -er .slug "$config")" || die "$config is not JSON with a slug"
 [[ "$SLUG" =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "slug '$SLUG' in $config is malformed"
-[ -n "$image" ] || image="credaflow-$SLUG:$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
+[ -n "$image" ] || image="credaflow-lender-$SLUG:$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 
 case "$(readlink -m "$target")/" in "$REPO_ROOT"/*) die "lender dir $target is inside the git checkout $REPO_ROOT: secrets must live outside it" ;; esac
+# Refuse before any side effect when another stack already owns this compose project.
+abs_target="$( { [ -d "$target" ] && cd "$target" && pwd; } || readlink -m "$target")"
+check_project_free "$(project_of "$SLUG")" "$abs_target"
 
-# 1. Directory, config, compose file (the compose file is not hand-edited: rerun to refresh it).
+# 1. Directory, lock, config, compose file (the compose file is not hand-edited: rerun to refresh it).
 (umask 077; mkdir -p "$target" "$target/secrets" "$target/backups" "$target/state")
 chmod 700 "$target"
+acquire_lender_lock "$abs_target"
 cp "$config" "$target/lender.json"
 cp "$LENDER_SCRIPTS/docker-compose.lender.yml" "$target/docker-compose.yml"
 
@@ -62,14 +67,24 @@ env="$target/.env"
 [ -e "$env" ] || (umask 077; : > "$env")
 chmod 600 "$env"
 add() { [ -n "$(env_get "$env" "$1")" ] || { env_set "$env" "$1" "$2"; note "generated/set $1"; }; }
+# setting KEY VALUE — a non-secret setting: set when absent; a rerun that asks for
+# a different value says so and keeps the existing one unless --update-settings.
+setting() {
+  local cur; cur="$(env_get "$env" "$1")"
+  if [ -z "$cur" ]; then env_set "$env" "$1" "$2"; note "set $1=$2"
+  elif [ "$cur" = "$2" ]; then :
+  elif $update_settings; then env_set "$env" "$1" "$2"; note "updated $1: $cur -> $2"
+  else note "kept existing $1=$cur (requested $2; pass --update-settings to change it)"
+  fi
+}
 add NEXT_PUBLIC_TENANT_SLUG "$SLUG"
-add APP_PORT "$port"
-[ -z "$bind" ] || add APP_BIND "$bind"
-add NEXTAUTH_URL "$public_url"
-add AUTH_URL "$public_url"
-add PORTAL_PORT "$portal_port"
-add PORTAL_NEXTAUTH_URL "$portal_url"
-add NEXT_PUBLIC_PORTAL_LOGIN_URL "${portal_url%/}/portal/login"   # baked at build
+setting APP_PORT "$port"
+[ -z "$bind" ] || setting APP_BIND "$bind"
+setting NEXTAUTH_URL "$public_url"
+setting AUTH_URL "$public_url"
+setting PORTAL_PORT "$portal_port"
+setting PORTAL_NEXTAUTH_URL "$portal_url"
+setting NEXT_PUBLIC_PORTAL_LOGIN_URL "${portal_url%/}/portal/login"   # baked at build: rebuild to change it
 add POSTGRES_USER credaflow
 add POSTGRES_DB credaflow
 add POSTGRES_PASSWORD "$(openssl rand -hex 24)"
@@ -104,6 +119,7 @@ fi
 
 load_lender "$target"
 [ "$(env_get "$ENV_FILE" NEXT_PUBLIC_TENANT_SLUG)" = "$SLUG" ] || die "$ENV_FILE belongs to another lender"
+[ "$APP_PORT" != "$PORTAL_PORT" ] || die "APP_PORT and PORTAL_PORT in $ENV_FILE must differ"
 check_auth_secrets
 
 # 3. Images, database, migrations.

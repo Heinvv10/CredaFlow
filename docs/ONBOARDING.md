@@ -23,7 +23,7 @@ Copy `scripts/lender/lender.example.json` outside the repo and edit it. It holds
 columns, plus `statutoryConfirm`: the NCR, FSP and CIPC numbers **typed a second
 time**, as Settings > Lender identity requires. A mismatch is rejected.
 
-The slug becomes the compose project (`credaflow-<slug>`), the build-time
+The slug becomes the compose project (`credaflow-lender-<slug>`), the build-time
 `NEXT_PUBLIC_TENANT_SLUG` and the tenant key. It cannot be changed later.
 
 Validate without a database (an invalid file exits 2 with every error):
@@ -50,8 +50,9 @@ What it does, in order, each step safe to rerun: creates the 0700 directory and 
 database; separate staff and portal session secrets (`secrets/auth.env`); `prisma migrate deploy`; tenant dry-run then create (tenant, config,
 audit rows, default document and message templates); sets
 `DEBIT_MANDATE_CREDITOR_TENANT_ID`; creates the first SUPER_ADMIN; then
-`deploy.sh` (backup, switch, health check). It refuses a dirty tree, and a lender
-directory inside the checkout.
+`deploy.sh` (backup, switch, health check). It refuses a dirty tree, a lender
+directory inside the checkout, and a slug whose compose project another stack on the host
+already owns.
 
 At the credentials banner copy the email, the one-time password and the TOTP
 secret/URI **now**. They are shown once.

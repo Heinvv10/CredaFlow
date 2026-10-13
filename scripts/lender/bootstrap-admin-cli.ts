@@ -1,6 +1,6 @@
 /**
  * npm run lender:bootstrap-admin -- --tenant <slug> --email <email> [--name <name>] [--dry-run]
- * npm run lender:bootstrap-admin -- --tenant <slug> --email <email> --break-glass [--dry-run]
+ * npm run lender:bootstrap-admin -- --tenant <slug> --email <email> --break-glass [--reactivate] [--dry-run]
  *
  * Reads DATABASE_URL. Prints the one-time password and TOTP secret to stdout
  * exactly once and nowhere else; a caller must not capture stdout into a log.
@@ -11,11 +11,12 @@ import { parseArgs } from "node:util"
 import { operatorId } from "./operator"
 import { bootstrapSuperAdmin, BootstrapRefusal, type AdminBootstrapResult } from "./bootstrap-admin"
 
-const USAGE = "usage: lender:bootstrap-admin --tenant <slug> --email <email> [--name <name>] [--break-glass] [--dry-run]"
+const USAGE = "usage: lender:bootstrap-admin --tenant <slug> --email <email> [--name <name>] [--break-glass [--reactivate]] [--dry-run]"
 
 function render(r: AdminBootstrapResult, tenantSlug: string): string {
   if (r.kind === "dry-run") return `dry-run: would ${r.action === "create" ? "create the first SUPER_ADMIN" : "break-glass reset the SUPER_ADMIN"} ${r.email} in tenant "${tenantSlug}". Nothing written.`
   return [
+    ...(r.reactivated ? [`WARNING: ${r.email} was DEACTIVATED and has been RE-ACTIVATED by --reactivate.`] : []),
     `SUPER_ADMIN ${r.kind === "created" ? "created" : "reset (break-glass)"} for tenant "${tenantSlug}".`,
     `  email:                ${r.email}`,
     `  one-time password:    ${r.password}`,
@@ -29,7 +30,7 @@ async function main(): Promise<number> {
   const { values } = parseArgs({
     options: {
       tenant: { type: "string" }, email: { type: "string" }, name: { type: "string" },
-      "break-glass": { type: "boolean", default: false }, "dry-run": { type: "boolean", default: false },
+      "break-glass": { type: "boolean", default: false }, reactivate: { type: "boolean", default: false }, "dry-run": { type: "boolean", default: false },
     },
     strict: true,
   })
@@ -45,7 +46,7 @@ async function main(): Promise<number> {
   try {
     const result = await bootstrapSuperAdmin(db, {
       tenantSlug: values.tenant, email: values.email, name: values.name,
-      mode: values["break-glass"] ? "break-glass" : "bootstrap", dryRun: values["dry-run"],
+      mode: values["break-glass"] ? "break-glass" : "bootstrap", dryRun: values["dry-run"], reactivate: values.reactivate,
       operator: operatorId(),
     })
     process.stdout.write(`${render(result, values.tenant)}\n`)

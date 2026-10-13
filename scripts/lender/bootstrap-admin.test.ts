@@ -143,19 +143,38 @@ describe("bootstrapSuperAdmin: break-glass", () => {
     return f
   }
 
-  it("resets password and TOTP, reactivates, invalidates sessions and writes one audit row", async () => {
+  it("resets password and TOTP, reactivates (with --reactivate), invalidates sessions and writes one audit row", async () => {
     const f = locked()
-    const r = await bootstrap(f, { mode: "break-glass" })
+    const r = await bootstrap(f, { mode: "break-glass", reactivate: true })
     if (r.kind !== "reset") throw new Error(`unexpected ${r.kind}`)
+    expect(r.reactivated).toBe(true)
     const user = f.tables.users[0]
     expect(await bcrypt.compare(r.password, user.password as string)).toBe(true)
     expect(user).toMatchObject({ active: true, totpEnabled: true, totpSecret: r.totpSecret, lastTotpCounter: null, resetToken: null, tokenVersion: 4 })
     expect(r.totpSecret).not.toBe("OLDSECRET")
     expect(f.tables.auditLogs).toHaveLength(1)
-    expect(f.tables.auditLogs[0]).toMatchObject({ action: "SUPER_ADMIN_BREAK_GLASS_RESET", entityId: "u1", oldValue: { active: false } })
+    expect(f.tables.auditLogs[0]).toMatchObject({ action: "SUPER_ADMIN_BREAK_GLASS_RESET", entityId: "u1", oldValue: { active: false }, newValue: { reactivated: true } })
     const audit = JSON.stringify(f.tables.auditLogs)
     expect(audit).not.toContain(r.password)
     expect(audit).not.toContain(r.totpSecret)
+  })
+
+  it("refuses to switch a DEACTIVATED SUPER_ADMIN back on without --reactivate, even as a dry run, and writes nothing", async () => {
+    for (const dryRun of [false, true]) {
+      const f = locked()
+      expect(await refusal(bootstrap(f, { mode: "break-glass", dryRun }))).toBe("REACTIVATE_REQUIRED")
+      expect(f.tables.users[0]).toMatchObject({ password: "old-hash", active: false, tokenVersion: 3 })
+      expect(f.tables.auditLogs).toHaveLength(0)
+    }
+  })
+
+  it("needs no --reactivate for an active SUPER_ADMIN and reports it was not reactivated", async () => {
+    const f = locked()
+    f.tables.users[0].active = true
+    const r = await bootstrap(f, { mode: "break-glass" })
+    if (r.kind !== "reset") throw new Error("unexpected")
+    expect(r.reactivated).toBe(false)
+    expect(f.tables.auditLogs[0]).toMatchObject({ newValue: { reactivated: false } })
   })
 
   it("refuses a user who is not a SUPER_ADMIN of the tenant", async () => {
@@ -179,7 +198,7 @@ describe("bootstrapSuperAdmin: break-glass", () => {
 
   it("dry-run changes nothing", async () => {
     const f = locked()
-    const r = await bootstrap(f, { mode: "break-glass", dryRun: true })
+    const r = await bootstrap(f, { mode: "break-glass", dryRun: true, reactivate: true })
     expect(r.kind).toBe("dry-run")
     expect(f.tables.users[0]).toMatchObject({ password: "old-hash", active: false })
     expect(f.tables.auditLogs).toHaveLength(0)

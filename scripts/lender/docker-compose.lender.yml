@@ -1,6 +1,6 @@
 # One lender = one compose project = one app, one Postgres and their named
 # volumes. provision-lender.sh copies this file into the lender directory;
-# every script runs it as `-p credaflow-<slug> --project-directory <lender-dir>
+# every script runs it as `-p credaflow-lender-<slug> --project-directory <lender-dir>
 # --env-file .env --env-file secrets/auth.env --env-file state/image.env`, so nothing here is host-specific:
 # no container_name, no fixed port, no path outside the lender directory.
 #

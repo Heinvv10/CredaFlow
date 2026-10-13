@@ -68,7 +68,10 @@ suite("lender bootstrap (real DB)", () => {
     const before = await db.user.findFirstOrThrow({ where: { tenantId: tenant.id, role: "SUPER_ADMIN" } })
     await db.user.update({ where: { id: before.id }, data: { active: false } })
 
-    const r = await admin({ email: before.email, mode: "break-glass" })
+    await expect(admin({ email: before.email, mode: "break-glass" })).rejects.toMatchObject({ code: "REACTIVATE_REQUIRED" })
+    expect((await db.user.findUniqueOrThrow({ where: { id: before.id } })).active).toBe(false)
+
+    const r = await admin({ email: before.email, mode: "break-glass", reactivate: true })
     if (r.kind !== "reset") throw new Error("unexpected")
     const after = await db.user.findUniqueOrThrow({ where: { id: before.id } })
     expect(after.active).toBe(true)

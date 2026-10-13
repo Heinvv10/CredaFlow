@@ -36,7 +36,7 @@ describe("admin.sh", () => {
     const r = sh("admin.sh", [lender, "--email", "a@b.example", "--break-glass"])
     expect(r.status).toBe(0)
     const run = r.calls.find((c) => c.startsWith("run --rm"))!
-    expect(run).toContain("--network credaflow-stub-lender_default")
+    expect(run).toContain("--network credaflow-lender-stub-lender_default")
     expect(run).toMatch(/-e LENDER_OPERATOR=\S+@\S+/)
     expect(run).toContain("cf-tools:new npx tsx scripts/lender/bootstrap-admin-cli.ts --tenant stub-lender --email a@b.example --break-glass")
     expect(run).not.toContain("p@db") // the database password is passed by variable name, never in argv
@@ -50,10 +50,10 @@ describe("admin.sh", () => {
 })
 
 describe("provision-lender.sh", () => {
-  const provision = (dir: string, extra: string[] = []) => {
+  const provision = (dir: string, extra: string[] = [], env: Record<string, string> = {}) => {
     writeFileSync(join(root, "cfg.json"), JSON.stringify({ slug: "stub-lender" }))
     return sh("provision-lender.sh", [dir, "--config", join(root, "cfg.json"), "--port", "3999", "--public-url", "https://staff.example",
-      "--portal-port", "3998", "--portal-url", "https://portal.example", "--image", "cf:new", "--admin-email", "a@b.example", ...extra], { STUB_LENDER: dir })
+      "--portal-port", "3998", "--portal-url", "https://portal.example", "--image", "cf:new", "--admin-email", "a@b.example", ...extra], { STUB_LENDER: dir, ...env })
   }
 
   it("refuses a lender directory inside the git checkout", () => {
@@ -91,4 +91,44 @@ describe("provision-lender.sh", () => {
     expect(read(auth, "STAFF_AUTH_SECRET")).toBe(staff)
     expect(read(auth, "PORTAL_AUTH_SECRET")).toBe(portal)
   })
+
+  it("refuses when another stack already owns the compose project, before creating the lender directory", () => {
+    const dir = join(root, "new-lender")
+    const r = provision(dir, [], { STUB_PROJECT_DIR: "/srv/some-other-stack" })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/project 'credaflow-lender-stub-lender' already exists with working_dir '\/srv\/some-other-stack'/)
+    expect(existsSync(dir)).toBe(false)
+    expect(r.calls.some((c) => /\bup\b|\bbuild\b|\brun\b/.test(c))).toBe(false)
+  })
+
+  it("refuses a labelled container that records no working_dir", () => {
+    const r = provision(join(root, "new-lender"), [], { STUB_PROJECT_DIR: "BLANK" })
+    expect(r.status).not.toBe(0)
+  })
+
+  it("accepts the project when its recorded working_dir is this very lender directory (a rerun)", () => {
+    const dir = join(root, "new-lender")
+    expect(provision(dir).status).toBe(0)
+    const r = provision(dir, [], { STUB_PROJECT_DIR: dir })
+    expect(r.status, r.out).toBe(0)
+  })
+
+  it("on a rerun, keeps a differing existing setting and says so; --update-settings changes it explicitly", () => {
+    const dir = join(root, "new-lender")
+    expect(provision(dir).status).toBe(0)
+    const kept = provision(dir, ["--port", "4001", "--portal-url", "https://other.example"])
+    expect(kept.out).toMatch(/kept existing APP_PORT=3999 \(requested 4001; pass --update-settings/)
+    expect(kept.out).toMatch(/kept existing PORTAL_NEXTAUTH_URL=https:\/\/portal.example/)
+    expect(readFileSync(join(dir, ".env"), "utf8")).toContain("APP_PORT=3999")
+    const updated = provision(dir, ["--port", "4001", "--update-settings"])
+    expect(updated.out).toMatch(/updated APP_PORT: 3999 -> 4001/)
+    expect(readFileSync(join(dir, ".env"), "utf8")).toContain("APP_PORT=4001")
+  })
+
+  it("an unchanged rerun says nothing about settings", () => {
+    const dir = join(root, "new-lender")
+    provision(dir)
+    expect(provision(dir).out).not.toMatch(/kept existing|updated /)
+  })
 })
+

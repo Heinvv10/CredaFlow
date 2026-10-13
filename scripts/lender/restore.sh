@@ -3,13 +3,14 @@
 # verify it. The live database is never touched unless --over-live is given.
 #
 #   restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch]
-#   restore.sh <lender-dir> <backup.dump.gpg> --over-live --confirm <slug>
+#   restore.sh <lender-dir> <backup.dump.gpg> --over-live --confirm <slug> [--accept-count-drift]
 #
 # Verification (any failure exits non-zero and drops the scratch database):
 #   - pg_restore finishes with --exit-on-error;
 #   - _prisma_migrations has rows and none unfinished;
-#   - the row counts equal the sidecar backup.sh wrote (a dump taken while
-#     writes land can differ by in-flight rows: rerun on a quiet moment).
+#   - the row counts are compared with the sidecar backup.sh wrote from the dump's
+#     own snapshot. A difference is a loud WARNING naming the tables, never a
+#     block on a scratch restore; --over-live refuses it unless --accept-count-drift.
 # A verified scratch database <db>_restore_<UTC> is left in place (inspect it,
 # then DROP DATABASE) unless --drop-scratch is given.
 #
@@ -23,26 +24,28 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 dir="${1:-}" file="${2:-}"; shift 2 || true
-over_live=false confirm="" drop=false
+over_live=false confirm="" drop=false accept_drift=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --over-live) over_live=true; shift ;;
     --confirm) confirm="${2:?--confirm needs the lender slug}"; shift 2 ;;
     --drop-scratch) drop=true; shift ;;
-    *) die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug>]" ;;
+    --accept-count-drift) accept_drift=true; shift ;;
+    *) die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug> [--accept-count-drift]]" ;;
   esac
 done
-[ -n "$file" ] || die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug>]"
+[ -n "$file" ] || die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug> [--accept-count-drift]]"
 need docker gpg
 load_lender "$dir"
+acquire_lender_lock "$LENDER_DIR"
 [ -f "$file" ] || die "backup $file not found"
 file="$(readlink -f "$file")"
 pass="$LENDER_DIR/secrets/backup.passphrase"
 [ -s "$pass" ] || die "$pass missing or empty"
 if $over_live; then
   [ "$confirm" = "$SLUG" ] || die "refusing --over-live: pass --confirm $SLUG to replace the live database of '$SLUG'"
-elif [ -n "$confirm" ]; then
-  die "--confirm only applies to --over-live"
+elif [ -n "$confirm" ] || $accept_drift; then
+  die "--confirm and --accept-count-drift only apply to --over-live"
 fi
 
 ts="$(date -u +%Y%m%d%H%M%S)"
@@ -52,28 +55,46 @@ scratch="${PGDB}_restore_$ts" old="${PGDB}_pre_restore_$ts"
 lcompose up -d db >/dev/null; wait_db
 
 drop_scratch() { psql_db postgres "DROP DATABASE IF EXISTS \"$scratch\"" >/dev/null; }
-fail() { drop_scratch || true; die "$*"; }
+# Whatever makes this script stop before the scratch database is verified (a failed
+# query under set -e, a failed restore, a drift refusal) drops it: no half-restored leftovers.
+keep_scratch=false
+cleanup() { $keep_scratch || drop_scratch >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+fail() { die "$*"; }
 
 note "restoring $(basename "$file") into new database $scratch"
 psql_db postgres "CREATE DATABASE \"$scratch\"" >/dev/null
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$file" \
   | lcompose exec -T db pg_restore --no-owner --exit-on-error -U "$PGUSER" -d "$scratch" || fail "pg_restore failed; scratch database dropped"
 
-read -r unfinished total < <(psql_db "$scratch" "SELECT count(*) FILTER (WHERE finished_at IS NULL), count(*) FROM _prisma_migrations" | tr '|' ' ')
-[ "$total" -gt 0 ] && [ "$unfinished" -eq 0 ] || fail "migration table check failed (total=$total unfinished=$unfinished)"
+mig="$(psql_db "$scratch" "SELECT count(*) FILTER (WHERE finished_at IS NULL) || ' ' || count(*) FROM _prisma_migrations")" \
+  || fail "could not read _prisma_migrations in the restored database; scratch database dropped"
+read -r unfinished total <<<"$mig"
+[ "${total:-0}" -gt 0 ] && [ "${unfinished:-1}" -eq 0 ] || fail "migration table check failed (total=${total:-?} unfinished=${unfinished:-?}); scratch database dropped"
 
-restored="$(psql_db "$scratch" "$COUNTS_SQL")"
+restored="$(psql_db "$scratch" "$COUNTS_SQL")" || fail "could not count rows in the restored database; scratch database dropped"
 echo "restored row counts in $scratch:" >&2; sed 's/^/  /' <<<"$restored" >&2
+drift=""
 if [ -f "$file.counts" ]; then
-  [ "$restored" = "$(cat "$file.counts")" ] || { diff <(cat "$file.counts") <(echo "$restored") >&2 || true; fail "restored counts differ from the backup's recorded counts"; }
-  note "counts match the backup's sidecar; migrations: $total applied, 0 unfinished"
+  if drift="$(count_drift "$file.counts" "$restored")"; then
+    note "counts match the backup's sidecar; migrations: $total applied, 0 unfinished"
+  else
+    # The sidecar is taken from the dump's own snapshot, so drift means an edited or
+    # swapped sidecar, or a different file: loud, naming the tables, never silent.
+    note "WARNING: restored row counts DIFFER from the backup's recorded counts in:"
+    sed 's/^/  /' <<<"$drift" >&2
+  fi
 else
   note "WARNING: no $file.counts sidecar; counts not compared (migrations: $total applied, 0 unfinished)"
 fi
+if [ -n "$drift" ] && $over_live && ! $accept_drift; then
+  fail "refusing --over-live: the restored counts differ from the backup's (tables above). If that is expected, rerun with --accept-count-drift; scratch database dropped"
+fi
 
 if ! $over_live; then
-  if $drop; then drop_scratch; note "VERIFIED; scratch database $scratch dropped"
-  else note "VERIFIED; scratch database $scratch left for inspection (drop it with DROP DATABASE \"$scratch\", or pass --drop-scratch next time)"; fi
+  verdict="VERIFIED"; [ -z "$drift" ] || verdict="VERIFIED WITH WARNINGS (count drift above)"
+  if $drop; then drop_scratch; note "$verdict; scratch database $scratch dropped"
+  else keep_scratch=true; note "$verdict; scratch database $scratch left for inspection (drop it with DROP DATABASE \"$scratch\", or pass --drop-scratch next time)"; fi
   exit 0
 fi
 

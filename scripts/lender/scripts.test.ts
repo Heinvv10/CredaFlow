@@ -110,7 +110,7 @@ describe("deploy.sh", () => {
   it("stops the app when the very first deploy is unhealthy", () => {
     const r = sh("deploy.sh", [lender, "cf:bad", "--health-timeout", "1"])
     expect(r.status).not.toBe(0)
-    expect(r.out).toMatch(/no previous image/)
+    expect(r.out).toMatch(/first deploy failed; app stopped/)
     expect(r.calls.some((c) => c.includes("stop app"))).toBe(true)
   })
 })
@@ -183,15 +183,6 @@ describe("restore.sh", () => {
     const r = sh("restore.sh", [lender, f])
     expect(r.status).toBe(0)
     expect(r.calls.some((c) => c.includes("up -d db") && c.endsWith("APP_IMAGE=credaflow-undeployed:none"))).toBe(true)
-  })
-
-  it("fails and drops the scratch database when the counts differ from the sidecar", () => {
-    const f = backup()
-    writeFileSync(`${f}.counts`, "Tenant=9\n")
-    const r = sh("restore.sh", [lender, f])
-    expect(r.status).not.toBe(0)
-    expect(r.out).toMatch(/differ/)
-    expect(r.calls.some((c) => /DROP DATABASE IF EXISTS "d_restore_/.test(c))).toBe(true)
   })
 
   it("rejects a wrong passphrase", () => {

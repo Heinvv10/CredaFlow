@@ -11,7 +11,7 @@
 #   secrets/backup.passphrase   encrypts backups, mode 0600. COPY IT OFF THIS HOST.
 #   secrets/auth.env       STAFF_AUTH_SECRET + PORTAL_AUTH_SECRET, mode 0600; compose interpolation only
 #   backups/               encrypted pg_dump files + row-count sidecars
-#   state/                 image.env, current-image, previous-image, deploys.log
+#   state/                 image.env, current-image, previous-image, deploys.log, lender.lock
 
 LENDER_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$LENDER_SCRIPTS/../.." && pwd)"
@@ -46,13 +46,49 @@ load_lender() {
   [ -f "$ENV_FILE" ] || die "$ENV_FILE missing (run provision-lender.sh first)"
   SLUG="$(env_get "$ENV_FILE" NEXT_PUBLIC_TENANT_SLUG)"
   [[ "$SLUG" =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "NEXT_PUBLIC_TENANT_SLUG in $ENV_FILE is missing or malformed"
-  PROJECT="credaflow-$SLUG"
+  PROJECT="$(project_of "$SLUG")"
   PGUSER="$(env_get "$ENV_FILE" POSTGRES_USER)" PGDB="$(env_get "$ENV_FILE" POSTGRES_DB)"
   APP_PORT="$(env_get "$ENV_FILE" APP_PORT)" PORTAL_PORT="$(env_get "$ENV_FILE" PORTAL_PORT)"
   [ -n "$PGUSER" ] && [ -n "$PGDB" ] && [ -n "$APP_PORT" ] && [ -n "$PORTAL_PORT" ] \
     || die "$ENV_FILE lacks POSTGRES_USER, POSTGRES_DB, APP_PORT or PORTAL_PORT"
   AUTH_ENV="$LENDER_DIR/secrets/auth.env"
+  # Where the published ports answer: the bound address, with a wildcard bind probed through loopback.
+  PROBE_HOST="$(env_get "$ENV_FILE" APP_BIND)"
+  case "$PROBE_HOST" in "" | 0.0.0.0 | "::" | "[::]") PROBE_HOST=127.0.0.1 ;; esac
   mkdir -p "$STATE_DIR"
+}
+
+# project_of SLUG — the compose project of a lender. The `credaflow-lender-`
+# prefix keeps it clear of the other stacks on a host (credaflow-demo,
+# credaflow-fairscore, credaflow-staging, …), whose names are `credaflow-<word>`.
+project_of() { echo "credaflow-lender-$1"; }
+
+# check_project_free PROJECT DIR — refuse when a container, volume or network
+# already carries compose project PROJECT unless its recorded working_dir is DIR:
+# `up`, `down --volumes` and the volume names would otherwise touch another stack.
+check_project_free() {
+  local project="$1" dir="$2" kind got
+  for kind in "ps -a" "volume ls" "network ls"; do
+    # shellcheck disable=SC2086  # $kind is a fixed two-word subcommand
+    got="$(docker $kind --filter "label=com.docker.compose.project=$project" --format 'dir={{.Label "com.docker.compose.project.working_dir"}}' | sort -u)" || die "cannot list docker $kind"
+    [ -n "$got" ] || continue
+    while IFS= read -r wd; do
+      wd="${wd#dir=}"   # the prefix keeps a blank label from vanishing in $( )
+      [ "$wd" = "$dir" ] || die "refusing: docker compose project '$project' already exists with working_dir '${wd:-<none>}', not '$dir'. Pick another slug or lender dir; never reuse another stack's project."
+    done <<<"$got"
+  done
+}
+
+# acquire_lender_lock DIR — ONE lock per lender, shared by provision, deploy,
+# backup and restore (which call each other: the holder exports
+# LENDER_LOCK_HELD so its children do not wait on their own parent). Waits up to
+# LENDER_LOCK_WAIT seconds (default 600) so a nightly backup rides out a deploy.
+acquire_lender_lock() {
+  [ "${LENDER_LOCK_HELD:-}" != "$1" ] || return 0
+  mkdir -p "$1/state"
+  exec 9>"$1/state/lender.lock"
+  flock -w "${LENDER_LOCK_WAIT:-600}" 9 || die "another provision, deploy, backup or restore of this lender holds $1/state/lender.lock"
+  export LENDER_LOCK_HELD="$1"
 }
 
 # lcompose ARGS… — compose on this lender's project only. -p/-f/--project-directory
@@ -184,7 +220,70 @@ check_auth_secrets() {
   done
 }
 
-# wait_stack_health EXPECT_COMMIT TIMEOUT — both hosts (staff, portal) healthy.
+# wait_stack_health EXPECT_COMMIT TIMEOUT — both hosts (staff, portal) healthy, probed at the bound address.
 wait_stack_health() {
-  wait_health "http://127.0.0.1:$APP_PORT/api/health" "$1" "$2" && wait_health "http://127.0.0.1:$PORTAL_PORT/api/health" "$1" "$2"
+  wait_health "http://$PROBE_HOST:$APP_PORT/api/health" "$1" "$2" && wait_health "http://$PROBE_HOST:$PORTAL_PORT/api/health" "$1" "$2"
 }
+
+# check_ports_free — refuse when something other than this lender's own
+# containers already listens on either published port (a `compose up` would fail
+# half way and leave the image state split).
+check_ports_free() {
+  local p
+  for p in "$APP_PORT" "$PORTAL_PORT"; do
+    if (exec 3<>"/dev/tcp/$PROBE_HOST/$p") 2>/dev/null \
+      && ! docker ps --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Ports}}' | grep -q ":$p->"; then
+      die "host port $p ($PROBE_HOST) is already in use by something other than this lender's containers"
+    fi
+  done
+}
+
+# count_drift SIDECAR RESTORED — one line per table whose row count differs
+# between the backup's sidecar and the restored text ("Table: backup=N restored=M");
+# status 1 when any does.
+count_drift() {
+  local t b r drift=0
+  while IFS='=' read -r t b; do
+    [ -n "$t" ] || continue
+    r="$(grep -m1 "^$t=" <<<"$2" | cut -d= -f2)"
+    [ "$b" = "$r" ] || { echo "$t: backup=$b restored=${r:-missing}"; drift=1; }
+  done < "$1"
+  return "$drift"
+}
+
+# SNAPSHOT_DUMP_SH — runs INSIDE the db container (busybox sh; env U, DB,
+# COUNTS_SQL, COUNTS_FILE). One session holds a REPEATABLE READ transaction and
+# exports its snapshot; the row counts are taken in it and pg_dump --snapshot
+# dumps that same snapshot, so the sidecar describes exactly what the dump holds
+# even while the app writes. The dump goes to stdout; the counts to COUNTS_FILE.
+SNAPSHOT_DUMP_SH="$(cat <<'SH'
+set -eu
+d="$(mktemp -d)"
+trap 'rm -rf "$d"' EXIT
+mkfifo "$d/in"
+psql -v ON_ERROR_STOP=1 -qAt -U "$U" -d "$DB" <"$d/in" >"$d/out" 2>"$d/err" &
+pid=$!
+exec 3>"$d/in"
+wait_for() {
+  i=0
+  until grep -q -- "$1" "$d/out" 2>/dev/null; do
+    kill -0 "$pid" 2>/dev/null || { cat "$d/err" >&2; echo "snapshot session ended early" >&2; exit 1; }
+    i=$((i + 1))
+    [ "$i" -lt 3000 ] || { echo "timed out waiting for the snapshot session" >&2; exit 1; }
+    sleep 0.2
+  done
+}
+echo "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;" >&3
+echo "SELECT 'snap='||pg_export_snapshot();" >&3
+wait_for '^snap='
+snap="$(sed -n 's/^snap=//p' "$d/out" | head -n 1)"
+printf '%s;\n' "$COUNTS_SQL" >&3
+echo "SELECT '--end--';" >&3
+wait_for '^--end--$'
+grep -v -e '^snap=' -e '^--end--$' "$d/out" > "$COUNTS_FILE"
+pg_dump -Fc --no-owner --snapshot="$snap" -U "$U" -d "$DB"
+echo "COMMIT;" >&3
+exec 3>&-
+wait "$pid" || true
+SH
+)"
