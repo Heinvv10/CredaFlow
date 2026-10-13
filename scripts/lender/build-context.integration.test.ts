@@ -6,6 +6,10 @@
  *
  *   RUN_DOCKER_BUILD_IT=1 npx vitest run scripts/lender/build-context.integration.test.ts
  *
+ * OPT-IN ONLY: scripts/run-integration-tests.sh (and so the CI integration job) does NOT
+ * export RUN_DOCKER_BUILD_IT and lists this file as "opt-in, NOT run by this gate": a full
+ * image build runs that job out of memory. Do not add it to the runner's export list.
+ *
  * Needs a clean tree (build_images refuses a dirty one); the canaries are gitignored.
  */
 import { spawnSync } from "node:child_process"
