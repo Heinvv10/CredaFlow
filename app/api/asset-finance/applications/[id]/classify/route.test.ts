@@ -120,7 +120,16 @@ describe("POST /api/asset-finance/applications/[id]/classify", () => {
     }), m.tx)
   })
 
+  it("refuses a NON_NCA classification by a user without credit authority: 403, nothing written", async () => {
+    m.tx.businessEntity.findFirst.mockResolvedValue(company({ annualTurnover: 200_000_000, financialsEvidenceIds: ["afs-1"] }))
+    const res = await classify({})
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ classification: { regime: "NON_NCA" } })
+    expect(m.tx.loanApplication.update).not.toHaveBeenCalled()
+  })
+
   it("classifies a trust with Letters of Authority and three natural trustees on its evidence", async () => {
+    m.requireApiRole.mockResolvedValue({ user: { id: "admin-b", email: "b@lender.test", role: "LOAN_ADMIN", tenantId: "tenant-1" } })
     m.tx.businessEntity.findFirst.mockResolvedValue(company({
       type: "TRUST",
       annualTurnover: 200_000_000,

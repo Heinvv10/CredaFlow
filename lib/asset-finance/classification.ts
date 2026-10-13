@@ -51,6 +51,12 @@ export interface ClassifyApplicationParams {
    * real documents belonging to this entity.
    */
   trusteeEvidenceIds?: string[]
+  /**
+   * The caller holds credit authority (`decide_asset_finance`). A NON_NCA
+   * result switches off the consumer protections, so only such a user may
+   * record one; anyone else gets `needs_credit_authority` and nothing is written.
+   */
+  mayClassifyNonNca: boolean
 }
 
 export type ClassifyApplicationResult =
@@ -59,6 +65,7 @@ export type ClassifyApplicationResult =
   | { kind: "not_entity_borrower" }
   | { kind: "regime_frozen"; status: string }
   | { kind: "needs_override"; classification: NcaClassification }
+  | { kind: "needs_credit_authority"; classification: NcaClassification }
 
 export async function classifyApplication(
   tx: RegimeTx,
@@ -120,6 +127,9 @@ export async function classifyApplication(
   // The trigger would refuse this write; answer before attempting it.
   if (application.ncaRegime === "NCA" && classification.regime === "NON_NCA") {
     return { kind: "needs_override", classification }
+  }
+  if (classification.regime === "NON_NCA" && !params.mayClassifyNonNca) {
+    return { kind: "needs_credit_authority", classification }
   }
 
   await tx.loanApplication.update({

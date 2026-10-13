@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { classifyApplication } from "@/lib/asset-finance/classification"
@@ -53,6 +53,7 @@ export async function POST(
         userId: guard.user.id,
         userEmail: guard.user.email,
         trusteeEvidenceIds,
+        mayClassifyNonNca: canDo(guard.user.role, "decide_asset_finance"),
       }),
     )
 
@@ -77,6 +78,14 @@ export async function POST(
             classification: result.classification,
           },
           { status: 409 },
+        )
+      case "needs_credit_authority":
+        return NextResponse.json(
+          {
+            error: "A NON_NCA classification switches off consumer protections and needs a user with credit authority",
+            classification: result.classification,
+          },
+          { status: 403 },
         )
       case "classified":
         return NextResponse.json({
