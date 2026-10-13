@@ -143,7 +143,7 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
       const lines = wrap(value, regular, BODY, CONTENT_WIDTH - 130)
       if (y < FLOOR + LINE_GAP) continuation()
       drawText(page, label, MARGIN + 4, y, bold, BODY, DARK)
-      for (const [i, line] of lines.entries()) {
+      for (const line of lines) {
         if (y < FLOOR) {
           continuation()
           drawText(page, `${label.replace(/:$/, "")} (cont.):`, MARGIN + 4, y, bold, BODY, DARK)
