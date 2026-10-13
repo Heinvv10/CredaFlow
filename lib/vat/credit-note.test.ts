@@ -15,6 +15,14 @@ describe("creditNoteVat", () => {
     expect(creditNoteVat(INVOICE, { exclVatCents: 0, vatCents: 0 }, 3)).toBe(0) // 0.45
   })
 
+  it("caps a partial credit at the VAT remaining after per-line invoice rounding", () => {
+    expect(creditNoteVat(
+      { exclVatCents: 20_006, vatCents: 3_000, vatRate: "0.1500" },
+      { exclVatCents: 0, vatCents: 0 },
+      20_005,
+    )).toBe(3_000)
+  })
+
   it("refuses more than is still creditable, and a non-positive amount", () => {
     expect(() => creditNoteVat(INVOICE, { exclVatCents: 1000, vatCents: 150 }, 10)).toThrow(/exceeds/)
     expect(() => creditNoteVat(INVOICE, { exclVatCents: 0, vatCents: 0 }, 0)).toThrow(RangeError)

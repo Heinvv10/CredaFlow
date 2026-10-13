@@ -235,10 +235,30 @@ suite("tax invoices and credit notes (real DB)", () => {
     it("refuses a credit note whose VAT is not the invoice rate on its value, or not the exact remainder on a full credit", async () => {
       const invoice = await db.$transaction((tx) => issueTaxInvoice(tx, invoiceInput(tenantId, 1000)))
       const note = { tenantId, invoiceId: invoice.id, issueDate: new Date("2026-10-14"), reason: "Test credit", number: 0, creditNoteNumber: "" }
-      await expect(db.creditNote.create({ data: { ...note, exclVatCents: 10, vatCents: 1, inclVatCents: 11 } })).rejects.toThrow(/half-up to its value/)
+      await expect(db.creditNote.create({ data: { ...note, exclVatCents: 10, vatCents: 1, inclVatCents: 11 } })).rejects.toThrow(/half-up/)
       await db.creditNote.create({ data: { ...note, exclVatCents: 10, vatCents: 2, inclVatCents: 12 } })
-      await expect(db.creditNote.create({ data: { ...note, exclVatCents: 990, vatCents: 147, inclVatCents: 1137 } })).rejects.toThrow(/exactly the remaining VAT/)
+      await expect(db.creditNote.create({ data: { ...note, exclVatCents: 990, vatCents: 147, inclVatCents: 1137 } })).rejects.toThrow(/remaining invoice VAT/)
       await db.creditNote.create({ data: { ...note, exclVatCents: 990, vatCents: 148, inclVatCents: 1138 } })
+    })
+
+    it("credits almost all of a multi-line invoice without exceeding its per-line VAT", async () => {
+      const invoice = await db.$transaction((tx) => issueTaxInvoice(tx, {
+        ...invoiceInput(transactionTenantId),
+        lines: [
+          { description: "Test line one", quantity: 1, unitExclVatCents: 10_003 },
+          { description: "Test line two", quantity: 1, unitExclVatCents: 10_003 },
+        ],
+      }))
+      expect(invoice.vatCents).toBe(3_000)
+
+      const note = await db.$transaction((tx) => issueCreditNote(tx, {
+        tenantId: transactionTenantId,
+        invoiceId: invoice.id,
+        issueDate: "2026-10-14",
+        reason: "Test partial return",
+        exclVatCents: 20_005,
+      }))
+      expect(note).toMatchObject({ exclVatCents: 20_005, vatCents: 3_000, inclVatCents: 23_005 })
     })
   })
 
