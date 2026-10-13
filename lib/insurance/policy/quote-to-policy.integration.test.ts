@@ -216,7 +216,7 @@ suite("quote -> disclosure -> bind, end to end, with NO hand-minted token", () =
     if (!result.ok) return
 
     // The policy carries the family TOTAL, not one life's premium.
-    const policy = await prisma.insurancePolicy.findUniqueOrThrow({ where: { id: result.policyId } })
+    const policy = await prisma.insurancePolicy.findUniqueOrThrow({ where: { id: result.policyId, tenantId: fixture.tenantId } })
     expect(policy.premiumAmount.toFixed(2)).toBe("83.00")
     expect(policy.sumAssured.toFixed(2)).toBe("20000.00")
     expect(policy.policySource).toBe("STANDALONE")

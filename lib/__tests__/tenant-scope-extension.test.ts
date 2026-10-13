@@ -230,4 +230,29 @@ describe("tenant-scope — Prisma extension query rewriter", () => {
       )
     ).rejects.toThrow(TenantScopeError)
   })
+
+  // The insurance book and cross-sell opportunities: a query that forgets its
+  // tenant throws instead of reading or writing across lenders.
+  describe.each(["InsurancePolicy", "InsuranceClaim", "PremiumPayment", "CrossSellOpportunity"])("%s", (model) => {
+    it.each([
+      ["findMany", { where: { id: "row-1" } }],
+      ["count", { where: {} }],
+      ["updateMany", { where: { id: "row-1" }, data: {} }],
+      ["create", { data: { id: "row-1" } }],
+      ["createMany", { data: [{ id: "row-1" }] }],
+    ])("%s with no frame and no tenantId throws missing-context", async (operation, args) => {
+      const rewrite = applyTenantScopeExtension()
+      await expect(
+        rewrite({ model, operation, args, query: async (a: any) => a }),
+      ).rejects.toMatchObject({ name: "TenantScopeError", reason: "missing-context", model, operation })
+    })
+
+    it("injects the frame's tenant into a query that omits it", async () => {
+      const rewrite = applyTenantScopeExtension()
+      const result = await runWithTenant("tenant-A", () =>
+        rewrite({ model, operation: "findFirst", args: { where: { id: "row-1" } }, query: async (a: any) => a }),
+      )
+      expect(result.where).toEqual({ id: "row-1", tenantId: "tenant-A" })
+    })
+  })
 })

@@ -10,9 +10,8 @@ export default async function PolicyDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  // InsurancePolicy is not in the tenant-scope extension's model list, and
-  // pages run outside a tenant frame: only this predicate keeps another
-  // lender's policy out.
+  // Pages run outside a tenant frame: this predicate keeps another lender's
+  // policy out, and the tenant-scope extension throws without it.
   const tenantId = await getStaffTenantId()
 
   const policy = await prisma.insurancePolicy.findFirst({

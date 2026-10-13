@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Pages run outside a tenant-scope frame and InsurancePolicy is not a scoped
-// model, so the page's own where clause is the only tenant boundary. The
+// Pages run outside a tenant-scope frame, so the page's own where clause is
+// the tenant boundary (the mocked Prisma does not run the extension). The
 // mocked findFirst behaves like the database: it honours whatever predicates
 // it is given, so a lookup by id alone finds another lender's policy.
 
