@@ -111,6 +111,22 @@ describe("forced TOTP enrolment (session.user.totpEnrolmentRequired)", () => {
       expect((await visit("/payments/bank-reconciliation", LEGACY, multipart())).status).toBe(403)
     })
 
+    // The matcher once skipped any path ending in an image extension, so a
+    // write to /x/y.png never reached the proxy.
+    it.each(["/x/y.png", "/crm/leads/abc.png", "/a/b.jpg", "/a/b.jpeg", "/a/b.webp", "/a/b.svg", "/a/b.ico"])(
+      "refuses a held session's POST to the image-suffixed path %s", async (pathname) => {
+        expect((await visit(pathname, FORCED, multipart())).status).toBe(403)
+        expect((await visit(pathname, FORCED, { method: "PUT" })).status).toBe(403)
+        expect((await visit(pathname, LEGACY, urlencoded())).status).toBe(403)
+      })
+
+    it("still serves a plain image read to everyone, held or not, without a session lookup", async () => {
+      for (const session of [FORCED, FREE, LEGACY, null]) {
+        const res = await visit("/brand/logo.png", session)
+        expect(res.headers.get("x-middleware-next")).toBe("1")
+      }
+    })
+
     it("does not touch a form post from a session that is not held", async () => {
       expect((await visit("/payments/bank-reconciliation", FREE, multipart())).headers.get("x-middleware-next")).toBe("1")
     })
