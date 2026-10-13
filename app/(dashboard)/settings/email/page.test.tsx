@@ -1,14 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const { requireMinRole, getResolvedTenantId, emailConfigFindUnique } = vi.hoisted(() => ({
+// The page reads with the SESSION's tenant (lib/session-tenant.ts, real here)
+// — not the request host's (getResolvedTenantId) or the deployment default.
+// All three differ below, so reading with either of the others fails.
+const { requireMinRole, getSession, emailConfigFindUnique } = vi.hoisted(() => ({
   requireMinRole: vi.fn(),
-  getResolvedTenantId: vi.fn(),
+  getSession: vi.fn(),
   emailConfigFindUnique: vi.fn(),
 }))
 
-vi.mock("@/lib/auth-guards", () => ({ requireMinRole }))
-vi.mock("@/lib/tenant", () => ({ getResolvedTenantId }))
+vi.mock("@/lib/auth-guards", () => ({ requireMinRole, redirectStaleSession: vi.fn() }))
+vi.mock("@/lib/auth-session", () => ({ getSession }))
+vi.mock("@/lib/tenant", () => ({
+  getResolvedTenantId: vi.fn(async () => "tenant-host"),
+  getDefaultTenantId: vi.fn(async () => "tenant-default"),
+}))
 vi.mock("@/lib/prisma", () => ({ prisma: { emailConfig: { findUnique: emailConfigFindUnique } } }))
 vi.mock("@/components/email/EmailConfigForm", () => ({ EmailConfigForm: () => null }))
 
@@ -24,8 +31,15 @@ function textOf(node: any): string {
 beforeEach(() => {
   vi.clearAllMocks()
   requireMinRole.mockResolvedValue(undefined)
-  getResolvedTenantId.mockResolvedValue("t1")
+  getSession.mockResolvedValue({ user: { id: "u1", role: "ADMIN", tenantId: "tenant-session" } })
   emailConfigFindUnique.mockResolvedValue(null)
+})
+
+describe("/settings/email tenant", () => {
+  it("reads the session tenant's mail configuration, not the host's or the default's", async () => {
+    await EmailSettingsPage()
+    expect(emailConfigFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-session" } }))
+  })
 })
 
 describe("/settings/email guard", () => {

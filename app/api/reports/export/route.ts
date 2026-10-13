@@ -70,6 +70,10 @@ export async function GET(req: NextRequest) {
   if (guard.error) return guard.error
   const tenant = await getTenantFromRequest(req)
   if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 400 })
+  // The host names the tenant; the caller must belong to it — the same rule as
+  // withTenantContext. Without it, staff of one lender on another lender's
+  // host would export that lender's book.
+  if (guard.user.tenantId !== tenant.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const type = req.nextUrl.searchParams.get("type") ?? "loans"
 
@@ -253,7 +257,10 @@ export async function GET(req: NextRequest) {
       "Assessed By": a.approvedBy?.name ?? "",
       Status: a.status,
       "Submitted At": a.submittedAt?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
-      "Approved At": a.approvedAt?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
+      // A decline stores its decision time in approvedAt; it was not approved.
+      "Approved At": a.status === "DECLINED"
+        ? ""
+        : a.approvedAt?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
     }))
 
     wb = createWorkbook([{ name: "Affordability Register", rows }])
@@ -582,7 +589,10 @@ export async function GET(req: NextRequest) {
     const year = sastParts(now).year
 
     const [policies, complaints] = await Promise.all([
+      // This route opens no tenant frame: the filter confines the return to
+      // this lender's book, and the tenant-scope extension throws without it.
       prisma.insurancePolicy.findMany({
+        where: { tenantId: tenant.id },
         include: {
           client: { select: { firstName: true, lastName: true } },
           insurer_rel: { select: { name: true } },

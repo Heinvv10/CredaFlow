@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 
 const { portalLoanCharges } = vi.hoisted(() => ({ portalLoanCharges: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "t@example.test" } })) }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "t1") }))
+vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: vi.fn(async () => "t1") }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/portal/loan-charges", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/portal/loan-charges")>()),

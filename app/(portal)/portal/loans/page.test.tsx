@@ -4,7 +4,7 @@ import { formatZAR } from "@/lib/utils"
 
 const { loanFindMany } = vi.hoisted(() => ({ loanFindMany: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "t@example.test" } })) }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "t1") }))
+vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: vi.fn(async () => ({ id: "c1" })) },

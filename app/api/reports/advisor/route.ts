@@ -9,6 +9,9 @@ export async function GET(req: NextRequest) {
   if (guard.error) return guard.error
   const tenant = await getTenantFromRequest(req)
   if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 400 })
+  // The caller must belong to the host's tenant — the same rule as
+  // withTenantContext — or staff of one lender read another's advisor figures.
+  if (guard.user.tenantId !== tenant.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const monthsBack = parseInt(req.nextUrl.searchParams.get("months") ?? "6")
   const now = new Date()

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { CoiClient, type CoiRosterRow } from "@/components/compliance/CoiClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastParts } from "@/lib/date/sast"
 
 function buildYearOptions(current: number, n: number = 5): number[] {
@@ -26,7 +26,7 @@ export default async function CoiPage({
   const inRange = Number.isFinite(parsed) && parsed >= minYear && parsed <= currentYear
   const year = inRange ? parsed : currentYear
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const users = await prisma.user.findMany({
     where: { tenantId, active: true },
