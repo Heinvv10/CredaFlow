@@ -9,10 +9,13 @@
  * SEED_AF_DIRECTOR_PASSWORD / SEED_AF_SURETY_PASSWORD (set on every run when
  * given), else are generated when the client row is created and printed only
  * with SEED_PRINT_CREDENTIALS=1. The seed refuses NODE_ENV=production.
+ * Emails are on the demo lender's client domain (prisma/demo-lender.ts), e.g.
+ * for the default DEMO_LENDER=acme:
  *   TEST Director One  test.director.one@acme-lending.invalid  (DIRECTOR, AUTHORISED_SIGNATORY, SURETY)
  *   TEST Surety One    test.surety.one@acme-lending.invalid    (SURETY only: no entity access)
  */
 import type { AssetClass } from "@prisma/client"
+import { demoLender } from "../demo-lender"
 
 export const AF_PRODUCT_CODE = "AF-IS"
 export const PRIME = { basis: "PRIME", effectiveDate: "2025-01-01", rate: "0.1075" } as const
@@ -61,7 +64,7 @@ export const PEOPLE: AfPerson[] = [
   { key: "surety", reference: "CLI-SEED-AF-0004", firstName: "TEST", lastName: "Surety One", idNumber: "7304045000089", dob: "1973-04-04", gender: "MALE", phone: "+27700000104", portalPasswordEnv: "SEED_AF_SURETY_PASSWORD" },
 ]
 
-export const personEmail = (p: AfPerson) => `${p.firstName}.${p.lastName.replace(/ /g, ".")}@acme-lending.invalid`.toLowerCase()
+export const personEmail = (p: AfPerson) => `${p.firstName}.${p.lastName.replace(/ /g, ".")}@${demoLender().clientDomain}`.toLowerCase()
 
 export const TRUST = {
   type: "TRUST",

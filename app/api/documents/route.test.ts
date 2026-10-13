@@ -16,6 +16,8 @@ const applicationFindFirstMock = vi.fn()
 const saveFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
+const readStatementInBackgroundMock = vi.fn()
+const recomputeClientApplicationsMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -30,7 +32,7 @@ vi.mock("@/lib/document-auth", () => ({
   getDocumentCaller: () => getDocumentCallerMock(),
   ALLOWED_MIME_TYPES: ["image/png", "application/pdf"],
   MAX_FILE_SIZE: 10 * 1024 * 1024,
-  VALID_DOC_TYPES: ["ID_COPY", "SELFIE", "BANK_STATEMENT", "OTHER"],
+  VALID_DOC_TYPES: ["ID_COPY", "SELFIE", "BANK_STATEMENT", "PAYSLIP", "OTHER"],
   MAGIC_BYTE_PREFIX: 8,
   matchesMagic: () => true,
 }))
@@ -60,6 +62,12 @@ vi.mock("@/lib/storage", () => ({
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (args: unknown) => extractDocumentDataMock(args),
 }))
+vi.mock("@/lib/credit-checks/recompute", () => ({
+  recomputeClientApplications: (...args: unknown[]) => recomputeClientApplicationsMock(...args),
+}))
+vi.mock("@/lib/statement-analysis/persist", () => ({
+  readStatementInBackground: (...args: unknown[]) => readStatementInBackgroundMock(...args),
+}))
 vi.mock("@/lib/ocr/documentValidationService", () => ({
   validateDocumentAgainstClient: (...args: unknown[]) => validateDocumentAgainstClientMock(...args),
 }))
@@ -71,6 +79,7 @@ vi.mock("@/lib/audit", () => ({
 
 import { POST } from "./route"
 import { decryptPdfIfEncrypted } from "@/lib/documents/pdf-decrypt"
+import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
 
 // Deliberately NOT mocked: a mocked decryptor cannot prove a PDF actually
 // opens, which is the whole point of the intake change.
@@ -178,6 +187,8 @@ describe("POST /api/documents", () => {
         action: "DOCUMENT_DECRYPTED_AT_INTAKE",
         entity: "ClientDocument",
         entityId: "doc-1",
+        // The rewrite erases appended revisions; the statement checks read this instead.
+        newValue: expect.objectContaining({ originalIncrementalUpdates: countIncrementalUpdates(ENCRYPTED_PDF) }),
       }),
     )
   })
@@ -315,6 +326,43 @@ describe("POST /api/documents", () => {
     }))
     expect(extractDocumentDataMock).not.toHaveBeenCalled()
     expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("reads a staff-uploaded bank statement for the credit checks", async () => {
+    const response = await POST(request("BANK_STATEMENT") as never)
+
+    expect(response.status).toBe(201)
+    expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", { onRead: expect.any(Function) })
+  })
+
+  it("raises a statement's findings on the client's applications once it is read", async () => {
+    recomputeClientApplicationsMock.mockResolvedValue(undefined)
+    await POST(request("BANK_STATEMENT") as never)
+    const { onRead } = readStatementInBackgroundMock.mock.calls[0][2] as { onRead: () => Promise<unknown> }
+    await onRead()
+    expect(recomputeClientApplicationsMock).toHaveBeenCalledWith("tenant-1", "client-1")
+  })
+
+  it("recomputes the client's applications when a payslip's extraction completes, and a failure there does not fail the extraction", async () => {
+    recomputeClientApplicationsMock.mockRejectedValue(new Error("db down"))
+    await POST(request("PAYSLIP") as never)
+    await vi.waitFor(() => expect(recomputeClientApplicationsMock).toHaveBeenCalledWith("tenant-1", "client-1"))
+    const statuses = documentUpdateManyMock.mock.calls.map((c) => (c[0] as { data: { extractionStatus: string } }).data.extractionStatus)
+    expect(statuses).toEqual(["done"])
+  })
+
+  it("does not recompute for an ID document's extraction", async () => {
+    await POST(request("ID_COPY") as never)
+    await vi.waitFor(() => expect(documentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(recomputeClientApplicationsMock).not.toHaveBeenCalled()
+  })
+
+  it("does not read a statement a consentless client uploaded, nor any other document type", async () => {
+    await POST(request("ID_COPY") as never)
+    getDocumentCallerMock.mockResolvedValue({ type: "client", clientId: "client-1", email: "client@test.invalid" })
+    await POST(request("BANK_STATEMENT") as never)
+
+    expect(readStatementInBackgroundMock).not.toHaveBeenCalled()
   })
 
   it("releases the processing lease when background extraction fails", async () => {

@@ -1,5 +1,5 @@
 /**
- * Asset-finance demo data on the Acme tenant (slice 1, goal §4.13), behind
+ * Asset-finance demo data on the demo lender's tenant (slice 1, goal §4.13), behind
  * TenantConfig.featureAssetFinance (prisma/seed.ts turns it on). Every value
  * is synthetic (./asset-finance-data.ts). Everything is written through the
  * lib functions and parsers the asset-finance routes use, inside the tenant's

@@ -6,17 +6,19 @@ const authMock = vi.fn()
 const getDefaultTenantIdMock = vi.fn()
 const userFindUniqueMock = vi.fn()
 const clientFindFirstMock = vi.fn()
+const createManyMock = vi.fn()
 
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: (a: unknown) => userFindUniqueMock(a) },
     client: { findFirst: (a: unknown) => clientFindFirstMock(a) },
+    documentAccessLog: { createMany: (a: unknown) => createManyMock(a) },
   },
 }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 
-import { logDocumentAccess, matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller } from "./document-auth"
+import { logDocumentAccess, matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller, logDocumentContentAccess } from "./document-auth"
 
 // Pad an arbitrary byte prefix out to the number of bytes callers actually read.
 function head(bytes: number[]): Uint8Array {
@@ -106,6 +108,22 @@ describe("getDocumentCaller — tenant", () => {
 
     expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b" })
     expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("logDocumentContentAccess", () => {
+  it("writes one staff access row per distinct document, and nothing for none", async () => {
+    const createMany = createManyMock
+    const req = new Request("https://acme.example/x", { headers: { "user-agent": "test-agent" } })
+    await logDocumentContentAccess({ documentIds: [], staffUserId: "u1", action: "credit_check_evidence", req })
+    expect(createMany).not.toHaveBeenCalled()
+    await logDocumentContentAccess({ documentIds: ["d1", "d2", "d1"], staffUserId: "u1", action: "credit_check_evidence", req })
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        { documentId: "d1", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+        { documentId: "d2", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+      ],
+    })
   })
 })
 

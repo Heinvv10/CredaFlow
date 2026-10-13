@@ -1,6 +1,7 @@
 /**
- * Base demo seed: one neutral demo lender ("Acme", from the identity test
- * fixture) on an empty database migrated with the baseline.
+ * Base demo seed: one demo lender (DEMO_LENDER, default the neutral "Acme"
+ * from the identity test fixture; prisma/demo-lender.ts) on an empty database
+ * migrated with the baseline.
  *
  * It seeds only states the database's own guards accept without compliance
  * evidence. Approval needs an acknowledged PASQ and a credit-life product;
@@ -20,10 +21,10 @@
 import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { randomBytes } from "node:crypto"
-import { VALID_LENDER_COLUMNS } from "../lib/config/__fixtures__/lender-identity"
 import { calculateLoan } from "../lib/loan-calculator"
 import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
 import { generateTotpSecret, generateTotpUri } from "../lib/totp"
+import { demoLender } from "./demo-lender"
 
 // Demo data with known passwords must never reach a production database.
 // Checked before any client exists; ./seed-document-templates is imported
@@ -37,8 +38,9 @@ const prisma = new PrismaClient()
 const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
 
-const BRAND = VALID_LENDER_COLUMNS.brandName ?? "Acme Lending"
-const STAFF_DOMAIN = "acme-lending.example"
+const LENDER = demoLender()
+const BRAND = LENDER.identity.brandName
+const STAFF_DOMAIN = LENDER.staffDomain
 // Demo passwords are never in source. SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD,
 // SEED_LOAN_ADMIN_{ONE,TWO}_PASSWORD, SEED_PORTAL_PASSWORD and the asset-finance
 // SEED_AF_{DIRECTOR,SURETY}_PASSWORD set them (on every run);
@@ -107,15 +109,13 @@ async function main() {
   console.log(`Seeding ${BRAND} demo data...`)
 
   const tenant = await prisma.tenant.upsert({
-    where: { slug: "acme" },
+    where: { slug: LENDER.slug },
     update: {},
-    create: { slug: "acme", name: BRAND, status: "ACTIVE" },
+    create: { slug: LENDER.slug, name: BRAND, status: "ACTIVE" },
   })
   const config = {
-    ...VALID_LENDER_COLUMNS,
-    primaryColor: "#1F4E79",
-    secondaryColor: "#245E92",
-    darkColor: "#0F1115",
+    ...LENDER.identity,
+    ...LENDER.colours,
     featureLms: true,
     featurePortal: true,
     featureReports: true,
@@ -155,7 +155,7 @@ async function main() {
   let portalPasswordUsed = false
   const clients: { id: string; income: number; expenses: number }[] = []
   for (const [i, c] of CLIENTS.entries()) {
-    const email = `${c.firstName}.${c.lastName}@acme-lending.invalid`.toLowerCase()
+    const email = `${c.firstName}.${c.lastName}@${LENDER.clientDomain}`.toLowerCase()
     // idNumber is globally unique: refuse rather than rewrite another tenant's client.
     const existing = await prisma.client.findUnique({ where: { idNumber: c.idNumber }, select: { tenantId: true } })
     if (existing && existing.tenantId !== tenant.id) {
@@ -212,7 +212,7 @@ async function main() {
   const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
   await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
 
-  console.log(`\nSeed complete: tenant "acme" (${BRAND}).`)
+  console.log(`\nSeed complete: tenant "${LENDER.slug}" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {
     console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD, SEED_LOAN_ADMIN_ONE_PASSWORD, SEED_LOAN_ADMIN_TWO_PASSWORD and SEED_PORTAL_PASSWORD to choose or reset them.")
     return

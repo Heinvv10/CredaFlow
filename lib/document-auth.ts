@@ -140,3 +140,27 @@ export async function logDocumentAccess(
     },
   })
 }
+
+/**
+ * Records that staff were shown content read out of client documents without
+ * opening the file itself, e.g. statement transactions quoted as credit-check
+ * evidence. One DocumentAccessLog row per document (POPIA).
+ */
+export async function logDocumentContentAccess(opts: {
+  documentIds: string[]
+  staffUserId: string
+  action: string
+  req: Request
+}): Promise<void> {
+  if (opts.documentIds.length === 0) return
+  await prisma.documentAccessLog.createMany({
+    data: [...new Set(opts.documentIds)].map((documentId) => ({
+      documentId,
+      accessorType: "staff",
+      accessorId: opts.staffUserId,
+      action: opts.action,
+      ipAddress: opts.req.headers.get("x-forwarded-for") ?? null,
+      userAgent: opts.req.headers.get("user-agent") ?? null,
+    })),
+  })
+}
