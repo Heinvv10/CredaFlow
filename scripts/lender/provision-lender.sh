@@ -4,12 +4,16 @@
 # Idempotent: every step checks before it acts; a rerun never rotates a secret,
 # never recreates the tenant and never mints a second admin.
 #
-#   provision-lender.sh <lender-dir> --config <lender.json> --port <host-port> \
-#       --public-url <https://…> [--admin-email <email>] [--image name:tag] [--build] [--bind <addr>]
+#   provision-lender.sh <lender-dir> --config <lender.json> --port <host-port> --public-url <https://…> \
+#       --portal-port <host-port> --portal-url <https://…> \
+#       [--admin-email <email>] [--image name:tag] [--build] [--bind <addr>]
 #
 #   --config      tenant config (see scripts/lender/tenant-config.ts; docs/ONBOARDING.md)
 #   --port        host port the app is published on (loopback unless --bind)
-#   --public-url  the origin users reach (NEXTAUTH_URL / AUTH_URL)
+#   --public-url  the staff origin (NEXTAUTH_URL / AUTH_URL)
+#   --portal-port, --portal-url  the client portal's own host port and origin: a
+#                 second container with its own session secret (STAFF_AUTH_SECRET
+#                 and PORTAL_AUTH_SECRET are generated distinct, in secrets/auth.env)
 #   --admin-email the first SUPER_ADMIN; required until one exists
 #   --image       name:tag to run (default credaflow-<slug>:<git sha>)
 #   --build       build the images from this (clean) checkout first
@@ -20,14 +24,16 @@ set -euo pipefail
 # shellcheck source=scripts/lender/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-USAGE="usage: provision-lender.sh <lender-dir> --config <lender.json> --port <N> --public-url <url> [--admin-email <email>] [--image name:tag] [--build] [--bind <addr>]"
+USAGE="usage: provision-lender.sh <lender-dir> --config <lender.json> --port <N> --public-url <url> --portal-port <N> --portal-url <url> [--admin-email <email>] [--image name:tag] [--build] [--bind <addr>]"
 target="${1:-}"; shift || true
-config="" port="" public_url="" admin_email="" image="" build=false bind=""
+config="" port="" portal_port="" portal_url="" public_url="" admin_email="" image="" build=false bind=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --config) config="${2:?$USAGE}"; shift 2 ;;
     --port) port="${2:?$USAGE}"; shift 2 ;;
     --public-url) public_url="${2:?$USAGE}"; shift 2 ;;
+    --portal-port) portal_port="${2:?$USAGE}"; shift 2 ;;
+    --portal-url) portal_url="${2:?$USAGE}"; shift 2 ;;
     --admin-email) admin_email="${2:?$USAGE}"; shift 2 ;;
     --image) image="${2:?$USAGE}"; shift 2 ;;
     --bind) bind="${2:?$USAGE}"; shift 2 ;;
@@ -35,7 +41,9 @@ while [ $# -gt 0 ]; do
     *) die "$USAGE" ;;
   esac
 done
-[ -n "$target" ] && [ -f "$config" ] && [[ "$port" =~ ^[0-9]+$ ]] && [ -n "$public_url" ] || die "$USAGE"
+[ -n "$target" ] && [ -f "$config" ] && [[ "$port" =~ ^[0-9]+$ ]] && [ -n "$public_url" ] \
+  && [[ "$portal_port" =~ ^[0-9]+$ ]] && [ -n "$portal_url" ] || die "$USAGE"
+[ "$port" != "$portal_port" ] || die "--port and --portal-port must differ"
 need docker jq openssl gpg curl
 SLUG="$(jq -er .slug "$config")" || die "$config is not JSON with a slug"
 [[ "$SLUG" =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "slug '$SLUG' in $config is malformed"
@@ -59,6 +67,9 @@ add APP_PORT "$port"
 [ -z "$bind" ] || add APP_BIND "$bind"
 add NEXTAUTH_URL "$public_url"
 add AUTH_URL "$public_url"
+add PORTAL_PORT "$portal_port"
+add PORTAL_NEXTAUTH_URL "$portal_url"
+add NEXT_PUBLIC_PORTAL_LOGIN_URL "${portal_url%/}/portal/login"   # baked at build
 add POSTGRES_USER credaflow
 add POSTGRES_DB credaflow
 add POSTGRES_PASSWORD "$(openssl rand -hex 24)"
@@ -77,6 +88,14 @@ if ! grep -q '^# --- Provider credentials' "$env"; then
 # DEBIT_MANDATE_CREDITOR_BANK_NAME= DEBIT_MANDATE_CREDITOR_ACCOUNT_NUMBER= DEBIT_MANDATE_CREDITOR_BRANCH_CODE=
 ENVTODO
 fi
+# Per-host session secrets, in their own file so no container reads the other's
+# (compose interpolates it; it is not an env_file). Never rotated by a rerun.
+auth="$target/secrets/auth.env"
+[ -e "$auth" ] || (umask 077; : > "$auth")
+chmod 600 "$auth"
+for key in STAFF_AUTH_SECRET PORTAL_AUTH_SECRET; do
+  [ -n "$(env_get "$auth" "$key")" ] || { env_set "$auth" "$key" "$(openssl rand -hex 32)"; note "generated $key"; }
+done
 pass="$target/secrets/backup.passphrase"
 if [ ! -s "$pass" ]; then
   (umask 077; openssl rand -base64 33 > "$pass")
@@ -85,6 +104,7 @@ fi
 
 load_lender "$target"
 [ "$(env_get "$ENV_FILE" NEXT_PUBLIC_TENANT_SLUG)" = "$SLUG" ] || die "$ENV_FILE belongs to another lender"
+check_auth_secrets
 
 # 3. Images, database, migrations.
 ensure_images "$image" "$build"
@@ -115,4 +135,4 @@ fi
 
 # 6. Start the app: the normal deploy path (backup, migrate no-op, switch, health).
 "$LENDER_SCRIPTS/deploy.sh" "$LENDER_DIR" "$image"
-note "lender '$SLUG' is up at $(env_get "$ENV_FILE" NEXTAUTH_URL) (host port $APP_PORT); project $PROJECT; dir $LENDER_DIR"
+note "lender '$SLUG' is up at $(env_get "$ENV_FILE" NEXTAUTH_URL) (staff host port $APP_PORT, portal $(env_get "$ENV_FILE" PORTAL_NEXTAUTH_URL) host port $PORTAL_PORT); project $PROJECT; dir $LENDER_DIR"

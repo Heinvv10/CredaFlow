@@ -7,9 +7,11 @@
 #             (refuses a dirty tree); without it both must exist locally or be
 #             pullable from a registry.
 #
-# Order: images present -> database up -> pre-migration backup -> prisma migrate
-# deploy (the old app is still serving) -> switch the app -> GET /api/health
-# (HTTP 200, status ok = DB reachable, commit = the image's own GIT_SHA) -> done.
+# It first refuses unless the staff and portal session secrets are set and
+# distinct (check_auth_secrets). Order: images present -> database up ->
+# pre-migration backup -> prisma migrate deploy (the old app is still serving) ->
+# switch app and app-portal -> GET /api/health on BOTH hosts (HTTP 200, status ok
+# = DB reachable, commit = the image's own GIT_SHA) -> done.
 # Never a pull/build/restart inside a live directory: the image exists before
 # the switch, and the switch is one `compose up -d app`.
 #
@@ -35,12 +37,12 @@ done
 [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "--health-timeout must be a positive integer"
 need docker curl jq flock
 load_lender "$dir"
+check_auth_secrets
 exec 9>"$STATE_DIR/deploy.lock"
 flock -n 9 || die "another deploy of $SLUG is running"
 
 log() { printf '%s %s image=%s commit=%s %s\n' "$(utc_stamp)" "$1" "$image" "${expected:-?}" "${2:-}" >> "$STATE_DIR/deploys.log"; }
 set_image() { printf 'APP_IMAGE=%s\n' "$1" > "$STATE_DIR/image.env.tmp"; mv "$STATE_DIR/image.env.tmp" "$STATE_DIR/image.env"; }
-health_url="http://127.0.0.1:$APP_PORT/api/health"
 
 ensure_images "$image" "$build"
 tools="$(tools_image_of "$image")"
@@ -69,8 +71,8 @@ fi
 
 note "switching app to $image"
 set_image "$image"
-lcompose up -d --no-deps app >/dev/null
-if wait_health "$health_url" "$expected" "$timeout"; then
+lcompose up -d --no-deps app app-portal >/dev/null
+if wait_stack_health "$expected" "$timeout"; then
   printf '%s\n' "$image" > "$STATE_DIR/current-image"
   [ -z "$prev" ] || [ "$prev" = "$image" ] || printf '%s\n' "$prev" > "$STATE_DIR/previous-image"
   log DEPLOYED "backup=${backup:-none} previous=${prev:-none}"
@@ -83,14 +85,14 @@ log HEALTH_FAILED "backup=${backup:-none}"
 if [ -n "$prev" ] && [ "$prev" != "$image" ]; then
   note "rolling the app back to $prev"
   set_image "$prev"
-  lcompose up -d --no-deps app >/dev/null
-  if wait_health "$health_url" "$(image_commit "$prev" 2>/dev/null || true)" "$timeout"; then
+  lcompose up -d --no-deps app app-portal >/dev/null
+  if wait_stack_health "$(image_commit "$prev" 2>/dev/null || true)" "$timeout"; then
     log ROLLED_BACK "to=$prev"
     die "ROLLED BACK to $prev: $image failed its health check. Migrations are NOT reverted (backup before them: ${backup:-none})"
   fi
   log ROLLBACK_FAILED "to=$prev"
   die "rollback to $prev is ALSO unhealthy; investigate: compose logs app. Backup before the migration: ${backup:-none}"
 fi
-lcompose stop app >/dev/null
+lcompose stop app app-portal >/dev/null
 log STOPPED "no previous image"
 die "no previous image to roll back to; app stopped. Backup before the migration: ${backup:-none}"

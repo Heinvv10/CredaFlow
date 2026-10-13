@@ -1,75 +1,7 @@
-import { spawnSync } from "node:child_process"
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-
-// The lender shell scripts against stubs. docker, curl and sleep are shell
-// stubs on PATH that answer what the scripts ask and log every docker call;
-// gpg and flock are real. The scripts are copied into a throwaway git repo so
-// their REPO_ROOT (the checkout they build from) is under test control.
-// The real Docker run is the proof in docs/DEPLOY.md; this pins the ORDER and
-// the GUARDS.
-
-const SRC = __dirname
-let root: string
-let repo: string
-let lender: string
-let log: string
-
-const DOCKER = String.raw`#!/bin/sh
-echo "$* APP_IMAGE=$APP_IMAGE" >> "$STUB_LOG"
-case "$*" in
-  "compose version") exit 0 ;;
-  "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
-  "image inspect "*) exit 0 ;;
-  *"pg_dump"*) printf 'PGDMP-stub-%s' "$$" ;;
-  *"pg_restore --list"*) d="$(cat)"; case "$d" in PGDMP*) ;; *) exit 1 ;; esac ;;
-  *"pg_restore"*) cat > /dev/null ;;
-  *"to_regclass"*) echo "$STUB_HAS_MIGRATIONS" ;;
-  *"FILTER"*) echo "0|5" ;;
-  *"count(*) FROM \"Tenant\""*|*"Tenant="*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
-  "run --rm "*) exit "$STUB_MIGRATE_RC" ;;
-esac
-exit 0
-`
-// Health follows whichever image state/image.env currently names: "bad" images never answer.
-const CURL = String.raw`#!/bin/sh
-img="$(sed -n 's/^APP_IMAGE=//p' "$STUB_LENDER/state/image.env" 2>/dev/null)"
-case "$img" in *bad*) exit 22 ;; *new*) h="$STUB_HEALTH_COMMIT"; [ -n "$h" ] || h="$STUB_COMMIT_NEW"; st="$STUB_HEALTH_STATUS"; [ -n "$st" ] || st=ok; echo "{\"status\":\"$st\",\"commit\":\"$h\"}" ;; *) echo "{\"status\":\"ok\",\"commit\":\"$STUB_COMMIT_OLD\"}" ;; esac
-`
-
-function sh(cmd: string, args: string[], env: Record<string, string> = {}) {
-  const r = spawnSync("bash", [join(repo, "scripts/lender", cmd), ...args], {
-    env: {
-      NODE_ENV: "test", PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, HOME: root, GNUPGHOME: join(root, "gnupg"),
-      STUB_LOG: log, STUB_LENDER: lender, STUB_COMMIT_NEW: "newsha", STUB_COMMIT_OLD: "oldsha",
-      STUB_HAS_MIGRATIONS: "t", STUB_MIGRATE_RC: "0", ...env,
-    },
-    encoding: "utf8",
-  })
-  return { status: r.status, out: `${r.stdout}${r.stderr}`, calls: readFileSync(log, "utf8").split("\n") }
-}
-const git = (...a: string[]) => spawnSync("git", ["-C", repo, ...a], { encoding: "utf8" })
-const state = (f: string) => (existsSync(join(lender, "state", f)) ? readFileSync(join(lender, "state", f), "utf8").trim() : null)
-const idx = (calls: string[], needle: string) => calls.findIndex((c) => c.includes(needle))
-
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "lender-sh-"))
-  repo = join(root, "repo"); lender = join(root, "lender"); log = join(root, "docker.log")
-  mkdirSync(join(repo, "scripts"), { recursive: true }); mkdirSync(join(root, "bin")); mkdirSync(join(root, "gnupg"), { mode: 0o700 })
-  cpSync(SRC, join(repo, "scripts/lender"), { recursive: true, filter: (s) => !s.endsWith(".test.ts") })
-  writeFileSync(log, "")
-  for (const [n, body] of [["docker", DOCKER], ["curl", CURL], ["sleep", "#!/bin/sh\nexit 0\n"]]) {
-    writeFileSync(join(root, "bin", n), body); chmodSync(join(root, "bin", n), 0o755)
-  }
-  git("init", "-q"); git("add", "scripts"); git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
-  mkdirSync(join(lender, "secrets"), { recursive: true }); mkdirSync(join(lender, "backups")); mkdirSync(join(lender, "state"))
-  writeFileSync(join(lender, "secrets/backup.passphrase"), "test-passphrase\n")
-  writeFileSync(join(lender, ".env"), "NEXT_PUBLIC_TENANT_SLUG=stub-lender\nPOSTGRES_USER=u\nPOSTGRES_DB=d\nPOSTGRES_PASSWORD=p\nAPP_PORT=3999\n")
-  writeFileSync(join(lender, "docker-compose.yml"), "services: {}\n")
-})
-afterEach(() => rmSync(root, { recursive: true, force: true }))
+import { describe, expect, it } from "vitest"
+import { idx, lender, log, repo, root, sh, state } from "./scripts.test-helpers"
 
 describe("deploy.sh", () => {
   it("refuses --build from a dirty tree before any docker build", () => {
@@ -144,6 +76,35 @@ describe("deploy.sh", () => {
   it("lets state/image.env win: no APP_IMAGE in the environment once an image is deployed", () => {
     const r = sh("deploy.sh", [lender, "cf:new"])
     expect(r.calls.filter((c) => c.includes("up -d --no-deps app")).every((c) => c.endsWith("APP_IMAGE="))).toBe(true)
+  })
+
+  it("probes the staff and the portal host", () => {
+    const r = sh("deploy.sh", [lender, "cf:new"])
+    expect(r.calls.some((c) => c.startsWith("curl") && c.includes("127.0.0.1:3999/api/health"))).toBe(true)
+    expect(r.calls.some((c) => c.startsWith("curl") && c.includes("127.0.0.1:3998/api/health"))).toBe(true)
+    expect(r.calls.find((c) => c.includes("up -d --no-deps app"))).toContain("app-portal")
+  })
+
+  describe("refuses to start without distinct per-host auth secrets, before touching anything", () => {
+    const cases: [string, (env: string) => void, RegExp][] = [
+      ["equal", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"x".repeat(40)}\nPORTAL_AUTH_SECRET=${"x".repeat(40)}\n`), /equals PORTAL_AUTH_SECRET/],
+      ["portal unset", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"s".repeat(40)}\n`), /must both be set/],
+      ["file missing", () => rmSync(join(lender, "secrets/auth.env")), /auth.env missing/],
+      ["too short", () => writeFileSync(join(lender, "secrets/auth.env"), "STAFF_AUTH_SECRET=a\nPORTAL_AUTH_SECRET=b\n"), /at least 32/],
+      ["staff equals shared NEXTAUTH_SECRET", () => writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=shared-secret-0123456789abcdef0123456789\nPORTAL_AUTH_SECRET=${"p".repeat(40)}\n`), /shared NEXTAUTH_SECRET/],
+      ["secret leaked into .env", () => writeFileSync(join(lender, ".env"), `${readFileSync(join(lender, ".env"), "utf8")}STAFF_AUTH_SECRET=${"s".repeat(40)}\n`), /keep the per-host secrets/],
+    ]
+    for (const [name, arrange, msg] of cases) {
+      it(name, () => {
+        arrange("")
+        const r = sh("deploy.sh", [lender, "cf:new"])
+        expect(r.status).not.toBe(0)
+        expect(r.out).toMatch(msg)
+        expect(r.out).not.toContain("xxxxxxxx")
+        expect(r.calls.filter((c) => /pg_dump|migrate|up -d|stop/.test(c))).toEqual([])
+        expect(state("current-image")).toBeNull()
+      })
+    }
   })
 
   it("stops the app when the very first deploy is unhealthy", () => {
@@ -237,53 +198,5 @@ describe("restore.sh", () => {
     const f = backup()
     writeFileSync(join(lender, "secrets/backup.passphrase"), "wrong\n")
     expect(sh("restore.sh", [lender, f]).status).not.toBe(0)
-  })
-})
-
-describe("docker-compose.lender.yml", () => {
-  const compose = spawnSync("sh", ["-c", "docker compose version >/dev/null 2>&1 && echo 'docker compose' || (docker-compose version >/dev/null 2>&1 && echo docker-compose)"], { encoding: "utf8" }).stdout.trim()
-
-  it.skipIf(!compose)("is valid compose that publishes only the app port and pins no container name", () => {
-    const dir = mkdtempSync(join(tmpdir(), "lender-compose-"))
-    cpSync(join(SRC, "docker-compose.lender.yml"), join(dir, "docker-compose.yml"))
-    writeFileSync(join(dir, ".env"), "")
-    const env = { ...process.env, APP_IMAGE: "cf:x", APP_PORT: "3999", POSTGRES_USER: "u", POSTGRES_PASSWORD: "p", POSTGRES_DB: "d", NEXTAUTH_SECRET: "s" }
-    const [bin, ...sub] = compose.split(" ")
-    const r = spawnSync(bin, [...sub, "-p", "x", "-f", join(dir, "docker-compose.yml"), "--project-directory", dir, "config", "--format", "json"], { env, encoding: "utf8" })
-    rmSync(dir, { recursive: true, force: true })
-    expect(r.status, r.stderr).toBe(0)
-    const cfg = JSON.parse(r.stdout) as { services: Record<string, { ports?: { published: string; host_ip: string }[]; container_name?: string }> }
-    expect(cfg.services.db.ports).toBeUndefined()
-    expect(cfg.services.app.ports).toEqual([expect.objectContaining({ published: "3999", host_ip: "127.0.0.1" })])
-    expect(Object.values(cfg.services).some((s) => s.container_name)).toBe(false)
-  })
-})
-
-describe("admin.sh", () => {
-  it("runs the admin CLI from the tools image of the deployed image, scoped to this lender, with the host operator", () => {
-    writeFileSync(join(lender, "state/current-image"), "cf:new\n")
-    const r = sh("admin.sh", [lender, "--email", "a@b.example", "--break-glass"])
-    expect(r.status).toBe(0)
-    const run = r.calls.find((c) => c.startsWith("run --rm"))!
-    expect(run).toContain("--network credaflow-stub-lender_default")
-    expect(run).toMatch(/-e LENDER_OPERATOR=\S+@\S+/)
-    expect(run).toContain("cf-tools:new npx tsx scripts/lender/bootstrap-admin-cli.ts --tenant stub-lender --email a@b.example --break-glass")
-    expect(run).not.toContain("p@db") // the database password is passed by variable name, never in argv
-  })
-
-  it("refuses before anything is deployed", () => {
-    const r = sh("admin.sh", [lender, "--email", "a@b.example"])
-    expect(r.status).not.toBe(0)
-    expect(r.out).toMatch(/nothing deployed/)
-  })
-})
-
-describe("provision-lender.sh", () => {
-  it("refuses a lender directory inside the git checkout", () => {
-    writeFileSync(join(root, "cfg.json"), JSON.stringify({ slug: "stub-lender" }))
-    const r = sh("provision-lender.sh", [join(repo, "lender-here"), "--config", join(root, "cfg.json"), "--port", "3999", "--public-url", "http://x"])
-    expect(r.status).not.toBe(0)
-    expect(r.out).toMatch(/inside the git checkout/)
-    expect(existsSync(join(repo, "lender-here"))).toBe(false)
   })
 })

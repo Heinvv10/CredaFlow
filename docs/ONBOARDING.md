@@ -13,7 +13,7 @@ any script and need a human, a credential or a sign-off.
   lender's registration certificates, not from an email.
 - Brand colours (three hex values) and logo. The tenant API refuses a colour set
   that fails WCAG AA.
-- Where it runs: host, a free port, the public hostname, who terminates TLS.
+- Where it runs: host, two free ports (staff and portal), the two public hostnames, who terminates TLS.
 - Who the first administrator is (a named person's email).
 
 ## 1. Write the tenant config
@@ -41,12 +41,13 @@ From a clean checkout at the commit you intend to run:
 ```bash
 scripts/lender/provision-lender.sh /srv/lenders/<slug> \
   --config /path/to/lender.json --port <free port> \
-  --public-url https://<public host> --admin-email <first admin> --build
+  --public-url https://<staff host> --portal-port <second free port> \
+  --portal-url https://<portal host> --admin-email <first admin> --build
 ```
 
 What it does, in order, each step safe to rerun: creates the 0700 directory and a 0600
 `.env` with generated secrets; builds the runtime and tools images; starts the
-database; `prisma migrate deploy`; tenant dry-run then create (tenant, config,
+database; separate staff and portal session secrets (`secrets/auth.env`); `prisma migrate deploy`; tenant dry-run then create (tenant, config,
 audit rows, default document and message templates); sets
 `DEBIT_MANDATE_CREDITOR_TENANT_ID`; creates the first SUPER_ADMIN; then
 `deploy.sh` (backup, switch, health check). It refuses a dirty tree, and a lender
@@ -62,7 +63,8 @@ secret/URI **now**. They are shown once.
 ## 3. Check it is alive
 
 ```bash
-curl -s http://127.0.0.1:<port>/api/health     # status ok, commit = the image's
+curl -s http://127.0.0.1:<port>/api/health          # staff: status ok, commit = the image's
+curl -s http://127.0.0.1:<portal port>/api/health   # portal
 ```
 
 Sign in at `<public url>/login` as the administrator with email, password and the
@@ -117,7 +119,7 @@ image (`deploy.sh <dir> <image>`) so the container is recreated with the new val
 ## 7. Go-live checklist
 
 - [ ] TLS and DNS in front of `127.0.0.1:<port>`; `TRUSTED_PROXY` set to the proxy count.
-- [ ] `NEXTAUTH_URL`/`AUTH_URL` equal the public origin.
+- [ ] `NEXTAUTH_URL`/`AUTH_URL` equal the staff origin, `PORTAL_NEXTAUTH_URL` the portal origin, and the proxy routes each host to its own port.
 - [ ] **TODO:** an external scheduler calling `dpd-update`, `reminders`, `escalations`
       with `x-cron-secret` (not installed by these scripts).
 - [ ] Nightly `backup.sh` and a weekly `restore.sh … --drop-scratch` in cron (lines in

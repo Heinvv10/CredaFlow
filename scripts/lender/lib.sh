@@ -9,6 +9,7 @@
 #   .env                   generated secrets + settings, mode 0600
 #   docker-compose.yml     copy of docker-compose.lender.yml
 #   secrets/backup.passphrase   encrypts backups, mode 0600. COPY IT OFF THIS HOST.
+#   secrets/auth.env       STAFF_AUTH_SECRET + PORTAL_AUTH_SECRET, mode 0600; compose interpolation only
 #   backups/               encrypted pg_dump files + row-count sidecars
 #   state/                 image.env, current-image, previous-image, deploys.log
 
@@ -35,7 +36,7 @@ env_set() {
   mv "$tmp" "$file"
 }
 
-# load_lender DIR — sets LENDER_DIR, ENV_FILE, STATE_DIR, SLUG, PROJECT, PGUSER, PGDB, APP_PORT.
+# load_lender DIR — sets LENDER_DIR, ENV_FILE, AUTH_ENV, STATE_DIR, SLUG, PROJECT, PGUSER, PGDB, APP_PORT, PORTAL_PORT.
 load_lender() {
   [ -n "${1:-}" ] || die "usage: ${0##*/} <lender-dir> …"
   [ -d "$1" ] || die "lender dir $1 does not exist (run provision-lender.sh first)"
@@ -47,8 +48,10 @@ load_lender() {
   [[ "$SLUG" =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "NEXT_PUBLIC_TENANT_SLUG in $ENV_FILE is missing or malformed"
   PROJECT="credaflow-$SLUG"
   PGUSER="$(env_get "$ENV_FILE" POSTGRES_USER)" PGDB="$(env_get "$ENV_FILE" POSTGRES_DB)"
-  APP_PORT="$(env_get "$ENV_FILE" APP_PORT)"
-  [ -n "$PGUSER" ] && [ -n "$PGDB" ] && [ -n "$APP_PORT" ] || die "$ENV_FILE lacks POSTGRES_USER, POSTGRES_DB or APP_PORT"
+  APP_PORT="$(env_get "$ENV_FILE" APP_PORT)" PORTAL_PORT="$(env_get "$ENV_FILE" PORTAL_PORT)"
+  [ -n "$PGUSER" ] && [ -n "$PGDB" ] && [ -n "$APP_PORT" ] && [ -n "$PORTAL_PORT" ] \
+    || die "$ENV_FILE lacks POSTGRES_USER, POSTGRES_DB, APP_PORT or PORTAL_PORT"
+  AUTH_ENV="$LENDER_DIR/secrets/auth.env"
   mkdir -p "$STATE_DIR"
 }
 
@@ -57,6 +60,7 @@ load_lender() {
 # environment cannot point `down`/`up` at another stack.
 lcompose() {
   local envs=(--env-file "$ENV_FILE") pre=(env)
+  [ ! -f "$AUTH_ENV" ] || envs+=(--env-file "$AUTH_ENV")
   # Compose interpolates the whole file even for `up db`. Before the first deploy
   # there is no state/image.env, so name an image that cannot exist (a stray
   # `up app` then fails: pull_policy never) instead of failing every command.
@@ -161,3 +165,26 @@ UNION ALL SELECT 'Loan='||count(*) FROM "Loan" UNION ALL SELECT 'Payment='||coun
 UNION ALL SELECT 'AuditLog='||count(*) FROM "AuditLog" UNION ALL SELECT 'migrations='||count(*) FROM _prisma_migrations
 SQL
 )"
+
+# check_auth_secrets — refuse (before anything changes) unless the staff and
+# portal session secrets are both set, long, different from each other and from
+# the shared NEXTAUTH_SECRET, and live only in secrets/auth.env: in .env they
+# would reach both containers through env_file. Values are never printed.
+check_auth_secrets() {
+  local staff portal shared k
+  [ -f "$AUTH_ENV" ] || die "$AUTH_ENV missing: staff and portal need separate session secrets (run provision-lender.sh)"
+  staff="$(env_get "$AUTH_ENV" STAFF_AUTH_SECRET)" portal="$(env_get "$AUTH_ENV" PORTAL_AUTH_SECRET)"
+  shared="$(env_get "$ENV_FILE" NEXTAUTH_SECRET)"
+  [ -n "$staff" ] && [ -n "$portal" ] || die "STAFF_AUTH_SECRET and PORTAL_AUTH_SECRET must both be set in $AUTH_ENV"
+  [ "${#staff}" -ge 32 ] && [ "${#portal}" -ge 32 ] || die "STAFF_AUTH_SECRET and PORTAL_AUTH_SECRET must each be at least 32 characters"
+  [ "$staff" != "$portal" ] || die "refusing to deploy: STAFF_AUTH_SECRET equals PORTAL_AUTH_SECRET (staff and client sessions would be replayable across hosts)"
+  { [ "$staff" != "$shared" ] && [ "$portal" != "$shared" ]; } || die "refusing to deploy: an auth secret equals the shared NEXTAUTH_SECRET"
+  for k in STAFF_AUTH_SECRET PORTAL_AUTH_SECRET AUTH_SECRET; do
+    [ -z "$(env_get "$ENV_FILE" "$k")" ] || die "refusing to deploy: $k is set in $ENV_FILE, which both containers read; keep the per-host secrets in $AUTH_ENV only"
+  done
+}
+
+# wait_stack_health EXPECT_COMMIT TIMEOUT — both hosts (staff, portal) healthy.
+wait_stack_health() {
+  wait_health "http://127.0.0.1:$APP_PORT/api/health" "$1" "$2" && wait_health "http://127.0.0.1:$PORTAL_PORT/api/health" "$1" "$2"
+}

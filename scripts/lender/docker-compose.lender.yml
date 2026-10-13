@@ -1,11 +1,12 @@
 # One lender = one compose project = one app, one Postgres and their named
 # volumes. provision-lender.sh copies this file into the lender directory;
 # every script runs it as `-p credaflow-<slug> --project-directory <lender-dir>
-# --env-file .env --env-file state/image.env`, so nothing here is host-specific:
+# --env-file .env --env-file secrets/auth.env --env-file state/image.env`, so nothing here is host-specific:
 # no container_name, no fixed port, no path outside the lender directory.
 #
 # APP_IMAGE comes from state/image.env (written by deploy.sh), never from .env,
 # so it does not leak into the container and a rollback is one file write.
+# STAFF_AUTH_SECRET / PORTAL_AUTH_SECRET live in secrets/auth.env for the same reason.
 # Database credentials come from .env (mode 0600, generated, never echoed).
 #
 # The database is not published. Operator tooling (migrations, bootstrap,
@@ -38,11 +39,46 @@ services:
       NODE_ENV: production
       PORT: "3300"
       HOSTNAME: 0.0.0.0
-      AUTH_SECRET: ${NEXTAUTH_SECRET}
-    # Bound to loopback by default: a TLS-terminating reverse proxy on the host
-    # (or the managed platform's router) fronts it. Set APP_BIND to publish wider.
+      APP_MODE: staff
+      # Per-host session secret, interpolated from secrets/auth.env (an --env-file
+      # of lcompose, NOT this file's env_file): neither container ever sees the
+      # other's secret, and there is no fallback to a shared one.
+      AUTH_SECRET: ${STAFF_AUTH_SECRET:?STAFF_AUTH_SECRET is unset (secrets/auth.env)}
+    # Staff host. Bound to loopback by default: a TLS-terminating reverse proxy on
+    # the host (or the managed platform's router) fronts it. Set APP_BIND to publish wider.
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:?APP_PORT is unset in .env}:3300"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3300/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - uploads:/app/uploads
+
+  # Client portal: the same image in client mode on its own host and port, with
+  # its own session secret and origin, so staff and client sessions cannot be
+  # replayed against each other.
+  app-portal:
+    image: "${APP_IMAGE:?APP_IMAGE is unset, deploy with deploy.sh (it writes state/image.env)}"
+    pull_policy: never
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      NODE_ENV: production
+      PORT: "3300"
+      HOSTNAME: 0.0.0.0
+      APP_MODE: client
+      NEXTAUTH_URL: ${PORTAL_NEXTAUTH_URL:?PORTAL_NEXTAUTH_URL is unset in .env}
+      AUTH_URL: ${PORTAL_NEXTAUTH_URL}
+      AUTH_SECRET: ${PORTAL_AUTH_SECRET:?PORTAL_AUTH_SECRET is unset (secrets/auth.env)}
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${PORTAL_PORT:?PORTAL_PORT is unset in .env}:3300"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3300/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]

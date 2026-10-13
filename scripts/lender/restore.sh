@@ -79,11 +79,11 @@ fi
 
 note "--over-live: safety backup of the current database first"
 "$LENDER_SCRIPTS/backup.sh" "$LENDER_DIR" --label pre-restore >/dev/null
-lcompose stop app >/dev/null
+lcompose stop app app-portal >/dev/null
 psql_db postgres "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname IN ('$PGDB','$scratch') AND pid <> pg_backend_pid()" >/dev/null
 psql_db postgres "ALTER DATABASE \"$PGDB\" RENAME TO \"$old\"; ALTER DATABASE \"$scratch\" RENAME TO \"$PGDB\"" >/dev/null
-lcompose up -d --no-deps app >/dev/null
-if wait_health "http://127.0.0.1:$APP_PORT/api/health" "" 120; then
+lcompose up -d --no-deps app app-portal >/dev/null
+if wait_stack_health "" 120; then
   note "RESTORED over live. Previous database kept as \"$old\" (undo: stop app; rename it back)."
 else
   die "app unhealthy after restore; previous database kept as \"$old\" (stop app, ALTER DATABASE \"$PGDB\" RENAME TO …; ALTER DATABASE \"$old\" RENAME TO \"$PGDB\")"

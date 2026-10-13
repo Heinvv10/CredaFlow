@@ -1,7 +1,7 @@
 # Running one lender
 
-One lender = one directory = one compose project (`credaflow-<slug>`) = one app
-container + one Postgres + their named volumes. Nothing in these scripts knows
+One lender = one directory = one compose project (`credaflow-<slug>`) = a staff
+app container, a client-portal container, one Postgres and their named volumes. Nothing in these scripts knows
 the host: a VPS, a managed Docker host or a laptop all work. Everything lives in
 `scripts/lender/`; `docs/ONBOARDING.md` is the order to do it in.
 
@@ -17,6 +17,7 @@ directory **outside** the git checkout (the scripts refuse otherwise).
   .env                         mode 0600: generated secrets + settings. Never echoed.
   docker-compose.yml           copy of scripts/lender/docker-compose.lender.yml
   secrets/backup.passphrase    mode 0600: encrypts backups. COPY IT OFF THE HOST.
+  secrets/auth.env             mode 0600: STAFF_AUTH_SECRET + PORTAL_AUTH_SECRET (see below)
   backups/                     <slug>-<UTC>[-label].dump.gpg + .counts sidecars
   state/                       image.env, current-image, previous-image, deploys.log
 ```
@@ -25,7 +26,7 @@ directory **outside** the git checkout (the scripts refuse otherwise).
 
 | Script | What it does |
 |---|---|
-| `provision-lender.sh <dir> --config lender.json --port N --public-url URL [--admin-email E] [--build] [--image name:tag]` | env file with generated secrets, compose project, migrate, tenant, first SUPER_ADMIN, then `deploy.sh`. Safe to rerun: never rotates a secret, recreates the tenant or mints a second admin. |
+| `provision-lender.sh <dir> --config lender.json --port N --public-url URL --portal-port N --portal-url URL [--admin-email E] [--build] [--image name:tag]` | env file with generated secrets, compose project, migrate, tenant, first SUPER_ADMIN, then `deploy.sh`. Safe to rerun: never rotates a secret, recreates the tenant or mints a second admin. |
 | `deploy.sh <dir> <name:tag> [--build] [--skip-backup] [--health-timeout S]` | backup, migrate, switch, health-check, roll back on failure. |
 | `backup.sh <dir> [--label L] [--keep N]` | encrypted `pg_dump -Fc`, read-back check, retention. |
 | `restore.sh <dir> <file> [--drop-scratch]` | restore into a NEW scratch database and verify it. |
@@ -53,16 +54,38 @@ keys are set in the lender's `.env`).
 cd /path/to/CredaFlow          # a clean checkout at the commit to run
 scripts/lender/provision-lender.sh /srv/lenders/acme \
   --config /path/to/acme.json --port 3350 --public-url https://app.acme.example \
+  --portal-port 3352 --portal-url https://portal.acme.example \
   --admin-email owner@acme.example --build
 ```
 
 The first admin's one-time password and TOTP secret are printed to the terminal
 once, between `=== first SUPER_ADMIN credentials` markers, by the container. They
 are not written to any file or log: do not pipe this command's output into one.
-The app binds to `127.0.0.1:<port>`; put the host's TLS reverse proxy in front
+Two containers run from the same image: **staff** (`APP_MODE=staff`, `--port`) and
+**portal** (`APP_MODE=client`, `--portal-port`); each 404s the other's routes, so the
+reverse proxy must send the staff host to `--port` and the portal host to
+`--portal-port`. Both bind to `127.0.0.1`; put the host's TLS reverse proxy in front
 (`--bind 0.0.0.0` publishes it directly). Set `TRUSTED_PROXY` in `.env` to the
 number of proxies in front, or login rate limiting and the website chat see every
 caller as one address.
+
+## Session secrets: staff and portal are separate
+
+Staff and client sessions must not be replayable against each other, so each host
+signs its sessions with its own secret. `provision-lender.sh` generates
+`STAFF_AUTH_SECRET` and `PORTAL_AUTH_SECRET` (random, 64 hex chars, different) into
+`secrets/auth.env` and never rotates them on a rerun. The compose file sets each
+container's `AUTH_SECRET` from its own value with a required-variable guard
+(`${STAFF_AUTH_SECRET:?…}`), so there is no fallback to a shared secret, and
+they sit in `secrets/auth.env`, not `.env`, so the other container's `env_file` never
+carries them. `NEXTAUTH_SECRET` stays in `.env` as a third, different secret
+(insurance disclosure tokens only).
+
+`deploy.sh` (and provision) refuse, before touching anything, unless both are set,
+at least 32 characters, different from each other and from `NEXTAUTH_SECRET`, and
+neither `STAFF_AUTH_SECRET`, `PORTAL_AUTH_SECRET` nor `AUTH_SECRET` appears in `.env`.
+Rotating either secret ends every session on that host: edit `secrets/auth.env`
+and redeploy.
 
 ## Deploy
 
@@ -70,10 +93,10 @@ caller as one address.
 scripts/lender/deploy.sh /srv/lenders/acme credaflow-acme:$(git rev-parse --short=12 HEAD) --build
 ```
 
-Order: images present, database up, **pre-migration backup** (skipped on the very
+Order: auth-secret check, images present, database up, **pre-migration backup** (skipped on the very
 first deploy, when there is no migration table), `prisma migrate deploy` (the old
-app is still serving), switch the app (one `compose up -d app`), then poll
-`/api/health` until HTTP 200, `status: ok` (the route runs `SELECT 1`, so the
+app is still serving), switch both containers (one `compose up -d app app-portal`), then poll
+`/api/health` on **both** until HTTP 200, `status: ok` (the route runs `SELECT 1`, so the
 database is included) and `commit` equal to the image's own `GIT_SHA`.
 
 `--build` refuses a dirty tree (untracked files count): the image would match no
@@ -170,17 +193,19 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | Variable | Needed | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_TENANT_SLUG` | required | the `Tenant.slug`; baked at build and read at runtime |
-| `NEXTAUTH_URL`, `AUTH_URL` | required | absolute public origin; also the base for the in-process cron scheduler's calls and reset links |
-| `NEXTAUTH_SECRET` | required | session signing; compose also sets `AUTH_SECRET` from it |
+| `NEXTAUTH_URL`, `AUTH_URL` | required | staff public origin; also the base for the in-process cron scheduler's calls and reset links |
+| `STAFF_AUTH_SECRET`, `PORTAL_AUTH_SECRET` | required | generated, distinct, in `secrets/auth.env`; become each container's `AUTH_SECRET`. Never fall back to a shared one |
+| `PORTAL_NEXTAUTH_URL`, `PORTAL_PORT` | required | portal origin (becomes its `NEXTAUTH_URL` and `AUTH_URL`) and host port |
+| `NEXTAUTH_SECRET` | required | generated; insurance disclosure tokens. Must differ from both auth secrets |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | required | generated; compose builds `DATABASE_URL` |
-| `APP_PORT`, `APP_BIND` | required / optional | host port (compose only, not an app variable); bind address, default `127.0.0.1` |
+| `APP_PORT`, `APP_BIND` | required / optional | staff host port (compose only, not an app variable); bind address, default `127.0.0.1` |
 | `CRON_SECRET` | required | gates `app/api/cron/*`; unset, the scheduler in `instrumentation.ts` is not registered |
 | `INTERNAL_API_SECRET` | required | bearer for `/api/notifications/*` |
 | `UNSUB_TOKEN_SECRET` | required | unsubscribe links; templated emails are refused without it |
 | `WABA_ENC_KEY` | required | 32 bytes base64; seals stored email and WhatsApp credentials. Losing it orphans them |
 | `ADMIN_SECRET` | optional | `x-admin-secret` for `/api/admin/tenants` |
 | `TRUSTED_PROXY` | set behind a proxy | number of proxies in front; default `0` |
-| `APP_MODE` | optional | `all` (default), `staff` or `client` |
+| `APP_MODE` | set by compose | `staff` on the staff container, `client` on the portal (`all` is the app's default when unset) |
 | `GIT_SHA`, `BUILD_TIME` | image | baked at build; `/api/health` reports them. Do not set in `.env` |
 | `NODE_ENV`, `PORT`, `HOSTNAME`, `PUPPETEER_EXECUTABLE_PATH` | image | set by the Dockerfile and compose |
 | `BACKUP_KEEP` | optional | scripts only, default 14 |
