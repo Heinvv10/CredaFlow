@@ -87,11 +87,14 @@ export async function refusalReasonFrom(
 /**
  * Record a refused attempt to reach a client document.
  *
- * Deliberately resolves the actor itself. A cross-tenant client IS
- * authenticated — it has a session — but resolves to no Client row in the
- * tenant, so getDocumentCaller returns null and the route answers 401 with the
- * caller's identity already discarded. Logging "someone was refused" without
- * saying who is barely worth the row, so this reads the session directly.
+ * Deliberately resolves the actor itself. The caller is authenticated, but
+ * when it resolves to no Client row in the tenant getDocumentCaller returns
+ * null and the route answers 401 with the caller's identity already
+ * discarded. (A caller bound to a DIFFERENT tenant now resolves as a caller and
+ * is refused 403 by withTenantContext; withTenantContextLoggingRefusal in
+ * lib/documents/tenant-refusal.ts logs that case.) Logging "someone was
+ * refused" without saying who is barely worth the row, so this reads the
+ * session directly.
  *
  * Never throws: a refusal must still be refused if the audit write fails.
  */
@@ -103,12 +106,17 @@ export async function auditDocumentAccessRefusal(params: {
   actorEmail?: string | null
   /** Staff id when the caller is staff — an email alone loses the actor key. */
   actorUserId?: string | null
+  /**
+   * Store NO actor identity (no id, no email) and do not auto-fill one from the
+   * session. For a refusal filed in a tenant the actor does not belong to.
+   */
+  anonymous?: boolean
   /** Used only to resolve the tenant when one is not already in scope. */
   req?: Request
   detail?: Record<string, unknown>
 }): Promise<void> {
-  let email = params.actorEmail ?? null
-  if (!email) {
+  let email = params.anonymous ? null : (params.actorEmail ?? null)
+  if (!email && !params.anonymous) {
     try {
       const { auth } = await import("@/lib/auth")
       const session = await auth()
@@ -143,7 +151,7 @@ export async function auditDocumentAccessRefusal(params: {
     entity: "ClientDocument",
     entityId: params.documentId,
     tenantId,
-    userId: params.actorUserId ?? undefined,
+    userId: params.anonymous ? undefined : (params.actorUserId ?? undefined),
     userEmail: email,
     reason: params.reason,
     status: params.status,

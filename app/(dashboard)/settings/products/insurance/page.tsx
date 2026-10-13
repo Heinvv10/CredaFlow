@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { formatZAR } from "@/lib/utils"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 const TYPE_LABELS: Record<string, string> = {
@@ -13,10 +13,10 @@ const TYPE_LABELS: Record<string, string> = {
 export default async function InsuranceProductsPage() {
   // Mirror the loan-products gate: product mutations are ADMIN.
   await requireMinRole("ADMIN")
-  // Same resolver as the [id] edit page and the API: a third local
+  // The session's tenant, as the [id] edit page reads it: a local
   // header-reading variant (no status check, silent tenant-slug default) could
   // list one tenant's products and then 404 on opening one.
-  const tenantId = await getResolvedTenantId()
+  const tenantId = await getStaffTenantId()
   const products = await prisma.insuranceProduct.findMany({
     where: { tenantId },
     orderBy: { name: "asc" },

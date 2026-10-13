@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatZAR, formatDate, formatDateTime } from "@/lib/utils"
 import { formatStatusLabel } from "@/lib/status-style"
 import { clientStatus, CLIENT_STATUS_BADGE } from "@/lib/clients/status"
@@ -83,7 +83,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   const { id } = await params
   const { tab } = await searchParams
   const defaultTab = resolveClientTab(tab)
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [client, selfieDoc, bureauHistory, cannedReplies, generatableTemplates] = await Promise.all([
     getClient(id, tenantId), getAuthoritativeStaffSelfie(id, tenantId), getBureauHistory(id, tenantId), listCannedReplies(tenantId), listGeneratableCustomTemplates(tenantId, { client: true }),
   ])

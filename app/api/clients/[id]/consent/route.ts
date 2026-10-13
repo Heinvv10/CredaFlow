@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
 import { computeConsentTransition, type ConsentPurposes, ALL_PURPOSES, PROCESSING_PURPOSES } from "@/lib/consent"
 import { logAudit, AuditAction } from "@/lib/audit"
 
@@ -41,7 +40,9 @@ export async function PUT(
     desired[key as keyof ConsentPurposes] = body[key] as boolean
   }
 
-  const tenantId = await getDefaultTenantId()
+  // The authenticated staff member's tenant, never the deployment default: a
+  // consent record written under the wrong tenant is a POPIA audit failure.
+  const tenantId = user.tenantId
 
   const client = await prisma.client.findFirst({
     where: { id, tenantId },

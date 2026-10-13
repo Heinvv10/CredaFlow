@@ -3,11 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 const mocks = vi.hoisted(() => ({
   leadFindMany: vi.fn(),
-  getDefaultTenantId: vi.fn(),
+  getStaffTenantId: vi.fn(),
 }))
 
 vi.mock("@/lib/prisma", () => ({ prisma: { lead: { findMany: mocks.leadFindMany } } }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: mocks.getDefaultTenantId }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: mocks.getStaffTenantId }))
 vi.mock("@/components/nav/Breadcrumbs", () => ({ Breadcrumbs: () => null }))
 
 import LeadQueuePage from "./page"
@@ -33,7 +33,7 @@ const params = (filter?: string) => ({ searchParams: Promise.resolve(filter ? { 
 describe("CRM lead work queue", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.getDefaultTenantId.mockResolvedValue("tenant-1")
+    mocks.getStaffTenantId.mockResolvedValue("tenant-1")
     mocks.leadFindMany.mockResolvedValue([lead()])
   })
 

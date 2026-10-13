@@ -1,6 +1,6 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getCommsSettings, WA_PROVIDERS } from "@/lib/inbox/settings"
 import { listWaBridgeNumbers } from "@/lib/whatsapp-bridge-admin"
 import { PUBLIC_COMMS_SETTINGS_SELECT } from "@/lib/inbox/comms-select"
@@ -23,7 +23,7 @@ export default async function WhatsAppSettingsPage() {
   // tenantId filter below must be explicit (see feedback_tenant_scoped_writes_
   // need_runwithtenant). MessageTemplate isn't in TENANT_SCOPED_MODELS anyway,
   // but the explicit where keeps this cross-tenant-safe regardless.
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   // Independent reads — issued together so the page costs one round trip.
   // The connection status uses PUBLIC_COMMS_SETTINGS_SELECT, whose type makes
   // naming a sealed credential column a compile error. getCommsSettings is a

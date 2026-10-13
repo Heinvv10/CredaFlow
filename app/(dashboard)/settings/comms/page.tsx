@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { requireMinRole } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getCommsSettings } from "@/lib/inbox/settings"
 import { listCannedReplies } from "@/lib/inbox/canned-replies"
 import { listStaffForRoster } from "@/lib/inbox/roster"
@@ -21,7 +21,7 @@ export default async function CommsSettingsPage({
   // rendering this page's DB-backed content for a tab that no longer exists.
   if (tab === "wa-bridge") redirect("/settings/whatsapp?tab=bridge")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [settings, canned, roster] = await Promise.all([
     getCommsSettings(tenantId),
     listCannedReplies(tenantId),

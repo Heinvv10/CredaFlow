@@ -1,16 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const { authMock, clientFindFirst, notificationFindMany, getDefaultTenantIdMock, tabsProps } = vi.hoisted(() => ({
+const { authMock, clientFindFirst, notificationFindMany, getPortalTenantIdMock, tabsProps } = vi.hoisted(() => ({
   authMock: vi.fn(),
   clientFindFirst: vi.fn(),
   notificationFindMany: vi.fn(),
-  getDefaultTenantIdMock: vi.fn(),
+  getPortalTenantIdMock: vi.fn(),
   tabsProps: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: authMock }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: getDefaultTenantIdMock }))
+vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: getPortalTenantIdMock }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: clientFindFirst },
@@ -62,7 +62,7 @@ async function shownIds(rows: Row[]): Promise<string[]> {
 beforeEach(() => {
   vi.clearAllMocks()
   authMock.mockResolvedValue({ user: { email: "client@example.test" } })
-  getDefaultTenantIdMock.mockResolvedValue("tn1")
+  getPortalTenantIdMock.mockResolvedValue("tn1")
   clientFindFirst.mockResolvedValue({ id: "cli1" })
   notificationFindMany.mockResolvedValue([])
 })

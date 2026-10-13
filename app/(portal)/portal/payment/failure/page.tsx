@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { XCircle } from "lucide-react"
 import { getLenderIdentity } from "@/lib/config/identity"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 
 // The lender's brand is read from the DB per request, so this page cannot be
 // prerendered at build time.
@@ -12,7 +12,7 @@ export const metadata = {
 }
 
 export default async function PaymentFailurePage() {
-  const identity = await getLenderIdentity(await getResolvedTenantId())
+  const identity = await getLenderIdentity(await getPortalTenantId())
   return (
     <div className="max-w-md mx-auto px-6 py-16 text-center">
       <XCircle className="h-16 w-16 mx-auto mb-6" style={{ color: "#DC2626" }} />

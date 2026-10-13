@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/inbox/authz", () => ({ requireCommsAgentPage: mocks.requireCommsAgentPage }))
 vi.mock("@/lib/auth-guards", () => ({ hasMinRole: mocks.hasMinRole }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn().mockResolvedValue("tenant-1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn().mockResolvedValue("tenant-1") }))
 vi.mock("@/lib/inbox/conversations", () => ({
   listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
   resolveQueueForConversation: vi.fn().mockResolvedValue(null),

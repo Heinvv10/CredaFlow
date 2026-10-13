@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation"
 import { requireMinRole } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { prisma } from "@/lib/prisma"
 import { TOKEN_REGISTRY } from "@/lib/documents/tokens"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -17,7 +17,7 @@ export default async function EditDocumentTemplatePage({
 }) {
   await requireMinRole("LOAN_ADMIN")
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const template = await prisma.documentTemplate.findFirst({
     where: { id, tenantId, deletedAt: null },

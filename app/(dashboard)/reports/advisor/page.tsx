@@ -1,6 +1,6 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatZAR, formatDate } from "@/lib/utils"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { sastMonthBounds } from "@/lib/compliance/quarters"
@@ -10,7 +10,7 @@ async function getAdvisorData(monthsBack: number) {
   // SAST boundary: the container has no TZ, so date parts resolve in UTC and
   // land two hours inside the previous South African day.
   const fromDate = sastMonthBounds(now, -(monthsBack - 1)).start
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const users = await prisma.user.findMany({
     where: { tenantId, active: true },

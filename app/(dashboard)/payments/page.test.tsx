@@ -43,7 +43,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: async () => "tenant-1" }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: async () => "tenant-1" }))
 vi.mock("@/components/layout/Header", () => ({ Header: () => null }))
 vi.mock("@/components/payments/PaymentsClient", () => ({
   PaymentsClient: (props: Record<string, unknown>) => {

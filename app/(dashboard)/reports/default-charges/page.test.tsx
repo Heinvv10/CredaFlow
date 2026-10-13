@@ -6,7 +6,7 @@ const { loaders } = vi.hoisted(() => ({
   loaders: { report: vi.fn(), inDuplum: vi.fn() },
 }))
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: vi.fn(async () => ({ id: "u1" })) }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "tenant-1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "tenant-1") }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/reports/default-charges-loader", () => ({
   loadDefaultChargesReport: (...a: unknown[]) => loaders.report(...a),
