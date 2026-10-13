@@ -109,6 +109,20 @@ describe("loadApplicationFacts", () => {
     expect(deletedWhere.OR).toEqual([{ createdAt: { gte: expect.any(Date) } }, { deletedAt: { gte: expect.any(Date) } }])
   })
 
+  it("returns the snapshot of payslips and statements the approval compares against", async () => {
+    documents({
+      statements: [{ id: "stmt-1", uploadedByType: "staff" }],
+      payslips: [{ id: "slip-1", extractionStatus: "done", extractionGeneration: "g1", extractionResult: slipFields(1_000_000), validationMismatch: false }],
+    })
+    ensure.mockResolvedValue({ state: "read", analysis: { id: "an-1", contentSha256: "s", status: "READ", method: "TEXT", bank: "CAPITEC", balanceCheck: "PASS", transactions: [], authenticity: { signals: [] }, accountHolderName: "T", accountNumberLast4: null, periodStart: null, periodEnd: null, openingBalanceCents: null, closingBalanceCents: null } })
+    const loaded = (await loadApplicationFacts("t1", "app-1"))!
+    expect(loaded.payslipSnapshot).toEqual(["slip-1:done:g1"])
+    expect(loaded.statementSnapshot).toEqual(["stmt-1:an-1"])
+    expect(loaded.since.toISOString()).toBe("2026-07-07T08:00:00.000Z")
+    const slipWhere = docFindMany.mock.calls.map((c) => (c[0] as { where: Record<string, unknown> }).where).find((w) => w.docType === "PAYSLIP" && w.deletedAt === null)!
+    expect(slipWhere).toEqual({ tenantId: "t1", clientId: "client-1", docType: "PAYSLIP", deletedAt: null, createdAt: { gte: loaded.since } })
+  })
+
   it("scopes every query to the tenant", async () => {
     await loadApplicationFacts("t1", "app-1")
     for (const m of [appFind, docFindMany, appFindMany, bureauFind]) {

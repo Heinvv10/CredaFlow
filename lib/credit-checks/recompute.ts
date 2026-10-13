@@ -38,8 +38,9 @@ export interface RecomputeResult {
   flags: ApplicationCheckFlag[]
   /** When the evidence the flags rest on was read, under the lock: anything newer was not checked. */
   evidenceAsOf?: Date
-  /** Every payslip in the window as the evidence saw it (payslipStateKey), and the window's start. */
+  /** Every payslip and statement in the window as the evidence saw it, and the window's start. */
   payslipSnapshot?: string[]
+  statementSnapshot?: string[]
   evidenceSince?: Date
 }
 
@@ -137,7 +138,7 @@ export async function recomputeApplicationFlags(
         newValue: { ...changed, open: flags.filter((f) => f.status === "OPEN").length },
       }, tx)
     }
-    return { recomputed: true, flags, evidenceAsOf, payslipSnapshot: loaded.payslipSnapshot, evidenceSince: loaded.since }
+    return { recomputed: true, flags, evidenceAsOf, payslipSnapshot: loaded.payslipSnapshot, statementSnapshot: loaded.statementSnapshot, evidenceSince: loaded.since }
   }, { timeout: 30_000 })
 }
 

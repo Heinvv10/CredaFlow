@@ -95,6 +95,11 @@ export function payslipStateKey(d: { id: string; extractionStatus: string; extra
   return `${d.id}:${d.extractionStatus}:${d.extractionGeneration ?? ""}`
 }
 
+/** A statement and the read the checks used: a new document or a new read means it was not seen. */
+export function statementStateKey(documentId: string, analysisId: string | null): string {
+  return `${documentId}:${analysisId ?? ""}`
+}
+
 export interface LoadOptions {
   /**
    * Use only reads already persisted, never run the readers: for the reload
@@ -109,7 +114,7 @@ export async function loadApplicationFacts(
   tenantId: string,
   applicationId: string,
   opts: LoadOptions = {},
-): Promise<{ facts: ApplicationFacts; status: AppStatus; payslipSnapshot: string[]; since: Date } | null> {
+): Promise<{ facts: ApplicationFacts; status: AppStatus; payslipSnapshot: string[]; statementSnapshot: string[]; since: Date } | null> {
   const app = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId },
     select: {
@@ -196,6 +201,8 @@ export async function loadApplicationFacts(
     status: app.status,
     // Every payslip in the window as it stood: the approval refuses if it changed.
     payslipSnapshot: payslipDocs.map(payslipStateKey),
+    // And every statement with the read it was checked on.
+    statementSnapshot: statements.map((s) => statementStateKey(s.documentId, s.analysisId)),
     since,
     facts: {
       applicationId: app.id,

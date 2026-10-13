@@ -92,7 +92,7 @@ export function manualReview(f: ApplicationFacts): FlagCandidate[] {
   }
   out.push(...each(f.unreadPayslipIds, "PAYSLIP_NOT_READ", "A payslip is on file but its figures were not extracted (extraction failed, was skipped for lack of consent, or is still running). Read it by hand.", "payslipDocumentId"))
   out.push(...each(f.deletedStatementIds, "STATEMENT_DELETED", "A bank statement read for this client was later deleted. Review what it showed before deciding."))
-  out.push(...each(f.deletedPayslipIds, "PAYSLIP_DELETED", "A payslip extracted for this client was later deleted. Review what it showed before deciding.", "payslipDocumentId"))
+  out.push(...each(f.deletedPayslipIds, "PAYSLIP_DELETED", "A payslip uploaded for this client was later deleted. Review what it showed before deciding.", "payslipDocumentId"))
   for (const prior of f.priorOpenFlagApplications) {
     out.push({
       check: "MANUAL_REVIEW",

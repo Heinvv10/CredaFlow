@@ -49,6 +49,13 @@ describe("payslipNamesClient", () => {
     expect(payslipNamesClient(slip({ employeeIdNumber: { value: "9001015000080 / Emp 4471", validated: true } }), client)).toBe(true)
   })
 
+  it("matches no printed ID against a client without a 13-digit SA ID on record", () => {
+    const printed = slip({ employeeIdNumber: { value: "9001015000080", validated: true }, employeeName: { value: "Thabo Tester", validated: true } })
+    for (const idNumber of [null, "", "A12345678"]) {
+      expect(payslipNamesClient(printed, { fullName: "Thabo Tester", idNumber }), String(idNumber)).toBe(false)
+    }
+  })
+
   it("falls back to the employee name when no ID number is printed", () => {
     expect(payslipNamesClient(slip({ employeeName: { value: "MR T TESTER", validated: true } }), client)).toBe(true)
     expect(payslipNamesClient(slip({ employeeName: { value: "Sipho Synthetic", validated: true } }), client)).toBe(false)

@@ -301,5 +301,14 @@ describe("ensureStatementAnalysis: round-2 behaviours", () => {
     release()
     await vi.waitFor(() => expect(late).toHaveBeenCalledTimes(1))
   })
+
+  it("runs every callback after a read even when one fails", async () => {
+    const failing = vi.fn().mockRejectedValue(new Error("boom"))
+    const next = vi.fn().mockResolvedValue(undefined)
+    readStatementInBackground(TENANT, "doc-callbacks", { onRead: failing })
+    readStatementInBackground(TENANT, "doc-callbacks", { onRead: next })
+    await vi.waitFor(() => expect(next).toHaveBeenCalledTimes(1))
+    expect(failing).toHaveBeenCalledTimes(1)
+  })
 })
 

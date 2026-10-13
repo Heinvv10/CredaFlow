@@ -231,7 +231,14 @@ function schedule(documentId: string): void {
         tenantId: w.tenantId, documentId, allowVlm: true,
         retryFailed: w.retry !== undefined, actorUserId: w.retry ?? undefined,
       })
-      if (r.state === "read") for (const onRead of w.onReads) await onRead()
+      if (r.state !== "read") return
+      // Each callback on its own: one failing must not skip the others, nor be
+      // reported as a failed read.
+      for (const onRead of w.onReads) {
+        await onRead().catch((err) => {
+          console.error("[statement-analysis] after-read callback failed:", { documentId, error: err instanceof Error ? err.name : "unknown" })
+        })
+      }
     })
     .catch((err) => {
       // Name and code only: a failed write can echo the statement's contents.

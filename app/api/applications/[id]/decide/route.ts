@@ -41,7 +41,8 @@ import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
-import { payslipStateKey } from "@/lib/credit-checks/load-facts"
+import { payslipStateKey, statementStateKey } from "@/lib/credit-checks/load-facts"
+import { PARSER_VERSION } from "@/lib/statement-analysis/analyse"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
@@ -1151,7 +1152,16 @@ export async function POST(
             })
             const seen = new Set(checks?.payslipSnapshot ?? [])
             const payslipsChanged = payslipsNow.length !== seen.size || payslipsNow.some((d) => !seen.has(payslipStateKey(d)))
-            if (newEvidence > 0 || payslipsChanged) {
+            // Statements by set too, not only by timestamp: each one with the
+            // newest read of it, as the checks used.
+            const statementsNow = await tx.clientDocument.findMany({
+              where: { tenantId: tenant.id, clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: checks?.evidenceSince ?? new Date(0) } },
+              select: { id: true, statementAnalyses: { where: { parserVersion: PARSER_VERSION }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true } } },
+            })
+            const seenStatements = new Set(checks?.statementSnapshot ?? [])
+            const statementsChanged = statementsNow.length !== seenStatements.size
+              || statementsNow.some((d) => !seenStatements.has(statementStateKey(d.id, d.statementAnalyses[0]?.id ?? null)))
+            if (newEvidence > 0 || payslipsChanged || statementsChanged) {
               return { ok: false as const, reason: "checks_stale" as const }
             }
             const approved = await tx.loanApplication.updateMany({

@@ -575,7 +575,7 @@ it("compares new evidence with the time and payslips the recompute actually read
   const evidenceAsOf = new Date("2026-10-13T10:00:00Z")
   const evidenceSince = new Date("2026-07-15T00:00:00Z")
   recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf, evidenceSince, payslipSnapshot: ["slip-1:done:gen-1"] })
-  txPayslipFindManyMock.mockResolvedValue([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "gen-1" }])
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "gen-1" }]).mockResolvedValueOnce([])
 
   const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
 
@@ -603,6 +603,40 @@ it("refuses an approval when a payslip's extraction changed after the checks rea
     expect(res.status).toBe(409)
   }
   expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("refuses when a payslip the checks saw is gone, or when the checks returned no snapshot at all", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValueOnce({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: ["slip-1:done:g", "slip-2:done:g"] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "g" }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(409)
+
+  recomputeApplicationFlagsMock.mockResolvedValueOnce({ recomputed: false, flags: [] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "g" }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(409)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("treats a payslip with no extraction generation (legacy row) as unchanged when it is", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: ["slip-1:done:"] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: null }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
+})
+
+it("refuses when a statement or its read changed since the checks, compared as a set", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: [], statementSnapshot: ["stmt-1:an-1"] })
+  for (const statements of [
+    [{ id: "stmt-1", statementAnalyses: [{ id: "an-2" }] }],
+    [{ id: "stmt-1", statementAnalyses: [{ id: "an-1" }] }, { id: "stmt-2", statementAnalyses: [] }],
+    [],
+  ]) {
+    txPayslipFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce(statements)
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status, JSON.stringify(statements)).toBe(409)
+  }
+  txPayslipFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "stmt-1", statementAnalyses: [{ id: "an-1" }] }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
 })
 
 it("refuses an approval when a statement was read after the checks ran", async () => {
