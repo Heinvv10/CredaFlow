@@ -40,7 +40,9 @@ interface Credited {
  * Pure: the VAT on a credit, at the rate the invoice charged. Crediting the
  * whole remaining value credits the whole remaining VAT, so a full credit
  * reverses the invoice to the cent even where its per-line rounding differs
- * from VAT on the total; a partial credit's VAT is half-up on its value.
+ * from VAT on the total. A partial credit is half-up on its value, capped at
+ * the invoice VAT still available, so per-line rounding can never strand a
+ * legitimate credit.
  */
 export function creditNoteVat(
   invoice: Credited & { vatRate: Prisma.Decimal | string },
@@ -55,7 +57,10 @@ export function creditNoteVat(
     throw new RangeError(`credit of ${exclVatCents} cents exceeds the ${remainingExcl} cents still creditable`)
   }
   if (exclVatCents === remainingExcl) return invoice.vatCents - alreadyCredited.vatCents
-  return vatOnExclusive(exclVatCents, rateTenThousandthsOf(invoice.vatRate))
+  return Math.min(
+    vatOnExclusive(exclVatCents, rateTenThousandthsOf(invoice.vatRate)),
+    invoice.vatCents - alreadyCredited.vatCents,
+  )
 }
 
 /** Issues a credit note against a tax invoice, inside the caller's transaction. */
