@@ -4,8 +4,8 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { OpportunitiesClient } from "@/components/crm/OpportunitiesClient"
 
 async function getOpportunities() {
-  // CrossSellOpportunity is not a tenant-scoped model: the filter is the only
-  // boundary.
+  // Pages run outside a tenant frame: the filter is the boundary, and the
+  // tenant-scope extension throws without it.
   const tenantId = await getStaffTenantId()
   return prisma.crossSellOpportunity.findMany({
     where: { tenantId },

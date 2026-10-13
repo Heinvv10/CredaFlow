@@ -40,7 +40,7 @@ function isPlaceholder(value: string | undefined): boolean {
   return value.includes('replace-with-') || value.includes('example.com')
 }
 
-function getVlmConfig(): VlmConfig | null {
+export function getVlmConfig(): VlmConfig | null {
   const apiUrl = process.env.VLM_API_URL
   const model = process.env.VLM_MODEL
   if (isPlaceholder(apiUrl) || isPlaceholder(model)) return null
@@ -209,7 +209,7 @@ const FIELD_MAPPINGS: Record<string, Record<string, string>> = {
 /**
  * Parse raw VLM response into a plain key/value object.
  */
-function parseVlmResponse(rawContent: string): Record<string, unknown> {
+export function parseVlmResponse(rawContent: string): Record<string, unknown> {
   try {
     // Strip markdown code fences if present
     const cleaned = rawContent
@@ -497,7 +497,7 @@ export function applyIdValidationPostProcessing(
  * other user can reach any file inside it whatever its own mode. POPIA — this
  * is special personal information sitting on a shared filesystem.
  */
-async function withPrivateTempDir<T>(work: (dir: string) => Promise<T> | T): Promise<T> {
+export async function withPrivateTempDir<T>(work: (dir: string) => Promise<T> | T): Promise<T> {
   const { mkdtempSync, rmSync } = await import('fs')
   const { join } = await import('path')
   const { tmpdir } = await import('os')
@@ -556,7 +556,7 @@ async function withPrivateTempDir<T>(work: (dir: string) => Promise<T> | T): Pro
  * difference is host memory, which an in-process test cannot observe. The
  * evidence is the measurement above, taken with /usr/bin/time.
  */
-const MAX_RENDER_MEMORY_KB = 1024 * 1024
+export const MAX_RENDER_MEMORY_KB = 1024 * 1024
 
 /**
  * Resolution the page is rendered at for the model, in dots per inch.
@@ -663,7 +663,7 @@ export const MAX_RENDER_PIXELS = 90_000_000
  * a document with unremarkable geometry, look at its metadata, not the CropBox
  * arithmetic.
  */
-function cropBoxPt(pdfPath: string, execFileSync: typeof import('child_process').execFileSync): { widthPt: number; heightPt: number; quarterTurned: boolean } {
+export function cropBoxPt(pdfPath: string, execFileSync: typeof import('child_process').execFileSync): { widthPt: number; heightPt: number; quarterTurned: boolean } {
   const out = execFileSync(
     'sh',
     ['-c', `ulimit -v ${MAX_RENDER_MEMORY_KB}; exec pdfinfo -box "$1"`, 'sh', pdfPath],

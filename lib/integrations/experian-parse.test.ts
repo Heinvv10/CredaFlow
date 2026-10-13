@@ -32,6 +32,19 @@ describe("parseEnquiryResult — real UAT responses", () => {
     expect(r.totalMonthlyObligations).toBe(612600)
   })
 
+  it("Adverse: returns every account for the credit checks, leaving the total as it was", () => {
+    const r = parseEnquiryResult(load("adverse.json"))
+    const raw = load("adverse.json").return_data.accounts as Array<Record<string, unknown>>
+    expect(r.accounts).toHaveLength(raw.length)
+    expect(r.accounts![1]).toEqual({
+      subscriber: raw[1].subscriber_name,
+      accountType: raw[1].account_type_code_desc || null,
+      instalmentCents: (raw[1].instalment_amount as number) * 100,
+      status: "OPEN/CURRENT",
+    })
+    expect(r.totalMonthlyObligations).toBe(612600)
+  })
+
   it("Judgements: flags judgement even with no adverses[]", () => {
     const r = parseEnquiryResult(load("judgements.json"))
     expect(r.hasJudgement).toBe(true)

@@ -7,6 +7,7 @@
  *
  * Prints what it observed; never prints a credential.
  */
+import { demoLender } from "../../../prisma/demo-lender"
 import { SimClient } from "./api"
 import { advanceDays, appNow, now, setClock } from "./clock"
 import { readSeedCredentials } from "./credentials"
@@ -14,7 +15,7 @@ import { log } from "./env"
 
 const START = new Date("2026-04-01T09:00:00+02:00")
 // prisma/seed.ts CLIENTS[3]; owns the seeded loan LN-SEED-0001.
-const PORTAL_CLIENT_EMAIL = "thandi.mthembu@acme-lending.invalid"
+const PORTAL_CLIENT_EMAIL = `thandi.mthembu@${demoLender().clientDomain}`
 
 function out(line: string): void {
   process.stdout.write(`${line}\n`)
