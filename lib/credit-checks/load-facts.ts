@@ -3,6 +3,7 @@
  * has no current StatementAnalysis yet, text readers only: the vision reader
  * runs in the background from the upload path, never inside a staff request.
  */
+import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import type { AppStatus, StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
@@ -81,6 +82,8 @@ export function payslipFacts(documentId: string, extraction: unknown, validation
 export function bureauDebts(obligations: unknown): DebtFacts[] {
   const accounts = (obligations as { accounts?: unknown } | null)?.accounts
   if (!Array.isArray(accounts)) return []
+  // A simulated account list is fabricated: not evidence where simulation is forbidden.
+  if (simulatedBureauBlock(isSimulatedBureauCheck(obligations)).blocked) return []
   return accounts.flatMap((a: { subscriber?: unknown; instalmentCents?: unknown; status?: unknown }) =>
     // A closed or settled account explains no current debit order.
     typeof a?.subscriber === "string" && typeof a.instalmentCents === "number"
