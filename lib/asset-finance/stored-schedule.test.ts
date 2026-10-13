@@ -49,6 +49,14 @@ describe("storedScheduleForReprice refuses what it cannot read back exactly", ()
     expect(readBack(storedRows(result, 59))).toEqual({ error: "no_pending_rows" })
   })
 
+  it("treats a database NULL contractual-weight snapshot like an older omitted snapshot", () => {
+    const stored = storedRows(result, 11)
+    expect(storedScheduleForReprice({
+      stored, balloonCents: BASE.balloonCents, recordedBaseCents: result.baseInstalmentCents,
+      ratePath: BASE.ratePath, startDate: BASE.startDate, contractualWeights: null,
+    })).toEqual(readBack(stored, BASE.ratePath, result.baseInstalmentCents))
+  })
+
   it("a gap in the installment numbers (installmentNo must be index + 1)", () => {
     const gap = storedRows(result, 11).filter((row) => row.installmentNo !== 30)
     expect(readBack(gap)).toEqual({ error: "schedule_not_contiguous" })
