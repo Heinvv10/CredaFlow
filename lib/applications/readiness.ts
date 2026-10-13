@@ -13,6 +13,7 @@ import {
   type StoredCreditLifeDisclosure,
 } from "@/lib/insurance/credit-life-election.server"
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
+import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import {
   verifyStoredProviderCountersign,
   type StoredProviderCountersign,
@@ -235,6 +236,10 @@ function approvalBlockers(input: ReadinessInput): string[] {
   if (nonOverridableBlock({ deceased: input.bureau?.deceased ?? false }).blocked) {
     return ["Bureau reports deceased"]
   }
+  // Not overridable: a reasoned override cannot approve on fabricated evidence.
+  if (simulatedBureauBlock(isSimulatedBureauCheck(input.bureau?.obligations)).blocked) {
+    return ["Bureau check is simulated"]
+  }
   if (!input.bureau) {
     // A reasoned override can still approve without one, which is why this
     // reads as a requirement rather than a refusal.
@@ -317,7 +322,11 @@ function payoutBlockers(input: ReadinessInput): string[] {
       agreementBound && !countersigned ? PAYOUT_BLOCK_LABELS.provider_countersign : null,
     composite_kyc: kycBlockerLabels(input.kyc, application.status),
     unchanged_affordability:
-      evidence.ok || pasqReason ? null : PAYOUT_BLOCK_LABELS.unchanged_affordability,
+      evidence.ok || pasqReason
+        ? null
+        : evidence.reason === "bureau_simulated"
+          ? "Bureau check is simulated"
+          : PAYOUT_BLOCK_LABELS.unchanged_affordability,
     verified_banking: bankDetails ? null : PAYOUT_BLOCK_LABELS.verified_banking,
     signed_debit_mandate: !mandateRequired
       ? null

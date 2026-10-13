@@ -37,6 +37,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { debtAccountTypeLabel } from "@/lib/credit/debt-account-types"
+import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 
 async function getClient(id: string, tenantId: string) {
   return prisma.client.findUnique({
@@ -547,6 +548,9 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{check.provider}</span>
+                            {isSimulatedBureauCheck(check.obligations) && (
+                              <span className="text-xs font-semibold text-amber-700">Simulated result — not a real bureau check</span>
+                            )}
                             {check.applicationId && (
                               <a href={`/applications/${check.applicationId}`} className="text-xs text-blue-600 hover:underline">View Application →</a>
                             )}

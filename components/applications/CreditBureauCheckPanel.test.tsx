@@ -171,13 +171,14 @@ describe("CreditBureauCheckPanel simulated result", () => {
     createdAt: new Date("2026-07-18T08:30:00.000Z"),
     completedAt: new Date("2026-07-18T08:30:00.000Z"),
   })
-  const render = (data: Record<string, unknown>) =>
+  const render = (data: Record<string, unknown>, simulated = false) =>
     renderToStaticMarkup(
       <CreditBureauCheckPanel
         display={resolveBureauDisplay({
           applicationStatus: "UNDER_REVIEW",
           approvalSnapshot: null,
           complianceRecord: record(data),
+          simulated,
         })}
         bureauDebt={null}
         selfDeclaredDebt={0}
@@ -185,10 +186,39 @@ describe("CreditBureauCheckPanel simulated result", () => {
     )
 
   it("labels a simulated check as not a real bureau result", () => {
-    expect(render({ simulated: true })).toContain("Simulated result \u2014 not a real bureau check")
+    expect(render({}, true)).toContain("Simulated result \u2014 not a real bureau check")
   })
 
   it("does not label a genuine check", () => {
     expect(render({})).not.toContain("Simulated")
+  })
+})
+
+describe("CreditBureauCheckPanel simulated approval snapshot", () => {
+  const render = (simulated: boolean) =>
+    renderToStaticMarkup(
+      <CreditBureauCheckPanel
+        display={resolveBureauDisplay({
+          applicationStatus: "APPROVED",
+          approvalSnapshot: {
+            ...approvalSnapshot,
+            bureauEvidence: {
+              ...approvalSnapshot.bureauEvidence,
+              check: { ...approvalSnapshot.bureauEvidence.check, ...(simulated ? { simulated: true as const } : {}) },
+            },
+          },
+          complianceRecord: null,
+        })}
+        bureauDebt={null}
+        selfDeclaredDebt={0}
+      />,
+    )
+
+  it("labels a simulated check sealed into the approval snapshot", () => {
+    expect(render(true)).toContain("Simulated result \u2014 not a real bureau check")
+  })
+
+  it("does not label a genuine sealed check", () => {
+    expect(render(false)).not.toContain("Simulated")
   })
 })

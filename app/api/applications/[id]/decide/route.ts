@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
+import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { Prisma } from "@prisma/client"
@@ -837,6 +838,20 @@ export async function POST(
             {
               error: `Approval blocked: ${hardStop.reason} This cannot be overridden.`,
               deceasedBlock: true,
+              requiresOverride: false,
+            },
+            { status: 422 },
+          )
+        }
+
+        // A simulated check is fabricated evidence wherever this deployment
+        // forbids Experian simulation; an override reason cannot approve on it.
+        const simulatedStop = simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations))
+        if (simulatedStop.blocked) {
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${simulatedStop.reason} This cannot be overridden.`,
+              simulatedBureauBlock: true,
               requiresOverride: false,
             },
             { status: 422 },

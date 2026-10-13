@@ -423,6 +423,26 @@ it("hands the stored bureau obligations (simulated marker) to the bureau gate", 
   )
 })
 
+it("refuses to approve on a simulated bureau check even with an override reason", async () => {
+  vi.stubEnv("NODE_ENV", "production")
+  try {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    creditBureauCheckFindFirstMock.mockResolvedValue({ ...passingBureauCheck, obligations: { simulated: true } })
+
+    const res = await POST(makeReq({
+      action: "approve",
+      reason: "Reviewed",
+      bureauOverrideReason: "Verified bureau exception with supporting evidence",
+    }), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ simulatedBureauBlock: true, requiresOverride: false })
+    expect(updateManyMock).not.toHaveBeenCalled()
+  } finally {
+    vi.unstubAllEnvs()
+  }
+})
+
 it("requires EFT or debit order before approving an application", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
 

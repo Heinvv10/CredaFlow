@@ -2,7 +2,7 @@ import {
   CREDIT_LIFE_DISCLOSURE_VERSION,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
 } from "@/lib/insurance/credit-life-election"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import {
@@ -25,6 +25,7 @@ import {
   createCreditLifeDisclosureSha256,
   createCreditLifeNoOfferDisclosureSha256,
 } from "@/lib/insurance/credit-life-election.server"
+import { verifyCurrentDisbursementEvidence } from "@/lib/affordability/current-disbursement"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
@@ -34,6 +35,7 @@ import {
 import {
   applicationDebt,
   applicationFixture,
+  disbursementApplicationFixture,
   applicationUpdatedAt,
   bureauCheck,
   buildEvidence,
@@ -690,5 +692,45 @@ describe("product pricing terms are frozen at approval", () => {
     })
 
     expect(result).toEqual({ ok: false, reason: "pasq_changed" })
+  })
+})
+
+describe("simulated bureau evidence at payout", () => {
+  afterEach(() => vi.unstubAllEnvs())
+  const simulatedCheck = { ...bureauCheck, obligations: { ...bureauCheck.obligations, simulated: true } }
+  const verify = (check: typeof bureauCheck) =>
+    verifyCurrentAffordabilityApproval({
+      application: applicationFixture("APPROVED"),
+      bureauCheck: check,
+      tenantConfig,
+    })
+
+  it("refuses a simulated check where this deployment forbids Experian simulation", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    expect(verify(simulatedCheck)).toEqual({ ok: false, reason: "bureau_simulated" })
+  })
+
+  it("refuses payout end to end: a simulated row on an APPROVED application stops disbursement evidence", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const evidence = (check: typeof bureauCheck) =>
+      verifyCurrentDisbursementEvidence({
+        application: disbursementApplicationFixture() as never,
+        bureauCheck: check,
+        tenantConfig,
+        at: new Date("2026-07-21T09:00:00.000Z"),
+      })
+
+    expect(evidence(simulatedCheck)).toEqual({ ok: false, reason: "bureau_simulated" })
+    expect(evidence(bureauCheck)).not.toEqual({ ok: false, reason: "bureau_simulated" })
+  })
+
+  it("does not raise bureau_simulated for a genuine check on a deployed build", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    expect(verify(bureauCheck)).toMatchObject({ ok: true })
+  })
+
+  it("does not refuse for simulation where simulation is permitted", () => {
+    vi.stubEnv("NODE_ENV", "test")
+    expect(verify(simulatedCheck)).not.toEqual({ ok: false, reason: "bureau_simulated" })
   })
 })

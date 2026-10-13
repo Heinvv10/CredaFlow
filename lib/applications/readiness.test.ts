@@ -462,7 +462,7 @@ describe("computeReadiness", () => {
       expect(result?.blockers).toContain("Bureau risk gate")
     })
 
-    it("blocks a simulated bureau check where this deployment forbids simulation", () => {
+    it("blocks a simulated bureau check, as a non-overridable reason, where this deployment forbids simulation", () => {
       vi.stubEnv("NODE_ENV", "production")
       try {
         const result = computeReadiness(
@@ -479,7 +479,7 @@ describe("computeReadiness", () => {
             },
           }),
         )
-        expect(result?.blockers).toContain("Bureau risk gate")
+        expect(result?.blockers).toEqual(["Bureau check is simulated"])
       } finally {
         vi.unstubAllEnvs()
       }
@@ -678,6 +678,19 @@ describe("computeReadiness", () => {
           },
         })?.blockers,
       ).toContain("Affordability changed")
+    })
+
+    it("names a simulated bureau check at payout where this deployment forbids simulation", () => {
+      vi.stubEnv("NODE_ENV", "production")
+      try {
+        const blockers = approved({
+          bureauEvidenceCheck: { ...evidenceBureauCheck, obligations: { ...evidenceBureauCheck.obligations, simulated: true } },
+        })?.blockers
+        expect(blockers).toContain("Bureau check is simulated")
+        expect(blockers).not.toContain("Affordability changed")
+      } finally {
+        vi.unstubAllEnvs()
+      }
     })
 
     it("blocks when the contract schedule is missing", () => {

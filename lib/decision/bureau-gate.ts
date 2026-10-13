@@ -1,5 +1,7 @@
 import { SIGMA_SCORE_MIN } from "@/lib/integrations/experian"
-import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
+
+export { isSimulatedBureauCheck }
 
 export interface BureauGateCheck {
   score: number | null
@@ -13,15 +15,6 @@ export interface BureauGateCheck {
   obligations?: unknown
 }
 
-/** True when the stored check came from a simulated (dry-run) provider response. */
-export function isSimulatedBureauCheck(obligations: unknown): boolean {
-  return (
-    typeof obligations === "object" &&
-    obligations !== null &&
-    (obligations as { simulated?: unknown }).simulated === true
-  )
-}
-
 /** Pure bureau approval gate. Hard-stops first, then the score gate. An
  *  uncalibrated floor (below the Sigma band) is NOT a silent pass — it blocks
  *  as requires-calibration so ops must set an in-band bureauMinScore. */
@@ -29,9 +22,8 @@ export function evaluateBureauGate(
   check: BureauGateCheck,
   cfg: { bureauMinScore: number; bureauBlockAdverse: boolean },
 ): { blocked: boolean; reason?: string; requiresCalibration?: boolean } {
-  if (isSimulatedBureauCheck(check.obligations) && !isSimulationPermitted("experian")) {
-    return { blocked: true, reason: "The bureau check is a simulated result and is not valid evidence in this environment." }
-  }
+  const simulated = simulatedBureauBlock(isSimulatedBureauCheck(check.obligations))
+  if (simulated.blocked) return simulated
   if (check.deceased) return { blocked: true, reason: "Consumer is marked deceased at the bureau." }
   if (check.underDebtReview) return { blocked: true, reason: "Consumer is under debt review (NCA s.88)." }
   if (check.hasJudgement) return { blocked: true, reason: "Consumer has one or more court judgements." }

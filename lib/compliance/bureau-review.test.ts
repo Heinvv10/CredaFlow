@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const applicationFindUniqueMock = vi.fn()
 const txApplicationFindUniqueMock = vi.fn()
 const clientFindUniqueMock = vi.fn()
-const priorCheckFindFirstMock = vi.fn()
+const priorCheckFindManyMock = vi.fn()
 const bureauCheckCreateMock = vi.fn()
 const complianceRecordCreateMock = vi.fn()
 const transactionMock = vi.fn()
@@ -16,7 +16,7 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: { findUnique: (args: unknown) => applicationFindUniqueMock(args) },
     client: { findUnique: (args: unknown) => clientFindUniqueMock(args) },
     creditBureauCheck: {
-      findFirst: (args: unknown) => priorCheckFindFirstMock(args),
+      findMany: (args: unknown) => priorCheckFindManyMock(args),
     },
     $transaction: (callback: (tx: unknown) => Promise<unknown>) => transactionMock(callback),
   },
@@ -65,7 +65,7 @@ beforeEach(() => {
           dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
         }),
   )
-  priorCheckFindFirstMock.mockResolvedValue(null)
+  priorCheckFindManyMock.mockResolvedValue([])
   bureauCheckCreateMock.mockResolvedValue({ id: "bureau-1" })
   complianceRecordCreateMock.mockResolvedValue({ id: "compliance-1" })
   lockApplicationEvidenceMock.mockResolvedValue(undefined)
@@ -152,16 +152,13 @@ describe("bureau review generation binding", () => {
     })
   })
 
-  it("marks a simulated provider response in both stored records", async () => {
+  it("marks a simulated provider response on the stored bureau check", async () => {
     getCreditReportMock.mockResolvedValue({ ok: true, simulated: true, score: 645, adverseInfo: [] })
 
     await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
 
     expect(bureauCheckCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ obligations: expect.objectContaining({ simulated: true }) }),
-    })
-    expect(complianceRecordCreateMock).toHaveBeenCalledWith({
-      data: expect.objectContaining({ data: expect.objectContaining({ simulated: true }) }),
     })
   })
 
@@ -170,6 +167,32 @@ describe("bureau review generation binding", () => {
 
     const check = bureauCheckCreateMock.mock.calls[0][0].data
     expect(check.obligations).not.toHaveProperty("simulated")
-    expect(complianceRecordCreateMock.mock.calls[0][0].data.data).not.toHaveProperty("simulated")
+  })
+
+  it("ignores a simulated earlier check when looking for a score drop", async () => {
+    getCreditReportMock.mockResolvedValue({ ok: true, score: 520, adverseInfo: [] })
+    priorCheckFindManyMock.mockResolvedValue([
+      { score: 700, obligations: { simulated: true } },
+      { score: 560, obligations: null },
+    ])
+
+    await runBureauReviewCheck(request)
+
+    const stored = bureauCheckCreateMock.mock.calls[0][0].data
+    expect(stored.obligations).toBeUndefined()
+  })
+
+  it("flags a score drop against the latest genuine earlier check", async () => {
+    getCreditReportMock.mockResolvedValue({ ok: true, score: 500, adverseInfo: [] })
+    priorCheckFindManyMock.mockResolvedValue([
+      { score: 700, obligations: { simulated: true } },
+      { score: 600, obligations: null },
+    ])
+
+    await runBureauReviewCheck(request)
+
+    expect(bureauCheckCreateMock.mock.calls[0][0].data.obligations).toMatchObject({
+      scoreDropAlert: { previous: 600, current: 500, drop: 100 },
+    })
   })
 })
