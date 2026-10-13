@@ -20,6 +20,9 @@ const RUN = process.env.RUN_STATEMENT_ACCURACY === "1"
 const suite = RUN ? describe : describe.skip
 const corpusDir = process.env.STATEMENT_CORPUS_DIR ?? ""
 const allowVlm = process.env.STATEMENT_ACCURACY_VLM === "1"
+// The vision pass reads every page of every non-text statement on the shared
+// model: hours, not minutes.
+const TIMEOUT_MS = allowVlm ? 8 * 3_600_000 : 1_800_000
 
 if (!RUN) {
   process.stderr.write("\n[statement-accuracy] SKIPPED — reader accuracy was NOT measured in this run.\n")
@@ -51,5 +54,5 @@ suite("statement reader accuracy (corpus)", () => {
     const falseTamper = outcomes.filter((o) => o.bankProduced && o.method === "TEXT"
       && o.authenticityCodes.some((c) => c === "BALANCE_MISMATCH" || c === "RUNNING_BALANCE_BREAK"))
     expect(falseTamper.map((o) => o.id)).toEqual([])
-  }, 1_800_000)
+  }, TIMEOUT_MS)
 })
