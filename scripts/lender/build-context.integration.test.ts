@@ -19,6 +19,8 @@ const TAG = `canary-${process.pid}`
 const IMAGE = `credaflow-lender-canary-it:${TAG}`
 const TOOLS = `credaflow-lender-canary-it-tools:${TAG}`
 const CREATED: string[] = []
+// Built from parts so this very file (which the image does contain) never holds the marker.
+const MARKER = ["CANARY", "DO", "NOT", "SHIP"].join("-")
 const CANARIES = [".env.canary-it", "canary-it.pem", "uploads/canary-it.txt", "lib/ocr/accuracy/corpus/canary-it.pdf"]
 
 suite("lender build context (real docker)", () => {
@@ -40,13 +42,13 @@ suite("lender build context (real docker)", () => {
       const made = mkdirSync(join(REPO, dir), { recursive: true })
       if (made) CREATED.unshift(join(REPO, dir))
     }
-    for (const f of CANARIES) writeFileSync(join(REPO, f), "CANARY-DO-NOT-SHIP")
+    for (const f of CANARIES) writeFileSync(join(REPO, f), MARKER)
 
     const build = spawnSync("bash", ["-c", `. scripts/lender/lib.sh; SLUG=canary-it; ENV_FILE=/dev/null; build_images ${IMAGE} ${TOOLS}`], { cwd: REPO, encoding: "utf8" })
     expect(build.status, build.stderr.slice(-2000)).toBe(0)
 
     for (const image of [IMAGE, TOOLS]) {
-      const found = spawnSync("docker", ["run", "--rm", "--entrypoint", "sh", image, "-c", "find / -xdev \\( -name '*canary-it*' -o -name '.env.production' \\) 2>/dev/null; grep -rl CANARY-DO-NOT-SHIP /app 2>/dev/null | head"], { encoding: "utf8" })
+      const found = spawnSync("docker", ["run", "--rm", "--entrypoint", "sh", image, "-c", `find / -xdev \\( -name '*canary-it*' -o -name '.env.production' \\) 2>/dev/null; grep -rl ${MARKER} /app 2>/dev/null | head`], { encoding: "utf8" })
       expect(found.stdout.trim(), `${image} contains: ${found.stdout}`).toBe("")
     }
   })
