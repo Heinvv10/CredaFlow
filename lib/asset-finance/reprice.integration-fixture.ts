@@ -128,12 +128,14 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
     const override = await tx.ncaRegimeOverride.create({
       data: {
         tenantId, applicationId: app.id, fromRegime: "NCA", toRegime: "NON_NCA",
-        reason: "Classifier: JURISTIC_OVER_THRESHOLD (fixture)", requestedById: tenant.adminId,
+        reason: "Classifier: JURISTIC_OVER_THRESHOLD (fixture)", requestedById: tenant.adminId, source: "CLASSIFIER",
+        approvedEntityId: tenant.entityId, approvedAppliedAmount: booked.financedAmountCents,
+        approvedProductId: tenant.productId, approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
       },
     })
     await tx.ncaRegimeOverride.update({
       where: { id: override.id },
-      data: { status: "APPROVED", decidedById: `second-approver-${n}`, decidedAt: new Date() },
+      data: { status: "APPROVED", decidedById: tenant.approverId, decidedAt: new Date() },
     })
     await tx.loanApplication.update({ where: { id: app.id }, data: { ncaRegime: "NON_NCA" } })
     await tx.loanApplication.update({
