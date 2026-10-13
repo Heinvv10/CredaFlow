@@ -985,6 +985,14 @@ BEGIN
       MESSAGE = 'A changed NCA classification must carry a later ncaClassifiedAt than the one it replaces';
   END IF;
 
+  -- No classification is stamped in the future (beyond clock skew), so none
+  -- can block the next one.
+  IF snapshot_changed AND NEW."ncaClassifiedAt" > (clock_timestamp() AT TIME ZONE 'UTC') + INTERVAL '1 hour' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'An NCA classification cannot be stamped in the future';
+  END IF;
+
   IF NEW."ncaRegime" IS NOT DISTINCT FROM OLD."ncaRegime" THEN
     RETURN NEW;
   END IF;
