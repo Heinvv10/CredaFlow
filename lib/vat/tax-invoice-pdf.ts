@@ -8,7 +8,7 @@ import {
   A4_WIDTH, A4_HEIGHT, MARGIN, CONTENT_WIDTH,
   DARK, ACCENT, GRAY, WHITE,
   formatZarPdf, formatDatePdf,
-  drawText, drawTableRow, drawPageNumber, drawSectionTitle, drawRowsWithContinuation,
+  drawText, drawTableRow, drawPageNumber, drawSectionTitle,
   embedLogo, drawLogoChip,
 } from "@/lib/pdf/helpers"
 
@@ -152,33 +152,39 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
   y = drawSectionTitle(first, y, "GOODS AND SERVICES SUPPLIED", bold)
   y = drawHeaders(first, y)
 
-  const end = drawRowsWithContinuation({
-    page: first,
-    y,
-    rows: invoice.lines,
-    floor: FLOOR,
-    openContinuation: () => {
-      const page = doc.addPage([A4_WIDTH, A4_HEIGHT])
-      const top = drawSectionTitle(page, A4_HEIGHT - MARGIN - 20, "GOODS AND SERVICES SUPPLIED", bold)
-      return { page, y: drawHeaders(page, top) }
-    },
-    drawRow: (page, rowY, line) => {
-      right(page, String(line.quantity), COLUMNS.quantity, rowY, regular)
-      right(page, formatZarPdf(line.unitExclVatCents), COLUMNS.unit, rowY, regular)
-      right(page, formatZarPdf(line.exclVatCents), COLUMNS.excl, rowY, regular)
-      right(page, formatZarPdf(line.vatCents), COLUMNS.vat, rowY, regular)
-      right(page, formatZarPdf(line.inclVatCents), COLUMNS.incl, rowY, regular)
-      let lineY = rowY
-      for (const text of wrap(line.description, regular, BODY, COLUMNS.description.width)) {
-        drawText(page, text, COLUMNS.description.x, lineY, regular, BODY, DARK)
-        lineY -= LINE_GAP
+  let page = first
+  const openContinuation = (): void => {
+    page = doc.addPage([A4_WIDTH, A4_HEIGHT])
+    const top = drawSectionTitle(page, A4_HEIGHT - MARGIN - 20, "GOODS AND SERVICES SUPPLIED", bold)
+    y = drawHeaders(page, top)
+  }
+  for (const line of invoice.lines) {
+    const description = wrap(line.description, regular, BODY, COLUMNS.description.width)
+    if (description.length === 0) description.push("")
+    let offset = 0
+    let firstFragment = true
+    while (offset < description.length) {
+      if (y < FLOOR) openContinuation()
+      const capacity = Math.max(1, Math.floor((y - FLOOR) / LINE_GAP) + 1)
+      const fragment = description.slice(offset, offset + capacity)
+      if (firstFragment) {
+        right(page, String(line.quantity), COLUMNS.quantity, y, regular)
+        right(page, formatZarPdf(line.unitExclVatCents), COLUMNS.unit, y, regular)
+        right(page, formatZarPdf(line.exclVatCents), COLUMNS.excl, y, regular)
+        right(page, formatZarPdf(line.vatCents), COLUMNS.vat, y, regular)
+        right(page, formatZarPdf(line.inclVatCents), COLUMNS.incl, y, regular)
       }
-      return lineY - 6
-    },
-  })
+      for (const text of fragment) {
+        drawText(page, text, COLUMNS.description.x, y, regular, BODY, DARK)
+        y -= LINE_GAP
+      }
+      offset += fragment.length
+      firstFragment = false
+      y -= 6
+      if (offset < description.length) openContinuation()
+    }
+  }
 
-  let { page } = end
-  y = end.y
   if (y - 3 * 16 < FLOOR - 40) {
     page = doc.addPage([A4_WIDTH, A4_HEIGHT])
     y = A4_HEIGHT - MARGIN - 20

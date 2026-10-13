@@ -51,6 +51,26 @@ describe("runRepriceBatch", () => {
     expect(consoleError).toHaveBeenCalledTimes(1)
   })
 
+  it("defers later reference changes for a loan whose earlier change failed", async () => {
+    repriceLoanForReference
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValue({ kind: "repriced" })
+    const { db, fakes } = fakeDb(["l1", "l2"])
+    fakes.referenceRate.findMany.mockResolvedValue([
+      { basis: "PRIME", effectiveDate: new Date("2027-01-10T00:00:00Z") },
+      { basis: "PRIME", effectiveDate: new Date("2027-01-15T00:00:00Z") },
+    ])
+
+    const run = await runRepriceBatch(db, "2027-01-16")
+
+    expect(repriceLoanForReference.mock.calls.map(([, request]) => request)).toEqual([
+      expect.objectContaining({ loanId: "l1", effectiveDate: "2027-01-10" }),
+      expect.objectContaining({ loanId: "l2", effectiveDate: "2027-01-10" }),
+      expect.objectContaining({ loanId: "l2", effectiveDate: "2027-01-15" }),
+    ])
+    expect(run).toMatchObject({ ok: false, perTenant: [{ repriced: 2, failed: 1 }] })
+  })
+
   it("counts a balloon_reached loan as not eligible, not a failure, so the cron stays 200", async () => {
     repriceLoanForReference.mockResolvedValue({ kind: "not_eligible", reason: "balloon_reached" })
     const run = await runRepriceBatch(fakeDb(["l1"]).db, "2027-01-16")

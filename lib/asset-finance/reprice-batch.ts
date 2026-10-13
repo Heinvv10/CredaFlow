@@ -35,6 +35,7 @@ export interface RepriceBatchRun {
 
 async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<TenantRepriceRun> {
   const run: TenantRepriceRun = { tenantId, repriced: 0, alreadyRepriced: 0, notEligible: {}, failed: 0 }
+  const failedLoanIds = new Set<string>()
   const references = await db.referenceRate.findMany({
     where: { tenantId, status: "APPROVED", effectiveDate: { lte: dbDate(day) } },
     orderBy: [{ effectiveDate: "asc" }, { basis: "asc" }],
@@ -56,6 +57,10 @@ async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<Te
     })
     const effectiveDate = isoOfDbDate(reference.effectiveDate)
     for (const loan of loans) {
+      // Preserve effective-date order for each loan. Applying a later change
+      // after an earlier one failed would make the missing change superseded
+      // on retry, permanently dropping it from the contract-rate history.
+      if (failedLoanIds.has(loan.id)) continue
       try {
         const outcome = await db.$transaction((tx) =>
           repriceLoanForReference(tx, { tenantId, loanId: loan.id, basis: reference.basis, effectiveDate, runDate: day }),
@@ -64,6 +69,7 @@ async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<Te
         else if (outcome.kind === "already_repriced") run.alreadyRepriced++
         else run.notEligible[outcome.reason] = (run.notEligible[outcome.reason] ?? 0) + 1
       } catch (error) {
+        failedLoanIds.add(loan.id)
         run.failed++
         console.error("[asset-finance-reprice] loan failed", { tenantId, loanId: loan.id, basis: reference.basis, effectiveDate, error })
       }

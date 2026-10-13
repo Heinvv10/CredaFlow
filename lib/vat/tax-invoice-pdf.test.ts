@@ -73,4 +73,23 @@ describe("generateTaxInvoicePdf", () => {
     const last = pages[pages.length - 1]
     expect(last).toEqual(expect.arrayContaining(["R 60.00", "R 9.00", "R 69.00", `Page ${pages.length} of ${pages.length}`]))
   })
+
+  it("splits one long wrapped description before any text leaves the page", async () => {
+    const descriptionLines = Array.from({ length: 80 }, (_, i) => `Description line ${i + 1}`)
+    const bytes = await generateTaxInvoicePdf({
+      ...INVOICE,
+      lines: [line(1, descriptionLines.join("\n"), 100, 15)],
+      totalExclVatCents: 100,
+      vatCents: 15,
+      totalInclVatCents: 115,
+    })
+    const pages = await extractPdfTextRunsByPage(bytes)
+    const descriptions = pages.flat().filter((run) => run.text.startsWith("Description line"))
+
+    expect(descriptions.map((run) => run.text)).toEqual(descriptionLines)
+    expect(descriptions.every((run) => run.y >= 90)).toBe(true)
+    for (const page of pages) if (page.some((run) => run.text.startsWith("Description line"))) {
+      expect(page.some((run) => run.text === "Description")).toBe(true)
+    }
+  })
 })
