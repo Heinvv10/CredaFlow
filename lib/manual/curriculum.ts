@@ -38,10 +38,10 @@ export const curriculum: ManualModule[] = [
       {
         slug: "sign-in-2fa",
         title: "Sign in with TOTP 2FA",
-        summary: "Log in and complete two-factor authentication — mandatory for all staff.",
+        summary: "Log in and complete two-factor authentication — required for staff unless your lender has switched it off.",
         requiredRole: "READONLY",
         liveRoute: "/dashboard",
-        keyRules: ["2FA is mandatory for staff. Never share TOTP codes.", "Enrol your authenticator at /settings/security."],
+        keyRules: ["2FA is required for staff unless your lender has switched it off. Never share TOTP codes.", "Enrol your authenticator at /settings/security."],
         steps: [
           { caption: "Open the staff login page", liveRoute: "/login" },
           { caption: "Enter your email and password", liveRoute: "/login" },
@@ -338,7 +338,7 @@ export const curriculum: ManualModule[] = [
         summary: "Create staff users and assign roles and branches.",
         requiredRole: "ADMIN",
         liveRoute: "/settings/users",
-        keyRules: ["Role controls access. 2FA enrolment is mandatory."],
+        keyRules: ["Role controls access. 2FA enrolment is required unless your lender has switched it off."],
         steps: [
           { caption: "Open user management", liveRoute: "/settings/users" },
           { caption: "Create a user and assign a role", liveRoute: "/settings/users" },

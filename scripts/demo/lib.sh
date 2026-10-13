@@ -80,6 +80,13 @@ SELECT count(*) FROM c
 SQL
 )"
 
+# The lender's staff-2FA policy (TenantConfig.requireStaffTotp, default on)
+# switched off for every tenant of the demo db. Wherever restore.sh clears
+# staff TOTP it also runs this: with the policy on, staff without TOTP would be
+# held at the enrolment page and the demo could not be presented.
+# Tested by staff-totp-off.integration.test.ts.
+TENANT_TOTP_POLICY_OFF_SQL='UPDATE "TenantConfig" SET "requireStaffTotp" = false'
+
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 note() { echo "[${0##*/} $(date -u +%H:%M:%S)] $*" >&2; }
 

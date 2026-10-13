@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { assessAffordability } from "@/lib/affordability/ndi"
 import { calculateLoan, type LoanCalcResult } from "@/lib/loan-calculator"
 import { minimumLivingExpense, MLE_FORMULA_VERSION } from "@/lib/affordability/mle"
@@ -106,6 +107,8 @@ export interface BureauDecisionCheckEvidence {
   hasJudgement: boolean
   hasNotice: boolean
   obligationsCents: number
+  /** Present only when the stored check was a simulated provider response. */
+  simulated?: true
 }
 
 export interface BureauDecisionEvidence {
@@ -563,6 +566,7 @@ export function createBureauDecisionEvidence(args: {
         hasJudgement: args.check.hasJudgement === true,
         hasNotice: args.check.hasNotice === true,
         obligationsCents: bureauMonthlyObligations(args.check.obligations),
+        ...(isSimulatedBureauCheck(args.check.obligations) ? { simulated: true as const } : {}),
       }
     : null
   const override = args.override
@@ -609,6 +613,8 @@ export function bureauDecisionFingerprint(evidence: BureauDecisionEvidence | nul
               check.hasJudgement,
               check.hasNotice,
               check.obligationsCents,
+              // Only when true, so every non-simulated fingerprint is unchanged.
+              ...(check.simulated === true ? [true] : []),
             ],
         [evidence.policy.minimumScore, evidence.policy.blockAdverse],
         override === null
@@ -975,7 +981,8 @@ function bureauDecisionEvidenceIsValid(value: unknown): value is BureauDecisionE
     typeof check.underDebtReview !== "boolean" ||
     typeof check.hasJudgement !== "boolean" ||
     typeof check.hasNotice !== "boolean" ||
-    !isNonNegativeInteger(check.obligationsCents)
+    !isNonNegativeInteger(check.obligationsCents) ||
+    (check.simulated !== undefined && check.simulated !== true)
   )) {
     return false
   }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest"
-import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
+import { describe, it, expect, vi, afterEach } from "vitest"
+import { evaluateBureauGate, isSimulatedBureauCheck, nonOverridableBlock } from "@/lib/decision/bureau-gate"
 
 const base = { score: 650, unscoreable: false, hasAdverse: false, deceased: false, underDebtReview: false, hasJudgement: false, hasNotice: false }
 const cfg = { bureauMinScore: 600, bureauBlockAdverse: false }
@@ -51,5 +51,40 @@ describe("nonOverridableBlock", () => {
   })
   it("does not block a non-deceased consumer", () => {
     expect(nonOverridableBlock({ deceased: false }).blocked).toBe(false)
+  })
+})
+
+describe("simulated bureau evidence", () => {
+  afterEach(() => vi.unstubAllEnvs())
+  const simulated = { ...base, obligations: { simulated: true } }
+
+  it("reads the marker only when it is exactly true", () => {
+    expect(isSimulatedBureauCheck({ simulated: true })).toBe(true)
+    expect(isSimulatedBureauCheck({ simulated: "true" })).toBe(false)
+    expect(isSimulatedBureauCheck({ totalMonthly: 1 })).toBe(false)
+    expect(isSimulatedBureauCheck(null)).toBe(false)
+  })
+
+  it("blocks a simulated check on a deployment that forbids Experian simulation", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const r = evaluateBureauGate(simulated, cfg)
+    expect(r.blocked).toBe(true)
+    expect(r.reason).toMatch(/simulated/i)
+  })
+
+  it("accepts a simulated check where simulation is permitted (demo, local, tests)", () => {
+    vi.stubEnv("NODE_ENV", "development")
+    expect(evaluateBureauGate(simulated, cfg).blocked).toBe(false)
+  })
+
+  it("accepts a simulated check on a deployed build declared as the UAT estate", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("EXPERIAN_ENV", "UAT")
+    expect(evaluateBureauGate(simulated, cfg).blocked).toBe(false)
+  })
+
+  it("never blocks a genuine check on a deployed build", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    expect(evaluateBureauGate({ ...base, obligations: { totalMonthly: 100 } }, cfg).blocked).toBe(false)
   })
 })

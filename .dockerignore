@@ -2,8 +2,6 @@ node_modules
 .next
 .git
 *.log
-.env
-.env.local
 
 # Stale snapshots, local-only files and dev archives must not enter the build
 # context — they can break `npm run build` with stale TSX or missing fields.
@@ -22,3 +20,24 @@ face-models
 # build context. Dockerfile.demo-sim COPYs nothing from the context.
 .env.demo-sim
 scripts/demo
+
+# Secrets and personal data. A build from a working tree (the demo scripts, a
+# hand `docker build .`) COPYs everything not listed here, gitignored files
+# included; lender builds (scripts/lender) build from a `git archive` export
+# instead, and this keeps every other path safe too.
+.env*
+**/*.pem
+/uploads
+private
+.private
+**/.private
+# Payslip accuracy corpus: REAL client documents (lib/ocr/accuracy/README.md)
+lib/ocr/accuracy/corpus
+lib/ocr/accuracy/*.pdf
+lib/ocr/accuracy/*.jpg
+lib/ocr/accuracy/*.jpeg
+lib/ocr/accuracy/*.png
+manual-storage-state.json
+manual-review
+.superpowers
+.worktrees

@@ -245,7 +245,8 @@ export async function getCreditReport(input: ExperianEnquiryInput): Promise<Expe
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs)
 
   try {
-    // UNTESTED: endpoint path + REST body shape are provisional pending the Swagger.
+    // Endpoint path + REST body shape are confirmed against the UAT Swagger (see header);
+    // UNTESTED: no real UAT response has been received yet.
     const res = await fetch(`${cfg.baseUrl}/RequestNewEnquiry`, {
       method: "POST",
       headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json", Accept: "application/json" },

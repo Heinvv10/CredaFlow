@@ -8,7 +8,7 @@ const clientFindUniqueMock = vi.fn()
 const documentFindFirstMock = vi.fn()
 const documentFindManyMock = vi.fn()
 const documentCountMock = vi.fn()
-const bureauCountMock = vi.fn()
+const bureauFindManyMock = vi.fn()
 const avsCountMock = vi.fn()
 const queryRawMock = vi.fn()
 const clientUpdateMock = vi.fn()
@@ -106,7 +106,7 @@ const tx = {
     count: (args: unknown) => documentCountMock(args),
     updateMany: (args: unknown) => documentUpdateManyMock(args),
   },
-  creditBureauCheck: { count: (args: unknown) => bureauCountMock(args) },
+  creditBureauCheck: { findMany: (args: unknown) => bureauFindManyMock(args) },
   avsCheck: { count: (args: unknown) => avsCountMock(args) },
   auditLog: { create: (args: unknown) => auditCreateMock(args) },
 }
@@ -167,7 +167,7 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     // Default: nothing verified to lose, so the identity-revocation guard is
     // inert and the pre-existing cases keep exercising what they were written for.
     documentCountMock.mockResolvedValue(0)
-    bureauCountMock.mockResolvedValue(0)
+    bureauFindManyMock.mockResolvedValue([])
     avsCountMock.mockResolvedValue(0)
     auditCreateMock.mockResolvedValue({ id: "audit-1" })
     applicationFindFirstMock.mockResolvedValue(null)
@@ -678,6 +678,36 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     // biometric subject does not. Warning about selfies alone would state a
     // loss list that is not the loss list, and a bureau re-pull costs money
     // and needs fresh consent.
+    it("does not count a simulated credit-bureau check as stranded", async () => {
+      clientFindUniqueMock.mockResolvedValueOnce({
+        ...verifiedClient,
+        gender: "FEMALE",
+        kycStatus: "PENDING",
+        kycVerificationMethod: null,
+      })
+      documentFindFirstMock.mockResolvedValueOnce({
+        id: "id-doc-1",
+        clientId: "client-1",
+        docType: "ID_COPY",
+        extractionStatus: "done",
+        extractionGeneration: "generation-id",
+        validationResult: { isValid: true, matchScore: 100, mismatches: [] },
+        validationScore: 100,
+        extractionResult: {
+          documentNumber: { value: verifiedClient.idNumber },
+          firstName: { value: verifiedClient.firstName },
+          surname: { value: verifiedClient.lastName },
+          dateOfBirth: { value: "1990-01-01" },
+          gender: { value: "MALE" },
+        },
+      })
+      bureauFindManyMock.mockResolvedValueOnce([{ obligations: { simulated: true } }])
+
+      const response = await apply({ documentId: "id-doc-1" })
+
+      expect(response.status).not.toBe(409)
+    })
+
     it("counts a stranded credit-bureau check for a gender-only change", async () => {
       clientFindUniqueMock.mockResolvedValueOnce({
         ...verifiedClient,
@@ -701,7 +731,7 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
           gender: { value: "MALE" },
         },
       })
-      bureauCountMock.mockResolvedValueOnce(1)
+      bureauFindManyMock.mockResolvedValueOnce([{ obligations: null }])
 
       const response = await apply({ documentId: "id-doc-1" })
 
@@ -773,7 +803,7 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
 
       await apply({ documentId: "id-doc-1" })
 
-      expect(bureauCountMock).toHaveBeenCalledWith(
+      expect(bureauFindManyMock).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ ok: true }) }),
       )
       expect(avsCountMock).toHaveBeenCalledWith(

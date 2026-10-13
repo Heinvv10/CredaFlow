@@ -116,8 +116,28 @@ if [[ "${1:-}" == "--check-database-url" ]]; then
   exit 0
 fi
 
-mapfile -t ALL < <(find . -name '*.integration.test.ts' -not -path './node_modules/*' \
+# Opt-in suites: gated behind a RUN_*_IT variable that this runner deliberately does NOT
+# export, because running them is not a database check and is too heavy for this job
+# (the lender build-context test builds the real Docker images and runs out of memory
+# here). They are removed from the gated set and LISTED below, so they are never
+# silently dropped: run one by hand with its own variable (named in the file's header).
+OPT_IN_VARS=(RUN_DOCKER_BUILD_IT)
+
+mapfile -t FOUND < <(find . -name '*.integration.test.ts' -not -path './node_modules/*' \
   -not -path './.claude/*' -not -path './.worktrees/*' -not -path './.next/*' | sed 's|^\./||' | sort)
+ALL=(); OPT_IN_FILES=()
+for f in "${FOUND[@]:-}"; do
+  [[ -z "$f" ]] && continue
+  skip=""
+  for v in "${OPT_IN_VARS[@]}"; do grep -q "\b$v\b" "$f" && skip="$v"; done
+  if [[ -n "$skip" ]]; then OPT_IN_FILES+=("$f  ($skip=1)"); else ALL+=("$f"); fi
+done
+
+# Lists the opt-in suites and stops (used by the test of this runner; needs the same DATABASE_URL rule as a run).
+if [[ "${1:-}" == "--print-opt-in" ]]; then
+  printf '%s\n' "${OPT_IN_FILES[@]:-}" | sed '/^$/d'
+  exit 0
+fi
 
 if [[ ${#ALL[@]} -eq 0 ]]; then
   echo "!! Found no *.integration.test.ts files. Refusing: a gate that finds" >&2
@@ -146,12 +166,21 @@ for f in "${ALL[@]}"; do
   if printf '%s\n' "${BASE[@]:-}" | grep -qxF "$f"; then SKIPPED+=("$f"); else GATED+=("$f"); fi
 done
 
-# Every suite opts in through its own variable; enable them all.
-while read -r v; do [[ -n "$v" ]] && export "$v=1"; done < <(
+# Every suite opts in through its own variable; enable them all, except the opt-in ones.
+EXPORT_VARS=()
+while read -r v; do
+  [[ -z "$v" ]] && continue
+  # shellcheck disable=SC2076  # literal match against the opt-in list
+  [[ " ${OPT_IN_VARS[*]} " =~ " $v " ]] && continue
+  EXPORT_VARS+=("$v")
+done < <(
   grep -rho 'RUN_[A-Z0-9_]*_IT' --include='*.integration.test.ts' . 2>/dev/null | sort -u
 )
+if [[ "${1:-}" == "--print-exports" ]]; then printf '%s\n' "${EXPORT_VARS[@]:-}" | sed '/^$/d'; exit 0; fi
+for v in "${EXPORT_VARS[@]:-}"; do [[ -n "$v" ]] && export "$v=1"; done
 
-echo ">> ${#ALL[@]} integration suites: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined"
+echo ">> ${#ALL[@]} integration suites: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
+for f in "${OPT_IN_FILES[@]:-}"; do [[ -n "$f" ]] && echo ">>   opt-in, NOT run by this gate: $f"; done
 
 if [[ "${1:-}" != "--baseline-only" ]]; then
   # The same refusal as the empty-ALL check above, for the same reason. Under

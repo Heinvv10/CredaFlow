@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import type { NextRequest } from "next/server"
 import { createHash } from "node:crypto"
 import { prisma } from "@/lib/prisma"
@@ -425,15 +426,19 @@ export async function POST(
           // `ok`/`passed` false means the check never produced usable evidence
           // (lib/avs.ts refuses a failed AVS check outright). Counting one would
           // bill the operator for a loss that already did not exist.
+          // A simulated row cost nothing and is not evidence, so it is not stranded.
           const bureauChecks = bureauSubjectMoves
-            ? await tx.creditBureauCheck.count({
-                where: {
-                  tenantId: tenant.id,
-                  clientId,
-                  subjectFingerprint: previousBureauFingerprint,
-                  ok: true,
-                },
-              })
+            ? (
+                await tx.creditBureauCheck.findMany({
+                  where: {
+                    tenantId: tenant.id,
+                    clientId,
+                    subjectFingerprint: previousBureauFingerprint,
+                    ok: true,
+                  },
+                  select: { obligations: true },
+                })
+              ).filter((check) => !isSimulatedBureauCheck(check.obligations)).length
             : 0
           const avsChecks = avsSubjectMoves
             ? await tx.avsCheck.count({

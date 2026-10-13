@@ -108,6 +108,27 @@ beforeEach(() => {
 })
 
 describe("PATCH /api/settings/users/[id] — role ceiling", () => {
+  // Equal rank is as out of reach as higher rank: a password, email or demotion
+  // on a peer's account takes it over.
+  it.each([
+    ["ADMIN", "ADMIN", { password: "synthetic-pass-2" }],
+    ["ADMIN", "ADMIN", { role: "READONLY" }],
+    ["ADMIN", "ADMIN", { active: false }],
+    ["SUPER_ADMIN", "SUPER_ADMIN", { role: "ADMIN" }],
+    ["SUPER_ADMIN", "SUPER_ADMIN", { email: "takeover@acme-lending.example" }],
+    ["BRANCH_MANAGER", "BRANCH_MANAGER", { name: "Renamed" }],
+  ])("refuses a %s editing a %s (%j), writes nothing and audits the attempt", async (callerRole, targetRole, body) => {
+    signedIn(callerRole)
+    target(targetRole)
+    const res = await patch(body)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "You cannot modify a user whose role is the same as your own" })
+    expect(h.userUpdate).not.toHaveBeenCalled()
+    expect(h.logAuditStrict).toHaveBeenCalledTimes(1)
+    expect(h.logAuditStrict).toHaveBeenCalledWith(refusedAudit("target_same_rank"), undefined)
+  })
+
   it.each([
     ["BRANCH_MANAGER", "LOAN_ADMIN", "SUPER_ADMIN"],
     ["ADMIN", "LOAN_ADMIN", "SUPER_ADMIN"],
@@ -267,7 +288,6 @@ describe("PATCH /api/settings/users/[id] — allowed writes and their audit row"
     ["ADMIN", "CREDIT_OFFICER", "ADMIN"],
     ["BRANCH_MANAGER", "READONLY", "BRANCH_MANAGER"],
     ["SUPER_ADMIN", "ADMIN", "SUPER_ADMIN"],
-    ["SUPER_ADMIN", "SUPER_ADMIN", "ADMIN"],
   ])("lets a %s change a %s to %s and audits the old and new role", async (callerRole, currentRole, role) => {
     signedIn(callerRole)
     target(currentRole)
@@ -291,13 +311,13 @@ describe("PATCH /api/settings/users/[id] — allowed writes and their audit row"
     expect(h.logAudit).not.toHaveBeenCalled()
   })
 
-  it("lets a caller edit a user of equal rank", async () => {
+  it("lets a caller edit their own row at their own rank", async () => {
     signedIn("ADMIN")
-    target("ADMIN")
-    const res = await patch({ password: "synthetic-pass-2" })
+    target("ADMIN", { id: "caller-1" })
+    const res = await patch({ name: "Renamed" }, "caller-1")
 
     expect(res.status).toBe(200)
-    expect(h.userUpdate.mock.calls[0][0].data).toEqual({ password: "hashed:synthetic-pass-2", tokenVersion: { increment: 1 } })
+    expect(h.userUpdate.mock.calls[0][0].data).toEqual({ name: "Renamed" })
   })
 
   it("records an email and a role change together", async () => {
@@ -456,6 +476,17 @@ describe("PATCH /api/settings/users/[id] — the locked re-check", () => {
 })
 
 describe("DELETE /api/settings/users/[id]", () => {
+  it("refuses a SUPER_ADMIN removing another SUPER_ADMIN, and removes and deactivates nothing", async () => {
+    signedIn("SUPER_ADMIN")
+    target("SUPER_ADMIN")
+    const res = await del()
+
+    expect(res.status).toBe(403)
+    expect(h.userDelete).not.toHaveBeenCalled()
+    expect(h.userUpdate).not.toHaveBeenCalled()
+    expect(h.logAuditStrict).toHaveBeenCalledWith(refusedAudit("target_same_rank"), undefined)
+  })
+
   it.each([
     ["with no history (hard delete)", null],
     ["with history (deactivation)", { id: "fp-1" }],
