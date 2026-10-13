@@ -6,7 +6,9 @@ const m = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
   create: vi.fn(),
   logAuditStrict: vi.fn(),
+  requireAssetFinanceEnabled: vi.fn(),
 }))
+vi.mock("@/lib/asset-finance/require-enabled", () => ({ requireAssetFinanceEnabled: m.requireAssetFinanceEnabled }))
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: m.requireApiRole,
   canDo: (role: string) => role === "LOAN_ADMIN",
@@ -29,9 +31,16 @@ describe("POST /api/asset-finance/reference-rates", () => {
   beforeEach(() => {
     m.requireApiRole.mockReset().mockResolvedValue({ user: { id: "u1", email: "admin@test.invalid", role: "LOAN_ADMIN" } })
     m.logAuditStrict.mockReset()
+    m.requireAssetFinanceEnabled.mockReset().mockResolvedValue(null)
     m.create.mockReset().mockImplementation(async ({ data }: { data: { basis: string; effectiveDate: Date; rate: Prisma.Decimal } }) => ({
       id: "rr1", ...data, createdById: "u1", createdAt: new Date("2027-01-10T08:00:00Z"),
     }))
+  })
+
+  it("answers 404 and writes nothing when the tenant has not enabled asset finance", async () => {
+    m.requireAssetFinanceEnabled.mockResolvedValue(NextResponse.json({ error: "Not found" }, { status: 404 }))
+    expect((await post(VALID)).status).toBe(404)
+    expect(m.create).not.toHaveBeenCalled()
   })
 
   it("passes through the role guard's refusal", async () => {

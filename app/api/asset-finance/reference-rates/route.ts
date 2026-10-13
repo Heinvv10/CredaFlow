@@ -6,11 +6,7 @@ import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { dbDate, isoOfDbDate } from "@/lib/asset-finance/rates-store"
 import { parseReferenceRateInput } from "@/lib/asset-finance/reference-rate-input"
-
-// TODO(rebase): call requireAssetFinanceEnabled(tenant.id) first inside both
-// withTenantContext callbacks, and gate POST on canDo(role,
-// "decide_asset_finance") instead of "approve_loan" (the same LOAN_ADMIN
-// floor). Both live on feat/asset-finance-foundation, not yet in this branch.
+import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 
 const view = (row: { id: string; basis: string; effectiveDate: Date; rate: Prisma.Decimal; createdById: string | null; createdAt: Date }) => ({
   id: row.id,
@@ -27,6 +23,8 @@ export async function GET(req: NextRequest) {
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {
+    const disabled = await requireAssetFinanceEnabled(tenant.id)
+    if (disabled) return disabled
     const rows = await prisma.referenceRate.findMany({
       where: { tenantId: tenant.id },
       orderBy: [{ basis: "asc" }, { effectiveDate: "desc" }],
@@ -43,11 +41,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
-  if (!canDo(guard.user.role, "approve_loan")) {
+  if (!canDo(guard.user.role, "decide_asset_finance")) {
     return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
   }
 
   return withTenantContext(req, async (tenant) => {
+    const disabled = await requireAssetFinanceEnabled(tenant.id)
+    if (disabled) return disabled
     const body: unknown = await req.json().catch(() => null)
     const input = parseReferenceRateInput(body)
     if ("errors" in input) return NextResponse.json({ error: "Invalid reference rate", fields: input.errors }, { status: 400 })
