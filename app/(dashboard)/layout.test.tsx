@@ -115,4 +115,18 @@ describe("dashboard tenant authority", () => {
     expect(params).toContain("tenant-authoritative")
     expect(getTenantConfigMock).toHaveBeenCalledWith("tenant-authoritative")
   })
+  // A session held at TOTP enrolment can reach only the enrolment page
+  // (proxy.ts): the sidebar must not offer links that are all refused.
+  it.each([
+    [true, true],
+    [false, false],
+    [undefined, false],
+  ])("tells the shell a session with totpEnrolmentRequired=%j is enrolment-only: %j", async (claim, expected) => {
+    authMock.mockResolvedValue({
+      user: { id: "staff-1", email: "staff@example.invalid", name: "Staff", role: "LOAN_ADMIN", tenantId: "tenant-authoritative", totpEnrolmentRequired: claim },
+    })
+
+    const tree = await DashboardLayout({ children: null }) as unknown as { props: { children: { props: { enrolmentOnly: boolean } } } }
+    expect(tree.props.children.props.enrolmentOnly).toBe(expected)
+  })
 })

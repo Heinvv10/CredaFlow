@@ -94,6 +94,7 @@ export default async function DashboardLayout({
         featureCrm={featureCrm}
         featureIms={featureIms}
         featureBureauSubmission={featureBureauSubmission}
+        enrolmentOnly={session.user.totpEnrolmentRequired === true}
       >
         {children}
       </AppShell>

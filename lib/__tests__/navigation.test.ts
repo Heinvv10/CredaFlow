@@ -59,7 +59,8 @@ describe("authenticated navigation", () => {
     expect(loginActivity?.minRole).toBe("LOAN_ADMIN")
   })
 
-  // TOTP 2FA enrolment is mandatory for EVERY staff member (CLAUDE.md), and the
+  // TOTP 2FA enrolment is on by default for every staff member (a per-lender
+  // setting, CLAUDE.md), and the
   // backing page app/(dashboard)/settings/security/page.tsx only requires an
   // authenticated session (no requireMinRole) — so the nav item must be reachable
   // by all roles. Previously the page was orphaned (no link anywhere). (ADM-02)

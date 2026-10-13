@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { groupEnabled, itemEnabled } from "./AppSidebar"
+import { groupEnabled, itemEnabled, visibleGroups } from "./AppSidebar"
+import { staffNavigation } from "@/lib/navigation"
+import { ENROLMENT_PAGE } from "@/lib/proxy/totp-enrolment"
 import type { NavGroup, NavItem } from "@/lib/navigation"
 import type { UserRole } from "@/lib/permissions"
 
@@ -42,5 +44,17 @@ describe("groupEnabled (sidebar nav feature gate)", () => {
 
   it("always shows an ungated group", () => {
     expect(groupEnabled(group(undefined), off)).toBe(true)
+  })
+})
+
+// A session held at TOTP enrolment reaches only ENROLMENT_PAGE (proxy.ts).
+describe("visibleGroups (enrolment-only sidebar)", () => {
+  it("leaves the navigation alone for a session that is not held", () => {
+    expect(visibleGroups(staffNavigation, false)).toBe(staffNavigation)
+  })
+
+  it("offers only the enrolment page to a held session", () => {
+    const hrefs = visibleGroups(staffNavigation, true).flatMap(group => group.items.map(i => i.href))
+    expect(hrefs).toEqual([ENROLMENT_PAGE])
   })
 })

@@ -18,7 +18,13 @@ type AppSidebarProps = {
   featureIms?: boolean
   featureBureauSubmission?: boolean
   role?: UserRole
+  /** The session is held at TOTP enrolment: only that page is reachable. */
+  enrolmentOnly?: boolean
 }
+
+// lib/proxy/totp-enrolment.ts ENROLMENT_PAGE; not imported, as it pulls
+// next/server into this client bundle (AppSidebar.test.ts keeps them equal).
+const ENROLMENT_HREF = "/settings/security"
 
 type Features = { featureCrm: boolean; featureIms: boolean; featureBureauSubmission: boolean }
 
@@ -32,6 +38,13 @@ export function groupEnabled(group: NavGroup, features: Features) {
 export function itemEnabled(item: NavItem, role: UserRole) {
   if (!item.minRole) return true
   return hasMinRole(role, item.minRole)
+}
+
+export function visibleGroups(groups: NavGroup[], enrolmentOnly: boolean): NavGroup[] {
+  if (!enrolmentOnly) return groups
+  return groups
+    .map(group => ({ ...group, items: group.items.filter(item => item.href === ENROLMENT_HREF) }))
+    .filter(group => group.items.length > 0)
 }
 
 function routeMatches(pathname: string, href: string) {
@@ -53,6 +66,7 @@ export function AppSidebar({
   featureIms = false,
   featureBureauSubmission = false,
   role = "READONLY",
+  enrolmentOnly = false,
 }: AppSidebarProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -70,7 +84,7 @@ export function AppSidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {staffNavigation
+        {visibleGroups(staffNavigation, enrolmentOnly)
           .filter(group => groupEnabled(group, features))
           .map(group => (
             <div key={group.label} className="mb-5">
