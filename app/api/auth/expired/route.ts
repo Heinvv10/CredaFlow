@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { authBaseConfig } from "@/lib/auth-config"
-import { safeCallbackPath } from "@/lib/safe-callback-path"
 
 // Stale-session loop-breaker.
 //
@@ -21,22 +20,20 @@ import { safeCallbackPath } from "@/lib/safe-callback-path"
 // proxy.ts (isApiAuthRoute → isPublicRoute), so it is never itself gated.
 export function GET(req: NextRequest): NextResponse {
   // Preserve the original destination so re-login lands where they intended.
-  // Only a same-origin relative path is accepted (defence against open-redirect);
-  // anything else falls back to the audience's home. The client host has no
-  // /login (proxy.ts 404s it), so it signs in at the portal.
-  const isClientHost = process.env.APP_MODE === "client"
-  const loginPath = isClientHost ? "/portal/login" : "/login"
-  const callbackUrl = safeCallbackPath(
-    req.nextUrl.searchParams.get("callbackUrl"),
-    isClientHost ? "/portal" : "/dashboard",
-  )
+  // Only accept a safe relative path (defence against open-redirect); anything
+  // else falls back to the staff dashboard.
+  const requested = req.nextUrl.searchParams.get("callbackUrl")
+  const callbackUrl =
+    requested && requested.startsWith("/") && !requested.startsWith("//")
+      ? requested
+      : "/dashboard"
 
   // Emit a RELATIVE Location. A route handler's `req.url` is the container's
   // internal bind address (e.g. http://0.0.0.0:3300), so an absolute URL built
   // from it would send the browser to an unreachable host (nginx does not
   // rewrite a Location that doesn't match its proxy_pass target). A relative
   // path is resolved by the browser against the public origin instead.
-  const location = `${loginPath}?callbackUrl=${encodeURIComponent(callbackUrl)}`
+  const location = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
   const res = new NextResponse(null, { status: 307, headers: { Location: location } })
 
   // Derive the configured cookie name (e.g. `__Secure-authjs.session-token` on

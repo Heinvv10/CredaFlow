@@ -2,7 +2,6 @@
 
 import { useState, Suspense } from "react"
 import { sastParts } from "@/lib/date/sast"
-import { safeCallbackPath } from "@/lib/safe-callback-path"
 import { signIn } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
@@ -52,8 +51,7 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
   const router = useRouter()
   const searchParams = useSearchParams()
   const copy = COPY[variant]
-  // Caller-supplied and handed to router.push: same-origin paths only.
-  const callbackUrl = safeCallbackPath(searchParams.get("callbackUrl"), copy.fallbackDest)
+  const callbackUrl = searchParams.get("callbackUrl") || copy.fallbackDest
   const errorMsg = searchParams.get("error")
 
   const [loading, setLoading] = useState(false)
