@@ -140,6 +140,7 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
         reason: "Classifier: JURISTIC_OVER_THRESHOLD (fixture)", requestedById: tenant.adminId, source: "CLASSIFIER",
         approvedEntityId: tenant.entityId, approvedAppliedAmount: booked.financedAmountCents,
         approvedProductId: tenant.productId, approvedClassificationRule: "JURISTIC_OVER_THRESHOLD",
+        approvedClassifiedAt: app.ncaClassifiedAt,
       },
     })
     await tx.ncaRegimeOverride.update({
