@@ -262,6 +262,15 @@ committed=true
 set +e
 warnings=""
 warn() { note "WARNING: $1"; warnings="$warnings; $1"; }
+# DEMO ONLY: presenters sign in live in front of prospects and the data is
+# synthetic, so the demo's staff have no TOTP (product owner, 2026-10-13). The
+# bake's seed enrols it; clear it again here. Only the platform operator
+# (SUPER_ADMIN) keeps it. This sits behind the DEMO_MODE=true target guard above
+# and must never be carried into a real lender deployment: TOTP is mandatory
+# for staff there (CLAUDE.md).
+cleared="$(live_sql "$db" 'WITH c AS (UPDATE "User" SET "totpEnabled" = false, "totpSecret" = NULL, "lastTotpCounter" = NULL WHERE role <> '"'SUPER_ADMIN'"' RETURNING 1) SELECT count(*) FROM c')" \
+  && note "demo staff TOTP cleared for $cleared non-SUPER_ADMIN users" \
+  || warn "could not clear demo staff TOTP; staff still need an authenticator code"
 if $had_live_db; then
   live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi
