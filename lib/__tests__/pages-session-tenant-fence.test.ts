@@ -58,4 +58,32 @@ describe("dashboard and portal pages never read with the default tenant", () => 
       .map((f) => path.relative(ROOT, f))
     expect(offenders).toEqual([])
   })
+
+  // getResolvedTenantId() answers the request HOST's tenant (the default on an
+  // unmapped host), not the signed-in principal's. A page may use it only to
+  // refuse a mismatch: `if (<session>.tenantId !== tenantId) notFound()`. Every
+  // other page reads with getStaffTenantId / getPortalTenantId. Adding a file
+  // here needs that guard; the second assertion checks it is present.
+  const HOST_TENANT_GUARDED = [
+    "app/(dashboard)/compliance/breach-log/page.tsx",
+    "app/(dashboard)/compliance/bureau-submissions/page.tsx",
+    "app/(dashboard)/compliance/complaints/page.tsx",
+    "app/(dashboard)/compliance/dsar/page.tsx",
+    "app/(dashboard)/settings/branches/page.tsx",
+    "app/(portal)/portal/agreement/[applicationId]/page.tsx",
+    "app/(portal)/portal/mandate/[applicationId]/page.tsx",
+  ]
+
+  it("only the session-guarded pages under app/(dashboard) and app/(portal) use getResolvedTenantId", () => {
+    const users = ["app/(dashboard)", "app/(portal)"]
+      .flatMap((d) => sourceFiles(path.join(ROOT, d)))
+      .filter((f) => readFileSync(f, "utf8").includes("getResolvedTenantId"))
+      .map((f) => path.relative(ROOT, f))
+      .sort()
+    expect(users).toEqual([...HOST_TENANT_GUARDED].sort())
+  })
+
+  it.each(HOST_TENANT_GUARDED)("%s refuses a host tenant that is not the session's", (file) => {
+    expect(readFileSync(path.join(ROOT, file), "utf8")).toMatch(/\.tenantId !== tenantId\) notFound\(\)/)
+  })
 })
