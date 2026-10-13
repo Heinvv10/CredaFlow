@@ -2,8 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // InsurancePolicy, InsuranceClaim, PremiumPayment, CrossSellOpportunity and
-// User carry a tenantId but are not tenant-scope models, and pages run outside
-// a tenant frame: each list page's where clause is its only tenant boundary.
+// User carry a tenantId, and pages run outside a tenant frame: each list
+// page's where clause is its tenant boundary. (User is not a tenant-scope
+// model; the other four are, but the mocked Prisma does not run the extension.)
 // The mocked queries behave like the database — they apply the filters they
 // are given, and nothing else — so a query without the tenant returns the
 // other lender's rows too. The session tenant comes from the real helper.

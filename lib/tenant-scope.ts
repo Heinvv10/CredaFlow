@@ -65,6 +65,13 @@ export const TENANT_SCOPED_MODELS = [
   // page pass it explicitly, so the rewriter is the backstop for a query that
   // forgets to.
   "BreachLog",
+  // Insurance book + cross-sell opportunities. Non-null tenantId. Routes run
+  // inside withTenantContext's frame; callers outside a request frame pass
+  // tenantId explicitly.
+  "InsurancePolicy",
+  "InsuranceClaim",
+  "PremiumPayment",
+  "CrossSellOpportunity",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

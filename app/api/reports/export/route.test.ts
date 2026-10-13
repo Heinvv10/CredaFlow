@@ -553,9 +553,9 @@ describe("GET reports export — affordability register", () => {
 })
 
 describe("GET reports export — fsca-annual", () => {
-  // InsurancePolicy is not a tenant-scope model, so the query's own filter is
-  // the only boundary. The mock behaves like the database: it applies the
-  // filters it is given and nothing else.
+  // The route opens no tenant frame, so the query's own filter is the
+  // boundary. The mock behaves like the database: it applies the filters it
+  // is given and nothing else.
   const policy = (policyNumber: string, tenantId: string) => ({
     policyNumber, tenantId, type: "CREDIT_LIFE", insurer: null, insurer_rel: { name: "Synthetic Insurer" },
     premiumAmount: 100, status: "ACTIVE", startDate: new Date("2026-03-01T08:00:00Z"), pprIssuedAt: null,
