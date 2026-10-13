@@ -10,7 +10,9 @@ export default defineConfig({
     // when the code drops its timeZone argument — the machine supplies it. A
     // zone that differs from the product's is the only setting under which a
     // missing `timeZone: SAST_TIME_ZONE` actually fails.
-    env: { TZ: "UTC" },
+    // DEMO_LENDER unset, whatever the shell exports: the demo suites pin the
+    // default lender (prisma/demo-lender.ts).
+    env: { TZ: "UTC", DEMO_LENDER: "" },
     // Git worktrees are full checkouts of this repo living INSIDE it, each with
     // its own node_modules. Without these excludes, `npm test` in the primary
     // checkout recursively discovers every worktree's suites and runs them

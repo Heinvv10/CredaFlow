@@ -351,3 +351,62 @@ suite("demo seeds never touch another tenant's rows", () => {
     expect(await prisma.branch.count()).toBe(0)
   }, 180_000)
 })
+
+suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
+  const admin = RUN ? new PrismaClient() : null
+  const created: string[] = []
+  let db: ThrowawayDb | undefined
+  const prisma = () => {
+    if (!db) throw new Error("RUN_SEED_DB_IT=1 is required")
+    return db.prisma
+  }
+
+  beforeAll(async () => {
+    if (!admin) throw new Error("RUN_SEED_DB_IT=1 is required")
+    db = await createThrowawayDb(admin, created)
+    runSeed(db.url, { DEMO_LENDER: "fairscore" })
+  }, 120_000)
+
+  afterAll(async () => {
+    await dropThrowawayDbs(admin, created, [db])
+  })
+
+  it("brands the tenant, its identity, colours and templates as Fairscore", async () => {
+    const tenant = await prisma().tenant.findUniqueOrThrow({
+      where: { slug: "fairscore" },
+      select: { id: true, name: true, config: { select: { ...LENDER_IDENTITY_SELECT, primaryColor: true, secondaryColor: true, darkColor: true } } },
+    })
+    expect(await prisma().tenant.count()).toBe(1)
+    expect(tenant.name).toBe("Fairscore")
+    expect(parseLenderIdentity(tenant.config)).toMatchObject({
+      legalName: "Fairscore (Pty) Ltd",
+      tradingName: "Fairscore",
+      publicEmail: "hello@fairscore.example",
+      collectionsEmail: "collections@fairscore.example",
+    })
+    expect(tenant.config).toMatchObject({ primaryColor: "#033483", secondaryColor: "#0A63B8", darkColor: "#0F1A2E" })
+    expect(await prisma().messageTemplate.count({ where: { tenantId: tenant.id } })).toBe(DEFAULT_MESSAGE_TEMPLATES.length)
+  })
+
+  it("puts staff on fairscore.example and borrowers on fairscore.invalid", async () => {
+    const staff = await prisma().user.findMany({ select: { email: true } })
+    expect(staff.map((u) => u.email).sort()).toEqual(["admin@fairscore.example", "credit.officer@fairscore.example"])
+    const clients = await prisma().client.findMany({ select: { email: true } })
+    expect(clients).toHaveLength(5)
+    for (const c of clients) expect(c.email).toMatch(/^[a-z.]+@fairscore\.invalid$/)
+  })
+
+  it("leaves no Acme text in any row it wrote", async () => {
+    const tables = await prisma().$queryRaw<Array<{ table_name: string; column_name: string }>>`
+      SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND data_type IN ('text', 'character varying')`
+    const hits: string[] = []
+    for (const { table_name, column_name } of tables) {
+      const [{ n }] = await prisma().$queryRawUnsafe<Array<{ n: bigint }>>(
+        `SELECT count(*) AS n FROM "${table_name}" WHERE "${column_name}" ILIKE '%acme%'`,
+      )
+      if (n > BigInt(0)) hits.push(`${table_name}.${column_name}`)
+    }
+    expect(hits).toEqual([])
+  })
+})
