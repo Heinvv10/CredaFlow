@@ -50,6 +50,7 @@ function okKyc(overrides: Partial<CompositeKycResult> = {}): CompositeKycResult 
     okForOrigination: true,
     biometricAttemptFailed: false,
     biometricIdDocumentNotCurrent: false,
+    biometricAwaitingIdVerification: false,
     manualRejectionActive: false,
     manualExceptionActive: false,
     substituteKind: null,

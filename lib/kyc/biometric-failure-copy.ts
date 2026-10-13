@@ -139,6 +139,22 @@ export const BIOMETRIC_FAILURE_COPY: Record<
   },
 }
 
+/**
+ * Not a failure, so not keyed by reason: the selfie matched the client's
+ * current ID copy before staff verified that copy
+ * (CompositeKycResult.biometricAwaitingIdVerification). The refusal reason is
+ * still subject_identity_changed, whose copy would be false here.
+ */
+export const BIOMETRIC_AWAITING_ID_VERIFICATION_COPY: BiometricFailureCopy = {
+  label: "ID copy awaiting verification",
+  detail:
+    "Selfie matched the client's newest ID copy, which is awaiting verification. Verify the ID copy to complete the identity check.",
+}
+
+/** What the CLIENT is told on the portal in the same state. */
+export const PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE =
+  "Selfie received. We're checking your ID document — your identity check completes as soon as it's verified. You don't need to retake your selfie."
+
 // A plain object literal inherits Object.prototype keys, so a lookup for
 // "constructor" or "__proto__" would return a function instead of undefined.
 // The reason reaches here as a bare string, so use a Map.

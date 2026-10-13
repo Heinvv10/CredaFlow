@@ -93,6 +93,7 @@ const checklist: PortalKycChecklist = {
     status: "missing",
     reason: "biometric_evidence_missing",
     matchScore: null,
+    awaitingIdVerification: false,
   },
   latestSelfieId: null,
 }

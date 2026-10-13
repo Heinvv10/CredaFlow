@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Camera, CheckCircle, XCircle, Loader2, RotateCcw, AlertCircle, UserCheck, UserX } from "lucide-react"
 import { SAST_TIME_ZONE } from "@/lib/utils"
-import { biometricFailureCopy } from "@/lib/kyc/biometric-failure-copy"
+import {
+  BIOMETRIC_AWAITING_ID_VERIFICATION_COPY,
+  biometricFailureCopy,
+} from "@/lib/kyc/biometric-failure-copy"
 import {
   MANUAL_KYC_EXCEPTION_MIN_EVIDENCE_CHARACTERS,
   MANUAL_KYC_EXCEPTION_MIN_REASON_CHARACTERS,
@@ -60,6 +63,11 @@ interface Props {
   biometricEvidence: string | null
   biometricAttemptFailed: boolean
   /**
+   * The latest selfie matched the client's current ID copy, which staff have
+   * not verified yet. Not a failed attempt: the remedy is verifying that copy.
+   */
+  biometricAwaitingIdVerification: boolean
+  /**
    * The in-person route's evidence preconditions, derived on the server by
    * readCompositeKycState, so the form is offered exactly when the route
    * would grant.
@@ -102,6 +110,7 @@ export function SelfieKycTab({
   coreDocumentsComplete = false,
   biometricEvidence,
   biometricAttemptFailed,
+  biometricAwaitingIdVerification,
   inPersonRoute,
   seniorExceptionAvailable,
 }: Props) {
@@ -567,6 +576,11 @@ export function SelfieKycTab({
               </p>
               {inPersonVerificationForm}
             </div>
+          </div>
+        ) : biometricAwaitingIdVerification ? (
+          <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-semibold">{BIOMETRIC_AWAITING_ID_VERIFICATION_COPY.label}</p>
+            <p className="mt-1">{BIOMETRIC_AWAITING_ID_VERIFICATION_COPY.detail}</p>
           </div>
         ) : null}
       </div>

@@ -120,11 +120,20 @@ export type CompositeKycResult = {
    * A selfie exists, did not pass, and nothing covers it. Not set when the
    * only refusal is that the match was run against an ID copy that is not the
    * newest verified one (biometricIdDocumentNotCurrent): that awaits a new
-   * selfie or staff verifying the copy, like a selfie never taken.
+   * selfie or staff verifying the copy, like a selfie never taken. Nor when
+   * it was run against the current copy, not yet verified
+   * (biometricAwaitingIdVerification).
    */
   biometricAttemptFailed: boolean
   /** The latest selfie's only refusal is its ID-copy binding. */
   biometricIdDocumentNotCurrent: boolean
+  /**
+   * The latest selfie matched the client's current ID copy, which staff have
+   * not verified yet. PENDING, not FAILED, but origination stays blocked:
+   * the same state follows a face mismatch against the verified ID and a
+   * substitute upload, so staff must look at and verify that copy first.
+   */
+  biometricAwaitingIdVerification: boolean
   manualExceptionActive: boolean
   /**
    * Which substitute is carrying the biometric requirement, so readers can say
@@ -307,17 +316,23 @@ export function deriveCompositeKycState(args: {
   // An attempt that exists and did not pass, with nothing covering it.
   const biometricIdDocumentNotCurrent =
     !args.biometricAssessment.ok && args.biometricAssessment.idDocumentNotCurrent === true
+  const biometricAwaitingIdVerification =
+    !args.biometricAssessment.ok &&
+    args.biometricAssessment.idDocumentAwaitingVerification === true &&
+    !manualExceptionActive
   const biometricAttemptFailed =
     args.biometricDocumentPresent &&
     biometricEvidence !== null &&
     !manualExceptionActive &&
-    !biometricIdDocumentNotCurrent
+    !biometricIdDocumentNotCurrent &&
+    !biometricAwaitingIdVerification
   const substituteKind: "senior_exception" | "in_person" | null =
     args.manualException ? "senior_exception" : args.inPersonVerification ? "in_person" : null
   const okForOrigination =
     missingCoreDocuments.length === 0 &&
     !manualRejectionActive &&
-    !biometricAttemptFailed
+    !biometricAttemptFailed &&
+    !biometricAwaitingIdVerification
 
   if (manualRejectionActive) {
     return {
@@ -335,6 +350,7 @@ export function deriveCompositeKycState(args: {
       okForOrigination: false,
       biometricAttemptFailed,
       biometricIdDocumentNotCurrent,
+      biometricAwaitingIdVerification,
       manualRejectionActive,
       manualExceptionActive: false,
       substituteKind: null,
@@ -375,6 +391,7 @@ export function deriveCompositeKycState(args: {
       okForOrigination,
       biometricAttemptFailed,
       biometricIdDocumentNotCurrent,
+      biometricAwaitingIdVerification,
       manualRejectionActive,
       manualExceptionActive,
       substituteKind: manualExceptionActive ? substituteKind : null,
@@ -387,7 +404,8 @@ export function deriveCompositeKycState(args: {
 
   const currentBiometricFailed = args.biometricDocumentPresent &&
     biometricEvidence !== null &&
-    !biometricIdDocumentNotCurrent
+    !biometricIdDocumentNotCurrent &&
+    !biometricAwaitingIdVerification
   // Was a CURRENT core document refused by a named reviewer? Keyed off the same
   // classification the UI renders, so the rollup and the per-document copy can
   // never tell different stories. A note with no author is excluded: the system
@@ -398,6 +416,7 @@ export function deriveCompositeKycState(args: {
     ok,
     biometricAttemptFailed,
     biometricIdDocumentNotCurrent,
+    biometricAwaitingIdVerification,
     state: {
       kycStatus: currentBiometricFailed || rejectedByReviewer ? "FAILED" : "PENDING",
       kycVerifiedAt: null,

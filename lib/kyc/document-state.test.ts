@@ -7,6 +7,7 @@ import {
   latestSelfieOrder,
   readCompositeKycState,
   type CompositeKycReader,
+  type CoreKycDocumentRow,
 } from "./document-state"
 import {
   MANUAL_KYC_EXCEPTION_KIND,
@@ -14,6 +15,8 @@ import {
   type ManualKycExceptionEvidence,
 } from "./manual-exception"
 import { biometricSubjectFingerprint } from "./biometric-evidence"
+import { PASSING_FACE_MODEL_EVIDENCE } from "./face-model/evidence.test-helpers"
+import { inPersonKycVerificationOffered } from "./in-person-verification"
 
 const verifiedCoreDocuments = [
   "ID_COPY",
@@ -157,8 +160,93 @@ describe("composite KYC state", () => {
       okForOrigination: true,
       biometricAttemptFailed: false,
       biometricIdDocumentNotCurrent: true,
+      biometricAwaitingIdVerification: false,
       biometricEvidence: "subject_identity_changed",
       state: expect.objectContaining({ kycStatus: "PENDING" }),
+    }))
+  })
+
+  it("projects a match against the current, unverified ID copy as PENDING with origination blocked", () => {
+    const awaiting = { ok: false as const, reason: "subject_identity_changed" as const, idDocumentAwaitingVerification: true as const }
+    // Verified copy A on file (L1 shape): the core documents are complete,
+    // so only the awaiting state can close origination.
+    expect(deriveCompositeKycState({
+      documents: verifiedCoreDocuments,
+      biometricDocumentPresent: true,
+      biometricAssessment: awaiting,
+      existing: pending,
+      completion,
+    })).toEqual(expect.objectContaining({
+      ok: false,
+      okForOrigination: false,
+      biometricAttemptFailed: false,
+      biometricAwaitingIdVerification: true,
+      biometricIdDocumentNotCurrent: false,
+      biometricEvidence: "subject_identity_changed",
+      state: expect.objectContaining({ kycStatus: "PENDING" }),
+    }))
+    // The new copy is the client's only one: the ID copy is outstanding too.
+    expect(deriveCompositeKycState({
+      documents: verifiedCoreDocuments.map((document) =>
+        document.docType === "ID_COPY" ? { ...document, verified: false } : document),
+      biometricDocumentPresent: true,
+      biometricAssessment: awaiting,
+      existing: pending,
+      completion,
+    })).toEqual(expect.objectContaining({
+      ok: false,
+      okForOrigination: false,
+      biometricAttemptFailed: false,
+      biometricAwaitingIdVerification: true,
+      missingCoreDocuments: ["ID_COPY"],
+      state: expect.objectContaining({ kycStatus: "PENDING" }),
+    }))
+    // A manual rejection still governs.
+    expect(deriveCompositeKycState({
+      documents: verifiedCoreDocuments,
+      biometricDocumentPresent: true,
+      biometricAssessment: awaiting,
+      existing: {
+        ...pending,
+        kycManualRejectionActive: true,
+        kycManualRejectionAt: new Date("2026-07-23T00:00:00.000Z"),
+        kycManualRejectionById: "officer-1",
+        kycManualRejectionReason: "Synthetic hold",
+      },
+      completion,
+    })).toEqual(expect.objectContaining({
+      okForOrigination: false,
+      state: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+  })
+
+  it("never leaves origination closed under a strict pass a substitute carries", () => {
+    // Unreachable through the reader (the awaiting reason is not exceptionable
+    // and the passed selfie blocks the in-person route), but the derivation
+    // must keep ok implying okForOrigination for any input.
+    const result = deriveCompositeKycState({
+      documents: verifiedCoreDocuments,
+      biometricDocumentPresent: true,
+      biometricAssessment: { ok: false, reason: "subject_identity_changed", idDocumentAwaitingVerification: true },
+      existing: pending,
+      completion,
+      manualException: {
+        kind: MANUAL_KYC_EXCEPTION_KIND,
+        version: MANUAL_KYC_EXCEPTION_VERSION,
+        clientId: "client-1",
+        documentId: "selfie-1",
+        documentSha256: "a".repeat(64),
+        subjectFingerprint: "b".repeat(64),
+        biometricFailureReason: "face_not_detected",
+        reason: "Senior reviewed the failed attempt and accepted physical evidence.",
+        supportingEvidence: "Physical ID comparison was completed by the senior reviewer.",
+        approvedAt: "2026-07-23T03:00:00.000Z",
+        approvedById: "admin-1",
+        approvedByEmail: "admin@example.test",
+      },
+    })
+    expect(result).toEqual(expect.objectContaining({
+      ok: true, okForOrigination: true, biometricAwaitingIdVerification: false,
     }))
   })
 
@@ -192,6 +280,7 @@ describe("composite KYC state", () => {
       okForOrigination: true,
       biometricAttemptFailed: false,
       biometricIdDocumentNotCurrent: false,
+      biometricAwaitingIdVerification: false,
       manualExceptionActive: false,
       substituteKind: null,
       manualException: null,
@@ -228,6 +317,7 @@ describe("composite KYC state", () => {
       okForOrigination: false,
       biometricAttemptFailed: false,
       biometricIdDocumentNotCurrent: false,
+      biometricAwaitingIdVerification: false,
       manualExceptionActive: false,
       substituteKind: null,
       manualException: null,
@@ -273,6 +363,7 @@ describe("composite KYC state", () => {
       okForOrigination: true,
       biometricAttemptFailed: false,
       biometricIdDocumentNotCurrent: false,
+      biometricAwaitingIdVerification: false,
       manualExceptionActive: true,
       substituteKind: "senior_exception",
       manualException,
@@ -604,6 +695,124 @@ describe("composite KYC exception reader", () => {
         kycVerifiedById: "admin-1",
         kycVerificationMethod: "PHYSICAL",
       },
+    }))
+  })
+})
+
+describe("composite KYC reader: a selfie matched against the client's current, unverified ID copy", () => {
+  const subject = {
+    id: "client-awaiting",
+    idNumber: "9001015009087",
+    firstName: "Synthetic",
+    lastName: "Borrower",
+    dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
+  }
+  const verifiedA: CoreKycDocumentRow = {
+    ...readerCoreDocuments[0],
+    id: "id-copy-A",
+    contentSha256: "a".repeat(64),
+    verificationRejectedAt: null,
+    verificationRejectedById: null,
+    createdAt: new Date("2026-07-20T08:00:00.000Z"),
+  }
+  const currentB = {
+    ...verifiedA,
+    id: "id-copy-B",
+    contentSha256: "b".repeat(64),
+    verified: false,
+    createdAt: new Date("2026-07-21T08:00:00.000Z"),
+  }
+  const selfieCreatedAt = new Date("2026-07-21T09:00:00.000Z")
+  const passedAgainstB = {
+    id: "selfie-B",
+    contentSha256: "e".repeat(64),
+    deletedAt: null,
+    verified: true,
+    extractionStatus: "done",
+    extractionResult: {
+      faceDetected: { value: true }, facesCount: { value: 1 }, isLive: { value: true }, quality: { value: "good" },
+    },
+    extractionError: null,
+    validationMismatch: false,
+    validationScore: 90,
+    biometricMatchScore: 90,
+    biometricLiveness: 95,
+    biometricVerifiedAt: selfieCreatedAt,
+    biometricResult: {
+      ok: true, verified: true, matchScore: 90, livenessScore: 95,
+      provider: "vlm-face-match-v3", idPhotoKind: "photograph", idPhotoIsRealPhotograph: true,
+      idPhotoFaceDetected: true, selfieIsRealPhotograph: true, samePerson: "same", faceMatch: true,
+      matchConfidence: 0.9, livenessConfidence: 0.95, faceModel: PASSING_FACE_MODEL_EVIDENCE,
+      idDocumentId: currentB.id, idDocumentSha256: currentB.contentSha256,
+      subjectFingerprint: biometricSubjectFingerprint(subject),
+    },
+  }
+  const otherCore = readerCoreDocuments.slice(1).map((document) => ({
+    ...document, verificationRejectedAt: null, verificationRejectedById: null,
+  }))
+
+  function reader(idCopies: readonly CoreKycDocumentRow[]): CompositeKycReader {
+    return {
+      clientDocument: {
+        findMany: (async (args: { where: { docType?: unknown; OR?: unknown } }) => {
+          if (args.where.docType !== "SELFIE") return [...idCopies, ...otherCore]
+          // The passed selfie is a blocking candidate; nothing refused a portrait.
+          return args.where.OR
+            ? [{ extractionStatus: "done", biometricResult: passedAgainstB.biometricResult, createdAt: selfieCreatedAt }]
+            : []
+        }) as unknown as CompositeKycReader["clientDocument"]["findMany"],
+        findFirst: async () => passedAgainstB,
+      },
+    }
+  }
+
+  const read = (idCopies: readonly CoreKycDocumentRow[]) => readCompositeKycState(reader(idCopies), {
+    tenantId: "tenant-1",
+    clientId: subject.id,
+    subject,
+    existing: { kycStatus: "PENDING", kycVerifiedAt: null, kycVerifiedById: null, kycVerificationMethod: null },
+  })
+
+  it("awaits ID verification, origination blocked, and does not offer the in-person route the selfie closes", async () => {
+    const result = await read([verifiedA, currentB])
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      okForOrigination: false,
+      biometricAttemptFailed: false,
+      biometricAwaitingIdVerification: true,
+      missingCoreDocuments: [],
+      state: expect.objectContaining({ kycStatus: "PENDING" }),
+    }))
+    // The route refuses (409) while this passed selfie names a current copy.
+    expect(result.inPersonRoute.blockingBiometricAttempt).toBe(true)
+    expect(inPersonKycVerificationOffered({
+      manualExceptionActive: result.manualExceptionActive,
+      inPersonVerificationRecorded: result.inPersonVerification !== null,
+      coreDocumentsComplete: result.missingCoreDocuments.length === 0,
+      manualRejectionActive: result.manualRejectionActive,
+      ...result.inPersonRoute,
+    })).toBe(false)
+  })
+
+  it.each([
+    ["staff rejected B", [verifiedA, { ...currentB, verificationRejectedAt: new Date("2026-07-22T08:00:00.000Z"), verificationRejectedById: "officer-1" }]],
+    ["B was deleted", [verifiedA]],
+    ["a later upload buried B", [verifiedA, currentB, { ...currentB, id: "id-copy-C", contentSha256: "c".repeat(64), createdAt: new Date("2026-07-22T08:00:00.000Z") }]],
+  ] as const)("projects FAILED with origination blocked once %s", async (_label, idCopies) => {
+    expect(await read(idCopies)).toEqual(expect.objectContaining({
+      okForOrigination: false,
+      biometricAttemptFailed: true,
+      biometricAwaitingIdVerification: false,
+      state: expect.objectContaining({ kycStatus: "FAILED" }),
+    }))
+  })
+
+  it("verifies the client once staff verify B", async () => {
+    expect(await read([verifiedA, { ...currentB, verified: true }])).toEqual(expect.objectContaining({
+      ok: true,
+      okForOrigination: true,
+      biometricAwaitingIdVerification: false,
+      state: expect.objectContaining({ kycStatus: "VERIFIED", kycVerificationMethod: "BIOMETRIC" }),
     }))
   })
 })

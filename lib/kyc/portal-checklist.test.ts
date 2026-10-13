@@ -20,6 +20,7 @@ function composite(
     okForOrigination: false,
     biometricAttemptFailed: false,
     biometricIdDocumentNotCurrent: false,
+    biometricAwaitingIdVerification: false,
     substituteKind: null,
     manualExceptionActive: false,
     manualException: null,
@@ -125,6 +126,65 @@ describe("derivePortalKycChecklist", () => {
     expect(result.selfie.status).toBe("pending_review")
   })
 
+  it("does not ask the client to retake a selfie that matched an ID copy awaiting verification", () => {
+    const result = derivePortalKycChecklist({
+      documents: [
+        ...uploadedCoreDocuments.map((document) => ({
+          ...document,
+          verified: document.docType !== "ID_COPY",
+        })),
+        {
+          id: "selfie-matched-new-id",
+          docType: "SELFIE",
+          verified: true,
+          verificationNote: null,
+          extractionStatus: "done",
+          biometricMatchScore: 90,
+        },
+      ],
+      composite: composite({
+        biometricEvidence: "subject_identity_changed",
+        biometricAwaitingIdVerification: true,
+        missingCoreDocuments: ["ID_COPY"],
+      }),
+      latestSelfieId: "selfie-matched-new-id",
+    })
+
+    expect(result.selfie).toEqual({
+      documentId: "selfie-matched-new-id",
+      status: "pending_review",
+      reason: "subject_identity_changed",
+      matchScore: 90,
+      awaitingIdVerification: true,
+    })
+    expect(result.customerActionCount).toBe(0)
+    expect(result.pendingReviewCount).toBe(2)
+  })
+
+  it("still asks for a retake when the same refusal is a failed attempt", () => {
+    const result = derivePortalKycChecklist({
+      documents: [
+        ...uploadedCoreDocuments.map((document) => ({ ...document, verified: true })),
+        {
+          id: "selfie-identity-changed",
+          docType: "SELFIE",
+          verified: true,
+          verificationNote: null,
+          extractionStatus: "done",
+          biometricMatchScore: 90,
+        },
+      ],
+      composite: composite({
+        biometricEvidence: "subject_identity_changed",
+        biometricAttemptFailed: true,
+      }),
+      latestSelfieId: "selfie-identity-changed",
+    })
+
+    expect(result.selfie.status).toBe("action_required")
+    expect(result.selfie.awaitingIdVerification).toBe(false)
+  })
+
   it("requires customer action when selfie extraction ended without evidence", () => {
     const result = derivePortalKycChecklist({
       documents: [
@@ -188,6 +248,7 @@ describe("derivePortalKycChecklist", () => {
       status: "action_required",
       reason: "document_not_verified",
       matchScore: 98,
+      awaitingIdVerification: false,
     })
     expect(result.customerActionCount).toBe(1)
     expect(result.pendingReviewCount).toBe(0)
@@ -350,6 +411,7 @@ describe("derivePortalKycChecklist", () => {
       status: "exception_accepted",
       reason: "face_not_detected",
       matchScore: 0,
+      awaitingIdVerification: false,
     })
   })
 

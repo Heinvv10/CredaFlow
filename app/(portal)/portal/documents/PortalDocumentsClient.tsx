@@ -25,7 +25,10 @@ import {
   deletePortalDocumentAndReconcile,
   PortalDocumentPoller,
 } from "@/lib/kyc/portal-document-poller"
-import { portalSelfieFailureMessage } from "@/lib/kyc/biometric-failure-copy"
+import {
+  PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE,
+  portalSelfieFailureMessage,
+} from "@/lib/kyc/biometric-failure-copy"
 
 interface Props {
   clientId: string
@@ -377,7 +380,9 @@ export function PortalDocumentsClient({
                     : selfieVerified
                     ? `Identity verified at ${selfieDoc?.biometricMatchScore}% match.`
                     : selfiePending
-                      ? kycChecklist.selfie.reason === "document_not_verified"
+                      ? kycChecklist.selfie.awaitingIdVerification
+                        ? PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE
+                        : kycChecklist.selfie.reason === "document_not_verified"
                         ? "Identity checks passed and are awaiting advisor review."
                         : "Selfie received. Verification is running."
                       : selfieFailed
@@ -395,7 +400,8 @@ export function PortalDocumentsClient({
                 <StatusPill tone="success">Verified - {selfieDoc?.biometricMatchScore}%</StatusPill>
               ) : selfiePending ? (
                 <StatusPill tone="info">
-                  {kycChecklist.selfie.reason === "document_not_verified"
+                  {kycChecklist.selfie.reason === "document_not_verified" ||
+                    kycChecklist.selfie.awaitingIdVerification
                     ? "Pending review"
                     : "Verifying"}
                 </StatusPill>
@@ -539,7 +545,9 @@ export function PortalDocumentsClient({
                   {isLatestSelfie && selfiePending && (
                     <span className="flex items-center gap-1 text-xs text-[var(--cf-info)]">
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      {kycChecklist.selfie.reason === "document_not_verified"
+                      {kycChecklist.selfie.awaitingIdVerification
+                        ? PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE
+                        : kycChecklist.selfie.reason === "document_not_verified"
                         ? "Identity checks are awaiting advisor review."
                         : "Verifying your identity... This may take up to 60 seconds."}
                     </span>

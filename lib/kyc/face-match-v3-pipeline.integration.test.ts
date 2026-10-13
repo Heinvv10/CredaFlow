@@ -282,13 +282,31 @@ async function offerAndRoute(clientId: string) {
   return { offered, status }
 }
 
+/** A selfie that did not pass and blocks origination. */
+const FAILED_ATTEMPT = { okForOrigination: false, biometricAttemptFailed: true, biometricAwaitingIdVerification: false }
+/** A selfie matched against the current ID copy before staff verified it. */
+const AWAITING_ID_VERIFICATION = { okForOrigination: false, biometricAttemptFailed: false, biometricAwaitingIdVerification: true }
+
 /** The origination half of the app's composite verdict. */
 async function origination(clientId: string) {
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
   const app = await readCompositeKycState(db as unknown as CompositeKycReader, {
     tenantId: client.tenantId, clientId, subject: client, existing: client,
   })
-  return { okForOrigination: app.okForOrigination, biometricAttemptFailed: app.biometricAttemptFailed }
+  return {
+    okForOrigination: app.okForOrigination,
+    biometricAttemptFailed: app.biometricAttemptFailed,
+    biometricAwaitingIdVerification: app.biometricAwaitingIdVerification,
+  }
+}
+
+/** The KYC status the composite gate derives now, whatever is cached. */
+async function derivedKycStatus(clientId: string) {
+  const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
+  const app = await readCompositeKycState(db as unknown as CompositeKycReader, {
+    tenantId: client.tenantId, clientId, subject: client, existing: client,
+  })
+  return app.state.kycStatus
 }
 
 async function selfieResult(id: string) {
@@ -467,20 +485,21 @@ suite("face match v3 through the real pipeline", () => {
       })).rejects.toThrow("Client KYC cannot be VERIFIED without current composite evidence")
     })
 
-    it("counts the match once staff verify the copy it was run against", async () => {
+    it("awaits ID verification, then counts the match once staff verify the copy it was run against", async () => {
       const fixture = await seedClient()
       const newer = await addIdCopy(fixture, "awaiting", { verified: false, contentSha256: "b".repeat(64) })
       stubVlm(passingReply())
       const { selfie } = await capture(fixture)
 
       // The borrower did not wait for staff: the match is stored but proves
-      // nothing until staff verify that copy, so it stays a failed attempt
-      // (indistinguishable from a doctored substitute, L1). The passed selfie
-      // still blocks the in-person route; the form is not offered.
+      // nothing until staff verify that copy. Not a failed attempt (PENDING),
+      // but origination stays blocked: this is also what a doctored
+      // substitute looks like (L1). The passed selfie still blocks the
+      // in-person route; the form is not offered.
       expect((selfie?.biometricResult as Record<string, unknown>).idDocumentId).toBe(newer)
       expect(selfie?.verified).toBe(true)
-      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
       expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
       expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 409 })
 
@@ -491,6 +510,26 @@ suite("face match v3 through the real pipeline", () => {
       // document verified after the selfie.
       const response = await verifyDocument(fixture.clientId, newer)
       expect(response.status).toBe(200)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
+      expect(await layers(fixture.clientId)).toEqual({ app: true, appReason: null, sql: true })
+    })
+
+    it("awaits ID verification when the selfie matched the client's first ID copy, then verifies via the verify route", async () => {
+      const fixture = await seedClient()
+      await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
+      stubVlm(passingReply())
+      const { selfie } = await capture(fixture)
+
+      expect((selfie?.biometricResult as Record<string, unknown>).idDocumentId).toBe(fixture.idCopyId)
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
+      expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
+      // Not offered; the route refuses too (no verified ID copy to attest against).
+      const { offered, status } = await offerAndRoute(fixture.clientId)
+      expect(offered).toBe(false)
+      expect(status).not.toBe(200)
+
+      expect((await verifyDocument(fixture.clientId, fixture.idCopyId)).status).toBe(200)
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "VERIFIED", kycVerificationMethod: "PHYSICAL" })
       expect(await layers(fixture.clientId)).toEqual({ app: true, appReason: null, sql: true })
     })
@@ -512,14 +551,15 @@ suite("face match v3 through the real pipeline", () => {
       const newer = await addIdCopy(fixture, "later-rejected", { verified: false, contentSha256: "b".repeat(64) })
       stubVlm(passingReply())
       await capture(fixture)
-      expect((await kyc(fixture.clientId)).kycStatus).toBe("FAILED")
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("PENDING")
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
 
       // A passing match against a copy staff rejected is an adverse signal,
       // the same fact as a rejection that lands while the check runs.
       const response = await rejectDocument(fixture.clientId, newer)
       expect(response.status).toBe(200)
       expect((await kyc(fixture.clientId)).kycStatus).toBe("FAILED")
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
       // Not stranded: the passed selfie bound to the rejected copy no longer
       // blocks the in-person route over the real, verified ID.
       expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: true, status: 200 })
@@ -530,8 +570,9 @@ suite("face match v3 through the real pipeline", () => {
       const newer = await addIdCopy(fixture, "later-deleted", { verified: false, contentSha256: "b".repeat(64) })
       stubVlm(passingReply())
       await capture(fixture)
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
       await db.clientDocument.update({ where: { id: newer }, data: { deletedAt: new Date(), deletedByType: "staff" } })
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
       expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: true, status: 200 })
     })
 
@@ -548,7 +589,10 @@ suite("face match v3 through the real pipeline", () => {
       const doctored = await addIdCopy(fixture, "doctored", { verified: false, contentSha256: "b".repeat(64) })
       stubVlm(passingReply())
       await capture(fixture)
-      expect((await kyc(fixture.clientId)).kycStatus).toBe("FAILED")
+      // The attestation over A no longer counts: the passed selfie governs,
+      // awaiting staff review of B.
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("PENDING")
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
 
       if (release === "delete") {
         await db.clientDocument.update({ where: { id: doctored }, data: { deletedAt: new Date(), deletedByType: "client" } })
@@ -583,8 +627,14 @@ suite("face match v3 through the real pipeline", () => {
         await db.clientDocument.update({ where: { id: substitute }, data: { deletedAt: new Date(), deletedByType: "client" } })
       }
 
-      expect((await kyc(fixture.clientId)).kycStatus).toBe("FAILED")
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+      // L1 awaits staff review of the substitute, origination BLOCKED: the
+      // pass against B proceeds nowhere until staff look at and verify B.
+      // L2 is a failed attempt again.
+      // Re-derived: a raw delete (L2) does not re-project the cached status;
+      // the delete route does (app/api/documents/[id]/route.ts).
+      expect(await derivedKycStatus(fixture.clientId)).toBe(deleteSubstitute ? "FAILED" : "PENDING")
+      if (!deleteSubstitute) expect((await kyc(fixture.clientId)).kycStatus).toBe("PENDING")
+      expect(await origination(fixture.clientId)).toEqual(deleteSubstitute ? FAILED_ATTEMPT : AWAITING_ID_VERIFICATION)
       expect(await layers(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
       // With the substitute on file its passed selfie blocks the in-person
       // route; once deleted, staff may verify in person against the real ID.
@@ -598,9 +648,10 @@ suite("face match v3 through the real pipeline", () => {
       await addIdCopy(fixture, "buried", { verified: false, contentSha256: "b".repeat(64) })
       stubVlm(passingReply())
       await capture(fixture)
+      expect(await origination(fixture.clientId)).toEqual(AWAITING_ID_VERIFICATION)
       await addIdCopy(fixture, "later", { verified: false, contentSha256: "c".repeat(64) })
 
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
       expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 409 })
     })
 
@@ -615,7 +666,7 @@ suite("face match v3 through the real pipeline", () => {
       // The old match no longer describes the verified ID: PENDING, not FAILED.
       expect((await verifyDocument(fixture.clientId, replacement)).status).toBe(200)
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: true, biometricAttemptFailed: false })
+      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: true, biometricAttemptFailed: false, biometricAwaitingIdVerification: false })
       // The superseded match still blocks the in-person route; not offered.
       expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 409 })
 
@@ -636,7 +687,7 @@ suite("face match v3 through the real pipeline", () => {
         data: { biometricResult: { ...(await selfieResult(selfieRow.id)), subjectFingerprint: "f".repeat(64) } },
       })
       expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
-      expect(await origination(fixture.clientId)).toEqual({ okForOrigination: false, biometricAttemptFailed: true })
+      expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
     })
 
     it("lapses biometric KYC when a newer ID copy is verified after the match", async () => {

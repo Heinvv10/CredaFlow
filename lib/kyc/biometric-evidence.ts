@@ -118,6 +118,13 @@ export type BiometricEvidenceAssessment =
        * the client's newest verified one. Not a failed attempt.
        */
       idDocumentNotCurrent?: true
+      /**
+       * Set only when the ID-copy binding is the sole refusal and the copy the
+       * match ran against is the client's CURRENT one (the copy capture would
+       * choose now) but staff have not verified it yet. Not a failed attempt,
+       * and not a pass: the identity check completes once that copy is verified.
+       */
+      idDocumentAwaitingVerification?: true
     }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
@@ -219,6 +226,26 @@ export interface BiometricIdDocumentCopy extends BiometricIdDocument {
   verified: boolean
   verificationRejectedAt?: Date | null
   verificationRejectedById?: string | null
+  createdAt: Date
+}
+
+/**
+ * The copy capture would compare a selfie against now (CURRENT_ID_DOCUMENT in
+ * lib/kyc/usable-id-document.ts): the newest not rejected, createdAt DESC then
+ * id DESC. The copies are already the non-deleted ones. Code-unit comparison,
+ * as readCompositeKycState breaks the same tie.
+ */
+function currentIdDocumentCopy(
+  copies: readonly BiometricIdDocumentCopy[],
+): BiometricIdDocumentCopy | null {
+  return copies
+    .filter((copy) => (copy.verificationRejectedAt ?? null) === null)
+    .reduce<BiometricIdDocumentCopy | null>((newest, copy) => {
+      if (newest === null) return copy
+      const byCreatedAt = copy.createdAt.getTime() - newest.createdAt.getTime()
+      if (byCreatedAt !== 0) return byCreatedAt > 0 ? copy : newest
+      return copy.id > newest.id ? copy : newest
+    }, null)
 }
 
 export function assessBiometricEvidence(
@@ -237,8 +264,10 @@ export function assessBiometricEvidence(
      * refusal is a pending ID change (idDocumentNotCurrent): only when the
      * copy the match ran against is a SUPERSEDED VERIFIED copy, i.e. still
      * among them, same digest, never rejected, verified, and not the newest
-     * verified one (`idDocument`). Anything else leaves the refusal a failed
-     * attempt.
+     * verified one (`idDocument`); or awaits staff verifying that copy
+     * (idDocumentAwaitingVerification): only when it is the CURRENT copy,
+     * same digest, never rejected, and not verified. Anything else leaves the
+     * refusal a failed attempt.
      */
     idDocumentCopies: readonly BiometricIdDocumentCopy[] | null
     requireDocumentVerified?: boolean
@@ -358,14 +387,16 @@ export function assessBiometricEvidence(
   }
   // A match against any other ID copy (a newer unverified or rejected upload,
   // or one since replaced) says nothing about the verified identity. Checked
-  // last, so that refusing here means every other check passed. Only one ID
-  // change is not a failed attempt, and deriveCompositeKycState projects it
-  // as pending: staff verified a new copy after a match against the copy they
-  // had verified before. A match against an unverified copy stays a failure
-  // even when it may be a borrower who did not wait for staff: it is
-  // indistinguishable from a doctored substitute uploaded after a face
-  // mismatch against the verified ID. So does one against a copy since
-  // rejected, deleted or rewritten, or not this client's.
+  // last, so that refusing here means every other check passed. Two ID
+  // states are not a failed attempt. A superseded verified copy: staff
+  // verified a new copy after a match against the copy they had verified
+  // before; deriveCompositeKycState projects it as pending. The current copy,
+  // not yet verified: a borrower who did not wait for staff. That is also
+  // what a doctored substitute uploaded after a face mismatch against the
+  // verified ID looks like, so it projects pending with origination BLOCKED
+  // until staff look at and verify that copy. A match against a copy since
+  // rejected, deleted, rewritten or buried under a later upload, or not this
+  // client's, stays a failure.
   if (
     !options.idDocument ||
     !isSha256Digest(options.idDocument.contentSha256) ||
@@ -383,8 +414,18 @@ export function assessBiometricEvidence(
       boundCopy.verified &&
       options.idDocument !== null &&
       boundCopy.id !== options.idDocument.id
-    return pendingIdChange
-      ? { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
+    if (pendingIdChange) {
+      return { ok: false, reason: "subject_identity_changed", idDocumentNotCurrent: true }
+    }
+    const awaitingVerification = boundCopy !== undefined &&
+      options.idDocumentCopies !== null &&
+      currentIdDocumentCopy(options.idDocumentCopies)?.id === boundCopy.id &&
+      isSha256Digest(boundCopy.contentSha256) &&
+      boundCopy.contentSha256 === providerResult.idDocumentSha256 &&
+      (boundCopy.verificationRejectedById ?? null) === null &&
+      !boundCopy.verified
+    return awaitingVerification
+      ? { ok: false, reason: "subject_identity_changed", idDocumentAwaitingVerification: true }
       : { ok: false, reason: "subject_identity_changed" }
   }
 
