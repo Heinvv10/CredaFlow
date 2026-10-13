@@ -60,7 +60,9 @@ obligations, not style:
   `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic demo
   stacks: `scripts/demo/restore.sh` turns staff TOTP off, and the lender's 2FA
   setting off, when the demo app runs with `DEMO_CLEAR_STAFF_TOTP=true` (and
-  again after a restore). Never set it on a real lender.
+  again after a restore); with it plus `DEMO_MODE=true` a password-only
+  session may clear a credit check (`demoStaffWithoutTotp`,
+  `lib/config/demo-mode.ts`; audited as waived). Never set it on a real lender.
 - **Document access is logged.** `ClientDocument` access goes through
   `lib/document-auth.ts`, which writes a `DocumentAccessLog` row — POPIA
   compliance depends on it.
