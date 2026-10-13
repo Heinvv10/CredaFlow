@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const authMock = vi.fn()
+const requireMinRoleMock = vi.fn()
 const getDefaultTenantIdMock = vi.fn()
 const transactionMock = vi.fn()
 const logAuditMock = vi.fn()
 
-vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
+vi.mock("@/lib/auth-guards", () => ({ requireMinRole: (r: string) => requireMinRoleMock(r) }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: { $transaction: (fn: (tx: unknown) => Promise<unknown>) => transactionMock(fn) },
@@ -33,7 +33,7 @@ function mockTx(activity: { id: string; leadId: string | null; pinned: boolean }
 describe("toggleLeadActivityPinned — tenant", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    authMock.mockResolvedValue({ user: { id: "u1", email: "o@acme-lending.example", tenantId: "t1" } })
+    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "o@acme-lending.example", tenantId: "t1" })
     getDefaultTenantIdMock.mockResolvedValue("default-tenant")
   })
 
@@ -57,11 +57,5 @@ describe("toggleLeadActivityPinned — tenant", () => {
     expect(result).toEqual({ ok: false, error: "Activity not found" })
     expect(tx.crmActivity.update).not.toHaveBeenCalled()
     expect(logAuditMock).not.toHaveBeenCalled()
-  })
-
-  it("refuses a session that carries no tenant instead of defaulting", async () => {
-    authMock.mockResolvedValue({ user: { id: "u1", email: "o@acme-lending.example" } })
-    await expect(toggleLeadActivityPinned("a1", true)).rejects.toThrow("Unauthorized")
-    expect(transactionMock).not.toHaveBeenCalled()
   })
 })

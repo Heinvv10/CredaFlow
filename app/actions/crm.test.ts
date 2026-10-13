@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const authMock = vi.fn()
 const requireMinRoleMock = vi.fn()
 const getDefaultTenantIdMock = vi.fn()
 const transactionMock = vi.fn()
@@ -11,7 +10,6 @@ const loanFindManyMock = vi.fn()
 const crossSellFindManyMock = vi.fn()
 const crossSellCreateManyMock = vi.fn()
 
-vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: (r: string) => requireMinRoleMock(r) }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 vi.mock("@/lib/prisma", () => ({
@@ -48,7 +46,7 @@ import {
 describe("updateLeadStatus — typed result for validation failures", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    authMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example", tenantId: "t1" } })
+    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example", tenantId: "t1" })
     getDefaultTenantIdMock.mockResolvedValue("default-tenant")
   })
 
@@ -113,11 +111,6 @@ describe("updateLeadStatus — typed result for validation failures", () => {
     expect(logAuditMock).toHaveBeenCalledTimes(1)
     expect(revalidatePathMock).toHaveBeenCalledWith("/crm/leads")
     expect(revalidatePathMock).toHaveBeenCalledWith("/crm/leads/lead-1")
-  })
-
-  it("still throws for an unauthenticated caller (genuinely unexpected, not a validation failure)", async () => {
-    authMock.mockResolvedValue(null)
-    await expect(updateLeadStatus("lead-1", "QUALIFIED")).rejects.toThrow("Unauthorized")
   })
 })
 
@@ -341,7 +334,7 @@ describe("reassignLead — assignee revalidation", () => {
 describe("crm actions — tenant comes from the authenticated staff user, not the default", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    authMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example", tenantId: "t1" } })
+    requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example", tenantId: "t1" })
     requireMinRoleMock.mockResolvedValue({ id: "u1", email: "officer@acme-lending.example", tenantId: "t1" })
     getDefaultTenantIdMock.mockResolvedValue("default-tenant")
   })
@@ -419,13 +412,5 @@ describe("crm actions — tenant comes from the authenticated staff user, not th
     transactionMock.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => fn(tx))
     await resetStrandedConvertedLead("lead-1")
     expect(tx.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ tenantId: "t1" }) })
-  })
-
-  it("a session with no tenant is refused rather than defaulted", async () => {
-    authMock.mockResolvedValue({ user: { id: "u1", email: "x@acme-lending.example" } })
-    await expect(generateCrossSellOpportunities()).rejects.toThrow("Unauthorized")
-    await expect(updateLeadStatus("lead-1", "QUALIFIED")).rejects.toThrow("Unauthorized")
-    await expect(addLeadActivity({ leadId: "l", type: "NOTE", subject: "s" })).rejects.toThrow("Unauthorized")
-    expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
   })
 })

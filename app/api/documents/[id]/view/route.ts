@@ -18,10 +18,9 @@ export async function GET(req: Request, { params }: RouteParams) {
   const { id } = await params
   const caller = await getDocumentCaller()
   if (!caller) {
-    // A cross-tenant client reaches HERE, not the 403 below: it is
-    // authenticated but resolves to no Client row in this tenant, so
-    // getDocumentCaller returns null. That is 10 of the 11 refusals the
-    // E2E-04 walkthrough recorded, and none of them was logged.
+    // Reached when the session resolves to no Client row in this tenant (a
+    // stale or unknown principal). A caller bound to ANOTHER tenant resolves
+    // fine and is refused by withTenantContext below, which logs it.
     await auditDocumentAccessRefusal({
       documentId: id,
       reason: "caller_not_resolvable_in_tenant",

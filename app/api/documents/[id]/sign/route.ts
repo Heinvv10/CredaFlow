@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
-import { withTenantContext } from "@/lib/tenant"
+import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { logAudit, AuditAction } from "@/lib/audit"
 
 interface RouteParams {
@@ -27,8 +27,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  return withTenantContext(req, async (tenant) => {
-    const { id } = await params
+  const { id } = await params
+  return withTenantContextLoggingRefusal(req, { documentId: id, caller }, async (tenant) => {
 
     const body = (await req.json()) as { method?: string }
     const method = body.method

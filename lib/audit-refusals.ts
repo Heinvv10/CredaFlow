@@ -87,11 +87,14 @@ export async function refusalReasonFrom(
 /**
  * Record a refused attempt to reach a client document.
  *
- * Deliberately resolves the actor itself. A cross-tenant client IS
- * authenticated — it has a session — but resolves to no Client row in the
- * tenant, so getDocumentCaller returns null and the route answers 401 with the
- * caller's identity already discarded. Logging "someone was refused" without
- * saying who is barely worth the row, so this reads the session directly.
+ * Deliberately resolves the actor itself. The caller is authenticated, but
+ * when it resolves to no Client row in the tenant getDocumentCaller returns
+ * null and the route answers 401 with the caller's identity already
+ * discarded. (A caller bound to a DIFFERENT tenant now resolves as a caller and
+ * is refused 403 by withTenantContext; withTenantContextLoggingRefusal in
+ * lib/documents/tenant-refusal.ts logs that case.) Logging "someone was
+ * refused" without saying who is barely worth the row, so this reads the
+ * session directly.
  *
  * Never throws: a refusal must still be refused if the audit write fails.
  */
