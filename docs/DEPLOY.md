@@ -2,7 +2,8 @@
 
 One lender = one directory = one compose project (`credaflow-lender-<slug>`) = a staff
 app container, a client-portal container, one Postgres and their named volumes. Nothing in these scripts knows
-the host: a VPS, a managed Docker host or a laptop all work. Everything lives in
+the host: any GNU/Linux machine with Docker, a VPS or a managed Docker host. The scripts are
+GNU/Linux only (bash 4+, GNU `date -d`, `readlink -m`, `stat -c`, `/proc`, `flock`); they are not tested on macOS or Windows. Everything lives in
 `scripts/lender/`; `docs/ONBOARDING.md` is the order to do it in.
 
 The `credaflow-lender-` project prefix keeps a lender clear of the other stacks on a
@@ -39,7 +40,7 @@ directory **outside** the git checkout (the scripts refuse otherwise).
 | `deploy.sh <dir> <name:tag> [--build] [--skip-backup] [--health-timeout S]` | backup, migrate, switch, health-check, roll back on failure. |
 | `backup.sh <dir> [--label L] [--keep N]` | encrypted `pg_dump -Fc`, read-back check, retention. |
 | `restore.sh <dir> <file> [--drop-scratch]` | restore into a NEW scratch database and verify it. |
-| `restore.sh <dir> <file> --over-live --confirm <slug> [--accept-count-drift]` | verified restore, then swap it in. |
+| `restore.sh <dir> <file> --over-live --confirm <slug> [--accept-count-drift] [--allow-unresolved-migration]` | verified restore, then swap it in. |
 | `npm run lender:bootstrap-tenant -- --config f.json [--dry-run]` | tenant + config + default templates (run in the tools image by provision). |
 | `prisma.sh <dir> migrate status \| resolve --rolled-back\|--applied <name> \| deploy` | recover from a failed migration (below), from the deployed tools image. |
 | `admin.sh <dir> --email E [--break-glass [--reactivate]] [--dry-run]` | the first-admin CLI (`lender:bootstrap-admin`) against this lender, for break-glass. provision runs the same CLI for the first admin. |
@@ -174,7 +175,7 @@ scripts/lender/prisma.sh /srv/lenders/<slug> migrate resolve --applied <migratio
 scripts/lender/prisma.sh /srv/lenders/<slug> migrate deploy
 ```
 
-`migrate resolve --rolled-back` leaves the row with `finished_at` NULL and sets `rolled_back_at`; backup and restore treat that as resolved. A backup is **refused** while a migration is failed and unresolved (restore would reject it), and a restore with no `.counts` sidecar is refused for `--over-live` without `--accept-count-drift`.
+`migrate resolve --rolled-back` leaves the row with `finished_at` NULL and sets `rolled_back_at`; backup and restore treat that as resolved. A backup taken **while** a migration is failed and unresolved is still written (the old app keeps taking writes during that incident, and a gap in backups would be worse), but under a distinct name `<slug>-<UTC>-unresolved.dump.gpg` with a `.unresolved` sidecar naming the migration, and with a loud `WARNING` block in its output (and so in `cron.log`). Those dumps are their own retention pool, so a long incident neither evicts the last clean nightlies nor is evicted by them. `restore.sh` refuses such a file unless `--allow-unresolved-migration` is passed; the last backup *not* marked unresolved is the clean restore point. A restore with no `.counts` sidecar is refused for `--over-live` without `--accept-count-drift`.
 
 Do not hand-edit the schema of a lender database unless you can say exactly what the migration
 would have done; the safer path is to restore the pre-migration backup (below) and deploy the

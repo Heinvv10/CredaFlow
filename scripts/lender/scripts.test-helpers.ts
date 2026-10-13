@@ -52,7 +52,7 @@ case "$*" in
   *"pg_restore"*) cat > /dev/null ;;
   *"u.role = 'SUPER_ADMIN'"*) echo 1 ;;
   *"to_regclass"*) echo "$STUB_HAS_MIGRATIONS" ;;
-  *"FILTER"*) echo "0 5" ;;
+  *"FILTER"*) s="$STUB_MIG_STATE"; [ -n "$s" ] || s="0 5"; echo "$s" ;;
   *"Tenant="*) printf 'Tenant=1\nUser=1\nmigrations=5\n' ;;
   "run --rm "*) exit "$STUB_MIGRATE_RC" ;;
 esac

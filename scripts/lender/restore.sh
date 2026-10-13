@@ -24,17 +24,18 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 dir="${1:-}" file="${2:-}"; shift 2 || true
-over_live=false confirm="" drop=false accept_drift=false
+over_live=false confirm="" drop=false accept_drift=false allow_unresolved=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --over-live) over_live=true; shift ;;
     --confirm) confirm="${2:?--confirm needs the lender slug}"; shift 2 ;;
     --drop-scratch) drop=true; shift ;;
     --accept-count-drift) accept_drift=true; shift ;;
-    *) die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug> [--accept-count-drift]]" ;;
+    --allow-unresolved-migration) allow_unresolved=true; shift ;;
+    *) die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug> [--accept-count-drift]] [--allow-unresolved-migration]" ;;
   esac
 done
-[ -n "$file" ] || die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug> [--accept-count-drift]]"
+[ -n "$file" ] || die "usage: restore.sh <lender-dir> <backup.dump.gpg> [--drop-scratch | --over-live --confirm <slug> [--accept-count-drift]] [--allow-unresolved-migration]"
 need docker gpg
 load_lender "$dir"
 acquire_lender_lock "$LENDER_DIR"
@@ -47,6 +48,12 @@ if $over_live; then
   [ "$confirm" = "$SLUG" ] || die "refusing --over-live: pass --confirm $SLUG to replace the live database of '$SLUG'"
 elif [ -n "$confirm" ] || $accept_drift; then
   die "--confirm and --accept-count-drift only apply to --over-live"
+fi
+
+# A backup taken while a migration was failed and unresolved (backup.sh marks it) is the
+# state of an incident, not a clean restore point: restoring it is a decision, not a default.
+if [[ "${file##*/}" == *-unresolved* || -e "$file.unresolved" ]] && ! $allow_unresolved; then
+  die "refusing: $(basename "$file") was taken while migration(s) were failed and unresolved ($(cat "$file.unresolved" 2>/dev/null || echo see its name)). Restore the last clean backup instead, or pass --allow-unresolved-migration."
 fi
 
 ts="$(date -u +%Y%m%d%H%M%S)"
@@ -71,14 +78,19 @@ gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass"
 mig="$(psql_db "$scratch" "$MIG_STATE_SQL")" \
   || fail "could not read _prisma_migrations in the restored database; scratch database dropped"
 read -r unfinished total <<<"$mig"
-[ "${total:-0}" -gt 0 ] && [ "${unfinished:-1}" -eq 0 ] || fail "migration table check failed (total=${total:-?} unfinished=${unfinished:-?}); scratch database dropped"
+if $allow_unresolved; then
+  [ "${total:-0}" -gt 0 ] || fail "migration table check failed (no migrations); scratch database dropped"
+  [ "${unfinished:-0}" -eq 0 ] || note "WARNING: --allow-unresolved-migration: ${unfinished} migration(s) in this dump are failed and unresolved"
+else
+  [ "${total:-0}" -gt 0 ] && [ "${unfinished:-1}" -eq 0 ] || fail "migration table check failed (total=${total:-?} unfinished=${unfinished:-?}); scratch database dropped"
+fi
 
 restored="$(psql_db "$scratch" "$COUNTS_SQL")" || fail "could not count rows in the restored database; scratch database dropped"
 echo "restored row counts in $scratch:" >&2; sed 's/^/  /' <<<"$restored" >&2
 drift=""
 if [ -f "$file.counts" ]; then
   if drift="$(count_drift "$file.counts" "$restored")"; then
-    note "counts match the backup's sidecar; migrations: $total applied, 0 unfinished"
+    note "counts match the backup's sidecar; migrations: $total applied, ${unfinished:-0} unfinished"
   else
     # The sidecar is taken from the dump's own snapshot, so drift means an edited or
     # swapped sidecar, or a different file: loud, naming the tables, never silent.
@@ -86,7 +98,7 @@ if [ -f "$file.counts" ]; then
     sed 's/^/  /' <<<"$drift" >&2
   fi
 else
-  note "WARNING: no $file.counts sidecar; counts not compared (migrations: $total applied, 0 unfinished)"
+  note "WARNING: no $file.counts sidecar; counts not compared (migrations: $total applied, ${unfinished:-0} unfinished)"
   drift="no sidecar: row counts were not compared"
 fi
 if [ -n "$drift" ] && $over_live && ! $accept_drift; then

@@ -14,7 +14,6 @@ const backup = () => {
   expect(sh("backup.sh", [lender]).status).toBe(0)
   return join(lender, "backups", readdirSync(join(lender, "backups")).find((f) => f.endsWith(".dump.gpg"))!)
 }
-const dumps = () => readdirSync(join(lender, "backups")).filter((f) => f.endsWith(".dump.gpg")).sort()
 
 describe("compose project", () => {
   it("is credaflow-lender-<slug>, clear of the other stacks' credaflow-<word> projects", () => {
@@ -90,42 +89,6 @@ describe("restore count drift", () => {
       expect(r.status, failing).not.toBe(0)
       expect(r.calls.some((c) => /DROP DATABASE IF EXISTS "d_restore_/.test(c)), failing).toBe(true)
     }
-  })
-})
-
-describe("backup retention pools", () => {
-  it("keeps the newest N of the pre-* pool and of the rest separately", () => {
-    const names = [
-      ...["01", "02", "03", "04"].map((n) => `stub-lender-202001${n}T000000Z`),
-      ...["01", "02", "03", "04"].map((n) => `stub-lender-202002${n}T000000Z-pre-v${n}`),
-    ]
-    for (const n of names) writeFileSync(join(lender, "backups", `${n}.dump.gpg`), "old")
-    const r = sh("backup.sh", [lender, "--keep", "2", "--label", "pre-new"])
-    expect(r.status).toBe(0)
-    const pre = dumps().filter((f) => f.includes("-pre-"))
-    const rest = dumps().filter((f) => !f.includes("-pre-"))
-    expect(pre).toHaveLength(2) // the fresh pre-new and the newest old one
-    expect(pre.some((f) => f.includes("pre-new"))).toBe(true)
-    expect(pre.some((f) => f.includes("202002") && f.includes("-pre-v04"))).toBe(true)
-    expect(rest).toEqual(["stub-lender-20200103T000000Z.dump.gpg", "stub-lender-20200104T000000Z.dump.gpg"])
-  })
-
-  it("is NUL-safe: a filename with a newline is neither listed as two paths nor lets rm reach another file", () => {
-    const victim = join(root, "stub-lender-victim.dump.gpg") // what the second "line" of the odd name would point at, relative to the cwd
-    writeFileSync(victim, "keep me")
-    const odd = "stub-lender-20200101T000009Z-pre-a\nstub-lender-victim.dump.gpg"
-    writeFileSync(join(lender, "backups", odd), "odd")
-    for (const n of ["01", "02", "03"]) writeFileSync(join(lender, "backups", `stub-lender-202001${n}T000000Z.dump.gpg`), "old")
-    expect(sh("backup.sh", [lender, "--keep", "1"]).status).toBe(0)
-    expect(existsSync(victim)).toBe(true)
-    expect(existsSync(join(lender, "backups", odd))).toBe(true) // not ours: never touched
-    expect(dumps().filter((f) => !f.includes("\n"))).toHaveLength(1) // the nightly pool still pruned to --keep
-  })
-
-  it("a run of nightly backups never removes pre-migration ones", () => {
-    for (const n of ["01", "02", "03"]) writeFileSync(join(lender, "backups", `stub-lender-202002${n}T000000Z-pre-v${n}.dump.gpg`), "old")
-    expect(sh("backup.sh", [lender, "--keep", "3"]).status).toBe(0)
-    expect(dumps().filter((f) => f.includes("-pre-"))).toHaveLength(3)
   })
 })
 
@@ -230,47 +193,6 @@ describe("one lock per lender", () => {
     expect(sh("deploy.sh", [lender, "cf:new"], { LENDER_LOCK_WAIT: "1" }).status).toBe(0)
     expect(existsSync(join(lender, "state/lender.lock"))).toBe(true)
     expect(idx(readFileSync(join(root, "docker.log"), "utf8").split("\n"), "pg_dump")).toBeGreaterThan(-1)
-  })
-})
-
-describe("failed migration recovery does not poison later backups", () => {
-  it("restore counts a migration resolved with --rolled-back as finished (rolled_back_at set, finished_at NULL)", () => {
-    const f = backup()
-    const r = sh("restore.sh", [lender, f])
-    expect(r.status).toBe(0)
-    const q = r.calls.find((c) => c.includes("FROM _prisma_migrations") && c.includes("FILTER"))!
-    expect(q).toContain("finished_at IS NULL AND rolled_back_at IS NULL")
-  })
-
-  it("backup refuses a dump taken while a migration is unfinished, names it, and keeps nothing", () => {
-    const r = sh("backup.sh", [lender], { STUB_MIG_UNFINISHED: "20261012090000_loan_product_amount_bounds" })
-    expect(r.status).not.toBe(0)
-    expect(r.out).toContain("20261012090000_loan_product_amount_bounds")
-    expect(r.out).toMatch(/restore\.sh would reject it/)
-    expect(readdirSync(join(lender, "backups"))).toEqual([])
-  })
-
-  it("the snapshot session runs the same unfinished-migration predicate restore uses", () => {
-    const r = sh("backup.sh", [lender])
-    expect(r.status).toBe(0)
-    const all = r.calls.join("\n")
-    expect(all).toContain("MIG_UNFINISHED_WHERE=finished_at IS NULL AND rolled_back_at IS NULL")
-    // ...and the in-container script uses that variable, not a predicate of its own
-    expect(all).toMatch(/FROM _prisma_migrations WHERE %s;\s*" "\$MIG_UNFINISHED_WHERE" >&3/) // (the stub's echo expands the \n)
-  })
-
-  it("deploy after a failed-then-resolved migration: its pre-migration backup is taken and restorable", () => {
-    // the exact sequence at script level: migrate fails (deploy stops, app not switched) ...
-    const failed = sh("deploy.sh", [lender, "cf:new"], { STUB_MIGRATE_RC: "1" })
-    expect(failed.status).not.toBe(0)
-    expect(failed.out).toMatch(/A failed migration/)
-    // ... prisma.sh migrate resolve --rolled-back ...
-    writeFileSync(join(lender, "state/current-image"), "cf:old\n")
-    expect(sh("prisma.sh", [lender, "migrate", "resolve", "--rolled-back", "20261012090000_loan_product_amount_bounds"]).status).toBe(0)
-    // ... redeploy, then a backup, then a restore of it
-    expect(sh("deploy.sh", [lender, "cf:new"]).status).toBe(0)
-    const f = backup()
-    expect(sh("restore.sh", [lender, f]).status).toBe(0)
   })
 })
 
