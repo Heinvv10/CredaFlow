@@ -22,8 +22,12 @@ import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { getCreditReport } from "@/lib/integrations/experian"
 import { buildExperianEnquiryInput } from "@/lib/integrations/experian-input"
 
-/** "recent": a check stored for this application within RECHECK_WINDOW_DAYS; no enquiry was made. */
-export type DealBureauOutcome = "stored" | "skipped" | "failed" | "recent"
+/**
+ * "recent": a check stored for this application within RECHECK_WINDOW_DAYS;
+ * "busy": a concurrent request held this person's check for longer than
+ * LOCK_WAIT_MS. Neither made an enquiry.
+ */
+export type DealBureauOutcome = "stored" | "skipped" | "failed" | "recent" | "busy"
 
 /** A person checked for this application this recently is not checked again unless the run is forced. */
 export const RECHECK_WINDOW_DAYS = 30
@@ -36,10 +40,13 @@ export interface DealBureauSubject {
 }
 
 const PROVIDER = "experian"
-// The enquiry runs inside the transaction that holds the per-person lock:
-// long enough for the provider's own timeout (EXPERIAN_TIMEOUT_MS, 20 s) and
-// for a concurrent request's enquiry to finish first.
+// The enquiry runs inside the transaction that holds the per-person lock.
+// The wait for that lock is bounded (polled, LOCK_WAIT_MS), so the
+// transaction's budget is the wait, the provider's own timeout
+// (EXPERIAN_TIMEOUT_MS, 20 s) and the rows, well inside ENQUIRY_TRANSACTION_MS.
 const ENQUIRY_TRANSACTION_MS = 60_000
+const LOCK_WAIT_MS = 5_000
+const LOCK_POLL_MS = 100
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 type BureauDb = Pick<Tx, "client" | "complianceRecord" | "creditBureauCheck">
@@ -100,9 +107,16 @@ export async function recentlyCheckedClientIds(
  * (application, person) queue on a transaction-scoped advisory lock held
  * across the stored-check lookup, the enquiry and its rows, so two requests
  * make one enquiry: the second sees the first's stored check and answers
- * "recent". Without `force` a check stored in the last RECHECK_WINDOW_DAYS is
- * recent; with it, only one stored since this request started (`startedAt`,
- * i.e. by a concurrent request).
+ * "recent". The wait for the lock is bounded: after LOCK_WAIT_MS the request
+ * answers "busy" without enquiring. Without `force` a check stored in the
+ * last RECHECK_WINDOW_DAYS is recent; with it, only one stored since this
+ * request started (`startedAt`, i.e. by a concurrent request).
+ *
+ * An enquiry that was made is always recorded: it is on the person's credit
+ * record whatever happens to its rows. If the transaction fails once the
+ * provider call has begun (a store refused, a timeout, a lost connection),
+ * everything it wrote is rolled back, so a failed attempt is recorded in a
+ * transaction of its own before the error is rethrown.
  */
 export async function runDealBureauCheck(
   tenantId: string,
@@ -116,21 +130,66 @@ export async function runDealBureauCheck(
     return "skipped"
   }
   const since = opts.force ? opts.startedAt : new Date(opts.startedAt.getTime() - RECHECK_WINDOW_DAYS * DAY_MS)
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`deal-bureau:${tenantId}:${applicationId}:${clientId}`}, 0))`)
-    const stored = await tx.creditBureauCheck.count({
-      where: { tenantId, applicationId, clientId, ok: true, createdAt: { gte: since } },
+  const enquiry: Enquiry = { made: false }
+  try {
+    return await prisma.$transaction(async (tx) => {
+      if (!(await lockPerson(tx, `deal-bureau:${tenantId}:${applicationId}:${clientId}`))) return "busy"
+      const stored = await tx.creditBureauCheck.count({
+        where: { tenantId, applicationId, clientId, ok: true, createdAt: { gte: since } },
+      })
+      return stored > 0 ? "recent" : enquire(tx, tenantId, applicationId, clientId, enquiry)
+    }, { timeout: ENQUIRY_TRANSACTION_MS })
+  } catch (error) {
+    if (enquiry.made) await recordUnstoredEnquiry(tenantId, applicationId, clientId, error)
+    throw error
+  }
+}
+
+/** Set once the provider call begins: from then on the enquiry may be on the person's credit record. */
+interface Enquiry {
+  made: boolean
+}
+
+/** The transaction-scoped advisory lock on `key`, polled for at most LOCK_WAIT_MS; false if it stayed held. */
+async function lockPerson(tx: Tx, key: string): Promise<boolean> {
+  const deadline = Date.now() + LOCK_WAIT_MS
+  for (;;) {
+    const [row] = await tx.$queryRaw<Array<{ locked: boolean }>>(
+      Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS "locked"`,
+    )
+    if (row?.locked) return true
+    if (Date.now() >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS))
+  }
+}
+
+/**
+ * The failed attempt of an enquiry whose transaction failed, written outside
+ * it (the shape of the in-transaction failure record, plus enquiryMade). If
+ * even this write fails, both errors are surfaced.
+ */
+async function recordUnstoredEnquiry(tenantId: string, applicationId: string, clientId: string, error: unknown): Promise<void> {
+  // jsonb refuses U+0000; the message is a diagnostic, so it is also capped.
+  const reason = (error instanceof Error ? error.message : String(error)).replaceAll("\u0000", "").slice(0, 500)
+  try {
+    await recordAttempt(prisma, tenantId, applicationId, "PENDING", {
+      clientId,
+      outcome: "failed",
+      enquiryMade: true,
+      error: `The enquiry was made but its result could not be stored: ${reason}`,
     })
-    return stored > 0 ? "recent" : enquire(tx, tenantId, applicationId, clientId)
-  }, { timeout: ENQUIRY_TRANSACTION_MS })
+  } catch (recordError) {
+    throw new AggregateError([error, recordError], "A bureau enquiry was made but neither its result nor a failed attempt could be recorded")
+  }
 }
 
 /**
  * The enquiry and its rows, in the caller's transaction. A lookup or provider
  * failure is recorded as a failed attempt; a failure to store the result
- * rolls the transaction back and propagates.
+ * rolls the transaction back and propagates (runDealBureauCheck then records
+ * the attempt outside it).
  */
-async function enquire(db: BureauDb, tenantId: string, applicationId: string, clientId: string): Promise<DealBureauOutcome> {
+async function enquire(db: BureauDb, tenantId: string, applicationId: string, clientId: string, enquiry: Enquiry): Promise<DealBureauOutcome> {
   const client = await db.client.findFirst({
     where: { id: clientId, tenantId },
     select: {
@@ -165,6 +224,7 @@ async function enquire(db: BureauDb, tenantId: string, applicationId: string, cl
     dateOfBirth: client.dateOfBirth,
   }
   let result: Awaited<ReturnType<typeof getCreditReport>>
+  enquiry.made = true
   try {
     result = await getCreditReport(
       buildExperianEnquiryInput({
