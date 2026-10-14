@@ -439,7 +439,7 @@ BEGIN
       OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on'
       OR NOT EXISTS (
         SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId"
-          AND c."xmin" = pg_current_xact_id()::xid AND c."basis" <> 'FIXED'
+          AND c."xmin" = pg_current_xact_id()::xid AND c."basis" <> 'FIXED' AND NEW."dueDate" >= c."effectiveDate"
           AND c."resultingRate" IS DISTINCT FROM (SELECT p."resultingRate" FROM "ContractRate" p WHERE p."loanId" = c."loanId"
             AND p."effectiveDate" < c."effectiveDate" ORDER BY p."effectiveDate" DESC LIMIT 1)) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
@@ -459,13 +459,19 @@ BEGIN
     IF invoice_row."loanId" IS DISTINCT FROM NEW."loanId" OR invoice_row."totalInclVatCents" IS DISTINCT FROM NEW."totalCents" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental''s tax invoice is of its loan, for the rental''s total';
     END IF;
-    -- Time of supply: the earlier of the due date and a payment towards the rental.
+    -- Time of supply: the earlier of the due date and a payment towards the
+    -- rental. Receipts settle the oldest rows first, so a payment has reached
+    -- this rental only once the cash received by the supply date (allocated,
+    -- unreversed, not a waiver or a refund-due half, net of default charges)
+    -- exceeds everything due on the earlier rows.
     IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND (NOT EXISTS (
         SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)
-      OR NOT EXISTS (
-        SELECT 1 FROM "Payment" p WHERE p."loanId" = NEW."loanId" AND p."tenantId" = NEW."tenantId" AND p."reversed" = false
-          AND p."allocationStatus" = 'ALLOCATED'
-          AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= invoice_row."supplyDate"))) THEN
+      OR (SELECT COALESCE(SUM(p."amount" - p."defaultInterestAllocated" - p."chargeFeesAllocated"), 0) FROM "Payment" p
+          WHERE p."loanId" = NEW."loanId" AND p."tenantId" = NEW."tenantId" AND p."reversed" = false
+            AND p."allocationStatus" = 'ALLOCATED' AND p."paymentMethod"::TEXT <> 'WAIVER' AND p."parentPaymentId" IS NULL
+            AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= invoice_row."supplyDate")
+        <= (SELECT COALESCE(SUM(s."totalDue"), 0) FROM "RepaymentSchedule" s
+          WHERE s."loanId" = NEW."loanId" AND s."tenantId" = NEW."tenantId" AND s."installmentNo" < NEW."periodNo"))) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental is supplied on its due date, or earlier only once a payment has reached it';
     END IF;
