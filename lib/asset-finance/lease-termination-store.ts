@@ -68,12 +68,6 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
   if (!loan) return { kind: "not_found" }
   if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (loan.leaseEndOfTerm) return refused("end_of_term", "The lease's end of term is already under way")
-  // One open quote a day: asking again the same day returns it (no quote rows, or audit rows, on demand).
-  const todays = await tx.leaseTerminationQuote.findFirst({
-    where: { tenantId, loanId: loan.id, status: "QUOTED", quotedOn: dbDate(input.today) }, orderBy: { createdAt: "desc" },
-    select: { id: true, totalCents: true, terminationDate: true, validUntil: true },
-  })
-  if (todays) return { kind: "quoted", quoteId: todays.id, totalCents: todays.totalCents, terminationDate: isoOfDbDate(todays.terminationDate), validUntil: isoOfDbDate(todays.validUntil) }
   const penalty = loan.assetFinanceDeal?.earlyTerminationPenaltyRate
   if (!penalty) return refused("penalty", "The lease has no early-termination penalty rate")
   const cpa = loan.cpaApplies === true
@@ -87,6 +81,15 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
     terminationDate, annualRate: Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12)),
     arrearsCents: figures.arrearsIncludingCharges, penaltyRate: penalty.toString(), vatRateTenThousandths: vat.rateTenThousandths,
   })
+  // Asking again the same day returns today's open quote while its figures still hold (no quote or audit rows on demand).
+  const todays = await tx.leaseTerminationQuote.findFirst({
+    where: {
+      tenantId, loanId: loan.id, status: "QUOTED", quotedOn: dbDate(input.today), terminationDate: dbDate(terminationDate),
+      remainingRentals: amount.remainingRentals, pvCents: amount.pvCents, arrearsCents: amount.arrearsCents, totalCents: amount.totalCents,
+    },
+    orderBy: { createdAt: "desc" }, select: { id: true, validUntil: true },
+  })
+  if (todays) return { kind: "quoted", quoteId: todays.id, totalCents: amount.totalCents, terminationDate, validUntil: isoOfDbDate(todays.validUntil) }
   const quote = await tx.leaseTerminationQuote.create({
     data: {
       tenantId, loanId: loan.id, quotedOn: dbDate(input.today), terminationDate: dbDate(terminationDate), validUntil: dbDate(validUntil), cpaCancellation: cpa,

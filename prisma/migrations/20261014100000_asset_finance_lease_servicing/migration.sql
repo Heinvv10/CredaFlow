@@ -643,6 +643,16 @@ RETURNS DATE LANGUAGE sql STABLE AS $function$
   GROUP BY d."rentalTiming";
 $function$;
 
+-- A purchase's valuation: of this asset, an assessor's or a dealer's, dated
+-- within the tenant's days, recorded by someone other than the staff elector,
+-- and the price at least its amount.
+CREATE OR REPLACE FUNCTION public."purchaseValuationOk"(tenant_id TEXT, asset_id TEXT, valuation_id TEXT, price INTEGER, elector_id TEXT, max_age INTEGER)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
+  SELECT EXISTS (SELECT 1 FROM "AssetValuation" v WHERE v."id" = valuation_id AND v."tenantId" = tenant_id AND v."assetId" = asset_id
+    AND v."valuedOn" >= (now() AT TIME ZONE 'Africa/Johannesburg')::date - max_age AND v."source" IN ('ASSESSOR', 'DEALER')
+    AND price >= v."amountCents" AND (elector_id IS NULL OR v."createdById" IS DISTINCT FROM elector_id));
+$function$;
+
 CREATE OR REPLACE FUNCTION public."guardLeaseEndOfTerm"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -668,16 +678,9 @@ BEGIN
        OR NEW."inspectedOn" IS NOT NULL OR NEW."extensionNoticeOn" IS NOT NULL OR NEW."extensionEndsOn" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An end of term is elected: ELECTED (EXTENDING for an extension), nothing billed yet';
     END IF;
-    IF NEW."outcome" = 'PURCHASE' THEN
-      -- Market value: an assessor's or a dealer's valuation of this asset, current, recorded by someone other than the elector.
-      SELECT v."assetId", v."valuedOn", v."amountCents", v."source"::TEXT AS source, v."createdById" INTO valuation FROM "AssetValuation" v
-        WHERE v."id" = NEW."purchaseValuationId" AND v."tenantId" = NEW."tenantId";
-      IF valuation."assetId" IS DISTINCT FROM loan_row."assetId" OR valuation."valuedOn" < today - max_age
-         OR valuation.source NOT IN ('ASSESSOR', 'DEALER') OR NEW."purchasePriceExclVatCents" < valuation."amountCents"
-         OR (NEW."electedById" IS NOT NULL AND valuation."createdById" IS NOT DISTINCT FROM NEW."electedById") THEN
-        RAISE EXCEPTION USING ERRCODE = '23514',
-          MESSAGE = format('A purchase is at least the asset''s market value: an assessor''s or dealer''s valuation of this asset dated within %s days, recorded by someone other than the elector', max_age);
-      END IF;
+    IF NEW."outcome" = 'PURCHASE' AND NOT public."purchaseValuationOk"(NEW."tenantId", loan_row."assetId", NEW."purchaseValuationId", NEW."purchasePriceExclVatCents", NEW."electedById", max_age) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514',
+        MESSAGE = format('A purchase is at least the asset''s market value: an assessor''s or dealer''s valuation of this asset dated within %s days, recorded by someone other than the elector', max_age);
     END IF;
     RETURN NEW;
   END IF;
@@ -685,7 +688,8 @@ BEGIN
   IF NEW."loanId" IS DISTINCT FROM OLD."loanId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" OR NEW."origin" IS DISTINCT FROM OLD."origin"
     OR NEW."outcome" IS DISTINCT FROM OLD."outcome" OR NEW."electedAt" IS DISTINCT FROM OLD."electedAt"
     OR NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId"
-    OR NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents" OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"
+    OR (OLD."status" <> 'ELECTED' AND (NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents"
+      OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"))
     OR (OLD."taxInvoiceId" IS NOT NULL AND NEW."taxInvoiceId" IS DISTINCT FROM OLD."taxInvoiceId")
     OR (OLD."scheduleId" IS NOT NULL AND NEW."scheduleId" IS DISTINCT FROM OLD."scheduleId")
     OR (OLD."inspectedOn" IS NOT NULL AND (NEW."inspectedOn" IS DISTINCT FROM OLD."inspectedOn" OR NEW."finalReadingId" IS DISTINCT FROM OLD."finalReadingId"
@@ -700,11 +704,18 @@ BEGIN
   IF OLD."status" = 'COMPLETED' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A completed end of term is final';
   END IF;
+  -- An elected purchase is re-based on a newer valuation before it is invoiced, under the same rule as the election.
+  IF (NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents" OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
+     AND NOT public."purchaseValuationOk"(NEW."tenantId", loan_row."assetId", NEW."purchaseValuationId", NEW."purchasePriceExclVatCents", NEW."electedById", max_age) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = format('A purchase is at least the asset''s market value: an assessor''s or dealer''s valuation of this asset dated within %s days, recorded by someone other than the elector', max_age);
+  END IF;
   -- Notice ends an extension a month on (or at its last appended rental), given between the election and today.
   IF OLD."extensionNoticeOn" IS NULL AND NEW."extensionNoticeOn" IS NOT NULL AND (
       NEW."outcome" <> 'EXTEND' OR NEW."extensionNoticeOn" < (NEW."electedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
       OR NEW."extensionNoticeOn" > today OR NEW."extensionEndsOn" IS NULL
-      OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date) THEN
+      OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date
+      OR NEW."extensionEndsOn" < public."leaseTermEnd"(NEW."loanId", NEW."tenantId")) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Notice is given between the election and today, and ends the extension at least a month later';
   END IF;
   IF NEW."status" IS DISTINCT FROM OLD."status" AND NOT (
@@ -1096,3 +1107,25 @@ ALTER TABLE "TenantConfig" ADD CONSTRAINT "TenantConfig_lease_settings" CHECK (
   AND "leasePurchaseValuationMaxAgeDays" BETWEEN 1 AND 180
   AND "leaseTerminationQuoteValidDays" BETWEEN 1 AND 60
 );
+
+-- A termination is quoted for a date between the quote and 60 days on (a CPA notice is 20 business days).
+ALTER TABLE "LeaseTerminationQuote" ADD CONSTRAINT "LeaseTerminationQuote_termination_window" CHECK (
+  "terminationDate" BETWEEN "quotedOn" AND "quotedOn" + 60
+);
+
+-- A valuation is a dated record: never dated in the future, never edited (a
+-- purchase price and the remarketing figures rest on it).
+CREATE OR REPLACE FUNCTION public."guardAssetValuation"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A valuation is never edited: record a new one';
+  END IF;
+  IF NEW."valuedOn" > (now() AT TIME ZONE 'Africa/Johannesburg')::date THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A valuation is not dated in the future';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "AssetValuation_guard" BEFORE INSERT OR UPDATE ON "AssetValuation"
+  FOR EACH ROW EXECUTE FUNCTION public."guardAssetValuation"();

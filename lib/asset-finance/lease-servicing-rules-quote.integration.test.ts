@@ -150,8 +150,8 @@ suite.sequential("lease servicing rules: termination quotes, rental cancellation
 
   it("a rental is cancelled only by a termination of its loan accepted in the same transaction, ending before it", async () => {
     const DEFERRED = /cancelled only by a termination accepted with it/
-    const cancel = async (tx: Tx) => {
-      const rental = await tx.leaseRental.findFirstOrThrow({ where: { loanId: loans.running, periodNo: 10 } })
+    const cancel = async (tx: Tx, periodNo = 10) => {
+      const rental = await tx.leaseRental.findFirstOrThrow({ where: { loanId: loans.running, periodNo } })
       await tx.$executeRawUnsafe("SELECT set_config('credaflow.lease_terminate', 'on', true)")
       await tx.leaseRental.update({ where: { id: rental.id }, data: { cancelledAt: new Date() } })
       await tx.repaymentSchedule.update({ where: { id: rental.scheduleId }, data: { principalDue: 0, totalDue: 0 } })
@@ -162,10 +162,23 @@ suite.sequential("lease servicing rules: termination quotes, rental cancellation
     // Accepted in the same transaction, but ending after the rental.
     await refuses(without("checkLeaseRentalCancelled", ` AND NEW."dueDate" > q."terminationDate"`), DEFERRED, async (tx) => {
       await quote(tx, unbilled)
-      const rental = await tx.leaseRental.findFirstOrThrow({ where: { loanId: loans.running, periodNo: 10 } })
+      // The next rental (within the 60-day termination window), and a termination the day after it.
+      const rental = await tx.leaseRental.findFirstOrThrow({ where: { loanId: loans.running, dueDate: { gt: dbDate(today()) } }, orderBy: { periodNo: "asc" } })
       const late = fromDayNumber(toDayNumber(sastCalendarDate(rental.dueDate)) + 1)
-      await accept(tx, (await quote(tx, { ...unbilled, terminationDate: dbDate(late) })).id)
-      await cancel(tx)
+      await accept(tx, (await quote(tx, { ...unbilled, terminationDate: dbDate(late), validUntil: dbDate(today()) })).id)
+      await cancel(tx, rental.periodNo)
+    })
+  })
+
+  it("a termination accepted in an earlier transaction does not license a later cancellation (the quote must be accepted with it)", async () => {
+    // Committed: an accepted (unbilled) termination of the other lease, ending today.
+    await database().$transaction(async (tx) => accept(tx, (await quote(tx, { ...unbilled, loanId: loans.other })).id))
+    await refuses(without("checkLeaseRentalCancelled", ` AND q."xmin" = pg_current_xact_id()::xid`), /cancelled only by a termination accepted with it/, async (tx) => {
+      await quote(tx, { ...unbilled, loanId: loans.other }) // a valid QUOTED quote passes the immediate guard
+      const rental = await tx.leaseRental.findFirstOrThrow({ where: { loanId: loans.other, periodNo: 10 } })
+      await tx.$executeRawUnsafe("SELECT set_config('credaflow.lease_terminate', 'on', true)")
+      await tx.leaseRental.update({ where: { id: rental.id }, data: { cancelledAt: new Date() } })
+      await tx.repaymentSchedule.update({ where: { id: rental.scheduleId }, data: { principalDue: 0, totalDue: 0 } })
     })
   })
 
@@ -189,6 +202,18 @@ suite.sequential("lease servicing rules: termination quotes, rental cancellation
       const accepted = await billedAcceptance(tx)
       await invoicedEnd(tx, { taxInvoiceId: (await invoice(tx, loans.running)).id, scheduleId: accepted.scheduleId }) // same total, another invoice
     })
+  })
+
+  it("a termination is quoted for a date within 60 days; a valuation is never dated in the future, never edited", async () => {
+    await ruleAdmits(database(), (tx) => quote(tx, { terminationDate: dbDate(day(60)) }))
+    await refuses({ table: "LeaseTerminationQuote", constraint: "LeaseTerminationQuote_termination_window" }, /LeaseTerminationQuote_termination_window/,
+      (tx) => quote(tx, { terminationDate: dbDate(day(61)) }))
+    const valuation = (tx: Tx, valuedOn: string) => tx.assetValuation.create({
+      data: { tenantId: fx.tenantId, assetId: fx.assets[1], valuedOn: dbDate(valuedOn), source: "ASSESSOR", valuerName: "TEST Assessors", amountCents: 1_000, createdById: fx.adminB },
+    })
+    const VALUATION = { table: "AssetValuation", trigger: "AssetValuation_guard" }
+    await refuses(VALUATION, /not dated in the future/, (tx) => valuation(tx, day(1)))
+    await refuses(VALUATION, /never edited/, async (tx) => tx.assetValuation.update({ where: { id: (await valuation(tx, today())).id }, data: { amountCents: 9_999 } }))
   })
 
   it("the tenant's lease settings stay in range (the bounds admitted, one past them refused)", async () => {

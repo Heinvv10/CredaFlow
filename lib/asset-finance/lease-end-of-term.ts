@@ -8,7 +8,8 @@
  *   EXTEND    EXTENDING (month to month; the daily run, ./lease-daily.ts,
  *             appends each rental) → notice by either party ends it one month later →
  *             INSPECTED → INVOICED → COMPLETED, as a return
- *   PURCHASE  ELECTED (price ≥ a market valuation, ./lease-term-end.ts) →
+ *   PURCHASE  ELECTED (price ≥ a market valuation, ./lease-term-end.ts; electing
+ *             again while ELECTED re-bases it on a newer valuation) →
  *             INVOICED (sale tax invoice, once the term has ended) → COMPLETED
  *             (paid, eNaTIS change confirmed on a registered asset)
  * A return is inspected only once the term has ended (an early termination's
@@ -59,10 +60,11 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   if (denied) return denied
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
-    select: { status: true, assetId: true, maturityDate: true, leaseEndOfTerm: { select: { id: true, outcome: true } } },
+    select: { status: true, assetId: true, maturityDate: true, leaseEndOfTerm: { select: { id: true, outcome: true, status: true } } },
   })
   if (!loan?.assetId) return { kind: "not_found" }
-  if (loan.leaseEndOfTerm) return refused("already_elected", `The end of term is already ${loan.leaseEndOfTerm.outcome}`)
+  const rebase = loan.leaseEndOfTerm?.outcome === "PURCHASE" && loan.leaseEndOfTerm.status === "ELECTED" && input.outcome === "PURCHASE"
+  if (loan.leaseEndOfTerm && !rebase) return refused("already_elected", `The end of term is already ${loan.leaseEndOfTerm.outcome}`)
   if (loan.status !== "ACTIVE" && loan.status !== "COMPLETED" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (input.outcome === "EXTEND" && loan.status === "DEFAULTED") return refused("defaulted", "A lease in default is not extended")
   const lastRental = sastCalendarDate(loan.maturityDate)
@@ -77,6 +79,12 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
     if (input.purchase.priceExclVatCents < valuation.amountCents) return refused("below_market", `The price may not be below the market value of ${valuation.amountCents} cents ex VAT`)
     purchase = { purchasePriceExclVatCents: input.purchase.priceExclVatCents, purchaseValuationId: input.purchase.valuationId }
   }
+  if (rebase && loan.leaseEndOfTerm) {
+    // A purchase elected early is re-based on a current valuation before it is invoiced (the old one may have aged out).
+    const row = await tx.leaseEndOfTerm.update({ where: { id: loan.leaseEndOfTerm.id, tenantId }, data: purchase, select: { id: true, status: true } })
+    await audit(tx, actor, AuditAction.LEASE_END_OF_TERM_ELECTED, row.id, { loanId: input.loanId, outcome: input.outcome, rebased: true, ...purchase })
+    return { kind: "ok", endOfTermId: row.id, status: row.status }
+  }
   const row = await tx.leaseEndOfTerm.create({
     data: {
       tenantId, loanId: input.loanId, origin: "EXPIRY", outcome: input.outcome, status: input.outcome === "EXTEND" ? "EXTENDING" : "ELECTED",
@@ -88,7 +96,7 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   return { kind: "ok", endOfTermId: row.id, status: row.status }
 }
 
-/** Either party ends a month-to-month extension: EXTENSION_NOTICE_MONTHS after the notice, or the last appended rental's due date if later. */
+/** Either party ends a month-to-month extension: EXTENSION_NOTICE_MONTHS after the notice, or when the billed period ends if later. */
 export async function endExtension(tx: SigningTx, actor: EndActor, input: { loanId: string; noticeOn: string; today: string }): Promise<EndResult> {
   const denied = await clientLeaseRefusal(actor, input.loanId)
   if (denied) return denied
@@ -98,10 +106,10 @@ export async function endExtension(tx: SigningTx, actor: EndActor, input: { loan
   if (row.extensionNoticeOn) return refused("notice_given", `Notice was given on ${isoOfDbDate(row.extensionNoticeOn)}`)
   const electedOn = sastCalendarDate(row.electedAt)
   if (input.noticeOn < electedOn || input.noticeOn > input.today) return refused("invalid_notice_date", `Notice is dated between the election (${electedOn}) and today`)
-  // Never before the end of a rental already appended (its period is billed).
-  const lastRental = await tx.leaseRental.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId, cancelledAt: null }, orderBy: { periodNo: "desc" }, select: { dueDate: true } })
+  // Never before the end of the period already billed (./lease-term-end.ts: a month after the last rental in advance).
+  const termEnd = await leaseTermEnd(tx, actor.tenantId, input.loanId)
   const noticeEnds = addMonthsClamped(input.noticeOn, EXTENSION_NOTICE_MONTHS)
-  const endsOn = lastRental && isoOfDbDate(lastRental.dueDate) > noticeEnds ? isoOfDbDate(lastRental.dueDate) : noticeEnds
+  const endsOn = termEnd && termEnd > noticeEnds ? termEnd : noticeEnds
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId: actor.tenantId }, data: { extensionNoticeOn: dbDate(input.noticeOn), extensionEndsOn: dbDate(endsOn) } })
   await audit(tx, actor, AuditAction.LEASE_EXTENSION_ENDED, row.id, { loanId: input.loanId, noticeOn: input.noticeOn, endsOn })
   return { kind: "ok", endOfTermId: row.id, status: "EXTENDING" }
