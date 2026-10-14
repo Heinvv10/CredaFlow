@@ -164,6 +164,17 @@ suite("operator support access — grant-gated, read-only, audited", () => {
     expect(await lastRefusal()).toMatchObject({ reason: "no_active_grant" })
   })
 
+  it("puts a tenant created without an operator under the root operator (seed, bootstrap, provisioning)", async () => {
+    const slug = `iso-it-root-${fx().token}`
+    const created = await db.tenant.create({ data: { slug, name: "Root default IT" } })
+    try {
+      const root = await db.operator.findUniqueOrThrow({ where: { slug: "credaflow" } })
+      expect(created.operatorId).toBe(root.id)
+    } finally {
+      await db.tenant.delete({ where: { id: created.id } })
+    }
+  })
+
   it("refuses grants outside the rules, in the helper and in the database", async () => {
     const base = { tenantId: fx().a.tenantId, operatorUserId: fx().operatorUserId, reason: "Ticket 2" }
     const soon = new Date(Date.now() + DAY_MS)

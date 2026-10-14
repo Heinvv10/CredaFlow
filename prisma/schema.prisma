@@ -141,9 +141,9 @@ model TenantSupportGrant {
 
 model Tenant {
   id                         String                      @id @default(cuid())
-  // Nullable only so existing rows could be backfilled to the root operator
+  // Defaults to the root operator; nullable only so existing rows could be backfilled
   // (migration 20261014120000_operator_and_support_grants).
-  operatorId                 String?
+  operatorId                 String?                     @default("cf_root_operator")
   operator                   Operator?                   @relation(fields: [operatorId], references: [id])
   slug                       String                      @unique
   name                       String
