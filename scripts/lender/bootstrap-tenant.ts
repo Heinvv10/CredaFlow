@@ -28,6 +28,10 @@ export type TenantBootstrapOptions = {
   operator: string
   /** Seeds the default document and message templates (idempotent). */
   seedTemplates: (tenantId: string, brandName: string) => Promise<void>
+  /** The Operator that runs the lender; unset, the database default (the root operator). */
+  operatorId?: string
+  /** The signed-in operator user creating it (the console); unset, the CLI is the actor. */
+  actor?: { userId: string; email: string }
 }
 
 export type TenantBootstrapResult =
@@ -37,6 +41,9 @@ export type TenantBootstrapResult =
 const SOURCE = "lender:bootstrap-tenant"
 const COLOUR_FIELDS = Object.keys(TENANT_COLOUR_VARS) as (keyof typeof TENANT_COLOUR_VARS)[]
 const FEATURE_FIELDS = Object.values(FEATURE_COLUMNS).map(([column]) => column)
+const COMPARED_CONFIG_SELECT = Object.fromEntries(
+  [...COLOUR_FIELDS, ...FEATURE_FIELDS, ...LENDER_IDENTITY_FIELDS].map((f) => [f, true]),
+) as Prisma.TenantConfigSelect
 
 /** Column values as Prisma writes them: a DATE column takes a Date at UTC midnight. */
 function configColumns(c: TenantBootstrapConfig): Record<string, unknown> {
@@ -62,7 +69,9 @@ function differences(stored: { name: string; domain: string | null; config: Reco
 
 export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig, opts: TenantBootstrapOptions): Promise<TenantBootstrapResult> {
   const outcome = await db.$transaction(async (tx): Promise<TenantBootstrapResult> => {
-    const stored = await tx.tenant.findUnique({ where: { slug: c.slug }, include: { config: true } })
+    // Only the columns differences() compares: TenantConfig also holds sealed
+    // provider credentials, which this has no reason to read.
+    const stored = await tx.tenant.findUnique({ where: { slug: c.slug }, include: { config: { select: COMPARED_CONFIG_SELECT } } })
     if (stored) {
       const diff = differences(stored as never, c)
       if (diff.length > 0) {
@@ -79,14 +88,19 @@ export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig
     if (opts.dryRun) return { status: "dry-run-create", tenantId: null }
 
     const created = await tx.tenant.create({
-      data: { slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE", config: { create: configColumns(c) as Prisma.TenantConfigCreateWithoutTenantInput } },
+      data: {
+        slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE",
+        ...(opts.operatorId ? { operatorId: opts.operatorId } : {}),
+        config: { create: configColumns(c) as Prisma.TenantConfigCreateWithoutTenantInput },
+      },
     })
+    const by = { userId: opts.actor?.userId, userEmail: opts.actor?.email ?? SOURCE }
     await logAuditStrict({
-      tenantId: created.id, userEmail: SOURCE, action: AuditAction.TENANT_CREATED, entity: "Tenant", entityId: created.id,
+      tenantId: created.id, ...by, action: AuditAction.TENANT_CREATED, entity: "Tenant", entityId: created.id,
       newValue: { slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE", ...c.colours, ...c.features, operator: opts.operator },
     }, auditDb(tx))
     await logAuditStrict({
-      tenantId: created.id, userEmail: SOURCE, action: AuditAction.LENDER_IDENTITY_UPDATED, entity: "TenantConfig", entityId: created.id,
+      tenantId: created.id, ...by, action: AuditAction.LENDER_IDENTITY_UPDATED, entity: "TenantConfig", entityId: created.id,
       oldValue: {}, newValue: { ...c.identity, operator: opts.operator },
     }, auditDb(tx))
     return { status: "created", tenantId: created.id }

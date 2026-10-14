@@ -441,6 +441,16 @@ export const AuditAction = {
   SUPPORT_ACCESS_REVOKED: "SUPPORT_ACCESS_REVOKED",
   SUPPORT_ACCESS_USED: "SUPPORT_ACCESS_USED",
   SUPPORT_ACCESS_REFUSED: "SUPPORT_ACCESS_REFUSED",
+  // Operator console (lib/operator/console/). Lender actions are written under
+  // the lender's tenantId; operator-user actions have no tenant. Never a
+  // password, token or reset link.
+  TENANT_SUSPENDED: "TENANT_SUSPENDED",
+  TENANT_REACTIVATED: "TENANT_REACTIVATED",
+  LENDER_ADMIN_INVITED: "LENDER_ADMIN_INVITED",
+  LENDER_ADMIN_RESET_LINK_SENT: "LENDER_ADMIN_RESET_LINK_SENT",
+  OPERATOR_USER_INVITED: "OPERATOR_USER_INVITED",
+  OPERATOR_USER_DEACTIVATED: "OPERATOR_USER_DEACTIVATED",
+  OPERATOR_USER_RESET_LINK_SENT: "OPERATOR_USER_RESET_LINK_SENT",
   // Provider credentials (lib/integrations/tenant-credentials.ts): which
   // fields changed, never the values.
   PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",

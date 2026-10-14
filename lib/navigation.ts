@@ -203,6 +203,8 @@ export const staffNavigation: NavGroup[] = [
       // enrolment page must be reachable by all roles (ADM-02).
       { href: "/settings/security", label: "Security & 2FA", icon: KeyRound },
       { href: "/settings/security-policy", label: "Security & KYC policy", icon: ShieldCheck, minRole: "ADMIN" },
+      // The page requires ADMIN (app/(dashboard)/settings/support-access/page.tsx).
+      { href: "/settings/support-access", label: "Support access", icon: ShieldCheck, minRole: "ADMIN" },
       { href: "/settings/users", label: "Users", icon: Users, minRole: "BRANCH_MANAGER" },
       { href: "/settings/audit-log", label: "Audit Trail", icon: History, minRole: "LOAN_ADMIN" },
       { href: "/settings/login-log", label: "Login Activity", icon: Activity, minRole: "LOAN_ADMIN" },

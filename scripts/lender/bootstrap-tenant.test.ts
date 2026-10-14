@@ -98,6 +98,23 @@ describe("bootstrapTenant", () => {
     expect(f.tables.tenants).toHaveLength(1)
   })
 
+  it("puts the tenant under the given operator and names the console user on the audit rows", async () => {
+    const f = createFakeDb()
+    await bootstrapTenant(f.db, config(), {
+      dryRun: false, operator: "operator-console:admin@op.invalid", seedTemplates: vi.fn(async () => {}),
+      operatorId: "op-7", actor: { userId: "u-op", email: "admin@op.invalid" },
+    })
+    expect(f.tables.tenants[0]).toMatchObject({ operatorId: "op-7" })
+    expect(f.tables.auditLogs.map((a) => [a.userId, a.userEmail])).toEqual([["u-op", "admin@op.invalid"], ["u-op", "admin@op.invalid"]])
+  })
+
+  it("leaves the operator to the database default and the CLI as the actor when none is given", async () => {
+    const f = createFakeDb()
+    await run(f, config())
+    expect(f.tables.tenants[0].operatorId).toBeUndefined()
+    expect(f.tables.auditLogs.every((a) => a.userEmail === "lender:bootstrap-tenant" && a.userId === null)).toBe(true)
+  })
+
   it("rolls the tenant back when an audit row cannot be written", async () => {
     const f = createFakeDb()
     f.tx.auditLog.create = (async () => {

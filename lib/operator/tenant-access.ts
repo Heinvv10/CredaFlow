@@ -34,6 +34,8 @@ export type OperatorTenantAccess =
   | {
       allowed: true
       grantId: string
+      /** When the grant this use rides on ends (the console's read-only banner). */
+      grantExpiresAt: Date
       principal: {
         id: string
         email: string
@@ -111,6 +113,7 @@ export async function resolveOperatorTenantAccess(input: {
   return {
     allowed: true,
     grantId: grant.id,
+    grantExpiresAt: grant.expiresAt,
     principal: {
       id: user.id, email: user.email, name: user.name,
       role: SUPPORT_ACCESS_ROLE, tenantId, totpVerified: true,
