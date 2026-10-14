@@ -260,11 +260,10 @@ export async function POST(req: NextRequest) {
         }
 
         // Scoped to the caller's tenant on purpose. idNumber and email are
-        // GLOBALLY unique, so the row that blocked this insert may belong to
-        // another tenant — in which case the constraint is real but the client
-        // is not ours to name, and returning identity would be a cross-tenant
-        // leak. Today there is one tenant and that branch is unreachable; the
-        // day there are two it must already be right.
+        // unique per tenant, so the row that blocked this insert is this
+        // tenant's; the explicit tenantId keeps it that way should the key
+        // ever widen again, because naming another tenant's client would be a
+        // cross-tenant leak.
         const existing =
           field === "idNumber"
             ? await prisma.client.findFirst({

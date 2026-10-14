@@ -1,7 +1,7 @@
 // Turning a unique-constraint violation into something a staff member can act
 // on.
 //
-// Client.idNumber and Client.email are both globally unique. Before this,
+// Client.idNumber and Client.email are both unique per tenant. Before this,
 // creating a client with an ID already on the books threw P2002 straight into
 // the catch-all in app/api/clients/route.ts, which answered 500 "Failed to
 // create client" — so the one thing the operator needed to know (that this
@@ -25,7 +25,12 @@ export function uniqueConflictField(error: unknown): string | null {
   const target = error.meta?.target
   // Prisma has shipped `target` as both string[] and string depending on the
   // connector, so handle both rather than trusting one shape.
-  if (Array.isArray(target)) return target.length > 0 ? String(target[0]) : null
+  if (Array.isArray(target)) {
+    // Client's keys are per tenant ([tenantId, idNumber], [tenantId, email]):
+    // the field that collided is the one after the tenant, not the tenant.
+    const fields = target.map(String)
+    return fields.find((f) => f !== "tenantId") ?? fields[0] ?? null
+  }
   if (typeof target === "string") return target
   return null
 }

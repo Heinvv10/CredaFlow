@@ -9,7 +9,6 @@ import { randomBytes } from "node:crypto"
 import type { BusinessEntityType, EntityRole, TrusteeKind } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
-import { withoutTenantScope } from "@/lib/tenant-scope"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
 import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finance/relationship-input"
@@ -20,13 +19,11 @@ import { PEOPLE, personEmail, type AfPersonKey } from "./asset-finance-data"
 export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey, string>> {
   const ids = {} as Record<AfPersonKey, string>
   for (const p of PEOPLE) {
-    // idNumber is globally unique: refuse rather than rewrite another tenant's client.
-    const existing = await withoutTenantScope(async () =>
-      await prisma.client.findUnique({ where: { idNumber: p.idNumber }, select: { id: true, tenantId: true } }),
-    )
-    if (existing && existing.tenantId !== tenantId) {
-      throw new Error(`Seed refused: client with ID number ${p.idNumber} belongs to another tenant (${existing.tenantId}). The demo seed never rewrites another tenant's row.`)
-    }
+    // idNumber is unique per tenant: this finds the seeded tenant's own client only.
+    const existing = await prisma.client.findUnique({
+      where: { tenantId_idNumber: { tenantId, idNumber: p.idNumber }, tenantId },
+      select: { id: true },
+    })
     const envPassword = p.portalPasswordEnv ? process.env[p.portalPasswordEnv] || undefined : undefined
     if (existing) {
       if (envPassword) {

@@ -296,9 +296,10 @@ suite("demo seed passwords", () => {
   }, 120_000)
 })
 
-// A shared non-production database can hold several tenants. User.email and
-// Client.idNumber are globally unique, so an upsert keyed on them alone would
-// silently rewrite another tenant's row (its password, its tenantId).
+// A shared non-production database can hold several tenants. User.email is
+// globally unique, so an upsert keyed on it alone would silently rewrite
+// another tenant's row (its password, its tenantId). Client.idNumber is unique
+// per tenant, so the seed keys clients on (tenantId, idNumber).
 suite("demo seeds never touch another tenant's rows", () => {
   const admin = RUN ? new PrismaClient() : null
   const created: string[] = []
@@ -332,7 +333,10 @@ suite("demo seeds never touch another tenant's rows", () => {
     await prisma.user.update({ where: { id: foreign.id }, data: { email: "other.admin@other-lender.example" } })
   }, 120_000)
 
-  it("refuses when a seeded client ID number belongs to another tenant, and leaves that client untouched", async () => {
+  it("seeds its own client when another tenant holds the same ID number, and leaves that client untouched", async () => {
+    // Borrowers are per lender: Client.idNumber is unique per tenant, so the
+    // other lender's client with the seeded ID number is a different person
+    // record, not a row the seed may rewrite or must refuse over.
     const { prisma, url } = conflictDb()
     const foreign = await prisma.client.create({
       data: {
@@ -341,15 +345,15 @@ suite("demo seeds never touch another tenant's rows", () => {
       },
     })
 
-    expect(failedRunStderr(() => runSeed(url))).toContain(`client with ID number ${SEED_ID_NUMBER} belongs to another tenant`)
+    runSeed(url)
     expect(await prisma.client.findUniqueOrThrow({ where: { id: foreign.id } })).toEqual(foreign)
+    const seeded = await prisma.client.findMany({ where: { idNumber: SEED_ID_NUMBER }, select: { tenantId: true } })
+    expect(seeded.map((c) => c.tenantId).sort()).toEqual([otherTenantId, (await prisma.tenant.findUniqueOrThrow({ where: { slug: "acme" } })).id].sort())
   }, 120_000)
 
   it("staging seed only uses the Acme tenant's own staff", async () => {
     const { prisma, url } = conflictDb()
-    // Free the ID number (the foreign client keeps its row), complete the base
-    // seed, then hand the Acme staff to the other tenant.
-    await prisma.client.update({ where: { idNumber: SEED_ID_NUMBER }, data: { idNumber: "9001015800087" } })
+    // Complete the base seed, then hand the Acme staff to the other tenant.
     runSeed(url)
     // The asset-finance rows the staff acted on reference them by composite
     // (tenantId, userId) foreign keys, which refuse the move; this database is

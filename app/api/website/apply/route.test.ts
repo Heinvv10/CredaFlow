@@ -545,8 +545,8 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
 
   it("a partial identity match (only email matches a real client) does NOT update the existing client", async () => {
     const realClient = { id: "client_real", email: "real.client@example.com", idNumber: "9999999999999", portalPassword: null, blacklisted: false }
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.email ? realClient : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_email ? realClient : null),
     )
 
     const res = await POST(buildReq(withIdentity))
@@ -563,8 +563,8 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
 
   it("a partial identity match (only idNumber matches a real client) does NOT create or update a client", async () => {
     const realClient = { id: "client_real", email: "someone.else@example.com", idNumber: "8001015000086", portalPassword: null, blacklisted: false }
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.idNumber ? realClient : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_idNumber ? realClient : null),
     )
 
     const res = await POST(buildReq(withIdentity))
@@ -1380,8 +1380,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("(a) new email + known ID: emails the ON-FILE address, never the typed one, with the typed email masked", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.idNumber ? onFileById : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_idNumber ? onFileById : null),
     )
 
     const res = await POST(buildReq(typed))
@@ -1407,8 +1407,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("(b) known email + different ID: emails the email-owner with the typed ID masked (last 4)", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.email ? onFileByEmail : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_email ? onFileByEmail : null),
     )
 
     const res = await POST(buildReq(typed))
@@ -1423,8 +1423,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("(c) full mismatch: notifies the email-owner (Y) only, not the ID-owner (X)", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.email ? onFileByEmail : onFileById),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_email ? onFileByEmail : onFileById),
     )
 
     const res = await POST(buildReq(typed))
@@ -1436,8 +1436,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("cooldown: a concurrent claim (throttle P2002) suppresses a second send", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.idNumber ? onFileById : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_idNumber ? onFileById : null),
     )
     // Another request already claimed this recipient's 6h window, so the unique
     // constraint rejects our insert with P2002 → we must skip the send.
@@ -1457,8 +1457,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("best-effort: a send failure returns 200, records noticeSent=false, and RELEASES the throttle claim", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.idNumber ? onFileById : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_idNumber ? onFileById : null),
     )
     sendEmailMock.mockResolvedValue({ ok: false, error: "smtp down" })
 
@@ -1479,8 +1479,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("best-effort: an unexpected throttle error (non-P2002) does not 500 the submission", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.idNumber ? onFileById : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_idNumber ? onFileById : null),
     )
     createNotificationThrottleMock.mockRejectedValue(new Error("db blip"))
 
@@ -1494,8 +1494,8 @@ describe("POST /api/website/apply — identity-conflict portal notice", () => {
   })
 
   it("injection regression: an HTML payload in the applicant's email is escaped in the notice HTML", async () => {
-    findUniqueClientMock.mockImplementation(({ where }: { where: { email?: string; idNumber?: string } }) =>
-      Promise.resolve(where.idNumber ? onFileById : null),
+    findUniqueClientMock.mockImplementation(({ where }: { where: { tenantId_email?: { email: string }; tenantId_idNumber?: { idNumber: string } } }) =>
+      Promise.resolve(where.tenantId_idNumber ? onFileById : null),
     )
 
     const res = await POST(buildReq({ ...typed, email: "<>@evil.com" }))

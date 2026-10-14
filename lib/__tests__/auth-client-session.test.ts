@@ -10,6 +10,7 @@ const { mocks, captured } = vi.hoisted(() => ({
   mocks: {
     clientFindFirst: vi.fn(),
     clientFindUnique: vi.fn(),
+    getTenantFromRequest: vi.fn(),
     userFindUnique: vi.fn(),
     failedAttemptCreate: vi.fn(),
     compare: vi.fn(),
@@ -28,6 +29,8 @@ vi.mock("next-auth", () => ({
 }))
 vi.mock("next-auth/providers/credentials", () => ({ default: (config: unknown) => config }))
 vi.mock("@/lib/tenant-scope", () => ({ withoutTenantScope: <T,>(fn: () => Promise<T>) => fn() }))
+// The portal host's tenant (lib/tenant.ts resolves it from the request host).
+vi.mock("@/lib/tenant", () => ({ getTenantFromRequest: mocks.getTenantFromRequest }))
 vi.mock("bcryptjs", () => ({ default: { compare: mocks.compare, hashSync: () => "dummy-hash" } }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -64,6 +67,7 @@ beforeEach(() => {
   vi.stubEnv("APP_MODE", "")
   mocks.clientFindFirst.mockReset()
   mocks.clientFindUnique.mockReset()
+  mocks.getTenantFromRequest.mockReset().mockResolvedValue({ id: "t1" })
   mocks.userFindUnique.mockReset()
   mocks.failedAttemptCreate.mockReset().mockResolvedValue({})
   mocks.compare.mockReset().mockResolvedValue(true)
@@ -191,6 +195,22 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
     mocks.clientFindUnique.mockResolvedValue(clientRow)
     const user = await authorize(asClient("stamp@example.test"))
     expect(user).toMatchObject({ id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
+  })
+
+  it("looks the client up in the portal host's tenant only (borrowers are per lender)", async () => {
+    mocks.getTenantFromRequest.mockResolvedValue({ id: "t2" })
+    mocks.clientFindUnique.mockResolvedValue(null)
+    await expect(authorize(asClient("same@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(mocks.clientFindUnique).toHaveBeenCalledWith({
+      where: { tenantId_email: { tenantId: "t2", email: "same@example.test" } },
+    })
+  })
+
+  it("a portal host that resolves no tenant signs no client in and looks nobody up", async () => {
+    mocks.getTenantFromRequest.mockResolvedValue(null)
+    mocks.clientFindUnique.mockResolvedValue(clientRow)
+    await expect(authorize(asClient("nohost@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(mocks.clientFindUnique).not.toHaveBeenCalled()
   })
 
   it("APP_MODE=client refuses loginType=staff before any staff lookup", async () => {

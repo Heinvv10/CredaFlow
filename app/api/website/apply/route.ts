@@ -485,10 +485,10 @@ export async function POST(req: NextRequest) {
         }
 
         const existingByEmail = await tx.client.findUnique({
-          where: { email: normalisedEmail },
+          where: { tenantId_email: { tenantId: tenant.id, email: normalisedEmail } },
         })
         const existingById = await tx.client.findUnique({
-          where: { idNumber: normalisedIdNumber },
+          where: { tenantId_idNumber: { tenantId: tenant.id, idNumber: normalisedIdNumber } },
         })
         return {
           kind: "proceed" as const,
