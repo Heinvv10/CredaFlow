@@ -78,8 +78,9 @@ suite("collections engine: orphans, timeouts, provider switches (real Postgres)"
     expect((await mandateRow(created.id)).reviewReason).toMatch(/cannot be looked up/)
     const queue = await inTenant(fx, () => loadReviewQueue(fx.tenantId, fx.loanId))
     expect(queue.mandates.map((m) => m.id)).toEqual([created.id])
-    await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "MANDATE", id: created.id, action: "ACKNOWLEDGE" } as never, "Provider confirms no mandate"))
-    expect(await mandateRow(created.id)).toMatchObject({ reviewReason: null, providerCancelledAt: expect.any(Date) })
+    await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "MANDATE", id: created.id, action: "ACKNOWLEDGE" }, "Provider confirms no mandate"))
+    // R1: acknowledging clears the flag; it is not evidence that the provider withdrew anything.
+    expect(await mandateRow(created.id)).toMatchObject({ reviewReason: null, providerCancelledAt: null })
   })
 
   it("L2: a registration that never comes is put in front of a person", async () => {
@@ -123,5 +124,33 @@ suite("collections engine: orphans, timeouts, provider switches (real Postgres)"
     expect(queue.instructions.map((x) => x.id)).toEqual([i.id])
     await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "ACKNOWLEDGE" } as never, "Client to pay by EFT"))
     expect((await inTenant(fx, () => loadReviewQueue(fx.tenantId))).instructions).toEqual([])
+  })
+
+  it("R1: an unrelated review flag does not stop the sweep withdrawing a cancelled mandate at the provider", async () => {
+    flaky.registerNever = true
+    const created = await create()
+    at("2026-10-23T07:00:00Z")
+    await run(fx, "SUBMIT")
+    expect((await mandateRow(created.id)).reviewReason).toMatch(/not registered/)
+    // The provider registers it after all, but staff have already cancelled it here.
+    flaky.registerNever = false
+    await inTenant(fx, () => cancelDebitMandate(fx.tenantId, staff(), created.id, "Client withdrew"))
+    await run(fx, "SUBMIT")
+    const m = await mandateRow(created.id)
+    expect(m.providerMandateRef).toMatch(/^SIM-A-/)
+    expect(m.providerCancelledAt).not.toBeNull()
+    expect(await simulatedCollections.getMandateStatus(m.providerMandateRef!, {})).toBe("CANCELLED")
+  })
+
+  it("R1: a provider that confirms it holds no such mandate, after the registration window, records the withdrawal", async () => {
+    flaky.registerNever = true
+    const created = await create()
+    await inTenant(fx, () => cancelDebitMandate(fx.tenantId, staff(), created.id, "Client withdrew"))
+    await run(fx, "SUBMIT")
+    expect((await mandateRow(created.id)).providerCancelledAt).toBeNull()
+    at("2026-10-23T07:00:00Z")
+    await run(fx, "SUBMIT")
+    expect(await mandateRow(created.id)).toMatchObject({ providerCancelledAt: expect.any(Date), reviewReason: null })
+    expect(flaky.calls.cancelMandate).toEqual([])
   })
 })

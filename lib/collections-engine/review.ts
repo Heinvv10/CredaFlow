@@ -11,15 +11,17 @@
  * - RESULT (reviewReason set): ACKNOWLEDGE after acting on it elsewhere (a
  *   reversal, a manual receipt, a refund).
  * - MANDATE: RETRY (CREATED, submission retries exhausted) resets the retry
- *   budget; ACKNOWLEDGE (SUSPENDED / CANCELLED, provider could not confirm the
- *   withdrawal) records that staff confirmed it with the provider. A mandate
- *   still waiting for registration is resolved by cancelling it.
+ *   budget; ACKNOWLEDGE clears any other review flag. It is not evidence of a
+ *   withdrawal: providerCancelledAt is written only by a real provider cancel
+ *   or a confirmed not-found (mandate-sweeps.ts), so the sweep keeps trying.
+ * - INSTRUCTION RELEASE asks the provider again where the rail can be
+ *   queried, and is refused if the provider has it.
  */
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { MandateError } from "./mandates"
-import { loadEngineContext } from "./context"
+import { loadEngineContext, providerFor } from "./context"
 
 export type ReviewAction =
   | { kind: "INSTRUCTION"; id: string; action: "MARK_SUBMITTED" | "RELEASE" | "ACKNOWLEDGE" }
@@ -33,7 +35,18 @@ export async function resolveReviewItem(
   reason: string,
   now = new Date(),
 ): Promise<void> {
-  if (!(await loadEngineContext(tenantId, now))) throw new MandateError("FLAG_OFF", "The collections engine is off for this lender")
+  const ctx = await loadEngineContext(tenantId, now)
+  if (!ctx) throw new MandateError("FLAG_OFF", "The collections engine is off for this lender")
+  if (item.kind === "INSTRUCTION" && item.action === "RELEASE") {
+    const i = await prisma.collectionInstruction.findFirst({
+      where: { id: item.id, tenantId }, select: { instructionRef: true, mandate: { select: { provider: true } } },
+    })
+    const provider = i ? providerFor(ctx, i.mandate.provider) : null
+    const found = i && provider?.findInstruction ? await provider.findInstruction(i.instructionRef, ctx.creds) : null
+    if (found?.state === "ACCEPTED" || found?.state === "REJECTED") {
+      throw new MandateError("INVALID_STATE", `Not released: the provider has it (${found.state}). Mark it submitted instead.`)
+    }
+  }
   await prisma.$transaction(async (tx) => {
     let changed = 0
     if (item.kind === "INSTRUCTION" && item.action === "ACKNOWLEDGE") {
@@ -58,8 +71,8 @@ export async function resolveReviewItem(
       })).count
     } else {
       changed = (await tx.debitMandate.updateMany({
-        where: { id: item.id, tenantId, status: { in: ["SUSPENDED", "CANCELLED"] }, reviewReason: { not: null }, providerCancelledAt: null },
-        data: { reviewReason: null, providerCancelledAt: now },
+        where: { id: item.id, tenantId, status: { not: "CREATED" }, reviewReason: { not: null } },
+        data: { reviewReason: null },
       })).count
     }
     if (changed === 0) throw new MandateError("INVALID_STATE", "Nothing to resolve: the item is not waiting for review")

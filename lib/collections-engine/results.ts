@@ -93,7 +93,8 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
       const current = await tx.collectionInstruction.findFirstOrThrow({ where: { id: instruction.id, tenantId: ctx.tenantId }, select: { status: true } })
       afterPayment = status !== "PAID" && (current.status === "PAID" || prior.some((r) => r.outcome === "PAID"))
       const returnedLater = status === "PAID"
-        && prior.some((r) => r.outcome !== "PAID" && !r.reportedAfterPayment && r.resolvedAt > o.resolvedAt)
+        // >=: a return with the same timestamp as the payment came after it.
+        && prior.some((r) => r.outcome !== "PAID" && !r.reportedAfterPayment && r.resolvedAt >= o.resolvedAt)
       reviewReason = returnedLater ? RETURNED_BEFORE_REPORT : reviewReasonFor(o, afterPayment)
       const moveInstruction = !afterPayment && !returnedLater
       const row = await tx.collectionResult.create({
@@ -174,8 +175,10 @@ export async function ingestResults(ctx: EngineContext): Promise<IngestSummary> 
       })),
     }, ctx.creds)
     summary.fetched = outcomes.length
-    // Chronological: a payment is recorded before the return that reverses it.
-    for (const o of [...outcomes].sort((a, b) => a.resolvedAt.getTime() - b.resolvedAt.getTime())) {
+    // Chronological, PAID first on a tie: a payment is recorded before the return that reverses it.
+    const byTime = (a: CollectionOutcome, b: CollectionOutcome) =>
+      a.resolvedAt.getTime() - b.resolvedAt.getTime() || Number(b.status === "PAID") - Number(a.status === "PAID")
+    for (const o of [...outcomes].sort(byTime)) {
       try {
         await recordOutcome(ctx, o, summary)
       } catch (error) {

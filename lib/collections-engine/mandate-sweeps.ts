@@ -9,9 +9,12 @@
  *   provider too, or the bank still holds a live mandate. A mandate the
  *   provider was contacted about but never gave a reference for (cancelled
  *   mid-call, or before a file-based rail registered it) is looked up by our
- *   reference and cancelled there. A rail that cannot be queried, or that has
- *   no record after the registration timeout, makes it a review item. Failures
- *   are retried on every run (providerCancelledAt stays null until done).
+ *   reference and cancelled there; a provider that still has no record of it
+ *   after the registration timeout has confirmed there is nothing to withdraw.
+ *   Only a rail that cannot be queried makes it a review item, and only that
+ *   review (raised here) pauses the sweep; any other review flag does not.
+ *   providerCancelledAt is written only after a real cancel or that confirmed
+ *   not-found, never by staff acknowledgement. Failures are retried each run.
  *
  * Both act on every mandate of the tenant, whichever provider it was created
  * with, not only the tenant's current provider.
@@ -28,6 +31,9 @@ export interface SweepSummary {
   providerCancelled: number
   errors: string[]
 }
+
+/** Prefix of the review this sweep raises itself; only that one pauses it. */
+export const WITHDRAWAL_REVIEW = "Withdrawal unconfirmed: "
 
 export const emptySweep = (): SweepSummary => ({ closed: 0, providerCancelled: 0, errors: [] })
 
@@ -68,9 +74,9 @@ export async function cancelAtProvider(ctx: EngineContext, summary: SweepSummary
   const owed = await prisma.debitMandate.findMany({
     where: {
       tenantId: ctx.tenantId, status: { in: ["SUSPENDED", "CANCELLED"] }, providerCancelledAt: null,
-      OR: [{ providerMandateRef: { not: null } }, { providerContactedAt: { not: null }, reviewReason: null }],
+      OR: [{ providerMandateRef: { not: null } }, { providerContactedAt: { not: null } }],
     },
-    select: { id: true, provider: true, providerMandateRef: true, status: true, statusChangedAt: true },
+    select: { id: true, provider: true, providerMandateRef: true, status: true, statusChangedAt: true, reviewReason: true },
   })
   const timeout = new Date(ctx.now.getTime() - LOAD_REPORT_TIMEOUT_HOURS * 3_600_000)
   for (const m of owed) {
@@ -78,17 +84,19 @@ export async function cancelAtProvider(ctx: EngineContext, summary: SweepSummary
       const provider = providerFor(ctx, m.provider)
       let ref = m.providerMandateRef
       if (!ref) {
+        if (m.reviewReason?.startsWith(WITHDRAWAL_REVIEW)) continue
         if (!provider.findMandate) {
           await flagMandateForReview(ctx, m.id,
-            `${m.provider} cannot be looked up by our reference: confirm with the provider that it holds no mandate, then acknowledge`)
+            `${WITHDRAWAL_REVIEW}${m.provider} cannot be looked up by our reference: confirm with the provider that it holds no mandate, cancel it there if it does, then acknowledge`)
           continue
         }
         const found = await provider.findMandate(m.id, ctx.creds)
         ref = found?.providerMandateRef ?? null
         if (!ref) {
-          if (m.statusChangedAt < timeout) {
-            await flagMandateForReview(ctx, m.id,
-              `${m.provider} shows no registered mandate ${LOAD_REPORT_TIMEOUT_HOURS} hours after it was cancelled here: confirm with the provider, then acknowledge`)
+          if (!found && m.statusChangedAt < timeout) {
+            // Past the registration window and still unknown to the provider: nothing to withdraw.
+            await markCancelledAtProvider(ctx, m, { notFoundAtProvider: true })
+            summary.providerCancelled++
           }
           continue
         }

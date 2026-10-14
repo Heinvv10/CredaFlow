@@ -40,7 +40,7 @@ export function ReviewList({ queue, canManage, showLoan }: { queue: ReviewQueue;
             Mandate ({m.status.toLowerCase().replace(/_/g, " ")}): {m.reviewReason}
             {loanLink(m.loanId)}
             {canManage && m.status === "CREATED" && <ReviewActions kind="MANDATE" id={m.id} actions={["RETRY"]} />}
-            {canManage && (m.status === "SUSPENDED" || m.status === "CANCELLED") && <ReviewActions kind="MANDATE" id={m.id} actions={["ACKNOWLEDGE"]} />}
+            {canManage && m.status !== "CREATED" && <ReviewActions kind="MANDATE" id={m.id} actions={["ACKNOWLEDGE"]} />}
           </div>
         </InfoStrip>
       ))}

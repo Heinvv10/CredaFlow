@@ -145,4 +145,21 @@ suite("collections engine recovery (real Postgres)", () => {
     await run(fx, "SUBMIT")
     expect((await prisma.debitMandate.findFirstOrThrow({ where: { id: created.id, tenantId: fx.tenantId } })).status).toBe("ACTIVE")
   })
+
+  it("R3: RELEASE is refused when the provider, asked again, says it has the instruction", async () => {
+    flaky.collectError = timeout()
+    await run(fx, "SUBMIT")
+    flaky.collectError = null
+    at("2026-10-20T09:00:00Z")
+    await run(fx, "SUBMIT")
+    const [i] = await instructionsOf(fx)
+    expect(i.status).toBe("NEEDS_REVIEW")
+    flaky.findInstruction = () => ({ state: "ACCEPTED" })
+    await expect(inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "RELEASE" }, "Looks lost")))
+      .rejects.toMatchObject({ code: "INVALID_STATE", message: expect.stringMatching(/provider has it/) })
+    expect((await instructionsOf(fx))[0].status).toBe("NEEDS_REVIEW")
+    flaky.findInstruction = () => ({ state: "NOT_FOUND" })
+    await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "RELEASE" }, "Provider confirms not received"))
+    expect((await instructionsOf(fx))[0].status).toBe("PENDING")
+  })
 })

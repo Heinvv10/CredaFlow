@@ -108,4 +108,20 @@ suite("collections engine: outcome ordering and replay (real Postgres)", () => {
     expect(payment.receivedAt.toISOString()).toBe("2026-10-27T06:00:00.000Z")
     expect(payment.idempotencyKey).toBe(`collection-result:${r.id}`)
   })
+
+  it("R2: a payment and a return with the same timestamp in one fetch book the payment and flag the return", async () => {
+    flaky.outcomes = [returned("2026-10-26T00:00:00Z"), paid("2026-10-26T00:00:00Z")]
+    await run(fx, "RESULTS")
+    expect(await paymentsOf(fx)).toHaveLength(1)
+    expect((await results()).find((x) => x.outcome === "UNPAID")).toMatchObject({ reportedAfterPayment: true })
+  })
+
+  it("R2: a payment reported after a return with the same timestamp is not booked", async () => {
+    flaky.outcomes = [returned("2026-10-26T00:00:00Z")]
+    await run(fx, "RESULTS")
+    flaky.outcomes = [paid("2026-10-26T00:00:00Z")]
+    at("2026-10-30T06:00:00Z")
+    await run(fx, "RESULTS")
+    expect(await paymentsOf(fx)).toHaveLength(0)
+  })
 })
