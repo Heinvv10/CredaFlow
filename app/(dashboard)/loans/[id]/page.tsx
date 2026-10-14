@@ -24,12 +24,15 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { getSection129IssuanceAvailability } from "@/lib/collections/section129-artifact"
 import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
+import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
+import { hasClientBorrower } from "@/lib/borrower"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
     where: { id, tenantId },
     include: {
       client: true,
+      entity: { select: { legalName: true } },
       product: true,
       application: true,
       repaymentSchedule: {
@@ -53,6 +56,15 @@ export default async function LoanDetailPage(
 
   if (!loan) {
     notFound()
+  }
+  if (!hasClientBorrower(loan)) {
+    return (
+      <EntityBorrowerNotice
+        crumbs={[{ label: "Loans", href: "/loans" }]}
+        reference={loan.reference}
+        legalName={loan.entity?.legalName ?? null}
+      />
+    )
   }
 
   const paidPercentage = loan.totalRepayable > 0

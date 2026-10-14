@@ -12,6 +12,7 @@ import {
 } from "@/lib/documents/content-integrity"
 import { createSigningPacketPdf } from "@/lib/pdf/signingPacket"
 import { AuditAction } from "@/lib/audit"
+import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -39,6 +40,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The signing packet holds consumer NCA documents; an entity borrower is refused.
+    if (!hasClientBorrowerId(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     const access = await requireOwnerOrStaff(application.clientId)
     if (access.error) return access.error
@@ -220,6 +225,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The signing packet holds consumer NCA documents; an entity borrower is refused.
+    if (!hasClientBorrowerId(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (
       application.status !== "APPROVED"

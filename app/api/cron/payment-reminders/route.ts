@@ -202,9 +202,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // before the instalment falls due.
     const daysUntilDue = daysBetween(now, schedule.dueDate)
     if (daysUntilDue < 0 || daysUntilDue > REMINDER_LEAD_DAYS) continue
+    const { loan } = schedule
+    // A reminder messages a natural person (the Client's phone / WhatsApp):
+    // an entity borrower (asset finance) has no Client to message, so it is
+    // skipped here. Its regime is not the reason.
+    if (!loan.client) continue
     due++
 
-    const { loan } = schedule
     const clientName = `${loan.client.firstName} ${loan.client.lastName}`
 
     if (await alreadyReminded(loan.id, tenantId)) {

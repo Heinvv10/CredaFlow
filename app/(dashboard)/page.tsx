@@ -8,7 +8,8 @@ import { auth } from "@/lib/auth"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
 import { getPortfolioPar } from "@/lib/reports/par"
-import { getAvatarColor, getInitials } from "@/lib/avatar"
+import { getAvatarColor, getInitials, getInitialsFromName } from "@/lib/avatar"
+import { borrowerDisplayName } from "@/lib/borrower"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { DataPanel } from "@/components/app-shell/DataPanel"
@@ -72,6 +73,7 @@ async function getDashboardData(tenantId: string) {
       orderBy: { createdAt: "desc" },
       include: {
         client: { select: { firstName: true, lastName: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true } },
       },
     }),
@@ -84,7 +86,7 @@ async function getDashboardData(tenantId: string) {
       },
       take: 3,
       orderBy: { approvedAt: "desc" },
-      include: { client: { select: { firstName: true, lastName: true } } },
+      include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
     }),
     prisma.loan.aggregate({ where: { tenantId, startDate: { gte: monthStart } }, _sum: { principal: true }, _count: true }),
     prisma.loan.aggregate({ where: { tenantId, startDate: { gte: prevMonthStart, lt: monthStart } }, _sum: { principal: true }, _count: true }),
@@ -103,7 +105,7 @@ async function getDashboardData(tenantId: string) {
       where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 }, arrearsAmount: { gt: 0 } },
       orderBy: { daysInArrears: "desc" },
       take: 6,
-      include: { client: { select: { firstName: true, lastName: true } } },
+      include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
     }),
     prisma.loan.count({ where: { tenantId, status: "WRITTEN_OFF", writeOffAt: { gte: quarterStart } } }),
     prisma.payment.findMany({
@@ -111,7 +113,7 @@ async function getDashboardData(tenantId: string) {
       where: { tenantId, reversed: false, allocationStatus: "ALLOCATED", ...CASH_RECEIPTS },
       orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
       take: 5,
-      include: { loan: { include: { client: { select: { firstName: true, lastName: true } } } } },
+      include: { loan: { include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } } } },
     }),
   ])
 
@@ -270,8 +272,11 @@ export default async function DashboardPage() {
                   </thead>
                   <tbody>
                     {d.pendingApps.map(app => {
-                      const initials = getInitials(app.client.firstName, app.client.lastName)
-                      const avatarColor = getAvatarColor(app.client.firstName + app.client.lastName)
+                      const name = borrowerDisplayName(app)
+                      const initials = app.client
+                        ? getInitials(app.client.firstName, app.client.lastName)
+                        : getInitialsFromName(name, "?")
+                      const avatarColor = getAvatarColor(name)
                       return (
                         <tr key={app.id} className="border-b border-[var(--cf-border-subtle)] last:border-0">
                           <td className="px-3 py-3">
@@ -280,7 +285,7 @@ export default async function DashboardPage() {
                                 {initials}
                               </div>
                               <Link href={`/applications/${app.id}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand)]">
-                                {app.client.firstName} {app.client.lastName}
+                                {name}
                               </Link>
                             </div>
                           </td>
@@ -310,7 +315,7 @@ export default async function DashboardPage() {
               <div className="divide-y divide-[var(--cf-border-subtle)]">
                 {d.approvedReady.map(app => (
                   <div key={app.id} className="flex items-center justify-between gap-4 py-3">
-                    <span className="text-sm font-medium text-[var(--cf-text)]">{app.client.firstName} {app.client.lastName}</span>
+                    <span className="text-sm font-medium text-[var(--cf-text)]">{borrowerDisplayName(app)}</span>
                     <Button asChild variant="ghost" size="sm">
                       <Link href={`/applications/${app.id}`}>Disburse <ArrowRight className="h-3 w-3" /></Link>
                     </Button>
@@ -332,7 +337,7 @@ export default async function DashboardPage() {
                 {d.recentPayments.map(p => (
                   <div key={p.id} className="flex items-center justify-between gap-4 py-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[var(--cf-text)]">{p.loan.client.firstName} {p.loan.client.lastName}</p>
+                      <p className="text-sm font-medium text-[var(--cf-text)]">{borrowerDisplayName(p.loan)}</p>
                       <p className="text-xs text-[var(--cf-text-muted)]">{p.loan.reference}</p>
                     </div>
                     <div className="text-right">
@@ -362,7 +367,7 @@ export default async function DashboardPage() {
                 {d.topArrears.map(loan => (
                   <Link key={loan.id} href={`/collections/${loan.id}`} className="flex items-center justify-between gap-4 py-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[var(--cf-text)]">{loan.client.firstName} {loan.client.lastName}</p>
+                      <p className="truncate text-sm font-semibold text-[var(--cf-text)]">{borrowerDisplayName(loan)}</p>
                       <p className="text-xs text-[var(--cf-text-muted)]">{loan.reference}</p>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2 text-right">

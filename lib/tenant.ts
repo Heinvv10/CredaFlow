@@ -30,6 +30,7 @@ export type TenantConfigData = {
   featureMarketing: boolean
   featurePortal: boolean
   featureReports: boolean
+  featureAssetFinance: boolean
   ncrNumber: string | null
   fscaNumber: string | null
   companyRegNumber: string | null
@@ -143,6 +144,7 @@ export function getTenantConfig(tenantId: string) {
           featureMarketing: true,
           featurePortal: true,
           featureReports: true,
+          featureAssetFinance: true,
           ncrNumber: true,
           fscaNumber: true,
           companyRegNumber: true,
@@ -275,9 +277,9 @@ export async function withTenantContext<T>(
   return runWithTenant(tenant.id, () => handler(tenant))
 }
 
-export type TenantFeatureFlags = { featureCrm: boolean; featureIms: boolean; featureBureauSubmission: boolean }
+export type TenantFeatureFlags = { featureCrm: boolean; featureIms: boolean; featureBureauSubmission: boolean; featureAssetFinance: boolean }
 
-const ALL_FEATURES_OFF: TenantFeatureFlags = { featureCrm: false, featureIms: false, featureBureauSubmission: false }
+const ALL_FEATURES_OFF: TenantFeatureFlags = { featureCrm: false, featureIms: false, featureBureauSubmission: false, featureAssetFinance: false }
 
 /**
  * Missing TenantConfig row (or missing flag column) resolves to OFF, not ON —
@@ -294,12 +296,13 @@ const ALL_FEATURES_OFF: TenantFeatureFlags = { featureCrm: false, featureIms: fa
  * select only their two columns, and an unselected flag resolves OFF.
  */
 export function resolveFeatureFlags(
-  config: (Pick<TenantConfigData, "featureCrm" | "featureIms"> & Partial<Pick<TenantConfigData, "featureBureauSubmission">>) | null,
+  config: (Pick<TenantConfigData, "featureCrm" | "featureIms"> & Partial<Pick<TenantConfigData, "featureBureauSubmission" | "featureAssetFinance">>) | null,
 ): TenantFeatureFlags {
   return {
     featureCrm: config?.featureCrm ?? false,
     featureIms: config?.featureIms ?? false,
     featureBureauSubmission: config?.featureBureauSubmission ?? false,
+    featureAssetFinance: config?.featureAssetFinance ?? false,
   }
 }
 

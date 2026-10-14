@@ -95,6 +95,9 @@ describe("tenant-scope — ALS primitives", () => {
       // statement read runs after its upload request has returned.
       "StatementAnalysis",
       "ApplicationCheckFlag",
+      "BusinessEntity",
+      "EntityRelationship",
+      "NcaRegimeOverride",
       // Dual-approval KYC override requests — non-null tenantId.
       "KycOverrideRequest",
     ])

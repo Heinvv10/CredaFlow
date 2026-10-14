@@ -9,6 +9,7 @@ import { FilterSelect, FilterSummary, SearchInput } from "@/components/ui/list-f
 import { BulkUpload } from "./BulkUpload"
 import { matchesCentsAmount } from "@/lib/list-search"
 import { displayPaymentMethod } from "@/lib/payments/waiver"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 interface Payment {
   id: string
@@ -33,7 +34,8 @@ interface Payment {
     id: string
     reference: string
     outstandingPrincipal: number
-    client: { firstName: string; lastName: string }
+    client: { firstName: string; lastName: string } | null
+    entity?: { legalName: string } | null
   }
 }
 
@@ -137,7 +139,7 @@ export function PaymentsClient({
   const matchesSearch = useMemo(() => {
     return (p: Payment) => {
       if (!searchQuery) return true
-      const clientName = `${p.loan.client.firstName} ${p.loan.client.lastName}`.toLowerCase()
+      const clientName = borrowerDisplayName(p.loan).toLowerCase()
       if (
         clientName.includes(searchQuery) ||
         p.loan.reference.toLowerCase().includes(searchQuery) ||
@@ -402,7 +404,7 @@ export function PaymentsClient({
                   <tr key={p.id} className={`border-b border-gray-50 hover:bg-gray-50/50 ${reversalDone === p.id ? "bg-green-50" : ""}`}>
                     <td className="px-4 py-3 text-[11px] text-gray-500">{formatDateTime(p.receivedAt)}</td>
                     <td className="px-4 py-3 font-medium text-gray-800">
-                      {p.loan.client.firstName} {p.loan.client.lastName}
+                      {borrowerDisplayName(p.loan)}
                     </td>
                     <td className="px-4 py-3">
                       <a href={`/loans/${p.loanId}`} className="text-[#4338CA] hover:underline text-[12px]">{p.loan.reference}</a>
@@ -503,7 +505,7 @@ export function PaymentsClient({
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-800">
-                          {p.loan.client.firstName} {p.loan.client.lastName}
+                          {borrowerDisplayName(p.loan)}
                         </p>
                         <a href={`/loans/${p.loanId}`} className="text-[12px] text-[#4338CA] hover:underline">
                           {p.loan.reference}
@@ -650,7 +652,7 @@ export function PaymentsClient({
                 {filteredResolved.map(p => (
                   <tr key={p.id} className="border-b border-gray-50 opacity-70">
                     <td className="px-4 py-3 text-[11px] text-gray-500">{formatDateTime(p.receivedAt)}</td>
-                    <td className="px-4 py-3 text-gray-700">{p.loan.client.firstName} {p.loan.client.lastName}</td>
+                    <td className="px-4 py-3 text-gray-700">{borrowerDisplayName(p.loan)}</td>
                     <td className="px-4 py-3 text-[12px] text-gray-500">{p.loan.reference}</td>
                     <td className="px-4 py-3 text-right font-bold text-gray-500">{formatZAR(p.amount)}</td>
                     <td className="px-4 py-3 text-[11px] text-gray-500">

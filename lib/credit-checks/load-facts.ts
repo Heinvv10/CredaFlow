@@ -12,6 +12,7 @@ import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/l
 import { PAYSLIP_MONEY_FIELDS, type ExtractedFields } from "@/lib/vlm-extract"
 import { areNamesSimilar } from "@/lib/ocr/name-matching"
 import { STATEMENT_UPLOAD_LOOKBACK_DAYS } from "./policy"
+import { hasClientBorrower } from "@/lib/borrower"
 import type { ApplicationFacts, DebtFacts, PayslipFacts, StatementFacts } from "./types"
 
 const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
@@ -140,7 +141,9 @@ export async function loadApplicationFacts(
       client: { select: { firstName: true, lastName: true, idNumber: true, monthlyIncome: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
     },
   })
-  if (!app) return null
+  // Consumer credit checks read a natural person's statements, payslips and
+  // bureau record; an entity (asset-finance) application has none.
+  if (!app || !hasClientBorrower(app)) return null
   const applicationDate = isoDay(app.submittedAt ?? app.createdAt)!
   const since = new Date(app.createdAt.getTime() - STATEMENT_UPLOAD_LOOKBACK_DAYS * 86_400_000)
   // A document deleted recently counts however long ago it was uploaded: waiting

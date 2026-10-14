@@ -29,6 +29,7 @@ import {
 import { readFile } from "@/lib/storage"
 import { DebitMandateConfigurationError } from "@/lib/config/debit-mandate"
 import { LenderIdentityError } from "@/lib/config/identity"
+import { EntityBorrowerError, hasClientBorrower, isEntityBorrowerError } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -82,6 +83,9 @@ function failureResponse(error: unknown) {
       { error: error.message, debitMandate: "configuration" },
       { status: 503 },
     )
+  }
+  if (isEntityBorrowerError(error)) {
+    return NextResponse.json({ error: error.message }, { status: error.status })
   }
   console.error("[debit-mandate] failed:", error)
   return NextResponse.json(
@@ -137,7 +141,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
           where: { id, tenantId: tenant.id },
           ...debitMandateApplicationArgs,
         })
-        if (!application || application.clientId !== session.user.id) {
+        if (
+          !application
+          || application.clientId !== session.user.id
+          || !hasClientBorrower(application)
+        ) {
           throw new DebitMandatePreparationError(404, "not_found", "Application not found.")
         }
         if (application.status !== "APPROVED" || !application.agreementSignedAt) {
@@ -406,6 +414,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       })
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
+      }
+      // A debit mandate is a consumer document; an entity borrower is refused.
+      if (!hasClientBorrower(application)) {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
       const access = await requireOwnerOrStaff(application.clientId)
       if (access.error) return access.error

@@ -76,6 +76,11 @@ export const TENANT_SCOPED_MODELS = [
   // its upload request has returned, so every query passes it explicitly.
   "StatementAnalysis",
   "ApplicationCheckFlag",
+  // Asset finance (docs/asset-finance/DESIGN.md). Non-null tenantId; the
+  // routes run inside withTenantContext and also pass it explicitly.
+  "BusinessEntity",
+  "EntityRelationship",
+  "NcaRegimeOverride",
   "KycOverrideRequest",
 ] as const
 

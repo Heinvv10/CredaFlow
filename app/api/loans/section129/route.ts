@@ -29,6 +29,7 @@ import {
   Section129DispatchUncertainError,
   Section129IssuanceConflictError,
 } from "@/lib/collections/section129-artifact"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("COLLECTIONS_OFFICER")
@@ -46,12 +47,19 @@ export async function POST(req: NextRequest) {
 
     // The PDF endpoint uses this exact predicate too. A statutory default
     // document must never be renderable for a state the dispatch route refuses.
+    // It refuses a NON_NCA agreement first: the regime is the primary rule.
     const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
     if (!eligibility.eligible) {
       return NextResponse.json(
         { error: `Cannot issue a Section 129 default notice: ${eligibility.reason}.` },
         { status: 422 }
       )
+    }
+    // The notice is a consumer document addressed to a natural person (the
+    // Client's name, ID number and address): an NCA loan to an entity borrower
+    // has no Client to address it to. Its regime is not the reason.
+    if (!hasClientBorrower(loan)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
 
     // The notice prints the tenant's own NCR registration; refuse before any

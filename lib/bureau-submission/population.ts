@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { dayEnd, dayStart, dbDateToDay, monthStartOf, type Day } from "./period"
@@ -11,6 +12,13 @@ type Db = Pick<typeof prisma, "loan" | "bureauSubmissionRecord">
 
 /** PO funding is not reported (product rule). */
 export const REPORTED_PRODUCT_TYPES = ["MICRO", "PERSONAL"] as const
+
+/**
+ * The consumer file reports natural persons: a loan to a business entity
+ * (asset finance, Loan.entityId) is never a candidate, whatever its product
+ * or regime. One rule, in every population query of this module.
+ */
+export const CONSUMER_BORROWER_WHERE = { entityId: null } as const satisfies Prisma.LoanWhereInput
 
 export interface LedgerHistory {
   /** the bureau has been sent at least one line for this loan */
@@ -97,6 +105,7 @@ export async function monthlyCandidateIds(
   const loans = await db.loan.findMany({
     where: {
       tenantId: args.tenantId,
+      ...CONSUMER_BORROWER_WHERE,
       product: { productType: { in: [...REPORTED_PRODUCT_TYPES] } },
       startDate: { lt: periodEnd },
       OR: [
@@ -120,7 +129,11 @@ export async function dailyCandidateIds(
 ): Promise<{ registrations: string[]; closures: string[] }> {
   const on = { gte: dayStart(args.day), lt: dayEnd(args.day) }
   const reportingStart = dayStart(args.reportingStartDay)
-  const base = { tenantId: args.tenantId, product: { productType: { in: [...REPORTED_PRODUCT_TYPES] } } }
+  const base = {
+    tenantId: args.tenantId,
+    ...CONSUMER_BORROWER_WHERE,
+    product: { productType: { in: [...REPORTED_PRODUCT_TYPES] } },
+  }
   const [registrations, closures] = await Promise.all([
     // startDate is inside the day, so "on or after the reporting start date"
     // is the same test as the day itself being on or after it.

@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma"
 import { formatDate, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { chargesOwing, loadChargesOwingByBand } from "@/lib/reports/charges-owing"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 const STAGE_LABELS: Record<string, string> = {
   NONE: "No Action",
@@ -80,6 +81,7 @@ async function getAgingData() {
     },
     include: {
       client: { select: { firstName: true, lastName: true, idNumber: true, phone: true } },
+      entity: { select: { legalName: true } },
       product: { select: { name: true } },
     },
     orderBy: { daysInArrears: "desc" },
@@ -217,11 +219,11 @@ export default async function ArrearsAgingPage() {
                   <TableRow key={loan.id}>
                     <TableCell>
                       <Link href={`/collections/${loan.id}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">
-                        {loan.client.firstName} {loan.client.lastName}
+                        {borrowerDisplayName(loan)}
                       </Link>
                       <p className="text-[11px] text-[var(--cf-text-muted)]">{loan.reference}</p>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{loan.client.idNumber}</TableCell>
+                    <TableCell className="font-mono text-xs">{loan.client?.idNumber ?? "—"}</TableCell>
                     <TableCell>{loan.product.name}</TableCell>
                     <TableCell className="text-right font-bold" style={{ color: groupColor }}>{dpd}</TableCell>
                     <TableCell>

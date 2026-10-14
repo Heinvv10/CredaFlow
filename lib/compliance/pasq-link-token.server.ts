@@ -176,7 +176,8 @@ export async function resolvePasqLinkToken(
       client: { select: { email: true } },
     },
   })
-  if (!application?.pasqDocumentId) {
+  // A link is only issued to a Client borrower; no client means the row changed.
+  if (!application?.pasqDocumentId || !application.client) {
     return { ok: false, reason: "application_changed" }
   }
 

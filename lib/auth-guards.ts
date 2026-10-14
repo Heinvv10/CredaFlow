@@ -340,6 +340,11 @@ export const PERMISSIONS = {
   // was previously unusable despite the docstring in permissions.ts claiming
   // to mirror this map).
   record_payment: "CREDIT_OFFICER" as UserRole,
+  // Asset finance (docs/asset-finance/DESIGN.md). Keep identical to lib/permissions.ts.
+  // manage: capture entities, deals, assets, suppliers and documents.
+  // decide: credit decisions, NCA regime overrides, supplier bank approvals, payouts.
+  manage_asset_finance: "CREDIT_OFFICER" as UserRole,
+  decide_asset_finance: "LOAN_ADMIN" as UserRole,
 } as const
 
 export type PermissionKey = keyof typeof PERMISSIONS

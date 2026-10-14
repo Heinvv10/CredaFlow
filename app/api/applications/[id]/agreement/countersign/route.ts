@@ -36,6 +36,7 @@ import {
 } from "@/lib/pdf/executed-agreement"
 import { ceremonyMarkerFor } from "@/lib/pdf/agreement-render-input"
 import { statutoryProviderIdentityFromTenant } from "@/lib/compliance/statutory-provider-identity.server"
+import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -360,6 +361,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // Countersigning a consumer credit agreement; an entity borrower is refused.
+    if (!hasClientBorrowerId(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (application.status !== "APPROVED") {
       return NextResponse.json(

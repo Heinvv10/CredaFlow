@@ -362,6 +362,14 @@ describe("GET reports export — ncr-quarterly workbook", () => {
     })
   })
 
+  it("leaves NON_NCA agreements off the disbursement and arrears sheets", async () => {
+    await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
+    const wheres = loanFindManyMock.mock.calls.map(([a]) => (a as { where: Record<string, unknown> }).where)
+    expect(wheres).toHaveLength(2)
+    for (const where of wheres) expect(where).toMatchObject({ tenantId: "tenant-1", ncaRegime: "NCA" })
+  })
+
+
   it("strictly audits the export, which carries client ID numbers", async () => {
     // Two sheets carry ID numbers and full names. Every other bulk identity
     // export in this handler writes an audit row; this branch did not.
@@ -610,5 +618,50 @@ describe("GET reports export — the caller must belong to the host's tenant", (
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toMatch(/spreadsheetml/)
     expect(policyFindManyMock).toHaveBeenCalledOnce()
+  })
+})
+
+describe("GET reports export — NCA regime", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    tenantConfigFindUniqueMock.mockResolvedValue(null)
+    loanFindManyMock.mockResolvedValue([])
+    applicationFindManyMock.mockResolvedValue([])
+  })
+
+  for (const type of ["affordability", "reckless-lending"]) {
+    it(`${type}: the NCA consumer register leaves entity (asset finance) applications out`, async () => {
+      const res = await GET(request(`type=${type}`))
+      expect(res.status).toBe(200)
+      expect(applicationFindManyMock).toHaveBeenCalledTimes(1)
+      expect(applicationFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tenantId: "tenant-1", entityId: null }),
+      }))
+    })
+  }
+
+  it("credit-agreements: the register of NCA credit agreements leaves NON_NCA agreements out", async () => {
+    await GET(request("type=credit-agreements"))
+    expect(loanFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "tenant-1", ncaRegime: "NCA" }),
+    }))
+  })
+
+  it("par: the arrears aging keeps NON_NCA agreements and labels every row with its regime", async () => {
+    loanFindManyMock.mockResolvedValue([{
+      reference: "LN-AF-1", principal: 30_000_000, outstandingPrincipal: 25_000_000, arrearsAmount: 900_000,
+      chargesOutstanding: 0, daysInArrears: 45, status: "ACTIVE", ncaRegime: "NON_NCA",
+      client: null, entity: { legalName: "TEST Plant Hire (Pty) Ltd" }, product: { name: "Plant finance" },
+    }])
+    const res = await GET(request("type=par"))
+    expect((loanFindManyMock.mock.calls[0][0] as { where: Record<string, unknown> }).where).not.toHaveProperty("ncaRegime")
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer() as unknown as Parameters<typeof wb.xlsx.load>[0])
+    const sheet = wb.getWorksheet("PAR Report")
+    const header = (sheet?.getRow(1).values ?? []) as unknown[]
+    expect(sheet?.getRow(2).getCell(header.indexOf("Regime")).value).toBe("NON_NCA")
+    expect(sheet?.getRow(2).getCell(header.indexOf("Client")).value).toBe("TEST Plant Hire (Pty) Ltd")
   })
 })

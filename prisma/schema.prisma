@@ -75,6 +75,8 @@ model User {
   pasqAckTokensIssued          PasqAcknowledgementToken[] @relation("PasqAckTokensIssuedBy")
   selfieCaptureTokensIssued    SelfieCaptureToken[]       @relation("SelfieCaptureTokensIssuedBy")
   mentionedIn                  MessageMention[]
+  ncaOverridesRequested        NcaRegimeOverride[] @relation("NcaOverridesRequested")
+  ncaOverridesDecided          NcaRegimeOverride[] @relation("NcaOverridesDecided")
   kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
 
@@ -162,6 +164,7 @@ model Tenant {
   bureauSubmissions        BureauSubmission[]
   bureauSubmissionRecords  BureauSubmissionRecord[]
   bureauAdverseConfirmations BureauAdverseConfirmation[]
+  businessEntities         BusinessEntity[]
   kycOverrideRequests        KycOverrideRequest[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
@@ -196,6 +199,8 @@ model TenantConfig {
   featureMarketing Boolean @default(false)
   featurePortal    Boolean @default(true)
   featureReports   Boolean @default(true)
+  // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
+  featureAssetFinance Boolean @default(false)
 
   ncrNumber        String?
   fscaNumber       String?
@@ -433,6 +438,7 @@ model Client {
   updatedAt              DateTime                 @updatedAt
   applications           LoanApplication[]
   loans                  Loan[]
+  entityRelationships    EntityRelationship[]
   documents              ClientDocument[]
   crossSellOpportunities CrossSellOpportunity[]
   insurancePolicies      InsurancePolicy[]
@@ -895,6 +901,12 @@ model LoanProduct {
   initiationFeePct  Float             @default(0)
   initiationFeeMax  Int               @default(0)
   monthlyServiceFee Int               @default(0)
+  // NON_NCA (asset finance) arrears terms, decision 2a.4 of the slice-1 goal:
+  // default interest at the contract rate plus this annual margin (decimal,
+  // 0.02 = 2%) on overdue amounts, and a collection fee (cents) per missed
+  // instalment. Never applied to an NCA loan, whose caps and s129 rules hold.
+  nonNcaDefaultInterestMargin Decimal? @db.Decimal(9, 6)
+  nonNcaCollectionFeeCents    Int?
   active            Boolean           @default(true)
   createdAt         DateTime          @default(now())
   applications      LoanApplication[]
@@ -915,6 +927,150 @@ enum InterestModel {
   FLAT
   REDUCING_BALANCE
   DAILY_ACCRUAL
+}
+
+enum NcaRegime {
+  NCA
+  NON_NCA
+}
+
+enum ContractType {
+  LOAN
+  INSTALMENT_SALE
+  FINANCE_LEASE
+  OPERATING_LEASE
+  FULL_MAINTENANCE_LEASE
+}
+
+enum BusinessEntityType {
+  COMPANY
+  CC
+  TRUST
+  PARTNERSHIP
+}
+
+enum EntityRole {
+  DIRECTOR
+  MEMBER
+  TRUSTEE
+  AUTHORISED_SIGNATORY
+  SURETY
+  BENEFICIAL_OWNER
+}
+
+enum TrusteeKind {
+  NATURAL
+  JURISTIC
+}
+
+enum NcaOverrideStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Who opened an NcaRegimeOverride: the classifier (a NON_NCA result awaiting a
+// second person) or a staff member through the override route.
+enum NcaOverrideSource {
+  CLASSIFIER
+  MANUAL
+}
+
+// A juristic borrower for asset finance (DESIGN D1). Client stays a natural
+// person keyed on SA ID; a sole proprietor borrows as a Client.
+model BusinessEntity {
+  id                    String               @id @default(cuid())
+  tenantId              String
+  tenant                Tenant               @relation(fields: [tenantId], references: [id])
+  type                  BusinessEntityType
+  legalName             String
+  tradingName           String?
+  registrationNumber    String
+  // Trusts: the Master of the High Court reference (IT number).
+  mastersReference      String?
+  vatNumber             String?
+  // NCA classifier inputs (cents), the financial year they describe and the
+  // document ids that evidence them. Unevidenced → the classifier says NCA.
+  annualTurnover        Int?
+  totalAssetValue       Int?
+  financialYearEnd      DateTime?            @db.Date
+  financialsEvidenceIds String[]             @default([])
+  addressLine1          String?
+  addressLine2          String?
+  city                  String?
+  province              String?
+  postalCode            String?
+  createdById           String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  relationships         EntityRelationship[]
+  applications          LoanApplication[]
+  loans                 Loan[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, type, registrationNumber])
+  @@index([tenantId])
+}
+
+// A person's role in an entity. One row per (entity, client, role): the same
+// person can be a director, a surety and a beneficial owner.
+model EntityRelationship {
+  id           String         @id @default(cuid())
+  tenantId     String
+  entityId     String
+  entity       BusinessEntity @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId     String
+  client       Client         @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  role         EntityRole
+  // Trustees only (CHECK EntityRelationship_trustee_kind). JURISTIC: the
+  // Client represents a juristic trustee (a company acting as trustee).
+  trusteeKind  TrusteeKind?
+  ownershipPct Decimal?       @db.Decimal(5, 2)
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([entityId, clientId, role])
+  @@index([tenantId, clientId])
+}
+
+// An override of an application's NCA classification. NCA → NON_NCA needs a
+// second, different user with credit permission to approve it (DESIGN D5);
+// a classifier result of NON_NCA is recorded as such a request. Immutable once
+// decided, never deleted (trigger guardNcaRegimeOverrideLifecycle).
+model NcaRegimeOverride {
+  id            String            @id @default(cuid())
+  tenantId      String
+  applicationId String
+  application   LoanApplication   @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  fromRegime    NcaRegime
+  toRegime      NcaRegime
+  reason        String
+  source        NcaOverrideSource
+  status        NcaOverrideStatus @default(PENDING)
+  requestedById String
+  requestedBy   User              @relation("NcaOverridesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedById   String?
+  decidedBy     User?             @relation("NcaOverridesDecided", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt     DateTime?
+  // The application as it stood when the override was requested. An approval
+  // to NON_NCA authorises the change for exactly this borrower, amount,
+  // product and classification (rule, and the ncaClassifiedAt of the run the
+  // approver saw): guardLoanApplicationNcaRegime refuses to spend it on an
+  // application that no longer matches, so a re-classification makes it
+  // stale. Required for toRegime NON_NCA (CHECK NcaRegimeOverride_non_nca_snapshot).
+  approvedEntityId           String?
+  approvedAppliedAmount      Int?
+  approvedProductId          String?
+  approvedClassificationRule String?
+  approvedClassifiedAt       DateTime?
+  decisionNote  String?
+  // Set by trigger guardLoanApplicationNcaRegime when it spends this approval
+  // on the NCA → NON_NCA change it authorises: one approval, one change.
+  appliedAt     DateTime?
+  createdAt     DateTime          @default(now())
+
+  @@index([tenantId, applicationId])
 }
 
 // How a product's initiation fee is PRICED, as opposed to how it is capped.
@@ -956,7 +1112,18 @@ model LoanApplication {
   tenantId                      String
   tenant                        Tenant               @relation(fields: [tenantId], references: [id])
   reference                     String               @unique
-  clientId                      String
+  clientId                      String?
+  // Exactly one of clientId / entityId (CHECK LoanApplication_borrower_xor).
+  entityId                      String?
+  // NCA classification snapshot (DESIGN D5), written by
+  // lib/asset-finance/classification.ts; an override goes through
+  // NcaRegimeOverride. Null until classified.
+  ncaRegime                     NcaRegime?
+  ncaClassificationRule         String?
+  ncaClassificationInputs       Json?
+  ncaClassificationEvidenceIds  String[]             @default([])
+  ncaClassifiedAt               DateTime?
+  ncaClassifiedById             String?
   productId                     String
   branchId                      String?
   branch                        Branch?              @relation(fields: [branchId], references: [id])
@@ -1077,7 +1244,9 @@ model LoanApplication {
   submittedAt                   DateTime?
   createdAt                     DateTime             @default(now())
   updatedAt                     DateTime             @updatedAt
-  client                        Client               @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  client                        Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entity                        BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  ncaRegimeOverrides            NcaRegimeOverride[]
   product                       LoanProduct          @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   creditLifeProduct             InsuranceProduct?    @relation("ApplicationCreditLifeProduct", fields: [tenantId, creditLifeProductId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   creditLifeInsurer             Insurer?             @relation("ApplicationCreditLifeInsurer", fields: [tenantId, creditLifeInsurerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -1188,7 +1357,19 @@ model Loan {
   tenant                    Tenant                 @relation(fields: [tenantId], references: [id])
   reference                 String                 @unique
   applicationId             String                 @unique
-  clientId                  String
+  clientId                  String?
+  // Exactly one of clientId / entityId is set (CHECK Loan_borrower_xor):
+  // a natural-person Client or a BusinessEntity (asset finance, DESIGN D1).
+  entityId                  String?
+  // NCA applicability, decided once at application (lib/asset-finance/
+  // nca-classifier.ts). Every consumer-only rule (s129, fee caps, NCA charge
+  // caps, consumer bureau files) keys on NCA.
+  ncaRegime                 NcaRegime              @default(NCA)
+  contractType              ContractType           @default(LOAN)
+  // Cents; the final scheduled payment on top of the last instalment.
+  balloonAmount             Int?
+  // The financed asset (FinancedAsset, asset finance). FK added with that table.
+  assetId                   String?
   productId                 String
   principal                 Int
   totalInterest             Int
@@ -1246,7 +1427,8 @@ model Loan {
   monthlyServiceFee         Int?
   createdAt                 DateTime               @default(now())
   updatedAt                 DateTime               @updatedAt
-  client                    Client                 @relation(fields: [clientId], references: [id])
+  client                    Client?                @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entity                    BusinessEntity?        @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   product                   LoanProduct            @relation(fields: [productId], references: [id])
   application               LoanApplication        @relation(fields: [applicationId], references: [id])
   repaymentSchedule         RepaymentSchedule[]
@@ -1264,12 +1446,16 @@ model Loan {
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([agreementDocId])
+  @@index([entityId])
 }
 
 enum LoanChargeType {
   DEFAULT_INTEREST
   SERVICE_FEE
   DEFAULT_ADMIN
+  // NON_NCA (asset finance) only: the product's collection fee per missed
+  // instalment (lib/asset-finance/non-nca-charges.ts). Never posted on an NCA loan.
+  COLLECTION_FEE
 }
 
 // A charge posted after a missed instalment. DERIVED: rewritten per loan on

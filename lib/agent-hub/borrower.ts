@@ -1,7 +1,10 @@
+import { borrowerDisplayName } from "@/lib/borrower"
+
 export type BorrowerLoan = {
   id: string
   reference: string
-  client: { firstName: string; lastName: string }
+  client: { firstName: string; lastName: string } | null
+  entity?: { legalName: string } | null
   product: { name: string } | null
 }
 
@@ -35,7 +38,7 @@ export function resolveBorrower(
   if (!loan) return null
   return {
     loanId,
-    clientName: `${loan.client.firstName} ${loan.client.lastName}`.trim(),
+    clientName: borrowerDisplayName(loan),
     loanReference: loan.reference,
     productName: loan.product?.name ?? null,
   }

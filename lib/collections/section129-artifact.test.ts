@@ -85,6 +85,8 @@ import {
   Section129IssuanceConflictError,
   verifySection129ReservationIntegrity,
 } from "./section129-artifact"
+import { EntityBorrowerError } from "@/lib/borrower"
+import { SECTION129_NON_NCA_REASON } from "./section129-eligibility"
 
 const pdf = Buffer.from("%PDF-1.4 issued notice")
 const reservationArgs = {
@@ -1042,6 +1044,51 @@ describe("Section 129 private artifact lifecycle", () => {
     }))
     expect(auditCreateMock).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: "SECTION_129_DISPATCH_BLOCKED_ELIGIBILITY_CHANGED" }),
+    }))
+  })
+
+  it("refuses an NCA loan to an entity borrower (no Client) with EntityBorrowerError, before any client lock or provider call", async () => {
+    const reservation = await reserveSection129Issuance(reservationArgs)
+    vi.clearAllMocks()
+    updateManyMock.mockResolvedValue({ count: 1 })
+    loanFindUniqueMock.mockResolvedValue({
+      clientId: null, reference: "LN-1", status: "DEFAULTED", ncaRegime: "NCA",
+      arrearsAmount: 25_000, outstandingPrincipal: 100_000, daysInArrears: 90,
+    })
+    const provider = vi.fn()
+
+    await expect(dispatchSection129UnderEligibilityLock({
+      reservation, tenantId: "t1", loanId: "loan-1", actorId: "user-1", dispatch: provider,
+    })).rejects.toBeInstanceOf(EntityBorrowerError)
+
+    expect(provider).not.toHaveBeenCalled()
+    expect(clientFindUniqueMock).not.toHaveBeenCalled()
+    const lockedTables = queryRawMock.mock.calls.map(([q]) => (Array.isArray(q) ? q.join("") : String(q)))
+    expect(lockedTables.some((q) => q.includes('FROM "Client"'))).toBe(false)
+  })
+
+  it("refuses a NON_NCA loan on its regime first, even when its borrower is an entity", async () => {
+    const reservation = await reserveSection129Issuance(reservationArgs)
+    vi.clearAllMocks()
+    updateManyMock.mockResolvedValue({ count: 1 })
+    loanFindUniqueMock.mockResolvedValue({
+      clientId: null, reference: "LN-1", status: "DEFAULTED", ncaRegime: "NON_NCA",
+      arrearsAmount: 25_000, outstandingPrincipal: 100_000, daysInArrears: 120,
+    })
+    const provider = vi.fn()
+
+    const result = await dispatchSection129UnderEligibilityLock({
+      reservation, tenantId: "t1", loanId: "loan-1", actorId: "user-1", dispatch: provider,
+    })
+
+    expect(result.kind).toBe("INELIGIBLE")
+    expect(result.kind === "INELIGIBLE" && result.error.message).toContain(SECTION129_NON_NCA_REASON)
+    expect(provider).not.toHaveBeenCalled()
+    expect(auditCreateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        action: "SECTION_129_DISPATCH_BLOCKED_ELIGIBILITY_CHANGED",
+        newValue: expect.objectContaining({ reason: SECTION129_NON_NCA_REASON }),
+      }),
     }))
   })
 

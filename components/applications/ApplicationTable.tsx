@@ -12,6 +12,7 @@ import {
   type SortKey,
 } from "@/lib/applications/pipeline-view"
 import { formatZAR } from "@/lib/utils"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
@@ -109,7 +110,7 @@ export function ApplicationTable({
                   </Link>
                 </td>
                 <td className="px-4 py-3 text-[var(--cf-text)]">
-                  {app.client.firstName} {app.client.lastName}
+                  {borrowerDisplayName(app)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 font-medium text-[var(--cf-text)]">
                   {formatZAR(app.appliedAmount)}

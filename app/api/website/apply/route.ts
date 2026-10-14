@@ -385,7 +385,7 @@ export async function POST(req: NextRequest) {
           success: true,
           reference: completedApplication.reference,
           applicationId: completedApplication.id,
-          portalAccountStatus: completedApplication.client.portalPassword
+          portalAccountStatus: completedApplication.client?.portalPassword
             ? "ready"
             : "activation_required",
         })
@@ -511,7 +511,7 @@ export async function POST(req: NextRequest) {
           success: true,
           reference: submissionContext.application.reference,
           applicationId: submissionContext.application.id,
-          portalAccountStatus: submissionContext.application.client.portalPassword
+          portalAccountStatus: submissionContext.application.client?.portalPassword
             ? "ready"
             : "activation_required",
         })
@@ -1216,7 +1216,7 @@ export async function POST(req: NextRequest) {
               if (creation.kind === "idempotent") {
                 application = creation.application
                 responseReference = creation.application.reference
-                portalAccountStatus = creation.application.client.portalPassword
+                portalAccountStatus = creation.application.client?.portalPassword
                   ? "ready"
                   : "activation_required"
               }
