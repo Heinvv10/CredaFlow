@@ -15,7 +15,7 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }))
 vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, update }, $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({
   logAuditStrict,
-  AuditAction: { BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED" },
+  AuditAction: { BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED", TENANT_LANGUAGES_UPDATED: "TENANT_LANGUAGES_UPDATED" },
 }))
 vi.mock("next/cache", () => ({ revalidateTag }))
 vi.mock("@/lib/bureau-submission/generate", () => ({ SUPPLIER_NUMBER: /^[A-Z0-9]{1,10}$/ }))
@@ -128,6 +128,40 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await patch({ featureBureauSubmission: true })).status).toBe(403)
     expect(update).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/admin/tenants/[tenantId] — borrower languages", () => {
+  beforeEach(() => {
+    process.env.ADMIN_SECRET = "s3cret"
+    authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
+    findUnique.mockReset().mockResolvedValue({ id: "t1" })
+    update.mockReset().mockResolvedValue({ id: "t1", config: {} })
+    configBefore.mockReset().mockResolvedValue({ enabledLanguages: ["en"] })
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, $queryRaw: queryRaw, isTx: true }))
+    logAuditStrict.mockReset().mockResolvedValue(undefined)
+    revalidateTag.mockReset()
+  })
+
+  it("stores the normalised list, audits it in the transaction and refreshes the cached config", async () => {
+    expect((await patch({ enabledLanguages: ["zu", "en", "af", "zu"] })).status).toBe(200)
+    expect(configWritten()).toEqual({ enabledLanguages: ["en", "af", "zu"] })
+    expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "TENANT_LANGUAGES_UPDATED", entity: "TenantConfig",
+      oldValue: { enabledLanguages: ["en"] }, newValue: { enabledLanguages: ["en", "af", "zu"] },
+    }), expect.objectContaining({ isTx: true }))
+    expect(revalidateTag).toHaveBeenCalledWith("tenant-config-t1", { expire: 0 })
+  })
+
+  it.each([
+    [["af", "zu"]],
+    [["en", "fr"]],
+    ["en,af"],
+    [[]],
+  ])("refuses %j and writes nothing", async (enabledLanguages) => {
+    expect((await patch({ enabledLanguages })).status).toBe(400)
+    expect(update).not.toHaveBeenCalled()
+    expect(logAuditStrict).not.toHaveBeenCalled()
   })
 })
 

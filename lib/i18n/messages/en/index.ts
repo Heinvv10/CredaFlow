@@ -1,4 +1,5 @@
 import { common } from "./common"
+import { comms } from "./comms"
 import { portalApplications } from "./portal-applications"
 import { portalDocuments } from "./portal-documents"
 import { portalHome } from "./portal-home"
@@ -15,6 +16,7 @@ import { websiteShell } from "./website-shell"
 /** The English catalogue: the source of truth for every key (lib/i18n/catalog.ts). */
 export const en = {
   common,
+  comms,
   portalApplications,
   portalDocuments,
   portalHome,

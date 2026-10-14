@@ -9,6 +9,7 @@ import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
 import type { Session } from "next-auth"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
 import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
+import { parseEnabledLanguagesInput } from "@/lib/i18n/locales"
 
 class TenantColoursInvalid extends Error {
   constructor(readonly fields: Partial<Record<TenantColourField, string>>) {
@@ -107,6 +108,14 @@ export async function PATCH(
   // old set and commit a combination that fails.
   const colourKeys = (Object.keys(TENANT_COLOUR_VARS) as TenantColourField[]).filter((key) => body[key] !== undefined)
 
+  // Borrower-facing languages (lib/i18n). Turning one on shows borrowers its
+  // catalogue, which is a machine draft until reviewed, so the change is
+  // validated and audited. English is always on.
+  const enabledLanguages = body.enabledLanguages === undefined ? undefined : parseEnabledLanguagesInput(body.enabledLanguages)
+  if (enabledLanguages === null) {
+    return NextResponse.json({ error: "enabledLanguages must be a list of en, af, zu, xh that includes en" }, { status: 400 })
+  }
+
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
   if (domain !== undefined) tenantUpdate.domain = domain
@@ -126,6 +135,7 @@ export async function PATCH(
   if (netcashKey !== undefined) configUpdate.netcashKey = netcashKey
   if (bulkSmsKey !== undefined) configUpdate.bulkSmsKey = bulkSmsKey
   if (transunionKey !== undefined) configUpdate.transunionKey = transunionKey
+  if (enabledLanguages !== undefined) configUpdate.enabledLanguages = enabledLanguages
 
   // Bureau data submission (lib/bureau-submission). These decide whether real
   // people's loans are reported to a credit bureau and under whose name, so
@@ -173,7 +183,7 @@ export async function PATCH(
       },
     }),
   }
-  if (bureauKeys.length === 0 && colourKeys.length === 0) {
+  if (bureauKeys.length === 0 && colourKeys.length === 0 && enabledLanguages === undefined) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
     return NextResponse.json(updated)
   }
@@ -208,6 +218,18 @@ export async function PATCH(
         newValue: Object.fromEntries(colourKeys.map((key) => [key, configUpdate[key]])),
       }, tx)
     }
+    if (enabledLanguages !== undefined) {
+      await logAuditStrict({
+        tenantId,
+        userId: session?.user?.id,
+        userEmail: session?.user?.email ?? undefined,
+        action: AuditAction.TENANT_LANGUAGES_UPDATED,
+        entity: "TenantConfig",
+        entityId: tenantId,
+        oldValue: { enabledLanguages: before?.enabledLanguages ?? null },
+        newValue: { enabledLanguages },
+      }, tx)
+    }
     if (bureauKeys.length === 0) return result
     await logAuditStrict({
       tenantId,
@@ -229,9 +251,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Tenant colours fail validation", fields: updated.fields }, { status: 422 })
   }
 
-  if (colourKeys.length > 0) {
-    // The colours are committed; a failed invalidation only leaves the old
-    // palette cached for getTenantConfig's 300 s, so it must not fail the write.
+  if (colourKeys.length > 0 || enabledLanguages !== undefined) {
+    // The colours (or languages) are committed; a failed invalidation only
+    // leaves the old values cached for getTenantConfig's 300 s, so it must not
+    // fail the write.
     // expire: 0, not "max": the next page load must draw the new palette,
     // not serve the stale one while revalidating.
     try {
