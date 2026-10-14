@@ -1,5 +1,6 @@
 import { formatDate, formatDateTime, SAST_TIME_ZONE } from "@/lib/utils"
-import { DEFAULT_LOCALE, INTL_TAGS, type Locale } from "./locales"
+import { sastParts } from "@/lib/date/sast"
+import { DEFAULT_LOCALE, type Locale } from "./locales"
 
 /**
  * Locale-aware dates for borrower-facing text.
@@ -12,65 +13,83 @@ import { DEFAULT_LOCALE, INTL_TAGS, type Locale } from "./locales"
  * xh-ZA "R 1 234.56"), which would put three spellings of one amount in one
  * product.
  *
- * Dates are where language matters (month names), so they go through Intl.
- * English keeps the existing helpers' exact output. Another language uses its
- * -ZA tag when the runtime has ICU data for it (Node's full ICU has all four),
- * else en-ZA rather than whatever default the runtime would pick.
+ * Dates are where language matters (month names). English keeps the existing
+ * Intl helpers' exact output. Afrikaans, isiZulu and isiXhosa do NOT call Intl:
+ * Node's full ICU has all three, but Chrome ships no zu or xh data
+ * (supportedLocalesOf → [], checked on Chrome 146) and silently formats in
+ * English instead, so a client component would render a different string from
+ * the server and fail hydration. They are written from the CLDR month names
+ * and patterns below (ICU 78 / CLDR 48, the data Node itself uses), which
+ * come out identical on every runtime. Calendar day is the SAST day.
  */
-const resolved = new Map<Locale, string>()
-
-export function intlTagFor(locale: Locale): string {
-  const cached = resolved.get(locale)
-  if (cached) return cached
-  const tag = INTL_TAGS[locale]
-  const supported = Intl.DateTimeFormat.supportedLocalesOf([tag]).length > 0
-  const result = supported ? tag : INTL_TAGS[DEFAULT_LOCALE]
-  resolved.set(locale, result)
-  return result
+type DateWords = {
+  short: readonly string[]
+  long: readonly string[]
+  /** CLDR order: "d MMM y" (af) or "MMM d, y" (zu, xh). */
+  dayFirst: boolean
 }
 
-/** "14 Oct 2026" in English (formatDate); "14 Okt. 2026", "Okt 14, 2026", … otherwise. */
+const WORDS: Record<Exclude<Locale, "en">, DateWords> = {
+  af: {
+    short: ["Jan.", "Feb.", "Mrt.", "Apr.", "Mei", "Jun.", "Jul.", "Aug.", "Sep.", "Okt.", "Nov.", "Des."],
+    long: ["Januarie", "Februarie", "Maart", "April", "Mei", "Junie", "Julie", "Augustus", "September", "Oktober", "November", "Desember"],
+    dayFirst: true,
+  },
+  zu: {
+    short: ["Jan", "Feb", "Mas", "Eph", "Mey", "Jun", "Jul", "Aga", "Sep", "Okt", "Nov", "Dis"],
+    long: ["Januwari", "Februwari", "Mashi", "Ephreli", "Meyi", "Juni", "Julayi", "Agasti", "Septhemba", "Okthoba", "Novemba", "Disemba"],
+    dayFirst: false,
+  },
+  xh: {
+    short: ["Jan", "Feb", "Mat", "Epr", "Mey", "Jun", "Jul", "Aga", "Sept", "Okt", "Nov", "Dis"],
+    long: ["Janyuwari", "Februwari", "Matshi", "Epreli", "Meyi", "Juni", "Julayi", "Agasti", "Septemba", "Okthobha", "Novemba", "Disemba"],
+    dayFirst: false,
+  },
+}
+
+const toDate = (date: Date | string) => (typeof date === "string" ? new Date(date) : date)
+
+function dayMonth(words: DateWords, day: number, month: string): string {
+  return words.dayFirst ? `${day} ${month}` : `${month} ${day}`
+}
+
+function withYear(words: DateWords, day: number, month: string, year: number): string {
+  return words.dayFirst ? `${day} ${month} ${year}` : `${month} ${day}, ${year}`
+}
+
+/** "14 Oct 2026" in English (formatDate); "14 Okt. 2026", "Okt 14, 2026" otherwise. */
 export function formatDay(date: Date | string, locale: Locale): string {
   if (locale === DEFAULT_LOCALE) return formatDate(date)
-  const d = typeof date === "string" ? new Date(date) : date
-  return new Intl.DateTimeFormat(intlTagFor(locale), {
-    timeZone: SAST_TIME_ZONE,
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(d)
+  const words = WORDS[locale]
+  const { year, month, day } = sastParts(toDate(date))
+  return withYear(words, day, words.short[month], year)
 }
 
-/** Date with the month written out: "14 October 2026" / "14 Oktober 2026". */
+/** Date with the month written out: "14 October 2026" / "14 Oktober 2026" / "Okthoba 14, 2026". */
 export function formatLongDay(date: Date | string, locale: Locale): string {
-  const d = typeof date === "string" ? new Date(date) : date
-  return new Intl.DateTimeFormat(intlTagFor(locale), {
-    timeZone: SAST_TIME_ZONE,
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(d)
+  if (locale === DEFAULT_LOCALE) {
+    return new Intl.DateTimeFormat("en-ZA", { timeZone: SAST_TIME_ZONE, day: "numeric", month: "long", year: "numeric" }).format(toDate(date))
+  }
+  const words = WORDS[locale]
+  const { year, month, day } = sastParts(toDate(date))
+  return withYear(words, day, words.long[month], year)
 }
 
-/** Day and short month, no year: "14 Oct". */
+/** Day and short month, no year: "14 Oct" / "14 Okt." / "Okt 14". */
 export function formatDayMonth(date: Date | string, locale: Locale): string {
-  const d = typeof date === "string" ? new Date(date) : date
-  return new Intl.DateTimeFormat(intlTagFor(locale), {
-    timeZone: SAST_TIME_ZONE,
-    day: "numeric",
-    month: "short",
-  }).format(d)
+  if (locale === DEFAULT_LOCALE) {
+    return new Intl.DateTimeFormat("en-ZA", { timeZone: SAST_TIME_ZONE, day: "numeric", month: "short" }).format(toDate(date))
+  }
+  const words = WORDS[locale]
+  const { month, day } = sastParts(toDate(date))
+  return dayMonth(words, day, words.short[month])
 }
 
-/** Date and 24-hour time. English keeps formatDateTime's exact output. */
+/** Date and 24-hour SAST time. English keeps formatDateTime's exact output. */
 export function formatDayTime(date: Date | string, locale: Locale): string {
   if (locale === DEFAULT_LOCALE) return formatDateTime(date)
-  const d = typeof date === "string" ? new Date(date) : date
-  const time = new Intl.DateTimeFormat(intlTagFor(locale), {
-    timeZone: SAST_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(d)
+  const d = toDate(date)
+  // Digits only, so any runtime's ICU gives the same "08:05".
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: SAST_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(d)
   return `${formatDay(d, locale)} ${time}`
 }

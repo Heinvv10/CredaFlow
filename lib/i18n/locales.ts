@@ -10,7 +10,7 @@
 export const LOCALES = ["en", "af", "zu", "xh"] as const
 export type Locale = (typeof LOCALES)[number]
 
-export const DEFAULT_LOCALE: Locale = "en"
+export const DEFAULT_LOCALE = "en" satisfies Locale
 
 /** Each language named in itself: a reader who cannot read English must still find their own. */
 export const LOCALE_NATIVE_NAMES: Record<Locale, string> = {
@@ -18,14 +18,6 @@ export const LOCALE_NATIVE_NAMES: Record<Locale, string> = {
   af: "Afrikaans",
   zu: "isiZulu",
   xh: "isiXhosa",
-}
-
-/** BCP 47 tags for Intl formatting, South African region throughout. */
-export const INTL_TAGS: Record<Locale, string> = {
-  en: "en-ZA",
-  af: "af-ZA",
-  zu: "zu-ZA",
-  xh: "xh-ZA",
 }
 
 /** The cookie the language switcher writes. Read server-side only. */
