@@ -186,4 +186,19 @@ suite.sequential("bureau checks: one enquiry per person under concurrency (real 
     expect(await stored()).toBe(checks)
     expect(await unstoredEnquiries()).toBe(unstored + 1)
   }, 30_000)
+
+  it("a simulated (dry-run) report keeps its marker on the stored check, so approval guards can refuse it", async () => {
+    m.provider = async () => ({ ok: true, simulated: true, score: 645, riskGrade: "AVERAGE RISK" } as Report)
+    try {
+      expect(await forced()).toBe("stored")
+    } finally {
+      m.provider = slowReport
+    }
+    const row = await database().creditBureauCheck.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, applicationId, clientId: fx.director },
+      orderBy: { createdAt: "desc" },
+    })
+    expect(row).toMatchObject({ provider: "experian", status: "OK", attempt: 1 })
+    expect(row.obligations).toMatchObject({ simulated: true, simulationSource: "experian" })
+  }, 30_000)
 })
