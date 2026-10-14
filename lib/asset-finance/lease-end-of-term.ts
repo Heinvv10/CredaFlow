@@ -8,8 +8,8 @@
  *   EXTEND    EXTENDING (month to month; the daily run, ./lease-daily.ts,
  *             appends each rental) → notice by either party ends it one month later →
  *             INSPECTED → INVOICED → COMPLETED, as a return
- *   PURCHASE  ELECTED (price ≥ a market valuation, ./lease-term-end.ts; electing
- *             again while ELECTED re-bases it on a newer valuation) →
+ *   PURCHASE  ELECTED (price ≥ a market valuation, ./lease-term-end.ts; if that
+ *             valuation ages out before the sale, staff re-base it on a newer one) →
  *             INVOICED (sale tax invoice, once the term has ended) → COMPLETED
  *             (paid, eNaTIS change confirmed on a registered asset)
  * A return is inspected only once the term has ended (an early termination's
@@ -24,9 +24,9 @@
 import type { LeaseEndOutcome } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { addMonthsClamped, dbDate, isoOfDbDate } from "./dates"
+import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { recordMeterReading } from "./meter-readings"
-import { checkPurchaseValuation, leaseTermEnd } from "./lease-term-end"
+import { checkPurchaseValuation, leaseTermEnd, purchaseMaxAgeDays } from "./lease-term-end"
 import { clientLeaseRefusal } from "./lease-portal-route"
 import type { SigningTx } from "./signing-prepare"
 
@@ -65,6 +65,18 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   if (!loan?.assetId) return { kind: "not_found" }
   const rebase = loan.leaseEndOfTerm?.outcome === "PURCHASE" && loan.leaseEndOfTerm.status === "ELECTED" && input.outcome === "PURCHASE"
   if (loan.leaseEndOfTerm && !rebase) return refused("already_elected", `The end of term is already ${loan.leaseEndOfTerm.outcome}`)
+  if (rebase) {
+    // Re-basing exists for one case: the elected valuation aged out before the sale. Staff only, onto a newer valuation.
+    if (!actor.userId) return refused("already_elected", "The purchase is elected; the lessor re-bases it if its valuation ages out")
+    await tx.$queryRaw`SELECT "id" FROM "LeaseEndOfTerm" WHERE "loanId" = ${input.loanId} AND "tenantId" = ${tenantId} FOR UPDATE`
+    const current = await tx.leaseEndOfTerm.findFirst({ where: { loanId: input.loanId, tenantId }, select: { status: true, purchaseValuation: { select: { valuedOn: true } } } })
+    if (current?.status !== "ELECTED") return refused("already_elected", "The purchase is no longer open to re-basing")
+    const maxAge = await purchaseMaxAgeDays(tx, tenantId)
+    const oldOn = current.purchaseValuation ? isoOfDbDate(current.purchaseValuation.valuedOn) : null
+    if (oldOn !== null && oldOn >= fromDayNumber(toDayNumber(input.today) - maxAge)) return refused("valuation_current", `The elected valuation (${oldOn}) is still current`)
+    const next = await tx.assetValuation.findFirst({ where: { id: input.purchase?.valuationId ?? "", tenantId }, select: { valuedOn: true } })
+    if (oldOn !== null && next && isoOfDbDate(next.valuedOn) <= oldOn) return refused("valuation", "Re-base on a valuation newer than the elected one")
+  }
   if (loan.status !== "ACTIVE" && loan.status !== "COMPLETED" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (input.outcome === "EXTEND" && loan.status === "DEFAULTED") return refused("defaulted", "A lease in default is not extended")
   const lastRental = sastCalendarDate(loan.maturityDate)

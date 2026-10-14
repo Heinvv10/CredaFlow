@@ -166,6 +166,9 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     const quoted = await json(await routes().portalQuote(loans.terminate))
     expect(quoted.status, JSON.stringify(quoted.body)).toBe(200)
     const quote = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { id: String(quoted.body.quoteId) } })
+    // Asking again the same day, nothing changed: the same quote (no new quote rows on demand).
+    expect((await json(await routes().portalQuote(loans.terminate))).body.quoteId).toBe(quote.id)
+    expect(await database().leaseTerminationQuote.count({ where: { loanId: loans.terminate } })).toBe(1)
     expect(isoOfDbDate(quote.terminationDate)).toBe(cpaCancellationDate(today()))
     expect(quote.basis).toMatch(/Regulation 5\(2\)/)
     expect(quote.totalCents).toBe(quote.pvCents + quote.penaltyCents + quote.invoiceVatCents + quote.arrearsCents)

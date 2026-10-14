@@ -215,17 +215,29 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
     await refuses(without(PV, `v."valuedOn" >= (now() AT TIME ZONE 'Africa/Johannesburg')::date - max_age AND `), MARKET, (tx) => purchase(tx, loans.expired, { valuedOn: day(-31) }))
   })
 
-  it("an elected purchase is re-based only on a valuation that passes the same rule", async () => {
-    const rebase = async (tx: Tx, v: Parameters<typeof valuation>[2], electedById: string = fx.officer) => {
-      const { id } = await purchase(tx, loans.expired)
-      await tx.leaseEndOfTerm.update({ where: { id }, data: { purchaseValuationId: (await valuation(tx, loans.expired, v)).id, electedById } })
+  it("an elected purchase is re-based by staff only once its valuation aged out, onto a newer one that passes the same rule", async () => {
+    const REBASE = /re-based by staff only once its valuation has aged out, onto a newer valuation/
+    type Rebase = { v?: Parameters<typeof valuation>[2]; electedById?: string | null; electedByClientId?: string | null; aged?: boolean }
+    const rebase = async (tx: Tx, opts: Rebase = {}) => {
+      const { id } = await purchase(tx, loans.expired, { valuedOn: day(-5) }) // older than the re-base valuation (today)
+      const elected = await tx.leaseEndOfTerm.findUniqueOrThrow({ where: { id }, select: { purchaseValuationId: true } })
+      if (opts.aged ?? true) { // test setup: the elected valuation has aged out (valuations are never edited by the app)
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+        await tx.$executeRawUnsafe(`UPDATE "AssetValuation" SET "valuedOn" = "valuedOn" - 40 WHERE "id" = $1`, elected.purchaseValuationId)
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
+      }
+      await tx.leaseEndOfTerm.update({ where: { id }, data: {
+        purchaseValuationId: (await valuation(tx, loans.expired, opts.v ?? {})).id,
+        electedById: opts.electedById === undefined ? fx.officer : opts.electedById, electedByClientId: opts.electedByClientId ?? null,
+      } })
     }
-    await ruleAdmits(database(), (tx) => rebase(tx, {})) // a current assessor's valuation by someone else
-    await refuses(without(G, `OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
-     AND NOT public."purchaseValuationOk"`, `OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
-     AND FALSE AND NOT public."purchaseValuationOk"`), MARKET, (tx) => rebase(tx, { source: "INTERNAL" }))
+    await ruleAdmits(database(), (tx) => rebase(tx)) // staff, the old valuation aged out, a newer current one by someone else
+    await refuses(without(G, ` AND o."valuedOn" < today - max_age`), REBASE, (tx) => rebase(tx, { aged: false }))
+    await refuses(without(G, ` OR NEW."electedById" IS NULL OR NEW."electedByClientId" IS NOT NULL`), REBASE,
+      (tx) => rebase(tx, { electedById: null, electedByClientId: fx.lessee })) // the lessee cannot re-price an elected purchase
+    await refuses(without(G, `    IF NOT public."purchaseValuationOk"(`, `    IF FALSE AND NOT public."purchaseValuationOk"(`), MARKET, (tx) => rebase(tx, { v: { source: "INTERNAL" } }))
     // The re-baser is the elector: re-basing on a valuation you recorded is refused (four-eyes against the re-baser).
-    await refuses(without(PV, ` AND (elector_id IS NULL OR v."createdById" IS DISTINCT FROM elector_id)`), MARKET, (tx) => rebase(tx, { by: fx.adminA }, fx.adminA))
+    await refuses(without(PV, ` AND (elector_id IS NULL OR v."createdById" IS DISTINCT FROM elector_id)`), MARKET, (tx) => rebase(tx, { v: { by: fx.adminA }, electedById: fx.adminA }))
     // The elector changes only with a re-based purchase.
     await refuses(without(G, `
     OR ((NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId")
