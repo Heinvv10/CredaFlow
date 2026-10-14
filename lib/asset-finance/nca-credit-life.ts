@@ -8,6 +8,7 @@ export type AssetCreditLifeElectionResult =
   | { kind: "not_found" }
   | { kind: "not_open" }
   | { kind: "offer_required" }
+  | { kind: "entity_decline_required" }
   | { kind: "recorded"; offered: boolean; monthlyPremiumCents: number }
 
 export async function recordAssetCreditLifeElection(
@@ -15,11 +16,15 @@ export async function recordAssetCreditLifeElection(
   args: { tenantId: string; clientId: string; clientEmail?: string | null; dealId: string; election: CreditLifeElection },
 ): Promise<AssetCreditLifeElectionResult> {
   const deal = await tx.assetFinanceDeal.findFirst({
-    where: { id: args.dealId, tenantId: args.tenantId, clientId: args.clientId },
-    select: { status: true, application: { select: { id: true, appliedAmount: true, appliedTermDays: true, pasqDocumentId: true } } },
+    where: { id: args.dealId, tenantId: args.tenantId, OR: [
+      { clientId: args.clientId },
+      { entity: { relationships: { some: { clientId: args.clientId, active: true, role: { in: ["DIRECTOR", "MEMBER", "TRUSTEE", "AUTHORISED_SIGNATORY"] } } } } },
+    ] },
+    select: { status: true, entityId: true, application: { select: { id: true, appliedAmount: true, appliedTermDays: true, pasqDocumentId: true } } },
   })
   if (!deal) return { kind: "not_found" }
   if (!["SUBMITTED", "REFERRED"].includes(deal.status) || deal.application.pasqDocumentId !== null) return { kind: "not_open" }
+  if (deal.entityId && args.election === "ACCEPTED") return { kind: "entity_decline_required" }
   const offer = await tx.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(args.tenantId))
   if ((!offer || !offer.insurerId || !offer.insurer) && args.election === "ACCEPTED") return { kind: "offer_required" }
   const acknowledgedAt = new Date()
@@ -48,6 +53,7 @@ export async function recordAssetCreditLifeElection(
       creditLifeDisclosureSha256: sha256,
       creditLifeDisclosureAcknowledgedAt: acknowledgedAt,
       creditLifeDisclosureAcknowledgedBy: args.clientId,
+      ...(deal.entityId ? { ncaRepresentativeClientId: args.clientId } : {}),
     },
   })
   await logAuditStrict({

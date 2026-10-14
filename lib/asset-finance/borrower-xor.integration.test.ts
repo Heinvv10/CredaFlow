@@ -120,10 +120,11 @@ suite("asset finance foundation: borrower XOR and entity rules", () => {
     expect(sql(`SELECT "status" FROM "LoanApplication" WHERE "id" = '${id}'`)).toBe("DISBURSED")
   })
 
-  it("keeps the consumer approval rules for an entity deal classified NCA", () => {
+  it("allows an entity NCA application to be approved with attribution; its full ceremony is enforced at disbursement", () => {
     const app = f.application({ entityId }, "NCA")
     sql(app)
-    expectRejected(f.approveApplication(idOf(app)), "credit-life")
+    sql(f.approveApplication(idOf(app)))
+    expect(sql(`SELECT "status" FROM "LoanApplication" WHERE "id" = '${idOf(app)}'`)).toBe("APPROVED")
   })
 
   it("keeps the consumer approval rules for a consumer application", () => {

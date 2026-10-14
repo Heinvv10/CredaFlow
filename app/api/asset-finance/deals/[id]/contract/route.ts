@@ -13,7 +13,9 @@ import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   return withSigningStaff(req, { dealId: id, manage: true }, async ({ tenantId, user, refuse }) => {
-    const result = await contractDeal({ tenantId, userId: user.id, userEmail: user.email }, id)
+    const body = await req.json().catch(() => null) as { providerSignature?: unknown } | null
+    const providerSignature = typeof body?.providerSignature === "string" ? body.providerSignature : undefined
+    const result = await contractDeal({ tenantId, userId: user.id, userEmail: user.email }, id, providerSignature)
     switch (result.kind) {
       case "not_found":
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
@@ -28,6 +30,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           "agreement_changed", 409,
           "The agreement rendered from the deal as it stands is not the one that was signed (the deal, its asset or the reference rate changed); cancel the deal and start again",
         )
+      case "provider_signature_required":
+        return refuse("provider_signature_required", 422, "Entity NCA contracting needs an explicit provider signature after the representative has signed")
       case "contracted":
         return NextResponse.json(await loadDealDetail(tenantId, id))
     }

@@ -92,7 +92,10 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
     })).id)
   }
   const unevidenced = await db.businessEntity.create({
-    data: { tenantId, type: "COMPANY", legalName: "TEST Unproven Haulage (Pty) Ltd", registrationNumber: `2099/${t.slice(0, 6)}/01` },
+    data: {
+      tenantId, type: "COMPANY", legalName: "TEST Unproven Haulage (Pty) Ltd", registrationNumber: `2099/${t.slice(0, 6)}/01`,
+      addressLine1: "5 Synthetic Yard", city: "Johannesburg", province: "Gauteng", postalCode: "2000",
+    },
   })
   const evidenced = await db.businessEntity.create({
     data: {
@@ -109,6 +112,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
     },
   })
   await db.entityRelationship.create({ data: { tenantId, entityId: evidenced.id, clientId: director.id, role: "DIRECTOR" } })
+  await db.entityRelationship.create({ data: { tenantId, entityId: unevidenced.id, clientId: director.id, role: "DIRECTOR" } })
   return {
     tenantId, host,
     officer, adminA, adminB,
@@ -127,17 +131,23 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
   const tenantId = fx.tenantId
   const documents = await db.clientDocument.findMany({ where: { tenantId }, select: { id: true, storagePath: true } })
   const invoices = await db.taxInvoice.findMany({ where: { tenantId }, select: { id: true } })
+  const surrenders = await db.surrenderRequest.findMany({ where: { tenantId }, select: { id: true, valuationNoticePath: true, finalNoticePath: true } })
   const documentIds = documents.map((document) => document.id)
   await Promise.all(documents.flatMap((document) => document.storagePath ? [unlink(document.storagePath).catch(() => undefined)] : []))
+  await Promise.all(surrenders.flatMap((row) => [row.valuationNoticePath, row.finalNoticePath].filter((path): path is string => !!path).map((path) => unlink(path).catch(() => undefined))))
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
     db.documentAccessLog.deleteMany({ where: { documentId: { in: [...documentIds, ...invoices.map((invoice) => invoice.id)] } } }),
+    db.documentAccessLog.deleteMany({ where: { documentId: { in: surrenders.flatMap((row) => [`${row.id}:valuation`, `${row.id}:final`]) } } }),
     db.taxInvoiceLine.deleteMany({ where: { invoice: { tenantId } } }),
     db.taxInvoice.deleteMany({ where: { tenantId } }),
     db.insurancePolicy.deleteMany({ where: { tenantId } }),
     db.payout.deleteMany({ where: { tenantId } }),
     db.payoutChecklistItem.deleteMany({ where: { tenantId } }),
     db.contractRate.deleteMany({ where: { tenantId } }),
+    db.surrenderRequest.deleteMany({ where: { tenantId } }),
+    db.assetValuation.deleteMany({ where: { tenantId } }),
+    db.payment.deleteMany({ where: { tenantId } }),
     db.repaymentSchedule.deleteMany({ where: { tenantId } }),
     db.assetFinanceDeal.updateMany({ where: { tenantId }, data: { loanId: null } }),
     db.loan.deleteMany({ where: { tenantId } }),

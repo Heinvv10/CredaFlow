@@ -117,7 +117,7 @@ export async function loadDealDocumentData(
   db: DocumentDataDb,
   tenantId: string,
   dealId: string,
-  prepare?: { plannedStartDate: string },
+  prepare?: { plannedStartDate: string; useAcknowledgedNcaTerms?: boolean },
 ): Promise<DealDocumentData | null> {
   const deal = await db.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId },
@@ -167,7 +167,7 @@ export async function loadDealDocumentData(
   if ("error" in rate) throw new DealDocumentError(`The schedule cannot be solved: ${rate.error}`)
   const solved = solveDealStructure(deal.asset, structure, rate, terms.startDate)
   if (!solved.ok) throw new DealDocumentError(`The schedule cannot be solved: ${solved.error}`)
-  const termProblem = documentTermProblem(
+  const termProblem = prepare?.useAcknowledgedNcaTerms ? null : documentTermProblem(
     prepare !== undefined,
     solved.termDays,
     deal.application.approvedTermDays,

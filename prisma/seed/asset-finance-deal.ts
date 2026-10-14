@@ -20,6 +20,10 @@ import { overrideMatchesApplication } from "@/lib/asset-finance/override-snapsho
 import { addMonthsClamped } from "@/lib/asset-finance/dates"
 import type { SeedActor } from "./asset-finance-documents"
 import { COMPANY_DEAL, CREDIT_MEMO } from "./asset-finance-data"
+import { recordAssetFinanceAffordability } from "@/lib/asset-finance/affordability-store"
+import { recordAssetCreditLifeElection } from "@/lib/asset-finance/nca-credit-life"
+import { acknowledgeAssetEntityNcaQuote, issueAssetNcaQuote } from "@/lib/asset-finance/nca-quote-store"
+import { dealBureauSubjects, runDealBureauCheck } from "@/lib/asset-finance/deal-bureau"
 
 export interface SeedStaff {
   officer: SeedActor
@@ -52,20 +56,64 @@ const findDeal = (tenantId: string, p: DealParties) =>
   })
 
 /**
- * The trust's deal: two natural trustees, so the classifier rules NCA
- * (TRUST_FEW_NATURAL_TRUSTEES) and submits it into the entity-NCA path.
+ * The trust's NCA finance lease through credit memo, s81, credit-life
+ * disclosure, approval and acknowledged asset PASQ.
  */
-export async function seedTrustDeal(tenantId: string, staff: SeedStaff, parties: DealParties): Promise<void> {
+export async function seedTrustDeal(tenantId: string, staff: SeedStaff, parties: DealParties, representativeId: string): Promise<string> {
   const today = sastCalendarDate(new Date())
   const found = await findDeal(tenantId, parties)
   const dealId = found?.id ?? await createSeedDeal(tenantId, staff.officer, {
     assetId: parties.assetId, entityId: parties.entityId, supplierId: parties.supplierId, productId: parties.productId,
-    depositCents: 3_450_000, firstDueDate: addMonthsClamped(today, 1),
+    contractType: "FINANCE_LEASE", depositCents: 3_450_000, balloonCents: 6_900_000, firstDueDate: addMonthsClamped(today, 1),
     preset: { kind: "MONTHLY", periods: 36 }, rateBasis: "FIXED", fixedRate: "0.1300",
   }, today)
-  if (found && found.status !== "DRAFT") return
-  const result = await prisma.$transaction((tx) => submitDeal(tx, dealActor(tenantId, staff.officer), dealId))
-  if (result.kind !== "submitted") throw new Error(`Seed: the trust deal should proceed as NCA, got ${result.kind}`)
+  if (!found || found.status === "DRAFT") {
+    const result = await prisma.$transaction((tx) => submitDeal(tx, dealActor(tenantId, staff.officer), dealId))
+    if (result.kind !== "submitted") throw new Error(`Seed: the trust deal should proceed as NCA, got ${result.kind}`)
+  }
+  let deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true, financials: true, affordabilityAssessment: true } })
+  if (["SUBMITTED", "REFERRED"].includes(deal.status)) {
+    if (!deal.financials) {
+      const memo = parseCreditMemoInput({
+        periodEnd: "2026-02-28", turnoverCents: 80_000_000, ebitdaCents: 24_000_000,
+        totalAssetsCents: 90_000_000, totalLiabilitiesCents: 10_000_000,
+        existingDebtServiceCents: 1_000_000, avgMonthlyCreditsCents: 6_500_000, returnedDebitsCount: 0,
+      }, today)
+      if ("errors" in memo) throw new Error(`Seed trust credit memo refused: ${JSON.stringify(memo.errors)}`)
+      const recorded = await prisma.$transaction((tx) => recordDealFinancials(tx, dealActor(tenantId, staff.officer), dealId, memo.data))
+      if (recorded.kind !== "recorded") throw new Error(`Seed: trust credit memo not recorded (${recorded.kind})`)
+    }
+    const subjects = await dealBureauSubjects(tenantId, parties.entityId)
+    for (const subject of subjects) await runDealBureauCheck(tenantId, deal.applicationId, subject, { force: false, startedAt: new Date() })
+    deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true, financials: true, affordabilityAssessment: true } })
+    if (!deal.affordabilityAssessment) {
+      const assessed = await prisma.$transaction((tx) => recordAssetFinanceAffordability(tx, dealActor(tenantId, staff.adminOne), dealId, "Synthetic trust cash flow supports this NCA finance lease."))
+      if (assessed.kind !== "recorded" || !assessed.affordable) throw new Error(`Seed: trust s81 refused (${JSON.stringify(assessed)})`)
+    }
+    if (!deal.application.creditLifeElection) {
+      const election = await prisma.$transaction((tx) => recordAssetCreditLifeElection(tx, {
+        tenantId, clientId: representativeId, clientEmail: staff.officer.email, dealId, election: "DECLINED",
+      }))
+      if (election.kind !== "recorded") throw new Error(`Seed: trust credit life refused (${election.kind})`)
+    }
+    const decided = await prisma.$transaction((tx) => decideDeal(tx, dealActor(tenantId, staff.adminOne), dealId, {
+      decision: "APPROVE", reasons: ["Synthetic trust bank credits support the instalment", "Natural trustees' bureau records were checked"],
+    }))
+    if (decided.kind !== "decided" || decided.status !== "APPROVED") throw new Error(`Seed: trust approval refused (${JSON.stringify(decided)})`)
+  }
+  let current = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true } })
+  if (current.status === "APPROVED" && !current.application.pasqDocumentId) {
+    const issued = await prisma.$transaction((tx) => issueAssetNcaQuote(tx, dealActor(tenantId, staff.adminOne), dealId))
+    if (issued.kind !== "issued") throw new Error(`Seed: trust PASQ refused (${JSON.stringify(issued)})`)
+  }
+  current = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true } })
+  if (current.status === "APPROVED" && !current.application.pasqAcknowledgedAt && current.application.pasqDocumentSha256) {
+    const acknowledged = await acknowledgeAssetEntityNcaQuote({
+      tenantId, clientId: representativeId, clientEmail: staff.officer.email, dealId, documentSha256: current.application.pasqDocumentSha256,
+    })
+    if (acknowledged.kind !== "done") throw new Error(`Seed: trust PASQ acknowledgement refused (${JSON.stringify(acknowledged)})`)
+  }
+  return dealId
 }
 
 /** Approve the PENDING NCA → NON_NCA override as POST /api/asset-finance/nca-overrides/[id]/decide does. */

@@ -95,9 +95,6 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
   if (deal.application.ncaRegime === "NON_NCA" && !deal.entity) {
     return refuse("borrower_mismatch", "A NON_NCA asset deal must have an entity borrower")
   }
-  if (deal.application.ncaRegime === "NCA" && !deal.client) {
-    return refuse("entity_nca_booking_not_ready", "Entity NCA booking needs an authorised representative document ceremony")
-  }
   if (deal.application.ncaRegime === "NCA" && (!deal.application.agreementDocumentId || !deal.application.agreementCountersignedAt)) {
     return refuse("agreement_not_ready", "The NCA agreement must be signed and countersigned before booking")
   }

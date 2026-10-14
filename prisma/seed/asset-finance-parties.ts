@@ -32,6 +32,9 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       if (envPassword) {
         await prisma.client.update({ where: { id: existing.id }, data: { portalPassword: await bcrypt.hash(envPassword, 12) } })
       }
+      if (p.key === "director") await prisma.client.update({ where: { id: existing.id }, data: {
+        monthlyIncome: 12_000_000, monthlyExpenses: 3_000_000, popiaConsentGiven: true, popiaConsentAt: new Date(),
+      } })
       ids[p.key] = existing.id
       continue
     }
@@ -45,6 +48,9 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
         dateOfBirth: new Date(p.dob), gender: p.gender, email: personEmail(p), phone: p.phone, whatsapp: p.phone,
         addressLine1: "1 Test Street", city: "Testville", province: "Gauteng", postalCode: "0001",
         employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING",
+        monthlyIncome: p.key === "director" ? 12_000_000 : 0,
+        monthlyExpenses: p.key === "director" ? 3_000_000 : 0,
+        popiaConsentGiven: p.key === "director", popiaConsentAt: p.key === "director" ? new Date() : null,
         portalPassword: portalPassword ? await bcrypt.hash(portalPassword, 12) : null,
       },
       select: { id: true },

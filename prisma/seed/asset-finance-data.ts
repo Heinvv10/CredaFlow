@@ -5,8 +5,9 @@
  * but pass the SA ID check digit, so the client screens accept them.
  *
  * PORTAL PASSWORDS. As for every demo login, no password is in source: the
- * director's and the surety's portal passwords come from
- * SEED_AF_DIRECTOR_PASSWORD / SEED_AF_SURETY_PASSWORD (set on every run when
+ * trustee's, director's and surety's portal passwords come from
+ * SEED_AF_TRUSTEE_PASSWORD / SEED_AF_DIRECTOR_PASSWORD /
+ * SEED_AF_SURETY_PASSWORD (set on every run when
  * given), else are generated when the client row is created and printed only
  * with SEED_PRINT_CREDENTIALS=1. The seed refuses NODE_ENV=production.
  * Emails are on the demo lender's client domain (prisma/demo-lender.ts), e.g.
@@ -19,6 +20,7 @@ import { demoLender } from "../demo-lender"
 
 export const AF_PRODUCT_CODE = "AF-IS"
 export const PRIME = { basis: "PRIME", effectiveDate: "2025-01-01", rate: "0.1075" } as const
+export const REPO = { basis: "REPO", effectiveDate: "2025-01-01", rate: "0.0825" } as const
 export const VAT_VENDOR_NUMBER = "4999999999"
 
 export const SUPPLIER = {
@@ -52,13 +54,13 @@ export interface AfPerson {
   gender: "MALE" | "FEMALE"
   phone: string
   /** Env var holding this client's portal password; null = no portal login. */
-  portalPasswordEnv: "SEED_AF_DIRECTOR_PASSWORD" | "SEED_AF_SURETY_PASSWORD" | null
+  portalPasswordEnv: "SEED_AF_TRUSTEE_PASSWORD" | "SEED_AF_DIRECTOR_PASSWORD" | "SEED_AF_SURETY_PASSWORD" | null
 }
 
 // References sort after the consumer demo clients (CLI-SEED-0001…), which
 // prisma/seed-staging.ts takes by position.
 export const PEOPLE: AfPerson[] = [
-  { key: "trusteeOne", reference: "CLI-SEED-AF-0001", firstName: "TEST", lastName: "Trustee One", idNumber: "7001015000087", dob: "1970-01-01", gender: "MALE", phone: "+27700000101", portalPasswordEnv: null },
+  { key: "trusteeOne", reference: "CLI-SEED-AF-0001", firstName: "TEST", lastName: "Trustee One", idNumber: "7001015000087", dob: "1970-01-01", gender: "MALE", phone: "+27700000101", portalPasswordEnv: "SEED_AF_TRUSTEE_PASSWORD" },
   { key: "trusteeTwo", reference: "CLI-SEED-AF-0002", firstName: "TEST", lastName: "Trustee Two", idNumber: "7102025000081", dob: "1971-02-02", gender: "MALE", phone: "+27700000102", portalPasswordEnv: null },
   { key: "director", reference: "CLI-SEED-AF-0003", firstName: "TEST", lastName: "Director One", idNumber: "7203030000080", dob: "1972-03-03", gender: "FEMALE", phone: "+27700000103", portalPasswordEnv: "SEED_AF_DIRECTOR_PASSWORD" },
   { key: "surety", reference: "CLI-SEED-AF-0004", firstName: "TEST", lastName: "Surety One", idNumber: "7304045000089", dob: "1973-04-04", gender: "MALE", phone: "+27700000104", portalPasswordEnv: "SEED_AF_SURETY_PASSWORD" },
@@ -121,12 +123,21 @@ export const EXCAVATOR: AfAsset = {
   lenderNotedConfirmed: true,
 }
 
-// R345 000.00 incl. VAT, for the trust's (refused) deal.
+// R345 000.00 incl. VAT, for the trust's NCA finance lease.
 export const TRACTOR: AfAsset = {
   assetClass: "TRACTOR", make: "TEST", model: "TR-90 Synthetic", year: 2025,
   serialNumber: "TESTTR0000000001", vin: "TEST0000000000002", engineNumber: null, hours: 3,
   cashPriceExclVatCents: 30_000_000, vatCents: 4_500_000,
   insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0002", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0002",
+  lenderNotedConfirmed: true,
+}
+
+// R575 000.00 incl. VAT, sole-proprietor NCA instalment sale.
+export const TLB: AfAsset = {
+  assetClass: "TLB", make: "TEST", model: "TLB-4x4 Synthetic", year: 2025,
+  serialNumber: "TESTTLB000000001", vin: "TEST0000000000003", engineNumber: "TESTENG0000003", hours: 8,
+  cashPriceExclVatCents: 50_000_000, vatCents: 7_500_000,
+  insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0003", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0003",
   lenderNotedConfirmed: true,
 }
 

@@ -92,9 +92,9 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
   it.each([
     [`"storagePath" = '/elsewhere.pdf'`], [`"contentSha256" = repeat('1', 64)`], [`"uploadedById" = 'someone-else'`],
     [`"uploadedByType" = 'client'`], [`"dealId" = NULL`], [`"entityId" = 'other-entity'`],
-  ])("an entity document's binding is fixed: %s", (set) => {
+  ])("an asset document's binding is fixed: %s", (set) => {
     const doc = `UPDATE "EntityDocument" SET ${set} WHERE "id" = (SELECT "id" FROM "EntityDocument" WHERE "dealId" = '${A()}' AND "docType" = 'SUPPLIER_INVOICE' LIMIT 1)`
-    expect(refusedSql("", doc)).toContain("An entity document's bytes, entity, deal and uploader are fixed when it is written")
+    expect(refusedSql("", doc)).toContain("An asset document's bytes, borrower, deal and uploader are fixed when it is written")
   })
 
   it("an entity document is still verified", () => {

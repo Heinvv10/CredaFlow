@@ -118,8 +118,10 @@ suite("repricing schedules against a migrated database", () => {
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
       const loan = await tx.loan.update({ where: { id: nca }, data: { ncaRegime: "NCA" }, select: { applicationId: true } })
       await tx.loanApplication.update({ where: { id: loan.applicationId }, data: {
-        status: "SUBMITTED", ncaRegime: "NCA", repaymentMethod: null,
-        approvedAt: null, approvedById: null, disbursedAt: null,
+        ncaRegime: "NCA", ncaRepresentativeClientId: tenant.directorId, creditLifeElection: "DECLINED",
+        creditLifeMonthlyPremiumCents: 0, creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+        creditLifeDisclosureSha256: "a".repeat(64), creditLifeDisclosureAcknowledgedAt: new Date(),
+        creditLifeDisclosureAcknowledgedBy: tenant.directorId,
       } })
     })
     const repo = await db.referenceRate.create({

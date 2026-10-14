@@ -11,6 +11,7 @@ import { RATE_BASIS_LABELS, ratePercent } from "@/lib/asset-finance/deal-labels"
 import { statusLabel } from "@/lib/asset-finance/labels"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
+import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 
 type Params = { params: Promise<{ entityId: string; loanId: string }> }
 
@@ -87,6 +88,11 @@ export default async function PortalContractPage({ params }: Params) {
       <DataPanel title="Repayment schedule" density="compact">
         <PortalContractSchedule rows={view.schedule} />
       </DataPanel>
+      {view.loan.ncaRegime === "NCA" && view.loan.contractType !== "LOAN" && (
+        <DataPanel title="Voluntary surrender" description="NCA section 127 request and notices">
+          <SurrenderRequestCard loanId={view.loan.id} existing={view.surrender} />
+        </DataPanel>
+      )}
     </div>
   )
 }

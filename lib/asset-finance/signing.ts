@@ -50,7 +50,7 @@ export const SIGNED_DOC_TYPE: Record<DealDocumentKind, EntityDocumentType> = {
 }
 
 export const DEAL_DOCUMENT_LABELS: Record<DealDocumentKind, string> = {
-  AGREEMENT: "Instalment sale agreement",
+  AGREEMENT: "Asset finance agreement",
   SURETYSHIP: "Suretyship",
   RESOLUTION: "Resolution",
 }

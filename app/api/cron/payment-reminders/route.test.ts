@@ -62,6 +62,7 @@ vi.mock("@/lib/messaging/channel-availability", () => ({
 
 import { GET } from "./route"
 import { SendBlockedError } from "@/lib/messaging/send"
+import { sastStartOfDay } from "@/lib/date/sast"
 
 const CONTACT = {
   id: "c1",
@@ -74,9 +75,7 @@ const CONTACT = {
 
 /** A schedule due exactly `days` from now, at midday to avoid boundary noise. */
 function scheduleDueIn(days: number, id = "s1") {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  d.setHours(12, 0, 0, 0)
+  const d = new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000 + 12 * 3_600_000)
   return {
     id,
     dueDate: d,

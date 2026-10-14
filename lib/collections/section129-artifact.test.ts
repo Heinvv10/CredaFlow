@@ -85,7 +85,6 @@ import {
   Section129IssuanceConflictError,
   verifySection129ReservationIntegrity,
 } from "./section129-artifact"
-import { EntityBorrowerError } from "@/lib/borrower"
 import { SECTION129_NON_NCA_REASON } from "./section129-eligibility"
 
 const pdf = Buffer.from("%PDF-1.4 issued notice")
@@ -106,6 +105,19 @@ const reservationArgs = {
   noticeDate: section129NoticeDateLabel(new Date()),
   pdf,
   createdById: "user-1",
+}
+
+const naturalBorrower = {
+  entityId: null,
+  entity: null,
+  client: {
+    firstName: "Test",
+    lastName: "Client",
+    idNumber: "9001015000088",
+    addressLine1: "1 Test Street",
+    city: "Johannesburg",
+    email: "test@example.test",
+  },
 }
 
 beforeEach(() => {
@@ -139,6 +151,7 @@ beforeEach(() => {
   updateManyMock.mockResolvedValue({ count: 1 })
   loanUpdateMock.mockResolvedValue({ id: "loan-1" })
   loanFindUniqueMock.mockResolvedValue({
+    ...naturalBorrower,
     clientId: "client-1",
     reference: "LN-1",
     status: "DEFAULTED",
@@ -719,6 +732,7 @@ describe("Section 129 private artifact lifecycle", () => {
     vi.clearAllMocks()
     updateManyMock.mockResolvedValue({ count: 1 })
     loanFindUniqueMock.mockResolvedValue({
+      ...naturalBorrower,
       clientId: "client-1",
       reference: "LN-1",
       status: "DEFAULTED",
@@ -852,6 +866,7 @@ describe("Section 129 private artifact lifecycle", () => {
     vi.clearAllMocks()
     updateManyMock.mockResolvedValue({ count: 1 })
     loanFindUniqueMock.mockResolvedValue({
+      ...naturalBorrower,
       clientId: "client-1",
       reference: "LN-1",
       status: "DEFAULTED",
@@ -890,6 +905,7 @@ describe("Section 129 private artifact lifecycle", () => {
     vi.clearAllMocks()
     updateManyMock.mockResolvedValue({ count: 1 })
     loanFindUniqueMock.mockResolvedValue({
+      ...naturalBorrower,
       clientId: "client-1", reference: "LN-1", status: "DEFAULTED",
       arrearsAmount: 25_000, outstandingPrincipal: 100_000, daysInArrears: 90,
     })
@@ -913,6 +929,7 @@ describe("Section 129 private artifact lifecycle", () => {
     vi.clearAllMocks()
     updateManyMock.mockResolvedValue({ count: 1 })
     loanFindUniqueMock.mockResolvedValue({
+      ...naturalBorrower,
       clientId: "client-1",
       reference: "LN-1",
       status: "DEFAULTED",
@@ -950,13 +967,19 @@ describe("Section 129 private artifact lifecycle", () => {
     const reservation = await reserveSection129Issuance(reservationArgs)
     vi.clearAllMocks()
     updateManyMock.mockResolvedValue({ count: 1 })
-    clientFindUniqueMock.mockResolvedValue({
-      firstName: "Test",
-      lastName: "Client",
-      idNumber: "9001015000088",
-      addressLine1: "2 Updated Street",
-      city: "Johannesburg",
-      email: "updated@example.test",
+    loanFindUniqueMock.mockResolvedValue({
+      ...naturalBorrower,
+      clientId: "client-1",
+      reference: "LN-1",
+      status: "DEFAULTED",
+      arrearsAmount: 25_000,
+      outstandingPrincipal: 100_000,
+      daysInArrears: 90,
+      client: {
+        ...naturalBorrower.client,
+        addressLine1: "2 Updated Street",
+        email: "updated@example.test",
+      },
     })
     const provider = vi.fn()
 
@@ -971,7 +994,7 @@ describe("Section 129 private artifact lifecycle", () => {
     expect(result).toMatchObject({
       kind: "SNAPSHOT_CHANGED",
       error: expect.objectContaining({
-        changedFields: ["client.addressLine1", "client.email"],
+        changedFields: ["borrower.addressLine1", "delivery.email"],
       }),
     })
     expect(provider).not.toHaveBeenCalled()
@@ -1047,24 +1070,40 @@ describe("Section 129 private artifact lifecycle", () => {
     }))
   })
 
-  it("refuses an NCA loan to an entity borrower (no Client) with EntityBorrowerError, before any client lock or provider call", async () => {
-    const reservation = await reserveSection129Issuance(reservationArgs)
+  it("dispatches an NCA entity notice to its active authorised contact under both borrower locks", async () => {
+    const reservation = await reserveSection129Issuance({
+      ...reservationArgs,
+      clientName: "TEST Family Trust",
+      clientEmail: "trustee@example.test",
+      clientFirstName: "TEST Family Trust",
+      clientLastName: "",
+      clientIdNumber: "IT 000001/2099",
+    })
     vi.clearAllMocks()
     updateManyMock.mockResolvedValue({ count: 1 })
     loanFindUniqueMock.mockResolvedValue({
-      clientId: null, reference: "LN-1", status: "DEFAULTED", ncaRegime: "NCA",
+      clientId: null, entityId: "entity-1", client: null,
+      entity: {
+        legalName: "TEST Family Trust", registrationNumber: "IT 000001/2099",
+        addressLine1: "1 Test Street", city: "Johannesburg",
+        relationships: [{ client: { id: "trustee-1", email: "trustee@example.test", deceasedAt: null } }],
+      },
+      reference: "LN-1", status: "DEFAULTED", ncaRegime: "NCA",
       arrearsAmount: 25_000, outstandingPrincipal: 100_000, daysInArrears: 90,
     })
-    const provider = vi.fn()
+    const provider = vi.fn(async (markProviderInvocation: () => void) => {
+      markProviderInvocation()
+      return { ok: true }
+    })
 
     await expect(dispatchSection129UnderEligibilityLock({
       reservation, tenantId: "t1", loanId: "loan-1", actorId: "user-1", dispatch: provider,
-    })).rejects.toBeInstanceOf(EntityBorrowerError)
+    })).resolves.toMatchObject({ kind: "PROVIDER_RETURNED" })
 
-    expect(provider).not.toHaveBeenCalled()
-    expect(clientFindUniqueMock).not.toHaveBeenCalled()
+    expect(provider).toHaveBeenCalledOnce()
     const lockedTables = queryRawMock.mock.calls.map(([q]) => (Array.isArray(q) ? q.join("") : String(q)))
-    expect(lockedTables.some((q) => q.includes('FROM "Client"'))).toBe(false)
+    expect(lockedTables.some((q) => q.includes('FROM "Client"'))).toBe(true)
+    expect(lockedTables.some((q) => q.includes('FROM "BusinessEntity"'))).toBe(true)
   })
 
   it("refuses a NON_NCA loan on its regime first, even when its borrower is an entity", async () => {
