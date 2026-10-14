@@ -126,6 +126,12 @@ const afterCallbacks: Array<() => unknown> = []
 vi.mock("@/lib/http/after-response", () => ({
   deferAfterResponse: (fn: () => unknown) => { afterCallbacks.push(fn) },
 }))
+const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
+vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
+// Each test sees only the deferred work its own request queued.
+beforeEach(() => {
+  afterCallbacks.length = 0
+})
 
 import { ContactPromotionConflictError } from "@/lib/contact/provision"
 import { POST } from "./route"
@@ -776,6 +782,9 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
 
     expect(res.status).toBe(200)
     expect(body.applicationId).toBeNull()
+    screenOnSubmitMock.mockClear()
+    for (const fn of afterCallbacks.splice(0)) await fn()
+    expect(screenOnSubmitMock).not.toHaveBeenCalled()
     expect(createLoanApplicationMock).not.toHaveBeenCalled()
     // Only the term pre-check reads the product; the blocked path does no second lookup.
     expect(findFirstLoanProductMock).toHaveBeenCalledTimes(1)
@@ -797,6 +806,10 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
 
     expect(res.status).toBe(200)
     expect(body.applicationId).toBe("app_1")
+    // A6: PEP / sanctions screening is deferred until after the response, then started.
+    screenOnSubmitMock.mockClear()
+    for (const fn of afterCallbacks.splice(0)) await fn()
+    expect(screenOnSubmitMock).toHaveBeenCalledWith({ tenantId: "tenant_acme", applicationId: "app_1", actor: null })
     expect(createLoanApplicationMock).toHaveBeenCalledTimes(1)
     expect(txUpdateLeadMock).toHaveBeenCalledWith({
       where: { id: "lead_1", tenantId: "tenant_acme" },

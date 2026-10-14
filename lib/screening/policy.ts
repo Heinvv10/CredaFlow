@@ -18,8 +18,30 @@ export const REVIEW_REASON_MAX_LENGTH = 2000
  */
 export const SCREENING_MAX_AGE_DAYS = 30
 
-/** Clients the periodic cron screens per tenant per invocation (bounds vendor spend). */
-export const RESCREEN_BATCH_LIMIT = 200
+/**
+ * Wall-clock budget for one cron invocation, across tenants. The cron works
+ * through the backlog oldest-first until the budget runs out and reports what
+ * is left, rather than stopping at a fixed count.
+ */
+export const RESCREEN_TIME_BUDGET_MS = 4 * 60 * 1000
+
+/** A provider call that has not answered by now is aborted and recorded as an ERROR. */
+export const SCREENING_TIMEOUT_MS = 20_000
+
+/**
+ * A run that errored is retried, with exponential backoff: the wait after the
+ * latest failure grows with the length of the failure streak, from the minimum
+ * to the maximum below. The approval gate always retries at once.
+ */
+export const ERROR_RETRY_MIN_HOURS = 1
+export const ERROR_RETRY_MAX_DAYS = 7
+
+/**
+ * A human clearance (FALSE_POSITIVE / ACCEPTED) of a possible match is reused
+ * on re-screen for at most this long after it was made. REJECTED is never
+ * carried: it raises a sticky ScreeningBlock instead.
+ */
+export const CARRY_MAX_AGE_DAYS = 365
 
 /** Who may decide a match, per lender. Mirrors the KYC override policy's choice. */
 export const SCREENING_REVIEW_MIN_ROLES = ["BRANCH_MANAGER", "ADMIN"] as const

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { readClientScreening } from "@/lib/screening/gate"
+import { readSubjectScreening } from "@/lib/screening/gate"
 import { runScreening } from "@/lib/screening/run"
 import { screeningStateMessage } from "@/lib/screening/state"
 
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (!(await clientInTenant(tenant.id, id))) {
       return NextResponse.json({ error: "Client not found" }, { status: 404 })
     }
-    const current = await readClientScreening(tenant.id, id)
+    const current = await readSubjectScreening(tenant.id, { clientId: id })
     const checks = current.runId
       ? await prisma.screeningCheck.findMany({
           where: { tenantId: tenant.id, runId: current.runId },
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
     const ran = await runScreening({
       tenantId: tenant.id,
-      clientId: id,
+      subject: { clientId: id },
       trigger: "MANUAL",
       actor: { id: guard.user.id, email: guard.user.email },
     })

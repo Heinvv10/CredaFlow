@@ -550,6 +550,9 @@ export const AuditAction = {
   SCREENING_RUN_FAILED: "SCREENING_RUN_FAILED",
   SCREENING_MATCH_REVIEWED: "SCREENING_MATCH_REVIEWED",
   SCREENING_CONFIG_UPDATED: "SCREENING_CONFIG_UPDATED",
+  SCREENING_BLOCK_LIFTED: "SCREENING_BLOCK_LIFTED",
+  // An approval the screening gate refused (consumer decide route).
+  SCREENING_APPROVAL_REFUSED: "SCREENING_APPROVAL_REFUSED",
   // FIC Act registers (lib/fic). STR rows carry the case id and status only:
   // the audit view is wider than the STR register, and naming the client
   // there would spread knowledge of the report (tipping-off risk).
@@ -559,4 +562,5 @@ export const AuditAction = {
   STR_CASE_UPDATED: "STR_CASE_UPDATED",
   RMCP_UPLOADED: "RMCP_UPLOADED",
   RMCP_APPROVED: "RMCP_APPROVED",
+  RMCP_DOWNLOADED: "RMCP_DOWNLOADED",
 } as const

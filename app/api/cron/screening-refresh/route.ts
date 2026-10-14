@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { refreshTenantScreening, type RefreshResult } from "@/lib/screening/refresh"
+import { RESCREEN_TIME_BUDGET_MS } from "@/lib/screening/policy"
 
 /**
  * Periodic PEP / sanctions re-screen (lib/screening/refresh.ts) for every
@@ -17,6 +18,8 @@ export async function GET(req: NextRequest) {
   if (denied) return denied
 
   const runAt = new Date()
+  // One wall-clock budget across tenants; what is left is reported, not dropped.
+  const deadline = runAt.getTime() + RESCREEN_TIME_BUDGET_MS
   const tenants = await prisma.tenantConfig.findMany({
     where: { screeningProvider: { not: null } },
     select: { tenantId: true },
@@ -26,7 +29,7 @@ export async function GET(req: NextRequest) {
   const perTenant: Array<({ tenantId: string } & RefreshResult) | { tenantId: string; error: string }> = []
   for (const { tenantId } of tenants) {
     try {
-      const result = await runWithTenant(tenantId, async () => await refreshTenantScreening(tenantId, runAt))
+      const result = await runWithTenant(tenantId, async () => await refreshTenantScreening(tenantId, runAt, deadline))
       perTenant.push({ tenantId, ...result })
     } catch (error) {
       perTenant.push({ tenantId, error: error instanceof Error ? error.message : String(error) })

@@ -186,10 +186,10 @@ const {
 vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: async () => undefined }))
 // Screening state is tested in lib/screening; default CLEAR keeps the payout
 // gates below the subject of every other test.
-const { readClientScreening } = vi.hoisted(() => ({
-  readClientScreening: vi.fn(),
+const { readBorrowerScreening } = vi.hoisted(() => ({
+  readBorrowerScreening: vi.fn(),
 }))
-vi.mock("@/lib/screening/gate", () => ({ readClientScreening }))
+vi.mock("@/lib/screening/gate", () => ({ readBorrowerScreening }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: {
@@ -742,8 +742,8 @@ function buildTxMock(opts: {
 }
 
 beforeEach(() => {
-  readClientScreening.mockReset()
-  readClientScreening.mockResolvedValue({ state: { state: "CLEAR" }, runAt: null, runId: null })
+  readBorrowerScreening.mockReset()
+  readBorrowerScreening.mockResolvedValue({ allowed: true, state: { state: "CLEAR" }, message: "Screening is clear.", subjects: [], providerError: null })
   getLenderIdentityMock.mockReset()
   getLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
@@ -3714,10 +3714,12 @@ describe("POST /api/applications/[id]/disburse — screening", () => {
       productType: "MICRO",
     })
     buildTxMock({})
-    readClientScreening.mockResolvedValueOnce({
+    readBorrowerScreening.mockResolvedValueOnce({
+      allowed: false,
       state: { state: "BLOCKED", reason: "SANCTIONS_MATCH", checkIds: ["s1"] },
-      runAt: new Date("2026-10-01"),
-      runId: "run-1",
+      message: "The client: A confirmed sanctions match. This cannot be overridden.",
+      subjects: [],
+      providerError: null,
     })
 
     const res = await POST(makeRequest(), ctx)
@@ -3726,7 +3728,7 @@ describe("POST /api/applications/[id]/disburse — screening", () => {
     const body = await res.json()
     expect(body.disbursementPrecondition).toBe("screening")
     expect(body.error).toContain("confirmed sanctions match")
-    expect(readClientScreening).toHaveBeenCalledWith(expect.any(String), "client-1")
+    expect(readBorrowerScreening).toHaveBeenCalledWith(expect.any(String), { clientId: "client-1", entityId: null })
     expect(prismaTransaction).not.toHaveBeenCalled()
   })
 })

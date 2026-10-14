@@ -1,10 +1,11 @@
 import type { ScreeningDecision, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { REVIEW_REASON_MAX_LENGTH, REVIEW_REASON_MIN_LENGTH, getScreeningConfig } from "./policy"
-import { loadLatestRun, lockClientScreening } from "./store"
-import { amlStatusFor, deriveScreeningState, reviewEligibility, type ReviewRefusalCode, type ScreeningState } from "./state"
+import { loadLatestRun, lockSubjectScreening } from "./store"
+import { amlStatusFor, reviewEligibility, type ReviewRefusalCode, type ScreeningState } from "./state"
+import { readSubjectScreening } from "./gate"
+import { refOf } from "./subject"
 
 export const SCREENING_DECISIONS: readonly ScreeningDecision[] = ["FALSE_POSITIVE", "ACCEPTED", "REJECTED"]
 
@@ -32,15 +33,17 @@ const REFUSALS: Record<ReviewRefusalCode, { status: 403 | 409 | 422; error: stri
   not_a_match: { status: 422, error: "Only a match can be reviewed." },
   sanctions_not_clearable: { status: 422, error: "A confirmed sanctions match cannot be cleared or overridden." },
   sanctions_not_acceptable: { status: 422, error: "A sanctions match cannot be accepted. Mark it a false positive, or reject it." },
+  own_run: { status: 403, error: "You started this screening run; another reviewer must decide its matches." },
   role_below_policy: { status: 403, error: "Your role is below this lender's minimum role for screening reviews." },
   totp_required: { status: 403, error: "Sign in with two-factor authentication to review a screening match." },
 }
 
 /**
- * Decides one match of the client's latest run: FALSE_POSITIVE, ACCEPTED (PEP
- * or adverse media only) or REJECTED. The decision, the client's recomputed
- * amlScreeningStatus and the audit row commit together, under the client's
- * screening lock. The DB trigger ScreeningCheck_guard_record makes it final.
+ * Decides one match of the subject's latest run: FALSE_POSITIVE, ACCEPTED (PEP
+ * or adverse media only) or REJECTED (which the database turns into a sticky
+ * ScreeningBlock). Never by the user who started the run. The decision, the
+ * client's recomputed amlScreeningStatus and the audit row commit together,
+ * under the subject's screening lock; ScreeningCheck_guard_record makes it final.
  */
 export async function reviewScreeningCheck(input: ReviewInput): Promise<ReviewOutcome> {
   const { tenantId, checkId, decision, actor } = input
@@ -55,22 +58,22 @@ export async function reviewScreeningCheck(input: ReviewInput): Promise<ReviewOu
 
   const located = await prisma.screeningCheck.findFirst({
     where: { id: checkId, tenantId },
-    select: { clientId: true },
+    select: { clientId: true, entityId: true },
   })
   if (!located) return { ok: false, status: 404, code: "not_found", error: "Screening check not found." }
-  const clientId = located.clientId
+  const ref = refOf(located)
 
   return prisma.$transaction(async (tx): Promise<ReviewOutcome> => {
-    await lockClientScreening(tx, tenantId, clientId)
+    await lockSubjectScreening(tx, tenantId, ref)
     // The policy as it stands now, not as the page saw it.
     await tx.$executeRaw`SELECT 1 FROM "TenantConfig" WHERE "tenantId" = ${tenantId} FOR SHARE`
     const config = await getScreeningConfig(tenantId, tx)
     const check = await tx.screeningCheck.findFirst({
       where: { id: checkId, tenantId },
-      select: { id: true, runId: true, type: true, result: true, decision: true },
+      select: { id: true, runId: true, type: true, result: true, decision: true, triggeredById: true },
     })
     if (!check) return { ok: false, status: 404, code: "not_found", error: "Screening check not found." }
-    const latest = await loadLatestRun(tx, tenantId, clientId)
+    const latest = await loadLatestRun(tx, tenantId, ref)
     if (latest?.runId !== check.runId) {
       return { ok: false, status: 409, code: "superseded", error: "A newer screening run replaced this one. Review the latest run." }
     }
@@ -78,7 +81,7 @@ export async function reviewScreeningCheck(input: ReviewInput): Promise<ReviewOu
       check,
       decision,
       policy: config,
-      caller: { role: actor.role, totpVerified: actor.totpVerified || input.totpWaived },
+      caller: { id: actor.id, role: actor.role, totpVerified: actor.totpVerified || input.totpWaived },
     })
     if (!eligibility.allowed) return { ok: false, code: eligibility.code, ...REFUSALS[eligibility.code] }
 
@@ -89,15 +92,10 @@ export async function reviewScreeningCheck(input: ReviewInput): Promise<ReviewOu
     })
     if (written.count === 0) return { ok: false, code: "already_decided", ...REFUSALS.already_decided }
 
-    const after = await loadLatestRun(tx, tenantId, clientId)
-    const state = deriveScreeningState({
-      configured: config.provider !== null,
-      latestRun: after?.checks ?? [],
-      simulationPermitted: isSimulationPermitted("screening"),
-    })
+    const { state } = await readSubjectScreening(tenantId, ref, tx)
     const aml = amlStatusFor(state)
-    if (aml) {
-      await tx.client.updateMany({ where: { id: clientId, tenantId }, data: { amlScreeningStatus: aml } })
+    if (aml && "clientId" in ref) {
+      await tx.client.updateMany({ where: { id: ref.clientId, tenantId }, data: { amlScreeningStatus: aml } })
     }
     await logAuditStrict({
       tenantId,
@@ -108,13 +106,13 @@ export async function reviewScreeningCheck(input: ReviewInput): Promise<ReviewOu
       entityId: check.id,
       oldValue: { decision: null },
       newValue: {
-        clientId,
+        ...ref,
         type: check.type,
         result: check.result,
         decision,
         reason,
         reviewedAt: reviewedAt.toISOString(),
-        clientState: state.state,
+        subjectState: state.state,
         ...(input.totpWaived && !actor.totpVerified ? { twoFactor: "waived: demo stack without TOTP" } : {}),
       },
       ipAddress: input.ipAddress,

@@ -1,82 +1,133 @@
 import { prisma } from "@/lib/prisma"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { getScreeningConfig, screeningCutoff } from "./policy"
+import { expectedTypesFor } from "./registry"
 import { runScreening } from "./run"
-import { loadLatestRun, lockClientScreening } from "./store"
-import { deriveScreeningState, screeningAllowsApproval, screeningStateMessage, type ScreeningState } from "./state"
+import { loadActiveBlocks, loadLatestRun, lockSubjectScreening } from "./store"
+import { deriveScreeningState, needsRerun, screeningAllowsApproval, screeningStateMessage, type ScreeningState } from "./state"
+import { borrowerSubjects, currentFingerprint, subjectKey } from "./subject"
+import type { SubjectRef } from "./types"
 
-export type ClientScreening = { state: ScreeningState; runAt: Date | null; runId: string | null }
+type ReadDb = Pick<typeof prisma, "screeningCheck" | "screeningBlock" | "tenantConfig" | "$queryRaw">
+export type Borrower = { clientId: string | null; entityId: string | null }
 
-/** The client's current screening state, read-only (no provider call). */
-export async function readClientScreening(
-  tenantId: string,
-  clientId: string,
-  db: Pick<typeof prisma, "screeningCheck" | "tenantConfig"> = prisma,
-): Promise<ClientScreening> {
+export type SubjectScreening = { state: ScreeningState; runAt: Date | null; runId: string | null }
+
+/** A database refusal raised by guardLoanApplicationScreening. */
+export function isScreeningRefusal(error: unknown): boolean {
+  const text = String(error)
+  return text.includes("LoanApplication_screening_required") || text.includes("LoanApplication_screening_blocks_approval")
+    || text.includes("has not been screened") || text.includes("screening blocks approval")
+}
+
+/** One subject's current screening state, read-only (no provider call). */
+export async function readSubjectScreening(tenantId: string, ref: SubjectRef, db: ReadDb = prisma): Promise<SubjectScreening> {
   const config = await getScreeningConfig(tenantId, db)
   if (!config.provider) return { state: { state: "NOT_CONFIGURED" }, runAt: null, runId: null }
-  const latest = await loadLatestRun(db, tenantId, clientId)
+  const [latest, blocks, fingerprint] = await Promise.all([
+    loadLatestRun(db, tenantId, ref),
+    loadActiveBlocks(db, tenantId, ref),
+    currentFingerprint(db, tenantId, ref),
+  ])
   return {
     state: deriveScreeningState({
       configured: true,
       latestRun: latest?.checks ?? [],
       simulationPermitted: isSimulationPermitted("screening"),
+      expectedTypes: expectedTypesFor(latest?.provider ?? config.provider),
+      currentFingerprint: fingerprint,
+      activeBlockCheckIds: blocks,
     }),
     runAt: latest?.runAt ?? null,
     runId: latest?.runId ?? null,
   }
 }
 
-export type ScreeningGateResult = {
+export type BorrowerScreening = {
   allowed: boolean
+  /** The first subject that refuses approval, or CLEAR / NOT_CONFIGURED. */
   state: ScreeningState
   message: string
-  /** The provider's error text when a run attempted here failed. */
+  subjects: Array<{ ref: SubjectRef; state: ScreeningState }>
   providerError: string | null
 }
 
-/**
- * The pre-approval screening gate. Re-screens first when the client has never
- * been screened or the latest run is older than SCREENING_MAX_AGE_DAYS, then
- * allows approval only for CLEAR (or a lender without screening). PEP and
- * possible matches refer to a reviewer; a sanctions match or a rejected match
- * blocks with no override. Disbursement uses `readClientScreening` instead:
- * it never calls the provider.
- */
-export async function screeningApprovalGate(args: {
-  tenantId: string
-  clientId: string
-  applicationId: string
-  actor: { id: string; email: string }
-  now?: Date
-}): Promise<ScreeningGateResult> {
-  const { tenantId, clientId, applicationId, actor } = args
-  const current = await readClientScreening(tenantId, clientId)
-  let state = current.state
-  let providerError: string | null = null
-  if (state.state !== "NOT_CONFIGURED" && (!current.runAt || current.runAt < screeningCutoff(args.now))) {
-    const ran = await runScreening({ tenantId, clientId, trigger: "PRE_APPROVAL", applicationId, actor })
-    if (ran.configured) {
-      state = ran.state
-      providerError = ran.providerError
-    } else {
-      state = { state: "NOT_CONFIGURED" }
-    }
+const label = (ref: SubjectRef, borrower: Borrower) =>
+  "clientId" in ref ? (borrower.entityId ? "A related party (director, member, trustee, signatory, surety or owner)" : "The client") : "The entity"
+
+function combine(borrower: Borrower, subjects: Array<{ ref: SubjectRef; state: ScreeningState }>, providerError: string | null, configured: boolean): BorrowerScreening {
+  if (!configured) return { allowed: true, state: { state: "NOT_CONFIGURED" }, message: screeningStateMessage({ state: "NOT_CONFIGURED" }), subjects, providerError }
+  if (subjects.length === 0) {
+    return { allowed: false, state: { state: "NOT_SCREENED" }, message: "The application has no borrower to screen.", subjects, providerError }
   }
-  return { allowed: screeningAllowsApproval(state), state, message: screeningStateMessage(state), providerError }
+  const refusing = subjects.find((s) => !screeningAllowsApproval(s.state))
+  if (!refusing) return { allowed: true, state: { state: "CLEAR" }, message: screeningStateMessage({ state: "CLEAR" }), subjects, providerError }
+  return { allowed: false, state: refusing.state, message: `${label(refusing.ref, borrower)}: ${screeningStateMessage(refusing.state)}`, subjects, providerError }
+}
+
+/** Every party of a borrower, read-only. Disbursement uses this: it never calls the provider. */
+export async function readBorrowerScreening(tenantId: string, borrower: Borrower): Promise<BorrowerScreening> {
+  const config = await getScreeningConfig(tenantId)
+  if (!config.provider) return combine(borrower, [], null, false)
+  const refs = await borrowerSubjects(prisma, tenantId, borrower)
+  const subjects = []
+  for (const ref of refs) subjects.push({ ref, state: (await readSubjectScreening(tenantId, ref)).state })
+  return combine(borrower, subjects, null, true)
 }
 
 /**
- * The same rule re-read inside the approval transaction, under the client's
- * screening lock, so a run or review committing in between is seen. The SQL
- * trigger guardLoanApplicationScreening is the backstop for other writers.
+ * The pre-approval gate for a client or an entity borrower (the entity and
+ * every actively related person). Re-screens a party first when it was never
+ * screened, its identity changed, its latest run errored or is older than
+ * SCREENING_MAX_AGE_DAYS. Approval is allowed only when every party is CLEAR.
  */
-export async function lockedScreeningAllowsApproval(
-  tx: Pick<typeof prisma, "$executeRaw" | "screeningCheck" | "tenantConfig">,
+export async function borrowerScreeningGate(args: {
+  tenantId: string
+  borrower: Borrower
+  applicationId: string
+  actor: { id: string; email: string }
+  now?: Date
+}): Promise<BorrowerScreening> {
+  const { tenantId, borrower, applicationId, actor } = args
+  const config = await getScreeningConfig(tenantId)
+  if (!config.provider) return combine(borrower, [], null, false)
+  const refs = await borrowerSubjects(prisma, tenantId, borrower)
+  const subjects: Array<{ ref: SubjectRef; state: ScreeningState }> = []
+  let providerError: string | null = null
+  for (const ref of refs) {
+    const current = await readSubjectScreening(tenantId, ref)
+    let state = current.state
+    const stale = !current.runAt || current.runAt < screeningCutoff(args.now)
+    if (state.state !== "NOT_CONFIGURED" && state.state !== "BLOCKED" && (needsRerun(state) || stale)) {
+      const ran = await runScreening({ tenantId, subject: ref, trigger: "PRE_APPROVAL", applicationId, actor })
+      if (ran.configured) {
+        state = ran.state
+        providerError = providerError ?? ran.providerError
+      }
+    }
+    subjects.push({ ref, state })
+  }
+  return combine(borrower, subjects, providerError, true)
+}
+
+/**
+ * The same rule re-read inside the approval transaction, under every party's
+ * screening lock (taken in a fixed order), so a run, review or lift committing
+ * in between is seen. The SQL trigger guardLoanApplicationScreening is the
+ * backstop for other writers.
+ */
+export async function lockedBorrowerScreeningAllows(
+  tx: ReadDb & Pick<typeof prisma, "$executeRaw" | "entityRelationship">,
   tenantId: string,
-  clientId: string,
+  borrower: Borrower,
 ): Promise<boolean> {
-  await lockClientScreening(tx, tenantId, clientId)
-  const { state } = await readClientScreening(tenantId, clientId, tx)
-  return screeningAllowsApproval(state)
+  const config = await getScreeningConfig(tenantId, tx)
+  if (!config.provider) return true
+  const refs = [...(await borrowerSubjects(tx, tenantId, borrower))].sort((a, b) => subjectKey(a).localeCompare(subjectKey(b)))
+  if (refs.length === 0) return false
+  for (const ref of refs) await lockSubjectScreening(tx, tenantId, ref)
+  for (const ref of refs) {
+    if (!screeningAllowsApproval((await readSubjectScreening(tenantId, ref, tx)).state)) return false
+  }
+  return true
 }

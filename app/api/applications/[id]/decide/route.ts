@@ -49,7 +49,8 @@ import {
   type PasqBillingEvidence,
 } from "@/lib/compliance/pasq"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
-import { lockedScreeningAllowsApproval, screeningApprovalGate } from "@/lib/screening/gate"
+import { borrowerScreeningGate, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
+import { auditRefusal } from "@/lib/audit-refusals"
 
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
@@ -1092,13 +1093,23 @@ export async function POST(
         // a match refers to a senior reviewer and a sanctions match blocks with
         // no override. The transaction re-reads it under the client's screening
         // lock; the trigger LoanApplication_a1_guard_screening is the backstop.
-        const screening = await screeningApprovalGate({
+        const screening = await borrowerScreeningGate({
           tenantId: tenant.id,
-          clientId: application.clientId,
+          borrower: { clientId: application.clientId, entityId: null },
           applicationId: id,
           actor: { id: guard.user.id, email: guard.user.email },
         })
         if (!screening.allowed) {
+          await auditRefusal({
+            action: AuditAction.SCREENING_APPROVAL_REFUSED,
+            entity: "LoanApplication",
+            entityId: id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: `screening_${screening.state.state.toLowerCase()}`,
+            status: 422,
+          })
           return NextResponse.json(
             {
               error: `Approval blocked: ${screening.message}`,
@@ -1172,7 +1183,7 @@ export async function POST(
             if (openFlags > 0) {
               return { ok: false as const, reason: "checks_open" as const }
             }
-            if (!(await lockedScreeningAllowsApproval(tx, tenant.id, locked.application.client.id))) {
+            if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }))) {
               return { ok: false as const, reason: "screening_changed" as const }
             }
             // Evidence that arrived after the recompute read it has not been

@@ -12,16 +12,21 @@ type Match = { listName?: string; matchedName?: string; score?: number | null; d
 
 export type QueueItem = {
   checkId: string
-  clientId: string
-  clientName: string
-  clientReference: string
+  clientId: string | null
+  entityId: string | null
+  partyName: string
+  partyReference: string
   type: string
   result: string
   matches: unknown
   simulated: boolean
   createdAt: string
+  triggeredById: string | null
   hardBlock: boolean
 }
+
+export const partyHref = (p: { clientId: string | null; entityId: string | null }) =>
+  p.clientId ? `/clients/${p.clientId}?tab=compliance` : `/asset-finance/entities/${p.entityId}`
 
 const TYPE_LABEL: Record<string, string> = { PEP: "PEP", SANCTIONS: "Sanctions", ADVERSE_MEDIA: "Adverse media" }
 
@@ -76,7 +81,7 @@ function ReviewForm({ item, onDone }: { item: QueueItem; onDone: () => void }) {
   )
 }
 
-export function ScreeningReviewQueue({ items, canReview }: { items: QueueItem[]; canReview: boolean }) {
+export function ScreeningReviewQueue({ items, canReview, viewerId }: { items: QueueItem[]; canReview: boolean; viewerId: string }) {
   const router = useRouter()
   return (
     <Card>
@@ -91,10 +96,10 @@ export function ScreeningReviewQueue({ items, canReview }: { items: QueueItem[];
         {items.map((item) => (
           <div key={item.checkId} className="rounded-md border border-[var(--cf-border-subtle)] p-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Link href={`/clients/${item.clientId}?tab=compliance`} className="font-medium text-[var(--cf-brand-soft)] hover:underline">
-                {item.clientName}
+              <Link href={partyHref(item)} className="font-medium text-[var(--cf-brand-soft)] hover:underline">
+                {item.partyName}
               </Link>
-              <span className="text-xs text-[var(--cf-text-muted)]">{item.clientReference}</span>
+              <span className="text-xs text-[var(--cf-text-muted)]">{item.entityId ? "Entity · " : ""}{item.partyReference}</span>
               <Badge variant={item.hardBlock ? "danger" : "warning"}>
                 {TYPE_LABEL[item.type] ?? item.type} · {item.result === "CONFIRMED_MATCH" ? "match" : "possible match"}
               </Badge>
@@ -113,6 +118,8 @@ export function ScreeningReviewQueue({ items, canReview }: { items: QueueItem[];
               <p className="mt-3 text-sm text-[var(--cf-danger)]">
                 Confirmed sanctions match. This cannot be cleared or overridden: no credit may be granted.
               </p>
+            ) : item.triggeredById === viewerId ? (
+              <p className="mt-3 text-sm text-[var(--cf-text-muted)]">You started this screening run; another reviewer decides it.</p>
             ) : canReview ? (
               <ReviewForm item={item} onDone={() => router.refresh()} />
             ) : null}

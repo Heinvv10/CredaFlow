@@ -88,8 +88,8 @@ model User {
   referenceRatesRequested      ReferenceRate[]                       @relation("ReferenceRatesRequested")
   referenceRatesDecided        ReferenceRate[]                       @relation("ReferenceRatesDecided")
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
-  kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
-  kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
+  kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
+  kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
 
   @@unique([tenantId, id])
 }
@@ -191,6 +191,7 @@ model Tenant {
   suspiciousReportCases      SuspiciousReportCase[]
   suspiciousReportAccesses   SuspiciousReportAccess[]
   rmcpDocuments              RmcpDocument[]
+  screeningBlocks            ScreeningBlock[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -503,9 +504,10 @@ model Client {
   avsChecks                          AvsCheck[]
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
-  kycOverrideRequests    KycOverrideRequest[]
-  screeningChecks        ScreeningCheck[]
-  suspiciousReportCases  SuspiciousReportCase[]
+  kycOverrideRequests                KycOverrideRequest[]
+  screeningChecks                    ScreeningCheck[]
+  screeningBlocks                    ScreeningBlock[]
+  suspiciousReportCases              SuspiciousReportCase[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -633,13 +635,24 @@ enum AmlStatus {
 // and approval is refused while the client's latest screening run blocks it.
 
 // One row per check type per screening run (a run = one call to the tenant's
-// provider for every type). Writes Client.amlScreeningStatus (lib/screening).
+// provider for every type it supports). The subject is a client (natural
+// person) or a business entity, never both (CHECK ScreeningCheck_one_subject).
+// Writes Client.amlScreeningStatus for a client (lib/screening). Migration
+// 20261014160000_w4_screening_review_fixes binds a run to the identity it
+// screened (subjectFingerprint) and makes blocks sticky (ScreeningBlock).
 model ScreeningCheck {
   id                 String             @id @default(cuid())
   tenantId           String
   tenant             Tenant             @relation(fields: [tenantId], references: [id])
-  clientId           String
-  client             Client             @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId           String?
+  client             Client?            @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId           String?
+  entity             BusinessEntity?    @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // SQL screeningCurrentFingerprint() of the subject when it was screened. A
+  // run whose fingerprint differs from the subject's current one is stale.
+  subjectFingerprint String?
+  // Who started the run (null for system runs): never the one who decides it.
+  triggeredById      String?
   runId              String
   trigger            ScreeningTrigger
   applicationId      String?
@@ -660,10 +673,40 @@ model ScreeningCheck {
   reviewedAt         DateTime?
   carriedFromCheckId String?
   createdAt          DateTime           @default(now())
+  blocks             ScreeningBlock[]
 
   @@unique([tenantId, id])
   @@index([tenantId, clientId, createdAt])
+  @@index([tenantId, entityId, createdAt])
   @@index([tenantId, runId])
+}
+
+// A sticky screening block: written by the database when a run records a
+// confirmed sanctions match or a reviewer REJECTS a match. A later clear run
+// does not end it; only a SUPER_ADMIN with TOTP lifts it, with a reason, once.
+model ScreeningBlock {
+  id            String               @id @default(cuid())
+  tenantId      String
+  tenant        Tenant               @relation(fields: [tenantId], references: [id])
+  clientId      String?
+  client        Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId      String?
+  entity        BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  sourceCheckId String               @unique
+  sourceCheck   ScreeningCheck       @relation(fields: [tenantId, sourceCheckId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason        ScreeningBlockReason
+  createdAt     DateTime             @default(now())
+  liftedById    String?
+  liftedAt      DateTime?
+  liftReason    String?
+
+  @@index([tenantId, clientId])
+  @@index([tenantId, entityId])
+}
+
+enum ScreeningBlockReason {
+  SANCTIONS_MATCH
+  REJECTED
 }
 
 enum ScreeningType {
@@ -825,21 +868,21 @@ enum AgreementType {
 }
 
 model ClientDocument {
-  id                       String              @id @default(cuid())
+  id                       String               @id @default(cuid())
   tenantId                 String
-  tenant                   Tenant              @relation(fields: [tenantId], references: [id])
+  tenant                   Tenant               @relation(fields: [tenantId], references: [id])
   clientId                 String
   docType                  DocType
   fileUrl                  String
   fileName                 String
-  verified                 Boolean             @default(false)
+  verified                 Boolean              @default(false)
   // Who refused this document, if anyone. Set only by a human reviewer through
   // the verify endpoint. The SYSTEM also clears `verified` and writes a
   // verificationNote (a bank-detail change re-flags a statement), so the note
   // alone cannot say who acted — these fields can.
   verificationRejectedAt   DateTime?
   verificationRejectedById String?
-  uploadedByType           String              @default("staff")
+  uploadedByType           String               @default("staff")
   uploadedById             String?
   deletedAt                DateTime?
   deletedByType            String?
@@ -848,13 +891,13 @@ model ClientDocument {
   mimeType                 String?
   storagePath              String?
   contentSha256            String?
-  extractionStatus         String              @default("pending")
+  extractionStatus         String               @default("pending")
   extractionGeneration     String?
   extractionStartedAt      DateTime?
   extractionResult         Json?
   extractionError          String?
   validationResult         Json?
-  validationMismatch       Boolean             @default(false)
+  validationMismatch       Boolean              @default(false)
   validationScore          Int?
   biometricMatchScore      Int?
   biometricLiveness        Int?
@@ -875,11 +918,11 @@ model ClientDocument {
   signatureRequestedAt     DateTime?
   signedAt                 DateTime?
   signedByIp               String?
-  createdAt                DateTime            @default(now())
-  client                   Client              @relation(fields: [clientId], references: [id])
+  createdAt                DateTime             @default(now())
+  client                   Client               @relation(fields: [clientId], references: [id])
   loanNotes                LoanNote[]
   statementAnalyses        StatementAnalysis[]
-  kycOverrideRequests KycOverrideRequest[]
+  kycOverrideRequests      KycOverrideRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1233,6 +1276,8 @@ model BusinessEntity {
   loans                 Loan[]
   documents             EntityDocument[]
   deals                 AssetFinanceDeal[]
+  screeningChecks       ScreeningCheck[]
+  screeningBlocks       ScreeningBlock[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, type, registrationNumber])

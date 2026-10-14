@@ -21,15 +21,48 @@ describe("migration 20261014150000_w4_screening_fic", () => {
     expect(check).toContain(`NOT ("type" = 'SANCTIONS' AND "decision" = 'ACCEPTED')`)
   })
 
-  it("guards APPROVED and DISBURSED with the same blocking rule as lib/screening/state.ts", () => {
+  it("guards APPROVED and DISBURSED for a client or an entity and its active related parties", () => {
     expect(baselineTriggerSql("LoanApplication_a1_guard_screening"))
       .toContain('BEFORE INSERT OR UPDATE OF status ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationScreening"()')
     const fn = baselineFunctionSql("guardLoanApplicationScreening")
     expect(fn).toContain(`NEW.status NOT IN ('APPROVED', 'DISBURSED')`)
     expect(fn).toContain(`SELECT c."screeningProvider" INTO configured`)
+    expect(fn).toContain(`"screeningSubjectRefusal"(NEW."tenantId", NULL, NEW."entityId")`)
+    expect(fn).toContain(`r."entityId" = NEW."entityId" AND r.active`)
+    expect(fn).not.toContain("clientId\" IS NULL")
+  })
+
+  it("refuses a subject with the same rule as lib/screening/state.ts: block, identity, error, open or rejected match", () => {
+    const fn = baselineFunctionSql("screeningSubjectRefusal")
+    expect(fn).toContain(`b."liftedAt" IS NULL`)
     expect(fn).toContain(`ORDER BY s."createdAt" DESC, s.id DESC LIMIT 1`)
+    expect(fn).toContain(`latest_fp IS DISTINCT FROM "screeningCurrentFingerprint"(t, cid, eid)`)
     expect(fn).toContain(`s.result = 'ERROR'`)
     expect(fn).toContain(`(s.decision IS NULL OR s.decision = 'REJECTED')`)
+  })
+
+  it("carries a decision only onto a possible match with list-entry ids, from an identical clearance (M1, M2)", () => {
+    const fn = baselineFunctionSql("guardScreeningCheckRecord")
+    expect(fn).toContain(`NEW.result = 'POSSIBLE_MATCH'`)
+    expect(fn).toContain(`NEW.decision IN ('FALSE_POSITIVE', 'ACCEPTED')`)
+    expect(fn).toContain(`jsonb_array_length(NEW.matches) > 0`)
+    expect(fn).toContain(`coalesce(btrim(m->>'listEntryId'), '') = ''`)
+    expect(fn).toContain(`p.result = 'POSSIBLE_MATCH'`)
+    expect(fn).toContain(`CONSTRAINT = 'ScreeningCheck_subject_fingerprint'`)
+  })
+
+  it("raises a sticky block on a confirmed sanctions match or a REJECTED decision, lifted only by a SUPER_ADMIN, with the review reason floor", () => {
+    const record = baselineFunctionSql("recordScreeningBlock")
+    expect(record).toContain(`NEW.type = 'SANCTIONS' AND NEW.result = 'CONFIRMED_MATCH'`)
+    expect(record).toContain(`NEW.decision = 'REJECTED'`)
+    expect(baselineFunctionSql("guardScreeningBlock")).toContain(`u.role = 'SUPER_ADMIN' AND u.active`)
+    expect(baselineConstraintSql("ScreeningBlock_lift_complete")).toContain(`char_length(btrim(coalesce("liftReason", ''))) >= ${REVIEW_REASON_MIN_LENGTH}`)
+  })
+
+  it("enforces maker-checker on screening reviews, STR decisions and RMCP approvals", () => {
+    expect(baselineConstraintSql("ScreeningCheck_maker_checker")).toContain(`"reviewedById" <> "triggeredById"`)
+    expect(baselineConstraintSql("SuspiciousReportCase_maker_checker")).toContain(`"assessedById" <> "raisedById"`)
+    expect(baselineConstraintSql("RmcpDocument_maker_checker")).toContain(`"approvedById" <> "uploadedById"`)
   })
 
   it("keeps screening checks, STR cases, the access log, CTRs and RMCP versions undeletable", () => {

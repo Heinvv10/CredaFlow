@@ -1,4 +1,4 @@
-import { ScreeningProviderError, type ScreeningProvider } from "./types"
+import { SCREENING_TYPES, ScreeningProviderError, type ScreeningProvider, type ScreeningType } from "./types"
 import { simulatedScreeningProvider } from "./simulated-provider"
 
 /**
@@ -18,6 +18,11 @@ registerScreeningProvider(simulatedScreeningProvider)
 
 export function listScreeningProviders(): Array<{ id: string; label: string; simulated: boolean }> {
   return [...providers.values()].map((p) => ({ id: p.id, label: p.label, simulated: p.simulated }))
+}
+
+/** The types a run of this provider records; every type when the provider is unknown. */
+export function expectedTypesFor(key: string | null): readonly ScreeningType[] {
+  return (key && providers.get(key)?.supportedTypes) || SCREENING_TYPES
 }
 
 export function isKnownScreeningProvider(key: unknown): key is string {

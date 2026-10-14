@@ -17,7 +17,7 @@ import { GET } from "./route"
 const req = (secret?: string) => new NextRequest("http://localhost/api/cron/screening-refresh", {
   headers: secret ? { "x-cron-secret": secret } : {},
 })
-const ok = { candidates: 2, screened: 2, flagged: 1, failed: 0, errors: [] }
+const ok = { candidates: 2, screened: 2, flagged: 1, failed: 0, remaining: 0, errors: [] }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -42,9 +42,19 @@ describe("GET /api/cron/screening-refresh", () => {
     refreshMock.mockResolvedValue(ok)
     const res = await GET(req("test-cron-secret"))
     expect(configFindManyMock).toHaveBeenCalledWith(expect.objectContaining({ where: { screeningProvider: { not: null } } }))
-    expect(refreshMock).toHaveBeenCalledWith("t1", expect.any(Date))
+    expect(refreshMock).toHaveBeenCalledWith("t1", expect.any(Date), expect.any(Number))
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ ok: true, perTenant: [{ tenantId: "t1", ...ok }] })
+  })
+
+  it("A5: reports a backlog the time budget left (remaining) without calling it a failure, and shares one deadline", async () => {
+    configFindManyMock.mockResolvedValue([{ tenantId: "t1" }, { tenantId: "t2" }])
+    refreshMock.mockResolvedValue({ ...ok, candidates: 900, screened: 300, remaining: 600 })
+    const res = await GET(req("test-cron-secret"))
+    expect(res.status).toBe(200)
+    expect((await res.json()).perTenant[0]).toMatchObject({ candidates: 900, remaining: 600 })
+    const deadlines = refreshMock.mock.calls.map((c) => c[2])
+    expect(new Set(deadlines).size).toBe(1)
   })
 
   it("returns 503 when a provider call failed or a tenant threw, after doing the rest", async () => {

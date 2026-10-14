@@ -3,90 +3,77 @@ import { Prisma, type ScreeningTrigger } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { hasMinRole } from "@/lib/permissions"
+import { carriedDecision, matchFingerprint } from "./carry"
 import { getScreeningConfig } from "./policy"
-import { getScreeningProvider } from "./registry"
-import { loadLatestRun, lockClientScreening } from "./store"
-import { amlStatusFor, carriedDecision, deriveScreeningState, matchFingerprint, type ScreeningState } from "./state"
-import {
-  SCREENING_TYPES,
-  ScreeningProviderError,
-  type ScreeningProvider,
-  type ScreeningProviderResult,
-  type ScreeningSubject,
-} from "./types"
+import { callProvider } from "./provider-call"
+import { loadActiveBlocks, loadLatestRun, lockSubjectScreening } from "./store"
+import { amlStatusFor, deriveScreeningState, type ScreeningState } from "./state"
+import { currentFingerprint, loadSubject, subjectWhere } from "./subject"
+import { SCREENING_TYPES, type SubjectRef } from "./types"
 
 export type RunScreeningArgs = {
   tenantId: string
-  clientId: string
+  subject: SubjectRef
   trigger: ScreeningTrigger
   applicationId?: string | null
-  /** null for the cron and other system callers. */
+  /** null for the cron and other system callers. Never the one who decides the run's matches. */
   actor: { id: string; email: string } | null
+  /** Override of SCREENING_TIMEOUT_MS (tests). */
+  timeoutMs?: number
 }
 
 export type RunScreeningResult =
   | { configured: false }
   | { configured: true; runId: string; state: ScreeningState; providerError: string | null }
 
-type Outcome =
-  | { ok: true; value: ScreeningProviderResult }
-  | { ok: false; code: string; message: string }
-
-async function callProvider(key: string, subject: ScreeningSubject): Promise<{ provider: ScreeningProvider | null; outcome: Outcome }> {
-  let provider: ScreeningProvider | null = null
-  try {
-    provider = getScreeningProvider(key)
-    return { provider, outcome: { ok: true, value: await provider.screen(subject, SCREENING_TYPES) } }
-  } catch (error) {
-    // Recorded as ERROR rows (state INCOMPLETE), which block approval: a
-    // provider that could not answer is never read as "clear".
-    const code = error instanceof ScreeningProviderError ? error.code : "PROVIDER_ERROR"
-    const message = error instanceof Error ? error.message : String(error)
-    return { provider, outcome: { ok: false, code, message } }
-  }
-}
-
 /**
- * Screens one client for every type with the lender's provider and records the
- * run: one ScreeningCheck per type, a decision carried forward where the same
- * list entries were decided before, Client.amlScreeningStatus, and an audit
- * row, all in one transaction. Throws only for a missing client or a database
- * failure; a provider failure is a recorded, blocking result.
+ * Screens one subject (client or entity) with the lender's provider and
+ * records the run: one ScreeningCheck per supported type, stamped with the
+ * identity screened (subjectFingerprint) and who started it; carried
+ * decisions (lib/screening/carry.ts); Client.amlScreeningStatus for a client;
+ * an audit row. All in one transaction under the subject's screening lock.
+ * The database writes sticky blocks itself (recordScreeningBlock). Throws
+ * only for a missing subject or a database failure; a provider failure or
+ * timeout is a recorded, blocking result.
  */
 export async function runScreening(args: RunScreeningArgs): Promise<RunScreeningResult> {
-  const { tenantId, clientId, trigger, actor } = args
+  const { tenantId, subject: ref, trigger, actor } = args
   const config = await getScreeningConfig(tenantId)
   if (!config.provider) return { configured: false }
+  const providerKey = config.provider
 
-  const client = await prisma.client.findFirst({
-    where: { id: clientId, tenantId },
-    select: { id: true, firstName: true, lastName: true, idNumber: true, dateOfBirth: true },
-  })
-  if (!client) throw new Error("Client not found for screening")
-
-  const subject: ScreeningSubject = {
-    clientId: client.id,
-    firstName: client.firstName,
-    lastName: client.lastName,
-    idNumber: client.idNumber,
-    dateOfBirth: client.dateOfBirth ? client.dateOfBirth.toISOString().slice(0, 10) : null,
-  }
-  const { provider, outcome } = await callProvider(config.provider, subject)
+  const loaded = await loadSubject(prisma, tenantId, ref)
+  if (!loaded) throw new Error("Screening subject not found")
+  const { provider, outcome } = await callProvider(providerKey, loaded.subject, args.timeoutMs)
+  const types = provider?.supportedTypes ?? SCREENING_TYPES
   const simulated = provider?.simulated === true || (outcome.ok && outcome.value.simulated === true)
   const runId = randomUUID()
   const createdAt = new Date()
 
   const state = await prisma.$transaction(async (tx) => {
-    await lockClientScreening(tx, tenantId, clientId)
+    await lockSubjectScreening(tx, tenantId, ref)
     const priors = await tx.screeningCheck.findMany({
-      where: { tenantId, clientId, decision: { not: null } },
-      select: { id: true, type: true, matchFingerprint: true, decision: true, decisionReason: true, createdAt: true },
+      where: { tenantId, ...subjectWhere(ref), decision: { not: null } },
+      select: {
+        id: true, type: true, result: true, matchFingerprint: true, decision: true, decisionReason: true,
+        reviewedById: true, reviewedAt: true, carriedFromCheckId: true, createdAt: true,
+      },
     })
-    const rows: Prisma.ScreeningCheckCreateManyInput[] = SCREENING_TYPES.map((type) => {
+    const reviewerIds = [...new Set(priors.map((p) => p.reviewedById).filter((id): id is string => id !== null))]
+    const reviewers = reviewerIds.length === 0 ? [] : await tx.user.findMany({
+      where: { tenantId, id: { in: reviewerIds }, active: true },
+      select: { id: true, role: true },
+    })
+    const eligible = new Set(reviewers.filter((u) => hasMinRole(u.role, config.reviewMinRole)).map((u) => u.id))
+
+    const rows: Prisma.ScreeningCheckCreateManyInput[] = types.map((type) => {
       const base = {
-        tenantId, clientId, runId, trigger, createdAt, type, simulated,
+        tenantId, ...subjectWhere(ref), runId, trigger, createdAt, type, simulated,
+        subjectFingerprint: loaded.fingerprint,
+        triggeredById: actor?.id ?? null,
         applicationId: args.applicationId ?? null,
-        provider: config.provider as string,
+        provider: providerKey,
         providerReference: outcome.ok ? outcome.value.providerReference : null,
       }
       const found = outcome.ok ? outcome.value.results.find((r) => r.type === type) : undefined
@@ -94,56 +81,54 @@ export async function runScreening(args: RunScreeningArgs): Promise<RunScreening
         return { ...base, result: "ERROR" as const, errorCode: outcome.ok ? "TYPE_NOT_RETURNED" : outcome.code }
       }
       if (found.result === "CLEAR") return { ...base, result: "CLEAR" as const }
-      const fingerprint = matchFingerprint(type, found.matches)
-      const carried = found.result === "CONFIRMED_MATCH" && type === "SANCTIONS"
-        ? null
-        : carriedDecision({ type, fingerprint }, priors)
+      const fingerprint = matchFingerprint(type, found.result, found.matches)
+      const carried = carriedDecision(
+        { type, result: found.result, fingerprint, matches: found.matches },
+        priors,
+        { now: createdAt, reviewerEligible: (id) => eligible.has(id) },
+      )
       return {
         ...base,
         result: found.result,
         matches: found.matches as unknown as Prisma.InputJsonValue,
         matchFingerprint: fingerprint,
         ...(carried
-          ? {
-              decision: carried.decision,
-              decisionReason: carried.decisionReason,
-              reviewedAt: createdAt,
-              carriedFromCheckId: carried.id,
-            }
+          ? { decision: carried.prior.decision, decisionReason: carried.prior.decisionReason, reviewedAt: createdAt, carriedFromCheckId: carried.prior.id }
           : {}),
       }
     })
     await tx.screeningCheck.createMany({ data: rows })
 
-    const latest = await loadLatestRun(tx, tenantId, clientId)
+    const [latest, blocks, fingerprintNow] = await Promise.all([
+      loadLatestRun(tx, tenantId, ref),
+      loadActiveBlocks(tx, tenantId, ref),
+      currentFingerprint(tx, tenantId, ref),
+    ])
     const derived = deriveScreeningState({
       configured: true,
       latestRun: latest?.checks ?? [],
       simulationPermitted: isSimulationPermitted("screening"),
+      expectedTypes: types,
+      currentFingerprint: fingerprintNow,
+      activeBlockCheckIds: blocks,
     })
     const aml = amlStatusFor(derived)
-    if (aml) {
-      await tx.client.updateMany({
-        where: { id: clientId, tenantId },
-        data: { amlScreeningStatus: aml, amlScreeningAt: createdAt },
-      })
+    if (aml && "clientId" in ref) {
+      await tx.client.updateMany({ where: { id: ref.clientId, tenantId }, data: { amlScreeningStatus: aml, amlScreeningAt: createdAt } })
     }
     await logAuditStrict({
       tenantId,
       userId: actor?.id,
       userEmail: actor?.email,
       action: outcome.ok ? AuditAction.SCREENING_RUN : AuditAction.SCREENING_RUN_FAILED,
-      entity: "Client",
-      entityId: clientId,
+      entity: "clientId" in ref ? "Client" : "BusinessEntity",
+      entityId: "clientId" in ref ? ref.clientId : ref.entityId,
       newValue: {
-        runId,
-        trigger,
-        provider: config.provider,
-        simulated,
+        runId, trigger, provider: providerKey, simulated,
         applicationId: args.applicationId ?? null,
         results: rows.map((r) => ({ type: r.type, result: r.result, carried: r.carriedFromCheckId != null })),
         state: derived.state,
-        amlScreeningStatus: aml,
+        amlScreeningStatus: "clientId" in ref ? aml : null,
         ...(outcome.ok ? {} : { errorCode: outcome.code }),
       },
     }, tx)

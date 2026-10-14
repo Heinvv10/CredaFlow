@@ -39,9 +39,11 @@ vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock()
 const screeningApprovalGateMock = vi.fn()
 const lockedScreeningAllowsApprovalMock = vi.fn()
 vi.mock("@/lib/screening/gate", () => ({
-  screeningApprovalGate: (a: unknown) => screeningApprovalGateMock(a),
-  lockedScreeningAllowsApproval: (...a: unknown[]) => lockedScreeningAllowsApprovalMock(...a),
+  borrowerScreeningGate: (a: unknown) => screeningApprovalGateMock(a),
+  lockedBorrowerScreeningAllows: (...a: unknown[]) => lockedScreeningAllowsApprovalMock(...a),
 }))
+const auditRefusalMock = vi.fn()
+vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: (a: unknown) => auditRefusalMock(a) }))
 vi.mock("@/lib/credit-checks/recompute", () => ({
   recomputeApplicationFlags: (...a: unknown[]) => recomputeApplicationFlagsMock(...a),
 }))
@@ -724,8 +726,12 @@ it("refuses approval while a screening match awaits review, before the approve t
     screening: { state: "REFER", checkIds: ["sc1"] },
     requiresOverride: false,
   })
-  expect(screeningApprovalGateMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", applicationId: "app-1" }))
+  expect(screeningApprovalGateMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", applicationId: "app-1", borrower: expect.objectContaining({ entityId: null }) }))
   expect(transactionMock).not.toHaveBeenCalled()
+  // A7: the refusal is audited like other refusals.
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+    action: "SCREENING_APPROVAL_REFUSED", entity: "LoanApplication", entityId: "app-1", reason: "screening_refer", status: 422,
+  }))
 })
 
 it("refuses a sanctions match even with a bureau override reason: nothing overrides it", async () => {
@@ -754,7 +760,7 @@ it("re-reads screening under its lock in the approve transaction and refuses a c
 
   expect(res.status).toBe(409)
   expect((await res.json()).error).toContain("screening changed while approving")
-  expect(lockedScreeningAllowsApprovalMock).toHaveBeenCalledWith(expect.anything(), "t1", expect.any(String))
+  expect(lockedScreeningAllowsApprovalMock).toHaveBeenCalledWith(expect.anything(), "t1", { clientId: expect.any(String), entityId: null })
   expect(txUpdateManyMock).not.toHaveBeenCalled()
   expect(triggerNotificationMock).not.toHaveBeenCalled()
 })
@@ -762,7 +768,7 @@ it("re-reads screening under its lock in the approve transaction and refuses a c
 it("409s when the screening trigger refuses the approval write", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
   txUpdateManyMock.mockRejectedValueOnce(new Error(
-    "Raw query failed. Code: `23514`. Message: `Application app_1 cannot be approved: its client's screening blocks approval`",
+    "Raw query failed. Code: `23514`. Message: `Application app_1 cannot be approved: its borrower's screening blocks approval`",
   ))
 
   const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
