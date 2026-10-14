@@ -21,6 +21,7 @@ vi.mock("next/cache", () => ({ revalidateTag }))
 vi.mock("@/lib/bureau-submission/generate", () => ({ SUPPLIER_NUMBER: /^[A-Z0-9]{1,10}$/ }))
 
 import { PATCH } from "./route"
+import { catalogueHash } from "@/lib/i18n/catalogue-hash"
 
 // Covers only the bureau-submission fields this route gained. They decide
 // whether real people's loans are reported to a credit bureau, so they are
@@ -134,7 +135,7 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
 describe("PATCH /api/admin/tenants/[tenantId] — borrower languages", () => {
   const upsert = vi.fn()
   const executeRaw = vi.fn()
-  const STORED_AF = { reviewer: "A. Reviewer", acknowledgedAt: "2026-10-01T08:00:00.000Z", acknowledgedById: "u0", acknowledgedByEmail: "old@test.invalid" }
+  const STORED_AF = { reviewer: "A. Reviewer", acknowledgedAt: "2026-10-01T08:00:00.000Z", acknowledgedById: "u0", acknowledgedByEmail: "old@test.invalid", catalogueHash: catalogueHash("af") }
 
   beforeEach(() => {
     process.env.ADMIN_SECRET = "s3cret"
@@ -160,7 +161,7 @@ describe("PATCH /api/admin/tenants/[tenantId] — borrower languages", () => {
     const written = upsert.mock.calls[0][0].update
     expect(written.enabledLanguages).toEqual(["en", "af", "zu"])
     expect(written.languageReviews.af).toEqual(STORED_AF)
-    expect(written.languageReviews.zu).toMatchObject({ reviewer: "T. Mkhize", acknowledgedById: "u1", acknowledgedByEmail: "root@test.invalid" })
+    expect(written.languageReviews.zu).toMatchObject({ reviewer: "T. Mkhize", acknowledgedById: "u1", acknowledgedByEmail: "root@test.invalid", catalogueHash: catalogueHash("zu") })
     expect(typeof written.languageReviews.zu.acknowledgedAt).toBe("string")
     expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "TENANT_LANGUAGES_UPDATED", entity: "TenantConfig",
@@ -177,6 +178,18 @@ describe("PATCH /api/admin/tenants/[tenantId] — borrower languages", () => {
     expect(upsert).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
     expect(logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("refuses to keep a language whose text changed since its review, until re-acknowledged", async () => {
+    configBefore.mockResolvedValue({ enabledLanguages: ["en", "af"], languageReviews: { af: { ...STORED_AF, catalogueHash: "reviewed-an-older-text" } } })
+    const refused = await patch({ enabledLanguages: ["en", "af"] })
+    expect(refused.status).toBe(400)
+    expect((await refused.json()).error).toBe("The text changed since its review; acknowledge a new native-speaker review for: af")
+    expect(upsert).not.toHaveBeenCalled()
+
+    const ok = await patch({ enabledLanguages: ["en", "af"], languageReviewAcknowledgements: { af: { reviewer: "B. Reviewer", confirmed: true } } })
+    expect(ok.status).toBe(200)
+    expect(upsert.mock.calls[0][0].update.languageReviews.af).toMatchObject({ reviewer: "B. Reviewer", catalogueHash: catalogueHash("af") })
   })
 
   it.each([

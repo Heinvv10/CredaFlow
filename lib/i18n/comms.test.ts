@@ -8,9 +8,11 @@ import { parseLenderIdentity } from "@/lib/config/identity"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 import { applicationApprovedEmail, paymentReceivedEmail } from "@/lib/email/templates/portal"
 import { clientCommsLocale, localizedWaTemplates, pickTemplateForLocale, resolveCommsLocale } from "./comms"
+import { catalogueHash } from "@/lib/i18n/catalogue-hash"
 
-const REVIEW = { reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null }
-const REVIEWED = { af: REVIEW, zu: REVIEW, xh: REVIEW }
+const review = (l: "af" | "zu" | "xh") =>
+  ({ reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null, catalogueHash: catalogueHash(l) })
+const REVIEWED = { af: review("af"), zu: review("zu"), xh: review("xh") }
 
 describe("resolveCommsLocale", () => {
   it("uses the preference only when the tenant has it enabled", () => {

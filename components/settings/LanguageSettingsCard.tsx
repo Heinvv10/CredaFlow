@@ -11,6 +11,8 @@ import type { LanguageReviews, ReviewableLocale } from "@/lib/i18n/language-revi
 interface Props {
   enabled: Locale[]
   reviews: LanguageReviews
+  /** Languages whose text was edited after their review: not served until re-acknowledged. */
+  changedSinceReview: ReviewableLocale[]
   /** The viewer is a SUPER_ADMIN (the route enforces it again). */
   canChange: boolean
 }
@@ -22,14 +24,15 @@ type Ack = { reviewer: string; confirmed: boolean }
  * one on needs the name of the native speaker who reviewed it and an explicit
  * confirmation, recorded with who acknowledged it and when.
  */
-export function LanguageSettingsCard({ enabled: initial, reviews, canChange }: Props) {
+export function LanguageSettingsCard({ enabled: initial, reviews, changedSinceReview, canChange }: Props) {
   const router = useRouter()
   const [enabled, setEnabled] = useState<Locale[]>(initial)
   const [acks, setAcks] = useState<Partial<Record<ReviewableLocale, Ack>>>({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null)
 
-  const needsAck = (l: ReviewableLocale) => enabled.includes(l) && !reviews[l]
+  const stale = (l: ReviewableLocale) => changedSinceReview.includes(l)
+  const needsAck = (l: ReviewableLocale) => enabled.includes(l) && (!reviews[l] || stale(l))
   const toggle = (l: Locale, on: boolean) => setEnabled((cur) => (on ? [...cur, l] : cur.filter((x) => x !== l)))
   const setAck = (l: ReviewableLocale, patch: Partial<Ack>) =>
     setAcks((cur) => ({ ...cur, [l]: { reviewer: "", confirmed: false, ...cur[l], ...patch } }))
@@ -89,6 +92,12 @@ export function LanguageSettingsCard({ enabled: initial, reviews, canChange }: P
               {review && (
                 <p className="text-xs text-muted-foreground">
                   Reviewed by {review.reviewer}; acknowledged by {review.acknowledgedByEmail ?? "unknown"} on {review.acknowledgedAt.slice(0, 10)}.
+                </p>
+              )}
+              {l !== "en" && stale(l) && (
+                <p className="text-xs font-medium text-[var(--cf-danger)]">
+                  Changed since review: the {LOCALE_NATIVE_NAMES[l]} text was edited after this review, so it is not shown to
+                  borrowers until a native speaker reviews it again and you acknowledge it.
                 </p>
               )}
               {l !== "en" && needsAck(l) && (

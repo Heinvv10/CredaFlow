@@ -17,9 +17,10 @@ legal / consent text stay English.
   missing or extra key, and `catalog.test.ts` also checks placeholders, markup
   tags and the MACHINE DRAFT header. Add a key to all four languages at once.
 - **af/zu/xh are machine drafts.** Enabling one needs a named native-speaker
-  review acknowledgement (`TenantConfig.languageReviews`); a language with no
-  record is never served (`servableLocales`). One write path,
-  `language-settings.ts`, audited: admin PATCH and `/settings/languages`.
+  review acknowledgement (`TenantConfig.languageReviews`) pinned to the
+  catalogue's hash; no record, or text edited since, means not served. One
+  audited write path, `language-settings.ts`. The seed's records are demo-only:
+  never give a real lender one.
 - **Never translate statutory, consent or collections text**: Section 129
   (incl. its portal labels), credit agreement, PASQ, debit mandate, the decline
   reason, overdue notices, POPIA/consent, FAIS, registration lines. Leave them

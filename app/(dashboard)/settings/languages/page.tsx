@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
 import { LanguageSettingsCard } from "@/components/settings/LanguageSettingsCard"
 import { normaliseEnabledLocales } from "@/lib/i18n/locales"
-import { parseLanguageReviews } from "@/lib/i18n/language-reviews"
+import { isReviewCurrent, parseLanguageReviews, type ReviewableLocale } from "@/lib/i18n/language-reviews"
 
 export const metadata = {
   title: "Borrower languages — Settings",
@@ -19,6 +19,12 @@ export default async function LanguageSettingsPage() {
     select: { enabledLanguages: true, languageReviews: true },
   })
 
+  const reviews = parseLanguageReviews(config?.languageReviews)
+  // A review record whose text has been edited since: shown, but not served.
+  const changedSinceReview = (["af", "zu", "xh"] as const).filter(
+    (l: ReviewableLocale) => reviews[l] !== undefined && !isReviewCurrent(l, reviews[l]),
+  )
+
   return (
     <>
       <Header
@@ -32,7 +38,8 @@ export default async function LanguageSettingsPage() {
       <div className="p-4 lg:p-8 max-w-4xl space-y-6">
         <LanguageSettingsCard
           enabled={normaliseEnabledLocales(config?.enabledLanguages)}
-          reviews={parseLanguageReviews(config?.languageReviews)}
+          reviews={reviews}
+          changedSinceReview={changedSinceReview}
           canChange={user.role === "SUPER_ADMIN"}
         />
       </div>

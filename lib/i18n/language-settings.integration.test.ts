@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { applyTenantLanguages } from "./language-settings"
 import { servableLocales } from "./language-reviews"
+import { catalogueHash } from "./catalogue-hash"
 
 const RUN = process.env.RUN_TENANT_LANGUAGES_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -50,7 +51,10 @@ suite("applyTenantLanguages against Postgres", () => {
     const row = await prisma.tenantConfig.findUniqueOrThrow({ where: { tenantId }, select: { enabledLanguages: true, languageReviews: true } })
     expect(row.enabledLanguages).toEqual(["en", "zu"])
     expect(row.languageReviews).toEqual({
-      zu: { reviewer: "T. Reviewer", acknowledgedAt: "2026-10-14T09:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: "root@test.invalid" },
+      zu: {
+        reviewer: "T. Reviewer", acknowledgedAt: "2026-10-14T09:00:00.000Z", acknowledgedById: null,
+        acknowledgedByEmail: "root@test.invalid", catalogueHash: catalogueHash("zu"),
+      },
     })
     expect(servableLocales(row.enabledLanguages, row.languageReviews)).toEqual(["en", "zu"])
 

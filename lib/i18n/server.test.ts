@@ -15,9 +15,11 @@ vi.mock("@/lib/tenant", () => ({ getTenantConfig: (t: string) => m.config(t), ge
 vi.mock("@/lib/prisma", () => ({ prisma: { client: { findFirst: m.clientFindFirst } } }))
 
 import { getLocale } from "./server"
+import { catalogueHash } from "@/lib/i18n/catalogue-hash"
 
-const REVIEW = { reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null }
-const REVIEWED = { af: REVIEW, zu: REVIEW, xh: REVIEW }
+const review = (l: "af" | "zu" | "xh") =>
+  ({ reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null, catalogueHash: catalogueHash(l) })
+const REVIEWED = { af: review("af"), zu: review("zu"), xh: review("xh") }
 
 function request({ cookie, acceptLanguage }: { cookie?: string; acceptLanguage?: string }) {
   m.cookies.mockResolvedValue({ get: (name: string) => (name === "cf-locale" && cookie ? { value: cookie } : undefined) })

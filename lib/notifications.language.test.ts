@@ -59,6 +59,7 @@ vi.mock("@/lib/contact/identity", async () => ({
 }))
 
 import { triggerNotification } from "./notifications"
+import { catalogueHash } from "@/lib/i18n/catalogue-hash"
 
 const client = (preferredLanguage: string | null) => ({
   id: "cli1", firstName: "Thandi", lastName: "Mthembu", email: "thandi@example.test",
@@ -67,8 +68,9 @@ const client = (preferredLanguage: string | null) => ({
 
 function setup(preferredLanguage: string | null, enabled: string[]) {
   m.clientFindUnique.mockResolvedValue(client(preferredLanguage))
-  const review = { reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null }
-  m.tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: enabled, languageReviews: { af: review, zu: review, xh: review } })
+  const review = (l: "af" | "zu" | "xh") =>
+    ({ reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null, catalogueHash: catalogueHash(l) })
+  m.tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: enabled, languageReviews: { af: review("af"), zu: review("zu"), xh: review("xh") } })
   m.loanApplicationFindUnique.mockResolvedValue({
     id: "app1", reference: "APP-0001", appliedAmount: 500_000, approvedAt: null,
     decisionReason: "Affordability", product: { name: "Personal" }, client: { email: "thandi@example.test" },
