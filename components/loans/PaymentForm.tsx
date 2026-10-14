@@ -41,6 +41,8 @@ interface PaymentFormProps {
    * Never treat this as the authorisation itself.
    */
   canAuthoriseBackdate: boolean
+  /** The label over `settlementAmount`; a lease says "Rentals outstanding" (it has no early settlement). */
+  amountLabel?: string
   onSuccess?: () => void
 }
 
@@ -50,6 +52,7 @@ export function PaymentForm({
   contractualBalance,
   loanStartDay,
   canAuthoriseBackdate,
+  amountLabel = "Settlement Amount Today",
   onSuccess,
 }: PaymentFormProps) {
   const router = useRouter()
@@ -154,7 +157,7 @@ export function PaymentForm({
       )}
 
       <div className="p-3 bg-gray-50 rounded-lg">
-        <p className="text-sm text-gray-500">Settlement Amount Today</p>
+        <p className="text-sm text-gray-500">{amountLabel}</p>
         <p className="text-xl font-bold text-gray-900">{formatZAR(settlementAmount)}</p>
         {contractualBalance > settlementAmount && (
           <p className="mt-1 text-xs text-gray-500">

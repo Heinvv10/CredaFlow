@@ -16,7 +16,7 @@ export function ScrollTable({ children, maxHeight = "max-h-[28rem]", className }
     <>
       <p className="mb-2 text-xs text-[var(--cf-text-muted)] sm:hidden">Scroll the table sideways to see every column.</p>
       <div className={cn("relative w-full overflow-auto", maxHeight, className)}>
-        <table className="w-full caption-bottom text-sm [&_td]:whitespace-nowrap [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:whitespace-nowrap [&_th]:bg-[var(--cf-bg-panel)]">
+        <table className="cf-scroll-table w-full caption-bottom text-sm [&_td]:whitespace-nowrap [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:whitespace-nowrap [&_th]:bg-[var(--cf-bg-panel)]">
           {children}
         </table>
       </div>

@@ -181,7 +181,7 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
     ? { unit: deal.usageUnit, allowancePerYear: deal.usageAllowancePerYear, excessRateCents: deal.excessRateCents }
     : null
   const readings: ReadingRow[] = loan.meterReadings.map((r) => ({ id: r.id, readingDate: isoOfDbDate(r.readingDate), value: r.value, source: r.source }))
-  const maturityDate = isoOfDbDate(loan.maturityDate)
+  const maturityDate = sastCalendarDate(loan.maturityDate) // a timestamp at SAST midnight, not a calendar date
   const expiryDate = leaseExpiryDate(loan.maturityDate, deal.rentalTiming)
   const termMonths = loan.leaseRentals.filter((r) => !r.cancelledAt).length
 

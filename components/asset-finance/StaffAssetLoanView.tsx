@@ -199,7 +199,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
                 actions={<CreditCard className="h-5 w-5 text-[var(--cf-brand)]" />} className="mb-5" />
               <PaymentForm loanId={loan.id} settlementAmount={settlementAmount} contractualBalance={maturityBalance}
                 loanStartDay={loan.startDate.toLocaleDateString("en-CA", { timeZone: SAST_TIME_ZONE })}
-                canAuthoriseBackdate={canAuthoriseBackdate} />
+                canAuthoriseBackdate={canAuthoriseBackdate} amountLabel={lease ? "Rentals outstanding" : undefined} />
             </DataPanel>
           )}
 

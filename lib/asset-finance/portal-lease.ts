@@ -129,7 +129,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
 
   return {
     today,
-    loan: { id: loan.id, reference: loan.reference, status: loan.status, contractType: loan.contractType, startDate: isoOfDbDate(loan.startDate), maturityDate: isoOfDbDate(loan.maturityDate) },
+    loan: { id: loan.id, reference: loan.reference, status: loan.status, contractType: loan.contractType, startDate: sastCalendarDate(loan.startDate), maturityDate: sastCalendarDate(loan.maturityDate) },
     entity: loan.entity,
     asset: loan.asset,
     rentals,

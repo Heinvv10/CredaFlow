@@ -66,7 +66,7 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
             <Line label="Total to pay" value={formatMoney(quote.totalCents)} strong />
           </dl>
           <p className="text-xs text-[var(--cf-text-muted)]">
-            {actions.state === "ACCEPTED" ? "Accepted" : actions.state === "EXPIRED" ? "Expired" : "Valid"} until {formatIsoDate(quote.validUntil)}.
+            {actions.state === "ACCEPTED" ? `Accepted: the lease ends on ${formatIsoDate(quote.terminationDate)}.` : `${actions.state === "EXPIRED" ? "Expired on" : "Valid until"} ${formatIsoDate(quote.validUntil)}.`}
           </p>
           <div>
             <p className="text-xs font-semibold text-[var(--cf-text)]">How this was worked out</p>

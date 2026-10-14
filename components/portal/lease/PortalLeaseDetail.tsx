@@ -57,7 +57,7 @@ export function PortalLeaseDetail({ view, back, documents }: {
             value={asset ? `${asset.year} ${asset.make} ${asset.model}` : "Not recorded"}
             sub={asset ? `${ASSET_CLASS_LABELS[asset.assetClass]} · serial ${asset.serialNumber}${asset.registrationNumber ? ` · reg ${asset.registrationNumber}` : ""}` : undefined}
           />
-          <Figure label="Term" value={`${formatIsoDate(loan.startDate)} – ${formatIsoDate(loan.maturityDate)}`} sub="First to last rental" />
+          <Figure label="Term" value={`${formatIsoDate(loan.startDate)} – ${formatIsoDate(loan.maturityDate)}`} sub="Commencement to the last rental" />
           <Figure
             label="Next rental"
             value={view.nextRental ? formatMoney(view.nextRental.amountCents) : "None due"}

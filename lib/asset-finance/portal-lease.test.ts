@@ -63,6 +63,12 @@ describe("loadPortalLease", () => {
     expect(view?.nextRental).toEqual({ dueDate: "2027-04-01", amountCents: 126_500 })
   })
 
+  it("reads the loan's start and maturity timestamps (SAST midnight) as their SAST calendar days", async () => {
+    mocks.loan.mockResolvedValue(baseLoan({ startDate: new Date("2026-12-31T22:00:00Z"), maturityDate: new Date("2029-12-30T22:00:00Z") }))
+    const view = await loadPortalLease("t1", "c1", "L1", at("2027-03-15"))
+    expect([view?.loan.startDate, view?.loan.maturityDate]).toEqual(["2027-01-01", "2029-12-31"])
+  })
+
   it("has no fund and no meter on an operating lease without usage", async () => {
     mocks.loan.mockResolvedValue(baseLoan())
     const view = await loadPortalLease("t1", "c1", "L1", at("2027-03-15"))
