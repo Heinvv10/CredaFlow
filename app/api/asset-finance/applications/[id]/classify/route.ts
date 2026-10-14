@@ -9,24 +9,10 @@ import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { isTransactionConflict } from "@/lib/asset-finance/transaction-conflict"
 import { classifyApplication } from "@/lib/asset-finance/classification"
 
-const MAX_EVIDENCE_IDS = 50
-
-function parseTrusteeEvidenceIds(body: unknown): string[] | null {
-  if (body === null || typeof body !== "object" || Array.isArray(body)) return null
-  const value = (body as { trusteeEvidenceIds?: unknown }).trusteeEvidenceIds
-  if (value === undefined) return []
-  if (!Array.isArray(value) || value.length > MAX_EVIDENCE_IDS) return null
-  const ids: string[] = []
-  for (const item of value) {
-    if (typeof item !== "string" || item.trim().length === 0) return null
-    ids.push(item.trim())
-  }
-  return [...new Set(ids)]
-}
-
 /**
  * Classify an entity application as NCA or NON_NCA (DESIGN D5) and snapshot
- * the result on it. Body: `{ trusteeEvidenceIds?: string[] }`.
+ * the result on it. No body: the evidence is the entity's own verified
+ * documents (financialsEvidenceIds, and its verified Letters of Authority).
  *
  * Any manage_asset_finance user may classify: a NON_NCA result never applies
  * here. The application stays NCA and the response names the PENDING override
@@ -48,14 +34,6 @@ export async function POST(
     if (disabled) return disabled
 
     const { id } = await params
-    const body: unknown = await req.json().catch(() => ({}))
-    const trusteeEvidenceIds = parseTrusteeEvidenceIds(body)
-    if (!trusteeEvidenceIds) {
-      return NextResponse.json(
-        { error: `trusteeEvidenceIds must be an array of at most ${MAX_EVIDENCE_IDS} non-empty strings` },
-        { status: 400 },
-      )
-    }
 
     let result: Awaited<ReturnType<typeof classifyApplication>>
     try {
@@ -65,7 +43,6 @@ export async function POST(
           applicationId: id,
           userId: guard.user.id,
           userEmail: guard.user.email,
-          trusteeEvidenceIds,
         }),
       )
     } catch (error) {

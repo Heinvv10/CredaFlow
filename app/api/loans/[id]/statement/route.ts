@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireOwnerOrStaff } from "@/lib/auth-guards"
+import { requireApiRole, requireOwnerOrStaff } from "@/lib/auth-guards"
 import { generateStatementPdf } from "@/lib/pdf/statement"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
-import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { hasClientBorrower } from "@/lib/borrower"
+import { renderEntityStatementPdf } from "@/lib/asset-finance/documents/statement-pdf"
+import { recordedCallerIp } from "@/lib/rate-limit"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -29,9 +31,35 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!loan) {
       return NextResponse.json({ error: "Loan not found" }, { status: 404 })
     }
-    // The statement PDF renders a consumer; entity-borrower statements are not built yet.
+    // An entity borrower (asset finance): staff only on this route (the
+    // entity's own people use the portal's asset-finance statement route),
+    // rendered with the entity as the borrower; its access is logged first.
     if (!hasClientBorrower(loan)) {
-      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+      const staff = await requireApiRole("READONLY")
+      if (staff.error) return staff.error
+      // Logged BEFORE rendering and not swallowed, shaped like
+      // lib/document-auth.ts logDocumentAccess (not imported: it pulls
+      // next-auth into this route's module graph): no entity statement leaves
+      // without its access row.
+      await prisma.documentAccessLog.create({
+        data: {
+          documentId: loan.id,
+          accessorType: "staff",
+          accessorId: staff.user.id,
+          action: "download",
+          ipAddress: recordedCallerIp(req),
+          userAgent: req.headers.get("user-agent") ?? null,
+        },
+      })
+      const rendered = await renderEntityStatementPdf(tenant.id, loan.id)
+      if (rendered.kind === "not_found") return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+      if (rendered.kind === "refused") return rendered.response
+      return new Response(new Uint8Array(rendered.bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${rendered.filename}"`,
+        },
+      })
     }
 
     const access = await requireOwnerOrStaff(loan.clientId)

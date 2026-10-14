@@ -8,6 +8,8 @@ const m = vi.hoisted(() => ({
     $queryRaw: vi.fn(),
     loanApplication: { findFirst: vi.fn(), update: vi.fn() },
     businessEntity: { findFirst: vi.fn() },
+    // verifiedTrusteeEvidenceIds: the entity's verified Letters of Authority.
+    entityDocument: { findMany: vi.fn() },
     ncaRegimeOverride: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   },
   logAuditStrict: vi.fn(),
@@ -44,6 +46,7 @@ beforeEach(() => {
   m.tx.$queryRaw.mockResolvedValue([{ id: "app-1" }])
   m.tx.loanApplication.findFirst.mockResolvedValue(application())
   m.tx.businessEntity.findFirst.mockResolvedValue(unevidenced)
+  m.tx.entityDocument.findMany.mockResolvedValue([])
   m.tx.ncaRegimeOverride.findFirst.mockResolvedValue(null)
   m.tx.ncaRegimeOverride.create.mockResolvedValue({ id: "ov-new" })
 })

@@ -23,7 +23,7 @@ import {
 //    money the lender should already hold. Contractual fees and premiums,
 //    default interest and collection fees are NOT in the base: nothing
 //    compounds on a charge.
-//  - Rate: (contract annual rate + the product's margin) / 365, actual/365. A
+//  - Rate: (contract annual rate + the agreed margin) / 365, actual/365. A
 //    day accrues only once complete, so the as-of day itself never accrues.
 //    Interest posts aggregated per calendar month, as in the NCA engine.
 //  - A collection fee posts once per missed instalment, dated the day after
@@ -36,21 +36,30 @@ import {
 //    the schedule instalment by instalment (the same go-live rule as NCA).
 //  - None of the NCA rules apply: no in duplum cap (s103(5)), no Section 129
 //    letter charge, no post-maturity service fee.
-//  - Terms unset on the product (null) mean that component is zero: no margin
+//  - Terms unset on the agreement (null) mean that component is zero: no margin
 //    means NO default interest (a margin of 0 means the contract rate alone);
 //    no fee means no collection fee.
 //  - `accrueUntil` (write-off, cancellation, closing): nothing accrues or posts
 //    on or after it; receipts are still allocated.
 
 export interface NonNcaArrearsTerms {
-  /** LoanProduct.nonNcaDefaultInterestMargin: annual decimal over the contract rate; null = no default interest */
+  /** Loan.nonNcaDefaultInterestMargin (the deal's signed term, copied at booking; charges-replay nonNcaArrearsTerms): annual decimal over the contract rate; null = no default interest */
   defaultInterestMargin: number | null
-  /** LoanProduct.nonNcaCollectionFeeCents: per missed instalment; null = none */
+  /** Loan.nonNcaCollectionFeeCents (copied at booking): per missed instalment; null = none */
   collectionFeeCents: number | null
 }
 
+export interface ContractRatePeriod {
+  effectiveDate: Date
+  /** Annual decimal rate (ContractRate.resultingRate). */
+  annualRate: number
+}
+
 /** The NCA input without the NCA-only charges (Section 129 letters, post-maturity service fee). */
-export type NonNcaChargeInput = Omit<DefaultChargeInput, "adminCharges" | "monthlyServiceFee"> & NonNcaArrearsTerms
+export type NonNcaChargeInput = Omit<DefaultChargeInput, "adminCharges" | "monthlyServiceFee"> & NonNcaArrearsTerms & {
+  /** Effective-dated contract rates; the booked Loan rate is the legacy fallback. */
+  contractRateHistory?: ContractRatePeriod[]
+}
 
 export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeResult {
   const rows = input.schedule
@@ -61,10 +70,17 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
   const chargeable = (day: number) => day >= accrueFromDay && day < untilDay
-  // PARTIAL: reads the booking rate; repricing history lives on the engine branch
-  const dailyRate = input.defaultInterestMargin === null
-    ? 0
-    : (input.interestRatePm * 12 + input.defaultInterestMargin) / 365
+  const rates = (input.contractRateHistory ?? [])
+    .map((rate) => ({ day: sastCalendarDay(rate.effectiveDate), annualRate: rate.annualRate }))
+    .sort((a, b) => a.day - b.day)
+  const contractAnnualRateOn = (day: number) => {
+    let annualRate = input.interestRatePm * 12
+    for (const rate of rates) {
+      if (rate.day > day) break
+      annualRate = rate.annualRate
+    }
+    return annualRate
+  }
   const collectionFee = input.collectionFeeCents ?? 0
 
   // Receipts in time order; a future-dated receipt counts on the as-of day.
@@ -126,6 +142,9 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
         postings.push({ type: "COLLECTION_FEE", day: isoDay(day), amount: collectionFee })
       }
     }
+    const dailyRate = input.defaultInterestMargin === null
+      ? 0
+      : (contractAnnualRateOn(day) + input.defaultInterestMargin) / 365
     if (chargeable(day)) interestExact += overdueBase * dailyRate
     if (isLastDayOfMonth(day) && day < untilDay) postInterestTo(day)
   }

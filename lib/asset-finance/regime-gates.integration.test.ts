@@ -129,6 +129,8 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
         data: {
           ...loanColumns, id: entityLoanId, reference: `LN-RG-E-${t}`, applicationId: entityApp.id, entityId,
           ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE",
+          // The agreement's arrears terms, copied onto the loan at booking (the replay never reads the product's).
+          nonNcaDefaultInterestMargin: "0.04", nonNcaCollectionFeeCents: 15_000,
         },
       })
       await tx.loanApplication.update({ where: { id: entityApp.id }, data: { status: "DISBURSED", disbursedAt: new Date() } })
@@ -214,7 +216,7 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
     expect(await db.loan.findUniqueOrThrow({ where: { id: consumerLoanId } })).toMatchObject({ chargesAccrued: 55_200, daysInArrears: 118 })
   })
 
-  it("charges-sync posts the product's NON_NCA terms on the NON_NCA loan: no service fee, no cap", async () => {
+  it("charges-sync posts the loan's NON_NCA terms on the NON_NCA loan: no service fee, no cap", async () => {
     // (36% + 4%) / 365 on R3,300 overdue (principal + contractual interest):
     // cumulative 30, 61, 92 and 117 days = 10849.32, 22060.27, 33271.23,
     // 42312.33, posted as month-end differences; R150 collection fee on Jun 1.

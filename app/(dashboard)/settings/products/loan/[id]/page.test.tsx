@@ -22,6 +22,12 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth-session", () => ({ getSession }))
 vi.mock("@/lib/auth-guards", () => ({ requireMinRole: vi.fn(async () => ({ role: "ADMIN" })), redirectStaleSession: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: { loanProduct: { findUnique: productFindUnique } } }))
+// The asset-finance flag (product arrears terms) is read through the tenant
+// config; off here, so the consumer form is what renders.
+vi.mock("@/lib/tenant", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/tenant")>()),
+  getTenantConfig: vi.fn(async () => null),
+}))
 vi.mock("@/components/nav/Breadcrumbs", () => ({ Breadcrumbs: () => null }))
 vi.mock("@/components/products/LoanProductForm", () => ({ LoanProductForm: () => null }))
 

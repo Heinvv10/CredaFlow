@@ -89,7 +89,7 @@ export default async function DashboardLayout({
     getTenantConfig(tenantId),
   ])
   const features = resolveFeatureFlags(tenantConfig)
-  const { featureCrm, featureIms, featureBureauSubmission } = features
+  const { featureCrm, featureIms, featureBureauSubmission, featureAssetFinance } = features
 
   return (
     <TenantThemeProvider config={tenantConfig}>
@@ -105,6 +105,7 @@ export default async function DashboardLayout({
         featureCrm={featureCrm}
         featureIms={featureIms}
         featureBureauSubmission={featureBureauSubmission}
+        featureAssetFinance={featureAssetFinance}
       >
         {children}
       </AppShell>

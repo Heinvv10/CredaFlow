@@ -17,7 +17,10 @@ import { computeNonNcaCharges } from "@/lib/asset-finance/non-nca-charges"
 // The tenant's charges switch (flag, go-live, one-way stop; charges-switch.ts)
 // gates BOTH regimes: while it is off, or after a stop, a NON_NCA loan accrues
 // no default interest or collection fee either, and go-live bounds its
-// back-charging exactly as for NCA.
+// back-charging exactly as for NCA. DECIDED (asset-finance slice 1, §4.11):
+// one switch for both regimes, no separate NON_NCA switch. A lender turns
+// default charges on once for its whole book; the NON_NCA terms themselves are
+// per agreement (nonNcaArrearsTerms below), and null terms mean no charge.
 
 /** Add to a writer's existing loan read so the flag costs no extra query. */
 export const CHARGES_FLAG_INCLUDE = {
@@ -92,6 +95,26 @@ export async function chargesLiveForTenant(
   return chargesEnabled({ tenant: { config } })
 }
 
+interface NonNcaTerms<D> {
+  nonNcaDefaultInterestMargin: D | null
+  nonNcaCollectionFeeCents: number | null
+}
+
+/**
+ * A NON_NCA agreement's arrears terms: the ones ON THE LOAN, never the
+ * product's. Booking (lib/asset-finance/booking.ts) copies them from the
+ * deal's signed terms, fixed when the agreement was prepared (none = explicit
+ * 0), so editing the product never reprices a signed agreement's default
+ * interest or fee, and guardAssetDealBooking holds the loan to them. A null
+ * term means no charge.
+ */
+export function nonNcaArrearsTerms<D>(loan: NonNcaTerms<D>): NonNcaTerms<D> {
+  return {
+    nonNcaDefaultInterestMargin: loan.nonNcaDefaultInterestMargin,
+    nonNcaCollectionFeeCents: loan.nonNcaCollectionFeeCents,
+  }
+}
+
 export interface LoanRef {
   tenantId: string
   loanId: string
@@ -132,8 +155,14 @@ export async function loadChargesReplay(
       defaultChargesExemptReason: true,
       defaultChargesExemptEndedAt: true,
       monthlyServiceFee: true,
-      product: { select: { code: true, monthlyServiceFee: true, nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } },
+      nonNcaDefaultInterestMargin: true,
+      nonNcaCollectionFeeCents: true,
+      product: { select: { code: true, monthlyServiceFee: true } },
       application: { select: { affordabilityResult: true } },
+      contractRates: {
+        orderBy: { effectiveDate: "asc" },
+        select: { effectiveDate: true, resultingRate: true },
+      },
       tenant: {
         select: {
           config: {
@@ -224,13 +253,18 @@ export async function loadChargesReplay(
       accrueFrom: extraReceipts.length > 0 ? accrueFromWith(extraReceipts) : accrueFrom,
       accrueUntil,
     }
-    // NON_NCA: the product's arrears terms; no NCA caps, letters or service fee.
+    // NON_NCA: the agreement's arrears terms; no NCA caps, letters or service fee.
     if (loan.ncaRegime === "NON_NCA") {
-      const margin = loan.product.nonNcaDefaultInterestMargin
+      const terms = nonNcaArrearsTerms(loan)
+      const margin = terms.nonNcaDefaultInterestMargin
       return computeNonNcaCharges({
         ...common,
         defaultInterestMargin: margin === null ? null : margin.toNumber(),
-        collectionFeeCents: loan.product.nonNcaCollectionFeeCents,
+        collectionFeeCents: terms.nonNcaCollectionFeeCents,
+        contractRateHistory: loan.contractRates.map((rate) => ({
+          effectiveDate: rate.effectiveDate,
+          annualRate: rate.resultingRate.toNumber(),
+        })),
       })
     }
     return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })

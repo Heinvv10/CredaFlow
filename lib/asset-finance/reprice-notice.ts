@@ -10,17 +10,16 @@
  * managers, so a person sends it. The recipient ids go into the repricing
  * audit row.
  *
- * Recipients: the borrowing entity's ACTIVE relationships in a role that acts
- * for it (DIRECTOR, TRUSTEE, AUTHORISED_SIGNATORY), as Client ids, once each.
- * A SURETY, MEMBER or BENEFICIAL_OWNER alone is not a recipient.
+ * Recipients: the entity's servicing contacts (./entity-contacts.ts
+ * entityContactRecipients): ACTIVE directors, trustees and authorised
+ * signatories with no recorded death, as Client ids, once each. A SURETY,
+ * MEMBER or BENEFICIAL_OWNER alone is not a recipient.
  */
-import type { EntityRole } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import type { NotificationType } from "@/lib/notifications/bell"
+import { entityContactRecipients } from "./entity-contacts"
 
 export type NoticeDb = Pick<typeof prisma, "entityRelationship" | "user" | "notification">
-
-export const NOTICE_ROLES: readonly EntityRole[] = ["DIRECTOR", "TRUSTEE", "AUTHORISED_SIGNATORY"]
 // The roles the bureau job alerts too (lib/bureau-submission/generate.ts).
 const ALERTED_STAFF_ROLES = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"] as const
 
@@ -57,12 +56,8 @@ export async function alertLoanAdmins(db: Pick<NoticeDb, "user" | "notification"
 
 /** Resolves the recipients and raises the staff bell items; returns the recipient Client ids. */
 export async function queueRepriceNotice(db: NoticeDb, notice: RepriceNotice): Promise<string[]> {
-  const relationships = notice.entityId === null ? [] : await db.entityRelationship.findMany({
-    where: { tenantId: notice.tenantId, entityId: notice.entityId, active: true, role: { in: [...NOTICE_ROLES] } },
-    select: { clientId: true },
-    orderBy: { clientId: "asc" },
-  })
-  const recipientClientIds = [...new Set(relationships.map((r) => r.clientId))]
+  const contacts = notice.entityId === null ? [] : await entityContactRecipients(db, notice.tenantId, notice.entityId)
+  const recipientClientIds = contacts.map((c) => c.clientId)
 
   const recipients = recipientClientIds.length === 0
     ? "The borrower has no active director, trustee or authorised signatory to send it to."

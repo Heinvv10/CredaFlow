@@ -108,3 +108,13 @@ export function callerIp(req: Request): string {
 
   return "unknown"
 }
+
+/**
+ * callerIp for a record rather than a rate-limit key: null instead of the
+ * "unknown" bucket when no trusted proxy supplied an address, so an access
+ * or audit row never stores a placeholder as if it were an IP.
+ */
+export function recordedCallerIp(req: Request): string | null {
+  const ip = callerIp(req)
+  return ip === "unknown" ? null : ip
+}

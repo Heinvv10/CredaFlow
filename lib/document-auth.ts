@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import type { UserRole } from "@prisma/client"
 
 const STAFF_ROLES: UserRole[] = [
@@ -106,6 +107,38 @@ export function matchesMagic(head: Uint8Array, mime: string): boolean {
   const sig = FILE_SIGNATURES[mime]
   if (!sig) return false
   return sig.every((seg) => seg.bytes.every((b, i) => head[seg.offset + i] === b))
+}
+
+// ── Access logging (POPIA) ───────────────────────────────────────────────────
+//
+// One writer for a DocumentAccessLog row, shaped exactly like the row
+// app/api/documents/[id]/view writes for a ClientDocument. Write it BEFORE the
+// bytes are read, so an access that fails half-way is still on the register.
+// The IP is recordedCallerIp (lib/rate-limit.ts): the address the trusted proxy saw,
+// not the raw X-Forwarded-For, whose leading entries the caller writes.
+
+export type DocumentAccessAction = "view" | "download"
+
+export async function logDocumentAccess(
+  db: Pick<typeof prisma, "documentAccessLog">,
+  params: {
+    documentId: string
+    accessorType: "staff" | "client"
+    accessorId: string
+    action: DocumentAccessAction
+    req: Request
+  },
+): Promise<void> {
+  await db.documentAccessLog.create({
+    data: {
+      documentId: params.documentId,
+      accessorType: params.accessorType,
+      accessorId: params.accessorId,
+      action: params.action,
+      ipAddress: recordedCallerIp(params.req),
+      userAgent: params.req.headers.get("user-agent") ?? null,
+    },
+  })
 }
 
 /**

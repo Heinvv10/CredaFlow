@@ -30,11 +30,16 @@ function makeLoan(ncaRegime: "NCA" | "NON_NCA") {
     arrearsAmount: 216_900, daysInArrears: 10, nextPaymentDate: d("2026-09-01"),
     chargesAccrued: 0, chargesOutstanding: 0, defaultChargesExempt: false, defaultChargesExemptReason: null,
     defaultChargesExemptEndedAt: null as Date | null, monthlyServiceFee: 6_900,
+    // The agreement's terms, copied from the deal's signed terms at booking.
+    // The product has since been edited: the replay must not read it.
+    nonNcaDefaultInterestMargin: new Prisma.Decimal("0.02") as Prisma.Decimal | null,
+    nonNcaCollectionFeeCents: 25_000 as number | null,
     product: {
       code: "AF", monthlyServiceFee: 6_900,
-      nonNcaDefaultInterestMargin: new Prisma.Decimal("0.02"), nonNcaCollectionFeeCents: 25_000,
+      nonNcaDefaultInterestMargin: new Prisma.Decimal("0.09"), nonNcaCollectionFeeCents: 99_000,
     },
     application: { affordabilityResult: null },
+    contractRates: [] as Array<{ effectiveDate: Date; resultingRate: Prisma.Decimal }>,
     tenant: {
       config: {
         defaultChargesEnabled: true, defaultAdminChargeCents: 8_200, defaultAdminPostageCents: 1_500,
@@ -90,7 +95,7 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
     expect(result?.chargesAccrued).toBe(12_700)
   })
 
-  it("a NON_NCA loan runs the NON_NCA engine: product margin and collection fee, no letter charge", async () => {
+  it("a NON_NCA loan runs the NON_NCA engine: the loan's booked margin and collection fee (not the edited product's), no letter charge", async () => {
     const { result, posted } = await sync("NON_NCA")
     expect(engines.nonNca).toHaveBeenCalled()
     expect(engines.nca).not.toHaveBeenCalled()
@@ -102,6 +107,24 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
       { type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 3_210 },
     ])
     expect(result?.chargesAccrued).toBe(28_210)
+  })
+
+  it("a NON_NCA replay follows the loan's effective-dated ContractRate history", async () => {
+    const loan = makeLoan("NON_NCA")
+    loan.nonNcaDefaultInterestMargin = new Prisma.Decimal(0)
+    loan.nonNcaCollectionFeeCents = null
+    loan.contractRates = [
+      { effectiveDate: d("2026-01-01"), resultingRate: new Prisma.Decimal("0.12") },
+      { effectiveDate: d("2026-09-06"), resultingRate: new Prisma.Decimal("0.24") },
+    ]
+    const tx = makeTx(loan)
+    const result = await syncLoanCharges(tx as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
+    expect(engines.nonNca.mock.calls.at(-1)?.[0].contractRateHistory).toEqual([
+      { effectiveDate: d("2026-01-01"), annualRate: 0.12 },
+      { effectiveDate: d("2026-09-06"), annualRate: 0.24 },
+    ])
+    // Sep 2..5 at 12%, Sep 6..10 at 24%, on R2,100 overdue.
+    expect(result?.chargesAccrued).toBe(967)
   })
 
   it("a NON_NCA loan whose accrueFrom is after the missed due date: no collection fee, interest only from accrueFrom", async () => {
@@ -120,6 +143,23 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
     // 6 x 210000 x 0.62/365 = 2140.27 → 2140.
     expect(posted).toEqual([{ type: "DEFAULT_INTEREST", day: "2026-09-10", amount: 2_140 }])
     expect(result?.chargesAccrued).toBe(2_140)
+  })
+
+  it("a NON_NCA loan with no terms on it charges nothing: the product's terms are never read", async () => {
+    const loan = makeLoan("NON_NCA")
+    loan.nonNcaDefaultInterestMargin = null
+    loan.nonNcaCollectionFeeCents = null
+    const tx = makeTx(loan)
+    await syncLoanCharges(tx as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
+    expect(engines.nonNca.mock.calls.at(-1)?.[0]).toMatchObject({ defaultInterestMargin: null, collectionFeeCents: null })
+  })
+
+  it("a NON_NCA loan with only one term booked keeps the other null rather than borrowing the product's", async () => {
+    const loan = makeLoan("NON_NCA")
+    loan.nonNcaDefaultInterestMargin = null
+    const tx = makeTx(loan)
+    await syncLoanCharges(tx as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
+    expect(engines.nonNca.mock.calls.at(-1)?.[0]).toMatchObject({ defaultInterestMargin: null, collectionFeeCents: 25_000 })
   })
 
   it("the tenant's charges switch gates NON_NCA charges too: off means no charges at all", async () => {

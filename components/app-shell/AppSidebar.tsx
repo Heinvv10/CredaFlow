@@ -17,15 +17,17 @@ type AppSidebarProps = {
   featureCrm?: boolean
   featureIms?: boolean
   featureBureauSubmission?: boolean
+  featureAssetFinance?: boolean
   role?: UserRole
 }
 
-type Features = { featureCrm: boolean; featureIms: boolean; featureBureauSubmission: boolean }
+type Features = { featureCrm: boolean; featureIms: boolean; featureBureauSubmission: boolean; featureAssetFinance: boolean }
 
 export function groupEnabled(group: NavGroup, features: Features) {
   if (group.feature === "crm") return features.featureCrm
   if (group.feature === "ims") return features.featureIms
   if (group.feature === "bureauSubmission") return features.featureBureauSubmission
+  if (group.feature === "assetFinance") return features.featureAssetFinance
   return true
 }
 
@@ -52,11 +54,12 @@ export function AppSidebar({
   featureCrm = false,
   featureIms = false,
   featureBureauSubmission = false,
+  featureAssetFinance = false,
   role = "READONLY",
 }: AppSidebarProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const features = { featureCrm, featureIms, featureBureauSubmission }
+  const features = { featureCrm, featureIms, featureBureauSubmission, featureAssetFinance }
   const currentHref = activeHref(pathname, staffNavigation, features)
 
   const closeMobile = () => setMobileOpen(false)
