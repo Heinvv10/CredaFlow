@@ -64,7 +64,8 @@ describe(`migration ${NEW_MIGRATION}`, () => {
 
   it("demotes every VERIFIED client the new predicate refuses, through the audited revoke function", () => {
     const sql = read(NEW_MIGRATION)
-    const step = sql.slice(sql.indexOf('SELECT "revoke_client_composite_kyc"('))
+    const step = sql.slice(sql.indexOf('PERFORM "revoke_client_composite_kyc"('))
+    expect(step).toContain("RAISE NOTICE")
     expect(step).toContain(`WHERE client."kycStatus" = 'VERIFIED'`)
     expect(step).toContain(`AND NOT "client_has_composite_kyc"(client."tenantId", client."id")`)
     // The header must not claim the migration is harmless to main's writers.

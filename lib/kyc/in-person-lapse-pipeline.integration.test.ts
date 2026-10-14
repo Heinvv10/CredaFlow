@@ -169,7 +169,7 @@ suite("in-person attestation against a later face verdict", () => {
     expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
   })
 
-  it("is not touched by a stale answer about a superseded ID copy", async () => {
+  it("records a late answer about a superseded ID copy without lapsing an attestation bound to the newer copy", async () => {
     const f = await seed()
     const a = await attempt(f, STALE_MS)
     await sweep(f)
@@ -179,9 +179,42 @@ suite("in-person attestation against a later face verdict", () => {
     stubVlm(different())
     // The worker was handed the older copy, which is no longer the current one.
     const after = await lateAnswer(f, a, f.idCopyId)
+    expect(reasonOf(after)).toBe("subject_identity_changed")
+    expect((after.biometricResult as Record<string, unknown>).idDocumentId).toBe(f.idCopyId)
+    expect((await audits(a.selfieId)).some(isLateAudit)).toBe(true)
+    expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
+  })
+
+  // Dropping that answer would let it fail to count if the newer copy is later
+  // rejected and the older one, which the attestation names, becomes current.
+  it("lapses an attestation on the older copy once the newer copy is rejected and the recorded verdict names the older", async () => {
+    const f = await seed()
+    const a = await attempt(f, STALE_MS)
+    await sweep(f)
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    const newer = await addVerifiedIdCopy(f, "newer", "b".repeat(64))
+    await pause(10)
+    stubVlm(different())
+    const after = await lateAnswer(f, a, f.idCopyId)
+    expect((after.biometricResult as Record<string, unknown>).idDocumentId).toBe(f.idCopyId)
+
+    await db.clientDocument.update({
+      where: { id: newer },
+      data: { verified: false, verifiedAt: null, verificationNote: "Rejected: synthetic", verificationRejectedAt: new Date(), verificationRejectedById: "officer-synthetic" },
+    })
+    expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+  })
+
+  it("still refuses a late PASS about a superseded ID copy", async () => {
+    const f = await seed()
+    const a = await attempt(f, STALE_MS)
+    await sweep(f)
+    await addVerifiedIdCopy(f, "newer", "b".repeat(64))
+    stubVlm(reply())
+    const after = await lateAnswer(f, a, f.idCopyId)
     expect(reasonOf(after)).toBe("biometric_outcome_not_recorded")
     expect((await audits(a.selfieId)).some(isLateAudit)).toBe(false)
-    expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
   })
 
   it("lapses when a selfie submitted after the attestation is swept with an unknown outcome", async () => {

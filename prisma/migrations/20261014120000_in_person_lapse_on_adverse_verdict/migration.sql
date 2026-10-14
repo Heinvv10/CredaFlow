@@ -29,9 +29,15 @@
 --    (lib/kyc/in-person-lapse-migration.test.ts compares them).
 -- 3. Data step: every client still VERIFIED that no longer satisfies
 --    client_has_composite_kyc is demoted by revoke_client_composite_kyc, which
---    writes the KYC_STATUS_CHANGED audit row. After step 2 only the state
---    above can cause it: the predicate otherwise only narrows on rows that
---    carry the new stamp, and none does yet.
+--    writes the KYC_STATUS_CHANGED audit row, and the count is RAISEd as a
+--    NOTICE. It is deliberately NOT narrowed to clients with an in-person
+--    attestation: any VERIFIED client failing the composite predicate is
+--    already in violation, and Client_enforce_composite_kyc would raise on
+--    every write to it. The predicate that changed here is the in-person one,
+--    so the clients caught are those whose in-person attestation the new rules
+--    refuse (an unknown-outcome attempt after it). A client already failing
+--    for another reason would be caught too: none can exist on a database the
+--    triggers have protected, and demoting one is the safe outcome.
 
 CREATE OR REPLACE FUNCTION public.face_verdict_is_adverse(p_result jsonb)
  RETURNS boolean
@@ -291,13 +297,26 @@ AS $function$
 $function$;
 
 -- 3. Demote every client VERIFIED on an attestation the new predicate refuses.
-SELECT "revoke_client_composite_kyc"(
-  client."tenantId",
-  client."id",
-  '20261014120000_in_person_lapse_on_adverse_verdict',
-  'SELFIE',
-  'MIGRATION'
-)
-FROM "Client" AS client
-WHERE client."kycStatus" = 'VERIFIED'
-  AND NOT "client_has_composite_kyc"(client."tenantId", client."id");
+DO $$
+DECLARE
+  demoted integer;
+BEGIN
+  SELECT count(*) INTO demoted
+  FROM "Client" AS client
+  WHERE client."kycStatus" = 'VERIFIED'
+    AND NOT "client_has_composite_kyc"(client."tenantId", client."id");
+
+  PERFORM "revoke_client_composite_kyc"(
+    client."tenantId",
+    client."id",
+    '20261014120000_in_person_lapse_on_adverse_verdict',
+    'SELFIE',
+    'MIGRATION'
+  )
+  FROM "Client" AS client
+  WHERE client."kycStatus" = 'VERIFIED'
+    AND NOT "client_has_composite_kyc"(client."tenantId", client."id");
+
+  RAISE NOTICE '20261014120000_in_person_lapse_on_adverse_verdict: % client(s) demoted from VERIFIED', demoted;
+END
+$$;

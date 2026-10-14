@@ -369,6 +369,38 @@ export function unknownOutcomeAfterAttestation(
 }
 
 /**
+ * The idempotency key of an in-person attestation, shared by the direct route
+ * and the dual-approval grant so both agree on what "the same attestation" is.
+ *
+ * Keyed to the exact circumstances attested to, so one identity + ID pair
+ * cannot stack duplicate attestations. The newest selfie attempt is one of
+ * them: an attestation from before a later attempt no longer counts once that
+ * attempt is released (selfieBlocksInPersonVerification), so staff must be
+ * able to attest afresh after it. So is the time its verdict was recorded: an
+ * adverse verdict landing after an attestation lapses it
+ * (adverseVerdictRecordedAfter), and the fresh attestation over that same
+ * attempt must not hit the old key. The stamp is absent on rows written before
+ * it existed, so their keys are unchanged.
+ */
+export function inPersonAttestationIdempotencyKey(args: {
+  clientId: string
+  idDocument: { id: string; contentSha256: string }
+  subjectFingerprint: string
+  latestAttempt: { id: string; biometricResult: unknown } | null
+}): string {
+  const verdictRecordedAt = jsonRecord(args.latestAttempt?.biometricResult)?.verdictRecordedAt
+  return [
+    "kyc-in-person",
+    args.clientId,
+    args.idDocument.id,
+    args.idDocument.contentSha256,
+    args.subjectFingerprint,
+    args.latestAttempt?.id ?? "no-selfie",
+    ...(typeof verdictRecordedAt === "string" ? [verdictRecordedAt] : []),
+  ].join(":")
+}
+
+/**
  * Valid only while the exact circumstances the approver attested to still hold.
  *
  * A live biometric attempt — processing or passed — takes this out of scope:

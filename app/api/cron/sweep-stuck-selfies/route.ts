@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const perTenant: Array<{ tenantId: string; swept: number; failed: number } | { tenantId: string; error: string }> = []
   for (const { id: tenantId } of tenants) {
     try {
-      perTenant.push({ tenantId, ...(await runWithTenant(tenantId, () => sweepStuckSelfies(tenantId, now))) })
+      perTenant.push({ tenantId, ...(await runWithTenant(tenantId, () => sweepStuckSelfies(tenantId))) })
     } catch (error) {
       perTenant.push({ tenantId, error: error instanceof Error ? error.message : String(error) })
     }

@@ -88,7 +88,7 @@ export async function attempt(
   return { selfieId, generation }
 }
 
-export const sweep = (f: Fixture) => runWithTenant(f.tenantId, () => sweepStuckSelfies(f.tenantId, new Date()))
+export const sweep = (f: Fixture) => runWithTenant(f.tenantId, () => sweepStuckSelfies(f.tenantId))
 
 export const row = (id: string) => db.clientDocument.findUniqueOrThrow({
   where: { id },

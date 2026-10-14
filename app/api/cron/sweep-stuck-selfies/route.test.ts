@@ -33,7 +33,7 @@ describe("GET /api/cron/sweep-stuck-selfies", () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
     expect(m.frames).toEqual(["t1", "t2"])
-    expect(m.sweep).toHaveBeenCalledWith("t1", expect.any(Date))
+    expect(m.sweep).toHaveBeenCalledWith("t1")
     expect(await res.json()).toMatchObject({ ok: true, perTenant: [{ tenantId: "t1", swept: 2, failed: 0 }, { tenantId: "t2", swept: 0, failed: 0 }] })
   })
 

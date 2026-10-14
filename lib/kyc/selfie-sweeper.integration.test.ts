@@ -102,6 +102,31 @@ suite("stuck selfie sweeper", () => {
     expect((await row(live.selfieId)).extractionStatus).toBe("processing")
   })
 
+  // The lease is aged by the database clock, never by the cron host's.
+  it("does not sweep a live attempt when the cron host's clock runs an hour ahead", async () => {
+    const f = await seed()
+    const live = await attempt(f, 60_000)
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3_600_000 })
+    try {
+      expect(await sweep(f)).toEqual({ swept: 0, failed: 0 })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect((await row(live.selfieId)).extractionStatus).toBe("processing")
+  })
+
+  it("sweeps a stale attempt even when the cron host's clock runs an hour behind", async () => {
+    const f = await seed()
+    const stuck = await attempt(f, STALE_MS)
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() - 3_600_000 })
+    try {
+      expect(await sweep(f)).toEqual({ swept: 1, failed: 0 })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect((await row(stuck.selfieId)).extractionStatus).toBe("failed")
+  })
+
   it("does not re-project the client over a swept attempt that a newer selfie superseded", async () => {
     const f = await seed()
     const older = await attempt(f, STALE_MS + 60_000)

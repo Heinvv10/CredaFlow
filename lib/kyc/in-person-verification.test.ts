@@ -6,6 +6,7 @@ import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
   idDocumentPortraitRefused,
+  inPersonAttestationIdempotencyKey,
   selfieBlocksInPersonVerification,
   matchesBlockingSelfie,
   parseInPersonKycVerificationEvidence,
@@ -450,5 +451,26 @@ describe("lapse on a later face verdict or an unknown outcome", () => {
     expect(current({
       selfieAttempts: [{ biometricResult: { biometricFailureReason: "face_not_detected" }, createdAt: at(1_000) }],
     })).not.toBeNull()
+  })
+})
+
+describe("inPersonAttestationIdempotencyKey", () => {
+  const base = {
+    clientId: "client-1",
+    idDocument: { id: "doc-id-copy", contentSha256: ID_SHA },
+    subjectFingerprint: "f".repeat(64),
+  }
+
+  it("names the circumstances attested to", () => {
+    expect(inPersonAttestationIdempotencyKey({ ...base, latestAttempt: null }))
+      .toBe(`kyc-in-person:client-1:doc-id-copy:${ID_SHA}:${"f".repeat(64)}:no-selfie`)
+  })
+
+  it("changes when the latest attempt's verdict is recorded, so a re-attestation after a lapse is a new key", () => {
+    const swept = { id: "selfie-1", biometricResult: { swept: true } }
+    const stamped = { id: "selfie-1", biometricResult: { verdictRecordedAt: "2026-10-14T10:00:00.123Z" } }
+    const keyOf = (latestAttempt: typeof swept | typeof stamped) => inPersonAttestationIdempotencyKey({ ...base, latestAttempt })
+    expect(keyOf(stamped)).not.toBe(keyOf(swept))
+    expect(keyOf(stamped)).toBe(`${keyOf(swept)}:2026-10-14T10:00:00.123Z`)
   })
 })

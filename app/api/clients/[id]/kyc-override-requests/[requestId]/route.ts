@@ -5,6 +5,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
 import {
   assessBiometricEvidence,
   biometricSubjectFingerprint,
@@ -32,6 +33,7 @@ import {
   IN_PERSON_KYC_VERIFICATION_MIN_NOTE_CHARACTERS,
   IN_PERSON_KYC_VERIFICATION_VERSION,
   idDocumentPortraitRefused,
+  inPersonAttestationIdempotencyKey,
   isInPersonKycVerificationMethod,
   selfieBlocksInPersonVerification,
   type InPersonKycVerificationEvidence,
@@ -201,13 +203,15 @@ async function grantInPerson(
     }),
     tx.clientDocument.findFirst({
       where: { tenantId: args.tenantId, clientId: args.clientId, docType: "SELFIE" },
-      orderBy: latestSelfieOrder(), select: { id: true },
+      orderBy: latestSelfieOrder(), select: { id: true, biometricResult: true },
     }),
   ])
   if (CORE_KYC_DOCUMENT_TYPES.some((type) => !coreDocuments.some((doc) => doc.docType === type && doc.verified))) {
     return { kind: "core_documents_missing" as const }
   }
-  const approvedAt = new Date()
+  // The database clock, under the client evidence lock: compared with verdict
+  // stamps written by other app hosts.
+  const approvedAt = await databaseNow(tx)
   const idCopies = coreDocuments.filter((doc) => doc.docType === "ID_COPY")
   if (blockingCandidates.some((selfie) => selfieBlocksInPersonVerification(selfie, idCopies, approvedAt))) {
     return { kind: "biometric_attempt_exists" as const }
@@ -231,10 +235,18 @@ async function grantInPerson(
     approvedWithTotp: args.actor.totpVerified === true,
     overrideRequestId: args.requestId,
   }
+  const idempotencyKey = inPersonAttestationIdempotencyKey({
+    clientId: args.clientId, idDocument, subjectFingerprint, latestAttempt,
+  })
+  // The same circumstances were already attested (by either route): a refusal
+  // the approver can read, not a unique-constraint failure.
+  if (await tx.complianceRecord.findUnique({ where: { idempotencyKey }, select: { id: true } })) {
+    return { kind: "verification_exists" as const }
+  }
   const record = await tx.complianceRecord.create({
     data: {
       tenantId: args.tenantId, type: "KYC_EXCEPTION", referenceId: args.clientId,
-      idempotencyKey: ["kyc-in-person", args.clientId, idDocument.id, idDocument.contentSha256, subjectFingerprint, latestAttempt?.id ?? "no-selfie"].join(":"),
+      idempotencyKey,
       status: "COMPLETED", completedAt: approvedAt,
       data: evidence as unknown as Prisma.InputJsonValue,
     },
@@ -390,6 +402,11 @@ export async function PUT(
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
       return NextResponse.json({ error: "The KYC request or evidence changed concurrently. Refresh and review it again." }, { status: 409 })
+    }
+    // The idempotency key was taken concurrently: the same circumstances were
+    // attested a moment ago. Nothing was written (the transaction rolled back).
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json({ error: "These circumstances were already attested. Refresh and review the client's KYC again.", code: "verification_exists" }, { status: 409 })
     }
     if (
       error instanceof Prisma.PrismaClientUnknownRequestError &&

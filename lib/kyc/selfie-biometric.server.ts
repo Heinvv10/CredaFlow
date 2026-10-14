@@ -413,21 +413,29 @@ async function persistBiometricOutcome(args: {
       // mirrored in SQL): staff could not have seen it.
       verdictRecordedAt: completedAt.toISOString(),
     } as Prisma.InputJsonValue
-    // A worker answering after the sweeper failed its attempt. Only an ADVERSE
-    // answer for the client's current attempt, on the current ID and unchanged
-    // subject, is recorded: it re-projects the client's KYC below. A pass, a
-    // benign failure or a stale one changes nothing, so the swept attempt can
-    // never be loosened into a pass or a benign reason. The recorded reason
-    // replaces the swept one even when it is a more lenient adverse reason (an
-    // exceptionable `match_score_below_threshold` for the non-exceptionable
-    // `biometric_outcome_not_recorded`): it is the real verdict.
-    if (lateAnswer && !(
-      !biometricPassed &&
-      outcomeIsCurrent &&
-      subjectUnchanged &&
-      idDocumentUnchanged &&
-      isAdversePriorAttempt({ extractionStatus: "failed", biometricResult: biometricResultJson })
-    )) {
+    // A worker answering after the sweeper failed its attempt. Only an answer
+    // that is ADVERSE as the worker gave it, for the client's current attempt
+    // on an unchanged subject, is recorded: it re-projects the client's KYC
+    // below. A pass or a benign failure changes nothing, so the swept attempt
+    // can never be loosened into a pass or a benign reason. The recorded
+    // reason replaces the swept one even when it is a more lenient adverse
+    // reason (an exceptionable `match_score_below_threshold` for the
+    // non-exceptionable `biometric_outcome_not_recorded`): it is the real
+    // verdict.
+    //
+    // An answer about an ID copy since superseded IS recorded (as
+    // subject_identity_changed, with the real idDocumentId and its verdict).
+    // It only tightens state: the in-person lapse rule ignores a verdict naming
+    // another copy, but dropping it would let it fail to count if staff later
+    // reject the newer copy and the older one becomes the attested ID again.
+    const workerAdverse = !args.biometricPassed && isAdversePriorAttempt({
+      extractionStatus: "failed",
+      biometricResult: {
+        ...(biometricResultJson as Record<string, unknown>),
+        biometricFailureReason: args.biometricFailureReason,
+      },
+    })
+    if (lateAnswer && !(workerAdverse && outcomeIsCurrent && subjectUnchanged)) {
       return false
     }
     const documentChanged = await tx.clientDocument.updateMany({

@@ -1,5 +1,6 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
 import { prisma } from "@/lib/prisma"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
 import {
@@ -107,10 +108,13 @@ function staleWhere(tenantId: string, now: Date) {
 export async function sweepStuckSelfie(
   tenantId: string,
   candidate: { id: string; clientId: string },
-  now: Date,
 ): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     await lockAffordabilityClientEvidence(tx, { tenantId, clientId: candidate.clientId })
+    // The lease clock is the database's: extractionStartedAt is stamped from it
+    // (selfie-capture.server.ts), so neither the capturing host nor the cron
+    // host can age an attempt wrongly.
+    const now = await databaseNow(tx)
 
     const where = { ...staleWhere(tenantId, now), id: candidate.id, clientId: candidate.clientId }
     const attempt = await tx.clientDocument.findFirst({
@@ -233,8 +237,8 @@ export async function sweepStuckSelfie(
  */
 export async function sweepStuckSelfies(
   tenantId: string,
-  now: Date,
 ): Promise<{ swept: number; failed: number }> {
+  const now = await databaseNow(prisma)
   const stale = await prisma.clientDocument.findMany({
     where: staleWhere(tenantId, now),
     select: { id: true, clientId: true },
@@ -245,7 +249,7 @@ export async function sweepStuckSelfies(
   let failed = 0
   for (const attempt of stale) {
     try {
-      if (await sweepStuckSelfie(tenantId, attempt, now)) swept++
+      if (await sweepStuckSelfie(tenantId, attempt)) swept++
     } catch (error) {
       failed++
       console.error("[selfie-sweeper] failed to sweep attempt", {

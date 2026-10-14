@@ -45,6 +45,8 @@
   ANY selfie attempt (deleted or not) records an adverse face verdict at or
   after the attestation's `completedAt` on the attested ID (`verdictRecordedAt`),
   or ends `biometric_outcome_not_recorded` after it. Strictly earlier, or about a
-  superseded ID, it stands. Both stamps use the DB clock (`lib/db-clock.ts`).
+  superseded ID, it stands. All lapse and lease stamps use the DB clock
+  (`lib/db-clock.ts`); the direct and dual-approval routes share one idempotency
+  key builder (`inPersonAttestationIdempotencyKey`).
   Re-attest to recover. The migration also demotes clients it would strand.
 - Real-DB suites: `RUN_SELFIE_SWEEPER_IT=1`, and `RUN_KYC_IN_PERSON_IT=1` for the lapse parity.

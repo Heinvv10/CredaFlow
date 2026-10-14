@@ -20,6 +20,7 @@ import {
   IN_PERSON_KYC_VERIFICATION_VERSION,
   ID_PORTRAIT_REFUSAL_CONDITIONS,
   idDocumentPortraitRefused,
+  inPersonAttestationIdempotencyKey,
   isInPersonKycVerificationMethod,
   selfieBlocksInPersonVerification,
   type InPersonKycVerificationEvidence,
@@ -223,27 +224,10 @@ export async function POST(
           approvedByEmail: guard.user.email,
           approvedWithTotp: guard.user.totpVerified === true,
         }
-        // Keyed to the exact circumstances attested to, so the same admin
-        // cannot stack duplicate attestations over one identity + ID pair.
-        // The newest selfie attempt is one of those circumstances: an
-        // attestation from before a later attempt no longer counts once that
-        // attempt is released (selfieBlocksInPersonVerification), so staff
-        // must be able to attest afresh after it.
-        // So is the time its verdict was recorded: an adverse verdict landing
-        // after an attestation lapses it (adverseVerdictRecordedAfter), and the
-        // fresh attestation over that same attempt must not hit the old key.
-        // Absent on rows written before the stamp, so their keys are unchanged.
-        const verdictRecordedAt = (latestAttempt?.biometricResult as { verdictRecordedAt?: unknown } | null)
-          ?.verdictRecordedAt
-        const idempotencyKey = [
-          "kyc-in-person",
-          clientId,
-          idDocument.id,
-          idDocument.contentSha256,
-          subjectFingerprint,
-          latestAttempt?.id ?? "no-selfie",
-          ...(typeof verdictRecordedAt === "string" ? [verdictRecordedAt] : []),
-        ].join(":")
+        // One key builder for this route and the dual-approval grant.
+        const idempotencyKey = inPersonAttestationIdempotencyKey({
+          clientId, idDocument, subjectFingerprint, latestAttempt,
+        })
         const existing = await tx.complianceRecord.findUnique({
           where: { idempotencyKey },
           select: { id: true },
