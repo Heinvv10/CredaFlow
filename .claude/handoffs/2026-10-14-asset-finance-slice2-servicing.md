@@ -35,10 +35,10 @@ Passed on this branch:
 
 - `npx tsc --noEmit`
 - `npm run lint`
-- `npm test`: 1,040 files passed, 150 skipped; 14,519 tests passed, 1,502 skipped
+- `npm test`: 1,046 files passed, 151 skipped; 14,564 tests passed, 1,521 skipped
 - `npm run build`: 229 static pages generated; known Turbopack NFT tracing
   warning from `next.config.ts` through the insurance-disclosures route only
-- `npm run claude-md:check && npm run agents:check`: all path and 10 mirror
+- `npm run claude-md:check && npm run agents:check`: all path and 11 mirror
   checks passed
 - Explicit NCA/PDF checks: 3 files, 9 tests passed
 - Clean `prisma migrate reset --force` and seed against throwaway PostgreSQL 16
@@ -48,10 +48,11 @@ Passed on this branch:
 - Targeted deal integration suite after the final surrender-payment FK: 15/15
 - `git diff --check`
 - GitHub Actions are green across the complete open stack: PRs #48, #50, #59,
-  #65 and #66 each passed `docs`, `boundaries`, `integration` and `quality`.
-- The intermediate-branch repairs are `1071fab` on #59 and `5c6ea2b` on #65;
-  #66 merged the repaired parent at `e9600e8` without changing its verified
-  source tree.
+  #65 and #66 each passed the consolidated `integration` and `quality` gates.
+- Current `main` was merged through the complete stack to resolve #48's base
+  conflict while retaining both KYC hardening and asset-finance enforcement.
+  The resulting heads before this handoff-only update were `b8271d7` (#48),
+  `be1b5c6` (#50), `912a16a` (#59), `7b6d6ee` (#65) and `e412f60` (#66).
 
 The statement-accuracy integration suite remains intentionally skipped by its
 existing gate. No shared database migration was run.
@@ -106,8 +107,8 @@ These are implementation defaults, not approved legal positions:
 - Do not apply migrations to a shared database, enable non-draft legal output,
   or deploy without a separate confirmation gate.
 - GitHub billing was restored and every PR in the asset-finance stack now has
-  four green hosted checks. The earlier pre-execution billing failures are
-  superseded by successful reruns.
+  both consolidated hosted checks green. The earlier pre-execution billing
+  failures are superseded by successful reruns.
 - A blind independent review was not performed in this run because delegation
   was unavailable. It remains required before merge.
 - Obtain independent SHIP/CLEAN review, then stop for the owner-controlled
