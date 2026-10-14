@@ -215,11 +215,9 @@ export function PortalDocumentsClient({
         }
       }
       if (doc.verified) return { label: "Verified", tone: "success" as const }
-      // Only a replacement ID copy is held against the verified one (the KYC
-      // derivation and the database rule are about ID_COPY alone). Every other
-      // type keeps its previous label here; the checklist branch above already
-      // labels the current copy of each core type.
-      if (doc.docType !== "ID_COPY") {
+      // Only the core types staff review for KYC have a pending-review state.
+      // Other types (OTHER, generated documents) keep their previous label.
+      if (!(REQUIRED_DOC_TYPES as readonly string[]).includes(doc.docType)) {
         return { label: "Superseded", tone: "neutral" as const }
       }
       // Superseded means an older copy that a newer one replaced. The newest
@@ -233,8 +231,9 @@ export function PortalDocumentsClient({
           (Date.parse(other.createdAt) === Date.parse(doc.createdAt) && other.id > doc.id)),
       )
       if (replacedByNewer) return { label: "Superseded", tone: "neutral" as const }
-      // Same rule as the checklist: only a named reviewer's refusal asks the
-      // client to act; a validation mismatch alone is still awaiting review.
+      // Only a named reviewer's refusal is shown as needing action. A validation
+      // mismatch alone shows Pending review here, although the checklist item
+      // (portal-checklist.ts) counts it as action_required.
       return doc.verificationRejectedById
         ? { label: "Action needed", tone: "danger" as const }
         : { label: "Pending review", tone: "info" as const }

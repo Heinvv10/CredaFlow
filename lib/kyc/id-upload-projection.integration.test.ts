@@ -238,7 +238,9 @@ suite("replacement ID copy against the database", () => {
   })
 
   it("attributes to the actor a demotion the insert's database trigger made on its own", async () => {
-    // The previous case left the client VERIFIED on the original copy.
+    // "accepts VERIFIED again once the pending replacement is removed" left the
+    // client VERIFIED on the original copy; the FAILED-client case in between
+    // uses a different client.
     expect((await stored(clientId)).kycStatus).toBe("VERIFIED")
     const result = await uploadNewIdCopy(clientId, `d_id_second_${token}`)
 
