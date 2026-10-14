@@ -129,6 +129,15 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
       expectRejected(insert(`app_y_${t}`, "LEASE_NOT_CREDIT_AGREEMENT"), "only a lease deal's is")
     })
 
+    it("an application without a deal or a rule (a consumer one) is untouched by the lease rules, through classification", () => {
+      const id = `app_c_${t}`
+      sql(`INSERT INTO "LoanApplication" ("id", "tenantId", "reference", "clientId", "productId", "appliedAmount", "appliedTermDays", "updatedAt")
+        VALUES ('${id}', '${fx.tenantId}', '${id}', '${fx.lessee}', '${fx.product}', 100000, 90, now())`)
+      sql(`UPDATE "LoanApplication" SET "ncaRegime" = 'NCA', "ncaClassificationRule" = 'NATURAL_PERSON_NCA', "ncaClassifiedAt" = now(),
+        "ncaClassifiedById" = '${fx.officer}' WHERE "id" = '${id}'`)
+      sql(replica(`DELETE FROM "LoanApplication" WHERE "id" = '${id}'`))
+    })
+
     it("the lease rule is never set or dropped by an update", () => {
       const nca = `app_nca_${t}`
       sql(`INSERT INTO "LoanApplication" ("id", "tenantId", "reference", "entityId", "productId", "appliedAmount", "appliedTermDays", "ncaRegime",
@@ -160,7 +169,7 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
       expectRejected(replica(`INSERT INTO "NcaRegimeOverride" ("id", "tenantId", "applicationId", "fromRegime", "toRegime", "reason", "source",
         "requestedById", "approvedEntityId", "approvedAppliedAmount", "approvedProductId", "approvedClassificationRule", "approvedClassifiedAt")
         VALUES ('ovr_x_${t}', '${fx.tenantId}', '${ids.draftApp}', 'NCA', 'NON_NCA', 'x', 'MANUAL', '${fx.officer}', '${fx.evidenced}', 1, '${fx.product}',
-        'LEASE_NOT_CREDIT_AGREEMENT', now())`), "NcaRegimeOverride_not_lease_rule")
+        'LEASE_NOT_CREDIT_AGREEMENT', now())`), "NcaRegimeOverride_approved_classification_rule_known")
     })
 
     it("a sole proprietor's disbursed lease application is final", () => {

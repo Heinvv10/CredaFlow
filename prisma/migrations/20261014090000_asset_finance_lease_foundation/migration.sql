@@ -128,14 +128,14 @@ ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_cpa_scope_shape"
   ("contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE')) = ("cpaApplies" IS NOT NULL)
   AND ("contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE')) = ("cpaRule" IS NOT NULL)
   AND ("cpaRule" IS NULL OR "cpaRule" IN ('CPA_NATURAL_PERSON', 'CPA_FINANCIALS_UNPROVEN', 'CPA_JURISTIC_OVER_THRESHOLD', 'CPA_JURISTIC_UNDER_THRESHOLD'))
-  AND ("cpaRule" IS NULL OR "cpaApplies" = ("cpaRule" <> 'CPA_JURISTIC_OVER_THRESHOLD'))
-  AND ("cpaRule" IS NOT NULL OR "cpaEvidenceIds" = ARRAY[]::TEXT[])
+  AND ("cpaRule" IS NULL OR "cpaApplies" IS NOT DISTINCT FROM ("cpaRule" <> 'CPA_JURISTIC_OVER_THRESHOLD'))
+  AND ("cpaRule" IS NOT NULL OR COALESCE("cpaEvidenceIds", ARRAY[]::TEXT[]) = ARRAY[]::TEXT[])
 );
 ALTER TABLE "Loan" ADD CONSTRAINT "Loan_cpa_scope_shape" CHECK (
   ("contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE')) = ("cpaApplies" IS NOT NULL)
   AND ("contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE')) = ("cpaRule" IS NOT NULL)
   AND ("cpaRule" IS NULL OR "cpaRule" IN ('CPA_NATURAL_PERSON', 'CPA_FINANCIALS_UNPROVEN', 'CPA_JURISTIC_OVER_THRESHOLD', 'CPA_JURISTIC_UNDER_THRESHOLD'))
-  AND ("cpaRule" IS NULL OR "cpaApplies" = ("cpaRule" <> 'CPA_JURISTIC_OVER_THRESHOLD'))
+  AND ("cpaRule" IS NULL OR "cpaApplies" IS NOT DISTINCT FROM ("cpaRule" <> 'CPA_JURISTIC_OVER_THRESHOLD'))
 );
 -- A loan's CPA scope is its deal's, fixed at booking.
 CREATE OR REPLACE FUNCTION public."guardLoanCpaScope"()
@@ -157,7 +157,7 @@ ALTER TABLE "AssetFinanceDeal" DROP CONSTRAINT "AssetFinanceDeal_planned_start_b
 ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_planned_start_before_first_due" CHECK (
   "plannedStartDate" IS NULL
   OR ("rentalTiming" IS DISTINCT FROM 'ADVANCE' AND "plannedStartDate" < "firstDueDate")
-  OR ("rentalTiming" = 'ADVANCE' AND "plannedStartDate" = "firstDueDate")
+  OR ("rentalTiming" IS NOT DISTINCT FROM 'ADVANCE' AND "plannedStartDate" = "firstDueDate")
 );
 
 -- What was approved is what is signed and booked (slice-1 rule), now
@@ -198,25 +198,21 @@ CREATE TRIGGER "AssetFinanceDeal_approved_lease_terms_frozen" BEFORE UPDATE ON "
 -- commit), cannot be set or dropped by an update, and implies NON_NCA.
 -- ---------------------------------------------------------------------------
 ALTER TABLE "LoanApplication" DROP CONSTRAINT "LoanApplication_nca_classification_rule_known";
+-- The classifier's ids (NCA_RULE_IDS, held equal by nca-rule-ids.test.ts),
+-- or the lease rule, which is not a classifier result. An override's
+-- approved rule (NcaRegimeOverride_approved_classification_rule_known) stays
+-- the classifier's ids only: a lease's regime is never moved by an override.
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_nca_classification_rule_known" CHECK (
   "ncaClassificationRule" IS NULL OR "ncaClassificationRule" IN ('NATURAL_PERSON_NCA', 'TRUST_FEW_NATURAL_TRUSTEES', 'TRUST_UNEVIDENCED',
-    'FINANCIALS_UNPROVEN', 'JURISTIC_OVER_THRESHOLD', 'LARGE_AGREEMENT', 'JURISTIC_SMALL_AGREEMENT', 'LEASE_NOT_CREDIT_AGREEMENT')
-);
-ALTER TABLE "NcaRegimeOverride" DROP CONSTRAINT "NcaRegimeOverride_approved_classification_rule_known";
-ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_approved_classification_rule_known" CHECK (
-  "approvedClassificationRule" IS NULL OR "approvedClassificationRule" IN ('NATURAL_PERSON_NCA', 'TRUST_FEW_NATURAL_TRUSTEES', 'TRUST_UNEVIDENCED',
-    'FINANCIALS_UNPROVEN', 'JURISTIC_OVER_THRESHOLD', 'LARGE_AGREEMENT', 'JURISTIC_SMALL_AGREEMENT', 'LEASE_NOT_CREDIT_AGREEMENT')
-);
--- A lease's regime is never moved by an override: it is not a classifier result.
-ALTER TABLE "NcaRegimeOverride" ADD CONSTRAINT "NcaRegimeOverride_not_lease_rule" CHECK (
-  "approvedClassificationRule" IS DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT'
+    'FINANCIALS_UNPROVEN', 'JURISTIC_OVER_THRESHOLD', 'LARGE_AGREEMENT', 'JURISTIC_SMALL_AGREEMENT')
+  OR "ncaClassificationRule" = 'LEASE_NOT_CREDIT_AGREEMENT'
 );
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_lease_rule_non_nca" CHECK (
-  "ncaClassificationRule" IS DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT' OR "ncaRegime" = 'NON_NCA'
+  "ncaClassificationRule" IS DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT' OR "ncaRegime" IS NOT DISTINCT FROM 'NON_NCA'
 );
 ALTER TABLE "LoanApplication" DROP CONSTRAINT "LoanApplication_non_nca_requires_entity";
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_non_nca_requires_entity" CHECK (
-  "ncaRegime" IS DISTINCT FROM 'NON_NCA' OR "entityId" IS NOT NULL OR "ncaClassificationRule" = 'LEASE_NOT_CREDIT_AGREEMENT'
+  "ncaRegime" IS DISTINCT FROM 'NON_NCA' OR "entityId" IS NOT NULL OR "ncaClassificationRule" IS NOT DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT'
 );
 ALTER TABLE "Loan" DROP CONSTRAINT "Loan_non_nca_requires_entity";
 ALTER TABLE "Loan" ADD CONSTRAINT "Loan_non_nca_requires_entity" CHECK (
@@ -240,7 +236,8 @@ $body$;
 CREATE OR REPLACE FUNCTION public."guardLeaseRuleFixed"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
-  IF (NEW."ncaClassificationRule" = 'LEASE_NOT_CREDIT_AGREEMENT') IS DISTINCT FROM (OLD."ncaClassificationRule" = 'LEASE_NOT_CREDIT_AGREEMENT') THEN
+  IF (NEW."ncaClassificationRule" IS NOT DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT')
+    IS DISTINCT FROM (OLD."ncaClassificationRule" IS NOT DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT') THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'A lease application is written NON_NCA / LEASE_NOT_CREDIT_AGREEMENT and keeps that rule; no other application takes it';
   END IF;
@@ -262,7 +259,7 @@ BEGIN
   SELECT a."ncaClassificationRule" INTO rule FROM "LoanApplication" a WHERE a."id" = target_application;
   SELECT d."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') INTO deal_is_lease
     FROM "AssetFinanceDeal" d WHERE d."applicationId" = target_application;
-  IF (rule = 'LEASE_NOT_CREDIT_AGREEMENT') IS DISTINCT FROM COALESCE(deal_is_lease, FALSE) THEN
+  IF (rule IS NOT DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT') IS DISTINCT FROM COALESCE(deal_is_lease, FALSE) THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'A lease deal''s application is NON_NCA / LEASE_NOT_CREDIT_AGREEMENT, and only a lease deal''s is';
   END IF;

@@ -36,10 +36,14 @@ export const NCA_RULE_IDS = [
   "JURISTIC_OVER_THRESHOLD",
   "LARGE_AGREEMENT",
   "JURISTIC_SMALL_AGREEMENT",
-  // Not a classifier result: an operating or full-maintenance lease is written
-  // NON_NCA on this rule at creation (lib/asset-finance/deal-create.ts).
-  "LEASE_NOT_CREDIT_AGREEMENT",
 ] as const
+
+/**
+ * Not a classifier result: an operating or full-maintenance lease is written
+ * NON_NCA on this rule at creation (./lease-deal.ts). The database admits it
+ * on an application only (LoanApplication_nca_classification_rule_known).
+ */
+export const LEASE_RULE_ID = "LEASE_NOT_CREDIT_AGREEMENT"
 
 export type NcaRuleId = (typeof NCA_RULE_IDS)[number]
 
