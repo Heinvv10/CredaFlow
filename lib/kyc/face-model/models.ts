@@ -81,6 +81,15 @@ export function faceModelUrl(model: FaceModelFile): string {
 export const FACE_SIMILARITY_THRESHOLD = 0.363
 
 /**
+ * Below this similarity the faces are a clear mismatch and a remote-selfie
+ * exception can never be granted. This product safety floor is deliberately
+ * not tenant-configurable. It is initially unmeasured because no real
+ * impostor-pair dataset exists yet; changing it requires explicit approval
+ * and a matching SQL change.
+ */
+export const FACE_MISMATCH_FLOOR = 0.30
+
+/**
  * On the ID, the largest face is used only when every other detected face's
  * box is at most this fraction of its area: the smart ID card prints a small
  * secondary "ghost" portrait of the holder (measured around a tenth of the

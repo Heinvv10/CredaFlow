@@ -38,6 +38,7 @@ const db = new PrismaClient()
 const token = randomUUID().replaceAll("-", "")
 const tenantId = `t_${token}`
 const clientId = `c_${token}`
+const reviewerId = `reviewer_${token}`
 const idDocumentId = `d_id_${token}`
 const ID_SHA = "a".repeat(64)
 // idNumber is globally unique and the immutable compliance evidence keeps the
@@ -75,6 +76,10 @@ async function verdict(): Promise<{ db: boolean; app: boolean }> {
 suite("in-person KYC verification across the app and database layers", () => {
   beforeAll(async () => {
     await db.tenant.create({ data: { id: tenantId, slug: `probe-${token}`, name: "Probe" } })
+    await db.user.create({ data: {
+      id: reviewerId, tenantId, email: `reviewer-${token}@test.invalid`, password: "synthetic",
+      role: "ADMIN", active: true, totpEnabled: true, lastTotpCounter: 1,
+    } })
     await db.client.create({
       data: {
         id: clientId, tenantId, reference: `CL-${token}`, idNumber,
@@ -134,8 +139,9 @@ suite("in-person KYC verification across the app and database layers", () => {
           method: "IN_PERSON_BRANCH",
           note: "Client attended Hendrina branch; face matched the ID photo.",
           approvedAt: completedAt.toISOString(),
-          approvedById: "admin-1",
-          approvedByEmail: "admin@acme-lending.example",
+          approvedById: reviewerId,
+          approvedByEmail: `reviewer-${token}@test.invalid`,
+          approvedWithTotp: true,
         },
       },
     })

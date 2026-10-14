@@ -10,6 +10,7 @@ export const STAFF_SELFIE_SELECT = {
   biometricMatchScore: true,
   biometricLiveness: true,
   biometricVerifiedAt: true,
+  biometricResult: true,
   extractionStatus: true,
   verified: true,
   verifiedAt: true,

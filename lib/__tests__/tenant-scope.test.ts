@@ -106,6 +106,8 @@ describe("tenant-scope — ALS primitives", () => {
       "TaxInvoice",
       "CreditNote",
       "VatConfig",
+      // Dual-approval KYC override requests — non-null tenantId.
+      "KycOverrideRequest",
     ])
   })
 

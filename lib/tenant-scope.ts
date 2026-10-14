@@ -89,6 +89,7 @@ export const TENANT_SCOPED_MODELS = [
   "TaxInvoice",
   "CreditNote",
   "VatConfig",
+  "KycOverrideRequest",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

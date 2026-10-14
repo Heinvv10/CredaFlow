@@ -484,3 +484,37 @@ describe("SelfieKycTab failure wording", () => {
     expect(html).not.toContain("some_reason_that_does_not_exist")
   })
 })
+
+describe("SelfieKycTab pending override controls", () => {
+  it("uses the request kind for approval while keeping decline available", () => {
+    const html = renderToStaticMarkup(
+      <SelfieKycTab
+        clientId="client-1"
+        currentKycStatus="FAILED"
+        currentManualRejectionActive={false}
+        currentManualRejectionReason={null}
+        selfieDoc={reviewableFailure}
+        imageUrl="/api/documents/selfie-latest/view"
+        canGrantManualException={false}
+        canRecordInPersonVerification
+        canDecideOverrideRequest
+        currentUserId="approver-2"
+        pendingOverrideRequests={[{
+          id: "request-1",
+          kind: "EXCEPTION",
+          requestedById: "requester-1",
+          requestedAt: "2026-10-13T12:00:00.000Z",
+          expiresAt: "2026-10-20T12:00:00.000Z",
+          requestedBy: { email: "requester@test.invalid", name: "Synthetic Requester" },
+        }]}
+        biometricEvidence="match_score_below_threshold"
+        biometricAttemptFailed
+        biometricAwaitingIdVerification={false}
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
+        seniorExceptionAvailable
+      />,
+    )
+    expect(html).toContain("Decline")
+    expect(html).not.toContain(">Approve<")
+  })
+})
