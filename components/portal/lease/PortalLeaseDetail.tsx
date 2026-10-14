@@ -11,6 +11,7 @@ import { LeaseDocuments } from "./LeaseDocuments"
 import { LeaseEndOfTermPanel } from "./LeaseEndOfTermPanel"
 import { LeaseMaintenanceFund } from "./LeaseMaintenanceFund"
 import { LeaseMeterReadingForm } from "./LeaseMeterReadingForm"
+import { LeaseOtherCharges } from "./LeaseOtherCharges"
 import { LeaseRentalsTable } from "./LeaseRentalsTable"
 import { LeaseTerminationPanel } from "./LeaseTerminationPanel"
 
@@ -41,6 +42,7 @@ export function PortalLeaseDetail({ view, back, documents }: {
     status, endOfTermStarted: view.endOfTerm.chosen !== null, penaltyConfigured: view.termination.penaltyConfigured,
     quote: view.termination.latestQuote, today,
   })
+  const charges = view.defaultCharges
   const offer = endOfTermOffer({ status, lastRentalDate: loan.maturityDate, chosen: view.endOfTerm.chosen !== null, currentValuation: view.endOfTerm.valuation !== null, today })
 
   return (
@@ -49,7 +51,7 @@ export function PortalLeaseDetail({ view, back, documents }: {
       <DataPanel
         title={`Lease ${loan.reference}`}
         description={[statusLabel(loan.contractType), view.entity?.legalName].filter(Boolean).join(" · ")}
-        actions={<StatusPill tone={view.arrearsCents > 0 ? "danger" : "success"}>{statusLabel(status)}</StatusPill>}
+        actions={<StatusPill tone={view.overdueInclChargesCents > 0 ? "danger" : "success"}>{statusLabel(status)}</StatusPill>}
       >
         <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
           <Figure
@@ -64,12 +66,22 @@ export function PortalLeaseDetail({ view, back, documents }: {
             sub={view.nextRental ? `Due ${formatIsoDate(view.nextRental.dueDate)}` : undefined}
           />
           <Figure label="Overdue rentals" value={view.arrearsCents > 0 ? formatMoney(view.arrearsCents) : "None"} />
+          <Figure
+            label="Overdue incl. charges"
+            value={view.overdueInclChargesCents > 0 ? formatMoney(view.overdueInclChargesCents) : "None"}
+            sub={charges.lines.length > 0 ? `Includes ${charges.lines.map((l) => `${l.label} ${formatMoney(l.amount)}`).join(" · ")}` : undefined}
+          />
           {view.fund && <Figure label="Maintenance fund" value={formatMoney(view.fund.balanceCents)} />}
         </dl>
       </DataPanel>
       <DataPanel title="Rentals" description="Rental and maintenance exclude VAT; the total includes it. Each rental has its own tax invoice." density="compact">
-        <LeaseRentalsTable loanId={loan.id} rentals={view.rentals} />
+        <LeaseRentalsTable loanId={loan.id} rentals={view.rentals} maintenance={loan.contractType === "FULL_MAINTENANCE_LEASE"} />
       </DataPanel>
+      {(view.otherCharges.length > 0 || charges.outstandingCents > 0) && (
+        <DataPanel title="Other charges" description="What the lease owes besides its rentals" density="compact">
+          <LeaseOtherCharges loanId={loan.id} charges={view.otherCharges} defaultCharges={charges} />
+        </DataPanel>
+      )}
       {view.fund && (
         <DataPanel title="Maintenance fund" description="What the maintenance part of your rentals has built up, and the claims made against it">
           <LeaseMaintenanceFund fund={view.fund} />

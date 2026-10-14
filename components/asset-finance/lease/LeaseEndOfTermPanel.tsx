@@ -51,6 +51,7 @@ async function recentValuations(tenantId: string, data: LeaseStaffData): Promise
 export async function LeaseEndOfTermPanel({ tenantId, data, canManage, canDecide }: { tenantId: string; data: LeaseStaffData; canManage: boolean; canDecide: boolean }) {
   const eot = data.endOfTerm
   const base = `/api/asset-finance/leases/${data.loanId}/end-of-term`
+  const documents = `/api/asset-finance/leases/${data.loanId}/documents`
   const windowOpen = data.today >= data.electionOpensOn
   const elect = canElect({ loanStatus: data.loanStatus, hasEndOfTerm: eot !== null, windowOpen, canManage })
   const next = eot ? nextEndStep(eot, data.today) : null
@@ -120,6 +121,17 @@ export async function LeaseEndOfTermPanel({ tenantId, data, canManage, canDecide
         {eot && !next && eot.status === "EXTENDING" && (
           <p className="text-sm text-[var(--cf-text-muted)]">
             The lease runs month to month: each month a rental is added until notice ends it{eot.extensionEndsOn && `; it ends ${formatIsoDate(eot.extensionEndsOn)}, then the asset is returned`}.
+          </p>
+        )}
+        {(data.expiryNotice || eot?.inspectedOn) && (
+          <p className="text-sm text-[var(--cf-text)]">
+            {data.expiryNotice && (
+              <a className={link} href={`${documents}/expiry-notice`} target="_blank" rel="noopener noreferrer">
+                CPA expiry notice ({formatIsoDate(data.expiryNotice.queuedOn)})
+              </a>
+            )}
+            {data.expiryNotice && eot?.inspectedOn && " · "}
+            {eot?.inspectedOn && <a className={link} href={`${documents}/inspection-report`} target="_blank" rel="noopener noreferrer">Inspection report</a>}
           </p>
         )}
         {eot && !next && eot.status === "INVOICED" && (

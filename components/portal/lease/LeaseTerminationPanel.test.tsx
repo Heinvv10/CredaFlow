@@ -94,4 +94,11 @@ describe("LeaseTerminationPanel", () => {
     expect(r.root.findByProps({ role: "alert" }).children.join("")).toBe("The quote expired on 2027-05-20")
     expect(mocks.refresh).not.toHaveBeenCalled()
   })
+
+  it("links the quote's PDF whenever there is a quote, and nothing before one", async () => {
+    const links = (r: ReturnType<typeof create>) => r.root.findAllByType("a").map((a) => a.props.href)
+    expect(links(await mount({ quote, actions: valid }))).toEqual(["/api/portal/asset-finance/leases/L1/documents/termination-quote?quoteId=q1&download=1"])
+    expect(links(await mount({ quote: { ...quote, status: "ACCEPTED" }, actions: { state: "ACCEPTED", canRequest: false, canAccept: false } }))).toHaveLength(1)
+    expect(links(await mount({ quote: null, actions: { state: "NONE", canRequest: true, canAccept: false } }))).toEqual([])
+  })
 })

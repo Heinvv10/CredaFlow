@@ -274,14 +274,14 @@ trigger or CHECK, each proven by an IT that removes it
   Section 129 (`section129-eligibility.ts` refuses NON_NCA). IT:
   `lease-collections.integration.test.ts`.
 - **Seed**: a company FML (LENDER_RISK, claims, readings), a sole-proprietor
-  operating lease (CPA, an open quote) and a trust FML at end of term
-  (LESSEE_SETTLED, inspected), through the real lib functions. Acceptance:
+  operating lease (CPA, an open quote) and a trust FML (LESSEE_SETTLED) with
+  its RETURN elected (the inspection waits for the term's end, which a seed
+  run on the booking day cannot reach), through the real lib functions. Acceptance:
   three lease deals with independent working (`__fixtures__/acceptance-lease-deals.ts`).
 - // PARTIAL: the deal summary panel still shows deposit / trade-in / fees
   (R 0.00) for a lease; a claim's provider invoice must already be filed on
   the deal (no upload in the claim form); the portal loans list still says
-  "loan" for a lease; a sole-proprietor lessee has no link to the quote and
-  inspection PDFs yet (the routes exist).
+  "loan" for a lease.
 
 ## Acceptance (every slice)
 

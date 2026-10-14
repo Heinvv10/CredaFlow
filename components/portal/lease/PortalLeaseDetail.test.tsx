@@ -27,7 +27,8 @@ function view(over: Partial<PortalLeaseView> = {}): PortalLeaseView {
       rental(2, { state: "OVERDUE", invoice: { id: "inv-2", invoiceNumber: "TI-0002" } }),
       rental(3),
     ],
-    arrearsCents: 126_500, nextRental: { dueDate: "2027-03-01", amountCents: 126_500 },
+    arrearsCents: 126_500, otherCharges: [], defaultCharges: { outstandingCents: 0, lines: [] }, overdueInclChargesCents: 126_500,
+    nextRental: { dueDate: "2027-03-01", amountCents: 126_500 },
     fund: null, meter: null,
     termination: { penaltyConfigured: true, latestQuote: null },
     endOfTerm: { chosen: null, valuation: null },
@@ -90,7 +91,7 @@ describe("PortalLeaseDetail", () => {
   })
 
   it("hides the early-termination panel once the end of term is chosen", () => {
-    const html = render(view({ today: "2029-07-01", endOfTerm: { chosen: { outcome: "RETURN", status: "ELECTED", early: false }, valuation: null } }))
+    const html = render(view({ today: "2029-07-01", endOfTerm: { chosen: { outcome: "RETURN", status: "ELECTED", early: false, inspected: false }, valuation: null } }))
     expect(html).not.toContain("End the lease early")
     expect(html).toContain("You chose to return the asset.")
   })
@@ -105,5 +106,36 @@ describe("PortalLeaseDetail", () => {
     const text = html.replace(/<[^>]+>/g, " ")
     expect(text).not.toMatch(/\b(loan|loans|interest|instalments?)\b/i)
     expect(text).toContain("Rentals")
+  })
+
+  it("shows what is overdue including the other charges, and lists them with their tax invoices", () => {
+    const html = render(view({
+      otherCharges: [
+        { id: "s9", kind: "END_OF_TERM", dueDate: "2027-03-01", totalCents: 50_000, paidCents: 20_000, outstandingCents: 30_000, state: "OVERDUE", invoice: { id: "inv-9", invoiceNumber: "TI-0009" } },
+        { id: "s10", kind: "TERMINATION", dueDate: "2027-04-01", totalCents: 80_000, paidCents: 0, outstandingCents: 80_000, state: "PENDING", invoice: null },
+      ],
+      defaultCharges: { outstandingCents: 7_000, lines: [{ label: "Collection fee", amount: 7_000 }] },
+      overdueInclChargesCents: 163_500,
+    }))
+    expect(html).toContain("Overdue incl. charges")
+    expect(html).toContain(formatMoney(163_500))
+    expect(html).toContain("Other charges")
+    expect(html).toContain("End-of-term invoice")
+    expect(html).toContain("Early-termination invoice")
+    expect(html).toContain("/api/portal/asset-finance/leases/L1/tax-invoices/inv-9?download=1")
+    expect(html).toContain(formatMoney(30_000))
+    expect(html).toContain(`Default charges owed now: <span class="font-semibold">${formatMoney(7_000)}</span>`)
+    expect(html).toContain(`Collection fee ${formatMoney(7_000)}`)
+  })
+
+  it("shows no other-charges panel when the lease owes nothing besides rentals", () => {
+    const html = render(view())
+    expect(html).not.toContain("Other charges")
+    expect(html).toContain("Overdue incl. charges")
+  })
+
+  it("shows the maintenance column on a full-maintenance lease only", () => {
+    expect(render(fml)).toContain(">Maintenance</th>")
+    expect(render(view())).not.toContain(">Maintenance</th>")
   })
 })

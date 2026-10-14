@@ -32,7 +32,9 @@
  * (d) Three leases (slice 3, ./asset-finance-leases.ts), after the above, on the
  *     company, a new sole-proprietor client and the trust: a full-maintenance
  *     lease with claims and readings, a CPA operating lease with an
- *     early-termination quote, and a trust lease at end of term (RETURN inspected).
+ *     early-termination quote, and a trust lease with its RETURN elected (the
+ *     inspection waits for the term's end, which a seed run on the booking day
+ *     cannot reach).
  *
  * DATES. Every rule runs as the app runs it, on today (SAST): each deal's
  * first instalment is a month out, the documents are prepared with the

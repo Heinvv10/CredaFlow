@@ -26,7 +26,7 @@ const data = (endOfTerm: EndOfTermView | null, over: Partial<LeaseStaffData> = {
   loanId: "loan-1", loanStatus: "ACTIVE", contractType: "OPERATING_LEASE", today: "2030-06-15", maturityDate: "2030-09-01", expiryDate: "2030-09-01",
   electionOpensOn: "2030-03-01", assetId: "asset-1",
   deal: { id: "deal-1", rentalTiming: "ARREARS", escalationRate: "0.08", earlyTerminationPenaltyRate: "0.1", usage: null },
-  cpaApplies: false, rentals: [], fund: null, readings: [], usage: null, endOfTerm, quotes: [], purchaseMaxAgeDays: 30, ...over,
+  cpaApplies: false, rentals: [], fund: null, readings: [], usage: null, endOfTerm, expiryNotice: null, quotes: [], purchaseMaxAgeDays: 30, ...over,
 })
 
 async function panel(view: LeaseStaffData, canManage: boolean, canDecide: boolean) {
@@ -72,6 +72,18 @@ describe("LeaseEndOfTermPanel", () => {
 
   it("offers nothing on a completed end of term", async () => {
     expect(buttons(await panel(data(eot({ status: "COMPLETED", completedOn: "2030-07-01" })), true, true))).toEqual([])
+  })
+
+  it("links the expiry notice once queued and the inspection report once inspected, and neither before", async () => {
+    const links = (renderer: ReactTestRenderer) => renderer.root.findAllByType("a").map((a) => a.props.href)
+    const docs = "/api/asset-finance/leases/loan-1/documents"
+    expect(links(await panel(data(null), true, true))).toEqual([])
+    expect(links(await panel(data(eot({})), true, true))).toEqual([])
+    expect(links(await panel(data(null, { expiryNotice: { queuedOn: "2030-04-01" } }), true, true))).toEqual([`${docs}/expiry-notice`])
+    const inspected = data(eot({ status: "INSPECTED", inspectedOn: "2030-06-10", condition: "Good" }), { expiryNotice: { queuedOn: "2030-04-01" } })
+    const renderer = await panel(inspected, false, false)
+    expect(links(renderer)).toEqual([`${docs}/expiry-notice`, `${docs}/inspection-report`])
+    expect(text(renderer)).toContain("CPA expiry notice (01 Apr 2030)")
   })
 })
 

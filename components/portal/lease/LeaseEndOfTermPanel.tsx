@@ -41,10 +41,17 @@ export function LeaseEndOfTermPanel({ loanId, offer, chosen, valuation }: Props)
 
   if (chosen) {
     return (
-      <p className="text-sm text-[var(--cf-text)]">
-        {chosen.early ? "This lease is ending early: the asset is to be returned." : `You chose to ${OUTCOME_LABEL[chosen.outcome].toLowerCase()}.`}{" "}
-        <span className="text-[var(--cf-text-muted)]">Status: {statusLabel(chosen.status).toLowerCase()}.</span>
-      </p>
+      <div className="space-y-2 text-sm">
+        <p className="text-[var(--cf-text)]">
+          {chosen.early ? "This lease is ending early: the asset is to be returned." : `You chose to ${OUTCOME_LABEL[chosen.outcome].toLowerCase()}.`}{" "}
+          <span className="text-[var(--cf-text-muted)]">Status: {statusLabel(chosen.status).toLowerCase()}.</span>
+        </p>
+        {chosen.inspected && (
+          <a href={`${leaseApi(loanId)}/documents/inspection-report?download=1`} className="inline-block text-xs font-medium text-[var(--cf-brand)] underline-offset-2 hover:underline">
+            Download the inspection report (PDF)
+          </a>
+        )}
+      </div>
     )
   }
   if (offer.kind === "not_open") {

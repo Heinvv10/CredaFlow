@@ -108,6 +108,16 @@ describe("LeaseTerminationPanel", () => {
     const closing = await render(<LeaseTerminationPanel data={data([quote()], { endOfTerm: {} as LeaseStaffData["endOfTerm"] })} canManage canDecide />)
     expect(buttons(closing)).toEqual([])
   })
+
+  it("links each quote's PDF, beside its invoice once accepted", async () => {
+    const r = await render(<LeaseTerminationPanel data={data([quote({ id: "q-2", status: "ACCEPTED", invoice: { id: "inv-9", number: "INV-000009" } }), quote()])} canManage={false} canDecide={false} />)
+    expect(r.root.findAllByType("a").map((a) => a.props.href)).toEqual([
+      "/api/asset-finance/leases/loan-1/documents/termination-quote?quoteId=q-2", "/api/asset-finance/tax-invoices/inv-9",
+      "/api/asset-finance/leases/loan-1/documents/termination-quote?quoteId=q-1",
+    ])
+    const none = await render(<LeaseTerminationPanel data={data([])} canManage canDecide />)
+    expect(none.root.findAllByType("a")).toEqual([])
+  })
 })
 
 describe("LeaseReadingsPanel", () => {

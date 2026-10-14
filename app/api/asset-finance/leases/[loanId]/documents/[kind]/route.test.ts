@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 // Staff lease documents: the role guard, flag gate, lease check, loaders,
-// renderers and the access-log writer run for real; session, Prisma and the
-// lender identity are stubbed. Hand-written 404s are the route's, not Prisma's.
+// renderers and the access-log writer run for real; session, Prisma, the
+// lender identity and the audit writer are stubbed. Hand-written 404s are the
+// route's, not Prisma's. withTenantContext answers 403 for a session of
+// another tenant, as the real one does.
 const m = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
   flag: { on: true },
@@ -13,6 +15,7 @@ const m = vi.hoisted(() => ({
   endFindFirst: vi.fn(),
   readingFindFirst: vi.fn(),
   accessLogCreate: vi.fn(),
+  logAudit: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
@@ -33,8 +36,13 @@ vi.mock("@/lib/prisma", () => ({
 }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant")>()),
-  withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "tenant-1" }),
+  withTenantContext: async (_req: unknown, fn: (t: { id: string }) => unknown) => {
+    const { NextResponse } = await import("next/server")
+    if (m.session.current && m.session.current.user.tenantId !== "tenant-1") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    return fn({ id: "tenant-1" })
+  },
 }))
+vi.mock("@/lib/audit", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/audit")>()), logAudit: m.logAudit }))
 vi.mock("@/lib/config/identity-response", async () => {
   const { LENDER } = await import("@/lib/asset-finance/documents/lease/lease-docs.fixture")
   return { lenderIdentityOrRefusal: async () => ({ identity: LENDER }) }
@@ -46,6 +54,11 @@ import { END_ROW, NOTICE_ROW, QUOTE_ROW, START_READING_ROW } from "@/lib/asset-f
 const BASE = "http://localhost/api/asset-finance/leases/loan-1/documents"
 const get = (kind: string, query = "") => GET(new NextRequest(`${BASE}/${kind}${query}`, { headers: { "user-agent": "vitest" } }), { params: Promise.resolve({ loanId: "loan-1", kind }) })
 const signIn = (role: string, tenantId = "tenant-1") => { m.session.current = { user: { id: "staff-1", email: "s@lender.test", role, tenantId } } }
+const refusals = () => m.logAudit.mock.calls.map(([arg]) => arg).filter((a) => a.action === "DOCUMENT_ACCESS_REFUSED")
+const refusal = (reason: string, httpStatus: number, kind = "expiry-notice") => expect.objectContaining({
+  action: "DOCUMENT_ACCESS_REFUSED", entity: "Loan", entityId: "loan-1", tenantId: "tenant-1", userId: "staff-1",
+  newValue: expect.objectContaining({ refused: true, reason, httpStatus, accessorType: "staff", loanId: "loan-1", kind }),
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,6 +69,7 @@ beforeEach(() => {
   m.quoteFindFirst.mockResolvedValue(QUOTE_ROW)
   m.endFindFirst.mockResolvedValue(END_ROW)
   m.readingFindFirst.mockResolvedValue(START_READING_ROW)
+  m.accessLogCreate.mockResolvedValue({})
 })
 
 describe("GET /api/asset-finance/leases/[loanId]/documents/[kind]", () => {
@@ -116,5 +130,36 @@ describe("GET /api/asset-finance/leases/[loanId]/documents/[kind]", () => {
   it("fails closed: no PDF when the access-log write fails", async () => {
     m.accessLogCreate.mockRejectedValue(new Error("db down"))
     await expect(get("expiry-notice")).rejects.toThrow("db down")
+  })
+
+  it("audits every 403 and 404 as DOCUMENT_ACCESS_REFUSED, naming the cause", async () => {
+    signIn("CLIENT")
+    expect((await get("expiry-notice")).status).toBe(403)
+    expect(refusals()).toEqual([refusal("staff_role_refused", 403)])
+    m.logAudit.mockClear()
+    signIn("READONLY", "tenant-2")
+    expect((await get("expiry-notice")).status).toBe(403)
+    expect(refusals()).toEqual([expect.objectContaining({ tenantId: "tenant-2", newValue: expect.objectContaining({ reason: "tenant_scope_refused", httpStatus: 403 }) })])
+    m.logAudit.mockClear()
+    signIn("READONLY")
+    m.flag.on = false
+    expect((await get("expiry-notice")).status).toBe(404)
+    m.flag.on = true
+    expect((await get("nonsense")).status).toBe(404)
+    m.loanFindFirst.mockResolvedValueOnce(null)
+    expect((await get("expiry-notice")).status).toBe(404)
+    m.noticeFindFirst.mockResolvedValueOnce(null)
+    expect((await get("expiry-notice")).status).toBe(404)
+    expect(refusals()).toEqual([
+      refusal("module_disabled", 404), refusal("unknown_document_kind", 404, "nonsense"), refusal("lease_not_found", 404), refusal("document_not_found", 404),
+    ])
+  })
+
+  it("audits no refusal for a served document, a 401 or a 400", async () => {
+    expect((await get("expiry-notice")).status).toBe(200)
+    expect((await get("termination-quote")).status).toBe(400)
+    m.session.current = null
+    expect((await get("expiry-notice")).status).toBe(401)
+    expect(refusals()).toEqual([])
   })
 })

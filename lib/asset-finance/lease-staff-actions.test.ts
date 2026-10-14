@@ -89,4 +89,12 @@ describe("canSubmitClaim, canRecordReading, quotes", () => {
     expect(canAcceptQuote({ ...quote, quoteStatus: "ACCEPTED" })).toBe(false)
     expect(canAcceptQuote({ ...quote, canDecide: false })).toBe(false)
   })
+
+  it("counts a DEFAULTED lease as running, as the routes do, and a completed one as not", () => {
+    expect(canSubmitClaim({ loanStatus: "DEFAULTED", today: TODAY, leaseEndDate: "2030-12-01", fundSettled: false, canManage: true })).toBe(true)
+    expect(canRequestQuote({ loanStatus: "DEFAULTED", hasEndOfTerm: false, canManage: true })).toBe(true)
+    expect(canAcceptQuote({ quoteStatus: "QUOTED", validUntil: TODAY, today: TODAY, loanStatus: "DEFAULTED", hasEndOfTerm: false, canDecide: true })).toBe(true)
+    expect(canElect({ loanStatus: "DEFAULTED", hasEndOfTerm: false, windowOpen: true, canManage: true })).toBe(true)
+    expect(canRequestQuote({ loanStatus: "COMPLETED", hasEndOfTerm: false, canManage: true })).toBe(false)
+  })
 })

@@ -1,6 +1,8 @@
 import type { AssetClass, ContractType, LeaseEndOutcome, LeaseEndStatus, LoanStatus, MaintenanceClaimStatus, MaintenanceRiskModel, UsageUnit } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { portalLoanCharges } from "@/lib/portal/loan-charges"
+import { resolveFeatureFlags } from "@/lib/tenant"
 import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { MARKET_VALUATION_SOURCES } from "./lease-term-end"
 import { findPortalLease } from "./lease-portal-route"
@@ -8,13 +10,16 @@ import { fundBalance } from "./maintenance-fund"
 import { rentalOutstanding, rentalState, type PortalRentalState } from "./portal-lease-view"
 
 // What a lessee sees of their lease in the portal (slice 3, C10): the rentals
-// and their tax invoices, the maintenance fund and its claims (full
-// maintenance only), the meter, the latest early-termination quote and the
-// end-of-term choice. The caller is a portal page; the lease is read only
-// after findPortalLease has said this client is the lessee (a sole
-// proprietor) or holds authority over the lessee entity, the same gate the
-// lease routes pass (./lease-portal-route.ts), and answers null otherwise.
-// JSON-safe: ISO dates, money in cents.
+// and their tax invoices, the other charges on the lease (end-of-term and
+// early-termination invoices, and the NON_NCA default charges), the
+// maintenance fund and its claims (full maintenance only), the meter, the
+// latest early-termination quote and the end-of-term choice. The caller is a
+// portal page; the lease is read only while the tenant's asset-finance module
+// is on (as every lease route, ./require-enabled.ts) and after findPortalLease
+// has said this client is the lessee (a sole proprietor) or holds authority
+// over the lessee entity, the same gate the lease routes pass
+// (./lease-portal-route.ts); it answers null otherwise. JSON-safe: ISO dates,
+// money in cents.
 
 export interface PortalLeaseRental {
   id: string
@@ -28,6 +33,18 @@ export interface PortalLeaseRental {
   outstandingCents: number
   state: PortalRentalState
   /** The rental's tax invoice once issued. */
+  invoice: { id: string; invoiceNumber: string } | null
+}
+
+/** A charge on the lease that is not a rental: an end-of-term or early-termination invoice, collected as a schedule row (./lease-charges.ts). */
+export interface PortalLeaseCharge {
+  id: string
+  kind: "END_OF_TERM" | "TERMINATION"
+  dueDate: string
+  totalCents: number
+  paidCents: number
+  outstandingCents: number
+  state: PortalRentalState
   invoice: { id: string; invoiceNumber: string } | null
 }
 
@@ -63,17 +80,27 @@ export interface PortalLeaseView {
   entity: { id: string; legalName: string } | null
   asset: { assetClass: AssetClass; make: string; model: string; year: number; serialNumber: string; registrationNumber: string | null } | null
   rentals: PortalLeaseRental[]
+  /** Overdue rentals only. */
   arrearsCents: number
+  otherCharges: PortalLeaseCharge[]
+  /** NON_NCA default charges (default interest and fees) owed today: the HP portal's source (lib/portal/loan-charges.ts). */
+  defaultCharges: { outstandingCents: number; lines: Array<{ label: string; amount: number }> }
+  /** Overdue rentals, overdue other charges and the default charges owed. */
+  overdueInclChargesCents: number
   nextRental: { dueDate: string; amountCents: number } | null
   /** Full-maintenance leases only. */
   fund: { balanceCents: number; riskModel: MaintenanceRiskModel; claims: PortalLeaseClaim[] } | null
   /** Leases with contracted usage only. */
   meter: { unit: UsageUnit; latest: { readingDate: string; value: number } | null } | null
   termination: { penaltyConfigured: boolean; latestQuote: PortalLeaseQuote | null }
-  endOfTerm: { chosen: { outcome: LeaseEndOutcome; status: LeaseEndStatus; early: boolean } | null; valuation: { valuedOn: string; amountExclVatCents: number } | null }
+  endOfTerm: { chosen: { outcome: LeaseEndOutcome; status: LeaseEndStatus; early: boolean; inspected: boolean } | null; valuation: { valuedOn: string; amountExclVatCents: number } | null }
 }
 
 export async function loadPortalLease(tenantId: string, clientId: string, loanId: string, asOf: Date = new Date()): Promise<PortalLeaseView | null> {
+  const config = await prisma.tenantConfig.findUnique({
+    where: { tenantId }, select: { featureCrm: true, featureIms: true, featureAssetFinance: true, leasePurchaseValuationMaxAgeDays: true },
+  })
+  if (!resolveFeatureFlags(config).featureAssetFinance) return null
   if (!(await findPortalLease(tenantId, clientId, loanId))) return null
   const today = sastCalendarDate(asOf)
   const loan = await prisma.loan.findFirst({
@@ -83,12 +110,22 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
       entity: { select: { id: true, legalName: true } },
       asset: { select: { assetClass: true, make: true, model: true, year: true, serialNumber: true, registrationNumber: true } },
       assetFinanceDeal: { select: { usageUnit: true, earlyTerminationPenaltyRate: true } },
-      leaseEndOfTerm: { select: { outcome: true, status: true, origin: true } },
+      leaseEndOfTerm: { select: { outcome: true, status: true, origin: true, inspectedOn: true } },
       leaseRentals: {
         orderBy: { periodNo: "asc" },
         select: {
           id: true, periodNo: true, dueDate: true, rentalExclVatCents: true, maintenanceExclVatCents: true, vatCents: true, totalCents: true, cancelledAt: true,
           schedule: { select: { totalPaid: true } }, taxInvoice: { select: { id: true, invoiceNumber: true } },
+        },
+      },
+      // The rows that are not rentals: the end-of-term and termination charges.
+      repaymentSchedule: {
+        where: { leaseRental: { is: null } },
+        orderBy: { installmentNo: "asc" },
+        select: {
+          id: true, dueDate: true, totalDue: true, totalPaid: true,
+          leaseEndOfTermCharge: { select: { taxInvoice: { select: { id: true, invoiceNumber: true } } } },
+          leaseTerminationCharge: { select: { taxInvoice: { select: { id: true, invoiceNumber: true } } } },
         },
       },
       maintenanceFund: {
@@ -101,12 +138,13 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
   })
   if (!loan) return null
   const unit = loan.assetFinanceDeal?.usageUnit ?? null
-  const [latestReading, quote, config] = await Promise.all([
-    unit && loan.assetId
-      ? prisma.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { readingDate: true, value: true } })
+  const [latestReading, quote, charges] = await Promise.all([
+    // This lease's readings only, as the staff panel reads them: an asset leased before has older readings of its own.
+    unit
+      ? prisma.assetMeterReading.findFirst({ where: { tenantId, loanId, unit }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { readingDate: true, value: true } })
       : null,
     prisma.leaseTerminationQuote.findFirst({ where: { tenantId, loanId }, orderBy: { createdAt: "desc" } }),
-    prisma.tenantConfig.findUnique({ where: { tenantId }, select: { leasePurchaseValuationMaxAgeDays: true } }),
+    portalLoanCharges(tenantId, loanId, asOf),
   ])
   // The valuation a purchase is priced on, as the end-of-term route picks it (./lease-term-end.ts bestMarketValuation).
   const since = fromDayNumber(toDayNumber(today) - (config?.leasePurchaseValuationMaxAgeDays ?? 30))
@@ -125,6 +163,17 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
       paidCents: row.paidCents, outstandingCents: rentalOutstanding(row), state: rentalState(row, today), invoice: r.taxInvoice,
     }
   })
+  const otherCharges: PortalLeaseCharge[] = loan.repaymentSchedule.map((s) => {
+    const row = { cancelled: false, totalCents: s.totalDue, paidCents: s.totalPaid, dueDate: sastCalendarDate(s.dueDate) }
+    return {
+      id: s.id, kind: s.leaseTerminationCharge ? "TERMINATION" : "END_OF_TERM", dueDate: row.dueDate, totalCents: s.totalDue, paidCents: s.totalPaid,
+      outstandingCents: rentalOutstanding(row), state: rentalState(row, today),
+      invoice: (s.leaseTerminationCharge ?? s.leaseEndOfTermCharge)?.taxInvoice ?? null,
+    }
+  })
+  const overdue = (rows: Array<{ state: PortalRentalState; outstandingCents: number }>) =>
+    rows.filter((r) => r.state === "OVERDUE").reduce((sum, r) => sum + r.outstandingCents, 0)
+  const arrearsCents = overdue(rentals)
   const next = rentals.find((r) => r.outstandingCents > 0 && r.dueDate >= today)
   const fund = loan.maintenanceFund
 
@@ -134,7 +183,10 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
     entity: loan.entity,
     asset: loan.asset,
     rentals,
-    arrearsCents: rentals.filter((r) => r.state === "OVERDUE").reduce((sum, r) => sum + r.outstandingCents, 0),
+    arrearsCents,
+    otherCharges,
+    defaultCharges: { outstandingCents: charges.outstanding, lines: charges.lines },
+    overdueInclChargesCents: arrearsCents + overdue(otherCharges) + charges.outstanding,
     nextRental: next ? { dueDate: next.dueDate, amountCents: next.outstandingCents } : null,
     fund: fund && {
       balanceCents: fundBalance(fund.movements), riskModel: fund.riskModel,
@@ -152,7 +204,10 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
       },
     },
     endOfTerm: {
-      chosen: loan.leaseEndOfTerm && { outcome: loan.leaseEndOfTerm.outcome, status: loan.leaseEndOfTerm.status, early: loan.leaseEndOfTerm.origin === "EARLY_TERMINATION" },
+      chosen: loan.leaseEndOfTerm && {
+        outcome: loan.leaseEndOfTerm.outcome, status: loan.leaseEndOfTerm.status, early: loan.leaseEndOfTerm.origin === "EARLY_TERMINATION",
+        inspected: loan.leaseEndOfTerm.inspectedOn !== null,
+      },
       valuation: valuation && { valuedOn: isoOfDbDate(valuation.valuedOn), amountExclVatCents: valuation.amountCents },
     },
   }

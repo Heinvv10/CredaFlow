@@ -26,7 +26,8 @@ const contract = (contractType: string) => ({
 const lease: PortalLeaseView = {
   today: "2027-03-15",
   loan: { id: "L1", reference: "TEST-1", status: "ACTIVE", contractType: "FULL_MAINTENANCE_LEASE", startDate: "2027-01-01", maturityDate: "2029-12-31" },
-  entity: { id: "e1", legalName: "TEST Lessee (Pty) Ltd" }, asset: null, rentals: [], arrearsCents: 0, nextRental: null, fund: null, meter: null,
+  entity: { id: "e1", legalName: "TEST Lessee (Pty) Ltd" }, asset: null, rentals: [], arrearsCents: 0, otherCharges: [], defaultCharges: { outstandingCents: 0, lines: [] }, overdueInclChargesCents: 0,
+  nextRental: null, fund: null, meter: null,
   termination: { penaltyConfigured: true, latestQuote: null }, endOfTerm: { chosen: null, valuation: null },
 }
 

@@ -6,7 +6,7 @@ import type { PortalLeaseRental } from "@/lib/asset-finance/portal-lease"
 import type { PortalRentalState } from "@/lib/asset-finance/portal-lease-view"
 import { leaseApi } from "./lease-action"
 
-const STATE: Record<PortalRentalState, { label: string; tone: "success" | "warning" | "danger" | "neutral" }> = {
+export const RENTAL_STATE: Record<PortalRentalState, { label: string; tone: "success" | "warning" | "danger" | "neutral" }> = {
   PAID: { label: "Paid", tone: "success" },
   PARTIAL: { label: "Partly paid", tone: "warning" },
   OVERDUE: { label: "Overdue", tone: "danger" },
@@ -14,8 +14,8 @@ const STATE: Record<PortalRentalState, { label: string; tone: "success" | "warni
   CANCELLED: { label: "Cancelled", tone: "neutral" },
 }
 
-/** The lease's rentals, one row a period, each with its tax invoice once issued. */
-export function LeaseRentalsTable({ loanId, rentals }: { loanId: string; rentals: PortalLeaseRental[] }) {
+/** The lease's rentals, one row a period, each with its tax invoice once issued. The maintenance column is a full-maintenance lease's only. */
+export function LeaseRentalsTable({ loanId, rentals, maintenance }: { loanId: string; rentals: PortalLeaseRental[]; maintenance: boolean }) {
   if (rentals.length === 0) return <p className="text-sm text-[var(--cf-text-muted)]">No rentals have been scheduled.</p>
   return (
     <ScrollTable maxHeight="max-h-[32rem]">
@@ -24,7 +24,7 @@ export function LeaseRentalsTable({ loanId, rentals }: { loanId: string; rentals
           <TableHead>Period</TableHead>
           <TableHead>Due</TableHead>
           <TableHead className="text-right">Rental</TableHead>
-          <TableHead className="text-right">Maintenance</TableHead>
+          {maintenance && <TableHead className="text-right">Maintenance</TableHead>}
           <TableHead className="text-right">VAT</TableHead>
           <TableHead className="text-right">Total</TableHead>
           <TableHead className="text-right">Paid</TableHead>
@@ -39,12 +39,12 @@ export function LeaseRentalsTable({ loanId, rentals }: { loanId: string; rentals
             <TableCell>{r.periodNo}</TableCell>
             <TableCell>{formatIsoDate(r.dueDate)}</TableCell>
             <TableCell className="text-right">{formatMoney(r.rentalExclVatCents)}</TableCell>
-            <TableCell className="text-right">{formatMoney(r.maintenanceExclVatCents)}</TableCell>
+            {maintenance && <TableCell className="text-right">{formatMoney(r.maintenanceExclVatCents)}</TableCell>}
             <TableCell className="text-right">{formatMoney(r.vatCents)}</TableCell>
             <TableCell className="text-right font-medium">{formatMoney(r.totalCents)}</TableCell>
             <TableCell className="text-right">{formatMoney(r.paidCents)}</TableCell>
             <TableCell className="text-right">{formatMoney(r.outstandingCents)}</TableCell>
-            <TableCell><StatusPill tone={STATE[r.state].tone}>{STATE[r.state].label}</StatusPill></TableCell>
+            <TableCell><StatusPill tone={RENTAL_STATE[r.state].tone}>{RENTAL_STATE[r.state].label}</StatusPill></TableCell>
             <TableCell>
               {r.invoice ? (
                 <a href={`${leaseApi(loanId)}/tax-invoices/${r.invoice.id}?download=1`} className="font-medium text-[var(--cf-brand)] underline-offset-2 hover:underline">

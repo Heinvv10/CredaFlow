@@ -69,8 +69,16 @@ describe("LeaseEndOfTermPanel", () => {
   })
 
   it("shows the recorded choice and no buttons once chosen", async () => {
-    const r = await mount({ kind: "chosen" }, { outcome: "EXTEND", status: "EXTENDING", early: false })
+    const r = await mount({ kind: "chosen" }, { outcome: "EXTEND", status: "EXTENDING", early: false, inspected: false })
     expect(text(r)).toContain("extend month to month")
     expect(r.root.findAllByType("button")).toHaveLength(0)
+  })
+
+  it("links the inspection report once the asset has been inspected, and not before", async () => {
+    const links = (r: ReturnType<typeof create>) => r.root.findAllByType("a").map((a) => a.props.href)
+    const inspected = await mount({ kind: "chosen" }, { outcome: "RETURN", status: "INSPECTED", early: false, inspected: true })
+    expect(links(inspected)).toEqual(["/api/portal/asset-finance/leases/L1/documents/inspection-report?download=1"])
+    const elected = await mount({ kind: "chosen" }, { outcome: "RETURN", status: "ELECTED", early: false, inspected: false })
+    expect(links(elected)).toEqual([])
   })
 })

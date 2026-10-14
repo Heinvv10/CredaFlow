@@ -72,6 +72,10 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
             <p className="text-xs font-semibold text-[var(--cf-text)]">How this was worked out</p>
             <p className="mt-1 text-xs text-[var(--cf-text-muted)]">{quote.basis}</p>
           </div>
+          <a href={`${leaseApi(loanId)}/documents/termination-quote?quoteId=${encodeURIComponent(quote.id)}&download=1`}
+            className="inline-block text-xs font-medium text-[var(--cf-brand)] underline-offset-2 hover:underline">
+            Download the quote (PDF)
+          </a>
         </div>
       )}
       {!confirming && (actions.canAccept || actions.canRequest) && (

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { PDFDocument } from "pdf-lib"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { DRAFT_WATERMARK, PLACEHOLDER_CLAUSE } from "../pdf-layout"
@@ -86,5 +87,30 @@ describe("inspection report", () => {
     expect(sha(await renderLeaseInspectionReport(REPORT, LENDER))).toBe(sha(await renderLeaseInspectionReport(REPORT, LENDER)))
     const changed = { ...REPORT, damage: [{ description: "Replace cracked side mirror", amountExclVatCents: 123_457 }] }
     expect(sha(await renderLeaseInspectionReport(changed, LENDER))).not.toBe(sha(await renderLeaseInspectionReport(REPORT, LENDER)))
+  })
+})
+
+describe("the PDF dates", () => {
+  afterEach(() => vi.useRealTimers())
+
+  // pdf-lib rewrites the dates on load unless told not to; read them as written.
+  const datesOf = async (bytes: Buffer) => {
+    const pdf = await PDFDocument.load(bytes, { updateMetadata: false })
+    return [pdf.getCreationDate()?.toISOString(), pdf.getModificationDate()?.toISOString()]
+  }
+
+  it.each([
+    ["expiry notice", () => renderLeaseExpiryNotice(NOTICE, LENDER), NOTICE.queuedOn],
+    ["termination quote", () => renderLeaseTerminationQuote(QUOTE, LENDER), QUOTE.quotedOn],
+    ["inspection report", () => renderLeaseInspectionReport(REPORT, LENDER), REPORT.inspectedOn],
+  ])("the %s is created and modified on its own day, whatever the clock says", async (_name, render, dayIso) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2031-11-20T15:45:00Z"))
+    const first = await render()
+    vi.setSystemTime(new Date("2032-05-02T07:00:00Z"))
+    const second = await render()
+    const expected = `${dayIso}T12:00:00.000Z`
+    expect(await datesOf(first)).toEqual([expected, expected])
+    expect(sha(second)).toBe(sha(first))
   })
 })

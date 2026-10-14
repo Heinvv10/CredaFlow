@@ -51,6 +51,12 @@ describe("leaseDealBody", () => {
     ])
   })
 
+  it("sends a blank escalation as \"0\" (no escalation), never leaves it out", () => {
+    const { body, errors } = leaseDealBody(base, { ...operating, escalationPercent: "  " }, "OPERATING_LEASE")
+    expect(errors).toEqual({})
+    expect(body.escalationRate).toBe("0")
+  })
+
   it("treats usage on an operating lease as all of it or none", () => {
     expect(leaseDealBody(base, operating, "OPERATING_LEASE").body).not.toHaveProperty("usageAllowancePerYear")
     const half = leaseDealBody(base, { ...operating, usageAllowance: "900" }, "OPERATING_LEASE")

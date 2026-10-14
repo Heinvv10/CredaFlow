@@ -58,12 +58,15 @@ export function LeaseTerminationPanel({ data, canManage, canDecide }: { data: Le
                 </dl>
                 {q.cpaCancellation && <p className="text-xs text-[var(--cf-text-muted)]">The lessee is a consumer under the CPA: cancellation is on 20 business days&apos; notice.</p>}
                 <p className="text-xs text-[var(--cf-text-muted)]">{q.basis}</p>
-                {q.invoice && (
-                  <p className="text-sm text-[var(--cf-text)]">
-                    Invoice{" "}
-                    <a className={link} href={`/api/asset-finance/tax-invoices/${q.invoice.id}`} target="_blank" rel="noopener noreferrer">{q.invoice.number}</a>
-                  </p>
-                )}
+                <p className="text-sm text-[var(--cf-text)]">
+                  <a className={link} href={`/api/asset-finance/leases/${data.loanId}/documents/termination-quote?quoteId=${encodeURIComponent(q.id)}`} target="_blank" rel="noopener noreferrer">Quote PDF</a>
+                  {q.invoice && (
+                    <>
+                      {" · "}Invoice{" "}
+                      <a className={link} href={`/api/asset-finance/tax-invoices/${q.invoice.id}`} target="_blank" rel="noopener noreferrer">{q.invoice.number}</a>
+                    </>
+                  )}
+                </p>
                 {accept && <LeaseActionButton url={`${base}/${q.id}/accept`} label="Accept on the lessee's instruction" busyLabel="Accepting…" />}
               </div>
             )

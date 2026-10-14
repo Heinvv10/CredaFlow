@@ -107,6 +107,8 @@ export interface LeaseStaffData {
   readings: ReadingRow[]
   usage: UsageProjection | null
   endOfTerm: EndOfTermView | null
+  /** The CPA expiry notice, once the daily run has queued it (lib/asset-finance/lease-expiry.ts). */
+  expiryNotice: { queuedOn: string } | null
   quotes: QuoteRow[]
   purchaseMaxAgeDays: number
 }
@@ -150,6 +152,7 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
         leaseEndOfTerm: {
           include: { damageItems: { orderBy: { createdAt: "asc" } }, finalReading: { select: { value: true } }, taxInvoice: { select: { id: true, invoiceNumber: true } } },
         },
+        leaseExpiryNotice: { select: { queuedOn: true } },
         leaseTerminationQuotes: { orderBy: [{ quotedOn: "desc" }, { createdAt: "desc" }], include: { taxInvoice: { select: { id: true, invoiceNumber: true } } } },
       },
     }),
@@ -205,6 +208,7 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
       invoice: invoiceOf(eot.taxInvoice), natisRequired: eot.outcome === "PURCHASE" && !!loan.asset?.registrationNumber?.trim(),
       natisConfirmed: eot.natisTransferConfirmedAt !== null, completedOn: eot.completedAt ? sastCalendarDate(eot.completedAt) : null,
     },
+    expiryNotice: loan.leaseExpiryNotice && { queuedOn: isoOfDbDate(loan.leaseExpiryNotice.queuedOn) },
     quotes: loan.leaseTerminationQuotes.map((q) => ({
       id: q.id, status: q.status, quotedOn: isoOfDbDate(q.quotedOn), terminationDate: isoOfDbDate(q.terminationDate), validUntil: isoOfDbDate(q.validUntil),
       cpaCancellation: q.cpaCancellation, remainingRentals: q.remainingRentals, pvCents: q.pvCents, penaltyCents: q.penaltyCents, arrearsCents: q.arrearsCents,
