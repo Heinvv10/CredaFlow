@@ -24,6 +24,7 @@
     "face-models:fetch": "tsx scripts/fetch-face-models.ts",
     "lender:bootstrap-tenant": "tsx scripts/lender/bootstrap-tenant-cli.ts",
     "lender:bootstrap-admin": "tsx scripts/lender/bootstrap-admin-cli.ts",
+    "uploads:encrypt": "tsx scripts/encrypt-uploads-cli.ts",
     "demo:typecheck": "tsc --noEmit -p scripts/demo/tsconfig.json"
   },
   "prisma": {

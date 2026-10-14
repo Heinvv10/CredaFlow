@@ -544,4 +544,12 @@ export const AuditAction = {
   // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
   TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
   TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
+  // Lender API (lib/lender-api, app/api/settings/api-keys, app/api/settings/webhooks).
+  // Key and endpoint rows by id and prefix only, never a key or a signing secret.
+  API_KEY_CREATED: "API_KEY_CREATED",
+  API_KEY_REVOKED: "API_KEY_REVOKED",
+  WEBHOOK_ENDPOINT_CREATED: "WEBHOOK_ENDPOINT_CREATED",
+  WEBHOOK_ENDPOINT_DISABLED: "WEBHOOK_ENDPOINT_DISABLED",
+  // A draft application created through POST /api/v1/applications; newValue names the key.
+  APPLICATION_CREATED_VIA_API: "APPLICATION_CREATED_VIA_API",
 } as const

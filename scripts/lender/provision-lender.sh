@@ -119,6 +119,10 @@ for key in NEXTAUTH_SECRET CRON_SECRET INTERNAL_API_SECRET ADMIN_SECRET UNSUB_TO
   add "$key" "$(openssl rand -hex 32)"
 done
 add WABA_ENC_KEY "$(openssl rand -base64 32)"   # 32 bytes, base64: lib/crypto/secret-box.ts
+# Uploads encrypted at rest (lib/storage-crypto.ts). Losing it loses every encrypted
+# document, backups included: copy it off the host with secrets/backup.passphrase.
+add UPLOADS_ENC_KEY "$(openssl rand -base64 32)"
+add WEBHOOK_SECRET_KEY "$(openssl rand -base64 32)"   # seals webhook signing secrets (lib/lender-api/webhooks)
 add BACKUP_KEEP 14
 if ! grep -q '^# --- Provider credentials' "$env"; then
   cat >> "$env" <<'ENVTODO'

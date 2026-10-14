@@ -103,7 +103,13 @@ function route(req: NextAuthRequest): Response {
     req.nextUrl.pathname.startsWith("/api/portal/forgot-password") ||
     req.nextUrl.pathname.startsWith("/api/portal/reset-password") ||
     req.nextUrl.pathname.startsWith("/api/portal/payment/webhook")
+  // The public lender API. Every handler authenticates its own bearer API key
+  // (lib/lender-api/handler.ts, withApiKey) and binds the tenant to the key, so
+  // no session is needed. It is NOT in the public-operational allowlist: that
+  // would also serve it on the client host, and it belongs to the staff host.
+  const isLenderApi = path === "/api/v1" || path.startsWith("/api/v1/")
   const isPublicRoute =
+    isLenderApi ||
     isPublicWebsiteRoot ||
     isSeoAsset ||
     isManualAsset ||

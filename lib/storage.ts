@@ -1,8 +1,24 @@
 import path from "path"
 import fs from "fs/promises"
 import { randomUUID } from "crypto"
+import { decryptFile, encryptFile, isEncryptedFile, StorageCryptoError, uploadsMasterKey } from "@/lib/storage-crypto"
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads")
+
+/**
+ * The bytes written to disk: envelope-encrypted when UPLOADS_ENC_KEY is set
+ * (lib/storage-crypto.ts), the plaintext otherwise. Callers always see the
+ * plaintext and its length; encryption is invisible above this module.
+ */
+function atRest(buffer: Buffer): Buffer {
+  const key = uploadsMasterKey()
+  return key ? encryptFile(buffer, key) : buffer
+}
+
+/** Whether new files are encrypted at rest (reported by /api/health). */
+export function storageEncryptionEnabled(): boolean {
+  return uploadsMasterKey() !== null
+}
 
 function extensionForMime(mimeType: string): string {
   return mimeType === "application/pdf"
@@ -31,7 +47,7 @@ export async function saveFileToManagedPath(
 ): Promise<{ storagePath: string; fileSize: number }> {
   const storagePath = managedStoragePath(storageKey, mimeType)
   await fs.mkdir(UPLOAD_DIR, { recursive: true })
-  await fs.writeFile(storagePath, buffer, { flag: "wx" })
+  await fs.writeFile(storagePath, atRest(buffer), { flag: "wx" })
   return { storagePath, fileSize: buffer.length }
 }
 
@@ -43,7 +59,7 @@ export async function saveFile(
   const ext = extensionForMime(mimeType)
   const filename = randomUUID() + ext
   const storagePath = path.join(UPLOAD_DIR, filename)
-  await fs.writeFile(storagePath, buffer)
+  await fs.writeFile(storagePath, atRest(buffer))
   return { storagePath, fileSize: buffer.length }
 }
 
@@ -74,6 +90,16 @@ export async function deleteManagedFileStrict(storagePath: string): Promise<void
   }
 }
 
+/**
+ * The plaintext of a stored file. An encrypted file is decrypted and its
+ * integrity checked (a tampered file throws StorageCryptoError); a file
+ * written before encryption was switched on is returned as stored, until
+ * scripts/encrypt-uploads.ts has converted it.
+ */
 export async function readFile(storagePath: string): Promise<Buffer> {
-  return fs.readFile(storagePath)
+  const bytes = await fs.readFile(storagePath)
+  if (!isEncryptedFile(bytes)) return bytes
+  const key = uploadsMasterKey()
+  if (!key) throw new StorageCryptoError(`${path.basename(storagePath)} is encrypted but UPLOADS_ENC_KEY is not set`)
+  return decryptFile(bytes, key)
 }

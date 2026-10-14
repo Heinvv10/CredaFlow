@@ -103,6 +103,13 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // Lender API (lib/lender-api). Non-null tenantId. The key lookup by prefix
+  // and the webhook cron's cross-tenant scans run in withoutTenantScope;
+  // ApiRequestLog (nullable tenantId: a call with an unknown key) is not listed.
+  "ApiKey",
+  "WebhookEndpoint",
+  "WebhookEvent",
+  "WebhookDelivery",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

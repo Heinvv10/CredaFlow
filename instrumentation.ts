@@ -37,17 +37,29 @@ export async function register() {
       path: string,
       method: "GET" | "POST" = "GET",
     ) => {
+      const startedAt = new Date()
+      let status: number | null = null
+      let error: string | null = null
       try {
         const headers: Record<string, string> = { "x-cron-secret": CRON_SECRET }
 
         const res = await fetch(`${BASE_URL}${path}`, { method, headers })
+        status = res.status
         if (!res.ok) {
           console.error(`[cron] ${path} failed: ${res.status}`)
         } else {
           console.log(`[cron] ${path} ok`)
         }
       } catch (err) {
+        error = err instanceof Error ? err.message : String(err)
         console.error(`[cron] ${path} error:`, err)
+      }
+      // The run's outcome for /api/health (lib/ops/cron-heartbeat.ts).
+      try {
+        const { recordCronRun } = await import("@/lib/ops/cron-heartbeat")
+        await recordCronRun(path, { startedAt, status, error })
+      } catch (err) {
+        console.error(`[cron] ${path} heartbeat not recorded:`, err)
       }
     }
 
@@ -169,6 +181,13 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 13 jobs active")
+    // Outbound lender webhooks (lib/lender-api/webhooks/dispatch.ts): fans out
+    // new outbox events and POSTs due deliveries with retry backoff. Every
+    // minute; idle for tenants without an active endpoint.
+    cron.schedule("* * * * *", () => callCron("/api/cron/webhook-deliveries"), {
+      timezone: SAST,
+    })
+
+    console.log("[cron] scheduler registered — 14 jobs active")
   }
 }
