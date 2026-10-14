@@ -273,7 +273,7 @@ export default async function ApplicationDetailPage({
         </div>
       )}
 
-      <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} />
+      <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} locale={locale} />
 
       {/* Declined reason */}
       {app.status === "DECLINED" && app.decisionReason && (

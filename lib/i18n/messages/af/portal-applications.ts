@@ -64,4 +64,6 @@ export const portalApplications: Catalog["portalApplications"] = {
   notFoundTitle: "Ons kon nie daardie bladsy vind nie",
   notFoundBody: "Die bladsy wat jy soek, het dalk geskuif of bestaan nie meer nie.",
   notFoundBack: "Terug na my portaal",
+  execAgreement: "Kredietooreenkoms",
+  execDownload: "Laai getekende ooreenkoms af",
 }

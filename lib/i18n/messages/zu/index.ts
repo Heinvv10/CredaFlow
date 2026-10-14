@@ -3,6 +3,7 @@ import type { Catalog } from "../../catalog"
 import { common } from "./common"
 import { comms } from "./comms"
 import { portalApplications } from "./portal-applications"
+import { portalApply } from "./portal-apply"
 import { portalDocuments } from "./portal-documents"
 import { portalHome } from "./portal-home"
 import { portalLabels } from "./portal-labels"
@@ -24,6 +25,7 @@ export const zu: Catalog = {
   common,
   comms,
   portalApplications,
+  portalApply,
   portalDocuments,
   portalHome,
   portalLabels,

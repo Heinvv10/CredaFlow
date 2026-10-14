@@ -64,4 +64,6 @@ export const portalApplications: Catalog["portalApplications"] = {
   notFoundTitle: "Asikwazanga ukulifumana elo phepha",
   notFoundBody: "Iphepha obulikhangela kusenokwenzeka ukuba lisusiwe okanye alisekho.",
   notFoundBack: "Buyela kwiphotali yam",
+  execAgreement: "Isivumelwano setyala",
+  execDownload: "Khuphela isivumelwano esityikitywe",
 }

@@ -1,6 +1,7 @@
 import { common } from "./common"
 import { comms } from "./comms"
 import { portalApplications } from "./portal-applications"
+import { portalApply } from "./portal-apply"
 import { portalDocuments } from "./portal-documents"
 import { portalHome } from "./portal-home"
 import { portalLabels } from "./portal-labels"
@@ -23,6 +24,7 @@ export const en = {
   common,
   comms,
   portalApplications,
+  portalApply,
   portalDocuments,
   portalHome,
   portalLabels,

@@ -64,4 +64,6 @@ export const portalApplications: Catalog["portalApplications"] = {
   notFoundTitle: "Asikwazanga ukulithola lelo khasi",
   notFoundBody: "Ikhasi obulifuna kungenzeka ukuthi lisusiwe noma alisekho.",
   notFoundBack: "Buyela kuphothali yami",
+  execAgreement: "Isivumelwano sesikweletu",
+  execDownload: "Landa isivumelwano esisayiniwe",
 }

@@ -62,4 +62,6 @@ export const portalApplications = {
   notFoundTitle: "We couldn't find that page",
   notFoundBody: "The page you were looking for may have moved or no longer exists.",
   notFoundBack: "Back to my portal",
+  execAgreement: "Credit agreement",
+  execDownload: "Download signed agreement",
 } as const
