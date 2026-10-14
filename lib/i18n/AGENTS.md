@@ -1,0 +1,52 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: i18n
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+Borrower-facing languages (en, af, zu, xh) for the public website, the client
+portal and borrower comms. The staff app, the NCA documents (`lib/pdf`) and
+legal / consent text stay English.
+
+## Critical Rules
+- **English is the source of truth.** `messages/en/*.ts` defines every key and
+  `{placeholder}`; a translation file typed `Catalog[...]` fails to compile on a
+  missing or extra key, and `catalog.test.ts` also checks placeholders, markup
+  tags and the MACHINE DRAFT header. Add a key to all four languages at once.
+- **af/zu/xh are machine drafts.** A lender switches a language on only after a
+  native speaker reviewed it (`TenantConfig.enabledLanguages`, default `{en}`,
+  written by `PATCH /api/admin/tenants/[id]`, audited).
+- **Never translate statutory or consent text**: Section 129, credit agreement,
+  PASQ, debit mandate, decline-reason disclosures, POPIA/consent wording,
+  FAIS disclosures, registration lines. Leave them English and say so in the
+  namespace's header comment.
+- **English output must not change.** Comms English is pinned by digest
+  (`lib/email/templates/english-pinned.test.ts`); product copy and WhatsApp text
+  have equality tests against their original sources.
+- **Money stays `formatZAR` in every language** (matches the PDFs). Dates for
+  af/zu/xh go through `format.ts` (CLDR tables, not runtime Intl: Chrome has no
+  zu/xh data and would fail hydration).
+- **No locale in the URL.** `server.ts` resolves cookie → client profile →
+  Accept-Language, only within the tenant's enabled languages.
+- **Client components use `useT(ns)`**; the namespace must be listed in
+  `surfaces.ts` (checked by `surfaces.test.ts`). Server components use `getT`,
+  or `createTranslator(locale, ns)` when they take a `locale` prop. Never import
+  `catalog.ts` into a client component (it bundles all four languages).
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| `lib/i18n/locales.ts` | Codes, negotiation, tenant list normalisation |
+| `lib/i18n/server.ts` | `getLocale`, `getT`, `clientMessages` |
+| `lib/i18n/client.tsx` | `I18nProvider`, `useT`, `useLocale` |
+| `lib/i18n/comms.ts` | Comms language + WhatsApp template variant rows |
+| `app/actions/locale.ts` | The switcher's write (cookie + `Client.preferredLanguage`) |
+
+## Common Tasks
+| Task | Pattern |
+|------|---------|
+| Regenerate `messages/<l>/index.ts` | one import + entry per namespace file |
+| WhatsApp template in a language | row keyed `<key>__<locale>`, `language` = locale, Meta-approved |
