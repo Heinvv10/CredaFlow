@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { issueTaxInvoice } from "@/lib/vat/tax-invoice"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
-import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
+import { addMonthsClamped, dbDate, isoOfDbDate } from "./dates"
 import { dueDateInstant } from "./schedule-records"
 import { appendLeaseCharge } from "./lease-charges"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
@@ -176,14 +176,15 @@ suite.sequential("lease servicing rules: end of term, termination, rentals, char
   })
 
   it("LeaseRental_guard: an extension's rental due on its end date is billed in arrears, not in advance (it would pay for the month after)", async () => {
-    // An extension elected 40 days ago, notice 35 days ago, ending a month after the last rental; then that rental.
+    // An extension elected 40 days ago, notice on the last rental's day: it ends a month after that rental; then that rental.
     const lastMonthsRental = async (tx: Tx, loanId: string) => {
       const last = await tx.leaseRental.findFirstOrThrow({ where: { loanId }, orderBy: { periodNo: "desc" } })
       const dueDate = addMonthsClamped(isoOfDbDate(last.dueDate), 1)
       const { id } = await tx.leaseEndOfTerm.create({
         data: { tenantId: fx.tenantId, loanId, origin: "EXPIRY", outcome: "EXTEND", status: "EXTENDING", electedAt: new Date(Date.now() - 40 * 86_400_000) }, select: { id: true },
       })
-      await tx.leaseEndOfTerm.update({ where: { id }, data: { extensionNoticeOn: dbDate(fromDayNumber(toDayNumber(today()) - 35)), extensionEndsOn: dbDate(dueDate) } })
+      const noticeOn = isoOfDbDate(last.dueDate) < today() ? isoOfDbDate(last.dueDate) : today()
+      await tx.leaseEndOfTerm.update({ where: { id }, data: { extensionNoticeOn: dbDate(noticeOn), extensionEndsOn: dbDate(dueDate) } })
       const row = await tx.repaymentSchedule.create({
         data: {
           tenantId: fx.tenantId, loanId, installmentNo: last.periodNo + 1, dueDate: dueDateInstant(dueDate),

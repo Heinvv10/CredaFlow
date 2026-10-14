@@ -216,6 +216,52 @@ suite.sequential("lease servicing rules: termination quotes, rental cancellation
     await refuses(VALUATION, /never edited/, async (tx) => tx.assetValuation.update({ where: { id: (await valuation(tx, today())).id }, data: { amountCents: 9_999 } }))
   })
 
+  it("an elected purchase is re-based by staff only once its valuation aged out, on the highest current valuation, at its amount", async () => {
+    const G = "guardLeaseEndOfTerm"
+    const REBASE = /re-based by staff only once its valuation has aged out, on the highest current valuation, at its amount/
+    const MARKET = /at least the asset's market value/
+    const asset = (await database().loan.findUniqueOrThrow({ where: { id: loans.running } })).assetId ?? ""
+    const valuation = (tx: Tx, v: { valuedOn?: string; source?: "ASSESSOR" | "INTERNAL"; by?: string; amountCents?: number } = {}) => tx.assetValuation.create({
+      data: { tenantId: fx.tenantId, assetId: asset, valuedOn: dbDate(v.valuedOn ?? today()), source: v.source ?? "ASSESSOR", valuerName: "TEST Assessors", amountCents: v.amountCents ?? 50_000_000, createdById: v.by ?? fx.adminB },
+      select: { id: true },
+    })
+    type Rebase = { v?: Parameters<typeof valuation>[1]; electedById?: string | null; electedByClientId?: string | null; aged?: boolean; price?: number; higher?: boolean }
+    const elected = async (tx: Tx) => tx.leaseEndOfTerm.create({
+      data: { tenantId: fx.tenantId, loanId: loans.running, origin: "EXPIRY", outcome: "PURCHASE", status: "ELECTED", purchasePriceExclVatCents: 50_000_000,
+        purchaseValuationId: (await valuation(tx, { valuedOn: day(-5) })).id, electedById: fx.officer },
+      select: { id: true, purchaseValuationId: true },
+    })
+    const rebase = async (tx: Tx, opts: Rebase = {}) => {
+      const row = await elected(tx)
+      if (opts.aged ?? true) { // test setup: the elected valuation has aged out (the app never edits valuations)
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+        await tx.$executeRawUnsafe(`UPDATE "AssetValuation" SET "valuedOn" = "valuedOn" - 40 WHERE "id" = $1`, row.purchaseValuationId)
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
+      }
+      if (opts.higher) await valuation(tx, { amountCents: 60_000_000 }) // a higher current valuation exists
+      await tx.leaseEndOfTerm.update({ where: { id: row.id }, data: {
+        purchaseValuationId: (await valuation(tx, opts.v ?? {})).id, purchasePriceExclVatCents: opts.price ?? 50_000_000,
+        electedById: opts.electedById === undefined ? fx.officer : opts.electedById, electedByClientId: opts.electedByClientId ?? null,
+      } })
+    }
+    await ruleAdmits(database(), (tx) => rebase(tx)) // staff, the old valuation aged out, the highest current one by someone else
+    await refuses(without(G, ` AND o."valuedOn" < today - max_age`), REBASE, (tx) => rebase(tx, { aged: false }))
+    await refuses(without(G, `
+           AND NEW."purchasePriceExclVatCents" = n."amountCents"`), REBASE, (tx) => rebase(tx, { price: 60_000_000 })) // no discretion on the price
+    await refuses(without(G, ` AND b."amountCents" > n."amountCents"`, ` AND FALSE`), REBASE, (tx) => rebase(tx, { higher: true })) // nor on the valuation
+    await refuses(without(G, ` OR NEW."electedById" IS NULL OR NEW."electedByClientId" IS NOT NULL`), REBASE,
+      (tx) => rebase(tx, { electedById: null, electedByClientId: fx.lessee })) // never by the lessee
+    await refuses(without(G, `    IF NOT public."purchaseValuationOk"(`, `    IF FALSE AND NOT public."purchaseValuationOk"(`), MARKET, (tx) => rebase(tx, { v: { source: "INTERNAL" } }))
+    // The re-baser is the elector: re-basing on a valuation you recorded is refused (four-eyes against the re-baser).
+    await refuses(without("purchaseValuationOk", ` AND (elector_id IS NULL OR v."createdById" IS DISTINCT FROM elector_id)`), MARKET,
+      (tx) => rebase(tx, { v: { by: fx.adminA }, electedById: fx.adminA }))
+    // The elector changes only with a re-based purchase.
+    await refuses(without(G, `
+    OR ((NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId")
+      AND NOT (OLD."status" = 'ELECTED' AND NEW."outcome" = 'PURCHASE' AND NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"))`),
+      /are fixed once set/, async (tx) => tx.leaseEndOfTerm.update({ where: { id: (await elected(tx)).id }, data: { electedById: fx.adminA } }))
+  })
+
   it("the tenant's lease settings stay in range (the bounds admitted, one past them refused)", async () => {
     const settings = (data: { [K in "maintenanceClaimDualApprovalCents" | "leasePurchaseValuationMaxAgeDays" | "leaseTerminationQuoteValidDays"]?: number }) => (tx: Tx) => tx.tenantConfig.update({ where: { tenantId: fx.tenantId }, data })
     const rule = { table: "TenantConfig", constraint: "TenantConfig_lease_settings" }

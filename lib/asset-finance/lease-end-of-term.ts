@@ -27,7 +27,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { recordMeterReading } from "./meter-readings"
-import { checkPurchaseValuation, leaseTermEnd, purchaseMaxAgeDays } from "./lease-term-end"
+import { bestMarketValuation, checkPurchaseValuation, leaseTermEnd, purchaseMaxAgeDays } from "./lease-term-end"
 import { clientLeaseRefusal } from "./lease-portal-route"
 import type { SigningTx } from "./signing-prepare"
 
@@ -61,7 +61,10 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   if (denied) return denied
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
-    select: { status: true, assetId: true, maturityDate: true, leaseEndOfTerm: { select: { id: true, outcome: true, status: true } } },
+    select: {
+      status: true, assetId: true, maturityDate: true,
+      leaseEndOfTerm: { select: { id: true, outcome: true, status: true, purchasePriceExclVatCents: true, purchaseValuationId: true, electedById: true, electedByClientId: true } },
+    },
   })
   if (!loan?.assetId) return { kind: "not_found" }
   const rebase = loan.leaseEndOfTerm?.outcome === "PURCHASE" && loan.leaseEndOfTerm.status === "ELECTED" && input.outcome === "PURCHASE"
@@ -76,6 +79,9 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
     const maxAge = await purchaseMaxAgeDays(tx, tenantId)
     const oldOn = current.purchaseValuation ? isoOfDbDate(current.purchaseValuation.valuedOn) : null
     if (oldOn !== null && oldOn >= fromDayNumber(toDayNumber(input.today) - maxAge)) return refused("valuation_current", `The elected valuation (${oldOn}) is still current`)
+    // No choice of figure: the house rule's valuation, the highest current market valuation (as the portal prices it).
+    const best = await bestMarketValuation(tx, tenantId, loan.assetId, input.today)
+    if (!best || best.id !== input.purchase?.valuationId) return refused("valuation", "Re-base on the highest current assessor's or dealer's valuation")
   }
   if (loan.status !== "ACTIVE" && loan.status !== "COMPLETED" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (input.outcome === "EXTEND" && loan.status === "DEFAULTED") return refused("defaulted", "A lease in default is not extended")
@@ -129,9 +135,9 @@ export async function endExtension(tx: SigningTx, actor: EndActor, input: { loan
   if (!termEnd || !lastRental) return { kind: "not_found" }
   const noticeEnds = addMonthsClamped(input.noticeOn, EXTENSION_NOTICE_MONTHS)
   const floor = termEnd > noticeEnds ? termEnd : noticeEnds
-  let months = 0
-  while (addMonthsClamped(isoOfDbDate(lastRental.dueDate), months) < floor) months++
-  const endsOn = addMonthsClamped(isoOfDbDate(lastRental.dueDate), months)
+  // Step a month at a time from the last rental, as the daily run appends them (./lease-charges.ts), so the end is one of its dates.
+  let endsOn = isoOfDbDate(lastRental.dueDate)
+  while (endsOn < floor) endsOn = addMonthsClamped(endsOn, 1)
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId: actor.tenantId }, data: { extensionNoticeOn: dbDate(input.noticeOn), extensionEndsOn: dbDate(endsOn) } })
   await audit(tx, actor, AuditAction.LEASE_EXTENSION_ENDED, row.id, { loanId: input.loanId, noticeOn: input.noticeOn, endsOn })
   return { kind: "ok", endOfTermId: row.id, status: "EXTENDING" }
