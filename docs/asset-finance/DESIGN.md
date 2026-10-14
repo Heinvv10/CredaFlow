@@ -1,7 +1,8 @@
 # Asset Finance — Design
 
-Status: **design approved 2026-10-13 (grill-me), not built.** Slice 1 goal:
-`.claude/handoffs/2026-10-13-asset-finance-slice1-goal.md`.
+Status: **design approved 2026-10-13 (grill-me).** Slices 1 and 2 built and
+merged; slice 3 (operating and full-maintenance leases) built, see "Slice 3"
+below. Slice 1 goal: `.claude/handoffs/2026-10-13-asset-finance-slice1-goal.md`.
 
 WesBank-type instalment sale and leasing of vehicles, tractors, TLBs and
 yellow machinery. Borrowers are mostly companies and trusts, some sole
@@ -151,6 +152,54 @@ movements, `LeaseRental`, `Repossession`, `RemarketingSale`, `JournalExport`,
 4. **Repossession and remarketing; journal export and IsaFlow integration.**
 5. **Dealer/broker portal, tracker/telematics integration, valuation
    feeds.**
+
+## Slice 3: operating and full-maintenance leases (built; legal and tax to confirm)
+
+Code: `lib/asset-finance/lease-*.ts`, `cpa-scope.ts`, `documents/lease/`;
+migration `20261014090000_asset_finance_lease_foundation`.
+
+- **Regime.** A lease is written NON_NCA with rule `LEASE_NOT_CREDIT_AGREEMENT`
+  at creation, for an entity or a sole proprietor (`Client`): ownership never
+  passes, so the NCA "lease" definition is not met. No classifier run, no
+  override: the rule is bound in the database to the deal's contract type
+  (both ways, at commit) and can never be set or dropped by an update.
+  // UNTESTED: legal. Consumer bureau files exclude every lease.
+- **CPA scope** (`classifyCpaScope`): natural person → applies; juristic
+  person with verified turnover or asset value ≥ R2m → does not; anything
+  unproven → applies. Snapshotted on the deal (re-run at submit, frozen at
+  approval) and copied to the loan.
+- **Pricing** (`lease-pricing.ts`, on the structure engine). Capital = cash
+  price ex VAT (the lessor claims the input VAT); no deposit, trade-in, fee
+  or VAT deferral (a rental in advance is the ADVANCE timing). The residual is
+  the balloon: the balance after the LAST rental (on an ADVANCE lease one
+  month before the term ends, not discounted for that month). ADVANCE: the
+  first rental falls due on the commencement date, which is the deal's first
+  due date (the planned start must equal it). Escalation is a weight per
+  year, (1 + e)^year to 6 decimals. Maintenance (FML) has its own escalation
+  and is not capital. VAT per line, half-up, at the rate on the commencement
+  date.
+- **Ledger mapping** (`lease-ledger.ts`). A lessee owes rentals, not capital
+  and interest. Each schedule row: `principalDue = totalDue` = rental +
+  maintenance + VAT; `interestDue = feesDue = 0`. `Loan.principal =
+  totalRepayable` = Σ rentals incl. VAT; `totalInterest = 0`;
+  `balloonAmount = null`. So receipts, bank sync, arrears (unpaid rentals),
+  reminders and NON_NCA default interest work unchanged. The capital pricing
+  survives in `assetFinanceOpeningBalanceCents` (repricing re-solves it) and
+  each row's `LeaseRental` holds the rental / maintenance / VAT split.
+  "Rentals outstanding" is not a settlement figure: a lease ends early only
+  by quotation (C8). Leases have their own statement
+  (`documents/lease/statement-pdf.ts`), not the credit statement.
+- **Tax invoices** (`lease-invoices.ts`): one per rental, supply date = the
+  earlier of the due date (daily cron) and a receipt that reaches it (all
+  three receipt paths). Exactly once: row lock + unique `taxInvoiceId`. No
+  inception invoice. // UNTESTED: tax memo pending. // PARTIAL: a VAT-rate
+  change after booking is refused (`vat_rate_changed`), not re-priced.
+- **Repricing** (`lease-reprice.ts`): term and residual unchanged; the
+  uninvoiced rentals outside the notice window take the new rental, their
+  VAT and total; maintenance never changes. The `LeaseRental` amounts change
+  only inside the repricing flag, never once invoiced.
+- **Payout checklist**: the same items; a leased vehicle's eNaTIS **owner**,
+  not only the titleholder, must be the lender (`FinancedAsset.natisOwner`).
 
 ## Acceptance (every slice)
 

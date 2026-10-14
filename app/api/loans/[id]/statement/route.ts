@@ -8,6 +8,7 @@ import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
 import { hasClientBorrower } from "@/lib/borrower"
 import { renderEntityStatementPdf } from "@/lib/asset-finance/documents/statement-pdf"
+import { renderLeaseStatementPdf } from "@/lib/asset-finance/documents/lease/statement-pdf"
 import { recordedCallerIp } from "@/lib/rate-limit"
 
 type RouteCtx = { params: Promise<{ id: string }> }
@@ -30,6 +31,28 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
 
     if (!loan) {
       return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    }
+    // An operating or full-maintenance lease: the lease statement (rentals,
+    // not capital and interest). Staff, or a sole-proprietor lessee for their
+    // own lease; an entity lessee's people use the portal lease routes. The
+    // read is logged before rendering.
+    if (loan.contractType === "OPERATING_LEASE" || loan.contractType === "FULL_MAINTENANCE_LEASE") {
+      const access = loan.clientId ? await requireOwnerOrStaff(loan.clientId) : await requireApiRole("READONLY")
+      if (access.error) return access.error
+      const client = "type" in access && access.type === "client"
+      await prisma.documentAccessLog.create({
+        data: {
+          documentId: loan.id, accessorType: client ? "client" : "staff",
+          accessorId: "clientId" in access && access.clientId ? access.clientId : "user" in access && access.user ? access.user.id : "unknown",
+          action: "download", ipAddress: recordedCallerIp(req), userAgent: req.headers.get("user-agent") ?? null,
+        },
+      })
+      const rendered = await renderLeaseStatementPdf(tenant.id, loan.id)
+      if (rendered.kind === "not_found") return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+      if (rendered.kind === "refused") return rendered.response
+      return new Response(new Uint8Array(rendered.bytes), {
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${rendered.filename}"` },
+      })
     }
     // An entity borrower (asset finance): staff only on this route (the
     // entity's own people use the portal's asset-finance statement route),

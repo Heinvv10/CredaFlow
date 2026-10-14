@@ -143,14 +143,16 @@ export async function renderLeaseAgreement(data: AnyDealDocumentData): Promise<B
   w.labelValues(supplierRows(data))
   w.section("5. RENTALS")
   w.labelValues(rentalRows(data, lease))
-  w.table("6. RENTAL SCHEDULE", SCHEDULE_COLUMNS, lease.schedule.rows.map((r) => [
+  // An operating lease has no maintenance column.
+  const keep = (_: unknown, i: number) => fml || i !== 3
+  w.table("6. RENTAL SCHEDULE", SCHEDULE_COLUMNS.filter(keep), lease.schedule.rows.map((r) => [
     String(r.periodNo),
     formatIsoDatePdf(r.dueDate),
     formatZarPdf(r.rentalExclVatCents),
-    fml ? formatZarPdf(r.maintenanceExclVatCents) : "",
+    formatZarPdf(r.maintenanceExclVatCents),
     formatZarPdf(r.vatCents),
     formatZarPdf(r.totalCents),
-  ]))
+  ].filter(keep)))
   const annexure = annexureRows(lease)
   if (annexure.length > 0) {
     w.section(fml ? "7. ANNEXURE A — MAINTENANCE AND USAGE" : "7. CONTRACTED USAGE")

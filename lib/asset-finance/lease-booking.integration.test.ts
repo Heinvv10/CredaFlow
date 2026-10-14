@@ -22,6 +22,14 @@ import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAn
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { signingRoutes } from "./deal-signing.integration-fixture"
 import { CONSUMER_BORROWER_WHERE } from "@/lib/bureau-submission/population"
+import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
+import { renderEntityStatementPdf } from "./documents/statement-pdf"
+import { renderLeaseStatementPdf } from "./documents/lease/statement-pdf"
+import { loadPortalContract } from "./portal-contract"
+import { runWithTenant } from "@/lib/tenant-scope"
+
+const pdfText = async (bytes: Buffer) => (await pdfPageContents(bytes))
+  .flatMap((content) => [...content.matchAll(/<([0-9A-Fa-f]+)> Tj/g)].map((m) => Buffer.from(m[1], "hex").toString("latin1"))).join("\n")
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
@@ -111,10 +119,25 @@ suite.sequential("operating and full-maintenance leases: origination to booking 
 
   it("C3: staff figures read the rentals: balance owed, no arrears yet, settlement = rentals outstanding", async () => {
     const loan = await database().loan.findUniqueOrThrow({ where: { id: fmlLoan }, include: { repaymentSchedule: true } })
-    const figures = await staffLoanFigures(database(), loan, new Date())
+    const figures = await staffLoanFigures(database() as never, loan, new Date())
     expect(figures.arrears).toBe(0)
     expect(figures.maturityBalance).toBe(loan.totalRepayable)
     expect(figures.settlementAmount).toBe(loan.totalRepayable)
+  }, 30_000)
+
+  it("C3: the statement lists rentals (not capital and interest) and the portal contract shows rentals, no inception invoice", async () => {
+    const statement = await runWithTenant(fx.tenantId, () => renderEntityStatementPdf(fx.tenantId, fmlLoan))
+    if (statement.kind !== "pdf") throw new Error(`statement: ${statement.kind}`)
+    const text = await pdfText(statement.bytes)
+    expect(text).toMatch(/FULL MAINTENANCE LEASE AGREEMENT . STATEMENT/)
+    expect(text).toContain("Rentals still to fall due")
+    expect(text).toContain("By quotation only")
+    expect(text).not.toMatch(/interest rate/i)
+    const loan = await database().loan.findUniqueOrThrow({ where: { id: fmlLoan } })
+    const contract = await runWithTenant(fx.tenantId, () => loadPortalContract(fx.tenantId, fx.evidenced, fmlLoan, fx.director))
+    expect(contract?.outstandingCents).toBe(loan.totalRepayable)
+    expect(contract?.taxInvoice ?? null).toBeNull()
+    expect(contract?.balloonCents).toBe(0)
   }, 30_000)
 
   it("C1/C3: a sole proprietor's operating lease in advance is NON_NCA, CPA applies, signs alone and starts on its first rental", async () => {
@@ -142,6 +165,9 @@ suite.sequential("operating and full-maintenance leases: origination to booking 
     expect(loan).toMatchObject({ contractType: "OPERATING_LEASE", ncaRegime: "NON_NCA", clientId: fx.lessee, entityId: null, cpaApplies: true })
     expect(isoOfDbDate(loan.leaseRentals[0].dueDate)).toBe(firstDue)
     expect(loan.leaseRentals.every((r) => r.maintenanceExclVatCents === 0)).toBe(true)
+    const statement = await runWithTenant(fx.tenantId, () => renderLeaseStatementPdf(fx.tenantId, olLoan))
+    if (statement.kind !== "pdf") throw new Error(`statement: ${statement.kind}`)
+    expect(await pdfText(statement.bytes)).toContain("TEST Soleprop")
   }, 180_000)
 
   it("leases never enter the consumer bureau population, a sole proprietor's included", async () => {

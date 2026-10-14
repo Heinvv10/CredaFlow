@@ -132,7 +132,8 @@ export async function loadPortalContract(
       select: { basis: true, margin: true, resultingRate: true, effectiveDate: true },
     })),
     prisma.taxInvoice.findFirst({
-      where: { tenantId, loanId },
+      // The inception invoice: a lease has none (its invoices are per rental).
+      where: { tenantId, loanId, loan: { contractType: { notIn: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } },
       orderBy: { number: "asc" },
       select: { id: true, invoiceNumber: true, issueDate: true, totalInclVatCents: true },
     }),
