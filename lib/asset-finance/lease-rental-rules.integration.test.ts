@@ -38,7 +38,6 @@ const setSession = (user: SessionUser | null) => {
   session.current = user && { user }
 }
 const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession({ id, email: `${id}@lease-it.test`, role, tenantId: fx.tenantId })
-const replica = (statement: string) => `BEGIN; SET LOCAL session_replication_role = replica; ${statement}; COMMIT;`
 const loanInsert = (id: string, app: string, contractType: string, asset: string | null) => `INSERT INTO "Loan" ("id", "tenantId", "reference", "applicationId",
   "entityId", "productId", "principal", "totalInterest", "initiationFee", "totalRepayable", "outstandingPrincipal", "startDate", "maturityDate", "interestRatePm",
   "interestModel", "ncaRegime", "contractType", "assetId", "cpaApplies", "cpaRule", "updatedAt")
