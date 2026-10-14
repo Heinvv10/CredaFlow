@@ -400,8 +400,9 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance fund is never deleted';
   END IF;
   IF TG_OP = 'INSERT' THEN
+    -- Booking opens the fund before the deal names its loan: match on the application.
     SELECT d."maintenanceRiskModel"::TEXT INTO deal_model FROM "AssetFinanceDeal" d
-      JOIN "Loan" l ON l."id" = d."loanId" AND l."tenantId" = d."tenantId"
+      JOIN "Loan" l ON l."applicationId" = d."applicationId" AND l."tenantId" = d."tenantId"
       WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND l."contractType" = 'FULL_MAINTENANCE_LEASE';
     IF deal_model IS NULL OR deal_model IS DISTINCT FROM NEW."riskModel"::TEXT OR NEW."settledAt" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance fund is written unsettled for a full-maintenance lease, with its deal''s risk model';
@@ -566,8 +567,8 @@ BEGIN
   -- Serialise readings of one asset: lock it.
   PERFORM 1 FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId" FOR UPDATE;
   IF EXISTS (SELECT 1 FROM "AssetMeterReading" r WHERE r."tenantId" = NEW."tenantId" AND r."assetId" = NEW."assetId" AND r."unit" = NEW."unit"
-      AND ((r."readingDate" <= NEW."readingDate" AND r."value" > NEW."value") OR (r."readingDate" >= NEW."readingDate" AND r."value" < NEW."value"))) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Meter readings are monotonic: never below an earlier reading nor above a later one';
+      AND ((r."readingDate" <= NEW."readingDate" AND r."value" > NEW."value") OR (r."readingDate" > NEW."readingDate" AND r."value" < NEW."value"))) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Meter readings are monotonic: never below an earlier (or same-day) reading nor above a later-dated one';
   END IF;
   RETURN NEW;
 END;
@@ -742,13 +743,15 @@ CREATE TRIGGER "LeaseTerminationQuote_no_truncate" BEFORE TRUNCATE ON "LeaseTerm
 
 -- ---------------------------------------------------------------------------
 -- C7–C8: guardLeaseRental, checkLeaseRentalSchedule and checkLeaseScheduleRow
--- (20261014090000) redefined, unchanged but for: an accepted early
--- termination cancels the uninvoiced rentals after its termination date
--- (cancelledAt set once, uninvoiced, inside the credaflow.lease_terminate flag
--- and with a QUOTED termination of the loan whose date it is after); a
--- cancelled rental is never invoiced or repriced and its schedule row is 0;
--- a lease's schedule may also carry the charge row of its end of term or
--- termination (LeaseEndOfTerm / LeaseTerminationQuote.scheduleId).
+-- (20261014090000) redefined, unchanged but for: a month-to-month
+-- extension's next rental may be written after booking (the next period, a
+-- month after the last, at the last rental and maintenance, within the
+-- extension); an accepted early termination cancels the uninvoiced rentals
+-- after its termination date (cancelledAt set once, uninvoiced, inside the
+-- credaflow.lease_terminate flag and with a QUOTED termination of the loan
+-- whose date it is after); a cancelled rental is never invoiced or repriced
+-- and its schedule row is 0; a lease's schedule may also carry the charge row
+-- of its end of term or termination (LeaseEndOfTerm / LeaseTerminationQuote.scheduleId).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public."guardLeaseRental"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -769,6 +772,22 @@ BEGIN
     END IF;
     IF NEW."taxInvoiceId" IS NOT NULL OR NEW."cancelledAt" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental is written uninvoiced';
+    END IF;
+    -- Only booking writes rentals: its deal is not BOOKED yet (it becomes
+    -- BOOKED later in the same transaction; guardLeaseDealBooking).
+    -- After booking, only a month-to-month extension's next rental: the next
+    -- period, one month after the last, at the last rental and maintenance
+    -- (lib/asset-finance/lease-charges.ts appendExtensionRental).
+    IF EXISTS (SELECT 1 FROM "AssetFinanceDeal" d WHERE d."loanId" = NEW."loanId" AND d."tenantId" = NEW."tenantId" AND d."status" = 'BOOKED')
+      AND NOT EXISTS (
+        SELECT 1 FROM "LeaseEndOfTerm" e
+        JOIN LATERAL (SELECT r.* FROM "LeaseRental" r WHERE r."loanId" = NEW."loanId" ORDER BY r."periodNo" DESC LIMIT 1) last ON TRUE
+        WHERE e."loanId" = NEW."loanId" AND e."tenantId" = NEW."tenantId" AND e."status" = 'EXTENDING'
+          AND (e."extensionEndsOn" IS NULL OR NEW."dueDate" <= e."extensionEndsOn")
+          AND NEW."periodNo" = last."periodNo" + 1
+          AND NEW."dueDate" = (last."dueDate" + INTERVAL '1 month')::date
+          AND NEW."rentalExclVatCents" = last."rentalExclVatCents" AND NEW."maintenanceExclVatCents" = last."maintenanceExclVatCents") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease''s rentals are written when it is booked, or one at a time on a month-to-month extension';
     END IF;
     RETURN NEW;
   END IF;
@@ -799,7 +818,11 @@ BEGIN
     OR NEW."vatRate" IS DISTINCT FROM OLD."vatRate" THEN
     IF OLD."taxInvoiceId" IS NOT NULL OR NEW."taxInvoiceId" IS NOT NULL OR OLD."cancelledAt" IS NOT NULL
       OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on'
-      OR NOT EXISTS (SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId" AND c."createdAt" >= date_trunc('milliseconds', now()) - INTERVAL '1 millisecond') THEN
+      OR NOT EXISTS (
+        SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId"
+          AND c."xmin" = pg_current_xact_id()::xid AND c."basis" <> 'FIXED'
+          AND c."resultingRate" IS DISTINCT FROM (SELECT p."resultingRate" FROM "ContractRate" p WHERE p."loanId" = c."loanId"
+            AND p."effectiveDate" < c."effectiveDate" ORDER BY p."effectiveDate" DESC LIMIT 1)) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental''s amounts are fixed at booking; only a repricing changes them, before the rental is invoiced';
     END IF;
@@ -818,8 +841,12 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental''s tax invoice is of its loan, for the rental''s total';
     END IF;
     -- Time of supply: the earlier of the due date and a payment towards the rental.
-    IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND NOT EXISTS (
-        SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)) THEN
+    IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND (NOT EXISTS (
+        SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)
+      OR NOT EXISTS (
+        SELECT 1 FROM "Payment" p WHERE p."loanId" = NEW."loanId" AND p."tenantId" = NEW."tenantId" AND p."reversed" = false
+          AND p."allocationStatus" = 'ALLOCATED'
+          AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= invoice_row."supplyDate"))) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental is supplied on its due date, or earlier only once a payment has reached it';
     END IF;

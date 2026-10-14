@@ -30,6 +30,7 @@ import { describeAsset, issueTaxInvoice, type TaxInvoiceDb } from "@/lib/vat/tax
 import { loadRateOn, rateTenThousandthsOf } from "@/lib/vat/vat-rate"
 import type { VatTransaction } from "@/lib/vat/db"
 import { recipientAddress } from "./booking-load"
+import { completeEndOfTermIfSettled } from "./lease-end-invoice"
 import { dbDate, isoOfDbDate } from "./dates"
 
 export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement">
@@ -172,4 +173,6 @@ export async function issueLeaseInvoicesOnReceipt(
       }, tx)
     }
   }
+  // A receipt that settles an invoiced end of term closes the lease (./lease-end-invoice.ts).
+  await completeEndOfTermIfSettled(tx as never, { tenantId: input.tenantId, loanId: input.loanId, userId: input.createdById })
 }

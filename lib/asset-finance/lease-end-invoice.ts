@@ -38,17 +38,29 @@ export const END_OF_TERM_PAYMENT_DAYS = 7
 
 const refused = (reason: string, error: string): EndResult => ({ kind: "refused", reason, error })
 
-async function settleFund(tx: SigningTx, tenantId: string, loanId: string, today: string, userId: string): Promise<{ billCents: number } | null> {
+interface FundToSettle {
+  fundId: string
+  balanceCents: number
+  billCents: number
+  settlement: ReturnType<typeof fundSettlement>
+}
+
+/** The fund's settlement (./maintenance-fund.ts); a surplus refund is recorded now, a deficit once its invoice exists. */
+async function prepareFundSettlement(tx: SigningTx, tenantId: string, loanId: string, today: string, userId: string): Promise<FundToSettle | null> {
   const fund = await tx.maintenanceFund.findFirst({ where: { tenantId, loanId }, select: { id: true, riskModel: true, settledAt: true, movements: { select: { kind: true, amountCents: true } } } })
   if (!fund || fund.settledAt) return null
-  const balance = fundBalance(fund.movements)
-  const settlement = fundSettlement(fund.riskModel, balance)
+  const balanceCents = fundBalance(fund.movements)
+  const settlement = fundSettlement(fund.riskModel, balanceCents)
   if (settlement.kind === "REFUND") {
     await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fund.id, kind: "SETTLEMENT_REFUND", amountCents: settlement.amountCents, occurredOn: dbDate(today), createdById: userId, note: "Surplus refunded to the lessee (paid outside CredaFlow)" } })
   }
-  await tx.maintenanceFund.update({ where: { id: fund.id, tenantId }, data: { settledAt: new Date(), settledBalanceCents: balance, settledById: userId } })
-  await logAuditStrict({ tenantId, userId, action: AuditAction.MAINTENANCE_FUND_SETTLED, entity: "MaintenanceFund", entityId: fund.id, newValue: { loanId, balanceCents: balance, settlement } }, tx)
-  return { billCents: settlement.kind === "BILL" ? settlement.amountCents : 0 }
+  return { fundId: fund.id, balanceCents, billCents: settlement.kind === "BILL" ? settlement.amountCents : 0, settlement }
+}
+
+/** Marks the fund settled (once; guardMaintenanceFund), after any settlement movement. */
+async function markFundSettled(tx: SigningTx, tenantId: string, loanId: string, fund: FundToSettle, userId: string): Promise<void> {
+  await tx.maintenanceFund.update({ where: { id: fund.fundId, tenantId }, data: { settledAt: new Date(), settledBalanceCents: fund.balanceCents, settledById: userId } })
+  await logAuditStrict({ tenantId, userId, action: AuditAction.MAINTENANCE_FUND_SETTLED, entity: "MaintenanceFund", entityId: fund.fundId, newValue: { loanId, balanceCents: fund.balanceCents, settlement: fund.settlement } }, tx)
 }
 
 export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string; userId: string }, input: { loanId: string; today: string }): Promise<EndResult> {
@@ -93,7 +105,7 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
   }
   for (const item of row.damageItems) lines.push({ description: `Damage: ${item.description}`, quantity: 1, unitExclVatCents: item.amountExclVatCents })
   if (purchase && row.purchasePriceExclVatCents) lines.push({ description: `Sale of ${describeAsset(asset)}`, quantity: 1, unitExclVatCents: row.purchasePriceExclVatCents })
-  const fund = await settleFund(tx, tenantId, input.loanId, input.today, actor.userId)
+  const fund = await prepareFundSettlement(tx, tenantId, input.loanId, input.today, actor.userId)
   if (fund && fund.billCents > 0) lines.push({ description: "Maintenance fund deficit settled by the lessee", quantity: 1, unitExclVatCents: fund.billCents })
 
   let taxInvoiceId: string | null = null
@@ -109,15 +121,14 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
     })
     taxInvoiceId = invoice.id
     if (fund && fund.billCents > 0) {
-      const fundRow = await tx.maintenanceFund.findFirstOrThrow({ where: { tenantId, loanId: input.loanId }, select: { id: true } })
-      // Written before the fund is marked settled? No: settleFund marked it; the billed movement records the invoice.
-      await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fundRow.id, kind: "SETTLEMENT_BILLED", amountCents: fund.billCents, taxInvoiceId: invoice.id, occurredOn: dbDate(input.today), createdById: actor.userId } })
+      await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fund.fundId, kind: "SETTLEMENT_BILLED", amountCents: fund.billCents, taxInvoiceId: invoice.id, occurredOn: dbDate(input.today), createdById: actor.userId } })
     }
     scheduleId = await appendLeaseCharge(tx, {
       tenantId, loanId: input.loanId, amountCents: invoice.totalInclVatCents, actorUserId: actor.userId,
       dueDate: fromDayNumber(toDayNumber(input.today) + END_OF_TERM_PAYMENT_DAYS), why: "lease_end_of_term_invoice",
     })
   }
+  if (fund) await markFundSettled(tx, tenantId, input.loanId, fund, actor.userId)
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId }, data: { status: "INVOICED", taxInvoiceId, scheduleId, excessUsageCents, fundSettlementCents: fund?.billCents ?? null } })
   if (!purchase) await tx.financedAsset.update({ where: { id: assetId, tenantId }, data: { lessorStatus: "RETURNED_TO_STOCK", lessorStatusAt: new Date() } })
   await logAuditStrict({

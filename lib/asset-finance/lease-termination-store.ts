@@ -56,7 +56,8 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
     select: {
-      id: true, status: true, cpaApplies: true, interestRatePm: true, totalRepayable: true, totalPaid: true, outstandingPrincipal: true, tenantId: true,
+      id: true, status: true, cpaApplies: true, interestRatePm: true, totalRepayable: true, totalPaid: true, outstandingPrincipal: true, arrearsAmount: true, tenantId: true, principal: true, totalInterest: true, interestModel: true, startDate: true, maturityDate: true,
+      contractualTotalInterest: true, contractualTotalRepayable: true,
       repaymentSchedule: true, leaseEndOfTerm: { select: { id: true } }, assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } },
       leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null }, select: { dueDate: true, rentalExclVatCents: true } },
       contractRates: { orderBy: { effectiveDate: "desc" }, take: 1, select: { resultingRate: true } },
@@ -71,7 +72,7 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
   const terminationDate = cpa ? cpaCancellationDate(input.today) : input.today
   const config = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { leaseTerminationQuoteValidDays: true } })
   const validUntil = fromDayNumber(toDayNumber(input.today) + (config?.leaseTerminationQuoteValidDays ?? 10))
-  const figures = await loanSettlementFigures(tx as never, loan as never, new Date())
+  const figures = await loanSettlementFigures(tx as never, loan, new Date())
   const vat = await loadRateOn(tx, input.today)
   const amount = earlyTerminationAmount({
     rentals: loan.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
