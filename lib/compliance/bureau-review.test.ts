@@ -10,11 +10,14 @@ const transactionMock = vi.fn()
 const lockApplicationEvidenceMock = vi.fn()
 const getCreditReportMock = vi.fn()
 const subjectFingerprintMock = vi.fn()
+const tenantConfigFindUniqueMock = vi.fn()
+const auditLogCreateMock = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findUnique: (args: unknown) => applicationFindUniqueMock(args) },
     client: { findUnique: (args: unknown) => clientFindUniqueMock(args) },
+    tenantConfig: { findUnique: (args: unknown) => tenantConfigFindUniqueMock(args) },
     creditBureauCheck: {
       findMany: (args: unknown) => priorCheckFindManyMock(args),
     },
@@ -25,7 +28,8 @@ vi.mock("@/lib/affordability/evidence-locks", () => ({
   lockAffordabilityApplicationEvidence: (...args: unknown[]) =>
     lockApplicationEvidenceMock(...args),
 }))
-vi.mock("@/lib/integrations/experian", () => ({
+vi.mock("@/lib/integrations/experian", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/experian")>()),
   getCreditReport: (args: unknown) => getCreditReportMock(args),
 }))
 vi.mock("@/lib/integrations/experian-input", () => ({
@@ -70,6 +74,8 @@ beforeEach(() => {
   complianceRecordCreateMock.mockResolvedValue({ id: "compliance-1" })
   lockApplicationEvidenceMock.mockResolvedValue(undefined)
   subjectFingerprintMock.mockReturnValue("a".repeat(64))
+  tenantConfigFindUniqueMock.mockResolvedValue(null)
+  auditLogCreateMock.mockResolvedValue({ id: "audit-1" })
   getCreditReportMock.mockResolvedValue({
     ok: true,
     score: 612,
@@ -81,6 +87,7 @@ beforeEach(() => {
     loanApplication: { findUnique: txApplicationFindUniqueMock },
     creditBureauCheck: { create: bureauCheckCreateMock },
     complianceRecord: { create: complianceRecordCreateMock },
+    auditLog: { create: auditLogCreateMock },
   }))
 })
 
@@ -154,7 +161,7 @@ describe("bureau review generation binding", () => {
   })
 
   it("stores the report's account list beside the total, for the credit checks", async () => {
-    const accounts = [{ subscriber: "SYNTHLEND", accountType: "PERSONAL LOAN", instalmentCents: 125_000, status: "OPEN/CURRENT" }]
+    const accounts = [{ subscriber: "SYNTHLEND", accountType: "PERSONAL LOAN", instalmentCents: 25_000, status: "OPEN/CURRENT" }]
     getCreditReportMock.mockResolvedValue({ ok: true, score: 612, adverseInfo: [], totalMonthlyObligations: 25_000, accounts })
 
     await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
@@ -162,6 +169,61 @@ describe("bureau review generation binding", () => {
     expect(bureauCheckCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ obligations: { totalMonthly: 25_000, accounts } }),
     })
+  })
+
+  it("stores the larger of the bureau's stated total and its open accounts' instalments", async () => {
+    const accounts = [
+      { subscriber: "SYNTHLEND", accountType: "PERSONAL LOAN", instalmentCents: 125_000, status: "OPEN/CURRENT" },
+      { subscriber: "SYNTHSTORE", accountType: "STORE CARD", instalmentCents: 40_000, status: "CLOSED" },
+    ]
+    getCreditReportMock.mockResolvedValue({ ok: true, score: 612, adverseInfo: [], totalMonthlyObligations: 25_000, accounts })
+
+    await runBureauReviewCheck(request)
+
+    expect(bureauCheckCreateMock.mock.calls[0][0].data.obligations.totalMonthly).toBe(125_000)
+  })
+
+  it("records every attempt, in order, when the primary bureau fails and the fallback answers", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["xds", "experian"], bureauCredentials: null })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    const rows = bureauCheckCreateMock.mock.calls.map((call) => call[0].data)
+    expect(rows.map((r) => [r.attempt, r.provider, r.status, r.ok])).toEqual([
+      [1, "xds", "NOT_CONFIGURED", false],
+      [2, "experian", "OK", true],
+    ])
+    expect(complianceRecordCreateMock.mock.calls[0][0].data).toMatchObject({
+      status: "COMPLETED",
+      data: { provider: "experian", attempts: [{ provider: "xds", status: "NOT_CONFIGURED" }, { provider: "experian", status: "OK" }] },
+    })
+    expect(auditLogCreateMock).toHaveBeenCalledOnce()
+    expect(JSON.stringify(auditLogCreateMock.mock.calls[0][0])).not.toContain("9001015800086")
+  })
+
+  it("does not ask a second bureau about a subject the first one rejected", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "simulated"], bureauCredentials: null })
+    getCreditReportMock.mockResolvedValue({ ok: false, error: "Invalid SA ID number supplied", errorCode: "NS_201", errorClass: "DATA_QUALITY" })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    const rows = bureauCheckCreateMock.mock.calls.map((call) => call[0].data)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ provider: "experian", status: "SUBJECT_REJECTED", ok: false })
+    expect(complianceRecordCreateMock.mock.calls[0][0].data).toMatchObject({ status: "PENDING", data: { errorClass: "DATA_QUALITY" } })
+  })
+
+  it("stops before a fallback attempt once the review generation moved on", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["xds", "experian"], bureauCredentials: null })
+    applicationFindUniqueMock
+      .mockResolvedValueOnce(currentReview) // start of the run
+      .mockResolvedValueOnce(currentReview) // before attempt 1
+      .mockResolvedValue({ ...currentReview, bureauReviewGeneration: "review-generation-2" })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stale")
+
+    expect(getCreditReportMock).not.toHaveBeenCalled()
+    expect(bureauCheckCreateMock).not.toHaveBeenCalled()
   })
 
   it("marks a simulated provider response on the stored bureau check", async () => {

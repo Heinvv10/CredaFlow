@@ -1,4 +1,4 @@
-import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { isSimulationPermitted, type GuardedIntegration } from "@/lib/integrations/simulation-guard"
 
 export const SIMULATED_BUREAU_REASON =
   "The bureau check is a simulated result and is not valid evidence in this environment."
@@ -12,9 +12,34 @@ export function isSimulatedBureauCheck(obligations: unknown): boolean {
   )
 }
 
-/** A simulated check is fabricated evidence wherever this deployment forbids Experian simulation. */
-export function simulatedBureauBlock(simulated: boolean): { blocked: boolean; reason?: string } {
-  if (simulated && !isSimulationPermitted("experian")) {
+/** Simulation-guard keys a stored bureau check may name as its source. */
+const BUREAU_SIMULATION_SOURCES: ReadonlySet<string> = new Set<GuardedIntegration>([
+  "experian",
+  "transunion",
+  "simulated-bureau",
+])
+
+/**
+ * The policy that governs a simulated check: `obligations.simulationSource`
+ * (lib/bureau/persist.ts). Rows written before the bureau framework carry no
+ * source and came from the Experian dry-run. A source this code does not know
+ * returns null, which no policy permits.
+ */
+function simulationSource(obligations: unknown): GuardedIntegration | null {
+  const source = (obligations as { simulationSource?: unknown }).simulationSource
+  if (source === undefined) return "experian"
+  return typeof source === "string" && BUREAU_SIMULATION_SOURCES.has(source) ? (source as GuardedIntegration) : null
+}
+
+/**
+ * A simulated check is fabricated evidence wherever this deployment forbids
+ * simulation by the provider that produced it. Takes the stored
+ * `CreditBureauCheck.obligations` JSON, which carries both the marker and its source.
+ */
+export function simulatedBureauBlock(obligations: unknown): { blocked: boolean; reason?: string } {
+  if (!isSimulatedBureauCheck(obligations)) return { blocked: false }
+  const source = simulationSource(obligations)
+  if (source === null || !isSimulationPermitted(source)) {
     return { blocked: true, reason: SIMULATED_BUREAU_REASON }
   }
   return { blocked: false }

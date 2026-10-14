@@ -22,7 +22,7 @@ export function evaluateBureauGate(
   check: BureauGateCheck,
   cfg: { bureauMinScore: number; bureauBlockAdverse: boolean },
 ): { blocked: boolean; reason?: string; requiresCalibration?: boolean } {
-  const simulated = simulatedBureauBlock(isSimulatedBureauCheck(check.obligations))
+  const simulated = simulatedBureauBlock(check.obligations)
   if (simulated.blocked) return simulated
   if (check.deceased) return { blocked: true, reason: "Consumer is marked deceased at the bureau." }
   if (check.underDebtReview) return { blocked: true, reason: "Consumer is under debt review (NCA s.88)." }
