@@ -18,8 +18,9 @@ export default async function PaymentFailurePage() {
       <XCircle className="h-16 w-16 mx-auto mb-6" style={{ color: "#DC2626" }} />
       <h1 className="text-2xl font-bold text-gray-900 mb-3">Payment Failed</h1>
       <p className="text-gray-600 leading-relaxed mb-8">
-        Your payment could not be completed. No funds have been deducted. Please try again or
-        use an alternative payment method.
+        We couldn&apos;t confirm your payment. If money left your account, it will be allocated to your
+        loan once your bank confirms it — please don&apos;t pay again until you&apos;ve checked your bank
+        statement.
       </p>
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
         <Link
