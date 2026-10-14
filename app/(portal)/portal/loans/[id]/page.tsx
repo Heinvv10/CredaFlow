@@ -181,12 +181,9 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   )
 }
 
-function PortalLoanTabs({ loan, t, l, locale }: {
-  loan: Awaited<ReturnType<typeof getPortalLoan>>
-  t: Translator<"portalLoans">
-  l: Translator<"portalLabels">
-  locale: Locale
-}) {
+type LoanTabsProps = { loan: Awaited<ReturnType<typeof getPortalLoan>>; t: Translator<"portalLoans">; l: Translator<"portalLabels">; locale: Locale }
+
+function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
   if (!loan) return null
 
   return (
