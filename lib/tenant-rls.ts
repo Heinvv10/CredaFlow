@@ -1,5 +1,7 @@
 /**
  * Postgres row-level security as a backstop to lib/tenant-scope.ts.
+ * Off unless TENANT_RLS=on (tenantRlsEnabled below); the policies stay in the
+ * database either way.
  *
  * The tenant-scope extension rewrites Prisma model queries; it cannot see raw
  * SQL, nested relation reads or trigger bodies. The RLS policies (migration
@@ -34,8 +36,22 @@ import { tenantContext } from "./tenant-scope"
 
 export type RlsSetting = { kind: "tenant"; tenantId: string } | { kind: "bypass" }
 
-/** The RLS setting the current ALS frame asks for, or null when there is no frame. */
+/**
+ * TENANT_RLS=on turns the hook on. Off (the default) it costs nothing: while
+ * the application connects as a superuser — every stack today — Postgres
+ * skips the policies anyway, and the hook's batch transactions would add
+ * round trips for no protection. Read per call so a test can switch it.
+ */
+export function tenantRlsEnabled(): boolean {
+  return process.env.TENANT_RLS === "on"
+}
+
+/**
+ * The RLS setting the current ALS frame asks for, or null when there is no
+ * frame or the hook is off.
+ */
 export function currentRlsSetting(): RlsSetting | null {
+  if (!tenantRlsEnabled()) return null
   const frame = tenantContext.getStore()
   if (!frame) return null
   return frame.kind === "admin" ? { kind: "bypass" } : { kind: "tenant", tenantId: frame.tenantId }
@@ -67,6 +83,10 @@ type BaseClient = RawCapable & { $transaction: (...a: any[]) => Promise<any> }
  * The innermost query hook: wraps a query that runs in a frame but outside any
  * transaction in [set_config, query]. `base` must be the client being extended
  * (not the result), so the set_config statement does not re-enter this hook.
+ *
+ * "Inside a transaction" is read from `__internalParams.transaction`, which
+ * Prisma 5.x passes to query extensions without typing it. Pinned by
+ * lib/tenant-rls.test.ts; re-check it on every Prisma major upgrade.
  */
 export function rlsQueryHook(base: BaseClient) {
   return async function rlsQuery(params: QueryParams) {

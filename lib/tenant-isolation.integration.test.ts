@@ -16,7 +16,7 @@
  */
 import { randomBytes } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope, TENANT_SCOPED_MODELS } from "@/lib/tenant-scope"
 import { createIsolationFixture, dropIsolationFixture, type IsolationFixture } from "./tenant-isolation.integration-fixture"
@@ -69,12 +69,15 @@ suite("tenant isolation — RLS under the application client", () => {
   let password = ""
 
   beforeAll(async () => {
+    // The hook is off by default (lib/tenant-rls.ts); this suite is what it is for.
+    vi.stubEnv("TENANT_RLS", "on")
     password = await createAppRole()
     f = await createIsolationFixture(db)
     app = createAppPrismaClient(roleUrl(password))
   }, 60_000)
 
   afterAll(async () => {
+    vi.unstubAllEnvs()
     await app?.$disconnect()
     await dropIsolationFixture(db, f)
     await db.$disconnect()

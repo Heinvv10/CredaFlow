@@ -178,6 +178,9 @@ done < <(
 )
 if [[ "${1:-}" == "--print-exports" ]]; then printf '%s\n' "${EXPORT_VARS[@]:-}" | sed '/^$/d'; exit 0; fi
 for v in "${EXPORT_VARS[@]:-}"; do [[ -n "$v" ]] && export "$v=1"; done
+# The RLS query hook (lib/tenant-rls.ts) is off by default in the app; every
+# suite runs with it on, so the batch-transaction path is exercised everywhere.
+export TENANT_RLS="${TENANT_RLS:-on}"
 
 echo ">> ${#ALL[@]} integration suites: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
 for f in "${OPT_IN_FILES[@]:-}"; do [[ -n "$f" ]] && echo ">>   opt-in, NOT run by this gate: $f"; done
