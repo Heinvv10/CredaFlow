@@ -4,6 +4,8 @@
 
 **Branch:** `feat/asset-finance-slice2-servicing`
 
+**Pull request:** #66, stacked on #65
+
 **Stack base:** `feat/asset-finance-slice2` (PR #65, open)
 
 **Environment:** local development only. CredaFlow has no staging or production deploy path, live users, or live data.
@@ -98,9 +100,11 @@ These are implementation defaults, not approved legal positions:
 - Do not merge PR #65 or this stacked branch without owner approval.
 - Do not apply migrations to a shared database, enable non-draft legal output,
   or deploy without a separate confirmation gate.
-- GitHub Actions on PR #65 currently fail before job execution because the
-  account's payments/spending limit blocks hosted jobs. Local gates above are
-  green, but CI is not green proof.
+- GitHub Actions on PRs #65 and #66 fail before job execution because recent
+  account payments failed or the spending limit must be increased. All four
+  #66 jobs (`docs`, `boundaries`, `integration`, `quality`) stopped in 1–2
+  seconds without running repository steps. Local gates above are green, but
+  CI is not green proof.
 - A blind independent review was not performed in this run because delegation
   was unavailable. It remains required before merge.
 - Once GitHub billing is restored: rerun PR #65, rebase this branch if needed,
