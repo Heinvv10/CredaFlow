@@ -56,6 +56,7 @@ import {
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
 import { PayoutProviderError } from "@/lib/payouts/types"
+import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -1397,9 +1398,24 @@ export async function POST(
         }
 
         // Payout channel (lib/payouts/disbursement.ts), dark unless the tenant
-        // turned it on. The payout row commits with the loan, unique per
-        // application; the provider is called only after the commit.
-        const payout = txTenantConfig?.payoutsEngineEnabled
+        // turned it on. The payout account needs a passing, real AVS check
+        // whatever collectionsEngineEnabled says (lib/payouts/avs.ts). The
+        // payout row commits with the loan, unique per application; the
+        // provider is called only after the commit.
+        const payoutAvs = txTenantConfig?.payoutsEngineEnabled
+          ? await assertPayoutAvs(tx, {
+              tenantId: tenant.id,
+              applicationId: txApplication.id,
+              client: txApplication.client,
+              account: {
+                bankName: lockedBankDetails.bank,
+                bankAccountNumber: lockedBankDetails.accountNo,
+                bankBranchCode: lockedBankDetails.branchCode,
+                accountType: lockedBankDetails.accountType,
+              },
+            })
+          : null
+        const payout = txTenantConfig?.payoutsEngineEnabled && payoutAvs
           ? await createDisbursementPayout(tx, {
               tenantId: tenant.id,
               applicationId: txApplication.id,
@@ -1415,6 +1431,7 @@ export async function POST(
                 accountType: lockedBankDetails.accountType,
               },
               user: { id: user.id, email: user.email },
+              avs: payoutAvs,
             })
           : null
 
@@ -1887,7 +1904,8 @@ export async function POST(
       error instanceof DisbursementPreconditionError ||
       error instanceof DisbursementKycError ||
       error instanceof DisbursementEvidenceChangedError ||
-      error instanceof PayoutProviderError
+      error instanceof PayoutProviderError ||
+      error instanceof PayoutAvsError
     ) {
       // The evidence-changed 409 is a compliance refusal too: the agreement
       // bytes, affordability evidence, bank details or mandate moved between
@@ -1900,7 +1918,9 @@ export async function POST(
             ? ([`evidence_changed:${error.reason}`, 409] as const)
             : error instanceof PayoutProviderError
               ? ([`payout_channel:${error.code}`, 422] as const)
-              : ([error.precondition, 422] as const)
+              : error instanceof PayoutAvsError
+                ? (["payout_avs", 422] as const)
+                : ([error.precondition, 422] as const)
       await auditRefusal({
         action: AuditAction.LOAN_DISBURSEMENT_REFUSED,
         entity: "LoanApplication",
@@ -1918,6 +1938,15 @@ export async function POST(
           error: `Cannot disburse: ${error.message}`,
           disbursementPrecondition: error.precondition,
           preconditionEvidence: error.evidence,
+        },
+        { status: 422 },
+      )
+    }
+    if (error instanceof PayoutAvsError) {
+      return NextResponse.json(
+        {
+          error: `Cannot disburse: the payout account needs a passing AVS check. ${error.reason}. No funds moved.`,
+          disbursementPrecondition: "payout_avs",
         },
         { status: 422 },
       )

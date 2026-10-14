@@ -33,6 +33,8 @@ function claim(loan: Awaited<ReturnType<typeof loanForPayout>>, providerId = "it
     amountCents: 200_000, reference: loan.reference,
     beneficiary: { accountHolder: "Payout Test", bankName: "FNB", branchCode: "250655", accountNumber: "62000001234", accountType: "SAVINGS" },
     user: actor(),
+    // The AVS gate itself is the route's (unit-tested there); this suite proves the claim.
+    avs: { avsCheckId: "it-avs", simulated: true },
   }))
 }
 

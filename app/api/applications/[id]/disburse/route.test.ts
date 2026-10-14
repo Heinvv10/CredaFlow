@@ -3738,9 +3738,15 @@ describe("POST /api/applications/[id]/disburse — payout channel behind payouts
     expect(actions).not.toContain("PAYOUT_CREATED")
   })
 
+  const PASSING_AVS = {
+    id: "avs-1", clientId: "client-1", applicationId: "app-1", subjectFingerprint: "a".repeat(64), passed: true,
+    provider: "netcash", raw: { accountActive: true },
+  }
+
   it("flag on: creates the payout in the disburse transaction to the verified account, then sends it after commit", async () => {
     approved()
     const { payoutCreate, auditLogCreate } = buildTxMock({ affordabilityTenantConfig: engine(true) })
+    avsCheckFindFirst.mockResolvedValue(PASSING_AVS)
     sendDisbursementPayout.mockResolvedValue({ id: "payout-1", status: "SUBMITTED" })
 
     const res = await POST(makeRequest(), ctx)
@@ -3769,9 +3775,38 @@ describe("POST /api/applications/[id]/disburse — payout channel behind payouts
     })
   })
 
+  it("flag on requires a passing AVS for the payout account even with the collections engine off", async () => {
+    approved()
+    const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true) })
+    avsCheckFindFirst.mockResolvedValue(null)
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "payout_avs", error: expect.stringContaining("No AVS check on record") })
+    expect(payoutCreate).not.toHaveBeenCalled()
+    expect(sendDisbursementPayout).not.toHaveBeenCalled()
+    expect(avsCheckFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1", clientId: "client-1", applicationId: "app-1" },
+    }))
+  })
+
+  it("flag on refuses a failed AVS for the payout account", async () => {
+    approved()
+    const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true) })
+    avsCheckFindFirst.mockResolvedValue({ ...PASSING_AVS, passed: false })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "payout_avs" })
+    expect(payoutCreate).not.toHaveBeenCalled()
+  })
+
   it("flag on with no usable channel: refuses before anything commits", async () => {
     approved()
     const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true, "capitec-pay") })
+    avsCheckFindFirst.mockResolvedValue(PASSING_AVS)
 
     const res = await POST(makeRequest(), ctx)
 

@@ -32,6 +32,8 @@ export interface DisbursementPayoutInput {
   /** The verified banking profile the route resolved; nullable as resolved, refused if incomplete. */
   beneficiary: { accountHolder: string; bankName: string; branchCode: string | null; accountNumber: string; accountType: string | null }
   user: { id: string; email: string }
+  /** The AVS check that verified this account (lib/payouts/avs.ts), recorded in the audit row. */
+  avs: { avsCheckId: string; simulated: boolean }
 }
 
 export function payoutIdempotencyKey(applicationId: string): string {
@@ -77,6 +79,7 @@ export async function createDisbursementPayout(
       newValue: {
         applicationId: input.applicationId, loanId: input.loanId, provider: provider.id,
         amountCents: input.amountCents, reference: input.reference, bankName: input.beneficiary.bankName,
+        avsCheckId: input.avs.avsCheckId, avsSimulated: input.avs.simulated,
       },
     },
   })

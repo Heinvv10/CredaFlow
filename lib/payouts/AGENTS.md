@@ -19,6 +19,10 @@ unchanged: it records the disbursement and calls no provider.
 - **Unknown outcome = NEEDS_REVIEW.** Never auto-retried. Only a payout that
   was never claimed (`PENDING`) can be sent again; staff confirm paid/failed
   with a note (`lib/payouts/resolve.ts`, `POST /api/payouts/[id]`).
+- **AVS is required when the flag is on**, whatever `collectionsEngineEnabled`
+  says: a passing, application-bound check of the payout account, not
+  simulated on a deployed build, before the payout row exists
+  (`lib/payouts/avs.ts`). Refusal: 422 `payout_avs`, audited.
 - **The loan is booked at disburse, as before.** The payout is tracked beside
   it; it does not gate the DISBURSED status (reasons in
   `lib/payouts/disbursement.ts`).

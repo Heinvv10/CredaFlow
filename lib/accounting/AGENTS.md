@@ -35,6 +35,10 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
   developer app yet; tests stub fetch. A push is claimed before it is sent
   (`AccountingXeroPush`); an unknown outcome is `NEEDS_REVIEW`, never retried.
 - Consumer loans only (`contractType LOAN`); asset finance is not exported yet.
+- **VAT is not split out of any amount.** A mapping's tax code is passed through
+  to the CSVs and Xero only; how fees carry VAT is the lender accountant's call.
+- **Xero tokens move to W0's tenant-credentials store once W0 lands**;
+  until then they are sealed in `XeroConnection` under `WABA_ENC_KEY`.
 
 ## Key Files
 | File | Purpose |
