@@ -243,6 +243,8 @@ Domain-specific rules live next to the code:
 - `lib/integrations/.claude.md` — third-party API contracts
 - `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
+- `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
+- `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it

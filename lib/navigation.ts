@@ -184,6 +184,8 @@ export const staffNavigation: NavGroup[] = [
       { href: "/compliance/ncr-return", label: "NCR Return", icon: Landmark },
       { href: "/compliance/complaints", label: "Complaints", icon: MessageSquare },
       { href: "/compliance/dsar", label: "DSAR", icon: Lock },
+      { href: "/compliance/screening", label: "Screening", icon: ShieldCheck, minRole: "BRANCH_MANAGER" },
+      { href: "/compliance/fic", label: "FIC Act", icon: Landmark, minRole: "ADMIN" },
     ],
   },
   {

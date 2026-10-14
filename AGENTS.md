@@ -248,6 +248,8 @@ Domain-specific rules live next to the code:
 - `lib/integrations/AGENTS.md` — third-party API contracts
 - `lib/bank-sync/AGENTS.md` — the one money-import path (statement CSV)
 - `lib/bureau-submission/AGENTS.md` — bureau files; statuses are sent once
+- `lib/screening/AGENTS.md` — PEP/sanctions screening; a sanctions match is never cleared
+- `lib/fic/AGENTS.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/kyc/AGENTS.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it
