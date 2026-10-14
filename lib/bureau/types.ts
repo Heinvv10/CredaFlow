@@ -59,8 +59,9 @@ export interface BureauScore {
 export interface BureauTradeline {
   subscriber: string
   accountType: string | null
-  /** Monthly instalment in cents. */
-  instalmentCents: number
+  /** Monthly instalment in cents; null when the bureau sent an amount that
+   *  cannot be read, which makes an open account's debt — and the total — unknown. */
+  instalmentCents: number | null
   /** The bureau's status text, verbatim. */
   status: string | null
   /** Whether the account is open and paying. Null when the adapter cannot

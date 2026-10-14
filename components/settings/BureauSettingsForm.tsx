@@ -166,7 +166,7 @@ export function BureauSettingsForm() {
                   {p.credentialFields.map((field) => (
                     <div key={field} className="space-y-1">
                       <Label htmlFor={`${p.id}-${field}`}>{field}</Label>
-                      <Input id={`${p.id}-${field}`} type={field === "password" ? "password" : "text"} autoComplete="off"
+                      <Input id={`${p.id}-${field}`} type="password" autoComplete="new-password"
                         value={drafts[p.id]?.[field] ?? ""}
                         onChange={(e) => setDrafts({ ...drafts, [p.id]: { ...drafts[p.id], [field]: e.target.value } })} />
                     </div>

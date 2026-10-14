@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { BureauAccount } from "@/lib/integrations/bureau-accounts"
+import { UNKNOWN_SUBSCRIBER, type BureauAccount } from "@/lib/integrations/bureau-accounts"
 import type { BureauReport, BureauTradeline } from "./types"
 
 /** SHA-256 of a raw response (string as sent, anything else as JSON); null when there was none. */
@@ -38,7 +38,10 @@ export function bureauInstalmentTotalCents(
   report: Pick<BureauReport, "tradelines" | "statedMonthlyInstalmentCents">,
 ): number | null {
   const counted = report.tradelines.filter((t) => t.open !== false)
-  const summed = counted.reduce((sum, t) => sum + nonNegative(t.instalmentCents), 0)
+  // An open account whose amount could not be read makes the whole figure
+  // unknown: any number here would understate it.
+  if (counted.some((t) => t.instalmentCents === null)) return null
+  const summed = counted.reduce((sum, t) => sum + nonNegative(t.instalmentCents ?? 0), 0)
   if (report.statedMonthlyInstalmentCents == null && report.tradelines.length === 0) return null
   return Math.max(nonNegative(report.statedMonthlyInstalmentCents ?? 0), summed)
 }
@@ -47,14 +50,16 @@ function nonNegative(cents: number): number {
   return Number.isFinite(cents) && cents > 0 ? cents : 0
 }
 
-/** The account list the credit checks read (lib/credit-checks/load-facts.ts). */
+/**
+ * The account list the credit checks read (lib/credit-checks/load-facts.ts):
+ * named accounts with a readable amount only, since they match debit orders
+ * by creditor name and amount. The debt total above counts every account.
+ */
 export function tradelineAccounts(tradelines: readonly BureauTradeline[]): BureauAccount[] {
-  return tradelines.map((t) => ({
-    subscriber: t.subscriber,
-    accountType: t.accountType,
-    instalmentCents: t.instalmentCents,
-    status: t.status,
-  }))
+  return tradelines.flatMap((t) =>
+    t.subscriber !== UNKNOWN_SUBSCRIBER && t.instalmentCents !== null
+      ? [{ subscriber: t.subscriber, accountType: t.accountType, instalmentCents: t.instalmentCents, status: t.status }]
+      : [])
 }
 
 /** Replace SA-ID-shaped digit runs: provider error text can echo the request. */

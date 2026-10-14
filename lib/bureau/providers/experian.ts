@@ -49,7 +49,10 @@ function accountOpen(status: string | null): boolean | null {
 const SUBJECT_CLASSES = new Set(["CONSENT", "DATA_QUALITY", "INPUT"])
 
 export function experianReport(result: ExperianResult & { ok: true }): BureauReport {
-  const tradelines = (result.accounts ?? []).map((account) => ({
+  // Every account the bureau reported (nameless ones as UNKNOWN, unreadable
+  // amounts as null). `accounts` is the fallback for a result built without
+  // the full list (test doubles of getCreditReport).
+  const tradelines = (result.obligationRows ?? result.accounts ?? []).map((account) => ({
     ...account,
     open: accountOpen(account.status),
   }))
@@ -74,10 +77,10 @@ export function experianReport(result: ExperianResult & { ok: true }): BureauRep
     pepIndicator: null,
     fraudIndicator: null,
     tradelines,
-    // Counts OPEN/CURRENT accounts only, so it can understate arrears; it is
-    // a floor — bureauInstalmentTotalCents takes the larger of it and the
-    // tradelines above. It also covers accounts with no subscriber name,
-    // which bureauAccounts drops from the tradeline list.
+    // Experian's own total: OPEN/CURRENT accounts only, and an unreadable
+    // amount counted as zero, so it can understate. It is only a floor —
+    // bureauInstalmentTotalCents takes the larger of it and the tradelines
+    // above, which hold every not-closed account, named or not.
     statedMonthlyInstalmentCents: result.totalMonthlyObligations ?? null,
     rawSha256: rawPayloadSha256(result.raw),
   }
