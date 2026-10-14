@@ -59,3 +59,32 @@ export function openBureauCredentials(stored: string | null): BureauCredentialMa
   if (!isCredentialMap(parsed)) throw new BureauCredentialsError("stored bureau credentials are malformed")
   return parsed
 }
+
+/** The stored map with `update` applied: a bag replaces that bureau's, null removes it. */
+export function mergeBureauCredentials(
+  current: BureauCredentialMap,
+  update: Record<string, BureauCredentials | null>,
+): BureauCredentialMap {
+  const next: BureauCredentialMap = { ...current }
+  for (const [id, bag] of Object.entries(update)) {
+    if (bag === null) delete next[id]
+    else next[id] = bag
+  }
+  return next
+}
+
+/**
+ * A TenantConfig row as it may leave the server: the sealed bureau
+ * credentials replaced by whether any are stored. Every response that returns
+ * a whole TenantConfig row goes through this.
+ */
+export function redactBureauCredentials<C extends { bureauCredentials: string | null }>(
+  config: C,
+): Omit<C, "bureauCredentials"> & { bureauCredentialsConfigured: boolean } {
+  const { bureauCredentials, ...rest } = config
+  return { ...rest, bureauCredentialsConfigured: Boolean(bureauCredentials) }
+}
+
+export function redactTenantBureauCredentials<T extends { config: { bureauCredentials: string | null } | null }>(tenant: T) {
+  return { ...tenant, config: tenant.config ? redactBureauCredentials(tenant.config) : null }
+}

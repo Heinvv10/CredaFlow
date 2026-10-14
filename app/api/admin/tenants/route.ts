@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { DEFAULT_TENANT_COLOURS, tenantColourErrors } from "@/lib/theme/tenant-colours"
+import { redactTenantBureauCredentials } from "@/lib/bureau/credentials"
 import type { Session } from "next-auth"
 
 function isAuthorized(req: NextRequest, session: Session | null): boolean {
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "asc" },
   })
 
-  return NextResponse.json(tenants)
+  // A whole TenantConfig row leaves only with its sealed bureau credentials redacted.
+  return NextResponse.json(tenants.map(redactTenantBureauCredentials))
 }
 
 export async function POST(req: NextRequest) {
@@ -91,5 +93,5 @@ export async function POST(req: NextRequest) {
     return created
   })
 
-  return NextResponse.json(tenant, { status: 201 })
+  return NextResponse.json(redactTenantBureauCredentials(tenant), { status: 201 })
 }

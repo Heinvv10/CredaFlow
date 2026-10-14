@@ -44,3 +44,7 @@ export function bureauProviderOrder(config: { bureauProviderOrder: readonly stri
   }
   return [...seen]
 }
+
+export function registeredBureaus(): BureauProvider[] {
+  return [...providers.values()]
+}

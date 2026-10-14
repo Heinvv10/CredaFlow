@@ -217,6 +217,9 @@ export const AuditAction = {
   // One bureau enquiry run (lib/compliance/bureau-review.ts): the bureaus
   // asked, in order, and how each attempt ended. No consumer data.
   BUREAU_ENQUIRY_RUN: "BUREAU_ENQUIRY_RUN",
+  // Bureau enquiry settings (app/api/settings/bureau): order, freshness
+  // window, and WHICH bureaus' credentials changed — never their values.
+  BUREAU_ENQUIRY_CONFIG_UPDATED: "BUREAU_ENQUIRY_CONFIG_UPDATED",
   APPLICATION_RETURNED_TO_DRAFT: "APPLICATION_RETURNED_TO_DRAFT",
   APPLICATION_RETURNED_TO_REVIEW: "APPLICATION_RETURNED_TO_REVIEW",
   CREDIT_LIFE_ELECTION_RECORDED: "CREDIT_LIFE_ELECTION_RECORDED",
