@@ -451,6 +451,10 @@ export const AuditAction = {
   OPERATOR_USER_INVITED: "OPERATOR_USER_INVITED",
   OPERATOR_USER_DEACTIVATED: "OPERATOR_USER_DEACTIVATED",
   OPERATOR_USER_RESET_LINK_SENT: "OPERATOR_USER_RESET_LINK_SENT",
+  OPERATOR_USER_REACTIVATED: "OPERATOR_USER_REACTIVATED",
+  OPERATOR_USER_TOTP_RESET: "OPERATOR_USER_TOTP_RESET",
+  // A lender-admin reset the console refused (rate limit, a fresh self-service link).
+  LENDER_ADMIN_RESET_REFUSED: "LENDER_ADMIN_RESET_REFUSED",
   // Provider credentials (lib/integrations/tenant-credentials.ts): which
   // fields changed, never the values.
   PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",

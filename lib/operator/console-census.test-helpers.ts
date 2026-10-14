@@ -44,7 +44,9 @@ const tenantRow = () => ({
 function answer(model: string, op: string, f: Fixture, args: unknown): unknown {
   // Lookups by a natural key the census creates (a new slug, a new email) find nothing.
   const where = (args as { where?: Record<string, unknown> } | undefined)?.where ?? {}
-  if (op === "findUnique" && ((model === "Tenant" && "slug" in where) || (model === "User" && "email" in where))) return null
+  if ((op === "findUnique" || op === "findFirst") && ((model === "Tenant" && "slug" in where) || (model === "User" && "email" in where))) return null
+  // No earlier console action on record (the lender-admin reset's hourly limit).
+  if (model === "AuditLog" && op === "count") return 0
   if (op === "groupBy") return [{ tenantId: T1, _count: { _all: 2 }, _max: { createdAt: new Date(0) }, _sum: { principal: 100 } }]
   if (op === "count") return 2
   if (op === "aggregate") return { _count: { _all: 2 }, _sum: {} }
@@ -112,7 +114,14 @@ export function credentialReads(calls: Call[], sealedFields: readonly string[]):
   })
 }
 
-/** AuditLog is written by the console, never read by it. */
+/** The console's own audit rows it may count (a rate limit), never read. */
+const COUNTABLE_CONSOLE_ACTIONS = new Set(["LENDER_ADMIN_RESET_LINK_SENT"])
+
+/** AuditLog is written by the console, never read by it, except counting its own rows above. */
 export function auditReads(calls: Call[]): Call[] {
-  return calls.filter((c) => c.model === "AuditLog" && c.op !== "create")
+  return calls.filter((c) => {
+    if (c.model !== "AuditLog" || c.op === "create") return false
+    const action = (c.args as { where?: { action?: unknown } } | undefined)?.where?.action
+    return !(c.op === "count" && typeof action === "string" && COUNTABLE_CONSOLE_ACTIONS.has(action))
+  })
 }

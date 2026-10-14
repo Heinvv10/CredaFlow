@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireOperatorApi } from "@/lib/operator/console-auth"
-import { sendLenderAdminReset } from "@/lib/operator/console/lender-actions"
+import { sendLenderAdminReset } from "@/lib/operator/console/lender-admin-reset"
 import { callerIp } from "@/lib/rate-limit"
 
 // POST { userId }: email one of the lender's admins a reset link (OPERATOR_ADMIN, audited).

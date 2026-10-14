@@ -21,10 +21,11 @@ export function LenderAdminReset({ tenantId, admins }: { tenantId: string; admin
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId }),
     }).catch(() => null)
-    const data = (await res?.json().catch(() => null)) as { emailSent?: boolean; error?: string } | null
+    const data = (await res?.json().catch(() => null)) as { emailSent?: boolean; adminsNotified?: number; error?: string } | null
+    const notified = data?.adminsNotified ? `; ${data.adminsNotified} other admin(s) told` : ""
     const message = !res?.ok
       ? data?.error ?? "Failed"
-      : data?.emailSent ? "Reset link emailed" : "Link issued, but no email was sent (platform SMTP not configured)"
+      : data?.emailSent ? `Reset link emailed${notified}` : "Link issued, but no email was sent (platform SMTP not configured)"
     setStatus((s) => ({ ...s, [userId]: message }))
   }
 
