@@ -190,6 +190,40 @@ it("answers 401, logs, and writes nothing when the paying lender has no webhook 
   errorSpy.mockRestore()
 })
 
+// Event types we do not act on get a 200 so Stitch does not retry them; no
+// lookup and no write happens, so no signature is needed to say "ignored".
+it.each([
+  ["payment.failed", { type: "payment.failed", data: { id: "stitch-123" } }],
+  ["an event with no data", { type: "refund.completed" }],
+])("acknowledges %s with 200 and processes nothing", async (_label, payload) => {
+  findUniqueStitchMock.mockResolvedValue(stitchPayment())
+  const res = await POST(makeReq(payload, { badSignature: true }))
+  expect(res.status).toBe(200)
+  expect(await res.json()).toEqual({ ok: true })
+  expect(findUniqueStitchMock).not.toHaveBeenCalled()
+  expect(loadWebhookSecretMock).not.toHaveBeenCalled()
+  expect(paymentCreateMock).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["invalid JSON", "{not json"],
+  ["a JSON array", "[]"],
+  ["an event without a type", JSON.stringify({ data: { id: "stitch-123" } })],
+])("answers 400 to %s", async (_label, body) => {
+  const res = await POST(new Request("http://localhost/api/portal/payment/webhook", {
+    method: "POST", body, headers: { "x-stitch-signature": "0".repeat(64) },
+  }))
+  expect(res.status).toBe(400)
+  expect(findUniqueStitchMock).not.toHaveBeenCalled()
+  expect(paymentCreateMock).not.toHaveBeenCalled()
+})
+
+it("answers 401 to a payment.completed that names no payment id", async () => {
+  const res = await POST(makeReq({ type: "payment.completed", data: {} }))
+  expect(res.status).toBe(401)
+  expect(paymentCreateMock).not.toHaveBeenCalled()
+})
+
 it("answers 401 to an event that names no payment of ours, without looking for any secret", async () => {
   findUniqueStitchMock.mockResolvedValue(null)
   const res = await POST(makeReq({ type: "payment.completed", data: { id: "unknown" } }))
