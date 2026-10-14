@@ -272,8 +272,10 @@ export async function withTenantContext<T>(
     // An operator user holds no tenant: only this lender's active support
     // grant lets them in (lib/operator/tenant-access.ts, audited there).
     const { resolveOperatorTenantAccess } = await import("./operator/tenant-access")
+    const { REQUEST_ID_HEADER } = await import("./proxy/operator-read-only")
     const access = await resolveOperatorTenantAccess({
       session: session.user, tenantId: tenant.id, resource: new URL(req.url).pathname,
+      method: req.method, requestId: req.headers.get(REQUEST_ID_HEADER),
     })
     if (!access.allowed) {
       const { NextResponse } = await import("next/server")

@@ -12,6 +12,7 @@ import type { UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAudit, logAuditStrict } from "@/lib/audit"
 import { hasMinRole } from "@/lib/permissions"
+import { isReadMethod } from "@/lib/proxy/operator-read-only"
 import { isOperatorRole, SUPPORT_ACCESS_ROLE } from "./roles"
 import { findActiveSupportGrant } from "./support-grants"
 
@@ -24,6 +25,7 @@ export type OperatorSession = {
 export type OperatorAccessRefusal =
   | "not_operator"
   | "totp_required"
+  | "write_refused"
   | "role_insufficient"
   | "wrong_operator"
   | "no_active_grant"
@@ -43,6 +45,15 @@ export type OperatorTenantAccess =
     }
   | { allowed: false; reason: OperatorAccessRefusal }
 
+// Requests whose use is already on the audit log. requireApiRole and
+// withTenantContext both check one request; the first allowed check records
+// it. Bounded: a request completes long before 1 000 later ones evict it.
+const USES_RECORDED = new Set<string>()
+function rememberUse(requestId: string): void {
+  USES_RECORDED.add(requestId)
+  if (USES_RECORDED.size > 1_000) USES_RECORDED.delete(USES_RECORDED.values().next().value as string)
+}
+
 export async function resolveOperatorTenantAccess(input: {
   session: OperatorSession
   tenantId: string
@@ -50,10 +61,14 @@ export async function resolveOperatorTenantAccess(input: {
   requiredRole?: UserRole
   /** What was asked for (route path or guard), recorded on the audit row. */
   resource?: string
+  /** The HTTP method. Anything but GET/HEAD — or no method at all — is refused. */
+  method: string | null
+  /** One id per request (proxy.ts): the use is recorded once however often it is checked. */
+  requestId?: string | null
   ipAddress?: string
   now?: Date
 }): Promise<OperatorTenantAccess> {
-  const { session, tenantId, resource, ipAddress } = input
+  const { session, tenantId, resource, ipAddress, requestId } = input
   const now = input.now ?? new Date()
 
   // The session's claims are not trusted for authority: the row is read.
@@ -64,12 +79,18 @@ export async function resolveOperatorTenantAccess(input: {
   const audit = { tenantId, userId: session.id, userEmail: user?.email ?? session.email, entity: "TenantSupportGrant", ipAddress }
 
   const refuse = async (reason: OperatorAccessRefusal): Promise<OperatorTenantAccess> => {
-    await logAudit({ ...audit, action: AuditAction.SUPPORT_ACCESS_REFUSED, newValue: { reason, resource: resource ?? null } })
+    await logAudit({
+      ...audit, action: AuditAction.SUPPORT_ACCESS_REFUSED,
+      newValue: { reason, resource: resource ?? null, method: input.method },
+    })
     return { allowed: false, reason }
   }
 
   if (!user || !user.active || !isOperatorRole(user.role) || !user.operatorId) return refuse("not_operator")
   if (session.totpVerified !== true) return refuse("totp_required")
+  // Read-only whatever the route's role floor: some routes that write admit
+  // READONLY by product decision (POST /api/clients/[id]/messages).
+  if (!isReadMethod(input.method)) return refuse("write_refused")
   if (input.requiredRole && !hasMinRole(SUPPORT_ACCESS_ROLE, input.requiredRole)) return refuse("role_insufficient")
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { operatorId: true } })
@@ -78,12 +99,15 @@ export async function resolveOperatorTenantAccess(input: {
   const grant = await findActiveSupportGrant(tenantId, user.id, now)
   if (!grant) return refuse("no_active_grant")
 
-  await logAuditStrict({
-    ...audit,
-    action: AuditAction.SUPPORT_ACCESS_USED,
-    entityId: grant.id,
-    newValue: { resource: resource ?? null, grantId: grant.id, grantExpiresAt: grant.expiresAt.toISOString() },
-  })
+  if (!requestId || !USES_RECORDED.has(requestId)) {
+    await logAuditStrict({
+      ...audit,
+      action: AuditAction.SUPPORT_ACCESS_USED,
+      entityId: grant.id,
+      newValue: { resource: resource ?? null, grantId: grant.id, grantExpiresAt: grant.expiresAt.toISOString() },
+    })
+    if (requestId) rememberUse(requestId)
+  }
   return {
     allowed: true,
     grantId: grant.id,

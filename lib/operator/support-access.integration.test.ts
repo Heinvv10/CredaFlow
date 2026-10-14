@@ -14,14 +14,18 @@ import { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), slug: { current: "" } }))
+// The request as proxy.ts hands it on: tenant slug, method and request id stamped.
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), request: { current: {} as Record<string, string> } }))
 vi.mock("@/lib/auth", () => ({ auth: () => mocks.auth() }))
 vi.mock("next/headers", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/headers")>()),
-  headers: async () => new Headers({ host: "localhost", "x-tenant-slug": mocks.slug.current }),
+  headers: async () => new Headers(mocks.request.current),
 }))
 
+import { randomUUID } from "node:crypto"
 import { GET, PUT } from "@/app/api/clients/[id]/route"
+import { POST as postMessage } from "@/app/api/clients/[id]/messages/route"
+import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
 import { grantSupportAccess, revokeSupportAccess, SupportGrantRefusal } from "./support-grants"
 import { createIsolationFixture, dropIsolationFixture, type IsolationFixture, type Lender } from "../tenant-isolation.integration-fixture"
 
@@ -43,14 +47,22 @@ const adminOf = (l: Lender, totpVerified = true) => ({
 })
 
 /** Calls a client route as the operator, on lender `host`'s staff host. */
-async function asOperator(host: Lender, clientId: string, method: "GET" | "PUT" = "GET") {
-  mocks.slug.current = host.slug
-  const req = new NextRequest(`http://localhost/api/clients/${clientId}`, {
-    method, headers: { host: "localhost", "x-tenant-slug": host.slug },
-    ...(method === "PUT" ? { body: JSON.stringify({ firstName: "Mutated" }) } : {}),
+async function asOperator(host: Lender, clientId: string, method: "GET" | "PUT" | "POST" = "GET") {
+  const headers = {
+    host: "localhost", "x-tenant-slug": host.slug,
+    [REQUEST_METHOD_HEADER]: method, [REQUEST_ID_HEADER]: randomUUID(),
+  }
+  mocks.request.current = headers
+  const path = method === "POST" ? `/api/clients/${clientId}/messages` : `/api/clients/${clientId}`
+  const body = method === "PUT"
+    ? { firstName: "Mutated" }
+    : { text: "Synthetic support note", channel: "EMAIL", operationId: randomUUID() }
+  const req = new NextRequest(`http://localhost${path}`, {
+    method, headers, ...(method === "GET" ? {} : { body: JSON.stringify(body) }),
   })
   const ctx = { params: Promise.resolve({ id: clientId }) }
-  return method === "GET" ? GET(req, ctx) : PUT(req, ctx)
+  if (method === "GET") return GET(req, ctx)
+  return method === "PUT" ? PUT(req, ctx) : postMessage(req, ctx)
 }
 
 const auditRows = (action: string) =>
@@ -93,9 +105,22 @@ suite("operator support access — grant-gated, read-only, audited", () => {
     const res = await asOperator(fx().a, fx().a.clientId)
     expect(res.status).toBe(200)
     expect((await res.json()).id).toBe(fx().a.clientId)
+    // One request, one use: requireApiRole and withTenantContext both check
+    // the grant, but the use is recorded once.
     const used = await auditRows("SUPPORT_ACCESS_USED")
-    expect(used.length).toBeGreaterThanOrEqual(1)
-    expect(used.every((r) => r.tenantId === fx().a.tenantId && r.entityId === grant.id)).toBe(true)
+    expect(used).toHaveLength(1)
+    expect(used[0]).toMatchObject({ tenantId: fx().a.tenantId, entityId: grant.id })
+  })
+
+  it("refuses every write with an active grant, even on a READONLY-floor route, and audits it", async () => {
+    // POST /api/clients/[id]/messages admits READONLY by product decision:
+    // only the method tells a support read from a write.
+    const before = await db.message.count({ where: { tenantId: fx().a.tenantId } })
+    const res = await asOperator(fx().a, fx().a.clientId, "POST")
+    expect(res.status).toBe(403)
+    expect(await lastRefusal()).toMatchObject({ reason: "write_refused" })
+    expect(await db.message.count({ where: { tenantId: fx().a.tenantId } })).toBe(before)
+    expect(await auditRows("SUPPORT_ACCESS_USED")).toHaveLength(1)
   })
 
   it("a grant from lender A opens nothing at lender B", async () => {
@@ -105,7 +130,7 @@ suite("operator support access — grant-gated, read-only, audited", () => {
 
   it("a grant is read-only: a write route stays refused", async () => {
     expect((await asOperator(fx().a, fx().a.clientId, "PUT")).status).toBe(403)
-    expect(await lastRefusal()).toMatchObject({ reason: "role_insufficient" })
+    expect(await lastRefusal()).toMatchObject({ reason: "write_refused" })
     expect((await db.client.findUniqueOrThrow({ where: { id: fx().a.clientId } })).firstName).toBe("Synthetic")
   })
 

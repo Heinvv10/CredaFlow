@@ -8,6 +8,7 @@ import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { resolveOperatorTenantAccess } from "@/lib/operator/tenant-access"
+import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
 
 export type { AppRole }
 
@@ -142,12 +143,18 @@ async function operatorApiGuard(
   let tenantId: string
   try {
     tenantId = await getResolvedTenantId()
-  } catch {
+  } catch (err) {
     // No resolvable lender for this request: nothing to grant access to.
+    console.error("[auth-guards] operator request resolved no tenant — refusing:", err)
     return forbidden
   }
+  // The method and request id as proxy.ts stamped them (a route handler
+  // cannot see its own method from here); no stamp counts as a write.
+  const { headers } = await import("next/headers")
+  const h = await headers()
   const access = await resolveOperatorTenantAccess({
     session: user, tenantId, requiredRole: minRole, resource: `api:${minRole}`,
+    method: h.get(REQUEST_METHOD_HEADER), requestId: h.get(REQUEST_ID_HEADER),
   })
   if (!access.allowed) return forbidden
   return { user: access.principal }
