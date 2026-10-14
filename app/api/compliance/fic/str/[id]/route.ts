@@ -6,6 +6,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import { listStrCases } from "@/lib/fic/registers"
 import { TIPPING_OFF_WARNING, canTransitionStr, logStrAccess, parseStrUpdate } from "@/lib/fic/str-cases"
+import { ficTotpRefusal } from "@/lib/fic/session"
 
 /**
  * GET   — one STR case (logged).
@@ -18,6 +19,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     const { id } = await ctx.params
     const [row] = await listStrCases(tenant.id, { id })
     if (!row) return NextResponse.json({ error: "Case not found" }, { status: 404 })
@@ -30,14 +33,21 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     const { id } = await ctx.params
     const parsed = parseStrUpdate((await req.json().catch(() => null)) as Record<string, unknown> | null)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
     const update = parsed.value
 
     const outcome = await prisma.$transaction(async (tx) => {
-      const current = await tx.suspiciousReportCase.findFirst({ where: { id, tenantId: tenant.id }, select: { status: true } })
+      const current = await tx.suspiciousReportCase.findFirst({ where: { id, tenantId: tenant.id }, select: { status: true, raisedById: true } })
       if (!current) return { status: 404 as const, error: "Case not found" }
+      // Maker-checker (CHECK SuspiciousReportCase_maker_checker): whoever raised
+      // the case does not decide it.
+      if (update.status !== "UNDER_REVIEW" && current.raisedById === guard.user.id) {
+        return { status: 403 as const, error: "You raised this case; another compliance officer must decide it." }
+      }
       if (!canTransitionStr(current.status, update.status)) {
         return { status: 409 as const, error: `A ${current.status} case cannot move to ${update.status}.` }
       }

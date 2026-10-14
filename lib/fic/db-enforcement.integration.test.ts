@@ -76,9 +76,9 @@ suite("FIC register enforcement in the database", () => {
   it("marks a case REPORTED only with the FIC reference, filing date and assessor; then never changes it", () => {
     const id = `str_rep_${token}`
     sql(strInsert(id))
-    expect(run(`UPDATE "SuspiciousReportCase" SET status = 'REPORTED', "assessedById" = 'u1', "assessedAt" = now() WHERE id = '${id}'`).output)
+    expect(run(`UPDATE "SuspiciousReportCase" SET status = 'REPORTED', "assessedById" = 'u2', "assessedAt" = now() WHERE id = '${id}'`).output)
       .toContain("SuspiciousReportCase_outcome_complete")
-    sql(`UPDATE "SuspiciousReportCase" SET status = 'REPORTED', "fiuReference" = 'GOAML-TEST-1', "reportedAt" = now(), "assessedById" = 'u1', "assessedAt" = now() WHERE id = '${id}'`)
+    sql(`UPDATE "SuspiciousReportCase" SET status = 'REPORTED', "fiuReference" = 'GOAML-TEST-1', "reportedAt" = now(), "assessedById" = 'u2', "assessedAt" = now() WHERE id = '${id}'`)
     for (const change of [`status = 'CLOSED_NO_REPORT'`, `"fiuReference" = 'GOAML-TEST-2'`, `grounds = '${grounds} Edited later.'`]) {
       expect(run(`UPDATE "SuspiciousReportCase" SET ${change} WHERE id = '${id}'`).output, change).toContain("SuspiciousReportCase_decided_immutable")
     }
@@ -114,9 +114,9 @@ suite("FIC register enforcement in the database", () => {
     const id = `rmcp_${token}`
     sql(`INSERT INTO "RmcpDocument" ("id", "tenantId", "version", "title", "fileName", "mimeType", "storagePath", "sha256", "fileSize", "uploadedById", "reviewDueAt")
       VALUES ('${id}', '${tenantId}', 1, 'RMCP', 'rmcp.pdf', 'application/pdf', '/tmp/none.pdf', '${"a".repeat(64)}', 10, 'u1', '2027-10-14')`)
-    expect(run(`UPDATE "RmcpDocument" SET "approvedById" = 'u1' WHERE id = '${id}'`).output).toContain("RmcpDocument_approval_complete")
+    expect(run(`UPDATE "RmcpDocument" SET "approvedById" = 'u2' WHERE id = '${id}'`).output).toContain("RmcpDocument_approval_complete")
     expect(run(`UPDATE "RmcpDocument" SET sha256 = '${"b".repeat(64)}' WHERE id = '${id}'`).output).toContain("RmcpDocument_transition")
-    sql(`UPDATE "RmcpDocument" SET "approvedById" = 'u1', "approvedAt" = now() WHERE id = '${id}'`)
+    sql(`UPDATE "RmcpDocument" SET "approvedById" = 'u2', "approvedAt" = now() WHERE id = '${id}'`)
     expect(run(`UPDATE "RmcpDocument" SET "approvedById" = 'u2', "approvedAt" = now() WHERE id = '${id}'`).output).toContain("RmcpDocument_transition")
     expect(run(`DELETE FROM "RmcpDocument" WHERE id = '${id}'`).output).toContain("RmcpDocument_no_delete")
   })

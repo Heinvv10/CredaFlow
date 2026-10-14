@@ -21,6 +21,8 @@ export type CtrExportRow = {
   clientIdNumber: string
   filingStatus: "UNFILED" | "FILED" | "NOT_REPORTABLE"
   fiuReference: string | null
+  /** The receipt was reversed after its outcome was recorded. */
+  receiptReversed: boolean
 }
 
 export type StrExportRow = {
@@ -77,6 +79,7 @@ function ctrFields(r: CtrExportRow): Array<[string, Cell]> {
     ["clientIdNumber", r.clientIdNumber],
     ["filingStatus", r.filingStatus],
     ["fiuReference", r.fiuReference],
+    ["receiptReversed", r.receiptReversed ? "YES" : "NO"],
   ]
 }
 
@@ -127,7 +130,7 @@ function toXml(register: "CTR" | "STR", rows: Array<Array<[string, Cell]>>, gene
 
 const CTR_HEADER = ctrFields({
   paymentId: "", receivedAt: new Date(0), amountCents: 0, loanReference: "", clientReference: "",
-  clientName: "", clientIdNumber: "", filingStatus: "UNFILED", fiuReference: null,
+  clientName: "", clientIdNumber: "", filingStatus: "UNFILED", fiuReference: null, receiptReversed: false,
 }).map(([k]) => k)
 const STR_HEADER = strFields({
   reference: "", kind: "", status: "", raisedAt: new Date(0), clientReference: null, clientName: null,

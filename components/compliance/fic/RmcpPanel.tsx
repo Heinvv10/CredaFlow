@@ -14,6 +14,7 @@ export type RmcpVersion = {
   version: number
   title: string
   fileName: string
+  uploadedById: string
   uploadedAt: string
   approvedAt: string | null
   approvalNote: string | null
@@ -27,7 +28,7 @@ const REVIEW_BADGE = {
   OVERDUE: { variant: "danger" as const, label: "Review overdue" },
 }
 
-export function RmcpPanel({ versions }: { versions: RmcpVersion[] }) {
+export function RmcpPanel({ versions, viewerId }: { versions: RmcpVersion[]; viewerId: string }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -77,6 +78,8 @@ export function RmcpPanel({ versions }: { versions: RmcpVersion[] }) {
             <Badge variant={REVIEW_BADGE[v.reviewState].variant}>{REVIEW_BADGE[v.reviewState].label} · {formatDate(v.reviewDueAt)}</Badge>
             {v.approvedAt ? (
               <Badge variant="success">Approved {formatDate(v.approvedAt)}</Badge>
+            ) : v.uploadedById === viewerId ? (
+              <span className="text-xs text-[var(--cf-text-muted)]">Awaiting approval by another compliance officer</span>
             ) : (
               <Button size="sm" variant="outline" onClick={() => approve(v.id)}>Record approval</Button>
             )}

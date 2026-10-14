@@ -4,7 +4,8 @@ import { PERMISSIONS, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
-import { listCtrCandidates, listStrCases } from "@/lib/fic/registers"
+import { loadAllCtrForExport, listStrCases } from "@/lib/fic/registers"
+import { ficTotpRefusal } from "@/lib/fic/session"
 import { GOAML_DRAFT_NOTICE, buildCtrExport, buildStrExport } from "@/lib/fic/goaml-export"
 import { logStrAccess } from "@/lib/fic/str-cases"
 
@@ -18,6 +19,8 @@ export async function GET(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     const register = req.nextUrl.searchParams.get("register")
     const format = req.nextUrl.searchParams.get("format")
     if ((register !== "ctr" && register !== "str") || (format !== "csv" && format !== "xml")) {
@@ -27,7 +30,7 @@ export async function GET(req: NextRequest) {
     let body: string
     let rows: number
     if (register === "ctr") {
-      const candidates = await listCtrCandidates(tenant.id)
+      const candidates = await loadAllCtrForExport(tenant.id)
       body = buildCtrExport(candidates, format, now)
       rows = candidates.length
     } else {

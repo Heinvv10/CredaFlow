@@ -32,7 +32,7 @@ import type { AuditTimelineEntry } from "@/lib/audit/document-access-timeline"
 describe("audit log settings page", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requireMinRole.mockResolvedValue(undefined)
+    requireMinRole.mockResolvedValue({ id: "co-1", role: "ADMIN", tenantId: "tenant-1" })
     getStaffTenantId.mockResolvedValue("tenant-1")
     auditFindMany.mockResolvedValue([{
       id: "audit-1",
@@ -62,6 +62,14 @@ describe("audit log settings page", () => {
       name: "Review Officer",
       email: "review@acme-lending.example",
     }])
+  })
+
+  it("H4: hides STR case rows and STR_* actions from a LOAN_ADMIN", async () => {
+    requireMinRole.mockResolvedValue({ id: "la-1", role: "LOAN_ADMIN", tenantId: "tenant-1" })
+    await AuditLogPage()
+    expect(auditFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1", AND: [{ NOT: [{ entity: "SuspiciousReportCase" }, { action: { startsWith: "STR_" } }] }] },
+    }))
   })
 
   it("merges tenant-scoped document access into the visible timeline with its actor", async () => {

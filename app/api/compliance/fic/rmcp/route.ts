@@ -7,6 +7,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import { deleteManagedFileStrict, saveFileToManagedPath } from "@/lib/storage"
 import { RMCP_MAX_BYTES, isPdf, parseRmcpFields } from "@/lib/fic/rmcp"
+import { ficTotpRefusal } from "@/lib/fic/session"
 
 /**
  * GET  — the lender's RMCP versions, newest first.
@@ -19,6 +20,8 @@ export async function GET(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     const versions = await prisma.rmcpDocument.findMany({
       where: { tenantId: tenant.id },
       orderBy: { version: "desc" },
@@ -35,6 +38,8 @@ export async function POST(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     const form = await req.formData().catch(() => null)
     const file = form?.get("file")
     const fields = parseRmcpFields(form?.get("title"), form?.get("reviewDueAt"))

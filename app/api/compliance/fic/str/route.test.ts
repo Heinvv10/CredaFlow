@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const { authMock, accessCreate, caseFindMany, caseCreate, caseFindFirst, caseUpdateMany, clientFindFirst, auditStrict } = vi.hoisted(() => ({
+const { authMock, accessCreate, caseFindMany, caseCreate, caseFindFirst, caseUpdateMany, caseCount, clientFindFirst, auditStrict, configFindUnique } = vi.hoisted(() => ({
+  caseCount: vi.fn(),
+  configFindUnique: vi.fn(),
   authMock: vi.fn(),
   accessCreate: vi.fn(),
   caseFindMany: vi.fn(),
@@ -29,7 +31,9 @@ vi.mock("@/lib/prisma", () => {
       create: (a: unknown) => caseCreate(a),
       findFirst: (a: unknown) => caseFindFirst(a),
       updateMany: (a: unknown) => caseUpdateMany(a),
+      count: (a: unknown) => caseCount(a),
     },
+    tenantConfig: { findUnique: (a: unknown) => configFindUnique(a) },
     client: { findFirst: (a: unknown) => clientFindFirst(a) },
     loan: { findFirst: vi.fn() },
     payment: { findFirst: vi.fn() },
@@ -40,7 +44,7 @@ vi.mock("@/lib/prisma", () => {
 import { GET, POST } from "./route"
 import { GET as GET_CASE, PATCH } from "./[id]/route"
 
-const session = (role: string) => ({ user: { id: `u-${role}`, email: `${role.toLowerCase()}@test.invalid`, role, tenantId: "t1" } })
+const session = (role: string, totpVerified = true) => ({ user: { id: `u-${role}`, email: `${role.toLowerCase()}@test.invalid`, role, tenantId: "t1", totpVerified } })
 const get = () => new NextRequest("http://x/api/compliance/fic/str")
 const post = (body: unknown) => new NextRequest("http://x/api/compliance/fic/str", { method: "POST", body: JSON.stringify(body) })
 const caseCtx = { params: Promise.resolve({ id: "case-1" }) }
@@ -49,6 +53,8 @@ const grounds = "Cash deposits just under the threshold on three consecutive day
 beforeEach(() => {
   vi.clearAllMocks()
   caseFindMany.mockResolvedValue([])
+  caseCount.mockResolvedValue(0)
+  configFindUnique.mockResolvedValue({ requireStaffTotp: true })
   clientFindFirst.mockResolvedValue({ id: "client-1" })
   caseCreate.mockResolvedValue({ id: "case-1", reference: "STR-20261014-ABCDEF" })
 })
@@ -88,6 +94,36 @@ describe("STR register access", () => {
     }])
     expect((await GET_CASE(get(), caseCtx)).status).toBe(200)
     expect(accessCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "VIEW_CASE", caseId: "case-1" }) })
+  })
+})
+
+describe("M5: a TOTP-verified session where the lender requires staff 2FA", () => {
+  it("refuses the register, a case and an update to an ADMIN whose sign-in skipped TOTP, logging nothing", async () => {
+    authMock.mockResolvedValue(session("ADMIN", false))
+    expect((await GET(get())).status).toBe(403)
+    expect((await GET_CASE(get(), caseCtx)).status).toBe(403)
+    expect((await PATCH(new NextRequest("http://x", { method: "PATCH", body: JSON.stringify({ status: "UNDER_REVIEW" }) }), caseCtx)).status).toBe(403)
+    expect(caseFindMany).not.toHaveBeenCalled()
+    expect(accessCreate).not.toHaveBeenCalled()
+  })
+
+  it("allows it when the lender does not require staff 2FA", async () => {
+    authMock.mockResolvedValue(session("ADMIN", false))
+    configFindUnique.mockResolvedValue({ requireStaffTotp: false })
+    expect((await GET(get())).status).toBe(200)
+  })
+})
+
+describe("maker-checker on an STR case", () => {
+  it("refuses the raiser deciding the case, but lets them start the review", async () => {
+    authMock.mockResolvedValue(session("ADMIN"))
+    caseFindFirst.mockResolvedValue({ status: "OPEN", raisedById: "u-ADMIN" })
+    caseUpdateMany.mockResolvedValue({ count: 1 })
+    const close = new NextRequest("http://x", { method: "PATCH", body: JSON.stringify({ status: "CLOSED_NO_REPORT", assessmentNote: "Explained by a salary advance." }) })
+    expect((await PATCH(close, caseCtx)).status).toBe(403)
+    expect(caseUpdateMany).not.toHaveBeenCalled()
+    const start = new NextRequest("http://x", { method: "PATCH", body: JSON.stringify({ status: "UNDER_REVIEW" }) })
+    expect((await PATCH(start, caseCtx)).status).toBe(200)
   })
 })
 

@@ -5,7 +5,7 @@ const at = new Date("2026-10-14T08:00:00.000Z")
 const ctr = {
   paymentId: "pay_1", receivedAt: at, amountCents: 5_000_000, loanReference: "LN-TEST-1",
   clientReference: "CL-TEST-1", clientName: "Test Example", clientIdNumber: "0000000000000",
-  filingStatus: "UNFILED" as const, fiuReference: null,
+  filingStatus: "UNFILED" as const, fiuReference: null, receiptReversed: false,
 }
 const str = {
   reference: "STR-20261014-ABCDEF", kind: "SUSPICIOUS_TRANSACTION", status: "OPEN", raisedAt: at,

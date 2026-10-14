@@ -4,7 +4,8 @@ import { PERMISSIONS, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
-import { listStrCases } from "@/lib/fic/registers"
+import { loadStrRegister } from "@/lib/fic/registers"
+import { ficTotpRefusal } from "@/lib/fic/session"
 import {
   GROUNDS_MAX_LENGTH,
   GROUNDS_MIN_LENGTH,
@@ -24,8 +25,11 @@ export async function GET(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     await logStrAccess(prisma, { tenantId: tenant.id, userId: guard.user.id, action: "VIEW_REGISTER" })
-    return NextResponse.json({ cases: await listStrCases(tenant.id), warning: TIPPING_OFF_WARNING })
+    const register = await loadStrRegister(tenant.id)
+    return NextResponse.json({ ...register, warning: TIPPING_OFF_WARNING })
   })
 }
 

@@ -5,7 +5,8 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import { isReportableCash } from "@/lib/fic/cash-threshold"
-import { listCtrCandidates } from "@/lib/fic/registers"
+import { loadCtrRegister } from "@/lib/fic/registers"
+import { ficTotpRefusal } from "@/lib/fic/session"
 
 /**
  * GET  — the cash threshold register (derived from CASH receipts).
@@ -16,13 +17,19 @@ import { listCtrCandidates } from "@/lib/fic/registers"
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
-  return withTenantContext(req, async (tenant) => NextResponse.json({ candidates: await listCtrCandidates(tenant.id) }))
+  return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
+    return NextResponse.json(await loadCtrRegister(tenant.id))
+  })
 }
 
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
+    const totp = await ficTotpRefusal(guard.user, tenant.id)
+    if (totp) return totp
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
     const paymentId = typeof body?.paymentId === "string" ? body.paymentId : ""
     const status = body?.status

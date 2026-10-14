@@ -19,6 +19,7 @@ export type CtrRow = {
   filingStatus: "UNFILED" | "FILED" | "NOT_REPORTABLE"
   fiuReference: string | null
   note: string | null
+  receiptReversed: boolean
 }
 
 function RecordOutcome({ row, onDone }: { row: CtrRow; onDone: () => void }) {
@@ -68,53 +69,84 @@ function RecordOutcome({ row, onDone }: { row: CtrRow; onDone: () => void }) {
   )
 }
 
-export function CtrRegister({ rows }: { rows: CtrRow[] }) {
+type Aggregate = { clientId: string; clientName: string; day: string; totalCents: number; paymentIds: string[] }
+
+function Rows({ rows, onDone }: { rows: CtrRow[]; onDone: () => void }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Received</TableHead><TableHead>Amount</TableHead><TableHead>Client</TableHead>
+          <TableHead>Loan</TableHead><TableHead>Outcome</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((r) => (
+          <TableRow key={r.paymentId}>
+            <TableCell>{formatDate(r.receivedAt)}</TableCell>
+            <TableCell>{formatZAR(r.amountCents)}</TableCell>
+            <TableCell>{r.clientName}</TableCell>
+            <TableCell>{r.loanReference}</TableCell>
+            <TableCell className="space-x-2">
+              {r.filingStatus === "UNFILED" ? (
+                <RecordOutcome row={r} onDone={onDone} />
+              ) : (
+                <Badge variant={r.filingStatus === "FILED" ? "success" : "neutral"}>
+                  {r.filingStatus === "FILED" ? `Filed · ${r.fiuReference}` : "Not reportable"}
+                </Badge>
+              )}
+              {r.receiptReversed && <Badge variant="warning">Receipt reversed after recording</Badge>}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
+
+export function CtrRegister({ unfiled, recorded, recordedTotal, pageSize, aggregates }: {
+  unfiled: CtrRow[]
+  recorded: CtrRow[]
+  recordedTotal: number
+  pageSize: number
+  aggregates: Aggregate[]
+}) {
   const router = useRouter()
-  const unfiled = rows.filter((r) => r.filingStatus === "UNFILED").length
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <CardTitle>Cash threshold register ({unfiled} unfiled)</CardTitle>
+        <CardTitle>Cash threshold register ({unfiled.length} unfiled)</CardTitle>
         <div className="flex gap-2">
           <Button asChild size="sm" variant="outline"><a href={ficExportHref("ctr", "csv")} download>CSV (goAML-ready draft)</a></Button>
           <Button asChild size="sm" variant="outline"><a href={ficExportHref("ctr", "xml")} download>XML (goAML-ready draft)</a></Button>
         </div>
       </CardHeader>
-      <CardContent>
-        <p className="mb-3 text-xs text-[var(--cf-text-muted)]">
+      <CardContent className="space-y-4">
+        <p className="text-xs text-[var(--cf-text-muted)]">
           Cash receipts at or above the configured threshold. The threshold figure must be confirmed by your compliance
-          officer against the current FIC regulations before relying on this register.
+          officer against the current FIC regulations before relying on this register. Exports contain every row.
         </p>
-        {rows.length === 0 ? (
-          <p className="text-sm text-[var(--cf-text-muted)]">No cash receipts at or above the threshold.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Received</TableHead><TableHead>Amount</TableHead><TableHead>Client</TableHead>
-                <TableHead>Loan</TableHead><TableHead>Outcome</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.paymentId}>
-                  <TableCell>{formatDate(r.receivedAt)}</TableCell>
-                  <TableCell>{formatZAR(r.amountCents)}</TableCell>
-                  <TableCell>{r.clientName}</TableCell>
-                  <TableCell>{r.loanReference}</TableCell>
-                  <TableCell>
-                    {r.filingStatus === "UNFILED" ? (
-                      <RecordOutcome row={r} onDone={() => router.refresh()} />
-                    ) : (
-                      <Badge variant={r.filingStatus === "FILED" ? "success" : "neutral"}>
-                        {r.filingStatus === "FILED" ? `Filed · ${r.fiuReference}` : "Not reportable"}
-                      </Badge>
-                    )}
-                  </TableCell>
-                </TableRow>
+        {unfiled.length === 0
+          ? <p className="text-sm text-[var(--cf-text-muted)]">No unfiled cash receipts at or above the threshold.</p>
+          : <Rows rows={unfiled} onDone={() => router.refresh()} />}
+        {aggregates.length > 0 && (
+          <div className="rounded-md border border-[var(--cf-warning)] p-3 text-sm">
+            <p className="font-medium text-[var(--cf-warning)]">Possible split deposits ({aggregates.length})</p>
+            <p className="text-xs text-[var(--cf-text-muted)]">One client, one day, several cash receipts each under the threshold that together reach it. Review; whether they must be reported is your compliance officer&apos;s call.</p>
+            <ul className="mt-2 space-y-1 text-[var(--cf-text-secondary)]">
+              {aggregates.map((g) => (
+                <li key={`${g.clientId}-${g.day}`}>{g.day} · {g.clientName} · {g.paymentIds.length} receipts · {formatZAR(g.totalCents)}</li>
               ))}
-            </TableBody>
-          </Table>
+            </ul>
+          </div>
+        )}
+        {recorded.length > 0 && (
+          <div>
+            <p className="mb-2 text-sm font-medium text-[var(--cf-text)]">
+              Recorded ({recordedTotal}{recordedTotal > recorded.length ? `, newest ${pageSize} shown — the export has all` : ""})
+            </p>
+            <Rows rows={recorded} onDone={() => router.refresh()} />
+          </div>
         )}
       </CardContent>
     </Card>
