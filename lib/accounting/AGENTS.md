@@ -1,0 +1,46 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: accounting
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+Double-entry journals derived from money events, closed one SAST month at a
+time, exported as CSV (generic, Sage-style) or pushed to Xero.
+
+## Critical Rules
+- **Derived, never hand-entered.** `lib/accounting/sources.ts` says what each
+  source (disbursement, instalment, default charge, receipt, write-off)
+  should have posted by a date; `lib/accounting/derive.ts` posts the
+  difference from the ledger. A later change to a source becomes an
+  adjustment in the next open month, never an edit of a closed one.
+- **One loan-book receivable.** Income is recognised when due; a receipt
+  credits the loan book whole. The system stores no receipt
+  principal/interest split, so none is invented here.
+- **Closed is final (DB-enforced).** `guardAccountingBatch`,
+  `guardAccountingLedgerRow`, the `requireAccountingBatchClosedAtCommit`
+  constraint trigger and the balance CHECKs live in
+  `prisma/migrations/20261015090000_accounting_payouts`. Prisma does not
+  report a COMMIT-time error: `closePeriod` runs `SET CONSTRAINTS ALL
+  IMMEDIATE` before returning, keep it.
+- **Each event once.** `(tenantId, eventKey)` is unique; a first posting uses
+  the base key, a correction `<baseKey>@<yyyy-mm>`.
+- **Months close in order**, only after they end. CSVs render from stored
+  lines and are refused if they no longer match `linesSha256`.
+- **Accounting tables are NOT tenant-scoped** (`lib/tenant-scope.ts`): pass
+  `tenantId` by hand on every query.
+- **Xero is unproven** (`lib/accounting/xero/`): built to the public API, no
+  developer app yet; tests stub fetch. A push is claimed before it is sent
+  (`AccountingXeroPush`); an unknown outcome is `NEEDS_REVIEW`, never retried.
+- Consumer loans only (`contractType LOAN`); asset finance is not exported yet.
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| `lib/accounting/sources.ts` | Desired vector per money source |
+| `lib/accounting/derive.ts` | Delta against the ledger -> entries |
+| `lib/accounting/generate.ts` | `closePeriod`: lock, derive, verify, store, seal |
+| `lib/accounting/csv.ts` | CSV layouts and the lines digest |
+| `lib/accounting/xero/push.ts` | One DRAFT manual journal per closed month |

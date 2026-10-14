@@ -327,6 +327,10 @@ export default async function ReportsPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
             Default Charges
           </Link>
+          <Link href="/reports/accounting"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
+            Accounting Export
+          </Link>
           <div className="flex flex-wrap items-center gap-1.5">
             <a href="/api/reports/export?type=loans" download
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e6b3f] text-white rounded-lg text-xs font-semibold hover:bg-[#155030] transition-colors">
