@@ -83,8 +83,10 @@ export async function prepareAndSign(
     if (row.document === "SURETYSHIP" && wetInkSureties.includes(row.clientId)) {
       staff(fx.officer, "CREDIT_OFFICER")
       expect((await routes.wetInk(dealId, row.id, "SIGNED_SURETYSHIP")).status).toBe(201)
+      const uploaded = await db.dealSigner.findUniqueOrThrow({ where: { id: row.id }, select: { scanDocumentId: true } })
+      if (!uploaded.scanDocumentId) throw new Error("wet-ink scan was not bound to the signer")
       staff(fx.adminA, "LOAN_ADMIN")
-      expect((await routes.confirm(dealId, row.id)).status).toBe(200)
+      expect((await routes.confirm(dealId, row.id, uploaded.scanDocumentId)).status).toBe(200)
       continue
     }
     setSession({ id: row.clientId, email: `${row.clientId}@booking-it.test`, role: "CLIENT", tenantId: fx.tenantId })
