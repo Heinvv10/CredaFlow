@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { cleanAddressLine } from "@/lib/bureau-submission/clean"
+import { redactTenantBureauCredentials } from "@/lib/bureau/credentials"
 import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
 import type { Session } from "next-auth"
@@ -45,7 +46,7 @@ export async function GET(
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
   }
 
-  return NextResponse.json(tenant)
+  return NextResponse.json(redactTenantBureauCredentials(tenant))
 }
 
 export async function PATCH(
@@ -185,7 +186,7 @@ export async function PATCH(
   }
   if (bureauKeys.length === 0 && colourKeys.length === 0 && enabledLanguages === undefined) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
-    return NextResponse.json(updated)
+    return NextResponse.json(redactTenantBureauCredentials(updated))
   }
 
   // The change and its audit rows commit together, or neither does.
@@ -264,5 +265,5 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json(updated)
+  return NextResponse.json(redactTenantBureauCredentials(updated))
 }

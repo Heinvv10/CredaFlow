@@ -5,9 +5,9 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
-import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
+import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { Prisma } from "@prisma/client"
@@ -812,29 +812,25 @@ export async function POST(
         // Bureau gate — check latest bureau result against tenant thresholds.
         // NCA s.81 requires the credit assessment to be current; staleness
         // window lives in `lib/compliance/bureau.ts` so /decide and /disburse
-        // can never drift apart.
-        const [bureauCheck, tenantConfig] = await Promise.all([
-          application.bureauReviewGeneration
-            ? prisma.creditBureauCheck.findFirst({
-                where: {
-                  tenantId: tenant.id,
-                  applicationId: id,
-                  clientId: application.clientId,
-                  reviewGeneration: application.bureauReviewGeneration,
-                  ok: true,
-                  createdAt: { gte: bureauStalenessCutoff() },
-                  // Only Sigma (Experian) checks drive approval post-cutover — a legacy
-                  // TransUnion row is a different score scale and lacks the hard-stop flags.
-                  provider: "experian",
-                },
-                orderBy: { createdAt: "desc" },
-              })
-            : Promise.resolve(null),
-          prisma.tenantConfig.findFirst({
-            where: { tenantId: tenant.id },
-            select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true },
-          }),
-        ])
+        // can never drift apart. The tenant's window is read first: it bounds the query.
+        const tenantConfig = await prisma.tenantConfig.findFirst({
+          where: { tenantId: tenant.id },
+          select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true, bureauMaxAgeDays: true },
+        })
+        // Only approval bureaus (Sigma band, hard-stop flags) drive approval — a
+        // legacy TransUnion row is a different score scale and lacks the flags.
+        const bureauCheck = application.bureauReviewGeneration
+          ? await prisma.creditBureauCheck.findFirst({
+              where: approvalBureauCheckWhere({
+                tenantId: tenant.id,
+                applicationId: id,
+                clientId: application.clientId,
+                reviewGeneration: application.bureauReviewGeneration,
+                maxAgeDays: bureauMaxAgeDays(tenantConfig),
+              }),
+              orderBy: { createdAt: "desc" },
+            })
+          : null
 
         // Deceased is a NON-OVERRIDABLE hard stop — an audited override reason
         // cannot approve a consumer the bureau reports as deceased (owner
@@ -853,7 +849,7 @@ export async function POST(
 
         // A simulated check is fabricated evidence wherever this deployment
         // forbids Experian simulation; an override reason cannot approve on it.
-        const simulatedStop = simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations))
+        const simulatedStop = simulatedBureauBlock(bureauCheck)
         if (simulatedStop.blocked) {
           return NextResponse.json(
             {
@@ -897,6 +893,7 @@ export async function POST(
               hasJudgement: bureauCheck.hasJudgement,
               hasNotice: bureauCheck.hasNotice,
               obligations: bureauCheck.obligations,
+              provider: bureauCheck.provider,
             },
             { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
           )

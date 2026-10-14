@@ -72,7 +72,7 @@ describe("type coverage", () => {
     // Nothing in the app writes these to ComplianceRecord; the evidence lives
     // in ConsentRecord, LoanApplication, Complaint and ClientDocument. Scoring
     // them as obligations made the register look emptier than reality, and a
-    // hand-entered row (generic POST /api/compliance) must not move the score.
+    // hand-entered row (direct DB insert) must not move the score.
     for (const t of ["POPIA_CONSENT", "AFFORDABILITY_ASSESSMENT", "COMPLAINT", "FORM_20_PRE_AGREEMENT"]) {
       expect(groupOf(t)).toBe("LEGACY")
       expect(LEGACY_EVIDENCE_HOME[t as keyof typeof LEGACY_EVIDENCE_HOME]).toMatch(/\S/)
