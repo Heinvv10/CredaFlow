@@ -151,7 +151,7 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     staff(fx.adminA, "LOAN_ADMIN")
     expect((await json(await routes().endOfTerm(loans.purchase, "invoice"))).status).toBe(200)
     const end = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.purchase }, include: { taxInvoice: { include: { lines: true } } } })
-    expect(end.taxInvoice?.lines.map((l) => [l.description.startsWith("Sale of"), l.exclVatCents, l.vatCents])).toEqual([[true, 72_000_000, 10_800_000]])
+    expect(end.taxInvoice?.lines.map((l) => [l.description.startsWith("Sale of"), l.exclVatCents, l.vatCents])).toEqual([[true, 71_000_000, 10_650_000]]) // re-based at the current valuation
     await payAllOwed(database(), fx, loans.purchase)
     expect((await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.purchase } })).status).toBe("INVOICED") // the eNaTIS change is outstanding
     expect((await json(await routes().endOfTerm(loans.purchase, "natis-confirmed"))).status).toBe(200)

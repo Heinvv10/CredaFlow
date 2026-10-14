@@ -7,7 +7,7 @@
  * EXTENDING) whose last rental has fallen due gets its next rental, one month
  * later, at the last rental and maintenance (./lease-charges.ts
  * appendExtensionRental) — one period at a time — unless the extension was
- * ended and the next rental would fall after its end. The invoice step then
+ * ended and the next rental would fall after its end (in advance: on or after it). The invoice step then
  * invoices it once due.
  *
  * EXPIRY NOTICES (C7, CPA s14). A CPA lessee's lease whose term expires in

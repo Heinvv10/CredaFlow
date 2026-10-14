@@ -707,12 +707,13 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A completed end of term is final';
   END IF;
   -- An elected purchase is re-based only when its valuation has aged out: by staff (who become the
-  -- elector), onto a newer valuation, under the same rule as the election.
+  -- elector), onto another valuation, at that valuation's amount, under the same rule as the election.
   IF NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents" OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId" THEN
     IF NEW."purchaseValuationId" IS NOT DISTINCT FROM OLD."purchaseValuationId" OR NEW."electedById" IS NULL OR NEW."electedByClientId" IS NOT NULL
        OR NOT EXISTS (SELECT 1 FROM "AssetValuation" o JOIN "AssetValuation" n ON n."id" = NEW."purchaseValuationId" AND n."tenantId" = o."tenantId"
-         WHERE o."id" = OLD."purchaseValuationId" AND o."tenantId" = NEW."tenantId" AND o."valuedOn" < today - max_age AND n."valuedOn" > o."valuedOn") THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purchase is re-based by staff only once its valuation has aged out, onto a newer valuation';
+         WHERE o."id" = OLD."purchaseValuationId" AND o."tenantId" = NEW."tenantId" AND o."valuedOn" < today - max_age
+           AND NEW."purchasePriceExclVatCents" = n."amountCents") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purchase is re-based by staff only once its valuation has aged out, at the new valuation''s amount';
     END IF;
     IF NOT public."purchaseValuationOk"(NEW."tenantId", loan_row."assetId", NEW."purchaseValuationId", NEW."purchasePriceExclVatCents", NEW."electedById", max_age) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
@@ -724,8 +725,12 @@ BEGIN
       NEW."outcome" <> 'EXTEND' OR NEW."extensionNoticeOn" < (NEW."electedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
       OR NEW."extensionNoticeOn" > today OR NEW."extensionEndsOn" IS NULL
       OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date
-      OR NEW."extensionEndsOn" < public."leaseTermEnd"(NEW."loanId", NEW."tenantId")) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Notice is given between the election and today, and ends the extension at least a month later';
+      OR NEW."extensionEndsOn" < public."leaseTermEnd"(NEW."loanId", NEW."tenantId")
+      -- On a rental date, so the last rental covers the extension exactly.
+      OR (NEW."extensionEndsOn" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "LeaseRental" r, generate_series(0, 60) AS n(months)
+        WHERE r."loanId" = NEW."loanId" AND r."tenantId" = NEW."tenantId" AND r."cancelledAt" IS NULL
+          AND (r."dueDate" + make_interval(months => n.months))::date = NEW."extensionEndsOn"))) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Notice is given between the election and today, and ends the extension at least a month later, on a rental date';
   END IF;
   IF NEW."status" IS DISTINCT FROM OLD."status" AND NOT (
     (OLD."status" = 'ELECTED' AND NEW."status" = 'INSPECTED' AND NEW."outcome" = 'RETURN')

@@ -19,7 +19,7 @@ import { afterAll, beforeAll, describe, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { issueTaxInvoice } from "@/lib/vat/tax-invoice"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
-import { addMonthsClamped, dbDate, fromDayNumber, toDayNumber } from "./dates"
+import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { appendLeaseCharge } from "./lease-charges"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import { backdateLease, ruleAdmits, ruleRefuses } from "./lease-servicing.integration-fixture"
@@ -104,6 +104,9 @@ async function saleInvoiced(tx: Tx, loanId: string, id: string) {
 }
 const TIMING = /from the day the asset comes back/
 const NOTICE = /Notice is given between the election and today/
+/** A rental date of the lease: its last uncancelled rental's due date plus `months` (an extension ends on one). */
+const cycle = async (tx: Tx, loanId: string, months: number) =>
+  addMonthsClamped(isoOfDbDate((await tx.leaseRental.findFirstOrThrow({ where: { loanId, cancelledAt: null }, orderBy: { periodNo: "desc" } })).dueDate), months)
 const MARKET = /at least the asset's market value/
 
 suite.sequential("lease servicing rules: end of term, clause by clause (each clause removed → the attack goes through)", () => {
@@ -147,7 +150,7 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
   it("timing, extension: inspected from the extension's end", async () => {
     await refuses(without(G, `WHEN NEW."outcome" = 'EXTEND' THEN NEW."extensionEndsOn"`, `WHEN FALSE THEN NEW."extensionEndsOn"`), TIMING, async (tx) => {
       const { id } = await extending(tx, loans.ended, electedDaysAgo(60))
-      await notice(tx, id, day(-40), today())
+      await notice(tx, id, day(-40), await cycle(tx, loans.ended, 1)) // ended about today
       await inspect(tx, id, day(-1))
     })
   })
@@ -177,24 +180,32 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
   })
 
   it("extension notice: between the election and today, with an end at least a month later", async () => {
-    const give = (noticeOn: string, endsOn: string | null) => async (tx: Tx) => notice(tx, (await extending(tx, loans.expired)).id, noticeOn, endsOn)
-    await ruleAdmits(database(), give(today(), addMonthsClamped(today(), 1)))
-    await refuses(without(G, `OR NEW."extensionNoticeOn" < (NEW."electedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date`), NOTICE, give(day(-1), day(60)))
-    await refuses(without(G, `OR NEW."extensionNoticeOn" > today`), NOTICE, give(day(1), day(60)))
+    const give = (noticeOn: string, months: number | null) => async (tx: Tx) =>
+      notice(tx, (await extending(tx, loans.expired)).id, noticeOn, months === null ? null : await cycle(tx, loans.expired, months))
+    await ruleAdmits(database(), give(today(), 2))
+    await refuses(without(G, `OR NEW."extensionNoticeOn" < (NEW."electedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date`), NOTICE, give(day(-1), 2))
+    await refuses(without(G, `OR NEW."extensionNoticeOn" > today`), NOTICE, give(day(1), 2))
     await refuses(without(G, `OR NEW."extensionEndsOn" IS NULL`), NOTICE, give(today(), null))
-    await refuses(without(G, `OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date`), NOTICE, give(today(), day(7)))
+    await refuses(without(G, `OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date`), NOTICE, give(today(), 0))
+    // On a rental date: a day off the cycle is refused.
+    await refuses(without(G, `
+      -- On a rental date, so the last rental covers the extension exactly.
+      OR (NEW."extensionEndsOn" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "LeaseRental" r, generate_series(0, 60) AS n(months)
+        WHERE r."loanId" = NEW."loanId" AND r."tenantId" = NEW."tenantId" AND r."cancelledAt" IS NULL
+          AND (r."dueDate" + make_interval(months => n.months))::date = NEW."extensionEndsOn"))`), NOTICE,
+      async (tx) => notice(tx, (await extending(tx, loans.expired)).id, today(), fromDayNumber(toDayNumber(await cycle(tx, loans.expired, 2)) + 1)))
     // Never before the billed period ends (a running lease: its term runs years on).
     await refuses(without(G, `
       OR NEW."extensionEndsOn" < public."leaseTermEnd"(NEW."loanId", NEW."tenantId")`), NOTICE,
-      async (tx) => notice(tx, (await extending(tx, loans.running)).id, today(), day(40)))
+      async (tx) => notice(tx, (await extending(tx, loans.running)).id, today(), await cycle(tx, loans.running, -30)))
   })
 
   it("the extension's end, and the billed figures once invoiced, are fixed", async () => {
     const FIXED = /fixed once set/
     await refuses(without(G, `OR (OLD."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" IS DISTINCT FROM OLD."extensionEndsOn")`), FIXED, async (tx) => {
       const { id } = await extending(tx, loans.expired)
-      await notice(tx, id, today(), day(40))
-      await tx.leaseEndOfTerm.update({ where: { id }, data: { extensionEndsOn: dbDate(day(50)) } })
+      await notice(tx, id, today(), await cycle(tx, loans.expired, 2))
+      await tx.leaseEndOfTerm.update({ where: { id }, data: { extensionEndsOn: dbDate(await cycle(tx, loans.expired, 3)) } })
     })
     const frozen = without(G, `OLD."status" IN ('INVOICED', 'COMPLETED') AND (NEW."excessUsageCents"`, `FALSE AND (NEW."excessUsageCents"`)
     for (const data of [{ excessUsageCents: 5 }, { fundSettlementCents: 5 }]) {
@@ -216,8 +227,8 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
   })
 
   it("an elected purchase is re-based by staff only once its valuation aged out, onto a newer one that passes the same rule", async () => {
-    const REBASE = /re-based by staff only once its valuation has aged out, onto a newer valuation/
-    type Rebase = { v?: Parameters<typeof valuation>[2]; electedById?: string | null; electedByClientId?: string | null; aged?: boolean }
+    const REBASE = /re-based by staff only once its valuation has aged out, at the new valuation's amount/
+    type Rebase = { v?: Parameters<typeof valuation>[2]; electedById?: string | null; electedByClientId?: string | null; aged?: boolean; price?: number }
     const rebase = async (tx: Tx, opts: Rebase = {}) => {
       const { id } = await purchase(tx, loans.expired, { valuedOn: day(-5) }) // older than the re-base valuation (today)
       const elected = await tx.leaseEndOfTerm.findUniqueOrThrow({ where: { id }, select: { purchaseValuationId: true } })
@@ -227,12 +238,15 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
       }
       await tx.leaseEndOfTerm.update({ where: { id }, data: {
-        purchaseValuationId: (await valuation(tx, loans.expired, opts.v ?? {})).id,
+        purchaseValuationId: (await valuation(tx, loans.expired, opts.v ?? {})).id, purchasePriceExclVatCents: opts.price ?? 50_000_000,
         electedById: opts.electedById === undefined ? fx.officer : opts.electedById, electedByClientId: opts.electedByClientId ?? null,
       } })
     }
     await ruleAdmits(database(), (tx) => rebase(tx)) // staff, the old valuation aged out, a newer current one by someone else
     await refuses(without(G, ` AND o."valuedOn" < today - max_age`), REBASE, (tx) => rebase(tx, { aged: false }))
+    // At the new valuation's amount (R500 000): no discretion, up or down.
+    await refuses(without(G, `
+           AND NEW."purchasePriceExclVatCents" = n."amountCents"`), REBASE, (tx) => rebase(tx, { price: 60_000_000 }))
     await refuses(without(G, ` OR NEW."electedById" IS NULL OR NEW."electedByClientId" IS NOT NULL`), REBASE,
       (tx) => rebase(tx, { electedById: null, electedByClientId: fx.lessee })) // the lessee cannot re-price an elected purchase
     await refuses(without(G, `    IF NOT public."purchaseValuationOk"(`, `    IF FALSE AND NOT public."purchaseValuationOk"(`), MARKET, (tx) => rebase(tx, { v: { source: "INTERNAL" } }))
