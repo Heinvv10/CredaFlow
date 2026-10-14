@@ -31,8 +31,10 @@ const tx = {
 }
 
 const reprojectKycMock = vi.fn()
+const readKycBeforeMock = vi.fn()
 vi.mock("@/lib/kyc/id-upload-projection.server", () => ({
   reprojectKycAfterIdUpload: (...args: unknown[]) => reprojectKycMock(...args),
+  readKycBeforeIdUpload: (...args: unknown[]) => readKycBeforeMock(...args),
 }))
 
 vi.mock("@/lib/document-auth", () => ({
@@ -263,17 +265,22 @@ describe("POST /api/documents", () => {
       order.push("create")
       return { id: "doc-1", ...data }
     })
+    const kycBefore = { id: "client-1", kycStatus: "VERIFIED" }
+    readKycBeforeMock.mockImplementation(async () => { order.push("read-before"); return kycBefore })
     reprojectKycMock.mockImplementation(async () => { order.push("reproject") })
 
     const response = await POST(request("ID_COPY") as never)
 
     expect(response.status).toBe(201)
     expect(transactionMock).toHaveBeenCalledTimes(1)
-    expect(order).toEqual(["lock", "create", "reproject"])
+    // The snapshot is taken BEFORE the insert: the insert can demote the
+    // client by itself, and the audit row compares against this.
+    expect(order).toEqual(["lock", "read-before", "create", "reproject"])
     expect(reprojectKycMock).toHaveBeenCalledWith(tx, {
       tenantId: "tenant-1",
       clientId: "client-1",
       documentId: "doc-1",
+      before: kycBefore,
       actor: { type: "client", email: "client@example.test" },
     })
   })

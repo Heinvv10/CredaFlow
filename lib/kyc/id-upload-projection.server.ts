@@ -26,23 +26,45 @@ const clientKycSelect = {
   kycManualRejectionResolutionReason: true,
 } satisfies Prisma.ClientSelect
 
+type ClientKycRow = Prisma.ClientGetPayload<{ select: typeof clientKycSelect }>
+
 /** The slice of a transaction client this projection touches. */
 export type IdUploadProjectionTransaction = {
   client: {
     findUnique: (args: {
       where: Prisma.ClientWhereUniqueInput
       select: typeof clientKycSelect
-    }) => Promise<Prisma.ClientGetPayload<{ select: typeof clientKycSelect }> | null>
+    }) => Promise<ClientKycRow | null>
     update: (args: {
       where: Prisma.ClientWhereUniqueInput
       data: ClientKycState
       select: typeof clientKycSelect
-    }) => Promise<Prisma.ClientGetPayload<{ select: typeof clientKycSelect }>>
+    }) => Promise<ClientKycRow>
   }
   auditLog: {
     create: (args: { data: Prisma.AuditLogUncheckedCreateInput }) => Promise<unknown>
   }
 } & CompositeKycReader
+
+export type IdUploadActor =
+  | { type: "staff"; userId: string; email?: string | null }
+  | { type: "client"; email: string }
+
+/**
+ * The client's stored KYC row as it stands BEFORE the ID copy is inserted.
+ * The insert itself can demote a VERIFIED client (the database's revoke
+ * trigger), so the audit row has to compare against this snapshot, not
+ * against whatever the re-derivation finds afterwards.
+ */
+export async function readKycBeforeIdUpload(
+  tx: IdUploadProjectionTransaction,
+  args: { tenantId: string; clientId: string },
+): Promise<ClientKycRow | null> {
+  return tx.client.findUnique({
+    where: { id: args.clientId, tenantId: args.tenantId },
+    select: clientKycSelect,
+  })
+}
 
 function sameKycProjection(a: ClientKycState, b: ClientKycState): boolean {
   return a.kycStatus === b.kycStatus &&
@@ -52,8 +74,11 @@ function sameKycProjection(a: ClientKycState, b: ClientKycState): boolean {
 }
 
 /**
- * Re-derive the stored Client KYC projection after an ID_COPY upload and
- * write it back, with an audit row, when it no longer matches the evidence.
+ * After an ID_COPY upload: re-derive the stored Client KYC projection, write
+ * it back when it no longer matches the evidence, and record ONE
+ * actor-attributed audit row whenever the upload left the stored status
+ * different from `before` (the snapshot taken ahead of the insert), whether
+ * the database's trigger or this re-derivation moved it.
  *
  * Callers must hold the client evidence lock and run inside the same
  * transaction as the upload, so a concurrent verification cannot interleave.
@@ -63,7 +88,7 @@ function sameKycProjection(a: ClientKycState, b: ClientKycState): boolean {
  * verification path to promote. Any other change is written, including
  * FAILED -> PENDING when the only blocker was a refused ID that this upload
  * has now replaced. A stored and derived VERIFIED pair is not rewritten, so
- * the verifier's provenance and the audit trail stay untouched.
+ * the verifier's provenance stays untouched.
  */
 export async function reprojectKycAfterIdUpload(
   tx: IdUploadProjectionTransaction,
@@ -71,32 +96,32 @@ export async function reprojectKycAfterIdUpload(
     tenantId: string
     clientId: string
     documentId: string
-    actor:
-      | { type: "staff"; userId: string; email?: string | null }
-      | { type: "client"; email: string }
+    before: ClientKycRow | null
+    actor: IdUploadActor
   },
 ): Promise<{ changed: boolean }> {
-  const before = await tx.client.findUnique({
-    where: { id: args.clientId, tenantId: args.tenantId },
-    select: clientKycSelect,
-  })
+  const { before } = args
   if (!before) return { changed: false }
+  const current = await readKycBeforeIdUpload(tx, args)
+  if (!current) return { changed: false }
 
   const composite = await readCompositeKycState(tx, {
     tenantId: args.tenantId,
     clientId: args.clientId,
-    subject: before,
-    existing: before,
+    subject: current,
+    existing: current,
     preserveVerifiedProvenance: true,
   })
-  if (composite.state.kycStatus === "VERIFIED") return { changed: false }
-  if (sameKycProjection(before, composite.state)) return { changed: false }
-
-  const after = await tx.client.update({
-    where: { id: args.clientId, tenantId: args.tenantId },
-    data: composite.state,
-    select: clientKycSelect,
-  })
+  const rewrite = composite.state.kycStatus !== "VERIFIED" &&
+    !sameKycProjection(current, composite.state)
+  const after = rewrite
+    ? await tx.client.update({
+        where: { id: args.clientId, tenantId: args.tenantId },
+        data: composite.state,
+        select: clientKycSelect,
+      })
+    : current
+  if (after.kycStatus === before.kycStatus) return { changed: false }
 
   await tx.auditLog.create({
     data: {
@@ -111,6 +136,9 @@ export async function reprojectKycAfterIdUpload(
         clientKyc: clientKycAuditValue(after),
         reason: "id_document_uploaded",
         documentId: args.documentId,
+        // True when the ClientDocument insert's database trigger had already
+        // moved the status before the re-derivation ran.
+        demotedByDatabase: current.kycStatus !== before.kycStatus,
         missingCoreDocuments: composite.missingCoreDocuments,
         coreDocumentGaps: composite.coreDocumentGaps.map((gap) => ({
           docType: gap.docType,

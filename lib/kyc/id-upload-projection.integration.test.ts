@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import {
+  readKycBeforeIdUpload,
   reprojectKycAfterIdUpload,
   type IdUploadProjectionTransaction,
 } from "@/lib/kyc/id-upload-projection.server"
@@ -64,11 +65,14 @@ function otherCoreRows(forClient: string, prefix: string) {
 
 async function uploadNewIdCopy(forClient: string, documentId: string) {
   return db.$transaction(async (tx) => {
+    const kycTx = tx as unknown as IdUploadProjectionTransaction
+    const before = await readKycBeforeIdUpload(kycTx, { tenantId, clientId: forClient })
     await tx.clientDocument.create({ data: idCopyRow(documentId, forClient, { verified: false, sha: NEW_ID_SHA }) })
-    return reprojectKycAfterIdUpload(tx as unknown as IdUploadProjectionTransaction, {
+    return reprojectKycAfterIdUpload(kycTx, {
       tenantId,
       clientId: forClient,
       documentId,
+      before,
       actor: { type: "staff", userId: reviewerId },
     })
   })
@@ -233,12 +237,32 @@ suite("replacement ID copy against the database", () => {
     })
   })
 
-  it("writes nothing when the database has already demoted the client", async () => {
+  it("attributes to the actor a demotion the insert's database trigger made on its own", async () => {
     // The previous case left the client VERIFIED on the original copy.
     expect((await stored(clientId)).kycStatus).toBe("VERIFIED")
     const result = await uploadNewIdCopy(clientId, `d_id_second_${token}`)
 
-    expect(result).toEqual({ changed: false })
+    expect(result).toEqual({ changed: true })
     expect((await stored(clientId)).kycStatus).toBe("PENDING")
+    // The trigger's own row has no actor; the upload adds the attributed one.
+    const audit = await db.auditLog.findMany({
+      where: { tenantId, entityId: clientId, action: "KYC_STATUS_CHANGED", userId: reviewerId },
+    })
+    expect(audit).toHaveLength(1)
+    expect(audit[0].oldValue).toMatchObject({ clientKyc: { kycStatus: "VERIFIED" } })
+    expect(audit[0].newValue).toMatchObject({
+      reason: "id_document_uploaded",
+      documentId: `d_id_second_${token}`,
+      demotedByDatabase: true,
+      clientKyc: { kycStatus: "PENDING" },
+    })
+  })
+
+  it("writes no attributed audit row when the upload changed nothing", async () => {
+    const before = await db.auditLog.count({ where: { tenantId, entityId: clientId, userId: reviewerId } })
+    const result = await uploadNewIdCopy(clientId, `d_id_third_${token}`)
+
+    expect(result).toEqual({ changed: false })
+    expect(await db.auditLog.count({ where: { tenantId, entityId: clientId, userId: reviewerId } })).toBe(before)
   })
 })

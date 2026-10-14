@@ -23,6 +23,7 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { CORE_KYC_UPLOAD_DOC_TYPES } from "@/lib/document-types"
 import {
+  readKycBeforeIdUpload,
   reprojectKycAfterIdUpload,
   type IdUploadProjectionTransaction,
 } from "@/lib/kyc/id-upload-projection.server"
@@ -241,11 +242,14 @@ export async function POST(req: NextRequest) {
         doc = docType === "ID_COPY"
           ? await prisma.$transaction(async (tx) => {
               await lockAffordabilityClientEvidence(tx, { tenantId: tenant.id, clientId })
+              const kycTx = tx as unknown as IdUploadProjectionTransaction
+              const before = await readKycBeforeIdUpload(kycTx, { tenantId: tenant.id, clientId })
               const created = await createDocument(tx)
-              await reprojectKycAfterIdUpload(tx as unknown as IdUploadProjectionTransaction, {
+              await reprojectKycAfterIdUpload(kycTx, {
                 tenantId: tenant.id,
                 clientId,
                 documentId: created.id,
+                before,
                 actor: caller.type === "staff"
                   ? { type: "staff", userId: caller.userId }
                   : { type: "client", email: caller.email },
