@@ -7,8 +7,10 @@ import { WA_TEMPLATES } from "@/lib/whatsapp"
 import { parseLenderIdentity } from "@/lib/config/identity"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 import { applicationApprovedEmail, paymentReceivedEmail } from "@/lib/email/templates/portal"
-import { overdueHtml } from "@/lib/email/templates/loan-events"
 import { clientCommsLocale, localizedWaTemplates, pickTemplateForLocale, resolveCommsLocale } from "./comms"
+
+const REVIEW = { reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null }
+const REVIEWED = { af: REVIEW, zu: REVIEW, xh: REVIEW }
 
 describe("resolveCommsLocale", () => {
   it("uses the preference only when the tenant has it enabled", () => {
@@ -21,9 +23,11 @@ describe("resolveCommsLocale", () => {
 
 describe("clientCommsLocale", () => {
   it("reads the tenant only for a non-English preference", async () => {
-    tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: ["en", "xh"] })
+    tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: ["en", "xh"], languageReviews: REVIEWED })
     expect(await clientCommsLocale("t1", "xh")).toBe("xh")
-    expect(tenantConfigFindUnique).toHaveBeenCalledWith({ where: { tenantId: "t1" }, select: { enabledLanguages: true } })
+    expect(tenantConfigFindUnique).toHaveBeenCalledWith({ where: { tenantId: "t1" }, select: { enabledLanguages: true, languageReviews: true } })
+    tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: ["en", "xh"], languageReviews: {} })
+    expect(await clientCommsLocale("t1", "xh")).toBe("en")
     tenantConfigFindUnique.mockClear()
     expect(await clientCommsLocale("t1", "en")).toBe("en")
     expect(await clientCommsLocale("t1", undefined)).toBe("en")
@@ -57,19 +61,22 @@ describe("WhatsApp free text", () => {
     expect(en.application_approved("Thandi", "R5 000", "APP-1")).toBe(WA_TEMPLATES.application_approved("Thandi", "R5 000", "APP-1"))
     expect(en.loan_disbursed("Thandi", "R5 000", "1 Nov")).toBe(WA_TEMPLATES.loan_disbursed("Thandi", "R5 000", "1 Nov"))
     expect(en.payment_received("Thandi", "R500", "R4 500")).toBe(WA_TEMPLATES.payment_received("Thandi", "R500", "R4 500"))
-    expect(en.payment_overdue_1d("Thandi", "R500", "LN-1")).toBe(WA_TEMPLATES.payment_overdue_1d("Thandi", "R500", "LN-1"))
-    expect(en.payment_overdue_7d("Thandi", "R500", "LN-1", "011")).toBe(WA_TEMPLATES.payment_overdue_7d("Thandi", "R500", "LN-1", "011"))
   })
 
   it.each([
-    ["af", "Jou betaling van *R500*"],
-    ["zu", "Inkokhelo yakho ka-*R500*"],
-    ["xh", "Intlawulo yakho ye-*R500*"],
+    ["af", "Ons het jou betaling van *R500* ontvang"],
+    ["zu", "Siyitholile inkokhelo yakho ka-*R500*"],
+    ["xh", "Siyifumene intlawulo yakho ye-*R500*"],
   ] as const)("%s carries every figure", (locale, phrase) => {
-    const text = localizedWaTemplates(locale).payment_overdue_1d("Thandi", "R500", "LN-1")
+    const text = localizedWaTemplates(locale).payment_received("Thandi", "R500", "R4 500")
     expect(text).toContain(phrase)
-    expect(text).toContain("LN-1")
+    expect(text).toContain("R4 500")
     expect(text).toContain("Thandi")
+  })
+
+  it("has no overdue bodies: collections notices stay English", () => {
+    expect(Object.keys(localizedWaTemplates("af"))).not.toContain("payment_overdue_1d")
+    expect(Object.keys(localizedWaTemplates("af"))).not.toContain("payment_overdue_7d")
   })
 })
 
@@ -88,10 +95,9 @@ describe("localised emails", () => {
     expect(html).toContain("NCR Registered Credit Provider &middot; NCRCP99999")
   })
 
-  it("payment received and overdue emails translate and keep the reference", () => {
-    expect(paymentReceivedEmail(identity, "Thandi", 50_000, "LN-1", 400_000, "af")).toContain("Ons het jou betaling ontvang")
-    const overdue = overdueHtml(identity, "Thandi", 7, "LN-1", "xh")
-    expect(overdue).toContain("ngeentsuku ezi-7")
-    expect(overdue).toContain("<strong>LN-1</strong>")
+  it("the payment received email translates and keeps the reference", () => {
+    const html = paymentReceivedEmail(identity, "Thandi", 50_000, "LN-1", 400_000, "af")
+    expect(html).toContain("Ons het jou betaling ontvang")
+    expect(html).toContain("LN-1")
   })
 })

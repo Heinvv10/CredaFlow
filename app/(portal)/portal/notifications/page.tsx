@@ -15,10 +15,19 @@ import { portalNotifications } from "@/lib/i18n/messages/en/portal-notifications
 type NotificationsKey = MessageKey<"portalNotifications">
 const KEYS: ReadonlySet<string> = new Set(Object.keys(portalNotifications))
 
+// Section 129 is an NCA notice: its label stays English in every locale.
+const ENGLISH_EVENT_LABELS: Readonly<Record<string, string>> = {
+  SECTION_129_NOTICE: "Section 129 notice",
+  SECTION129_SENT: "section129 sent",
+}
+
 // NotificationLog.event is upper case from some writers and lower case from
 // lib/notifications.ts; both name the same events.
 function eventLabel(t: Translator<"portalNotifications">, event: string): string {
-  const key = `ev_${event.toUpperCase()}`
+  const upper = event.toUpperCase()
+  const english = ENGLISH_EVENT_LABELS[upper]
+  if (english) return english
+  const key = `ev_${upper}`
   return KEYS.has(key) ? t(key as NotificationsKey) : event.replace(/_/g, " ").toLowerCase()
 }
 

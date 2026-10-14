@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Which language a borrower notification goes out in: Client.preferredLanguage,
-// only when the tenant has that language enabled, else English. Declined and
-// Section 129 stay English whatever the preference.
+// only when the tenant has that language enabled, else English. Declined,
+// Section 129 and the overdue notice stay English whatever the preference.
 
 const m = vi.hoisted(() => ({
   tenantFindUnique: vi.fn(),
@@ -67,7 +67,8 @@ const client = (preferredLanguage: string | null) => ({
 
 function setup(preferredLanguage: string | null, enabled: string[]) {
   m.clientFindUnique.mockResolvedValue(client(preferredLanguage))
-  m.tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: enabled })
+  const review = { reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null }
+  m.tenantConfigFindUnique.mockResolvedValue({ enabledLanguages: enabled, languageReviews: { af: review, zu: review, xh: review } })
   m.loanApplicationFindUnique.mockResolvedValue({
     id: "app1", reference: "APP-0001", appliedAmount: 500_000, approvedAt: null,
     decisionReason: "Affordability", product: { name: "Personal" }, client: { email: "thandi@example.test" },
@@ -124,6 +125,21 @@ describe("legacy path: email and WhatsApp free text follow the client's language
     expect(m.sendEmail.mock.calls[0][0].html).toContain("National Credit Act")
     expect(m.sendWhatsApp.mock.calls[0][0].message).toContain("was unsuccessful")
   })
+
+  it.each([[1, "was due yesterday"], [7, "*7 days overdue*"]])(
+    "keeps the overdue notice English, %i day(s) overdue (collections)",
+    async (daysOverdue, waPhrase) => {
+      setup("af", ["en", "af"])
+      m.loanFindUnique.mockResolvedValue({ reference: "LN-0001", outstandingPrincipal: 400_000 })
+      await triggerNotification({ tenantId: "tn1", event: "loan_overdue", loanId: "ln1", clientId: "cli1", data: { daysOverdue, amount: 50_000 } })
+      const email = m.sendEmail.mock.calls[0][0]
+      expect(email.subject).toBe("Payment Overdue Notice")
+      expect(email.html).toContain("Your loan payment is overdue")
+      expect(email.text).toMatch(/^Dear Thandi Mthembu, your loan payment is overdue/)
+      expect(m.sendWhatsApp.mock.calls[0][0].message).toContain(waPhrase)
+      expect(m.tenantConfigFindUnique).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe("new-send path: the WhatsApp template row in the client's language", () => {

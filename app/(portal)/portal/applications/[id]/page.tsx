@@ -275,10 +275,10 @@ export default async function ApplicationDetailPage({
 
       <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} locale={locale} />
 
-      {/* Declined reason */}
+      {/* Declined reason: the NCA decision record, kept in English in every locale */}
       {app.status === "DECLINED" && app.decisionReason && (
-        <div className="mb-5 bg-red-50 border border-red-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-red-800 mb-1">{t("reasonForDecision")}</p>
+        <div lang="en" className="mb-5 bg-red-50 border border-red-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-red-800 mb-1">Reason for Decision</p>
           <p className="text-sm text-red-700">{app.decisionReason}</p>
         </div>
       )}

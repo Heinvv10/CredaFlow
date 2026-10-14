@@ -8,8 +8,9 @@
  *
  * Stays English in every language, so not here: the application-declined
  * email (NCA decline disclosure and rights), everything Section 129, the
- * payment-due reminder cron and collections reminders, and the regulatory
- * footer line of every email.
+ * overdue notice (loan_overdue email and payment_overdue_1d/7d WhatsApp),
+ * the payment-due reminder cron and collections reminders, and the
+ * regulatory footer line of every email.
  */
 export const comms = {
   dear: "Dear <strong>{name}</strong>,",
@@ -48,11 +49,6 @@ export const comms = {
   headerDisbursed: "Loan Disbursement",
   disbursedHeading: "Your loan has been disbursed",
   disbursedBody: "Your loan (<strong>{ref}</strong>) has been disbursed. Funds will reflect in your account within 1&ndash;2 business days. Please refer to your repayment schedule for payment dates.",
-  headerOverdue: "Payment Overdue",
-  overdueHeading: "Payment overdue notice",
-  overdueBodyDays: "Your loan payment is overdue by <strong>{n} days</strong>. Please make payment as soon as possible to avoid additional fees and to protect your credit record.",
-  overdueBody: "Your loan payment is overdue. Please make payment as soon as possible to avoid additional fees and to protect your credit record.",
-  overdueQuoteRef: "Please quote your loan reference <strong>{ref}</strong> on your payment so we can allocate it to your account.",
   subjSubmitted: "Your Loan Application Has Been Received",
   textSubmitted: "Dear {name}, your application ({ref}) has been received. We will notify you of the outcome within 1–2 business days.",
   subjApproved: "Your Loan Application Has Been Approved",
@@ -61,15 +57,8 @@ export const comms = {
   textReceived: "Dear {name}, we received your payment. Your outstanding balance is {balance}.",
   subjDisbursed: "Loan Disbursement Confirmation",
   textDisbursed: "Dear {name}, your loan ({ref}) has been disbursed. Funds will reflect within 1–2 business days.",
-  subjOverdue: "Payment Overdue Notice",
-  textOverdueDaysRef: "Dear {name}, your loan payment is overdue by {n} days. Please make payment immediately, quoting reference {ref}.",
-  textOverdueDays: "Dear {name}, your loan payment is overdue by {n} days. Please make payment immediately.",
-  textOverdueRef: "Dear {name}, your loan payment is overdue. Please make payment immediately, quoting reference {ref}.",
-  textOverdue: "Dear {name}, your loan payment is overdue. Please make payment immediately.",
   wa_application_submitted: "Hi {name} 👋\n\nYour loan application *{ref}* for *{amount}* has been received.\n\nWe'll review it within 24 hours and be in touch. Thank you for choosing {brand}.",
   wa_application_approved: "Good news {name}! 🎉\n\nYour loan application for *{amount}* has been *approved*.\n\nRef: {ref}\n\nWe'll be in touch shortly to finalise the agreement.",
   wa_loan_disbursed: "Hi {name} ✅\n\nYour loan of *{amount}* has been paid to your account.\n\nYour first payment is due on *{dueDate}*. You can view your repayment schedule on the client portal.",
   wa_payment_received: "Hi {name} ✅\n\nWe've received your payment of *{amount}*.\n\nOutstanding balance: *{balance}*. Thank you!",
-  wa_payment_overdue_1d: "Hi {name},\n\n⚠️ Your payment of *{amount}* on loan *{ref}* was due yesterday.\n\nPlease pay urgently to avoid additional charges. Contact us immediately if you are experiencing difficulty.",
-  wa_payment_overdue_7d: "URGENT - {name}\n\nLoan *{ref}* is *7 days overdue*. Outstanding: *{amount}*.\n\nPlease contact us immediately: {phone}\n\nFurther action will be taken if payment is not received.",
 } as const

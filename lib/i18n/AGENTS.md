@@ -16,13 +16,14 @@ legal / consent text stay English.
   `{placeholder}`; a translation file typed `Catalog[...]` fails to compile on a
   missing or extra key, and `catalog.test.ts` also checks placeholders, markup
   tags and the MACHINE DRAFT header. Add a key to all four languages at once.
-- **af/zu/xh are machine drafts.** A lender switches a language on only after a
-  native speaker reviewed it (`TenantConfig.enabledLanguages`, default `{en}`,
-  written by `PATCH /api/admin/tenants/[id]`, audited).
-- **Never translate statutory or consent text**: Section 129, credit agreement,
-  PASQ, debit mandate, decline-reason disclosures, POPIA/consent wording,
-  FAIS disclosures, registration lines. Leave them English and say so in the
-  namespace's header comment.
+- **af/zu/xh are machine drafts.** Enabling one needs a named native-speaker
+  review acknowledgement (`TenantConfig.languageReviews`); a language with no
+  record is never served (`servableLocales`). One write path,
+  `language-settings.ts`, audited: admin PATCH and `/settings/languages`.
+- **Never translate statutory, consent or collections text**: Section 129
+  (incl. its portal labels), credit agreement, PASQ, debit mandate, the decline
+  reason, overdue notices, POPIA/consent, FAIS, registration lines. Leave them
+  English and say so in the namespace's header comment.
 - **English output must not change.** Comms English is pinned by digest
   (`lib/email/templates/english-pinned.test.ts`); product copy and WhatsApp text
   have equality tests against their original sources.
@@ -43,6 +44,7 @@ legal / consent text stay English.
 | `lib/i18n/server.ts` | `getLocale`, `getT`, `clientMessages` |
 | `lib/i18n/client.tsx` | `I18nProvider`, `useT`, `useLocale` |
 | `lib/i18n/comms.ts` | Comms language + WhatsApp template variant rows |
+| `lib/i18n/language-reviews.ts` | Review records, update validation |
 | `app/actions/locale.ts` | The switcher's write (cookie + `Client.preferredLanguage`) |
 
 ## Common Tasks

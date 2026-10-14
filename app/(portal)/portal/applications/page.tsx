@@ -204,10 +204,10 @@ export default async function ApplicationsPage() {
                   </div>
                 )}
 
-                {/* Decline reason */}
+                {/* Decline reason: the NCA decision record, kept in English in every locale */}
                 {app.status === "DECLINED" && app.decisionReason && (
-                  <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-xs text-red-600 font-semibold mb-1">{t("decisionReasonShort")}</p>
+                  <div lang="en" className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-xs text-red-600 font-semibold mb-1">Decision reason</p>
                     <p className="text-sm text-red-700">{app.decisionReason}</p>
                   </div>
                 )}

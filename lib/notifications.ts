@@ -55,6 +55,14 @@ export type NotificationEvent =
   | "payment_received"
   | "section129_sent"
 
+/**
+ * Borrower events that go out in English whatever the client's language
+ * (lib/i18n/.claude.md): the NCA decline disclosure, Section 129 and the
+ * collections overdue notice. No translated copy and no `__<locale>`
+ * WhatsApp variant row is used for them.
+ */
+const ENGLISH_ONLY_EVENTS: ReadonlySet<NotificationEvent> = new Set(["application_declined", "section129_sent", "loan_overdue"])
+
 export interface NotificationOptions {
   tenantId: string
   event: NotificationEvent
@@ -288,11 +296,9 @@ async function buildTemplate(
     // loan_overdue
     const days = Number(d.daysOverdue ?? 0)
     return {
-      subject: t("subjOverdue"),
-      html: overdueHtml(identity, fullName, days, reference, locale),
-      text: days
-        ? reference ? t("textOverdueDaysRef", { name: fullName, n: days, ref: reference }) : t("textOverdueDays", { name: fullName, n: days })
-        : reference ? t("textOverdueRef", { name: fullName, ref: reference }) : t("textOverdue", { name: fullName }),
+      subject: "Payment Overdue Notice",
+      html: overdueHtml(identity, fullName, days, reference),
+      text: `Dear ${fullName}, your loan payment is overdue${days ? ` by ${days} days` : ""}. Please make payment immediately${reference ? `, quoting reference ${reference}` : ""}.`,
       // "amount overdue" isn't computed by this branch — it comes from
       // opts.data.amount, which both callers set to Loan.arrearsAmount (CENTS;
       // lib/collections/reminders.ts and escalation.ts).
@@ -415,8 +421,8 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
       // rather than sending an empty *amount*.
       const fields = { amount, reference: ref }
       if (!amount || !ref) return skipMissingVars(event, fields)
-      if (waTemplateEventFor(event, vars.days) === "loan_overdue_7d") return ok(wa.payment_overdue_7d(firstName, amount, ref, phone), tv)
-      return ok(wa.payment_overdue_1d(firstName, amount, ref), tv)
+      if (waTemplateEventFor(event, vars.days) === "loan_overdue_7d") return ok(WA_TEMPLATES.payment_overdue_7d(firstName, amount, ref, phone), tv)
+      return ok(WA_TEMPLATES.payment_overdue_1d(firstName, amount, ref), tv)
     }
     case "section129_sent": {
       if (!ref) return skipMissingVars(event, { reference: ref })
@@ -860,7 +866,9 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // rather than sending a message that names no (or the wrong) lender.
   const identity = await getLenderIdentity(opts.tenantId)
   const fullName = `${client.firstName} ${client.lastName}`
-  const locale = await clientCommsLocale(opts.tenantId, client.preferredLanguage)
+  const locale = ENGLISH_ONLY_EVENTS.has(opts.event)
+    ? DEFAULT_LOCALE
+    : await clientCommsLocale(opts.tenantId, client.preferredLanguage)
   const template = await buildTemplate(identity, opts.event, fullName, opts, locale)
 
   const waBuild = buildWaMessage(identity, opts.event, client.firstName, template.waVars, locale)

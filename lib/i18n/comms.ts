@@ -1,16 +1,17 @@
 import { prisma } from "@/lib/prisma"
 import type { WA_TEMPLATES } from "@/lib/whatsapp"
-import { DEFAULT_LOCALE, isLocale, normaliseEnabledLocales, type Locale } from "./locales"
+import { DEFAULT_LOCALE, isLocale, type Locale } from "./locales"
+import { servableLocales } from "./language-reviews"
 import { createTranslator } from "./translate"
 
 /**
  * The WhatsApp free-text bodies that go out in the client's language. Not
- * here, so always English: application_declined, section129 and the
- * collections reminders.
+ * here, so always English: application_declined, section129, the overdue
+ * notices (payment_overdue_1d/7d) and the collections reminders.
  */
 export type LocalizedWaTemplates = Pick<
   typeof WA_TEMPLATES,
-  "application_submitted" | "application_approved" | "loan_disbursed" | "payment_received" | "payment_overdue_1d" | "payment_overdue_7d"
+  "application_submitted" | "application_approved" | "loan_disbursed" | "payment_received"
 >
 
 /** WA_TEMPLATES' signatures, worded from the comms catalogue. English callers keep WA_TEMPLATES itself. */
@@ -21,8 +22,6 @@ export function localizedWaTemplates(locale: Locale): LocalizedWaTemplates {
     application_approved: (name, amount, ref) => t("wa_application_approved", { name, amount, ref }),
     loan_disbursed: (name, amount, dueDate) => t("wa_loan_disbursed", { name, amount, dueDate }),
     payment_received: (name, amount, balance) => t("wa_payment_received", { name, amount, balance }),
-    payment_overdue_1d: (name, amount, ref) => t("wa_payment_overdue_1d", { name, amount, ref }),
-    payment_overdue_7d: (name, amount, ref, phone) => t("wa_payment_overdue_7d", { name, amount, ref, phone }),
   }
 }
 
@@ -44,9 +43,9 @@ export async function clientCommsLocale(tenantId: string, preferred: string | nu
   if (!isLocale(preferred) || preferred === DEFAULT_LOCALE) return DEFAULT_LOCALE
   const config = await prisma.tenantConfig.findUnique({
     where: { tenantId },
-    select: { enabledLanguages: true },
+    select: { enabledLanguages: true, languageReviews: true },
   })
-  return resolveCommsLocale(preferred, normaliseEnabledLocales(config?.enabledLanguages))
+  return resolveCommsLocale(preferred, servableLocales(config?.enabledLanguages, config?.languageReviews))
 }
 
 /**
