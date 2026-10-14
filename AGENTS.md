@@ -162,15 +162,21 @@ payment allocation), write a test next to it — and make it fail first.
 under `npm test`. Run them against a throwaway Postgres 16:
 
 ```bash
-docker run -d --name cf-it -e POSTGRES_PASSWORD=it -p 55432:5432 postgres:16-alpine
-export DATABASE_URL=postgresql://postgres:it@127.0.0.1:55432/postgres
+eval "$(bash scripts/it-db.sh up cf-it-<unique>)"   # free port; exports DATABASE_URL + IT_CONTAINER
 npx prisma migrate deploy
 bash scripts/run-integration-tests.sh
-docker rm -fv cf-it
+bash scripts/it-db.sh down cf-it-<unique>
 ```
 
+Never hardcode a port or reuse a shared container name: sessions on this
+machine collide, and a failed `docker run -p` that your script ignores points
+the migrate and the suites at another session's database. `it-db.sh up` aborts
+on failure and verifies the port is yours; the runner re-checks it when
+`IT_CONTAINER` is set, warns when it is not, and refuses with
+`REQUIRE_IT_CONTAINER=1`.
+
 Run the teardown even when an earlier step fails, against the name you gave
-`docker run`. Use `docker rm -fv`, never plain `docker rm -f`: the image keeps
+`it-db.sh up`. Use `docker rm -fv`, never plain `docker rm -f`: the image keeps
 its data dir in an anonymous volume, and without `-v` every run leaves 45–90 MB
 behind (leaks like this reached 99 volumes, 7 GB, on velo-server in 1.5 days;
 2026-10-12).
