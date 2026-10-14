@@ -98,7 +98,8 @@ describe("loadPortalLease", () => {
     mocks.config.mockResolvedValue({ leasePurchaseValuationMaxAgeDays: 10 })
     mocks.valuation.mockResolvedValue({ valuedOn: new Date("2027-03-10T00:00:00Z"), amountCents: 40_000_000 })
     const view = await loadPortalLease("t1", "c1", "L1", at("2027-03-15"))
-    const where = mocks.valuation.mock.calls[0][0].where as { valuedOn: { gte: Date } }
+    const where = mocks.valuation.mock.calls[0][0].where as { valuedOn: { gte: Date }; source: { in: string[] } }
+    expect(where.source.in).toEqual(["ASSESSOR", "DEALER"]) // market value: never an internal or forced-sale figure
     expect(where.valuedOn.gte.toISOString().slice(0, 10)).toBe("2027-03-05")
     expect(view?.endOfTerm.valuation).toEqual({ valuedOn: "2027-03-10", amountExclVatCents: 40_000_000 })
   })

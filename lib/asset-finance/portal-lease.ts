@@ -2,6 +2,7 @@ import type { AssetClass, ContractType, LeaseEndOutcome, LeaseEndStatus, LoanSta
 import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
+import { MARKET_VALUATION_SOURCES } from "./lease-term-end"
 import { findPortalLease } from "./lease-portal-route"
 import { fundBalance } from "./maintenance-fund"
 import { rentalOutstanding, rentalState, type PortalRentalState } from "./portal-lease-view"
@@ -107,12 +108,12 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
     prisma.leaseTerminationQuote.findFirst({ where: { tenantId, loanId }, orderBy: { createdAt: "desc" } }),
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { leasePurchaseValuationMaxAgeDays: true } }),
   ])
-  // The valuation a purchase is priced on, as the end-of-term route picks it.
+  // The valuation a purchase is priced on, as the end-of-term route picks it (./lease-term-end.ts bestMarketValuation).
   const since = fromDayNumber(toDayNumber(today) - (config?.leasePurchaseValuationMaxAgeDays ?? 30))
   const valuation = loan.assetId
     ? await prisma.assetValuation.findFirst({
-      where: { tenantId, assetId: loan.assetId, valuedOn: { gte: dbDate(since) } },
-      orderBy: [{ valuedOn: "desc" }, { createdAt: "desc" }], select: { valuedOn: true, amountCents: true },
+      where: { tenantId, assetId: loan.assetId, source: { in: [...MARKET_VALUATION_SOURCES] }, valuedOn: { gte: dbDate(since) } },
+      orderBy: [{ amountCents: "desc" }, { valuedOn: "desc" }], select: { valuedOn: true, amountCents: true },
     })
     : null
 
