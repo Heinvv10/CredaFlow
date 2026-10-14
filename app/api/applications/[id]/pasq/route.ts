@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { requireApiRole, requireOwnerOrStaff } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import {
   calculateLoanFromDecisionInputs,
   createAffordabilityCalculatorEvidence,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/compliance/statutory-provider-identity.server"
 import { quotationValidUntilDateFromDatabase } from "@/lib/compliance/sa-business-calendar.server"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { EntityBorrowerError, hasClientBorrower, type WithClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -125,7 +127,7 @@ async function loadApplication(tenantId: string, id: string) {
   })
 }
 
-type PasqApplication = NonNullable<Awaited<ReturnType<typeof loadApplication>>>
+type PasqApplication = WithClientBorrower<NonNullable<Awaited<ReturnType<typeof loadApplication>>>>
 
 async function creditLifeOfferIsCurrentlyAvailable(
   tenantId: string,
@@ -432,6 +434,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       },
     })
     if (!application) return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    // The PASQ is a consumer document (NCA s.92); an entity borrower has none.
+    if (application.clientId === null) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
     const access = await requireOwnerOrStaff(application.clientId)
     if (access.error) return access.error
     if (
@@ -470,7 +476,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         accessorType: access.type,
         accessorId: access.type === "staff" ? access.user.id : access.clientId,
         action: "view",
-        ipAddress: req.headers.get("x-forwarded-for") ?? null,
+        ipAddress: recordedCallerIp(req),
         userAgent: req.headers.get("user-agent") ?? null,
       },
     })
@@ -493,6 +499,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     const { id } = await params
     const application = await loadApplication(tenant.id, id)
     if (!application) return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    // The PASQ is a consumer document (NCA s.92); an entity borrower has none.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
     // NCA s.92(1) requires the quotation before the agreement is ENTERED INTO,
     // not before the credit decision. The PASQ is therefore minted at the start
     // of the signing ceremony, against an APPROVED application, so the quote is

@@ -35,7 +35,7 @@ import { dayOfMonth, daysInMonth, isLastDayOfMonth, isoDay } from "@/lib/loan/da
 //    is tracked from its true start, so the in duplum base is the unpaid
 //    principal when it began.
 
-export type ChargeType = "DEFAULT_INTEREST" | "SERVICE_FEE" | "DEFAULT_ADMIN"
+export type ChargeType = "DEFAULT_INTEREST" | "SERVICE_FEE" | "DEFAULT_ADMIN" | "COLLECTION_FEE"
 
 export interface DefaultChargeScheduleRow {
   dueDate: Date
@@ -277,7 +277,7 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
   }
 }
 
-function emptyResult(receipts: DefaultChargeReceipt[]): DefaultChargeResult {
+export function emptyResult(receipts: DefaultChargeReceipt[]): DefaultChargeResult {
   return {
     postings: [],
     interestAccrued: 0,

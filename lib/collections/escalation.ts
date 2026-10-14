@@ -17,6 +17,8 @@ interface EscalationResult {
 interface EscalationRule {
   minDays: number
   noteType: string
+  /** Absent: every loan. A rule outside a loan's regime is skipped, not counted as an error. */
+  appliesTo?: (ctx: EscalationContext) => boolean
   action: (ctx: EscalationContext) => Promise<string>
 }
 
@@ -24,11 +26,13 @@ interface EscalationContext {
   loanId: string
   loanRef: string
   tenantId: string
-  clientId: string
+  /** null for an entity borrower (asset finance): there is no natural person to message. */
+  clientId: string | null
   daysInArrears: number
   arrearsAmount: number
   outstandingPrincipal: number
   status: string
+  ncaRegime: "NCA" | "NON_NCA"
 }
 
 async function noteExists(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
@@ -73,11 +77,14 @@ const RULES: EscalationRule[] = [
         "Loan status changed to DEFAULTED — 60 days overdue",
         ctx.tenantId
       )
+      // A consumer is messaged as the borrower; an entity borrower (no
+      // Client) through the people who act for it, in copy that names the
+      // entity (triggerNotification → lib/asset-finance/entity-notifications.ts).
       triggerNotification({
         tenantId: ctx.tenantId,
         event: "loan_overdue",
         loanId: ctx.loanId,
-        clientId: ctx.clientId,
+        ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
         data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
       }).catch(() => {})
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
@@ -86,6 +93,8 @@ const RULES: EscalationRule[] = [
   {
     minDays: 90,
     noteType: "escalation_legal",
+    // Section 129 is an NCA remedy: the regime decides, not the borrower type.
+    appliesTo: (ctx) => ctx.ncaRegime === "NCA",
     action: async (ctx) => {
       const eligibility = evaluateCollectionsEligibility(ctx, "SECTION_129")
       if (!eligibility.eligible) {
@@ -131,6 +140,7 @@ export async function processEscalations(): Promise<EscalationResult> {
       arrearsAmount: true,
       outstandingPrincipal: true,
       status: true,
+      ncaRegime: true,
     },
   })
 
@@ -150,7 +160,9 @@ export async function processEscalations(): Promise<EscalationResult> {
         arrearsAmount: loan.arrearsAmount,
         outstandingPrincipal: loan.outstandingPrincipal,
         status: loan.status,
+        ncaRegime: loan.ncaRegime,
       }
+      if (rule.appliesTo && !rule.appliesTo(ctx)) continue
 
       try {
         const detail = await rule.action(ctx)

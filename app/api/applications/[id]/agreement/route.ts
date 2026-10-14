@@ -14,6 +14,7 @@ import {
   saveFileToManagedPath,
 } from "@/lib/storage"
 import { withTenantContext } from "@/lib/tenant"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
 import {
   acceptedPasqCalculatorFingerprint,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/compliance/statutory-provider-identity.server"
 import { quotationValidUntilDateFromDatabase } from "@/lib/compliance/sa-business-calendar.server"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -340,6 +342,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    // The credit agreement is a consumer NCA document; an entity borrower is refused.
+    if (application.clientId === null) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
 
     const access = await requireOwnerOrStaff(application.clientId)
     if (access.error) return access.error
@@ -395,7 +401,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: access.type,
           accessorId: access.type === "staff" ? access.user.id : access.clientId,
           action: "view",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })
@@ -650,6 +656,10 @@ export async function POST(_req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The credit agreement is a consumer NCA document; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (application.status !== "APPROVED") {
       return NextResponse.json({ error: "Application must be approved first" }, { status: 400 })

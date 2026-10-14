@@ -5,6 +5,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import {
   affordabilityContractCanBeDisbursed,
   affordabilityContractEvidenceIsIntact,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/pdf/executed-agreement"
 import { ceremonyMarkerFor } from "@/lib/pdf/agreement-render-input"
 import { statutoryProviderIdentityFromTenant } from "@/lib/compliance/statutory-provider-identity.server"
+import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -361,6 +363,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    // Countersigning a consumer credit agreement; an entity borrower is refused.
+    if (!hasClientBorrowerId(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
     if (application.status !== "APPROVED") {
       return NextResponse.json(
         { error: "Only an approved application can be countersigned." },
@@ -397,9 +403,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
 
     const countersignedAt = new Date()
     const signatureSha256 = providerCountersignatureSha256(signature)
-    const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-      ?? req.headers.get("x-real-ip")
-      ?? null
+    const ipAddress = recordedCallerIp(req)
 
     // ── The executed artifact ────────────────────────────────────────────────
     //

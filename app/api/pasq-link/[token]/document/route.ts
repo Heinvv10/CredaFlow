@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
-import { checkRateLimit, callerIp } from "@/lib/rate-limit"
+import { checkRateLimit, callerIp, recordedCallerIp } from "@/lib/rate-limit"
 import {
   PASQ_LINK_REJECTION_MESSAGE,
   resolvePasqLinkToken,
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       accessorType: "client",
       accessorId: link.clientId,
       action: "view",
-      ipAddress: req.headers.get("x-forwarded-for") ?? null,
+      ipAddress: recordedCallerIp(req),
       userAgent: req.headers.get("user-agent") ?? null,
     },
   })

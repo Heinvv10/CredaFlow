@@ -12,6 +12,7 @@ import { formatStatusLabel } from "@/lib/status-style"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
+import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -29,6 +30,7 @@ async function getPortalLoan(loanId: string, email: string) {
       product: { select: { name: true } },
       repaymentSchedule: { orderBy: { installmentNo: "asc" } },
       payments: { orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }] },
+      surrenderRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true } },
     },
   })
 
@@ -164,6 +166,11 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
 
       {/* Tabs — Repayment Schedule + Payment History */}
       <PortalLoanTabs loan={loan} />
+      {loan.ncaRegime === "NCA" && loan.contractType !== "LOAN" && loan.assetId && (
+        <div className="mt-6">
+          <SurrenderRequestCard loanId={loan.id} existing={loan.surrenderRequests[0] ?? null} />
+        </div>
+      )}
     </div>
   )
 }

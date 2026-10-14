@@ -5,12 +5,20 @@ export const SECTION129_RECENT_NOTICE_WINDOW_DAYS = 30
 
 export interface CollectionsLoanState {
   status: string
+  /**
+   * Loan.ncaRegime. REQUIRED, so every caller has to select it: an optional
+   * discriminator defaults to "eligible" at whichever caller forgot it.
+   */
+  ncaRegime: "NCA" | "NON_NCA"
   arrearsAmount: number | null | undefined
   outstandingPrincipal: number | null | undefined
   daysInArrears: number | null | undefined
 }
 
 export type CollectionsOperation = "DUNNING" | "SECTION_129"
+
+export const SECTION129_NON_NCA_REASON =
+  "Section 129 applies to NCA credit agreements only; this agreement is not regulated by the NCA"
 
 export interface CollectionsEligibility {
   eligible: boolean
@@ -22,7 +30,9 @@ export interface CollectionsEligibility {
  * One policy for every collections mutation and statutory-notice surface.
  * Operation-specific timing is explicit: ordinary dunning begins at 1 DPD;
  * a Section 129 notice requires 90 DPD. Terminal/restructured/write-off states
- * are never inferred from stale positive amount columns.
+ * are never inferred from stale positive amount columns. Section 129 is an NCA
+ * remedy: a NON_NCA agreement is never eligible, however far in arrears.
+ * Dunning is contractual and applies to both regimes.
  */
 export function evaluateCollectionsEligibility(
   loan: CollectionsLoanState,
@@ -32,6 +42,9 @@ export function evaluateCollectionsEligibility(
     ? SECTION129_MIN_DAYS_IN_ARREARS
     : DUNNING_MIN_DAYS_IN_ARREARS
 
+  if (operation === "SECTION_129" && loan.ncaRegime === "NON_NCA") {
+    return { eligible: false, minimumDaysInArrears, reason: SECTION129_NON_NCA_REASON }
+  }
   if (!COLLECTIONS_ELIGIBLE_STATUSES.includes(
     loan.status as (typeof COLLECTIONS_ELIGIBLE_STATUSES)[number],
   )) {

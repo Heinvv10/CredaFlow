@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma"
 export type ReconciliationLoanRef = {
   id: string
   reference: string
-  client: { firstName: string; lastName: string }
+  client: { firstName: string; lastName: string } | null
+  entity: { legalName: string } | null
 }
 
 export type ReconciliationTxn = {
@@ -42,7 +43,7 @@ export async function getReconciliationData(tenantId: string): Promise<{
   const matchedLoans = matchedLoanIds.length
     ? await prisma.loan.findMany({
         where: { id: { in: matchedLoanIds }, tenantId },
-        select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } } },
+        select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
       })
     : []
   const matchedLoanById = new Map(matchedLoans.map((l) => [l.id, l]))
@@ -57,7 +58,7 @@ export async function getReconciliationData(tenantId: string): Promise<{
   // will refuse.
   const candidateLoans = await prisma.loan.findMany({
     where: { tenantId, status: { in: ["ACTIVE", "DEFAULTED"] } },
-    select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } } },
+    select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
     orderBy: { reference: "asc" },
     take: 500,
   })

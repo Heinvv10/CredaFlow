@@ -31,7 +31,7 @@ interface Section129Opts {
   lender: Pick<LenderIdentity, (typeof SECTION_129_IDENTITY_FIELDS)[number]>
   /** Letterhead logo, PNG bytes. Absent → text header. */
   logo?: Uint8Array
-  client: { firstName: string; lastName: string; idNumber: string; addressLine1?: string; city?: string }
+  client: { firstName: string; lastName: string; idNumber: string; identityLabel?: "ID" | "Registration no."; addressLine1?: string; city?: string }
   loan: {
     reference: string
     /** arrears the notice states — charge-inclusive when default charges are on */
@@ -143,7 +143,7 @@ export async function generateSection129Pdf(opts: Section129Opts): Promise<Buffe
   drawText(page, `Date: ${formatDatePdf(noticeDate)}`, A4_WIDTH - MARGIN - 150, y + 14, regular, 9, DARK)
   drawText(page, "To:", MARGIN, y, bold, 9, DARK)
   drawText(page, `${client.firstName} ${client.lastName}`, MARGIN + 24, y, regular, 9, DARK); y -= 13
-  drawText(page, `ID: ${client.idNumber}`, MARGIN + 24, y, regular, 9, DARK); y -= 13
+  drawText(page, `${client.identityLabel ?? "ID"}: ${client.idNumber}`, MARGIN + 24, y, regular, 9, DARK); y -= 13
   if (client.addressLine1) {
     drawText(page, `${client.addressLine1}${client.city ? `, ${client.city}` : ""}`, MARGIN + 24, y, regular, 9, DARK)
     y -= 13
@@ -245,4 +245,3 @@ function wrapText(text: string, font: { widthOfTextAtSize: (t: string, s: number
   if (current) lines.push(current)
   return lines
 }
-

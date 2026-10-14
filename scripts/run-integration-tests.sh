@@ -23,7 +23,7 @@
 #     - a baselined suite that now passes -> job fails, telling you to delete
 #       its line, so the baseline can never quietly become permanent
 #     - a PR that ADDS a line to the baseline -> job fails, in the
-#       "Baseline may only shrink" step of .github/workflows/integration-tests.yml.
+#       "Baseline may only shrink" step of .github/workflows/quality-gate.yml.
 #       That check lives in the workflow, not here, because it needs the base
 #       branch to diff against and this script must stay runnable locally.
 #
@@ -44,7 +44,7 @@ cd "$ROOT"
 
 # The ONE definition of what counts as a baseline entry. Used below to build
 # BASE, and exposed as --print-baseline so the "Baseline may only shrink" step
-# in .github/workflows/integration-tests.yml can ask THIS script rather than
+# in .github/workflows/quality-gate.yml can ask THIS script rather than
 # carry its own copy. Two copies of a parser drift, and a drifted one there
 # would silently disagree about which lines count — precisely the kind of hole
 # that step exists to close.

@@ -140,7 +140,7 @@ function request(body: unknown) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-forwarded-for": "192.0.2.1",
+        "x-forwarded-for": "198.51.100.7, 192.0.2.1",
         "user-agent": "vitest",
       },
       body: JSON.stringify(body),
@@ -151,6 +151,7 @@ function request(body: unknown) {
 describe("POST /api/applications/[id]/debit-mandate/sign", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv("TRUSTED_PROXY", "1")
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-23T16:00:00.000Z"))
     auth.mockResolvedValue({
@@ -200,6 +201,7 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllEnvs()
   })
 
   it("returns 400 for malformed JSON instead of turning it into a 500", async () => {
@@ -397,6 +399,7 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
         data: expect.objectContaining({
           action: "DEBIT_MANDATE_SIGNED",
           entityId: "app-1",
+          ipAddress: "192.0.2.1",
           newValue: expect.objectContaining({
             documentId: "doc-1",
             documentSha256: signedDocumentSha256,
@@ -411,6 +414,7 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
         accessorType: "client",
         accessorId: "client-1",
         action: "signed",
+        ipAddress: "192.0.2.1",
       }),
     })
     expect(complianceUpdateMany).toHaveBeenCalledWith(expect.objectContaining({

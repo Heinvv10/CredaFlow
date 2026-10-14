@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { LoanProductForm } from "@/components/products/LoanProductForm"
+import { nonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
+import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
@@ -10,8 +12,14 @@ export default async function EditLoanProductPage({ params }: { params: Promise<
   await requireMinRole("ADMIN")
   const { id } = await params
   const tenantId = await getStaffTenantId()
-  const product = await prisma.loanProduct.findUnique({ where: { id, tenantId } })
+  const [product, config] = await Promise.all([
+    prisma.loanProduct.findUnique({ where: { id, tenantId } }),
+    getTenantConfig(tenantId),
+  ])
   if (!product) notFound()
+  const nonNcaArrears = resolveFeatureFlags(config).featureAssetFinance
+    ? nonNcaArrearsValues(product.nonNcaDefaultInterestMargin?.toString() ?? null, product.nonNcaCollectionFeeCents)
+    : undefined
 
   const initial = {
     id: product.id,
@@ -42,7 +50,7 @@ export default async function EditLoanProductPage({ params }: { params: Promise<
           { label: product.name },
         ]}
       />
-      <LoanProductForm initial={initial} />
+      <LoanProductForm initial={initial} nonNcaArrears={nonNcaArrears} />
     </div>
   )
 }

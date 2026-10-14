@@ -42,7 +42,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libfaketime ope
 EOF
 
 PATCH_DIR="$(mktemp -d)"
-trap 'rm -rf "$PATCH_DIR"' EXIT
 cp "$ROOT/$RUNTIME" "$PATCH_DIR/library.js"
 grep -q '|so.default.constants.dlopen.RTLD_DEEPBIND' "$PATCH_DIR/library.js"
 sed -i 's/|so.default.constants.dlopen.RTLD_DEEPBIND//' "$PATCH_DIR/library.js"
@@ -52,9 +51,27 @@ if grep -q 'RTLD_DEEPBIND' "$PATCH_DIR/library.js"; then
 fi
 chmod 644 "$PATCH_DIR/library.js"
 
+# The seed writes the same document artifacts as the app. Give this host user
+# temporary group write access to the simulator's uploads volume, then restore
+# the app's ownership even when the seed fails.
+APP_UID="$(docker exec "$SIM_APP" id -u)"
+APP_GID="$(docker exec "$SIM_APP" id -g)"
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+mkdir -p "$ROOT/uploads"
+docker exec -u root "$SIM_APP" chown "$APP_UID:$HOST_GID" /app/uploads
+docker exec -u root "$SIM_APP" chmod 2775 /app/uploads
+cleanup() {
+  docker exec -u root "$SIM_APP" chown -R "$APP_UID:$APP_GID" /app/uploads
+  docker exec -u root "$SIM_APP" chmod g-s /app/uploads
+  docker exec -u root "$SIM_APP" chmod 755 /app/uploads
+  rm -rf "$PATCH_DIR"
+}
+trap cleanup EXIT
+
 docker run --rm \
   --network "$SIM_NETWORK" \
-  --user "$(id -u):$(id -g)" \
+  --user "$HOST_UID:$HOST_GID" \
   -e HOME=/tmp \
   -e DATABASE_URL \
   -e DEMO_LENDER \
@@ -65,6 +82,7 @@ docker run --rm \
   -e FAKETIME_DONT_FAKE_MONOTONIC=1 \
   -e LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1 \
   -v "$ROOT":/w:ro \
+  -v "${SIM_PROJECT}_uploads":/w/uploads \
   -v "$PATCH_DIR/library.js":"/w/$RUNTIME":ro \
   -v "$ROOT/scripts/demo/.sim-clock":/sim-clock:ro \
   -w /w \

@@ -4,9 +4,11 @@ import {
   AlertTriangle,
   Banknote,
   BarChart3,
+  Percent,
   Bell,
   BriefcaseBusiness,
   Building2,
+  Factory,
   Contact,
   CreditCard,
   FileCheck,
@@ -25,6 +27,7 @@ import {
   Shield,
   ShieldCheck,
   Target,
+  Truck,
   Upload,
   Users,
   Wallet,
@@ -100,7 +103,7 @@ export type NavItem = {
 export type NavGroup = {
   label: string
   items: NavItem[]
-  feature?: "crm" | "ims" | "bureauSubmission"
+  feature?: "crm" | "ims" | "bureauSubmission" | "assetFinance"
 }
 
 export const staffNavigation: NavGroup[] = [
@@ -134,6 +137,20 @@ export const staffNavigation: NavGroup[] = [
       { href: "/payments", label: "Payments", icon: CreditCard },
       { href: "/payments/bank-reconciliation", label: "Bank Reconciliation", icon: Landmark, minRole: "CREDIT_OFFICER" },
       { href: "/collections", label: "Collections", icon: AlertTriangle, badgeKey: "collections" },
+    ],
+  },
+  {
+    // Asset finance (docs/asset-finance/DESIGN.md D9): instalment sale and
+    // leasing for business entities. Every page under /asset-finance also
+    // redirects when the flag is off (app/(dashboard)/asset-finance/layout.tsx).
+    label: "Asset Finance",
+    feature: "assetFinance",
+    items: [
+      { href: "/asset-finance/entities", label: "Entities", icon: Building2 },
+      { href: "/asset-finance/deals", label: "Deals", icon: FileText },
+      { href: "/asset-finance/assets", label: "Assets", icon: Truck },
+      { href: "/asset-finance/suppliers", label: "Suppliers", icon: Factory },
+      { href: "/asset-finance/reference-rates", label: "Reference rates", icon: Percent },
     ],
   },
   {
@@ -193,10 +210,15 @@ export const staffNavigation: NavGroup[] = [
   },
 ]
 
-/** `whatsappE164` is the lender's `identity.publicWhatsappE164`; without one the Support item is omitted. */
-export function buildPortalNavigation(whatsappE164: string | null): NavItem[] {
+/**
+ * `whatsappE164` is the lender's `identity.publicWhatsappE164`; without one the
+ * Support item is omitted. `business` adds the asset-finance business page for
+ * a client who may act for an entity (lib/asset-finance/portal-access.ts).
+ */
+export function buildPortalNavigation(whatsappE164: string | null, opts: { business?: boolean } = {}): NavItem[] {
   return [
     { href: "/portal", label: "Overview", icon: Home },
+    ...(opts.business ? [{ href: "/portal/business", label: "Business", icon: Building2 }] : []),
     { href: "/portal/applications", label: "Applications", icon: FileText },
     { href: "/portal/apply", label: "Apply", icon: Upload },
     { href: "/portal/loans", label: "Loans", icon: Wallet },

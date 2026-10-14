@@ -29,6 +29,7 @@ import {
   Section129DispatchUncertainError,
   Section129IssuanceConflictError,
 } from "@/lib/collections/section129-artifact"
+import { SECTION129_BORROWER_INCLUDE, section129Addressee } from "@/lib/collections/section129-addressee"
 
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("COLLECTIONS_OFFICER")
@@ -40,12 +41,13 @@ export async function POST(req: NextRequest) {
 
     const loan = await prisma.loan.findUnique({
       where: { id: loanId, tenantId: tenant.id },
-      include: { client: true, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
+      include: { ...SECTION129_BORROWER_INCLUDE, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
     })
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
 
     // The PDF endpoint uses this exact predicate too. A statutory default
     // document must never be renderable for a state the dispatch route refuses.
+    // It refuses a NON_NCA agreement first: the regime is the primary rule.
     const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
     if (!eligibility.eligible) {
       return NextResponse.json(
@@ -53,6 +55,8 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       )
     }
+    const addressee = section129Addressee(loan)
+    if (!addressee) return NextResponse.json({ error: "The borrower has no active authorised contact for statutory delivery" }, { status: 409 })
 
     // The notice prints the tenant's own NCR registration; refuse before any
     // work when it is missing or invalid.
@@ -67,7 +71,7 @@ export async function POST(req: NextRequest) {
     const figures = await loanSettlementFigures(prisma, loan, noticeDateValue)
     const noticeAmounts = section129NoticeAmounts(loan, figures)
 
-    const clientName = `${loan.client.firstName} ${loan.client.lastName}`
+    const clientName = addressee.displayName
 
     // Mirrors app/api/loans/section129/bulk/route.ts EXACTLY: same flag, same
     // template resolution + hard-fail-on-misconfig semantics, same legacy
@@ -102,11 +106,12 @@ export async function POST(req: NextRequest) {
       lender: lender.identity,
       logo,
       client: {
-        firstName: loan.client.firstName,
-        lastName: loan.client.lastName,
-        idNumber: loan.client.idNumber,
-        addressLine1: loan.client.addressLine1 ?? undefined,
-        city: loan.client.city ?? undefined,
+        firstName: addressee.firstName,
+        lastName: addressee.lastName,
+        idNumber: addressee.identityNumber,
+        identityLabel: addressee.identityLabel,
+        addressLine1: addressee.addressLine1 ?? undefined,
+        city: addressee.city ?? undefined,
       },
       loan: {
         reference: loan.reference,
@@ -123,12 +128,12 @@ export async function POST(req: NextRequest) {
         loanId: loan.id,
         loanReference: loan.reference,
         clientName,
-        clientEmail: loan.client.email,
-        clientFirstName: loan.client.firstName,
-        clientLastName: loan.client.lastName,
-        clientIdNumber: loan.client.idNumber,
-        clientAddressLine1: loan.client.addressLine1,
-        clientCity: loan.client.city,
+        clientEmail: addressee.email,
+        clientFirstName: addressee.firstName,
+        clientLastName: addressee.lastName,
+        clientIdNumber: addressee.identityNumber,
+        clientAddressLine1: addressee.addressLine1,
+        clientCity: addressee.city,
         ...noticeAmounts,
         daysInArrears: loan.daysInArrears,
         noticeDate,
@@ -178,7 +183,7 @@ export async function POST(req: NextRequest) {
 
     if (newSend && template) {
       // New path: sendMessage() via the Phase 9 S2 pipeline.
-      const emailNormalised = normaliseEmail(loan.client.email)
+      const emailNormalised = normaliseEmail(addressee.email)
       const contact = await lookupContactByChannelValue(prisma, {
         tenantId: tenant.id,
         channel: "EMAIL",
@@ -187,7 +192,7 @@ export async function POST(req: NextRequest) {
       if (!contact) {
         // Data drift: Client without a Contact row. Same as the bulk route —
         // don't silently drop a statutory obligation, surface the gap.
-        result = { ok: false, error: `no Contact row for ${loan.client.email}` }
+        result = { ok: false, error: `no Contact row for ${addressee.email}` }
       } else {
         try {
           const dispatch = await dispatchSection129UnderEligibilityLock({
@@ -290,7 +295,7 @@ export async function POST(req: NextRequest) {
           actorEmail: guard.user.email,
           dispatch: (markProviderInvocation) => sendEmail({
               tenantId: tenant.id,
-              to: loan.client.email,
+              to: addressee.email,
               toName: clientName,
               subject: `Section 129 Notice — Account ${loan.reference}`,
               html: section129Html(emailData),
@@ -484,7 +489,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: `Section 129 notice accepted by the email provider for ${loan.client.email}`,
+      message: `Section 129 notice accepted by the email provider for ${addressee.email}`,
       messageId: result.messageId,
       issuanceId: reservation.issuanceId,
       providerAccepted: true,

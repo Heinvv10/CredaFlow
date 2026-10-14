@@ -4,6 +4,7 @@ import { AuditAction } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { auditWrapperRefusal } from "@/lib/documents/tenant-refusal"
 import { withTenantContext } from "@/lib/tenant"
 import {
@@ -221,7 +222,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           action: new URL(req.url).searchParams.get("download") === "1"
             ? "download"
             : "view",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })

@@ -10,6 +10,7 @@ import {
   micro30DecisionTermsChanged,
   MICRO30_PROTECTED_APPLICATION_STATUSES,
 } from "@/lib/product-config/micro30"
+import { nonNcaArrearsAudit, parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
 
 // Codes the client-facing apply pages hardcode; see PRODUCT_KEY_TO_CODE.
 const PORTAL_STABLE_PRODUCT_CODES = new Set(["MICRO30", "PERSONAL", "POFUND"])
@@ -42,6 +43,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       )
     }
 
+    const arrears = parseNonNcaArrearsTerms(body)
+    if ("issues" in arrears) {
+      return NextResponse.json(
+        {
+          error: "The NON_NCA arrears terms must be a default-interest margin as an annual decimal from 0 to below 1 (0.02 = 2%) and a collection fee in whole cents, or null.",
+          invalidFields: arrears.issues,
+        },
+        { status: 422 },
+      )
+    }
     const data = {
       code: body.code,
       name: body.name,
@@ -57,6 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       initiationFeeMax: Math.round((body.initiationFeeMax ?? 0) * 100),
       monthlyServiceFee: Math.round((body.monthlyServiceFee ?? 0) * 100),
       active: body.active,
+      ...arrears.data,
     }
     const contractIssues = micro30ContractIssues(data)
     if (contractIssues.length > 0) {
@@ -132,6 +144,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             initiationFeeModel: before.initiationFeeModel,
             initiationFeePct: before.initiationFeePct, initiationFeeMax: before.initiationFeeMax,
             monthlyServiceFee: before.monthlyServiceFee, active: before.active,
+            ...nonNcaArrearsAudit(before),
           },
           newValue: {
             code: product.code, name: product.name, productType: product.productType,
@@ -141,6 +154,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             initiationFeeModel: product.initiationFeeModel,
             initiationFeePct: product.initiationFeePct, initiationFeeMax: product.initiationFeeMax,
             monthlyServiceFee: product.monthlyServiceFee, active: product.active,
+            ...nonNcaArrearsAudit(product),
           },
         },
       })

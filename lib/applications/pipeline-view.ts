@@ -3,6 +3,7 @@ import {
   type DisbursementPrecondition,
 } from "@/lib/disbursement/preconditions"
 import { READY_LABELS, type ApplicationReadiness } from "@/lib/applications/readiness-view"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 /**
  * The statuses the Kanban board renders as lanes, in pipeline order.
@@ -45,7 +46,8 @@ export interface PipelineApplication {
   approvedAt: Date | null
   disbursedAt: Date | null
   updatedAt: Date
-  client: { firstName: string; lastName: string }
+  client: { firstName: string; lastName: string } | null
+  entity?: { legalName: string } | null
   product: { name: string; productType: string }
   branch: { name: string } | null
   assignedTo: { name: string | null } | null
@@ -235,7 +237,7 @@ export const DEFAULT_COLUMN_SORT: Record<string, SortKey> = {
 }
 
 function clientName(app: PipelineApplication): string {
-  return `${app.client.firstName} ${app.client.lastName}`.trim()
+  return borrowerDisplayName(app)
 }
 
 export function sortApplications(

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 
 // document-auth.ts pulls in auth/prisma/tenant at module load; stub them so the
 // pure magic-byte helper can be imported in isolation.
@@ -18,7 +18,11 @@ vi.mock("@/lib/prisma", () => ({
 }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 
-import { matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller, logDocumentContentAccess } from "./document-auth"
+import { logDocumentAccess, matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller, logDocumentContentAccess } from "./document-auth"
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 // Pad an arbitrary byte prefix out to the number of bytes callers actually read.
 function head(bytes: number[]): Uint8Array {
@@ -114,15 +118,45 @@ describe("getDocumentCaller — tenant", () => {
 describe("logDocumentContentAccess", () => {
   it("writes one staff access row per distinct document, and nothing for none", async () => {
     const createMany = createManyMock
-    const req = new Request("https://acme.example/x", { headers: { "user-agent": "test-agent" } })
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    const req = new Request("https://acme.example/x", {
+      headers: { "x-forwarded-for": "attacker, 203.0.113.9", "user-agent": "test-agent" },
+    })
     await logDocumentContentAccess({ documentIds: [], staffUserId: "u1", action: "credit_check_evidence", req })
     expect(createMany).not.toHaveBeenCalled()
     await logDocumentContentAccess({ documentIds: ["d1", "d2", "d1"], staffUserId: "u1", action: "credit_check_evidence", req })
     expect(createMany).toHaveBeenCalledWith({
       data: [
-        { documentId: "d1", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
-        { documentId: "d2", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+        { documentId: "d1", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: "203.0.113.9", userAgent: "test-agent" },
+        { documentId: "d2", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: "203.0.113.9", userAgent: "test-agent" },
       ],
     })
+  })
+})
+
+describe("logDocumentAccess", () => {
+  const write = async (headers: Record<string, string>) => {
+    const create = vi.fn()
+    await logDocumentAccess({ documentAccessLog: { create } } as unknown as Parameters<typeof logDocumentAccess>[0], {
+      documentId: "doc-1",
+      accessorType: "client",
+      accessorId: "client-1",
+      action: "view",
+      req: new Request("http://localhost/x", { headers }),
+    })
+    return create.mock.calls[0][0].data as { ipAddress: string | null; userAgent: string | null }
+  }
+
+  it("records the address the trusted proxy saw, not the caller-written left of X-Forwarded-For", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    const data = await write({ "x-forwarded-for": "198.51.100.7, 203.0.113.9", "user-agent": "vitest" })
+    expect(data).toMatchObject({ ipAddress: "203.0.113.9", userAgent: "vitest" })
+    vi.unstubAllEnvs()
+  })
+
+  it("records no IP when no proxy is trusted: the header is the caller's own claim", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "0")
+    expect((await write({ "x-forwarded-for": "198.51.100.7" })).ipAddress).toBeNull()
+    vi.unstubAllEnvs()
   })
 })

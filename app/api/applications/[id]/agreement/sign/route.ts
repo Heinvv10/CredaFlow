@@ -4,6 +4,7 @@ import { Prisma, type UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { hasMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { AuditAction } from "@/lib/audit"
 import { withTenantContext } from "@/lib/tenant"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
@@ -27,6 +28,7 @@ import {
 import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { verifyStoredPasqBinding } from "@/lib/compliance/pasq"
 import { verifyPasqDocumentArtifact } from "@/lib/compliance/pasq-document.server"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -259,6 +261,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
 
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // Signing a consumer credit agreement; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (application.status !== "APPROVED") {
       return NextResponse.json({ error: "Only an approved application can be signed" }, { status: 409 })
@@ -626,9 +632,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       )
     }
 
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-      ?? req.headers.get("x-real-ip")
-      ?? null
+    const ip = recordedCallerIp(req)
 
     try {
       const updated = await prisma.$transaction(async (tx) => {

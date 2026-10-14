@@ -70,6 +70,9 @@ import {
 import { SendBlockedError } from "@/lib/messaging/send"
 import { WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { extractPlaceholders } from "@/lib/whatsapp/template-components"
+import { sastStartOfDay } from "@/lib/date/sast"
+
+const sastDayOffset = (days: number) => new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
 
 // Every payment-reminder message must quote the loan reference so the client
 // puts it on their EFT deposit and the bank-sync reconciler makes an EXACT
@@ -114,9 +117,7 @@ describe("reminderDeliveryOutcome", () => {
 // Loan with nextPaymentDate exactly one day in the future → triggers
 // reminder_1d (SMS + WhatsApp).
 function loanDueTomorrow() {
-  const tomorrow = new Date()
-  tomorrow.setHours(0, 0, 0, 0)
-  tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrow = sastDayOffset(1)
   return {
     id: "loan_1",
     reference: "L-001",
@@ -136,9 +137,7 @@ function loanDueTomorrow() {
 // Loan with nextPaymentDate 3 days in the past → triggers reminder_overdue_3d
 // (daysUntilDue: -3), which also fires the loan_overdue notification.
 function loanOverdue3d() {
-  const threeDaysAgo = new Date()
-  threeDaysAgo.setHours(0, 0, 0, 0)
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+  const threeDaysAgo = sastDayOffset(-3)
   return {
     id: "loan_9",
     reference: "L-009",
@@ -199,9 +198,7 @@ function stubTemplates(overrides: Record<string, unknown> = {}) {
 }
 
 function loanDueIn(days: number) {
-  const due = new Date()
-  due.setHours(0, 0, 0, 0)
-  due.setDate(due.getDate() + days)
+  const due = sastDayOffset(days)
   return {
     ...loanDueTomorrow(),
     nextPaymentDate: due,
@@ -793,9 +790,7 @@ describe("processPaymentReminders", () => {
       process.env.BULKSMS_DRY_RUN = "true"
       process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       stubTemplates()
-      const sevenDays = new Date()
-      sevenDays.setHours(0, 0, 0, 0)
-      sevenDays.setDate(sevenDays.getDate() + 7)
+      const sevenDays = sastDayOffset(7)
       loanFindManyMock.mockResolvedValue([
         { ...loanDueTomorrow(), nextPaymentDate: sevenDays },
       ])
@@ -898,9 +893,7 @@ describe("processPaymentReminders", () => {
     // every matching loan on every tick for as long as SMS stays off.
     it("reports ONE aggregate line per run, not one per loan", async () => {
       process.env.BULKSMS_DRY_RUN = "true"
-      const sevenDays = new Date()
-      sevenDays.setHours(0, 0, 0, 0)
-      sevenDays.setDate(sevenDays.getDate() + 7)
+      const sevenDays = sastDayOffset(7)
       loanFindManyMock.mockResolvedValue([
         { ...loanDueTomorrow(), id: "l1", reference: "L-001", nextPaymentDate: sevenDays },
         { ...loanDueTomorrow(), id: "l2", reference: "L-002", nextPaymentDate: sevenDays },

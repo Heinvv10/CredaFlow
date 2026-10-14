@@ -119,6 +119,10 @@ npm run dev                  # Next.js dev server (port 3000)
 npm run build                # next build
 npm run lint                 # eslint
 npm test                     # vitest run (unit + mocked suites)
+npm run ci:quick             # type/lint/docs/date gates before pushing
+npm run ci:quality           # complete local quality job
+npm run ci:integration       # disposable PostgreSQL + all real-DB suites
+npm run ci:full              # quality then integration
 npx prisma migrate dev       # create + apply a migration locally
 npx prisma migrate reset     # rebuild a local DB: migrations + seed
 npx prisma generate          # regenerate the client after schema changes
@@ -126,7 +130,10 @@ npx prisma generate          # regenerate the client after schema changes
 
 ## Verification Before "Done"
 
-Run these in order. Don't write "should work" or "Done!" without evidence.
+Run these in order. `npm run ci:quality` covers steps 1–4 plus the production
+build; `npm run ci:full` then adds the complete integration gate using a
+disposable PostgreSQL 16 container. Don't write "should work" or "Done!"
+without evidence.
 
 1. `npx tsc --noEmit` — TypeScript passes (`rm -rf .next` first if stale)
 2. `npm run lint` — eslint
@@ -236,6 +243,7 @@ Domain-specific rules live next to the code:
 - `lib/integrations/.claude.md` — third-party API contracts
 - `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
+- `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it
 there — don't pile it into root.

@@ -12,6 +12,10 @@
  * already exists, so a self-service consumer still starts as a client record.
  */
 import { calculateLoan } from "../../../lib/loan-calculator"
+import {
+  calculateCreditLifeMonthlyPremiumCents,
+  CREDIT_LIFE_DISCLOSURE_VERSION,
+} from "../../../lib/insurance/credit-life-election"
 import { deriveAffordabilityFlag } from "../../../lib/validation/application-wizard"
 import type { Persona } from "../personas"
 import { SimClient } from "../sim/api"
@@ -30,6 +34,20 @@ interface ProductRow {
   initiationFeePct: number
   initiationFeeMax: number
   monthlyServiceFee: number
+}
+
+interface InsuranceProductRow {
+  id: string
+  name: string
+  type: string
+  active: boolean
+  insurerId: string | null
+}
+
+interface InsurerRow {
+  id: string
+  name: string
+  active: boolean
 }
 
 export interface CreatedApplication {
@@ -141,9 +159,32 @@ export async function submitApplication(
   clientId: string,
   submit = true,
 ): Promise<CreatedApplication> {
-  const products = (await ctx.officer.get<ProductRow[]>("/api/products/loan")).json ?? []
+  const [productsResponse, insuranceProductsResponse, insurersResponse] = await Promise.all([
+    ctx.officer.get<ProductRow[]>("/api/products/loan"),
+    ctx.officer.get<InsuranceProductRow[]>("/api/products/insurance"),
+    ctx.officer.get<InsurerRow[]>("/api/insurers"),
+  ])
+  const products = productsResponse.json ?? []
   const product = products.find((row) => row.code === p.loanRequest.productCode)
   if (!product) throw new Error(`no loan product ${p.loanRequest.productCode}`)
+  const creditLifeProduct = (insuranceProductsResponse.json ?? []).find((row) =>
+    row.type === "CREDIT_LIFE" && row.active && row.insurerId,
+  )
+  const creditLifeInsurer = creditLifeProduct?.insurerId
+    ? (insurersResponse.json ?? []).find((row) => row.id === creditLifeProduct.insurerId && row.active)
+    : undefined
+  const creditLifeDisclosure = creditLifeProduct?.insurerId && creditLifeInsurer
+    ? {
+        creditLifeElection: "DECLINED",
+        creditLifeDisclosureAcknowledged: true,
+        creditLifeProductId: creditLifeProduct.id,
+        creditLifeProductName: creditLifeProduct.name,
+        creditLifeInsurerId: creditLifeProduct.insurerId,
+        creditLifeInsurerName: creditLifeInsurer.name,
+        creditLifeMonthlyPremiumCents: calculateCreditLifeMonthlyPremiumCents(p.loanRequest.amountCents),
+        creditLifeDisclosureVersion: CREDIT_LIFE_DISCLOSURE_VERSION,
+      }
+    : { creditLifeElection: "", creditLifeDisclosureAcknowledged: false }
 
   const res = await ctx.officer.post<CreatedApplication>("/api/applications", {
     clientId,
@@ -154,10 +195,9 @@ export async function submitApplication(
     purposeDetails: "",
     loanPurposeCategory: p.debts.length > 2 ? "DEBT_CONSOLIDATION" : "HOUSEHOLD",
     ...wizardAffordability(p, product),
-    // No credit-life product is configured for the tenant, so the wizard shows
-    // no election block and the server records the no-offer disclosure.
-    creditLifeElection: "",
-    creditLifeDisclosureAcknowledged: false,
+    // Mirror the wizard: echo the exact current offer and record the synthetic
+    // consumer's explicit decision to proceed without cover.
+    ...creditLifeDisclosure,
     pasqAcknowledged: true,
     affordabilityDeclared: true,
     submitForReview: submit,

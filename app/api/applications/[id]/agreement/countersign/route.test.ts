@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
@@ -181,13 +181,14 @@ const anchors = {
 function request(body: unknown) {
   return new NextRequest("http://localhost/api/applications/app-1/agreement/countersign", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": "127.0.0.1" },
+    headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.7, 127.0.0.1" },
     body: JSON.stringify(body),
   })
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv("TRUSTED_PROXY", "1")
   verifyPasqArtifactMock.mockReset()
   queryRawMock.mockReset()
   requireApiRoleMock.mockResolvedValue({
@@ -280,6 +281,10 @@ beforeEach(() => {
     auditLog: { create: auditCreateMock },
     $queryRaw: (...args: unknown[]) => queryRawMock(...args),
   }))
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe("provider agreement countersign", () => {

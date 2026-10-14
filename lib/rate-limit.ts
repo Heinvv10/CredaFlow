@@ -1,3 +1,5 @@
+import { isIP } from "node:net"
+
 /**
  * In-memory sliding-window rate limiter.
  *
@@ -92,19 +94,27 @@ export function _resetRateLimitStore(): void {
 export function callerIp(req: Request): string {
   const trustedProxies = parseInt(process.env.TRUSTED_PROXY ?? "0", 10)
 
-  const xff = req.headers.get("x-forwarded-for")
-  if (xff && trustedProxies > 0) {
-    const ips = xff.split(",").map(s => s.trim()).filter(Boolean)
-    const idx = ips.length - trustedProxies
-    if (idx >= 0) return ips[idx]!
-  }
-
-  // X-Real-IP is also set by proxies — only trust it when we trust at least one proxy.
-  // At TRUSTED_PROXY=0 (direct traffic) an attacker can send X-Real-IP: anything.
-  if (trustedProxies > 0) {
-    const real = req.headers.get("x-real-ip")
-    if (real) return real.trim()
-  }
+  const forwarded = trustedForwardedIp(req, trustedProxies)
+  if (forwarded) return forwarded
 
   return "unknown"
+}
+
+function trustedForwardedIp(req: Request, trustedProxies: number): string | null {
+  const xff = req.headers.get("x-forwarded-for")
+  if (!xff || trustedProxies <= 0) return null
+  const ips = xff.split(",").map((s) => s.trim()).filter(Boolean)
+  const idx = ips.length - trustedProxies
+  if (idx < 0 || !isIP(ips[idx]!)) return null
+  return ips[idx]!
+}
+
+/**
+ * callerIp for a record rather than a rate-limit key: null instead of the
+ * "unknown" bucket when no trusted proxy supplied an address, so an access
+ * or audit row never stores a placeholder as if it were an IP.
+ */
+export function recordedCallerIp(req: Request): string | null {
+  const trustedProxies = parseInt(process.env.TRUSTED_PROXY ?? "0", 10)
+  return trustedForwardedIp(req, trustedProxies)
 }

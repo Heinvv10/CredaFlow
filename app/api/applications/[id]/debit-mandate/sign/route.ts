@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { verifyLockedCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
@@ -25,6 +26,7 @@ import {
 } from "@/lib/storage"
 import { DebitMandateConfigurationError } from "@/lib/config/debit-mandate"
 import { LenderIdentityError } from "@/lib/config/identity"
+import { hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -267,7 +269,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         where: { id, tenantId: tenant.id },
         ...debitMandateApplicationArgs,
       })
-      if (!application || application.clientId !== session.user.id) {
+      if (
+        !application
+        || application.clientId !== session.user.id
+        || !hasClientBorrower(application)
+      ) {
         throw new DebitMandateSigningError(404, "not_found", "Application not found.")
       }
       if (application.repaymentMethod !== "DEBIT_ORDER") {
@@ -551,9 +557,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       ) {
         throw new Error("Managed storage returned unexpected debit-mandate metadata")
       }
-      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-        ?? req.headers.get("x-real-ip")
-        ?? null
+      const ip = recordedCallerIp(req)
 
       const result = await prisma.$transaction(async (tx) => {
         const locked = await verifyLockedCurrentAffordabilityApproval(tx, {
@@ -574,6 +578,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         if (
           !current
           || current.clientId !== session.user.id
+          || !hasClientBorrower(current)
           || current.status !== "APPROVED"
           || current.repaymentMethod !== "DEBIT_ORDER"
           || !current.agreementSignedAt

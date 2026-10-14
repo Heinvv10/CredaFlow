@@ -28,9 +28,15 @@ import { Step4Review } from "./Step4Review"
 
 interface Props {
   mode: WizardMode
+  /**
+   * Called with the created client instead of navigating to /clients — for a
+   * flow that creates a person and then links them to something (an asset
+   * finance entity). The client is already saved when this runs.
+   */
+  onCreated?: (client: { id: string; reference: string }) => Promise<void>
 }
 
-export function ClientWizard({ mode }: Props) {
+export function ClientWizard({ mode, onCreated }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -138,6 +144,10 @@ export function ClientWizard({ mode }: Props) {
       }
       store.clear()
       toast.success("Client created")
+      if (onCreated) {
+        await onCreated((await res.json()) as { id: string; reference: string })
+        return
+      }
       router.push("/clients")
     } catch (err) {
       const msg = err instanceof Error ? err.message : "An error occurred"
