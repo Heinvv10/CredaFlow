@@ -3,6 +3,11 @@ import {
   type CompositeKycResult,
   type CoreKycDocumentType,
 } from "@/lib/kyc/document-state"
+import { pendingIdReplacement } from "@/lib/kyc/id-replacement"
+
+// A document with no createdAt (hand-built fixtures only) ties on time and is
+// ordered by id.
+const EPOCH = new Date(0)
 
 export type PortalKycItemStatus =
   | "missing"
@@ -21,6 +26,9 @@ export interface PortalChecklistDocument {
   verificationNote: string | null
   /** Set only when a named reviewer refused it; null for a system re-flag. */
   verificationRejectedById?: string | null
+  verificationRejectedAt?: Date | null
+  /** Always present from the database read; selects the newest ID copy. */
+  createdAt?: Date
   validationMismatch?: boolean
   biometricMatchScore?: number | null
   extractionStatus?: string
@@ -51,17 +59,19 @@ export interface PortalKycChecklist {
 function coreDocumentItem(
   documents: readonly PortalChecklistDocument[],
   docType: CoreKycDocumentType,
-  composite: CompositeKycResult,
 ): PortalKycChecklistItem {
   const matching = documents.filter((document) => document.docType === docType)
   const verified = matching.find((document) => document.verified)
   if (verified) {
-    // A verified copy is outweighed by a newer one awaiting review (the
-    // composite lists the type as outstanding despite the verified row): point
-    // at the newer copy, which is what is being reviewed, not at the old one.
-    const awaiting = composite.coreDocumentGaps.some((gap) => gap.docType === docType)
-      ? matching.find((document) => !document.verified && !document.verificationRejectedById)
-      : undefined
+    // A verified ID copy is outweighed by a newer one awaiting review: point
+    // at the newer copy, which is what is being reviewed. Chosen by the same
+    // function the composite KYC derivation and the database rule mirror.
+    const awaiting = docType === "ID_COPY"
+      ? pendingIdReplacement(matching.map((document) => ({
+          ...document,
+          createdAt: document.createdAt ?? EPOCH,
+        })))
+      : null
     return awaiting
       ? { documentId: awaiting.id, status: "pending_review" }
       : { documentId: verified.id, status: "verified" }
@@ -171,7 +181,7 @@ export function derivePortalKycChecklist(args: {
   const coreDocuments = Object.fromEntries(
     CORE_KYC_DOCUMENT_TYPES.map((docType) => [
       docType,
-      coreDocumentItem(args.documents, docType, args.composite),
+      coreDocumentItem(args.documents, docType),
     ]),
   ) as Record<CoreKycDocumentType, PortalKycChecklistItem>
   const selfie = selfieItem(

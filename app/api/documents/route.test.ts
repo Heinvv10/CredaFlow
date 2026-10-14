@@ -14,6 +14,7 @@ const queryRawMock = vi.fn()
 const transactionMock = vi.fn()
 const applicationFindFirstMock = vi.fn()
 const saveFileMock = vi.fn()
+const deleteFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
 const readStatementInBackgroundMock = vi.fn()
@@ -59,11 +60,12 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: {
       findFirst: (args: unknown) => applicationFindFirstMock(args),
     },
-    $transaction: (cb: (client: typeof tx) => Promise<unknown>) => transactionMock(cb),
+    $transaction: (cb: (client: typeof tx) => Promise<unknown>, options?: unknown) => transactionMock(cb, options),
   },
 }))
 vi.mock("@/lib/storage", () => ({
   saveFile: (...args: unknown[]) => saveFileMock(...args),
+  deleteFile: (...args: unknown[]) => deleteFileMock(...args),
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (args: unknown) => extractDocumentDataMock(args),
@@ -292,6 +294,29 @@ describe("POST /api/documents", () => {
     const response = await POST(request("ID_COPY") as never)
 
     expect(response.status).toBe(500)
+    // The rolled-back upload leaves no orphaned file, and the transaction is
+    // not left at Prisma's 5 s default while queued behind the evidence lock.
+    expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/id.png")
+    expect(transactionMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ maxWait: expect.any(Number), timeout: expect.any(Number) }),
+    )
+  })
+
+  it("keeps the stored file when the upload commits", async () => {
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(201)
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("removes the stored file when a non-ID document row cannot be written", async () => {
+    documentCreateMock.mockRejectedValue(new Error("database unavailable"))
+
+    const response = await POST(request("PAYSLIP") as never)
+
+    expect(response.status).toBe(500)
+    expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/id.png")
   })
 
   it("does not re-project for other document types", async () => {

@@ -99,6 +99,24 @@ describe("PUT /api/clients/[id]/kyc-override-requests/[requestId]", () => {
     }))
   })
 
+  it("refuses to grant while a replacement ID copy awaits review", async () => {
+    const docs = ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"].map((docType) => ({
+      id: `doc-${docType}`, docType, verified: true, createdAt: new Date("2026-07-01T00:00:00Z"),
+      verificationRejectedAt: null, verificationRejectedById: null,
+    }))
+    h.documentFindMany.mockResolvedValue([
+      ...docs,
+      { id: "id-replacement", docType: "ID_COPY", verified: false, createdAt: new Date("2026-07-02T00:00:00Z"),
+        verificationRejectedAt: null, verificationRejectedById: null },
+    ])
+
+    const response = await call()
+
+    expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(h.complianceCreate).not.toHaveBeenCalled()
+    expect(h.clientUpdate).not.toHaveBeenCalled()
+  })
+
   it("refuses self-approval before any grant", async () => {
     h.requireRole.mockResolvedValue({ user: { id: "requester-1", email: "requester@test.invalid", role: "ADMIN", totpVerified: true } })
     const response = await call()

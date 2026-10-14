@@ -11,6 +11,24 @@ export interface IdReplacementCandidate {
 }
 
 /**
+ * The required document types a writer of VERIFIED must still refuse on: those
+ * with no verified copy, plus ID_COPY while a replacement awaits review (the
+ * database refuses VERIFIED then too: subject_has_pending_id_replacement).
+ */
+export function outstandingCoreDocuments<D extends string>(
+  required: readonly D[],
+  documents: readonly IdReplacementCandidate[],
+): D[] {
+  const verified = new Set(
+    documents.filter((document) => document.verified).map((document) => document.docType),
+  )
+  const replacementPending = pendingIdReplacement(documents) !== null
+  return required.filter(
+    (docType) => !verified.has(docType) || (docType === "ID_COPY" && replacementPending),
+  )
+}
+
+/**
  * The ID copy a client has uploaded to replace one staff already verified, and
  * that staff have not yet reviewed; otherwise null.
  *

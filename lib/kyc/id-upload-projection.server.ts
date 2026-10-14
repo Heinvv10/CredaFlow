@@ -58,9 +58,12 @@ function sameKycProjection(a: ClientKycState, b: ClientKycState): boolean {
  * Callers must hold the client evidence lock and run inside the same
  * transaction as the upload, so a concurrent verification cannot interleave.
  *
- * Downgrade only. An upload is not a verification: if the evidence still
- * derives VERIFIED while the stored status is not, the stored status is left
- * for a verification path (or the database guard) to promote.
+ * Never promotes. An upload is not a verification: if the evidence derives
+ * VERIFIED while the stored status is not, the stored status is left for a
+ * verification path to promote. Any other change is written, including
+ * FAILED -> PENDING when the only blocker was a refused ID that this upload
+ * has now replaced. A stored and derived VERIFIED pair is not rewritten, so
+ * the verifier's provenance and the audit trail stay untouched.
  */
 export async function reprojectKycAfterIdUpload(
   tx: IdUploadProjectionTransaction,
@@ -86,9 +89,7 @@ export async function reprojectKycAfterIdUpload(
     existing: before,
     preserveVerifiedProvenance: true,
   })
-  if (composite.state.kycStatus === "VERIFIED" && before.kycStatus !== "VERIFIED") {
-    return { changed: false }
-  }
+  if (composite.state.kycStatus === "VERIFIED") return { changed: false }
   if (sameKycProjection(before, composite.state)) return { changed: false }
 
   const after = await tx.client.update({

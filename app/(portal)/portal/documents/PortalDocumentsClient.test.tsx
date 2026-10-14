@@ -107,6 +107,20 @@ describe("PortalDocumentsClient: Superseded only marks an older replaced copy", 
     expect(html).toContain('data-document-id="id-stale" data-document-status="Superseded"')
   })
 
+  it("keeps the previous label for non-KYC document types", () => {
+    const other = document({ id: "other-1", docType: "OTHER", createdAt: "2026-07-22T06:00:00.000Z" })
+    const html = renderToStaticMarkup(
+      <PortalDocumentsClient
+        clientId="client-1"
+        popiaConsentGiven
+        initialDocs={[other]}
+        initialKycChecklist={checklist()}
+      />,
+    )
+
+    expect(html).toContain('data-document-id="other-1" data-document-status="Superseded"')
+  })
+
   it("shows a newest ID a reviewer refused as needing action", () => {
     const newest = document({
       id: "id-newest",

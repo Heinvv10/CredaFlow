@@ -37,6 +37,7 @@ import {
   type InPersonKycVerificationEvidence,
 } from "@/lib/kyc/in-person-verification"
 import { selectUsableIdDocument } from "@/lib/kyc/usable-id-document"
+import { outstandingCoreDocuments } from "@/lib/kyc/id-replacement"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 import { hasMinRole } from "@/lib/permissions"
 import {
@@ -97,7 +98,7 @@ async function grantException(
   const [coreDocuments, latestSelfie] = await Promise.all([
     tx.clientDocument.findMany({
       where: { tenantId: args.tenantId, clientId: args.clientId, deletedAt: null, docType: { in: [...CORE_KYC_DOCUMENT_TYPES] } },
-      select: { docType: true, verified: true },
+      select: { id: true, docType: true, verified: true, createdAt: true, verificationRejectedAt: true, verificationRejectedById: true },
     }),
     tx.clientDocument.findFirst({
       where: { tenantId: args.tenantId, clientId: args.clientId, docType: "SELFIE" },
@@ -110,7 +111,7 @@ async function grantException(
       },
     }),
   ])
-  if (CORE_KYC_DOCUMENT_TYPES.some((type) => !coreDocuments.some((doc) => doc.docType === type && doc.verified))) {
+  if (outstandingCoreDocuments(CORE_KYC_DOCUMENT_TYPES, coreDocuments).length > 0) {
     return { kind: "core_documents_missing" as const }
   }
   if (!latestSelfie || latestSelfie.id !== args.selfieDocumentId || latestSelfie.deletedAt || !isSha256Digest(latestSelfie.contentSha256)) {
@@ -204,7 +205,7 @@ async function grantInPerson(
       orderBy: latestSelfieOrder(), select: { id: true },
     }),
   ])
-  if (CORE_KYC_DOCUMENT_TYPES.some((type) => !coreDocuments.some((doc) => doc.docType === type && doc.verified))) {
+  if (outstandingCoreDocuments(CORE_KYC_DOCUMENT_TYPES, coreDocuments).length > 0) {
     return { kind: "core_documents_missing" as const }
   }
   const approvedAt = new Date()

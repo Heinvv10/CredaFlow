@@ -47,7 +47,12 @@ const args = {
   actor: { type: "client" as const, email: "client@example.test" },
 }
 
-function derived(state: typeof pendingState | typeof verifiedClient) {
+function derived(state: {
+  kycStatus: "PENDING" | "VERIFIED" | "FAILED"
+  kycVerifiedAt: Date | null
+  kycVerifiedById: string | null
+  kycVerificationMethod: "PHYSICAL" | "BIOMETRIC" | null
+}) {
   readCompositeKycStateMock.mockResolvedValue({
     state: {
       kycStatus: state.kycStatus,
@@ -121,6 +126,23 @@ describe("reprojectKycAfterIdUpload", () => {
 
     await expect(reprojectKycAfterIdUpload(tx, args)).resolves.toEqual({ changed: false })
     expect(update).not.toHaveBeenCalled()
+  })
+
+  it("does not rewrite a VERIFIED client whose derived state is also VERIFIED", async () => {
+    findUnique.mockResolvedValue(verifiedClient)
+    derived({ ...verifiedClient, kycVerifiedAt: new Date("2026-07-23T00:00:00.000Z"), kycVerificationMethod: "BIOMETRIC" })
+
+    await expect(reprojectKycAfterIdUpload(tx, args)).resolves.toEqual({ changed: false })
+    expect(update).not.toHaveBeenCalled()
+    expect(auditCreate).not.toHaveBeenCalled()
+  })
+
+  it("moves FAILED to PENDING when the refused ID has been replaced", async () => {
+    findUnique.mockResolvedValue({ ...verifiedClient, ...pendingState, kycStatus: "FAILED" })
+    derived(pendingState)
+
+    await expect(reprojectKycAfterIdUpload(tx, args)).resolves.toEqual({ changed: true })
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: pendingState }))
   })
 
   it("does nothing for a client that is not in the tenant", async () => {

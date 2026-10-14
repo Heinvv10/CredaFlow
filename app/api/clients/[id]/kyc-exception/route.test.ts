@@ -141,6 +141,30 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
     })
   })
 
+  it("refuses while a replacement ID copy awaits review, writing nothing", async () => {
+    documentFindManyMock.mockResolvedValue([
+      ...verifiedCore.map((document) => ({
+        ...document, id: `doc-${document.docType}`, createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      })),
+      {
+        id: "id-replacement", docType: "ID_COPY", verified: false, verificationNote: null,
+        createdAt: new Date("2026-07-02T00:00:00.000Z"),
+        verificationRejectedAt: null, verificationRejectedById: null,
+      },
+    ])
+
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence:
+        "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).missingDocs).toEqual(["ID_COPY"])
+    expect(complianceCreateMock).not.toHaveBeenCalled()
+    expect(clientUpdateMock).not.toHaveBeenCalled()
+  })
+
   it("requires ADMIN authority and atomically records an exact failed-attempt exception", async () => {
     const response = await POST(request({
       reason: "Senior reviewer accepted the physical identity evidence.",

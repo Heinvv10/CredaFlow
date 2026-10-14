@@ -46,12 +46,10 @@ describe("derivePortalKycChecklist", () => {
   it("points the ID item at a newer copy awaiting review, not the older verified one", () => {
     const checklist = derivePortalKycChecklist({
       documents: [
-        { id: "id-new", docType: "ID_COPY", verified: false, verificationNote: null },
-        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null },
+        { id: "id-new", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: new Date("2026-07-02T00:00:00Z") },
+        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z") },
       ],
-      composite: composite({
-        coreDocumentGaps: [{ docType: "ID_COPY", state: "awaiting_verification" }],
-      }),
+      composite: composite(),
       latestSelfieId: null,
     })
     expect(checklist.coreDocuments.ID_COPY).toEqual({
@@ -60,11 +58,14 @@ describe("derivePortalKycChecklist", () => {
     })
   })
 
-  it("keeps a verified ID item verified when the composite lists no gap for it", () => {
+  it.each([
+    ["named reviewer", { verificationRejectedById: "officer-1" }],
+    ["rejection timestamp alone", { verificationRejectedAt: new Date("2026-07-03T00:00:00Z") }],
+  ])("keeps a verified ID item verified when the newer copy was refused (%s)", (_label, refusal) => {
     const checklist = derivePortalKycChecklist({
       documents: [
-        { id: "id-refused", docType: "ID_COPY", verified: false, verificationNote: "No", verificationRejectedById: "officer-1" },
-        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null },
+        { id: "id-refused", docType: "ID_COPY", verified: false, verificationNote: "No", createdAt: new Date("2026-07-02T00:00:00Z"), ...refusal },
+        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z") },
       ],
       composite: composite(),
       latestSelfieId: null,
@@ -73,6 +74,31 @@ describe("derivePortalKycChecklist", () => {
       documentId: "id-old",
       status: "verified",
     })
+  })
+
+  it("does not call an OLDER unverified ID copy the pending replacement", () => {
+    const checklist = derivePortalKycChecklist({
+      documents: [
+        { id: "id-old-unverified", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: new Date("2026-06-01T00:00:00Z") },
+        { id: "id-verified", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z") },
+      ],
+      composite: composite(),
+      latestSelfieId: null,
+    })
+    expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-verified", status: "verified" })
+  })
+
+  it("breaks a createdAt tie on id, as pendingIdReplacement does", () => {
+    const at = new Date("2026-07-02T00:00:00Z")
+    const checklist = derivePortalKycChecklist({
+      documents: [
+        { id: "id-1", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: at },
+        { id: "id-2", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: at },
+      ],
+      composite: composite(),
+      latestSelfieId: null,
+    })
+    expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-2", status: "pending_review" })
   })
 
   it("asks the client to act only when a named reviewer refused their document", () => {

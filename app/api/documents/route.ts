@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { saveFile } from "@/lib/storage"
+import { deleteFile, saveFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
 import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
@@ -30,6 +30,11 @@ import {
   clientPdfPasswordCandidates,
   decryptPdfIfEncrypted,
 } from "@/lib/documents/pdf-decrypt"
+
+// The ID upload waits on the client evidence lock that verification and
+// disbursement hold; Prisma's 5 s default would abort an upload that is merely
+// queued behind one.
+const ID_UPLOAD_TRANSACTION = { maxWait: 10_000, timeout: 20_000 } as const
 
 interface UploadExtractionAttempt {
   documentId: string
@@ -231,21 +236,31 @@ export async function POST(req: NextRequest) {
       // unreviewed copy outweighs the verified one), so it is written and the
       // projection re-derived in one transaction under the client evidence
       // lock that verification and disbursement also take.
-      const doc = docType === "ID_COPY"
-        ? await prisma.$transaction(async (tx) => {
-            await lockAffordabilityClientEvidence(tx, { tenantId: tenant.id, clientId })
-            const created = await createDocument(tx)
-            await reprojectKycAfterIdUpload(tx as unknown as IdUploadProjectionTransaction, {
-              tenantId: tenant.id,
-              clientId,
-              documentId: created.id,
-              actor: caller.type === "staff"
-                ? { type: "staff", userId: caller.userId }
-                : { type: "client", email: caller.email },
-            })
-            return created
-          })
-        : await createDocument(prisma)
+      let doc: Awaited<ReturnType<typeof createDocument>>
+      try {
+        doc = docType === "ID_COPY"
+          ? await prisma.$transaction(async (tx) => {
+              await lockAffordabilityClientEvidence(tx, { tenantId: tenant.id, clientId })
+              const created = await createDocument(tx)
+              await reprojectKycAfterIdUpload(tx as unknown as IdUploadProjectionTransaction, {
+                tenantId: tenant.id,
+                clientId,
+                documentId: created.id,
+                actor: caller.type === "staff"
+                  ? { type: "staff", userId: caller.userId }
+                  : { type: "client", email: caller.email },
+              })
+              return created
+            }, ID_UPLOAD_TRANSACTION)
+          : await createDocument(prisma)
+      } catch (writeError) {
+        // Nothing references the stored bytes after a failed (rolled-back)
+        // write: do not leave an orphan behind.
+        await deleteFile(storagePath).catch((cleanupError) => {
+          console.error("[document-upload] failed to remove unclaimed file:", cleanupError)
+        })
+        throw writeError
+      }
 
       // The stored file is no longer byte-identical to what was uploaded, so
       // the trail has to say so — an auditor comparing the client's original

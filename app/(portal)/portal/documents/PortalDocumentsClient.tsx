@@ -215,6 +215,11 @@ export function PortalDocumentsClient({
         }
       }
       if (doc.verified) return { label: "Verified", tone: "success" as const }
+      // Only the types staff review for KYC have a pending-review state. Other
+      // types (OTHER, generated documents) keep their previous label.
+      if (!(REQUIRED_DOC_TYPES as readonly string[]).includes(doc.docType)) {
+        return { label: "Superseded", tone: "neutral" as const }
+      }
       // Superseded means an older copy that a newer one replaced. The newest
       // copy of a type is never superseded, even while an older one is
       // verified: it shows its own state.
