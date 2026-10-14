@@ -30,6 +30,13 @@ const EXCLUDED_TABLES = new Set(["_prisma_migrations", "SaProclaimedPublicHolida
  * column name applies to every table, "Table.column" to that table only.
  */
 const BUSINESS_DATE_COLUMNS: Readonly<Record<string, string>> = {
+  "StatementAnalysis.periodStart": "the statement coverage period may predate the simulation window",
+  "StatementAnalysis.periodEnd": "the statement coverage period may predate the simulation window",
+  "BankStatementImport.periodStart": "the imported statement period may predate the simulation window",
+  "BankStatementImport.periodEnd": "the imported statement period may predate the simulation window",
+  "ReferenceRate.effectiveDate": "a reference rate history predates the simulated book",
+  "ContractRate.effectiveDate": "a contract rate is the date its pricing terms take effect",
+  "VatRate.effectiveDate": "the national VAT rate history predates the simulated book",
   "PaymentArrangement.startDate": "an arrangement's first agreed payment, often next month",
   "PaymentPlan.startDate": "a payment plan's first instalment, often next month",
   dateOfBirth: "a person's birth date",
@@ -53,6 +60,10 @@ const BUSINESS_DATE_COLUMNS: Readonly<Record<string, string>> = {
   reExamPassDate: "a FAIS regulatory exam pass date",
   cpdPeriodEnd: "a CPD cycle end",
   bureauReportingStartDate: "the lender's bureau reporting start",
+}
+
+export function isBusinessDateColumn(table: string, column: string): boolean {
+  return column in BUSINESS_DATE_COLUMNS || `${table}.${column}` in BUSINESS_DATE_COLUMNS
 }
 
 export interface DateViolation {
@@ -81,8 +92,7 @@ export async function checkDates(simStart: Date, simEnd: Date): Promise<DateViol
   )
   const byTable = new Map<string, string[]>()
   for (const c of columns) {
-    if (EXCLUDED_TABLES.has(c.table_name) || c.column_name in BUSINESS_DATE_COLUMNS) continue
-    if (`${c.table_name}.${c.column_name}` in BUSINESS_DATE_COLUMNS) continue
+    if (EXCLUDED_TABLES.has(c.table_name) || isBusinessDateColumn(c.table_name, c.column_name)) continue
     byTable.set(c.table_name, [...(byTable.get(c.table_name) ?? []), c.column_name])
   }
 
