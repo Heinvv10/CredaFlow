@@ -75,7 +75,8 @@ export async function createDeal(
 
   // A lease (operating or full-maintenance) is not a credit agreement: no
   // NCA structure or caps, whoever the lessee (./lease-deal.ts).
-  const lease = isLeaseContract(input.contractType) ? input.terms.lease ?? null : null
+  const leaseType = isLeaseContract(input.contractType) ? input.contractType : null
+  const lease = leaseType ? input.terms.lease ?? null : null
   if (isLeaseContract(input.contractType) && !lease) return refused(422, "A lease needs its lease terms")
   const ncaClient = client !== null && lease === null
   const genericSolved = await solveWithRate(tx, tenantId, asset, input.terms)
@@ -111,7 +112,7 @@ export async function createDeal(
       reference: generateReference("AF"),
       clientId: client?.id ?? null,
       entityId: entity?.id ?? null,
-      ...(lease ? leaseApplicationRegime(params.userId, input.contractType) : ncaClient ? {
+      ...(lease && leaseType ? leaseApplicationRegime(params.userId, leaseType) : ncaClient ? {
         ncaRegime: "NCA" as const,
         ncaClassificationRule: "NATURAL_PERSON_NCA",
         ncaClassificationInputs: { naturalPerson: true },

@@ -48,7 +48,8 @@ export async function runLeaseInvoiceBatch(db: BatchDb, day: string): Promise<Le
       } catch (error) {
         run.failed++
         run.ok = false
-        console.error("[asset-finance-lease-invoices] rental failed", { tenantId, rentalId: rental.id, error: error instanceof Error ? error.message : "unknown" })
+        // Name and message only: a Prisma error can carry row values (personal data).
+        console.error("[asset-finance-lease-invoices] rental failed", { tenantId, rentalId: rental.id, error: error instanceof Error ? error.name : "unknown" })
       }
     }
     await runExpiryNotices(db, tenantId, day, run)

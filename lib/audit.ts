@@ -531,11 +531,13 @@ export const AuditAction = {
   // payout, application and asset with it. Refusals are audited too.
   ASSET_DEAL_CANCELLED: "ASSET_DEAL_CANCELLED",
   ASSET_DEAL_CANCEL_REFUSED: "ASSET_DEAL_CANCEL_REFUSED",
-  // Operating and full-maintenance leases (slice 3, lib/asset-finance/lease-*.ts,
-  // maintenance-*.ts): per-rental tax invoices, the maintenance fund and its
-  // claims, meter readings, the end of term and early termination.
+  // Operating and full-maintenance leases (slice 3): per-rental tax invoices
+  // (lib/asset-finance/lease-invoices.ts), and a refusal the receipt path left.
   LEASE_RENTAL_INVOICED: "LEASE_RENTAL_INVOICED",
   LEASE_INVOICE_REFUSED: "LEASE_INVOICE_REFUSED",
+  // Lease servicing (lib/asset-finance/maintenance-*.ts, meter-readings.ts,
+  // lease-end-*.ts, lease-termination-store.ts, lease-daily.ts): the maintenance
+  // fund and its claims, meter readings, the end of term and early termination.
   MAINTENANCE_CLAIM_SUBMITTED: "MAINTENANCE_CLAIM_SUBMITTED",
   MAINTENANCE_CLAIM_APPROVED: "MAINTENANCE_CLAIM_APPROVED",
   MAINTENANCE_CLAIM_REJECTED: "MAINTENANCE_CLAIM_REJECTED",
@@ -545,7 +547,6 @@ export const AuditAction = {
   LEASE_EXPIRY_NOTICE_QUEUED: "LEASE_EXPIRY_NOTICE_QUEUED",
   LEASE_END_OF_TERM_ELECTED: "LEASE_END_OF_TERM_ELECTED",
   LEASE_INSPECTION_RECORDED: "LEASE_INSPECTION_RECORDED",
-  LEASE_END_OF_TERM_INVOICED: "LEASE_END_OF_TERM_INVOICED",
   LEASE_RETURNED: "LEASE_RETURNED",
   LEASE_EXTENDED: "LEASE_EXTENDED",
   LEASE_EXTENSION_ENDED: "LEASE_EXTENSION_ENDED",
@@ -553,7 +554,6 @@ export const AuditAction = {
   LEASE_EARLY_TERMINATION_QUOTED: "LEASE_EARLY_TERMINATION_QUOTED",
   LEASE_EARLY_TERMINATION_ACCEPTED: "LEASE_EARLY_TERMINATION_ACCEPTED",
   LEASE_CLOSED: "LEASE_CLOSED",
-  LEASE_ACTION_REFUSED: "LEASE_ACTION_REFUSED",
   // A surety or signatory deactivation refused while the entity has an
   // approved deal (its signer set is fixed).
   ENTITY_RELATIONSHIP_CHANGE_REFUSED: "ENTITY_RELATIONSHIP_CHANGE_REFUSED",

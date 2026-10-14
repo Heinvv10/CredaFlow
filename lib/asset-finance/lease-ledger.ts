@@ -15,9 +15,11 @@
  * then read correct lease figures with no change: a receipt reduces the
  * rentals owed, arrears are unpaid rentals incl. VAT, and the statement lists
  * the rentals. NON_NCA default interest runs on overdue rentals
- * (./non-nca-charges.ts). Settlement is NOT "rentals outstanding": a lease is
- * ended early only through the early-termination quote (C8), so the
- * settlement readers refuse a lease (lib/loan/settlement.ts).
+ * (./non-nca-charges.ts). The settlement readers (lib/loan/settlement.ts) are
+ * unchanged: for a lease their figure is the rentals outstanding, what
+ * prepaying every rental would cost (each is invoiced at receipt). Ending a
+ * lease early is by quotation only (C8); screens label the figure as rentals
+ * outstanding, and the NCA certificate of balance is refused for a lease.
  *
  * The capital pricing is kept for repricing: each row's
  * assetFinanceOpeningBalanceCents is the capital balance the rental's finance

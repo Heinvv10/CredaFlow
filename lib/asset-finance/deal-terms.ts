@@ -76,12 +76,11 @@ export function leaseTermsFromDeal(deal: StoredLeaseColumns): LeaseTerms | null 
   if (escalationRate === null || penalty === null) {
     throw new TypeError("A lease deal must carry its rental timing, escalation and penalty (AssetFinanceDeal_lease_terms_shape)")
   }
-  const m = deal
-  const maintenance = m.maintenanceMonthlyExclVatCents !== null && m.maintenanceEscalationRate !== null && m.maintenanceRiskModel !== null
-    ? { monthlyExclVatCents: m.maintenanceMonthlyExclVatCents, escalationRate: m.maintenanceEscalationRate.toString(), riskModel: m.maintenanceRiskModel }
+  const maintenance = deal.maintenanceMonthlyExclVatCents !== null && deal.maintenanceEscalationRate !== null && deal.maintenanceRiskModel !== null
+    ? { monthlyExclVatCents: deal.maintenanceMonthlyExclVatCents, escalationRate: deal.maintenanceEscalationRate.toString(), riskModel: deal.maintenanceRiskModel }
     : null
-  const usage = m.usageAllowancePerYear !== null && m.usageUnit !== null && m.excessRateCents !== null
-    ? { allowancePerYear: m.usageAllowancePerYear, unit: m.usageUnit, excessRateCents: m.excessRateCents }
+  const usage = deal.usageAllowancePerYear !== null && deal.usageUnit !== null && deal.excessRateCents !== null
+    ? { allowancePerYear: deal.usageAllowancePerYear, unit: deal.usageUnit, excessRateCents: deal.excessRateCents }
     : null
   return { rentalTiming, escalationRate: escalationRate.toString(), earlyTerminationPenaltyRate: penalty.toString(), maintenance, usage }
 }

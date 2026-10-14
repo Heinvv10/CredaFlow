@@ -59,7 +59,7 @@ export async function runLeaseExtensions(db: DailyDb, tenantId: string, today: s
       })
     } catch (error) {
       run.failed++
-      console.error("[asset-finance-lease-daily] extension failed", { tenantId, loanId: row.loanId, error: error instanceof Error ? error.message : "unknown" })
+      console.error("[asset-finance-lease-daily] extension failed", { tenantId, loanId: row.loanId, error: error instanceof Error ? error.name : "unknown" })
     }
   }
 }
@@ -85,7 +85,7 @@ export async function runExpiryNotices(db: DailyDb, tenantId: string, today: str
       run.expiryNotices++
     } catch (error) {
       run.failed++
-      console.error("[asset-finance-lease-daily] expiry notice failed", { tenantId, loanId: lease.id, error: error instanceof Error ? error.message : "unknown" })
+      console.error("[asset-finance-lease-daily] expiry notice failed", { tenantId, loanId: lease.id, error: error instanceof Error ? error.name : "unknown" })
     }
   }
 }

@@ -24,7 +24,7 @@
  * // PARTIAL: a VAT-rate change between booking and the supply date is not
  * re-priced: such a rental is refused (vat_rate_changed) for staff to resolve.
  */
-import { Prisma } from "@prisma/client"
+import { Prisma, type ContractType } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { describeAsset, issueTaxInvoice, type TaxInvoiceDb } from "@/lib/vat/tax-invoice"
 import { loadRateOn, rateTenThousandthsOf } from "@/lib/vat/vat-rate"
@@ -119,10 +119,15 @@ export async function issueLeaseRentalInvoice(
  * received money and falls due after `receivedOn` is invoiced now, supply
  * date = the receipt day; one already due is invoiced on its due date (the
  * cron may not have run yet). Does nothing for any other contract type.
+ *
+ * A receipt is never refused or rolled back for its invoice: each rental is
+ * invoiced inside its own SAVEPOINT, and a refusal or error is rolled back to
+ * it and audited once (LEASE_INVOICE_REFUSED), leaving the rental for the
+ * cron and staff. The money is recorded either way.
  */
 export async function issueLeaseInvoicesOnReceipt(
   tx: LeaseInvoiceTx & Pick<VatTransaction, "repaymentSchedule">,
-  input: { tenantId: string; loanId: string; contractType: string | null | undefined; receivedOn: string; today: string; createdById: string | null },
+  input: { tenantId: string; loanId: string; contractType: ContractType | null | undefined; receivedOn: string; today: string; createdById: string | null },
 ): Promise<void> {
   if (input.contractType !== "OPERATING_LEASE" && input.contractType !== "FULL_MAINTENANCE_LEASE") return
   const rentals = await tx.leaseRental.findMany({
@@ -133,16 +138,30 @@ export async function issueLeaseInvoicesOnReceipt(
   for (const rental of rentals) {
     const due = isoOfDbDate(rental.dueDate)
     const supplyDate = input.receivedOn < due ? input.receivedOn : due
-    const result = await issueLeaseRentalInvoice(tx, {
-      tenantId: input.tenantId, rentalId: rental.id, supplyDate: supplyDate > input.today ? input.today : supplyDate,
-      today: input.today, createdById: input.createdById, source: "receipt",
+    await tx.$executeRawUnsafe("SAVEPOINT lease_rental_invoice")
+    let refusal: { reason: string; error: string } | null = null
+    try {
+      const result = await issueLeaseRentalInvoice(tx, {
+        tenantId: input.tenantId, rentalId: rental.id, supplyDate: supplyDate > input.today ? input.today : supplyDate,
+        today: input.today, createdById: input.createdById, source: "receipt",
+      })
+      if (result.kind === "refused") refusal = { reason: result.reason, error: result.error }
+    } catch (error) {
+      refusal = { reason: "invoice_error", error: error instanceof Error ? error.name : "unknown" }
+    }
+    if (refusal === null) {
+      await tx.$executeRawUnsafe("RELEASE SAVEPOINT lease_rental_invoice")
+      continue
+    }
+    await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT lease_rental_invoice")
+    const already = await tx.auditLog.findFirst({
+      where: { tenantId: input.tenantId, action: AuditAction.LEASE_INVOICE_REFUSED, entity: "LeaseRental", entityId: rental.id },
+      select: { id: true },
     })
-    // A receipt is never refused for its invoice: a refusal is left for the
-    // cron and staff to resolve, and audited.
-    if (result.kind === "refused") {
+    if (!already) {
       await logAuditStrict({
         tenantId: input.tenantId, userId: input.createdById ?? undefined, action: AuditAction.LEASE_INVOICE_REFUSED,
-        entity: "LeaseRental", entityId: rental.id, newValue: { reason: result.reason, error: result.error, source: "receipt" },
+        entity: "LeaseRental", entityId: rental.id, newValue: { ...refusal, source: "receipt" },
       }, tx)
     }
   }
