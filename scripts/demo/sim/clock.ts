@@ -13,7 +13,7 @@
  *   npx tsx scripts/demo/sim/clock.ts advance 30
  *   npx tsx scripts/demo/sim/clock.ts now
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { SIM_CLOCK_DIR, log, simBaseUrl } from "./env"
@@ -39,6 +39,7 @@ function writeOffsetSeconds(offset: number): void {
   // Readable by the containers' non-root users; renamed into place so a
   // reader never sees a half-written file.
   writeFileSync(tmp, `${offset >= 0 ? "+" : "-"}${Math.abs(offset)}\n`, { mode: 0o644 })
+  chmodSync(tmp, 0o644)
   renameSync(tmp, CLOCK_FILE)
 }
 
