@@ -14,6 +14,7 @@
  */
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { afSqlFixture, expectRejected, idOf, sql } from "./af-sql.integration-fixture"
 
 const RUN = process.env.RUN_ASSET_FINANCE_RATES_DB_IT === "1"
@@ -164,10 +165,10 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
   })
 
   describe("ContractRate", () => {
-    it("is written only for a NON_NCA asset-finance contract", () => {
+    it("is written for NCA and NON_NCA asset-finance contracts, never a plain loan or another tenant", () => {
       approved({ date: "2025-12-01" })
-      const message = "A contract rate belongs to a NON_NCA asset-finance contract of the same tenant"
-      expectRejected(contractRate(loans.nca), message)
+      sql(contractRate(loans.nca, { date: sastCalendarDate(new Date()) }))
+      const message = "A contract rate belongs to an asset-finance contract of the same tenant"
       expectRejected(contractRate(loans.plain), message)
       expectRejected(contractRate(loans.nonNca, { tenant: otherTenant }), message)
       sql(contractRate(loans.nonNca))

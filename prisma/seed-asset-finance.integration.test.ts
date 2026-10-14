@@ -1,7 +1,7 @@
 /**
  * Fresh-database proof of the asset-finance demo seed (prisma/seed/
  * asset-finance.ts): on a database migrated from scratch, `npm run seed:base`
- * leaves (a) the trust's deal refused as NCA and (b) the company's deal
+ * leaves (a) the trust's deal submitted as NCA and (b) the company's deal
  * booked today and part-paid by an early receipt, with every four-eyes step taken by two different
  * staff users and the known synthetic portal logins working. Rerun
  * idempotency is proved, for the whole seed, by prisma/seed.integration.test.ts.
@@ -17,7 +17,6 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { ncaRefusalReason } from "@/lib/asset-finance/deal-submit"
 import { PORTAL_AUTHORITY_ROLES } from "@/lib/asset-finance/portal-access"
 import { sastCalendarDate } from "@/lib/date/sast"
 
@@ -73,7 +72,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(account.avsResult).toMatchObject({ status: "NOT_RUN" })
   })
 
-  it("(a) refuses the two-natural-trustee trust's deal as NCA, with the slice-1 reason, audited", async () => {
+  it("(a) submits the two-natural-trustee trust's deal into the entity-NCA path, audited", async () => {
     const trust = await fresh().businessEntity.findFirstOrThrow({
       where: { type: "TRUST" },
       include: { relationships: true, documents: true },
@@ -81,12 +80,11 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(trust.relationships.map((r) => [r.role, r.trusteeKind])).toEqual([["TRUSTEE", "NATURAL"], ["TRUSTEE", "NATURAL"]])
     expect(trust.documents.find((d) => d.docType === "LETTERS_OF_AUTHORITY")?.verifiedAt).not.toBeNull()
     const deal = await fresh().assetFinanceDeal.findFirstOrThrow({ where: { entityId: trust.id }, include: { application: true } })
-    expect(deal.status).toBe("REFUSED_NCA")
+    expect(deal.status).toBe("SUBMITTED")
     expect(deal.application).toMatchObject({
-      status: "DECLINED", ncaRegime: "NCA", ncaClassificationRule: "TRUST_FEW_NATURAL_TRUSTEES",
-      decisionReason: ncaRefusalReason("TRUST_FEW_NATURAL_TRUSTEES"),
+      status: "SUBMITTED", ncaRegime: "NCA", ncaClassificationRule: "TRUST_FEW_NATURAL_TRUSTEES",
     })
-    expect(await fresh().auditLog.count({ where: { entityId: deal.id, action: "ASSET_DEAL_REFUSED_NCA" } })).toBe(1)
+    expect(await fresh().auditLog.count({ where: { entityId: deal.id, action: "ASSET_DEAL_SUBMITTED" } })).toBe(1)
   })
 
   it("(b) books the company's excavator deal: NON_NCA by an approved override, signed, paid out with four eyes", async () => {

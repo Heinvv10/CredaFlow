@@ -87,6 +87,7 @@ model User {
   assetDealsCancelled          AssetFinanceDeal[]         @relation("AssetDealCancelledBy")
   referenceRatesRequested      ReferenceRate[]            @relation("ReferenceRatesRequested")
   referenceRatesDecided        ReferenceRate[]            @relation("ReferenceRatesDecided")
+  assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
 
   @@unique([tenantId, id])
 }
@@ -4517,6 +4518,7 @@ model AssetFinanceDeal {
   @@unique([tenantId, applicationId])
   @@unique([tenantId, loanId])
   @@index([tenantId, status])
+  @@index([clientId])
 }
 
 // The credit memo inputs (decision 2a.3): AFS figures and a bank-statement
@@ -4556,6 +4558,7 @@ model AssetFinanceAffordabilityAssessment {
   affordable                     Boolean
   recklessLendingNote            String
   assessedById                   String
+  assessedBy                     User             @relation(fields: [tenantId, assessedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   assessedAt                     DateTime         @default(now())
   updatedAt                      DateTime         @updatedAt
 

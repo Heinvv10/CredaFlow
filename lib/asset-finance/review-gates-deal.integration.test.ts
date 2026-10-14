@@ -94,7 +94,7 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
     [`"uploadedByType" = 'client'`], [`"dealId" = NULL`], [`"entityId" = 'other-entity'`],
   ])("an entity document's binding is fixed: %s", (set) => {
     const doc = `UPDATE "EntityDocument" SET ${set} WHERE "id" = (SELECT "id" FROM "EntityDocument" WHERE "dealId" = '${A()}' AND "docType" = 'SUPPLIER_INVOICE' LIMIT 1)`
-    expect(refusedSql("", doc)).toContain("An entity document's bytes, entity, deal and uploader are fixed")
+    expect(refusedSql("", doc)).toContain("An entity document's bytes, entity, deal and uploader are fixed when it is written")
   })
 
   it("an entity document is still verified", () => {
@@ -134,7 +134,7 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
         (SELECT jsonb_agg(e) FROM jsonb_array_elements("preparedSigners") e WHERE e->>'document' = 'SURETYSHIP')`)}`,
         "The entity has nobody with authority to sign"],
       ["an AGREEMENT signer row", () => `${approved()}; DELETE FROM "DealSigner" WHERE "dealId" = '${A()}' AND "document" = 'AGREEMENT'`,
-        "A deal is contracted only with an AGREEMENT signer"],
+        "Every authorised signatory signs the agreement and the resolution"],
       ["agreement and resolution rows", () => `${approved()}; DELETE FROM "DealSigner" WHERE "dealId" = '${A()}' AND "document" = 'RESOLUTION'`,
         "Every authorised signatory signs the agreement and the resolution"],
       ["a suretyship row per prepared surety", () => `${approved()}; DELETE FROM "DealSigner" WHERE "dealId" = '${A()}' AND "clientId" = '${fx.suretyB}'`,

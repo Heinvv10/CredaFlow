@@ -74,7 +74,7 @@ describe("repriceLoanForReference eligibility guards", () => {
     ["loan_not_found", { loan: null }],
     ["not_active", { loan: { ...ACTIVE_LOAN, status: "COMPLETED" } }],
     ["not_asset_finance", { loan: { ...ACTIVE_LOAN, contractType: "LOAN" } }],
-    ["nca_regime", { loan: { ...ACTIVE_LOAN, ncaRegime: "NCA" } }],
+    ["nca_regime", { loan: { ...ACTIVE_LOAN, ncaRegime: null } }],
     ["superseded", { later: true }],
     ["not_linked_to_basis", { prior: { ...PRIOR, basis: "REPO" } }],
     ["not_linked_to_basis", { prior: { ...PRIOR, basis: "FIXED", margin: null } }],
