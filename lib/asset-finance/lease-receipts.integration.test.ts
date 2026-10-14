@@ -25,7 +25,7 @@ import { dueDateInstant } from "./schedule-records"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { runLeaseInvoiceBatch } from "./lease-invoice-batch"
-import { issueLeaseRentalInvoice } from "./lease-invoices"
+import { issueLeaseInvoicesOnReceipt, issueLeaseRentalInvoice } from "./lease-invoices"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
@@ -112,6 +112,19 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
     const invoiced = (await rentals(backLoan)).find((r) => r.id === second.id)
     expect(invoiced?.taxInvoice && isoOfDbDate(invoiced.taxInvoice.supplyDate)).toBe(today())
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "LEASE_INVOICE_REFUSED", entityId: second.id } })).toBe(0)
+  }, 60_000)
+
+  it("a rental already due that no cash reached (a waiver paid it) is invoiced on its due date by the receipt hook", async () => {
+    // Test setup (triggers off): rental 3 fell due yesterday, its row paid by a waiver, and the cron has not run.
+    const third = (await rentals(backLoan))[2]
+    await database().$transaction([
+      database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      database().$executeRawUnsafe(`UPDATE "LeaseRental" SET "dueDate" = $2::date WHERE "id" = $1`, third.id, yesterday()),
+      database().$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "dueDate" = $2::timestamp, "totalPaid" = 1 WHERE "id" = $1`, third.scheduleId, dueDateInstant(yesterday())),
+    ])
+    await database().$transaction((tx) => issueLeaseInvoicesOnReceipt(tx as never, { tenantId: fx.tenantId, loanId: backLoan, contractType: "OPERATING_LEASE", today: today(), createdById: null }))
+    const invoiced = (await rentals(backLoan)).find((r) => r.id === third.id)
+    expect(invoiced?.taxInvoice && isoOfDbDate(invoiced.taxInvoice.supplyDate)).toBe(yesterday())
   }, 60_000)
 
   it("a back-dated bank deposit invoices the rental it reaches before its due date, on the deposit's value date", async () => {
