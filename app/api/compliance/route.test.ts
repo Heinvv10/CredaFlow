@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 const requireApiRoleMock = vi.fn()
-const createMock = vi.fn()
 const findManyMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
@@ -12,66 +11,18 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     complianceRecord: {
-      create: (args: unknown) => createMock(args),
       findMany: (args: unknown) => findManyMock(args),
     },
   },
 }))
 
-import { GET, POST } from "./route"
+import * as routeModule from "./route"
 
-function request(body: unknown) {
-  return new NextRequest("https://staging.example.test/api/compliance", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  })
-}
+const { GET } = routeModule
 
-describe("POST /api/compliance", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "admin-1" } })
-    createMock.mockResolvedValue({ id: "record-1" })
-  })
-
-  it("rejects a forged Section 129 issued record from the generic endpoint", async () => {
-    const response = await POST(request({
-      type: "SECTION_129_NOTICE",
-      status: "COMPLETED",
-      referenceId: "loan-1",
-      data: { lifecycle: "ISSUED" },
-    }))
-
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({
-      error: "SECTION_129_NOTICE records must be created through the dedicated loan collections workflow.",
-    })
-    expect(createMock).not.toHaveBeenCalled()
-  })
-
-  it("rejects a forged agreement artifact record from the generic endpoint", async () => {
-    const response = await POST(request({
-      type: "AGREEMENT_ARTIFACT",
-      status: "COMPLETED",
-      referenceId: "app-1",
-      data: { lifecycle: "COMPLETED" },
-    }))
-
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({
-      error: "AGREEMENT_ARTIFACT records must be created through the dedicated agreement generation workflow.",
-    })
-    expect(createMock).not.toHaveBeenCalled()
-  })
-
-  it("continues to create non-Section-129 compliance records", async () => {
-    const response = await POST(request({ type: "POPIA_REVIEW", status: "PENDING" }))
-
-    expect(response.status).toBe(200)
-    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ tenantId: "tenant-1", type: "POPIA_REVIEW" }),
-    }))
+describe("/api/compliance write methods", () => {
+  it("does not export POST, so Next answers 405 and no record can be hand-created", () => {
+    expect((routeModule as Record<string, unknown>).POST).toBeUndefined()
   })
 })
 
