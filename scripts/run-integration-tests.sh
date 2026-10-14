@@ -115,44 +115,24 @@ fi
 # containers with one password; when a session's `docker run -p` loses the port
 # race and its script carries on, it migrates and tests ANOTHER session's
 # database. scripts/it-db.sh starts a container on a free port and exports
-# IT_CONTAINER; when that is set, the container must really own the URL's port.
-# Unset is allowed (CI service container, compose `db`/`postgres`) with a
-# warning, unless REQUIRE_IT_CONTAINER=1.
-# Tested by scripts/__tests__/run-integration-tests-db-host.test.ts.
-url_port() {
-  local rest="${1#*://}"
-  rest="${rest%%[/?#]*}"
-  rest="${rest##*@}"
-  if [[ "$rest" == \[* ]]; then
-    rest="${rest#*]}"
-    rest="${rest#:}"
-  elif [[ "$rest" == *:* ]]; then
-    rest="${rest#*:}"
-  else
-    rest=""
-  fi
-  printf '%s\n' "${rest:-5432}"
-}
+# IT_CONTAINER; the container must really own the URL's port (the check lives in
+# `it-db.sh check`, which the recipe also runs before `prisma migrate deploy`).
+# IT_CONTAINER unset on a local host is refused, except under CI=true (GitHub
+# Actions service container) or with REQUIRE_IT_CONTAINER=0 (explicit opt-out).
+# Compose hosts (`db`, `postgres`) are not checked.
+# Tested by scripts/__tests__/run-integration-tests-container-guard.test.ts.
 GUARD_HOST="$(database_host "$DATABASE_URL" || true)"
 if [[ "$GUARD_HOST" =~ ^(localhost|127\.0\.0\.1|\[::1\])$ ]]; then
   if [[ -n "${IT_CONTAINER:-}" ]]; then
-    URL_PORT="$(url_port "$DATABASE_URL")"
-    MAPPED="$(docker port "$IT_CONTAINER" 5432/tcp 2>/dev/null || true)"
-    MAPPED_PORTS="$(printf '%s\n' "$MAPPED" | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | sort -u)"
-    if [[ -z "$MAPPED_PORTS" || "$MAPPED_PORTS" != "$URL_PORT" ]]; then
-      echo "!! IT_CONTAINER '$IT_CONTAINER' does not own DATABASE_URL port $URL_PORT" >&2
-      echo "!! (docker port says: ${MAPPED:-nothing}). Another session's database may be on that port." >&2
-      echo "!! Refusing. Start your own: eval \"\$(bash scripts/it-db.sh up cf-it-<unique>)\"" >&2
-      exit 1
-    fi
-  elif [[ "${REQUIRE_IT_CONTAINER:-}" == "1" ]]; then
-    echo "!! REQUIRE_IT_CONTAINER=1 but IT_CONTAINER is unset. Refusing." >&2
-    echo "!! Use: eval \"\$(bash scripts/it-db.sh up cf-it-<unique>)\"" >&2
-    exit 1
+    bash "$ROOT/scripts/it-db.sh" check
+  elif [[ "${CI:-}" == "true" || "${REQUIRE_IT_CONTAINER:-}" == "0" ]]; then
+    echo ">> note: IT_CONTAINER unset; local DATABASE_URL not verified as yours (CI=true or REQUIRE_IT_CONTAINER=0)" >&2
   else
-    echo "!! WARNING: DATABASE_URL is local but IT_CONTAINER is unset, so nothing proves this" >&2
-    echo "!! database is yours; another session may own that port. Prefer:" >&2
+    echo "!! DATABASE_URL is local but IT_CONTAINER is unset, so nothing proves this database" >&2
+    echo "!! is yours; another session may own that port. Refusing. Use:" >&2
     echo "!!   eval \"\$(bash scripts/it-db.sh up cf-it-<unique>)\"" >&2
+    echo "!! (CI=true or REQUIRE_IT_CONTAINER=0 opts out.)" >&2
+    exit 1
   fi
 fi
 

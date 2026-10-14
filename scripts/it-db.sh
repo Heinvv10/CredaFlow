@@ -3,6 +3,7 @@
 # Disposable Postgres 16 for the integration suites, with a collision-proof port.
 #
 #   eval "$(bash scripts/it-db.sh up cf-it-<unique>)"   # exports DATABASE_URL + IT_CONTAINER
+#   bash scripts/it-db.sh check    # before `prisma migrate deploy`: IT_CONTAINER must own DATABASE_URL's port
 #   bash scripts/it-db.sh down cf-it-<unique>
 #
 # WHY: many sessions on one machine start containers with the same password. A
@@ -19,17 +20,59 @@ PORT_MAX=59999
 LABEL_KEY="credaflow.it.owner"
 
 usage() {
-  echo "usage: bash scripts/it-db.sh up <name> | down <name>" >&2
+  echo "usage: bash scripts/it-db.sh up <name> | down <name> | check" >&2
   exit 2
 }
 
-[[ $# -eq 2 ]] || usage
-CMD="$1"
-NAME="$2"
-if [[ ! "$NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+CMD="${1:-}"
+NAME="${2:-}"
+if [[ "$CMD" == "check" ]]; then
+  [[ $# -eq 1 ]] || usage
+elif [[ $# -ne 2 ]]; then
+  usage
+elif [[ ! "$NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
   echo "!! invalid container name: $NAME" >&2
   exit 2
 fi
+
+owner_of() {
+  docker container inspect -f "{{ index .Config.Labels \"${LABEL_KEY}\" }}" "$1" 2>/dev/null || true
+}
+
+# Port of a postgres URL (5432 when absent).
+url_port() {
+  local rest="${1#*://}"
+  rest="${rest%%[/?#]*}"
+  rest="${rest##*@}"
+  if [[ "$rest" == \[* ]]; then
+    rest="${rest#*]}"
+    rest="${rest#:}"
+  elif [[ "$rest" == *:* ]]; then
+    rest="${rest#*:}"
+  else
+    rest=""
+  fi
+  printf '%s\n' "${rest:-5432}"
+}
+
+# Refuse unless $IT_CONTAINER publishes 5432 on exactly DATABASE_URL's port.
+# The runner calls this too, so the two cannot drift.
+check() {
+  if [[ -z "${IT_CONTAINER:-}" || -z "${DATABASE_URL:-}" ]]; then
+    echo "!! check needs IT_CONTAINER and DATABASE_URL (eval \"\$(bash scripts/it-db.sh up <name>)\")" >&2
+    exit 1
+  fi
+  local want mapped ports
+  want="$(url_port "$DATABASE_URL")"
+  mapped="$(docker port "$IT_CONTAINER" 5432/tcp 2>/dev/null || true)"
+  ports="$(printf '%s\n' "$mapped" | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | sort -u)"
+  if [[ -z "$ports" || "$ports" != "$want" ]]; then
+    echo "!! IT_CONTAINER '$IT_CONTAINER' does not own DATABASE_URL port $want" >&2
+    echo "!! (docker port says: ${mapped:-nothing}). Another session's database may be on that port." >&2
+    echo "!! Refusing. Start your own: eval \"\$(bash scripts/it-db.sh up cf-it-<unique>)\"" >&2
+    exit 1
+  fi
+}
 
 port_in_use() {
   ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"
@@ -53,7 +96,8 @@ up() {
       break
     fi
     # Lost a race for the port: docker may leave a Created container behind.
-    docker rm -fv "$NAME" >/dev/null 2>&1 || true
+    # Remove it only if it is ours (carries our label).
+    if [[ "$(owner_of "$NAME")" == "$NAME" ]]; then docker rm -fv "$NAME" >/dev/null 2>&1 || true; fi
   done
   if [[ -z "$started" ]]; then
     echo "!! could not start '$NAME' on a free port after 20 attempts" >&2
@@ -89,9 +133,7 @@ up() {
 
 down() {
   # Only remove containers this script labelled, never someone else's.
-  local owner
-  owner="$(docker container inspect -f "{{ index .Config.Labels \"${LABEL_KEY}\" }}" "$NAME" 2>/dev/null || true)"
-  if [[ -z "$owner" ]]; then
+  if [[ -z "$(owner_of "$NAME")" ]]; then
     echo ">> '$NAME' not found or not created by it-db.sh; nothing removed" >&2
     return 0
   fi
@@ -102,5 +144,6 @@ down() {
 case "$CMD" in
   up) up ;;
   down) down ;;
+  check) check ;;
   *) usage ;;
 esac

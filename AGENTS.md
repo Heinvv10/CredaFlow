@@ -163,6 +163,7 @@ under `npm test`. Run them against a throwaway Postgres 16:
 
 ```bash
 eval "$(bash scripts/it-db.sh up cf-it-<unique>)"   # free port; exports DATABASE_URL + IT_CONTAINER
+bash scripts/it-db.sh check                          # abort here if the port is not yours
 npx prisma migrate deploy
 bash scripts/run-integration-tests.sh
 bash scripts/it-db.sh down cf-it-<unique>
@@ -171,9 +172,10 @@ bash scripts/it-db.sh down cf-it-<unique>
 Never hardcode a port or reuse a shared container name: sessions on this
 machine collide, and a failed `docker run -p` that your script ignores points
 the migrate and the suites at another session's database. `it-db.sh up` aborts
-on failure and verifies the port is yours; the runner re-checks it when
-`IT_CONTAINER` is set, warns when it is not, and refuses with
-`REQUIRE_IT_CONTAINER=1`.
+on failure and verifies the port is yours; run `it-db.sh check` before the
+migrate (the runner runs the same check, but only after it). The runner also
+refuses a local `DATABASE_URL` when `IT_CONTAINER` is unset, unless `CI=true`
+or `REQUIRE_IT_CONTAINER=0`.
 
 Run the teardown even when an earlier step fails, against the name you gave
 `it-db.sh up`. Use `docker rm -fv`, never plain `docker rm -f`: the image keeps
