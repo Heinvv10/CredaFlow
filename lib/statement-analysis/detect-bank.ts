@@ -22,6 +22,3 @@ export function detectBank(text: string): BankCode | null {
   for (const [bank, marker] of MARKERS) if (marker.test(text)) return bank
   return null
 }
-
-/** Banks with a text reader (lib/statement-analysis/<bank>.ts). */
-export const TEXT_READER_BANKS: readonly BankCode[] = ["CAPITEC", "FNB"]

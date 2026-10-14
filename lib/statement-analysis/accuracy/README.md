@@ -24,7 +24,9 @@ weekdays. Without it, files that need the vision reader are counted SKIPPED.
 ## What it asserts
 
 - Capitec + FNB PDFs produced by the bank's own program pass the balance check
-  by the text method at least 95% of the time (goal §8.1).
+  by the text method at least 95% of the time (v1 goal §8.1), and so do each of
+  Capitec, FNB, Nedbank and ABSA on its own (`TEXT_GATES` in `run.ts`). Standard
+  Bank and Discovery are reported per bank without a threshold (limited evidence).
 - None of those raises BALANCE_MISMATCH or RUNNING_BALANCE_BREAK (§8.3).
 
 Every other authenticity signal is listed by document ID for a person to look

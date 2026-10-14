@@ -53,7 +53,7 @@ describe("manualReview", () => {
     const signals = (s: string[]) => ({ producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: s })
     const photo = statement([], { method: "VLM", bank: null, authenticity: signals(["NOT_A_PDF"]) })
     const scan = statement([], { method: "VLM", authenticity: signals(["TEXT_LAYER_ABSENT"]) })
-    const unprofiled = statement([], { method: "VLM", bank: "NEDBANK" })
+    const unprofiled = statement([], { method: "VLM", bank: "TYMEBANK" })
     const forgedInfo = statement([], { authenticity: signals(["METADATA_AMBIGUOUS"]) })
     for (const s of [photo, scan, unprofiled, forgedInfo]) {
       expect(codes(manualReview(withSlip({ statements: [s] })))).toEqual(["AUTHENTICITY_UNCHECKED"])
