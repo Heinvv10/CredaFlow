@@ -22,11 +22,17 @@ const recomputeClientApplicationsMock = vi.fn()
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
   clientDocument: {
+    create: (args: unknown) => documentCreateMock(args),
     findFirst: (args: unknown) => documentFindFirstMock(args),
     updateMany: (args: unknown) => documentUpdateManyMock(args),
   },
   client: {},
 }
+
+const reprojectKycMock = vi.fn()
+vi.mock("@/lib/kyc/id-upload-projection.server", () => ({
+  reprojectKycAfterIdUpload: (...args: unknown[]) => reprojectKycMock(...args),
+}))
 
 vi.mock("@/lib/document-auth", () => ({
   getDocumentCaller: () => getDocumentCallerMock(),
@@ -242,6 +248,60 @@ describe("POST /api/documents", () => {
     expect(logAuditMock).not.toHaveBeenCalled()
   })
 
+  it("re-projects the stored KYC status in the same transaction as an ID upload", async () => {
+    // A consentless portal client: no extraction transaction muddies the count.
+    getDocumentCallerMock.mockResolvedValue({
+      type: "client",
+      clientId: "client-1",
+      email: "client@example.test",
+    })
+    const order: string[] = []
+    queryRawMock.mockImplementation(async () => { order.push("lock"); return [{ lockResult: "" }] })
+    documentCreateMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      order.push("create")
+      return { id: "doc-1", ...data }
+    })
+    reprojectKycMock.mockImplementation(async () => { order.push("reproject") })
+
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(201)
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(["lock", "create", "reproject"])
+    expect(reprojectKycMock).toHaveBeenCalledWith(tx, {
+      tenantId: "tenant-1",
+      clientId: "client-1",
+      documentId: "doc-1",
+      actor: { type: "client", email: "client@example.test" },
+    })
+  })
+
+  it("attributes a staff ID upload's re-projection to the staff user", async () => {
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(201)
+    expect(reprojectKycMock).toHaveBeenCalledWith(tx, expect.objectContaining({
+      clientId: "client-1",
+      actor: { type: "staff", userId: "officer-1" },
+    }))
+  })
+
+  it("fails the upload when the re-projection fails, so the document is not committed alone", async () => {
+    reprojectKycMock.mockRejectedValue(new Error("audit table unavailable"))
+
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(500)
+  })
+
+  it("does not re-project for other document types", async () => {
+    const response = await POST(request("PAYSLIP") as never)
+
+    expect(response.status).toBe(201)
+    expect(documentCreateMock).toHaveBeenCalledTimes(1)
+    expect(reprojectKycMock).not.toHaveBeenCalled()
+  })
+
   it("refuses SELFIE creation outside the serialized biometric workflow", async () => {
     const response = await POST(request("SELFIE") as never)
 
@@ -325,7 +385,9 @@ describe("POST /api/documents", () => {
       }),
     }))
     expect(extractDocumentDataMock).not.toHaveBeenCalled()
-    expect(transactionMock).not.toHaveBeenCalled()
+    // The ID upload's own transaction (document + KYC re-projection) is the
+    // only one: no extraction transaction follows it.
+    expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
   it("reads a staff-uploaded bank statement for the credit checks", async () => {

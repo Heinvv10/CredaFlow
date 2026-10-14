@@ -60,6 +60,12 @@ const FAILED = (reason: string, change = `"idDocumentId":"${ID}","idDocumentSha2
 type Case = {
   name: string
   expected: boolean
+  /**
+   * The app's verdict where it is deliberately STRICTER than SQL (never looser:
+   * the app accepting what SQL rejects is a failed write). Only for a newer ID
+   * copy awaiting review (lib/kyc/id-replacement.ts).
+   */
+  expectedTs?: boolean
   br?: string
   er?: string
   cols?: string
@@ -200,6 +206,9 @@ const cases: Case[] = [
   {
     name: "bound to the newest verified copy while a newer one awaits verification",
     expected: true,
+    // SQL keeps the verified copy; the app holds the client PENDING until staff
+    // review the newer one.
+    expectedTs: false,
     before: (ids) => [newerIdCopy(ids, "newer_unverified", false, "b".repeat(64))],
   },
   {
@@ -447,7 +456,7 @@ suite("face match v3: TypeScript and SQL composite gates agree", () => {
 
   it.each(cases.map((c) => [c.name, c] as const))("%s", async (_name, c) => {
     const { ts, sql, tsReason } = await run(c)
-    expect({ ts, sql }, `TS reason: ${tsReason}`).toEqual({ ts: c.expected, sql: c.expected })
+    expect({ ts, sql }, `TS reason: ${tsReason}`).toEqual({ ts: c.expectedTs ?? c.expected, sql: c.expected })
   })
 
   it.each(beyondDoubleCases.map((c) => [c.name, c] as const))(

@@ -51,11 +51,20 @@ export interface PortalKycChecklist {
 function coreDocumentItem(
   documents: readonly PortalChecklistDocument[],
   docType: CoreKycDocumentType,
+  composite: CompositeKycResult,
 ): PortalKycChecklistItem {
   const matching = documents.filter((document) => document.docType === docType)
   const verified = matching.find((document) => document.verified)
   if (verified) {
-    return { documentId: verified.id, status: "verified" }
+    // A verified copy is outweighed by a newer one awaiting review (the
+    // composite lists the type as outstanding despite the verified row): point
+    // at the newer copy, which is what is being reviewed, not at the old one.
+    const awaiting = composite.coreDocumentGaps.some((gap) => gap.docType === docType)
+      ? matching.find((document) => !document.verified && !document.verificationRejectedById)
+      : undefined
+    return awaiting
+      ? { documentId: awaiting.id, status: "pending_review" }
+      : { documentId: verified.id, status: "verified" }
   }
 
   const current = matching[0]
@@ -162,7 +171,7 @@ export function derivePortalKycChecklist(args: {
   const coreDocuments = Object.fromEntries(
     CORE_KYC_DOCUMENT_TYPES.map((docType) => [
       docType,
-      coreDocumentItem(args.documents, docType),
+      coreDocumentItem(args.documents, docType, args.composite),
     ]),
   ) as Record<CoreKycDocumentType, PortalKycChecklistItem>
   const selfie = selfieItem(

@@ -43,6 +43,38 @@ const uploadedCoreDocuments = [
 }))
 
 describe("derivePortalKycChecklist", () => {
+  it("points the ID item at a newer copy awaiting review, not the older verified one", () => {
+    const checklist = derivePortalKycChecklist({
+      documents: [
+        { id: "id-new", docType: "ID_COPY", verified: false, verificationNote: null },
+        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null },
+      ],
+      composite: composite({
+        coreDocumentGaps: [{ docType: "ID_COPY", state: "awaiting_verification" }],
+      }),
+      latestSelfieId: null,
+    })
+    expect(checklist.coreDocuments.ID_COPY).toEqual({
+      documentId: "id-new",
+      status: "pending_review",
+    })
+  })
+
+  it("keeps a verified ID item verified when the composite lists no gap for it", () => {
+    const checklist = derivePortalKycChecklist({
+      documents: [
+        { id: "id-refused", docType: "ID_COPY", verified: false, verificationNote: "No", verificationRejectedById: "officer-1" },
+        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null },
+      ],
+      composite: composite(),
+      latestSelfieId: null,
+    })
+    expect(checklist.coreDocuments.ID_COPY).toEqual({
+      documentId: "id-old",
+      status: "verified",
+    })
+  })
+
   it("asks the client to act only when a named reviewer refused their document", () => {
     // The portal renders action_required as "This document needs attention.
     // Please replace it." A note alone does not justify that: the SYSTEM writes

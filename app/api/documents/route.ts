@@ -23,6 +23,10 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { CORE_KYC_UPLOAD_DOC_TYPES } from "@/lib/document-types"
 import {
+  reprojectKycAfterIdUpload,
+  type IdUploadProjectionTransaction,
+} from "@/lib/kyc/id-upload-projection.server"
+import {
   clientPdfPasswordCandidates,
   decryptPdfIfEncrypted,
 } from "@/lib/documents/pdf-decrypt"
@@ -189,7 +193,7 @@ export async function POST(req: NextRequest) {
       const extractionGeneration = shouldExtract ? randomUUID() : null
       const extractionStartedAt = shouldExtract ? new Date() : null
 
-      const doc = await prisma.clientDocument.create({
+      const createDocument = (db: Pick<typeof prisma, "clientDocument">) => db.clientDocument.create({
         data: {
           tenantId: tenant.id,
           clientId,
@@ -222,6 +226,26 @@ export async function POST(req: NextRequest) {
         extractionGeneration: string | null
         extractionStartedAt: Date | null
       }
+
+      // An ID copy can change what the stored KYC status may claim (a newer,
+      // unreviewed copy outweighs the verified one), so it is written and the
+      // projection re-derived in one transaction under the client evidence
+      // lock that verification and disbursement also take.
+      const doc = docType === "ID_COPY"
+        ? await prisma.$transaction(async (tx) => {
+            await lockAffordabilityClientEvidence(tx, { tenantId: tenant.id, clientId })
+            const created = await createDocument(tx)
+            await reprojectKycAfterIdUpload(tx as unknown as IdUploadProjectionTransaction, {
+              tenantId: tenant.id,
+              clientId,
+              documentId: created.id,
+              actor: caller.type === "staff"
+                ? { type: "staff", userId: caller.userId }
+                : { type: "client", email: caller.email },
+            })
+            return created
+          })
+        : await createDocument(prisma)
 
       // The stored file is no longer byte-identical to what was uploaded, so
       // the trail has to say so — an auditor comparing the client's original
