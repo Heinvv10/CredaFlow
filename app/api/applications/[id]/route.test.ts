@@ -562,7 +562,7 @@ it("DELETE cancels a non-terminal application", async () => {
   expect(res.status).toBe(200)
   expect(await res.json()).toEqual({ ok: true, id: "app-1", status: "CANCELLED" })
   expect(updateManyMock).toHaveBeenCalledWith({
-    where: { id: "app-1", tenantId: "t1", status: { notIn: ["APPROVED", "DISBURSED", "CANCELLED"] } },
+    where: { id: "app-1", tenantId: "t1", status: { notIn: ["APPROVED", "DISBURSED", "DECLINED", "CANCELLED"] } },
     data: { status: "CANCELLED", decisionReason: "Cancelled by staff" },
   })
   expect(auditLogCreateMock).toHaveBeenCalledWith({
@@ -589,6 +589,17 @@ it("DELETE refuses to cancel an application with an attached loan or in APPROVED
 
   expect(res.status).toBe(409)
   expect(updateManyMock).not.toHaveBeenCalled()
+})
+
+it("DELETE refuses to cancel a DECLINED application", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", reference: "APP-1", status: "DECLINED", loan: null })
+
+  const res = await DELETE(deleteReq(), ctx)
+
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({ error: "Declined applications are final and cannot be cancelled." })
+  expect(updateManyMock).not.toHaveBeenCalled()
+  expect(auditLogCreateMock).not.toHaveBeenCalled()
 })
 
 it("DELETE is idempotent on an already-CANCELLED application", async () => {

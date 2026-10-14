@@ -20,3 +20,15 @@ export function portalDecisionLabel(application: Parameters<typeof decisionKind>
   const kind = decisionKind(application)
   return kind === "declined" ? "Application declined" : kind === "approved" ? "Application approved" : null
 }
+
+/**
+ * A declined application is terminal, including one declined and then
+ * cancelled (CANCELLED keeps declineCategory). It offers no Cancel action and
+ * approval/payout blockers do not apply to it.
+ */
+export function isDeclinedTerminal(application: {
+  status: string
+  declineCategory: string | null
+}): boolean {
+  return application.status === "DECLINED" || (application.status === "CANCELLED" && !!application.declineCategory)
+}
