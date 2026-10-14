@@ -16,6 +16,7 @@ import { sumExpenseBreakdown } from "@/lib/affordability/sum-expense-breakdown"
 import { syncClientConsent } from "@/lib/consent"
 import { provisionContactForClient } from "@/lib/contact/provision"
 import {
+  isUniqueViolation,
   uniqueConflictField,
   conflictMessage,
   isContactIdentityConflict,
@@ -229,8 +230,10 @@ export async function POST(req: NextRequest) {
         // person is already on the books. Anything else still escapes to the
         // 500 below, so a real database failure is never disguised as a
         // duplicate.
+        if (!isUniqueViolation(error)) throw error
+        // Null when Prisma could not name the key: Postgres withholds it on a
+        // table under row-level security when the connection is bound by RLS.
         const field = uniqueConflictField(error)
-        if (!field) throw error
 
         // The phone/email/WhatsApp is already another contact's — say whose.
         if (isContactIdentityConflict(error)) {
@@ -264,21 +267,26 @@ export async function POST(req: NextRequest) {
         // tenant's; the explicit tenantId keeps it that way should the key
         // ever widen again, because naming another tenant's client would be a
         // cross-tenant leak.
-        const existing =
-          field === "idNumber"
-            ? await prisma.client.findFirst({
-                where: { tenantId: tenant.id, idNumber: data.idNumber },
-                select: { id: true, reference: true, firstName: true, lastName: true },
-              })
-            : field === "email"
-              ? await prisma.client.findFirst({
-                  where: { tenantId: tenant.id, email: data.email },
-                  select: { id: true, reference: true, firstName: true, lastName: true },
-                })
-              : null
+        const holderBy = (key: "idNumber" | "email") =>
+          prisma.client.findFirst({
+            where: { tenantId: tenant.id, [key]: data[key] },
+            select: { id: true, reference: true, firstName: true, lastName: true },
+          })
+        let conflictField: string | null = field
+        let existing = field === "idNumber" || field === "email" ? await holderBy(field) : null
+        // Key not named: find which of this tenant's keys the client collided on.
+        if (field === null) {
+          for (const key of ["idNumber", "email"] as const) {
+            existing = await holderBy(key)
+            if (existing) {
+              conflictField = key
+              break
+            }
+          }
+        }
 
         return NextResponse.json(
-          { error: conflictMessage(field), field, existingClient: existing },
+          { error: conflictMessage(conflictField ?? ""), field: conflictField, existingClient: existing },
           { status: 409 }
         )
       }

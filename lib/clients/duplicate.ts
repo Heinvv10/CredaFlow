@@ -10,9 +10,16 @@
 import { Prisma, type Channel, type Contact } from "@prisma/client"
 import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
 
+/** True for a unique-constraint violation (Prisma P2002), named key or not. */
+export function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+}
+
 /**
  * The field whose unique constraint was violated, or null if this error is not
- * a unique-constraint violation.
+ * a unique-constraint violation or names no field. Under row-level security
+ * Postgres withholds the key, so Prisma names none: callers must not read a
+ * null here as "not a duplicate" (isUniqueViolation tells them apart).
  *
  * Returning null for everything else is deliberate: a mapping that turned any
  * failure into a 409 would report a genuine database fault as a duplicate and

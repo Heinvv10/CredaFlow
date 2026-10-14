@@ -13,6 +13,7 @@
 import type { TenantSupportGrant, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAudit, logAuditStrict } from "@/lib/audit"
+import { runWithTenant } from "@/lib/tenant-scope"
 import { isOperatorRole, SUPPORT_GRANTER_ROLES } from "./roles"
 
 export const MAX_SUPPORT_GRANT_MS = 7 * 24 * 60 * 60 * 1000
@@ -99,7 +100,7 @@ export async function grantSupportAccess(input: {
     return refuse(R, actor, tenantId, "operator_user_invalid", detail, ipAddress)
   }
 
-  return prisma.$transaction(async (tx) => {
+  return runWithTenant(tenantId, () => prisma.$transaction(async (tx) => {
     const grant = await tx.tenantSupportGrant.create({
       data: { tenantId, operatorUserId, grantedById: actor.id, reason, expiresAt },
     })
@@ -108,7 +109,7 @@ export async function grantSupportAccess(input: {
       entity: "TenantSupportGrant", entityId: grant.id, newValue: { ...detail, reason }, ipAddress,
     }, tx)
     return grant
-  })
+  }))
 }
 
 export async function revokeSupportAccess(input: {
@@ -124,7 +125,7 @@ export async function revokeSupportAccess(input: {
   if (actorReason) return refuse(R, actor, tenantId, actorReason, { grantId, revoke: true }, ipAddress)
 
   const revokedAt = input.now ?? new Date()
-  return prisma.$transaction(async (tx) => {
+  return runWithTenant(tenantId, () => prisma.$transaction(async (tx) => {
     const { count } = await tx.tenantSupportGrant.updateMany({
       where: { id: grantId, tenantId, revokedAt: null },
       data: { revokedAt, revokedById: actor.id },
@@ -135,14 +136,18 @@ export async function revokeSupportAccess(input: {
       entity: "TenantSupportGrant", entityId: grantId, newValue: { revokedAt: revokedAt.toISOString() }, ipAddress,
     }, tx)
     return tx.tenantSupportGrant.findUniqueOrThrow({ where: { id: grantId, tenantId } })
-  })
+  }))
 }
 
-/** The grant that lets `operatorUserId` into `tenantId` at `now`, if any. */
+/**
+ * The grant that lets `operatorUserId` into `tenantId` at `now`, if any. Read
+ * as the tenant: grants are under row-level security, and an operator's
+ * request has no tenant frame of its own yet.
+ */
 export function findActiveSupportGrant(tenantId: string, operatorUserId: string, now: Date = new Date()) {
-  return prisma.tenantSupportGrant.findFirst({
+  return runWithTenant(tenantId, async () => await prisma.tenantSupportGrant.findFirst({
     where: { tenantId, operatorUserId, revokedAt: null, expiresAt: { gt: now } },
     orderBy: { expiresAt: "desc" },
     select: { id: true, expiresAt: true },
-  })
+  }))
 }
