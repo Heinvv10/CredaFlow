@@ -98,6 +98,33 @@ describe("withRlsTransactions", () => {
     expect(results).toEqual(["a", "b"])
   })
 
+  // A frame entered inside an open interactive transaction must reach that
+  // transaction's connection: otherwise its queries run under the setting
+  // the transaction opened with (another tenant's, or none).
+  const itx = { transaction: { kind: "itx", id: "tx1" } }
+
+  it("applies a tenant frame entered inside an open transaction to that transaction, then restores the outer one", async () => {
+    const { client, calls } = fakeClient()
+    const wrapped = withRlsTransactions(client)
+    const hook = rlsQueryHook(client)
+    await runWithTenant("t1", () => wrapped.$transaction(async () => {
+      await hook(queryParams(itx).params)
+      await runWithTenant("t9", () => hook(queryParams(itx).params))
+      await hook(queryParams(itx).params)
+    }))
+    expect(calls.map((c) => c.values)).toEqual([["t1"], ["t9"], ["t1"]])
+  })
+
+  it("applies a frame entered inside a transaction that opened with no frame", async () => {
+    const { client, calls } = fakeClient()
+    const wrapped = withRlsTransactions(client)
+    const hook = rlsQueryHook(client)
+    await wrapped.$transaction(async () => {
+      await runWithTenant("t9", () => hook(queryParams(itx).params))
+    })
+    expect(calls.map((c) => c.values)).toEqual([["t9"]])
+  })
+
   it("passes through while TENANT_RLS is not on", async () => {
     vi.stubEnv("TENANT_RLS", "off")
     const { client, calls } = fakeClient()

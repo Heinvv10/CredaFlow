@@ -64,7 +64,8 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   the borrower core's children by `app.tenant_id`, which `lib/tenant-rls.ts`
   sets transaction-locally for every query and transaction run inside a frame
   when `TENANT_RLS=on` (`withoutTenantScope` sets `app.rls_bypass` instead).
-  It is off by default; see the activation checklist below. It catches what the
+  It is off by default and is **not a backstop yet** (see the activation
+  checklist below). Once active it catches what the
   extension cannot see: raw SQL, nested relation reads, trigger bodies. With no
   frame the policies let rows through unless the database sets
   `app.rls_strict = 'on'`. RLS binds only a role that is neither superuser nor
@@ -134,7 +135,12 @@ The policies (`prisma/migrations/20261014130000_tenant_rls`) are in every
 database, but nothing enforces them yet. Every stack connects as a superuser,
 which Postgres exempts from all policies, and the query hook that sets the
 tenant (`lib/tenant-rls.ts`) is off unless `TENANT_RLS=on`. `/api/health`
-warns an operator session while the role bypasses RLS. Turning RLS on is a
+warns an operator session while the role bypasses RLS.
+
+**RLS is not a backstop yet.** It isolates nothing until the application
+connects as a role RLS binds, `TENANT_RLS=on`, every entry point runs in a
+tenant frame and the database sets `app.rls_strict = 'on'`. Before all four,
+tenant isolation rests on `lib/tenant-scope.ts` alone. Turning RLS on is a
 separate workstream (W0b); in this order:
 
 1. **Two database roles.** A migrate role that owns the schema and runs
@@ -166,17 +172,22 @@ separate workstream (W0b); in this order:
    (the Stitch and WhatsApp webhooks look the payment or phone number up
    first). Each needs a frame, or an explicit `withoutTenantScope` for a
    cross-tenant lookup by an unguessable key.
-5. **`withoutTenantScope` inside a transaction opened in a tenant frame**
-   keeps that tenant's setting: the setting is the one in force when the
-   transaction opened. Find those call sites and open the transaction in the
-   bypass frame instead.
+5. **Frames inside an open transaction.** With the hook on, a
+   `runWithTenant` or `withoutTenantScope` entered inside an interactive
+   transaction's callback is applied to that transaction before its next
+   query, and the outer frame again afterwards (`lib/tenant-rls.ts`, tested
+   against a real database). Batch transactions take the frame they were
+   opened in. Code that switches frames mid-transaction is still worth
+   finding: it usually means a cross-tenant read inside a tenant's write.
 6. **Data migrations** run as the migrate role with no frame. With strict
    mode on (`ALTER DATABASE … SET app.rls_strict = 'on'`) a migration that
    reads or updates rows must `SET LOCAL app.rls_bypass = 'on'` first.
-7. **Tables not yet covered:** `TenantConfig`, `User` and `AuditLog`
-   (nullable tenant), `IntegrationConfig`, `EmailConfig` and the others the
-   RLS migration's header lists. Each needs a policy, and the nullable ones a
-   decision on rows with no tenant.
+7. **Policies required before activation:** `TenantConfig` (credentials and
+   lender identity), `User` (with a bypass for sign-in, which looks the user
+   up before any tenant is known; `tenantId` is nullable for operator staff),
+   `IntegrationConfig`, `EmailConfig` (mail credentials) and `AuditLog`
+   (nullable tenant: decide who sees platform rows). The other tables the RLS
+   migration's header lists follow.
 8. Run every integration suite as the application role (not a superuser),
    then set `TENANT_RLS=on` in the app, then strict mode.
 

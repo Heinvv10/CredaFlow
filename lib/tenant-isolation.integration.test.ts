@@ -148,6 +148,23 @@ suite("tenant isolation — RLS under the application client", () => {
     expect(clientCount(batch)).toBe(1)
   })
 
+  it("a frame entered inside an open transaction binds that transaction, then the outer frame again", async () => {
+    const tenantOf = (tx: typeof app) =>
+      tx.$queryRaw<{ t: string }[]>`SELECT "tenantId" AS t FROM "Client" WHERE "idNumber" = ${fx().idNumber}`
+    const seen = await asA(() => app.$transaction(async (tx) => {
+      const db2 = tx as unknown as typeof app
+      const outer = await tenantOf(db2)
+      const inner = await runWithTenant(fx().b.tenantId, async () => await tenantOf(db2))
+      const back = await tenantOf(db2)
+      return [outer, inner, back].map((rows) => rows.map((r) => r.t))
+    }))
+    expect(seen).toEqual([[fx().a.tenantId], [fx().b.tenantId], [fx().a.tenantId]])
+    // Opened with no frame: the frame entered inside still binds it.
+    const noFrame = await app.$transaction(async (tx) =>
+      runWithTenant(fx().b.tenantId, async () => await tenantOf(tx as unknown as typeof app)))
+    expect(noFrame.map((r) => r.t)).toEqual([fx().b.tenantId])
+  })
+
   it("the system context (withoutTenantScope) sees both lenders, and no setting outlives its transaction", async () => {
     expect(clientCount(await withoutTenantScope(async () => await countSameIdRaw(app)))).toBe(2)
     await asA(() => countSameIdRaw(app))

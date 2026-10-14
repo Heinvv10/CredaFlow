@@ -32,6 +32,7 @@
  * migration FORCEs it, so the table owner is bound too.
  */
 import type { PrismaClient } from "@prisma/client"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { tenantContext } from "./tenant-scope"
 
 export type RlsSetting = { kind: "tenant"; tenantId: string } | { kind: "bypass" }
@@ -59,12 +60,28 @@ export function currentRlsSetting(): RlsSetting | null {
 
 type RawCapable = Pick<PrismaClient, "$executeRaw">
 
-/** The statement that applies `setting` to the current transaction only. */
-export function applyRlsSetting(db: RawCapable, setting: RlsSetting) {
-  return setting.kind === "tenant"
-    ? db.$executeRaw`SELECT set_config('app.tenant_id', ${setting.tenantId}, true), set_config('app.rls_bypass', 'off', true)`
-    : db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'on', true)`
+/** The statement that applies `setting` (null: no context) to the current transaction only. */
+export function applyRlsSetting(db: RawCapable, setting: RlsSetting | null) {
+  if (setting?.kind === "tenant") {
+    return db.$executeRaw`SELECT set_config('app.tenant_id', ${setting.tenantId}, true), set_config('app.rls_bypass', 'off', true)`
+  }
+  return setting?.kind === "bypass"
+    ? db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'on', true)`
+    : db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'off', true)`
 }
+
+const settingKey = (s: RlsSetting | null) => (s === null ? "none" : s.kind === "bypass" ? "bypass" : `tenant:${s.tenantId}`)
+
+/**
+ * The open interactive transaction this code runs inside, and the setting
+ * last applied to it. A frame entered inside the transaction's callback
+ * (runWithTenant / withoutTenantScope) differs from it; the hook then applies
+ * the new frame to the transaction before the query, and the outer frame
+ * again when the code returns to it.
+ */
+type OpenTransaction = { tx: RawCapable; applied: string }
+const globalForRls = globalThis as unknown as { rlsTransaction?: AsyncLocalStorage<OpenTransaction> }
+const openTransaction = (globalForRls.rlsTransaction ??= new AsyncLocalStorage<OpenTransaction>())
 
 // Prisma's query-extension and $transaction signatures are generic per model
 // and per overload; this seam forwards them unchanged, so `any` is confined
@@ -91,7 +108,15 @@ type BaseClient = RawCapable & { $transaction: (...a: any[]) => Promise<any> }
 export function rlsQueryHook(base: BaseClient) {
   return async function rlsQuery(params: QueryParams) {
     const setting = currentRlsSetting()
-    if (!setting || params.__internalParams?.transaction) return params.query(params.args)
+    if (params.__internalParams?.transaction) {
+      const open = tenantRlsEnabled() ? openTransaction.getStore() : undefined
+      if (open && open.applied !== settingKey(setting)) {
+        open.applied = settingKey(setting) // before the await: the set_config passes this hook too
+        await applyRlsSetting(open.tx, setting)
+      }
+      return params.query(params.args)
+    }
+    if (!setting) return params.query(params.args)
     const [, result] = await base.$transaction([applyRlsSetting(base, setting), params.query(params.args)])
     return result
   }
@@ -99,18 +124,20 @@ export function rlsQueryHook(base: BaseClient) {
 
 /**
  * Returns `client` with $transaction opening every transaction started in a
- * frame with that frame's RLS setting. Everything else passes through.
+ * frame with that frame's RLS setting, and tracking interactive ones so a
+ * frame entered inside them is applied too. Off (TENANT_RLS) it passes through.
  */
 export function withRlsTransactions<C extends BaseClient>(client: C): C {
   const transaction = (arg: any, options?: any) => {
+    if (!tenantRlsEnabled()) return client.$transaction(arg, options)
     const setting = currentRlsSetting()
-    if (!setting) return client.$transaction(arg, options)
     if (typeof arg === "function") {
       return client.$transaction(async (tx: RawCapable) => {
-        await applyRlsSetting(tx, setting)
-        return arg(tx)
+        if (setting) await applyRlsSetting(tx, setting)
+        return openTransaction.run({ tx, applied: settingKey(setting) }, () => arg(tx))
       }, options)
     }
+    if (!setting) return client.$transaction(arg, options)
     return client.$transaction([applyRlsSetting(client, setting), ...arg], options)
       .then((results: unknown[]) => results.slice(1))
   }
