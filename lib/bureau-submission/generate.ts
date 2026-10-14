@@ -178,7 +178,7 @@ async function writeLedger(db: Db, args: {
     recordCount: sent.length,
     heldCount: held.length,
     heldByReason,
-    push: await pushSubmission(submission.id),
+    push: await pushSubmission(db, { tenantId: args.tenantId, submissionId: submission.id, mode: args.mode }),
   }
 }
 

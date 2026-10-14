@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckUsableWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { approvalEvidenceApplicationInclude } from "@/lib/affordability/current-approval"
 import { hasClientBorrower, type WithClientBorrower } from "@/lib/borrower"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
@@ -251,7 +251,12 @@ export async function readApplicationReadiness(
   const clientIds = [...new Set(applications.map((app) => app.clientId))]
   const applicationIds = applications.map((app) => app.id)
 
-  const [coreDocuments, selfies, exceptions, bureauChecks, tenantConfig, mismatches] =
+  // The tenant's bureau freshness window bounds the bureau read below.
+  const tenantConfig = await prisma.tenantConfig.findFirst({
+    where: { tenantId },
+    select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true, bureauMaxAgeDays: true },
+  })
+  const [coreDocuments, selfies, exceptions, bureauChecks, mismatches] =
     await Promise.all([
       prisma.clientDocument.findMany({
         where: {
@@ -282,21 +287,15 @@ export async function readApplicationReadiness(
         select: readinessExceptionSelect,
       }),
       // The approval gate's bureau read, batched: same generation binding,
-      // same staleness cutoff, same provider.
+      // same staleness cutoff, same providers.
       prisma.creditBureauCheck.findMany({
         where: {
           tenantId,
           applicationId: { in: applicationIds },
-          ok: true,
-          createdAt: { gte: bureauStalenessCutoff() },
-          provider: "experian",
+          ...approvalBureauCheckUsableWhere({ maxAgeDays: bureauMaxAgeDays(tenantConfig) }),
         },
         orderBy: { createdAt: "desc" },
         select: readinessBureauSelect,
-      }),
-      prisma.tenantConfig.findFirst({
-        where: { tenantId },
-        select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true },
       }),
       prisma.clientDocument.groupBy({
         by: ["clientId"],

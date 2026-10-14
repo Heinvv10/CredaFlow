@@ -125,13 +125,16 @@ State outside git, in `~/credaflow-demo-data/` (`DEMO_DATA_DIR`): `secrets.env`,
 scripts/demo/build-image.sh   # product image from this worktree → credaflow:demo-<sha>[-dirty-<hash8>]
 scripts/demo/bake.sh          # ~35 min; on the image the live demo runs
 scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--force-image]
+scripts/demo/upgrade-stack.sh # another lender's stack, in place, keeping its db; [commit]
 ```
 
 - **Image tag**: `credaflow:demo-<short sha>`, plus `-dirty-<hash8>` (sha256 of
   `git diff HEAD` + untracked files) when the tree is uncommitted. `/api/health`
   reports the same string as `commit`. Build args are the live demo's (tenant
   slug and portal login URL from its `.env`) plus Cloudflare's always-pass test
-  Turnstile site key.
+  Turnstile site key. `build-image.sh` also takes `DEMO_BUILD_ROOT` (build
+  another source tree) and `DEMO_IMAGE_NAME` (its own tag, and the image is then
+  labelled `credaflow.tenant_slug=<slug>`); `upgrade-stack.sh` sets both.
 - **bake.sh**: sim image on the live image → `fresh-stack.sh` → `simulate.ts`
   → `check-dates` → `assert_payment_allocation_reconciles()` →
   `verify-pages` → `db.dump` (pg_dump -Fc), `uploads.tar.gz`, `meta.json`
@@ -162,6 +165,44 @@ scripts/demo/restore.sh       # latest → the live demo stack; [snapshot] [--fo
 - **Moving live to a new build**: `build-image.sh`, set `APP_IMAGE`, `GIT_SHA`,
   `BUILD_TIME` in the live `.env`, `docker-compose -f docker-compose.demo.yml up
   -d --no-deps app app-portal`, then `bake.sh && restore.sh`.
+- **Upgrading another lender's stack in place**
+  (`upgrade-stack.sh [--allow-downgrade] [commit]`): moves a secondary demo
+  stack (Fairscore) to a commit and keeps its database. The Acme demo is refused
+  (it moves by bake + restore). The target is chosen as for `restore.sh`:
+  `DEMO_LIVE_PROJECT`, `LIVE_DIR`, `DEMO_DATA_DIR` (see "Another lender"). The
+  default commit is the one the Acme demo's image tag names, so no argument
+  means parity with the demo; a commit must be reachable from a local branch or
+  `origin/*`. In order:
+  - the `restore.sh` target guard, then `bake.lock`, `restore.lock` and
+    `cron-run.lock` (non-blocking);
+  - the commit must be the stack's current one (read from its image tag, else
+    `GIT_SHA`, as `<prefix>-<sha>[-suffix]`) or a descendant. A downgrade, or a
+    current commit that cannot be read, is refused unless `--allow-downgrade`,
+    which logs a WARNING (migrations are forward-only);
+  - prechecks: every slug in `TENANT_HOST_MAP` and `NEXT_PUBLIC_TENANT_SLUG`
+    (`.env`) must be an ACTIVE tenant in the stack's db; an existing image of
+    the target name must carry that slug in its `credaflow.tenant_slug` label;
+    every key in `secrets.env` must equal the running app's env value (hashes
+    compared; only key names are printed);
+  - pre-flights: `docker-compose config -q`; then, in a temporary worktree at the
+    commit, `npm ci` and `prisma migrate status` (proves the connection, logs
+    pending migrations; a failed or diverged history dies);
+  - `build-image.sh` builds `credaflow:<name>-<sha>`;
+  - backup: `pg_dump -Fc` into `$LIVE_DIR/backups/pre-<sha>-<UTC>.dump`, read in
+    full by `pg_restore -f /dev/null`, with copies of `.env` and
+    `.env.production` beside it. These are not pruned; delete old ones by hand;
+  - `prisma migrate deploy` from the worktree, then `APP_IMAGE`/`GIT_SHA`/
+    `BUILD_TIME` into `.env` and `up -d --no-deps app app-portal`;
+  - verify: `/api/health` on both, both containers on the new image, and every
+    mapped host answers 200 on staff `/login` and portal `/portal/login`.
+
+  Any failure from the pin on restores the previous pin and starts it again.
+  Migrations are forward-only, so that can leave old code on the new schema; the
+  message gives the commands to put the dump back: stop app + portal, `dropdb`
+  and `createdb` the database, then `pg_restore --exit-on-error` (a plain
+  `--clean` restore would leave a migrated db half restored). After an upgrade
+  the stack's existing snapshots are on its previous image, so `restore.sh`
+  refuses them until a new bake on the new image.
 - **Schedules** (`scripts/demo/crontab.example`, box clock is SAST):
   `cron-run.sh restore` nightly 02:30; `cron-run.sh bake --first-sunday`
   (bake, then restore) at 02:00 on the first Sunday of the month

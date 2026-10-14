@@ -59,7 +59,6 @@ vi.mock("@/lib/audit", () => ({
 }))
 vi.mock("@/lib/notifications", () => ({ triggerNotification: (a: unknown) => triggerNotificationMock(a) }))
 vi.mock("@/lib/kyc", () => ({ CORE_DOC_TYPES: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] }))
-vi.mock("@/lib/compliance/bureau", () => ({ bureauStalenessCutoff: () => new Date("2020-01-01") }))
 vi.mock("@/lib/decision/bureau-gate", () => ({
   evaluateBureauGate: (...args: unknown[]) => evaluateBureauGateMock(...args),
   nonOverridableBlock: (...args: unknown[]) => nonOverridableBlockMock(...args),

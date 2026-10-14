@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest"
-import { bureauAccounts } from "./bureau-accounts"
+import { bureauAccounts, bureauObligationRows, randAmountCents } from "./bureau-accounts"
+
+describe("randAmountCents", () => {
+  it("reads numbers and clean decimal strings; absent is zero; anything else is unknown", () => {
+    expect([1250.5, "5000.00", " 12 ", "-3.5", undefined, null].map(randAmountCents)).toEqual([125_050, 500_000, 1_200, -350, 0, 0])
+    expect(["R5,000", "5 000", "", "n/a", "1e3", Number.NaN, Infinity, {}, true].map(randAmountCents)).toEqual(Array(9).fill(null))
+  })
+})
+
+describe("bureauObligationRows", () => {
+  it("keeps every account: a nameless one as UNKNOWN, an unreadable amount as null", () => {
+    const pick = (row: Record<string, unknown>) => ({ subscriber: row.s, accountType: null, instalmentRands: row.i, status: row.st })
+    expect(bureauObligationRows([{ s: "", i: 10, st: "OPEN/ARREARS" }, { s: "A", i: "x" }], pick)).toEqual([
+      { subscriber: "UNKNOWN", accountType: null, instalmentCents: 1_000, status: "OPEN/ARREARS" },
+      { subscriber: "A", accountType: null, instalmentCents: null, status: null },
+    ])
+  })
+})
 
 const pick = (row: Record<string, unknown>) => ({ subscriber: row.s, accountType: row.t, instalmentRands: row.i, status: row.st })
 
