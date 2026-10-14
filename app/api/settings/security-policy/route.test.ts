@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   session: null as null | { user: Record<string, unknown> },
   locked: vi.fn(),
   apply: vi.fn(),
+  applyKyc: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -12,6 +13,10 @@ vi.mock("@/lib/auth", () => ({ auth: async () => h.session }))
 vi.mock("@/lib/tenant", () => ({ withTenantContext: (_req: unknown, fn: (t: { id: string }) => Promise<Response>) => fn({ id: "t1" }) }))
 vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "10.0.0.9" }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ applyStaffTotpRequired: (...a: unknown[]) => h.apply(...a) }))
+vi.mock("@/lib/kyc/override-policy", () => ({
+  isKycOverrideMinRole: (value: unknown) => value === "BRANCH_MANAGER" || value === "ADMIN",
+  applyKycOverridePolicy: (...a: unknown[]) => h.applyKyc(...a),
+}))
 vi.mock("@/lib/prisma", () => {
   const tx = { $executeRaw: async () => 1, $queryRaw: (...a: unknown[]) => h.locked(...a), auditLog: { create: vi.fn() } }
   return { prisma: { $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) } }
@@ -31,6 +36,7 @@ beforeEach(() => {
   h.session = caller("SUPER_ADMIN")
   h.locked.mockReset().mockResolvedValue([row("SUPER_ADMIN")])
   h.apply.mockReset().mockResolvedValue({ changed: true, required: false, signedOut: 2 })
+  h.applyKyc.mockReset().mockResolvedValue({ changed: true, enabled: true, minRole: "BRANCH_MANAGER", secondApprover: true })
 })
 
 describe("PUT /api/settings/security-policy", () => {
@@ -80,5 +86,35 @@ describe("PUT /api/settings/security-policy", () => {
 
   it("refuses a body that is not JSON with 400", async () => {
     expect((await put("{not json")).status).toBe(400)
+  })
+
+  it("updates the complete KYC override policy through the same locked, audited boundary", async () => {
+    const res = await put({
+      kycOverrideEnabled: true,
+      kycOverrideMinRole: "BRANCH_MANAGER",
+      kycOverrideSecondApprover: true,
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      ok: true, changed: true, kycOverrideEnabled: true,
+      kycOverrideMinRole: "BRANCH_MANAGER", kycOverrideSecondApprover: true,
+    })
+    expect(h.applyKyc).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: "t1",
+      actor: { id: "super-1", email: "super@lender.example" },
+      enabled: true,
+      minRole: "BRANCH_MANAGER",
+      secondApprover: true,
+      ipAddress: "10.0.0.9",
+    })
+  })
+
+  it.each(["LOAN_ADMIN", "SUPER_ADMIN", null])("refuses KYC minimum role %j", async (role) => {
+    expect((await put({
+      kycOverrideEnabled: true,
+      kycOverrideMinRole: role,
+      kycOverrideSecondApprover: false,
+    })).status).toBe(400)
+    expect(h.applyKyc).not.toHaveBeenCalled()
   })
 })
