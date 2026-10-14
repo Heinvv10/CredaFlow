@@ -112,7 +112,7 @@ describe("withRlsTransactions", () => {
       await runWithTenant("t9", () => hook(queryParams(itx).params))
       await hook(queryParams(itx).params)
     }))
-    expect(calls.map((c) => c.values)).toEqual([["t1"], ["t9"], ["t1"]])
+    expect(calls.map((c) => (c.kind === "raw" ? c.values : c.kind))).toEqual([["t1"], ["t9"], ["t1"]])
   })
 
   it("applies a frame entered inside a transaction that opened with no frame", async () => {
@@ -122,7 +122,7 @@ describe("withRlsTransactions", () => {
     await wrapped.$transaction(async () => {
       await runWithTenant("t9", () => hook(queryParams(itx).params))
     })
-    expect(calls.map((c) => c.values)).toEqual([["t9"]])
+    expect(calls.map((c) => (c.kind === "raw" ? c.values : c.kind))).toEqual([["t9"]])
   })
 
   it("passes through while TENANT_RLS is not on", async () => {
