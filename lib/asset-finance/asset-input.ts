@@ -38,6 +38,8 @@ export interface AssetFields {
   vatCents: number
   residualCents: number | null
   natisTitleholder: string | null
+  /** eNaTIS registered owner; a lease needs it to be the lender. Optional: absent leaves it unchanged. */
+  natisOwner?: string | null
   trackerProvider: string | null
   trackerId: string | null
   insurer: string | null
@@ -91,7 +93,7 @@ function parseAsset(body: unknown, partial: boolean): Parsed<Fields> {
   readInt(record, "cashPriceExclVatCents", out, errors, { required, nullable: false, min: 1, max: MAX_INT })
   readInt(record, "vatCents", out, errors, { required, nullable: false, min: 0, max: MAX_INT })
   readInt(record, "residualCents", out, errors, { required: false, nullable: true, min: 0, max: MAX_INT })
-  for (const key of ["natisTitleholder", "trackerProvider", "trackerId", "insurer", "policyNumber"]) {
+  for (const key of ["natisTitleholder", "natisOwner", "trackerProvider", "trackerId", "insurer", "policyNumber"]) {
     readText(record, key, out, errors, { required: false, nullable: true, max: 120 })
   }
   readBool(record, "lenderNotedConfirmed", out, errors)

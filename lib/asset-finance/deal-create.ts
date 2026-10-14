@@ -26,6 +26,8 @@ import { solveWithRate } from "./deal-structure"
 import { solveNcaDealStructure } from "./nca-structure"
 import { dbDate } from "./dates"
 import { NCA_ASSET_CAPS, resolvedAssetFinanceNcaCapProblems } from "./nca-caps"
+import { isLeaseContract } from "./lease-input"
+import { cpaColumns, leaseApplicationRegime, leaseCpaScope, leaseDealColumns } from "./lease-deal"
 
 export const CLOSED_DEAL_STATUSES = ["REFUSED_NCA", "DECLINED", "CANCELLED"] as const
 
@@ -71,13 +73,18 @@ export async function createDeal(
   })
   if (other) return refused(409, `The asset is already on an open deal (${other.status})`)
 
+  // A lease (operating or full-maintenance) is not a credit agreement: no
+  // NCA structure or caps, whoever the lessee (./lease-deal.ts).
+  const lease = isLeaseContract(input.contractType) ? input.terms.lease ?? null : null
+  if (isLeaseContract(input.contractType) && !lease) return refused(422, "A lease needs its lease terms")
+  const ncaClient = client !== null && lease === null
   const genericSolved = await solveWithRate(tx, tenantId, asset, input.terms)
-  const solved = client && genericSolved.ok
+  const solved = ncaClient && genericSolved.ok
     ? solveNcaDealStructure(asset, input.terms, genericSolved.rate, genericSolved.startDate)
     : genericSolved
   if (!solved.ok) return refused(422, solved.error)
   const amount = solved.result.financedAmountCents
-  if (client) {
+  if (ncaClient && !isLeaseContract(input.contractType)) {
     const problems = await resolvedAssetFinanceNcaCapProblems(tx, tenantId, solved.startDate, {
       contractType: input.contractType,
       annualRate: Number(solved.rate.annualRate),
@@ -95,6 +102,8 @@ export async function createDeal(
     return refused(422, `The term of ${solved.termDays} days is outside the product's ${product.minTermDays}–${product.maxTermDays}`)
   }
 
+  const cpa = lease ? await leaseCpaScope(tx, tenantId, { clientId: client?.id ?? null, entityId: entity?.id ?? null }) : null
+  if (lease && !cpa) return refused(422, "The lessee is not on this lender's book")
   const { terms } = input
   const application = await tx.loanApplication.create({
     data: {
@@ -102,7 +111,7 @@ export async function createDeal(
       reference: generateReference("AF"),
       clientId: client?.id ?? null,
       entityId: entity?.id ?? null,
-      ...(client ? {
+      ...(lease ? leaseApplicationRegime(params.userId, input.contractType) : ncaClient ? {
         ncaRegime: "NCA" as const,
         ncaClassificationRule: "NATURAL_PERSON_NCA",
         ncaClassificationInputs: { naturalPerson: true },
@@ -139,6 +148,7 @@ export async function createDeal(
       rateMargin: terms.rate.margin,
       fixedRate: terms.rate.fixedRate,
       baseInstalmentCents: solved.result.baseInstalmentCents,
+      ...(lease && cpa ? { ...leaseDealColumns(lease), ...cpaColumns(cpa) } : {}),
       createdById: params.userId,
     },
     select: { id: true },
@@ -170,6 +180,7 @@ export async function createDeal(
         fixedRate: terms.rate.fixedRate,
         annualRate: solved.rate.annualRate,
         reference: solved.rate.reference,
+        ...(lease && cpa ? { contractType: input.contractType, lease: { ...lease }, cpaApplies: cpa.applies, cpaRule: cpa.rule, cpaEvidenceIds: cpa.evidenceIds } : {}),
       },
     },
     tx,

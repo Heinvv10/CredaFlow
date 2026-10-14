@@ -12,10 +12,16 @@
  *   3. NCA applications proceed down the regulated asset-finance path. A
  *      natural person is already stamped NATURAL_PERSON_NCA at creation and
  *      deliberately skips the juristic-person classifier.
+ *   4. A lease (operating or full-maintenance) skips the classifier too: its
+ *      application was written NON_NCA / LEASE_NOT_CREDIT_AGREEMENT
+ *      (./lease-deal.ts). Its CPA scope is re-run here on the lessee's
+ *      current financials, and frozen once the deal is approved.
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { classifyApplication, lockApplicationForRegime, type RegimeTx } from "./classification"
 import { ncaRuleLabel } from "./labels"
+import { isLeaseContract } from "./lease-input"
+import { cpaColumns, leaseCpaScope } from "./lease-deal"
 
 export interface DealActor {
   tenantId: string
@@ -87,7 +93,7 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
   const deal = await tx.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId },
     select: {
-      id: true, status: true, applicationId: true,
+      id: true, status: true, applicationId: true, contractType: true, clientId: true, entityId: true,
       application: { select: { status: true, clientId: true, entityId: true, ncaRegime: true, ncaClassificationRule: true } },
     },
   })
@@ -96,13 +102,16 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
     return { kind: "not_draft", status: deal.status === "DRAFT" ? deal.application.status : deal.status }
   }
 
-  const classified = deal.application.clientId
+  const lease = isLeaseContract(deal.contractType)
+  const cpa = lease ? await leaseCpaScope(tx, tenantId, deal) : null
+  if (lease && !cpa) return { kind: "not_found" }
+  const classified = deal.application.clientId || lease
     ? null
     : await classifyApplication(tx, { tenantId, applicationId, userId: actor.userId, userEmail: actor.userEmail })
   if (classified?.kind === "not_found" || classified?.kind === "not_entity_borrower") return { kind: "not_found" }
   if (classified?.kind === "regime_frozen") return { kind: "regime_frozen", status: classified.status }
   const rule = classified?.classification.rule ?? deal.application.ncaClassificationRule ?? "NATURAL_PERSON_NCA"
-  const regime = classified?.regime ?? "NCA"
+  const regime = classified?.regime ?? (lease ? "NON_NCA" : "NCA")
   const submittedAt = new Date()
   const awaitingRegimeApproval =
     regime === "NCA" && !deal.application.clientId && (await hasPendingNonNcaOverride(tx, tenantId, applicationId))
@@ -123,6 +132,7 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
         rule,
         pendingOverrideId: classified?.pendingOverrideId ?? null,
         awaitingRegimeApproval,
+        ...(cpa ? { cpaApplies: cpa.applies, cpaRule: cpa.rule, cpaEvidenceIds: cpa.evidenceIds } : {}),
       },
     },
     tx,
@@ -132,6 +142,6 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
     where: { id: applicationId, tenantId },
     data: { status: "SUBMITTED", submittedAt },
   })
-  await tx.assetFinanceDeal.update({ where: { id: deal.id, tenantId }, data: { status: "SUBMITTED" } })
+  await tx.assetFinanceDeal.update({ where: { id: deal.id, tenantId }, data: { status: "SUBMITTED", ...(cpa ? cpaColumns(cpa) : {}) } })
   return { kind: "submitted", awaitingRegimeApproval, regime, rule }
 }

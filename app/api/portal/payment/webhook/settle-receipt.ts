@@ -7,6 +7,8 @@ import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { CHARGES_FLAG_INCLUDE } from "@/lib/loan/charges-replay"
 import { loadReceiptReplay, projectReceiptWithReplay } from "@/lib/loan/charge-aware-receipt"
 import { resyncChargesIfLive } from "@/lib/loan/receipt-charges"
+import { issueLeaseInvoicesOnReceipt } from "@/lib/asset-finance/lease-invoices"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { holdStitchReceipt, recordHeldReceipt } from "@/lib/payments/held-receipt"
 import {
@@ -208,6 +210,11 @@ export async function settleReceipt(
         })
         // Last, so the audit trail reads in write order.
         await resyncChargesIfLive(tx, loan, { tenantId: loan.tenantId, loanId: loan.id }, asOf, { source: "stitch_webhook" })
+        // A lease rental this payment reached before its due date is invoiced now.
+        await issueLeaseInvoicesOnReceipt(tx, {
+          tenantId: loan.tenantId, loanId: loan.id, contractType: loan.contractType,
+          receivedOn: sastCalendarDate(asOf), today: sastCalendarDate(new Date()), createdById: null,
+        })
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
         return newPayment
       } else {

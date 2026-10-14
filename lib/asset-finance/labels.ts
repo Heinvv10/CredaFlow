@@ -69,6 +69,7 @@ export const NCA_RULE_LABELS: Record<NcaRuleId, string> = {
   JURISTIC_OVER_THRESHOLD: `Juristic person over the ${JURISTIC_THRESHOLD} threshold`,
   LARGE_AGREEMENT: `Large agreement of ${LARGE_AGREEMENT} or more`,
   JURISTIC_SMALL_AGREEMENT: `Juristic person under ${JURISTIC_THRESHOLD} borrowing less than ${LARGE_AGREEMENT}`,
+  LEASE_NOT_CREDIT_AGREEMENT: "Operating or full-maintenance lease: not a credit agreement",
 }
 
 function isRuleId(value: string): value is NcaRuleId {

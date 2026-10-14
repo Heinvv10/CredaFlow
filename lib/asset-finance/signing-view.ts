@@ -3,8 +3,8 @@
 import type { AssetDealStatus, DealDocumentKind, DealSignerRole, SignatureMethod } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { signerState, type SignerState } from "./signing"
-import { portalSignerAuthorityWhere } from "./portal-access"
-import { currentRequiredSigners } from "./signing-prepare"
+import { portalSignerWhere } from "./portal-access"
+import { requiredBorrowerSigners } from "./signing-prepare"
 
 export interface StaffSignerView {
   id: string
@@ -43,7 +43,7 @@ const DOCUMENT_ORDER: Record<DealDocumentKind, number> = { AGREEMENT: 0, RESOLUT
 const userLabel = (u: { name: string | null; email: string }) => u.name?.trim() || u.email
 
 export async function loadStaffSigningPanel(tenantId: string, dealId: string): Promise<StaffSigningPanel | null> {
-  const deal = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, entityId: true } })
+  const deal = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, entityId: true, clientId: true } })
   if (!deal) return null
   const [rows, config] = await Promise.all([
     prisma.dealSigner.findMany({
@@ -54,7 +54,7 @@ export async function loadStaffSigningPanel(tenantId: string, dealId: string): P
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetFinanceLegalWordingApproved: true } }),
   ])
   const canPrepare = deal.status === "APPROVED" && rows.every((r) => r.method === null)
-  const required = canPrepare && deal.entityId ? await currentRequiredSigners(prisma, tenantId, deal.entityId) : []
+  const required = canPrepare ? await requiredBorrowerSigners(prisma, tenantId, deal) : []
   const present = new Set(rows.map((r) => `${r.document}:${r.clientId}`))
   const missingRequired = required.filter((s) => !present.has(`${s.document}:${s.clientId}`))
   const missingClients = await prisma.client.findMany({
@@ -105,7 +105,7 @@ export async function loadPortalSigners(tenantId: string, clientId: string, enti
     // Only rows the client may still open: a surety while SURETY, a signatory while they hold authority.
     where: {
       tenantId, clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] }, ...(entityId ? { entityId } : {}) },
-      AND: [portalSignerAuthorityWhere(tenantId, clientId)],
+      AND: [portalSignerWhere(tenantId, clientId)],
     },
     orderBy: { createdAt: "asc" },
     select: {

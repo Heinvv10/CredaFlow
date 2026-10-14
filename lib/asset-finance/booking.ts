@@ -64,6 +64,8 @@ import { pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { termsFromDeal } from "./deal-terms"
 import { payoutAmountCents } from "./payout-checklist"
 import type { SigningActor } from "./signing-prepare"
+import { isLeaseContract } from "./lease-input"
+import { bookLease } from "./lease-booking"
 
 export class BookingRaceError extends Error {
   constructor(what: string) {
@@ -75,11 +77,12 @@ export class BookingRaceError extends Error {
 export type BookingResult =
   | { kind: "not_found" }
   | BookingRefusal
-  | { kind: "booked"; loanId: string; loanReference: string; taxInvoiceId: string; invoiceNumber: string }
+  /** A lease books no inception tax invoice: taxInvoiceId and invoiceNumber are null. */
+  | { kind: "booked"; loanId: string; loanReference: string; taxInvoiceId: string | null; invoiceNumber: string | null }
 
 const refuse = (reason: string, error: string): BookingRefusal => ({ kind: "refused", reason, error })
 
-interface SignedTerms {
+export interface SignedTerms {
   startDate: string
   baseInstalmentCents: number
   resultingRate: Prisma.Decimal
@@ -89,7 +92,7 @@ interface SignedTerms {
 }
 
 /** The terms fixed at preparation; null if the deal was never prepared (CHECK: all or none). */
-function signedTerms(deal: BookingDeal): SignedTerms | null {
+export function signedTerms(deal: BookingDeal): SignedTerms | null {
   const { plannedStartDate, signedBaseInstalmentCents, signedResultingRate, signedTotalInterestCents, signedArrearsMarginRate, signedCollectionFeeCents } = deal
   if (plannedStartDate === null || signedBaseInstalmentCents === null || signedResultingRate === null
     || signedTotalInterestCents === null || signedCollectionFeeCents === null) return null
@@ -109,6 +112,8 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     const loaded = await loadBookingDeal(tx, tenantId, dealId)
     if (loaded.kind !== "loaded") return loaded
     const { deal } = loaded
+    // An operating or full-maintenance lease books its rentals (./lease-booking.ts).
+    if (isLeaseContract(deal.contractType)) return bookLease(tx, actor, deal, today)
     const { application, asset, entity, client, payout } = deal
     const ncaRegime = application.ncaRegime
     if (!ncaRegime) return refuse("application_not_ready", "The application has no NCA classification")
