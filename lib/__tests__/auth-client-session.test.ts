@@ -197,20 +197,13 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
     expect(user).toMatchObject({ id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
   })
 
-  it("looks the client up in the portal host's tenant only (borrowers are per lender)", async () => {
-    mocks.getTenantFromRequest.mockResolvedValue({ id: "t2" })
+  it("looks the client up in the portal host's tenant only; a host with no tenant looks nobody up", async () => {
+    mocks.getTenantFromRequest.mockResolvedValueOnce({ id: "t2" }).mockResolvedValueOnce(null)
     mocks.clientFindUnique.mockResolvedValue(null)
     await expect(authorize(asClient("same@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
-    expect(mocks.clientFindUnique).toHaveBeenCalledWith({
-      where: { tenantId_email: { tenantId: "t2", email: "same@example.test" } },
-    })
-  })
-
-  it("a portal host that resolves no tenant signs no client in and looks nobody up", async () => {
-    mocks.getTenantFromRequest.mockResolvedValue(null)
-    mocks.clientFindUnique.mockResolvedValue(clientRow)
+    expect(mocks.clientFindUnique).toHaveBeenCalledWith({ where: { tenantId_email: { tenantId: "t2", email: "same@example.test" } } })
     await expect(authorize(asClient("nohost@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
-    expect(mocks.clientFindUnique).not.toHaveBeenCalled()
+    expect(mocks.clientFindUnique).toHaveBeenCalledTimes(1)
   })
 
   it("APP_MODE=client refuses loginType=staff before any staff lookup", async () => {
