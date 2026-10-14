@@ -19,6 +19,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope, TENANT_SCOPED_MODELS } from "@/lib/tenant-scope"
+import { RlsTransactionTenantError } from "@/lib/tenant-rls"
 import { createIsolationFixture, dropIsolationFixture, type IsolationFixture } from "./tenant-isolation.integration-fixture"
 
 const suite = process.env.RUN_TENANT_ISOLATION_IT === "1" ? describe : describe.skip
@@ -148,21 +149,50 @@ suite("tenant isolation — RLS under the application client", () => {
     expect(clientCount(batch)).toBe(1)
   })
 
-  it("a frame entered inside an open transaction binds that transaction, then the outer frame again", async () => {
-    const tenantOf = (tx: typeof app) =>
-      tx.$queryRaw<{ t: string }[]>`SELECT "tenantId" AS t FROM "Client" WHERE "idNumber" = ${fx().idNumber}`
-    const seen = await asA(() => app.$transaction(async (tx) => {
+  const tenantOf = (tx: typeof app) =>
+    tx.$queryRaw<{ t: string }[]>`SELECT "tenantId" AS t FROM "Client" WHERE "idNumber" = ${fx().idNumber}`
+  const tick = () => new Promise((r) => setTimeout(r, 5))
+
+  it("refuses lender B's frame inside a transaction opened as lender A, and rolls it back", async () => {
+    const before = await db.client.findUniqueOrThrow({ where: { id: fx().a.clientId } })
+    await expect(asA(() => app.$transaction(async (tx) => {
       const db2 = tx as unknown as typeof app
-      const outer = await tenantOf(db2)
+      await db2.$executeRaw`UPDATE "Client" SET "firstName" = 'InTx' WHERE "id" = ${fx().a.clientId}`
+      return runWithTenant(fx().b.tenantId, async () => await tenantOf(db2))
+    }))).rejects.toBeInstanceOf(RlsTransactionTenantError)
+    expect(await db.client.findUniqueOrThrow({ where: { id: fx().a.clientId } })).toEqual(before)
+  })
+
+  it("binds a transaction opened with no frame to the first tenant frame inside it", async () => {
+    const seen = await app.$transaction(async (tx) => {
+      const db2 = tx as unknown as typeof app
       const inner = await runWithTenant(fx().b.tenantId, async () => await tenantOf(db2))
-      const back = await tenantOf(db2)
-      return [outer, inner, back].map((rows) => rows.map((r) => r.t))
-    }))
-    expect(seen).toEqual([[fx().a.tenantId], [fx().b.tenantId], [fx().a.tenantId]])
-    // Opened with no frame: the frame entered inside still binds it.
-    const noFrame = await app.$transaction(async (tx) =>
-      runWithTenant(fx().b.tenantId, async () => await tenantOf(tx as unknown as typeof app)))
-    expect(noFrame.map((r) => r.t)).toEqual([fx().b.tenantId])
+      const after = await tenantOf(db2) // the frame has exited; the binding stays (it only narrows)
+      return [inner, after].map((rows) => rows.map((r) => r.t))
+    })
+    expect(seen).toEqual([[fx().b.tenantId], [fx().b.tenantId]])
+  })
+
+  it("keeps two concurrent requests for lenders A and B apart through interleaved awaits", async () => {
+    // A pool of one connection would serialise them; this suite's pool is
+    // one, so a second client gives the two requests a connection each.
+    const other = createAppPrismaClient(roleUrl(password))
+    try {
+      const request = (client: typeof app, tenantId: string, waits: number[]) =>
+        runWithTenant(tenantId, () => client.$transaction(async (tx) => {
+          const seen: string[] = []
+          for (const w of waits) {
+            for (let i = 0; i < w; i++) await tick()
+            seen.push(...(await tenantOf(tx as unknown as typeof app)).map((r) => r.t))
+          }
+          return seen
+        }))
+      const [a, b] = await Promise.all([request(app, fx().a.tenantId, [1, 3, 1]), request(other, fx().b.tenantId, [2, 1, 2])])
+      expect(a).toEqual([fx().a.tenantId, fx().a.tenantId, fx().a.tenantId])
+      expect(b).toEqual([fx().b.tenantId, fx().b.tenantId, fx().b.tenantId])
+    } finally {
+      await other.$disconnect()
+    }
   })
 
   it("the system context (withoutTenantScope) sees both lenders, and no setting outlives its transaction", async () => {

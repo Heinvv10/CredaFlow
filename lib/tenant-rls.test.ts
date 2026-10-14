@@ -10,7 +10,7 @@
  * file says why.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { rlsQueryHook, withRlsTransactions } from "./tenant-rls"
+import { RlsTransactionTenantError, rlsQueryHook, withRlsTransactions } from "./tenant-rls"
 import { runWithTenant, withoutTenantScope } from "./tenant-scope"
 
 type Call = { kind: "raw"; values: unknown[] } | { kind: "query"; args: unknown }
@@ -98,31 +98,87 @@ describe("withRlsTransactions", () => {
     expect(results).toEqual(["a", "b"])
   })
 
-  // A frame entered inside an open interactive transaction must reach that
-  // transaction's connection: otherwise its queries run under the setting
-  // the transaction opened with (another tenant's, or none).
+  // One interactive transaction is one connection with one setting: it is
+  // bound to one tenant, and a query from another tenant's frame is refused.
   const itx = { transaction: { kind: "itx", id: "tx1" } }
+  const tick = () => new Promise((r) => setTimeout(r, 0))
 
-  it("applies a tenant frame entered inside an open transaction to that transaction, then restores the outer one", async () => {
-    const { client, calls } = fakeClient()
+  /** A client whose every interactive transaction records its own set_configs. */
+  function perTransactionClient(route?: (params: Parameters<ReturnType<typeof rlsQueryHook>>[0]) => Promise<unknown>) {
+    const log: Array<[number, unknown]> = []
+    let n = 0
+    const client = {
+      $executeRaw: vi.fn(() => Promise.resolve(0)),
+      $transaction: vi.fn(async (arg: unknown) => {
+        if (typeof arg !== "function") return Promise.all(arg as Promise<unknown>[])
+        const id = ++n
+        const tx = {
+          // With `route`, the set_config passes the hook as a transaction
+          // query, as Prisma's own $executeRaw on a transaction client does.
+          // Lazy like a PrismaPromise: nothing runs until it is awaited.
+          $executeRaw: (_s: TemplateStringsArray, ...values: unknown[]) => {
+            const run = async () => { log.push([id, values[0] ?? "bypass"]); return 0 }
+            return {
+              then: (ok: (v: unknown) => unknown, fail: (e: unknown) => unknown) =>
+                (route ? route({ args: null, query: run, __internalParams: itx }) : run()).then(ok, fail),
+            }
+          },
+        }
+        return arg(tx)
+      }),
+    }
+    return { client: client as unknown as Parameters<typeof rlsQueryHook>[0], log }
+  }
+
+  it("refuses a different tenant's frame inside a transaction opened as a tenant, and applies nothing", async () => {
+    const { client, log } = perTransactionClient()
     const wrapped = withRlsTransactions(client)
     const hook = rlsQueryHook(client)
-    await runWithTenant("t1", () => wrapped.$transaction(async () => {
+    const { params, query } = queryParams(itx)
+    await expect(runWithTenant("t1", () => wrapped.$transaction(async () => {
       await hook(queryParams(itx).params)
-      await runWithTenant("t9", () => hook(queryParams(itx).params))
-      await hook(queryParams(itx).params)
-    }))
-    expect(calls.map((c) => (c.kind === "raw" ? c.values : c.kind))).toEqual([["t1"], ["t9"], ["t1"]])
+      await runWithTenant("t9", () => hook(params))
+    }))).rejects.toBeInstanceOf(RlsTransactionTenantError)
+    expect(query).not.toHaveBeenCalled()
+    expect(log).toEqual([[1, "t1"]])
   })
 
-  it("applies a frame entered inside a transaction that opened with no frame", async () => {
-    const { client, calls } = fakeClient()
+  it("lets the same tenant's frame nest without touching the connection", async () => {
+    const { client, log } = perTransactionClient()
+    const hook = rlsQueryHook(client)
+    await runWithTenant("t1", () => withRlsTransactions(client).$transaction(async () => {
+      await runWithTenant("t1", () => hook(queryParams(itx).params))
+      await hook(queryParams(itx).params)
+    }))
+    expect(log).toEqual([[1, "t1"]])
+  })
+
+  it("binds a frameless transaction to the first tenant frame inside it, once; a second tenant is refused even concurrently", async () => {
+    const ref: { hook?: ReturnType<typeof rlsQueryHook> } = {}
+    const { client, log } = perTransactionClient((params) => ref.hook!(params))
+    const hook = (ref.hook = rlsQueryHook(client))
+    const results = await withRlsTransactions(client).$transaction(async () => Promise.allSettled([
+      runWithTenant("t2", async () => { await tick(); return hook(queryParams(itx).params) }),
+      runWithTenant("t3", async () => { await tick(); await tick(); return hook(queryParams(itx).params) }),
+      runWithTenant("t2", async () => { await tick(); await tick(); return hook(queryParams(itx).params) }),
+    ]))
+    expect(results.map((r: PromiseSettledResult<unknown>) => r.status)).toEqual(["fulfilled", "rejected", "fulfilled"])
+    expect(log).toEqual([[1, "t2"]])
+  })
+
+  it("keeps two concurrent requests' transactions apart, through interleaved awaits", async () => {
+    const { client, log } = perTransactionClient()
     const wrapped = withRlsTransactions(client)
     const hook = rlsQueryHook(client)
-    await wrapped.$transaction(async () => {
-      await runWithTenant("t9", () => hook(queryParams(itx).params))
-    })
-    expect(calls.map((c) => (c.kind === "raw" ? c.values : c.kind))).toEqual([["t9"]])
+    const request = (tenantId: string, delays: number[]) => runWithTenant(tenantId, () => wrapped.$transaction(async () => {
+      for (const d of delays) {
+        for (let i = 0; i < d; i++) await tick()
+        await hook(queryParams(itx).params)
+      }
+    }))
+    await Promise.all([request("tA", [1, 3, 1]), request("tB", [2, 1, 2])])
+    const byTx = (id: number) => log.filter(([t]) => t === id).map(([, v]) => v)
+    expect([byTx(1), byTx(2)]).toEqual([["tA"], ["tB"]])
   })
 
   it("passes through while TENANT_RLS is not on", async () => {

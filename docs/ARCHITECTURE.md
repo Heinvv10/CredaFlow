@@ -172,13 +172,17 @@ separate workstream (W0b); in this order:
    (the Stitch and WhatsApp webhooks look the payment or phone number up
    first). Each needs a frame, or an explicit `withoutTenantScope` for a
    cross-tenant lookup by an unguessable key.
-5. **Frames inside an open transaction.** With the hook on, a
-   `runWithTenant` or `withoutTenantScope` entered inside an interactive
-   transaction's callback is applied to that transaction before its next
-   query, and the outer frame again afterwards (`lib/tenant-rls.ts`, tested
-   against a real database). Batch transactions take the frame they were
-   opened in. Code that switches frames mid-transaction is still worth
-   finding: it usually means a cross-tenant read inside a tenant's write.
+5. **Frames inside an open transaction.** With the hook on, an interactive
+   transaction is bound to one tenant, once: the tenant whose frame opened
+   it, or, for one opened with no frame, the first tenant frame entered
+   inside it. A query from another tenant's frame on it is refused
+   (`RlsTransactionTenantError`, the transaction rolls back), never
+   re-pointed: concurrent queries of two frames on one connection would read
+   under each other's setting. The binding is not reverted when the inner
+   frame exits; it only narrows. A transaction opened in `withoutTenantScope`
+   stays in the system context. Batch transactions take the frame they were
+   opened in. Before activation, find code that enters another tenant's frame
+   inside a transaction and restructure it.
 6. **Data migrations** run as the migrate role with no frame. With strict
    mode on (`ALTER DATABASE … SET app.rls_strict = 'on'`) a migration that
    reads or updates rows must `SET LOCAL app.rls_bypass = 'on'` first.

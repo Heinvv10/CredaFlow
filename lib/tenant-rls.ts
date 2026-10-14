@@ -60,26 +60,38 @@ export function currentRlsSetting(): RlsSetting | null {
 
 type RawCapable = Pick<PrismaClient, "$executeRaw">
 
-/** The statement that applies `setting` (null: no context) to the current transaction only. */
-export function applyRlsSetting(db: RawCapable, setting: RlsSetting | null) {
-  if (setting?.kind === "tenant") {
-    return db.$executeRaw`SELECT set_config('app.tenant_id', ${setting.tenantId}, true), set_config('app.rls_bypass', 'off', true)`
-  }
-  return setting?.kind === "bypass"
-    ? db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'on', true)`
-    : db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'off', true)`
+/** The statement that applies `setting` to the current transaction only. */
+export function applyRlsSetting(db: RawCapable, setting: RlsSetting) {
+  return setting.kind === "tenant"
+    ? db.$executeRaw`SELECT set_config('app.tenant_id', ${setting.tenantId}, true), set_config('app.rls_bypass', 'off', true)`
+    : db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'on', true)`
 }
 
-const settingKey = (s: RlsSetting | null) => (s === null ? "none" : s.kind === "bypass" ? "bypass" : `tenant:${s.tenantId}`)
+/** A query refused because its tenant frame differs from its transaction's tenant. */
+export class RlsTransactionTenantError extends Error {
+  constructor(readonly boundTenantId: string, readonly frameTenantId: string) {
+    super(`[tenant-rls] a ${frameTenantId} frame queried a transaction bound to tenant ${boundTenantId}`)
+    this.name = "RlsTransactionTenantError"
+  }
+}
 
 /**
- * The open interactive transaction this code runs inside, and the setting
- * last applied to it. A frame entered inside the transaction's callback
- * (runWithTenant / withoutTenantScope) differs from it; the hook then applies
- * the new frame to the transaction before the query, and the outer frame
- * again when the code returns to it.
+ * The open interactive transaction this code runs inside. One transaction is
+ * one connection with one setting, so it is bound to at most one tenant, once:
+ * the tenant whose frame opened it, or — for a transaction opened with no
+ * frame — the first tenant frame entered inside it. A query from another
+ * tenant's frame is refused, never re-pointed: concurrent queries of two
+ * frames on one connection would otherwise read under each other's setting.
+ * A transaction opened in the system context (withoutTenantScope) stays so.
+ * Nothing is reverted when an inner frame exits; the binding only narrows.
  */
-type OpenTransaction = { tx: RawCapable; applied: string }
+type OpenTransaction = {
+  readonly tx: RawCapable
+  readonly system: boolean
+  bound: string | null
+  /** The set_config that bound it; every later query waits for it. */
+  ready: Promise<unknown>
+}
 const globalForRls = globalThis as unknown as { rlsTransaction?: AsyncLocalStorage<OpenTransaction> }
 const openTransaction = (globalForRls.rlsTransaction ??= new AsyncLocalStorage<OpenTransaction>())
 
@@ -110,10 +122,20 @@ export function rlsQueryHook(base: BaseClient) {
     const setting = currentRlsSetting()
     if (params.__internalParams?.transaction) {
       const open = tenantRlsEnabled() ? openTransaction.getStore() : undefined
-      if (open && open.applied !== settingKey(setting)) {
-        open.applied = settingKey(setting) // before the await: the set_config passes this hook too
-        await applyRlsSetting(open.tx, setting)
+      if (open && !open.system && setting?.kind === "tenant") {
+        if (open.bound === null) {
+          // Claimed synchronously, before any await, so a concurrent frame
+          // sees the binding.
+          open.bound = setting.tenantId
+          // The set_config is itself a query on the transaction and so passes
+          // this hook; it runs with a ready of its own, or it would wait for itself.
+          const applying: OpenTransaction = { ...open, ready: Promise.resolve() }
+          open.ready = openTransaction.run(applying, async () => await applyRlsSetting(open.tx, setting))
+        } else if (open.bound !== setting.tenantId) {
+          throw new RlsTransactionTenantError(open.bound, setting.tenantId)
+        }
       }
+      if (open) await open.ready
       return params.query(params.args)
     }
     if (!setting) return params.query(params.args)
@@ -134,7 +156,13 @@ export function withRlsTransactions<C extends BaseClient>(client: C): C {
     if (typeof arg === "function") {
       return client.$transaction(async (tx: RawCapable) => {
         if (setting) await applyRlsSetting(tx, setting)
-        return openTransaction.run({ tx, applied: settingKey(setting) }, () => arg(tx))
+        const open: OpenTransaction = {
+          tx,
+          system: setting?.kind === "bypass",
+          bound: setting?.kind === "tenant" ? setting.tenantId : null,
+          ready: Promise.resolve(),
+        }
+        return openTransaction.run(open, () => arg(tx))
       }, options)
     }
     if (!setting) return client.$transaction(arg, options)
