@@ -54,6 +54,8 @@ import {
   DisbursementPreconditionError,
 } from "@/lib/disbursement/preconditions"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
+import { PayoutProviderError } from "@/lib/payouts/types"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -805,6 +807,7 @@ export async function POST(
         bundle,
         calculation: disbursementCalc,
         maturityDate: disbursementMaturityDate,
+        payout,
       } = await prisma.$transaction(async (tx) => {
         // SERIALIZABLE alone can legally order this transaction before a
         // concurrent Client/Product/policy update even when that update
@@ -931,6 +934,8 @@ export async function POST(
             bureauMinScore: true,
             bureauBlockAdverse: true,
             bureauMaxAgeDays: true,
+            payoutsEngineEnabled: true,
+            payoutProvider: true,
           },
         })
         const [
@@ -1391,6 +1396,28 @@ export async function POST(
           throw new ApplicationAlreadyDisbursedError()
         }
 
+        // Payout channel (lib/payouts/disbursement.ts), dark unless the tenant
+        // turned it on. The payout row commits with the loan, unique per
+        // application; the provider is called only after the commit.
+        const payout = txTenantConfig?.payoutsEngineEnabled
+          ? await createDisbursementPayout(tx, {
+              tenantId: tenant.id,
+              applicationId: txApplication.id,
+              loanId: newLoan.id,
+              providerId: txTenantConfig.payoutProvider,
+              amountCents: disbursementCalc.disbursementAmount,
+              reference: newLoan.reference,
+              beneficiary: {
+                accountHolder: `${txApplication.client.firstName} ${txApplication.client.lastName}`.trim(),
+                bankName: lockedBankDetails.bank,
+                branchCode: lockedBankDetails.branchCode,
+                accountNumber: lockedBankDetails.accountNo,
+                accountType: lockedBankDetails.accountType,
+              },
+              user: { id: user.id, email: user.email },
+            })
+          : null
+
         // Auto-create CREDIT_LIFE bundle if eligible.
         // Belt-and-braces — the agreementSignedAt invariant is already
         // enforced upstream (early return ~line 53). Re-asserting at the
@@ -1685,8 +1712,18 @@ export async function POST(
           bundle,
           calculation: disbursementCalc,
           maturityDate: lockedMaturityDate,
+          payout,
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+      // Committed: now, and only now, ask the provider to pay. Never throws.
+      const payoutState = payout
+        ? await sendDisbursementPayout(prisma, {
+            tenantId: tenant.id,
+            payoutId: payout.id,
+            actor: { id: user.id, email: user.email },
+          })
+        : null
 
       if (bundle.kind === "bundled") {
         // issue + track the FAIS / PPR product disclosure for the
@@ -1814,7 +1851,12 @@ export async function POST(
       // Return JSON for fetch() calls, redirect for form POST
       const contentType2 = req.headers.get("content-type") ?? ""
       if (contentType2.includes("application/json")) {
-        return NextResponse.json({ success: true, loanId: loan.id, loanRef: loan.reference })
+        return NextResponse.json({
+          success: true,
+          loanId: loan.id,
+          loanRef: loan.reference,
+          ...(payoutState ? { payout: payoutState } : {}),
+        })
       }
       return NextResponse.redirect(
         new URL(`/loans/${loan.id}`, req.url),
@@ -1844,7 +1886,8 @@ export async function POST(
     if (
       error instanceof DisbursementPreconditionError ||
       error instanceof DisbursementKycError ||
-      error instanceof DisbursementEvidenceChangedError
+      error instanceof DisbursementEvidenceChangedError ||
+      error instanceof PayoutProviderError
     ) {
       // The evidence-changed 409 is a compliance refusal too: the agreement
       // bytes, affordability evidence, bank details or mandate moved between
@@ -1855,7 +1898,9 @@ export async function POST(
           ? (["composite_kyc", 422] as const)
           : error instanceof DisbursementEvidenceChangedError
             ? ([`evidence_changed:${error.reason}`, 409] as const)
-            : ([error.precondition, 422] as const)
+            : error instanceof PayoutProviderError
+              ? ([`payout_channel:${error.code}`, 422] as const)
+              : ([error.precondition, 422] as const)
       await auditRefusal({
         action: AuditAction.LOAN_DISBURSEMENT_REFUSED,
         entity: "LoanApplication",
@@ -1873,6 +1918,15 @@ export async function POST(
           error: `Cannot disburse: ${error.message}`,
           disbursementPrecondition: error.precondition,
           preconditionEvidence: error.evidence,
+        },
+        { status: 422 },
+      )
+    }
+    if (error instanceof PayoutProviderError) {
+      return NextResponse.json(
+        {
+          error: `Cannot disburse: the payout channel cannot pay. ${error.message}. No funds moved.`,
+          disbursementPrecondition: "payout_channel",
         },
         { status: 422 },
       )

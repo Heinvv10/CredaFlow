@@ -83,6 +83,12 @@ const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
     sandboxEnvVar: null,
     sandboxSafeValues: [],
   },
+  /** The fixture payout channel (lib/payouts/providers/simulated.ts): it
+   *  reports money paid that never moved. */
+  "simulated-payout": {
+    sandboxEnvVar: null,
+    sandboxSafeValues: [],
+  },
 } as const
 
 export type GuardedIntegration = keyof typeof SIMULATION_FORBIDDEN_ON_DEPLOYED

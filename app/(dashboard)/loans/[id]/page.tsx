@@ -26,6 +26,8 @@ import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
+import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
+import { loadPayoutView } from "@/lib/payouts/view"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -98,6 +100,7 @@ export default async function LoanDetailPage(
   const nextPayment = loan.repaymentSchedule.find(s => s.status === "PENDING" || s.status === "PARTIAL")
   const dunningEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
   const section129Availability = await getSection129IssuanceAvailability(tenantId, loan.id)
+  const payout = await loadPayoutView(tenantId, loan.id)
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -183,6 +186,8 @@ export default async function LoanDetailPage(
               </div>
             </div>
           </DataPanel>
+
+          {payout && <PayoutStatusPanel payout={payout} canAct={canManageCharges} />}
 
           <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={loan.status === "ACTIVE"} />
         </div>
