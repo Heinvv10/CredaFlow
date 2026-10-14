@@ -27,7 +27,8 @@ weekdays. Without it, files that need the vision reader are counted SKIPPED.
   by the text method at least 95% of the time (v1 goal §8.1), and so do each of
   Capitec, FNB, Nedbank and ABSA on its own (`TEXT_GATES` in `run.ts`). Standard
   Bank and Discovery are reported per bank without a threshold (limited evidence).
-- None of those raises BALANCE_MISMATCH or RUNNING_BALANCE_BREAK (§8.3).
+- No bank-produced file of any profiled bank, Standard Bank and Discovery
+  included, raises BALANCE_MISMATCH or RUNNING_BALANCE_BREAK under TEXT.
 
 Every other authenticity signal is listed by document ID for a person to look
 at. Do not tune a signal away because it fires on a corpus file: that file may

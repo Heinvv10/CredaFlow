@@ -28,13 +28,15 @@ const DATE = /^\d{2}\/\d{2}\/\d{4}$/
 const PERIOD = /Statement period:[ \t]*(\d{2}\/\d{2}\/\d{4})[ \t]*[–-][ \t]*(\d{2}\/\d{2}\/\d{4})/
 
 function columnsOf(line: PdfWord[]): Record<Column, number> | null {
-  const text = lineText(line)
-  if (!/\bDate\b/.test(text) || !/\bDescription\b/.test(text)) return null
+  // The header line starts with its own labels: a description that happens to
+  // say "Date" and "Description" must not move the columns.
+  if (!/^(Tran list no )?Date Description\b/.test(lineText(line))) return null
   const debits = labelEdge(line, /^Debits$/)
   const credits = labelEdge(line, /^Credits$/)
   const balance = labelEdge(line, /^Balance$/)
   if (debits === null || credits === null || balance === null) return null
-  return { fees: labelEdge(line, /^Fees$/) ?? debits - 80, debits, credits, balance }
+  const fees = labelEdge(line, /^Fees$/)
+  return fees === null ? { debits, credits, balance } as Record<Column, number> : { fees, debits, credits, balance }
 }
 
 function readRow(line: PdfWord[], cols: Record<Column, number>, page: number): StatementTransaction | null {
@@ -43,17 +45,23 @@ function readRow(line: PdfWord[], cols: Record<Column, number>, page: number): S
   const date = isoFromDmy(line[dateAt].text)
   const { figures, words } = splitFigures(line.slice(dateAt + 1), (t) => FIGURE.test(t))
   const got: Partial<Record<Column, number>> = {}
+  const inDescription: string[] = []
   for (const f of figures) {
     const col = nearestColumn(f.xMax, cols)
     const cents = parseRandToCents(f.text)
-    if (!col || cents === null || got[col] !== undefined) return null
+    // A figure under no money column is part of the description ("INV 1,250.00").
+    if (!col) {
+      inDescription.push(f.text)
+      continue
+    }
+    if (cents === null || got[col] !== undefined) return null
     got[col] = cents
   }
   if (!date || (got.debits === undefined && got.credits === undefined)) return null
   return {
     date,
     // "*" marks a charge; it is not part of the description.
-    description: words.filter((w) => w.text !== "*").map((w) => w.text).join(" "),
+    description: [...words.filter((w) => w.text !== "*").map((w) => w.text), ...inDescription].join(" "),
     amountCents: (got.credits ?? 0) - Math.abs(got.debits ?? 0),
     balanceCents: got.balance ?? null,
     page,

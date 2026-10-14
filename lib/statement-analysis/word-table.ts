@@ -29,7 +29,10 @@ const FIGURE_GAP_PT = 4
  * A statement line holds a few dozen words. A longer one is not statement text,
  * and is skipped like an over-long `-layout` line (layout.ts MAX_LINE_CHARS).
  */
-export const MAX_LINE_WORDS = 200
+const MAX_LINE_WORDS = 200
+/** The most words one figure prints as ("-R" "1" "234" "567.89"), and the longest one of them. */
+const MAX_FIGURE_WORDS = 5
+const MAX_FIGURE_WORD_CHARS = 16
 
 /**
  * Splits a line into the figures `isFigure` accepts and the remaining words.
@@ -42,11 +45,13 @@ export function splitFigures(line: PdfWord[], isFigure: (text: string) => boolea
   const used = new Set<number>()
   const figures: Figure[] = []
   for (let end = line.length - 1; end >= 0; end--) {
-    if (used.has(end) || !/\d[.,]\d{2}-?$/.test(line[end].text)) continue
+    if (used.has(end) || line[end].text.length > MAX_FIGURE_WORD_CHARS || !/\d[.,]\d{2}-?$/.test(line[end].text)) continue
     let best = -1
     let text = line[end].text
     if (isFigure(text)) best = end
-    for (let start = end - 1; start >= 0 && !used.has(start) && line[start + 1].xMin - line[start].xMax < FIGURE_GAP_PT; start--) {
+    const first = Math.max(0, end - MAX_FIGURE_WORDS + 1)
+    for (let start = end - 1; start >= first && !used.has(start) && line[start].text.length <= MAX_FIGURE_WORD_CHARS
+      && line[start + 1].xMin - line[start].xMax < FIGURE_GAP_PT; start--) {
       text = `${line[start].text} ${text}`
       if (isFigure(text)) best = start
     }
@@ -58,7 +63,7 @@ export function splitFigures(line: PdfWord[], isFigure: (text: string) => boolea
 }
 
 /** How far (pt) a figure's right edge may sit from its column's. */
-export const COLUMN_SLACK_PT = 30
+const COLUMN_SLACK_PT = 30
 
 /** The column whose right edge is nearest `x`, within COLUMN_SLACK_PT. */
 export function nearestColumn<K extends string>(x: number, cols: Record<K, number>): K | null {

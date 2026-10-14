@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs"
 import { loadCorpus } from "@/lib/statement-analysis/accuracy/run"
 import { analyseStatement } from "@/lib/statement-analysis/analyse"
+import { softwareName } from "@/lib/statement-analysis/accuracy/software-name"
 import { checkBalance } from "@/lib/statement-analysis/balance-check"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
 
@@ -40,7 +41,7 @@ async function main() {
     const tx = r.read?.transactions ?? []
     const check = r.read ? checkBalance(r.read) : null
     const out = [
-      f.id, r.method, r.status, `producer=${(r.authenticity.producer ?? "-").slice(0, 24)}`, `rows=${tx.length}`,
+      f.id, r.method, r.status, `producer=${softwareName(r.authenticity.producer).slice(0, 24)}`, `rows=${tx.length}`,
       `pages=${new Set(tx.map((t) => t.page)).size}`, `opening=${r.read?.openingBalanceCents != null}`,
       `closing=${r.read?.closingBalanceCents != null}`, `check=${r.balanceCheck}`, `diffShape=${shape(r.balanceDiffCents)}`,
       `holder=${r.read?.accountHolderName ? r.read.accountHolderName.replace(/[A-Za-z]/g, "a").replace(/\d/g, "9") : "null"}`,
@@ -51,7 +52,7 @@ async function main() {
     for (const i of check?.breaks.slice(0, 5) ?? []) {
       const prev = i > 0 ? tx[i - 1].balanceCents : r.read!.openingBalanceCents
       const gap = prev === null || tx[i].balanceCents === null ? null : tx[i].balanceCents! - prev - tx[i].amountCents
-      process.stdout.write(`  break row=${i} page=${tx[i].page} date=${tx[i].date.slice(5)} gapShape=${shape(gap)}`)
+      process.stdout.write(`  break row=${i} page=${tx[i].page} gapShape=${shape(gap)}`)
       for (let j = Math.max(0, i - 2); j <= Math.min(tx.length - 1, i + 1); j++) process.stdout.write(` | ${j}: ${shape(tx[j].amountCents)} / ${shape(tx[j].balanceCents)}`)
       // Relations only, no values: what kind of misread or bank quirk this is.
       const next = tx[i + 1]
@@ -64,6 +65,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : "failed")
+  // Not the message: a file-system error carries the corpus path.
+  console.error(`failed: ${err instanceof Error ? err.name : "unknown"}`)
   process.exit(1)
 })

@@ -78,7 +78,7 @@ export function absaLines(s: SynthStatement, opts: BuildOptions = {}): string[][
     ...s.transactions.map((t, i) => `${pad(t.date, 13)}${pad(t.description, 52)}${lpad(r(amounts[i]), 14)}${lpad(r(bal[i]), 16)}`),
     `${pad("Balance Carried Forward", 79)}${lpad(r(closing), 16)}`,
   ]
-  return paginate(head, header, rows, ["", "2026-10-01 08:00:00   www.absa.co.za   Synthetic fixture, not a real statement"])
+  return paginate(head, header, rows, ["", "2026-10-01 08:00:00   Page 1 of 1", "www.absa.co.za   Synthetic fixture, not a real statement"])
 }
 
 /** ABSA's eStatement: d Mon yyyy dates, comma decimals, a trailing minus on debits, charges on sub-lines. */
@@ -108,7 +108,7 @@ export function absaEstatementLines(s: SynthStatement, opts: BuildOptions = {}):
 }
 
 export function standardBankLines(s: SynthStatement, opts: BuildOptions = {}): string[][] {
-  const { amounts, bal, closing } = printed(s, opts)
+  const { amounts, bal } = printed(s, opts)
   const signed = (c: number) => `${c < 0 ? "-" : ""}${plain(c)}`
   const head = [
     pad("", 110) + "Website: www.standardbank.co.za",
@@ -125,7 +125,9 @@ export function standardBankLines(s: SynthStatement, opts: BuildOptions = {}): s
       `${lpad(amounts[i] > 0 ? signed(amounts[i]) : "", 16)}${lpad(signed(bal[i]), 16)}`)
     rows.push(`  ${pad("", 14)}${amounts[i] < 0 ? "SYNTH PURCHASE" : "SYNTH PAYMENT FROM"}`, "")
   })
-  rows.push(`  ${pad("", 14)}${pad("STATEMENT CLOSING BALANCE", 54)}${lpad("", 32)}${lpad(signed(closing), 16)}`)
+  // The bank prints totals, not a closing balance (the misprint is in the rows, not the totals).
+  const total = (sign: number) => s.transactions.reduce((sum, t) => sum + (Math.sign(t.amountCents) === sign ? t.amountCents : 0), 0)
+  rows.push("Statement Summary", `   ${pad("Payments", 30)}-R${plain(total(-1))}`, `   ${pad("Deposits", 30)}R${plain(total(1))}`)
   return paginate(head, header, rows, ["", "The Standard Bank of South Africa Limited. Synthetic fixture, not a real statement"])
 }
 

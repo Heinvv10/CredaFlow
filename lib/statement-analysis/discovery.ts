@@ -8,12 +8,13 @@
  * Credit columns, the balance with a trailing minus when overdrawn. No opening
  * or closing balance is printed: the opening is derived from the first row
  * (its balance less its amount), so that one row cannot be checked by
- * arithmetic; the closing is the last row's balance.
+ * arithmetic (OPENING_DERIVED sends the statement to a person); the closing is
+ * the last row's balance.
  *
  * Rows are read from word boxes: the table is set in a proportional font.
  */
 import { parseRandToCents } from "./money"
-import { lineMatch } from "./layout"
+import { lineMatch, validIso } from "./layout"
 import type { PdfWord } from "./pdf-tools"
 import type { StatementRead, StatementTransaction } from "./types"
 import { labelEdge, lineText, nearestColumn, splitFigures, wordLines } from "./word-table"
@@ -28,7 +29,7 @@ function cents(text: string): number | null {
   return v === null ? null : text.endsWith("-") ? -v : v
 }
 
-const validDate = (iso: string) => (Number.isNaN(Date.parse(iso)) ? null : iso)
+const validDate = (iso: string) => validIso(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), Number(iso.slice(8, 10)))
 
 function columnsOf(line: PdfWord[]): Record<Column, number> | null {
   if (!/^Date Description\b/.test(lineText(line))) return null
@@ -57,7 +58,7 @@ function readRows(words: PdfWord[][]): StatementTransaction[] {
       rows.push({
         date,
         description: text.map((w) => w.text).join(" "),
-        amountCents: (got.credit ?? 0) - (got.debit ?? 0),
+        amountCents: Math.abs(got.credit ?? 0) - Math.abs(got.debit ?? 0),
         balanceCents: got.balance ?? null,
         page: p + 1,
       })
@@ -84,5 +85,6 @@ export function readDiscovery(pages: string[], words: PdfWord[][]): StatementRea
     openingBalanceCents: first?.balanceCents != null ? first.balanceCents - first.amountCents : null,
     closingBalanceCents: last?.balanceCents ?? null,
     transactions,
+    openingDerived: true,
   }
 }

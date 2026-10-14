@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs"
 import { loadCorpus } from "@/lib/statement-analysis/accuracy/run"
 import { analyseStatement } from "@/lib/statement-analysis/analyse"
+import { softwareName } from "@/lib/statement-analysis/accuracy/software-name"
 import { checkBalance } from "@/lib/statement-analysis/balance-check"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
 
@@ -45,11 +46,12 @@ async function main() {
       return prev !== null && tx[i].balanceCents === prev
     }).length
     const cell = (v: string | null) => (v ?? "—").replace(/\|/g, "/").slice(0, 40)
-    process.stdout.write(`| ${id} | ${r.bank ?? "—"} | ${r.method} | ${cell(a.producer)} | ${cell(a.creator)} | ${a.incrementalUpdates} | ${cell(a.createdAt)} | ${cell(a.modifiedAt)} | ${r.balanceDiffCents ?? "—"} | ${breaks.length} | ${unpostedLike} |\n`)
+    process.stdout.write(`| ${id} | ${r.bank ?? "—"} | ${r.method} | ${softwareName(a.producer)} | ${softwareName(a.creator)} | ${a.incrementalUpdates} | ${cell(a.createdAt)} | ${cell(a.modifiedAt)} | ${r.balanceDiffCents ?? "—"} | ${breaks.length} | ${unpostedLike} |\n`)
   }
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : "failed")
+  // Not the message: a file-system error carries the corpus path.
+  console.error(`failed: ${err instanceof Error ? err.name : "unknown"}`)
   process.exit(1)
 })

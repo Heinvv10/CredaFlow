@@ -19,6 +19,14 @@ const MARKERS: Array<[BankCode, RegExp]> = [
 ]
 
 export function detectBank(text: string): BankCode | null {
-  for (const [bank, marker] of MARKERS) if (marker.test(text)) return bank
-  return null
+  return detectBanks(text)[0] ?? null
+}
+
+/**
+ * Every bank whose marker the text carries, in marker order. A statement can
+ * name another bank in a transaction ("DISCOVERY BANK" as a payee), so the
+ * pipeline tries each one's text reader and keeps the one that reads.
+ */
+export function detectBanks(text: string): BankCode[] {
+  return MARKERS.filter(([, marker]) => marker.test(text)).map(([bank]) => bank)
 }

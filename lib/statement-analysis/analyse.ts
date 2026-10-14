@@ -8,7 +8,7 @@
 import { readAbsa } from "./absa"
 import { checkBalance } from "./balance-check"
 import { readCapitec } from "./capitec"
-import { detectBank } from "./detect-bank"
+import { detectBanks } from "./detect-bank"
 import { readDiscovery } from "./discovery"
 import { readFnb } from "./fnb"
 import { readNedbank } from "./nedbank"
@@ -101,14 +101,17 @@ export async function analyseStatement(
     incrementalUpdates: countIncrementalUpdates(bytes),
     signals: [...(hasText ? [] : ["TEXT_LAYER_ABSENT"]), ...(pdf.info.metadataAmbiguous ? ["METADATA_AMBIGUOUS"] : [])],
   }
-  const bank = hasText ? detectBank(text) : null
-
-  const textReader = bank ? TEXT_READERS[bank] : undefined
-  if (textReader) {
-    const read = textReader(pdf)
-    if (read && read.transactions.length > 0) return result("TEXT", bank, read, authenticity)
-    authenticity.signals.push("TEXT_LAYOUT_UNRECOGNISED")
+  const banks = hasText ? detectBanks(text) : []
+  // The first bank whose reader reads the text is the statement's; with none, the first marker's.
+  for (const candidate of banks) {
+    const read = TEXT_READERS[candidate]?.(pdf)
+    if (read && read.transactions.length > 0) {
+      if (read.openingDerived) authenticity.signals.push("OPENING_DERIVED")
+      return result("TEXT", candidate, read, authenticity)
+    }
   }
+  const bank = banks[0] ?? null
+  if (bank && TEXT_READERS[bank]) authenticity.signals.push("TEXT_LAYOUT_UNRECOGNISED")
 
   if (pdf.info.pages > VLM_MAX_PAGES) return result("VLM", bank, null, authenticity, "UNSUPPORTED")
   if (!opts.allowVlm) throw new VlmUnavailableError("vision read deferred")

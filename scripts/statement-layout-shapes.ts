@@ -17,6 +17,7 @@
  */
 import { readFileSync } from "node:fs"
 import { loadCorpus } from "@/lib/statement-analysis/accuracy/run"
+import { softwareName } from "@/lib/statement-analysis/accuracy/software-name"
 import { detectBank } from "@/lib/statement-analysis/detect-bank"
 import { readPdf, type PdfContent } from "@/lib/statement-analysis/pdf-tools"
 
@@ -62,7 +63,11 @@ async function main() {
   // One word set per account. The account key is the smallest 9+ digit run on
   // page 1 that most of the bank's files do not share (those are its phone and
   // registration numbers); a file without one is its own account.
-  const runsOf = (pdf: PdfContent) => new Set((pdf.pages[0] ?? "").match(/\d{9,}/g) ?? [])
+  // Some banks print the account number in groups ("12 3456 7890"): count those runs too.
+  const runsOf = (pdf: PdfContent) => {
+    const page1 = pdf.pages[0] ?? ""
+    return new Set([...(page1.match(/\d{9,}/g) ?? []), ...(page1.match(/\d+(?: \d+)+/g) ?? []).map((r) => r.replace(/ /g, "")).filter((r) => r.length >= 9)])
+  }
   const runCounts = new Map<string, number>()
   for (const { pdf } of files) for (const r of runsOf(pdf)) runCounts.set(r, (runCounts.get(r) ?? 0) + 1)
   const accounts = new Map<string, Set<string>>()
@@ -77,7 +82,7 @@ async function main() {
   const vocab = new Set([...counts].filter(([, n]) => n >= Math.max(MIN_LABEL_ACCOUNTS, accounts.size * BOILERPLATE_SHARE)).map(([w]) => w))
 
   process.stdout.write(`# ${bank}: ${files.length} PDFs, ${accounts.size} accounts\n`)
-  for (const { id, pdf } of files) process.stdout.write(`${id} pages=${pdf.info.pages} producer=${pdf.info.producer ?? "-"} creator=${pdf.info.creator ?? "-"}\n`)
+  for (const { id, pdf } of files) process.stdout.write(`${id} pages=${pdf.info.pages} producer=${softwareName(pdf.info.producer)} creator=${softwareName(pdf.info.creator)}\n`)
   process.stdout.write(`\n# labels (on ≥${BOILERPLATE_SHARE * 100}% of accounts)\n${[...vocab].sort().join(" ")}\n`)
 
   // Labels come from all of the bank's files; --producer only narrows what is shown.
@@ -97,6 +102,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : "failed")
+  // Not the message: a file-system error carries the corpus path.
+  console.error(`failed: ${err instanceof Error ? err.name : "unknown"}`)
   process.exit(1)
 })

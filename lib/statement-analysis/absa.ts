@@ -8,7 +8,8 @@
  * "Balance Brought Forward" / "Balance Carried Forward" lines. The brought-
  * forward line prints no figure, so the opening balance is derived from the
  * first row (its balance less its amount): that one row cannot be checked by
- * arithmetic, every later row can. Pending and declined fees print with an
+ * arithmetic (OPENING_DERIVED sends the statement to a person), every later
+ * row can. The closing is the last "Balance Carried Forward" figure only. Pending and declined fees print with an
  * amount but leave the balance where it was: they are `nonPosting` (as FNB's
  * collection attempts) when the balance confirms it (markNonPosting). Read from
  * `-layout` text: the R prefix and
@@ -20,19 +21,22 @@
  * print on the undated lines below it, each with its own amount. Read from
  * word boxes (absa-estatement.ts).
  */
-import { markNonPosting, readAbsaEstatement } from "./absa-estatement"
+import { readAbsaEstatement } from "./absa-estatement"
+import { markNotLevied } from "./absa-not-levied"
 import { parseRandToCents } from "./money"
-import { leftSegment, lineMatch, MAX_LINE_CHARS, tokens } from "./layout"
+import { leftSegment, lineMatch, MAX_LINE_CHARS, tokens, validIso } from "./layout"
 import type { PdfWord } from "./pdf-tools"
 import type { StatementRead, StatementTransaction } from "./types"
 
 const FIGURE = /-?R-?\d{1,3}(?: \d{3})*\.\d{2}/g
 const ROW = /^\s{0,4}(\d{4}-\d{2}-\d{2})\s+(.*)$/
 const HEADER = /^\s*Date\s+Transaction Description\s+Amount\s+Balance/
-const TABLE_END = /Balance Carried Forward|Page\s+\d+\s+of|absa\.co\.za/
+const TABLE_END = /Balance Carried Forward|Page\s+\d+\s+of\s+\d+/
 const PERIOD = /Statement for the Period[ \t]+(\d{4}-\d{2}-\d{2})[ \t]+-[ \t]+(\d{4}-\d{2}-\d{2})/
 
-const validDate = (iso: string) => (Number.isNaN(Date.parse(iso)) ? null : iso)
+const validDate = (iso: string) => validIso(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), Number(iso.slice(8, 10)))
+/** A wrapped description stops growing here: statement descriptions are a line or two. */
+const MAX_DESCRIPTION_CHARS = 300
 
 function readRows(pages: string[]): StatementTransaction[] {
   const rows: StatementTransaction[] = []
@@ -53,8 +57,9 @@ function readRows(pages: string[]): StatementTransaction[] {
       const figures = tokens(line, FIGURE)
       if (!m) {
         // A wrapped description: belongs to the row above, carries no money.
-        if (rows.length && line.trim() && figures.length === 0 && !/Balance Brought Forward/.test(line)) {
-          rows[rows.length - 1].description += ` ${line.trim()}`
+        const last = rows[rows.length - 1]
+        if (last && line.trim() && figures.length === 0 && !/Balance Brought Forward/.test(line) && last.description.length < MAX_DESCRIPTION_CHARS) {
+          last.description += ` ${line.trim()}`
         }
         continue
       }
@@ -63,7 +68,8 @@ function readRows(pages: string[]): StatementTransaction[] {
       const amount = parseRandToCents(figures[figures.length - 2].text)
       const balance = parseRandToCents(figures[figures.length - 1].text)
       if (amount === null || balance === null) continue
-      const descEnd = line.lastIndexOf(figures[figures.length - 2].text)
+      const amountToken = figures[figures.length - 2]
+      const descEnd = amountToken.end - amountToken.text.length
       rows.push({ date, description: line.slice(line.indexOf(m[2]), descEnd).trim(), amountCents: amount, balanceCents: balance, page: p + 1 })
     }
   })
@@ -97,8 +103,9 @@ function readTransactionHistory(pages: string[]): StatementRead | null {
   const first = rows[0]
   // The opening is derived from the first row, so that row is never one to skip.
   const opening = first?.balanceCents != null ? first.balanceCents - first.amountCents : null
-  const closing = carriedForward(all) ?? rows[rows.length - 1]?.balanceCents ?? null
-  const transactions = [...rows.slice(0, 1), ...markNonPosting(rows.slice(1), first?.balanceCents ?? null, closing)]
+  // No printed closing, no closing: a missing "Balance Carried Forward" leaves the read unverified.
+  const closing = carriedForward(all)
+  const transactions = [...rows.slice(0, 1), ...markNotLevied(rows.slice(1), first?.balanceCents ?? null, closing)]
   const { holder, last4 } = holderAndAccount(pages[0] ?? "")
   return {
     accountHolderName: holder,
@@ -108,6 +115,7 @@ function readTransactionHistory(pages: string[]): StatementRead | null {
     openingBalanceCents: opening,
     closingBalanceCents: closing,
     transactions,
+    openingDerived: true,
   }
 }
 

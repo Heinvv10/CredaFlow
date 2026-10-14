@@ -9,6 +9,7 @@
  * running balance where the bank prints one. Figures use comma decimals and a
  * trailing minus for a debit or an overdrawn balance: "1 234,56-".
  */
+import { markNotLevied } from "./absa-not-levied"
 import { parseRandToCents } from "./money"
 import { isoFromDayMonthYear, lineMatch } from "./layout"
 import type { PdfWord } from "./pdf-tools"
@@ -21,40 +22,9 @@ const PERIOD = /^[ \t]*(\d{1,2} [A-Za-z]{3} \d{4}) to (\d{1,2} [A-Za-z]{3} \d{4}
 const CLOSING = /Balance on \d{1,2} [A-Za-z]{3} \d{4}[ \t]+(\d{1,3}(?: \d{3})*,\d{2}-?)/
 
 /** "1 234,56-" → −123456 cents. */
-export function commaCents(text: string): number | null {
+function commaCents(text: string): number | null {
   const v = parseRandToCents(text.replace(/-$/, "").replace(",", "."))
   return v === null ? null : text.endsWith("-") ? -v : v
-}
-
-/**
- * Fees ABSA prints but has not levied: "( PENDING )" and "DECLINED FEE". The
- * words alone are not enough — a client can type them into a reference — so
- * the balance must confirm it. Rows are taken in runs ending at the next
- * printed balance (or the closing balance): the run's marked rows are
- * non-posting only when that balance is reached without them and not with
- * them. Otherwise nothing is marked and the balance check reports the run.
- */
-const NOT_LEVIED = /\(\s*PENDING\s*\)|\bDECLINED FEE\b/i
-
-export function markNonPosting(rows: StatementTransaction[], opening: number | null, closing: number | null): StatementTransaction[] {
-  const out = [...rows]
-  let base = opening
-  let start = 0
-  for (let i = 0; i < rows.length; i++) {
-    const last = i === rows.length - 1
-    const anchor = rows[i].balanceCents ?? (last ? closing : null)
-    if (anchor === null) continue
-    const run = rows.slice(start, i + 1)
-    const marked = run.map((t) => NOT_LEVIED.test(t.description) && t.amountCents !== 0)
-    const all = run.reduce((sum, t) => sum + t.amountCents, 0)
-    const posted = run.reduce((sum, t, j) => sum + (marked[j] ? 0 : t.amountCents), 0)
-    if (base !== null && marked.some(Boolean) && base + all !== anchor && base + posted === anchor) {
-      marked.forEach((m, j) => { if (m) out[start + j] = { ...run[j], nonPosting: true } })
-    }
-    base = anchor
-    start = i + 1
-  }
-  return out
 }
 
 type Columns = { amount: number; balance: number; date: number }
@@ -128,6 +98,6 @@ export function readAbsaEstatement(pages: string[], words: PdfWord[][]): Stateme
     periodEnd: isoFromDayMonthYear(period[2]),
     openingBalanceCents: opening,
     closingBalanceCents: closingCents,
-    transactions: markNonPosting(rows, opening, closingCents),
+    transactions: markNotLevied(rows, opening, closingCents),
   }
 }

@@ -5,6 +5,7 @@
  * Every concern about a statement is its own flag: one code must not shadow
  * another, or clearing the first would leave the second never raised.
  */
+import { producerExpected } from "./document-authenticity"
 import { EXPECTED_PRODUCERS } from "./policy"
 import { statementKey, type ApplicationFacts, type FlagCandidate, type StatementFacts } from "./types"
 
@@ -57,13 +58,25 @@ function review(s: StatementFacts): FlagCandidate[] {
       evidence: { ...evidence, holderRead: !!s.read?.accountHolderName, periodRead: !!(s.read?.periodStart && s.read.periodEnd) },
     })
   }
+  // The bank prints no opening balance, so the first row is checked by nothing:
+  // a salary edited there reconciles. A person compares it with the original.
+  if (s.authenticity?.signals.includes("OPENING_DERIVED")) {
+    out.push({
+      ...base,
+      code: "FIRST_ROW_UNVERIFIED",
+      summary: "This bank prints no opening balance, so the statement's first transaction cannot be checked by arithmetic. Compare it with the bank's original or the previous statement.",
+      evidence: { ...evidence, firstRow: s.read?.transactions[0] ? { date: s.read.transactions[0].date, amountCents: s.read.transactions[0].amountCents } : null },
+    })
+  }
   // A photo, a scan, an unrecognised layout or an unprofiled bank's PDF has
   // had no file-level authenticity check at all: an edited image balances too.
   // Nor has a PDF that names no producer or creator: some banks (Discovery's
   // app) write none, so its producer check passes, but so does any file
   // stripped of its metadata.
   const signals = s.authenticity?.signals ?? []
+  // Only where the bank's profile accepts no metadata: elsewhere PRODUCER_UNEXPECTED already says it.
   const noMetadata = !!s.authenticity && !s.authenticity.producer && !s.authenticity.creator
+    && !!s.bank && !!EXPECTED_PRODUCERS[s.bank] && producerExpected(s.bank, null, null)
   if (signals.some((x) => UNCHECKABLE.includes(x)) || !s.bank || !EXPECTED_PRODUCERS[s.bank] || noMetadata) {
     out.push({
       ...base,
