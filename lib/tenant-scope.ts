@@ -76,6 +76,7 @@ export const TENANT_SCOPED_MODELS = [
   // its upload request has returned, so every query passes it explicitly.
   "StatementAnalysis",
   "ApplicationCheckFlag",
+  "KycOverrideRequest",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]
