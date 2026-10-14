@@ -60,7 +60,7 @@ describe("bestMarketValuation", () => {
     await bestMarketValuation(t as never, "t1", "a1", "2027-06-30")
     expect(t.assetValuation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: "t1", assetId: "a1", source: { in: ["ASSESSOR", "DEALER"] }, valuedOn: { gte: dbDate("2027-06-20") } },
-      orderBy: [{ amountCents: "desc" }, { valuedOn: "desc" }],
+      orderBy: [{ amountCents: "desc" }, { valuedOn: "desc" }, { id: "asc" }],
     }))
   })
 })
