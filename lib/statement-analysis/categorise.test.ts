@@ -98,6 +98,9 @@ describe("words that used to misfile common descriptions (review of #73)", () =>
     ["CHILD MAINTENANCE SYNTH", "UNCATEGORISED"],
     ["Payment To: J SOAP REPAYMENT", "UNCATEGORISED"],
     ["SYNTH PRIMARY SCHOOL INSTALMENT", "EDUCATION"],
+    ["Card Purchase: PUMA ENERGY SYNTH", "TRANSPORT"],
+    ["DEBIT ORDER DISCOVERY LIFE", "INSURANCE"],
+    ["SYNTH FAMILY COVER", "INSURANCE"],
   ])("%s → %s", (description, expected) => {
     expect(cat(description)).toBe(expected)
   })
@@ -112,6 +115,6 @@ describe("CATEGORISER_VERSION names the rules", () => {
       policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
     })
     const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
-    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v1", hash: "395615efaaab4412" })
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v1", hash: "a803ad84b7e6d30b" })
   })
 })

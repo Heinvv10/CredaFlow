@@ -86,4 +86,21 @@ describe("computeInsights", () => {
   it("has no gap without a declared figure", () => {
     expect(computeInsights([statement(july)], { clientName: null, declaredExpensesCents: null }).gapCents).toBeNull()
   })
+
+  it("does not merge two statements of one bank that print no account number: they may be two accounts", () => {
+    const a = statement([row("2026-07-02", "Card Purchase: SHOPRITE", -100_000)], { accountNumberLast4: null })
+    const b = statement([row("2026-07-02", "Card Purchase: SHOPRITE", -100_000)], { accountNumberLast4: null }, { documentId: "doc-2" })
+    expect(computeInsights([a, b], ctx).months[0].outCents).toBe(200_000)
+  })
+
+  it("shows no gap under four weeks of coverage", () => {
+    const ins = computeInsights([statement(july, { periodEnd: "2026-07-20" })], ctx)
+    expect(ins.enoughCoverage).toBe(false)
+    expect(ins.gapCents).toBeNull()
+  })
+
+  it("takes each month's earliest salary day, whatever order the rows print in", () => {
+    const rows = [row("2026-07-28", "SALARY SYNTHCO", 100_000), row("2026-07-25", "SALARY SYNTHCO", 900_000)]
+    expect(computeInsights([statement(rows)], ctx).salary.payDays).toEqual([25])
+  })
 })

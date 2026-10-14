@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-import { EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
 import { isLiving, LIVING_CATEGORIES, MONTH_DAYS, type Category } from "@/lib/statement-analysis/categories"
 import type { Insights } from "@/lib/statement-analysis/insights"
 import { formatCents } from "@/lib/statement-analysis/money"
@@ -59,7 +58,7 @@ function Living({ data }: { data: Payload }) {
       </div>
       {!data.enoughCoverage && (
         <p className="text-xs text-[var(--cf-text-muted)]">
-          Under {EXPENSE_MIN_COVERAGE_DAYS} days of reconciling statements: living spend is not compared with the declaration.
+          Under four weeks of reconciling statements: living spend is not compared with the declaration.
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

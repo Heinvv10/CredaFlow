@@ -111,8 +111,10 @@ function distinctRows(used: InsightStatement[]): StatementTransaction[] {
   const coveredTo = new Map<string, string>()
   const rows: StatementTransaction[] = []
   for (const s of [...used].sort((a, b) => (period(a.read)?.[0] ?? "").localeCompare(period(b.read)?.[0] ?? ""))) {
-    // Without the account number, a bank's statements are taken as one account: overlaps count once.
-    const account = `${s.bank}|${s.read.accountNumberLast4 ?? ""}`
+    // Without the account number each statement is its own account: two accounts
+    // merged would drop real spend (a missed referral); an overlap counted twice
+    // only over-refers, which an officer clears.
+    const account = `${s.bank}|${s.read.accountNumberLast4 ?? s.documentId}`
     const after = coveredTo.get(account)
     rows.push(...s.read.transactions.filter((t) => !t.nonPosting && (!after || t.date > after)))
     const end = period(s.read)?.[1]

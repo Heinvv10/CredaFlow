@@ -231,7 +231,7 @@ export function CreditChecksPanel({ applicationId, canClear, initialOpenCount, n
                   className="rounded-md border border-[var(--cf-border-subtle)] p-3"
                 >
                   <div className="flex items-center gap-2">
-                    <Badge variant={flag.status === "OPEN" ? "warning" : flag.status === "CLEARED" ? "success" : "secondary"}>
+                    <Badge className="shrink-0" variant={flag.status === "OPEN" ? "warning" : flag.status === "CLEARED" ? "success" : "secondary"}>
                       {flag.status === "OPEN" ? "Open" : flag.status === "CLEARED" ? "Cleared" : "Superseded"}
                     </Badge>
                     <span className="font-mono text-xs text-[var(--cf-text-muted)]">{flag.code}</span>

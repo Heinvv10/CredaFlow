@@ -53,6 +53,8 @@ describe("GET /api/applications/[id]/statement-export", () => {
     const tx = wb.getWorksheet("Transactions")!
     expect(JSON.stringify((tx.getRow(2).values as unknown[]).slice(1))).toBe(JSON.stringify([1, "2026-07-02", "Card Purchase: SHOPRITE", -845.5, 154.5, "FOOD", 1, "yes"]))
     expect(wb.getWorksheet("Monthly")!.getRow(2).getCell(1).value).toBe("2026-07")
+    // Money-out columns only: no income category can hold a debit.
+    expect((wb.getWorksheet("Monthly")!.getRow(1).values as unknown[]).join("|")).not.toMatch(/SALARY_INCOME|OTHER_INCOME/)
     expect(wb.getWorksheet("Summary")!.getRow(7).getCell(7).value).toBe("PASS")
   })
 

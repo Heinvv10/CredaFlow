@@ -126,7 +126,9 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * 90.0–90.5% over three runs, 2026-10-14). The check, its tests and the panel
  * figures ship. Before turning this on: pass the gate; supersede an older OPEN
  * LIVING_SPEND_ABOVE_DECLARED when its successor is raised (recompute.ts keeps
- * both today); and have the decide route's stale check compare monthlyExpenses.
+ * both today); have the decide route's stale check compare monthlyExpenses; and
+ * decide whether an explicit R0 declaration (stored as 0, so read as "not
+ * captured") should flag, e.g. from the apply route's declaredExpensesProvided.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 
