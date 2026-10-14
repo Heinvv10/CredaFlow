@@ -115,6 +115,25 @@ describe("bootstrapTenant", () => {
     expect(f.tables.auditLogs.every((a) => a.userEmail === "lender:bootstrap-tenant" && a.userId === null)).toBe(true)
   })
 
+  // PR #91 round 2: the CLI applies the same host rules as the console.
+  it("refuses a domain this deployment already serves (lib/config/tenant-domain.ts)", async () => {
+    vi.stubEnv("OPERATOR_APP_HOST", "console.platform.example")
+    try {
+      const f = createFakeDb()
+      expect(await refusal(run(f, config({ domain: "console.platform.example" })))).toBe("DOMAIN_RESERVED")
+      expect(f.tables.tenants).toHaveLength(0)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("refuses another lender's subdomain host as a domain, and a slug whose subdomain host is another lender's domain", async () => {
+    const f = createFakeDb({ tenants: [{ id: "t9", slug: "acme", name: "Acme", status: "ACTIVE", domain: "staging-lender.lenders.example" }] })
+    expect(await refusal(run(f, config({ domain: "acme.lenders.example" })))).toBe("DOMAIN_RESERVED")
+    expect(await refusal(run(f, config()))).toBe("SLUG_HOST_TAKEN")
+    expect(f.tables.tenants).toHaveLength(1)
+  })
+
   it("rolls the tenant back when an audit row cannot be written", async () => {
     const f = createFakeDb()
     f.tx.auditLog.create = (async () => {

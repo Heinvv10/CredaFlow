@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { withMaskedCredentials } from "@/lib/integrations/tenant-credentials"
 import { DEFAULT_TENANT_COLOURS, tenantColourErrors } from "@/lib/theme/tenant-colours"
-import { normaliseTenantDomain, tenantDomainRefusal } from "@/lib/config/tenant-domain"
+import { normaliseTenantDomain, tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
 import type { Session } from "next-auth"
 
 function isAuthorized(req: NextRequest, session: Session | null): boolean {
@@ -71,6 +71,8 @@ export async function POST(req: NextRequest) {
   if (!domain.ok) return NextResponse.json({ error: domain.error }, { status: 422 })
   const domainRefusal = domain.domain ? await tenantDomainRefusal(domain.domain, null) : null
   if (domainRefusal) return NextResponse.json({ error: domainRefusal }, { status: 422 })
+  const slugRefusal = await tenantSlugRefusal(body.slug)
+  if (slugRefusal) return NextResponse.json({ error: slugRefusal }, { status: 422 })
 
   const existing = await prisma.tenant.findUnique({ where: { slug: body.slug } })
   if (existing) {

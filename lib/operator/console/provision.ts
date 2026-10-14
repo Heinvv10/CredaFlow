@@ -16,7 +16,7 @@ import { parseTenantConfig } from "@/scripts/lender/tenant-config"
 import { bootstrapTenant, TenantBootstrapRefusal } from "@/scripts/lender/bootstrap-tenant"
 import type { OperatorPrincipal } from "../console-auth"
 import { emailInUse, INVITE_LINK_HOURS, issueAccountToken, lenderPasswordUrl, sendAccountLink, UNUSABLE_EMAIL, unusablePasswordHash } from "./account-links"
-import { normaliseTenantDomain, tenantDomainRefusal } from "@/lib/config/tenant-domain"
+import { normaliseTenantDomain, tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
 
 export type ProvisionResult =
   | { ok: true; tenantId: string; adminUserId: string; inviteSent: boolean }
@@ -49,6 +49,9 @@ export async function provisionLender(principal: OperatorPrincipal, body: unknow
   // Never a host the deployment or another lender already serves (B1).
   const domainRefusal = config.domain ? await tenantDomainRefusal(config.domain, null) : null
   if (domainRefusal) return { ok: false, status: 422, error: "The lender details are not valid", errors: [`domain: ${domainRefusal}`] }
+  // Nor may its subdomain host be another lender's domain (the reverse collision).
+  const slugRefusal = await tenantSlugRefusal(config.slug)
+  if (slugRefusal) return { ok: false, status: 422, error: "The lender details are not valid", errors: [slugRefusal] }
 
   // Create-only: the CLI treats an identical file as a no-op, the console never does.
   const [slugTaken, emailTaken] = await Promise.all([

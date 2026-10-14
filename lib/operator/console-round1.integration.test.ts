@@ -90,6 +90,19 @@ suite("operator console — PR #91 round 1, real database", () => {
     expect(await db.tenant.count({ where: { slug: { startsWith: `r1-${f.token}` } } })).toBe(0)
   })
 
+  it("B1 reverse (round 2): refuses a slug whose subdomain host is another lender's domain", async () => {
+    const slug = `r1-${f.token}-rev`
+    await db.tenant.update({ where: { id: f.b.tenantId }, data: { domain: `${slug}.lenders.example` } })
+    try {
+      const res = await statusAndBody(await provision(post(lenderBody({ slug }))))
+      expect(res.status).toBe(422)
+      expect(JSON.stringify(res.body.errors)).toContain(`${slug}.lenders.example`)
+      expect(await db.tenant.count({ where: { slug } })).toBe(0)
+    } finally {
+      await db.tenant.update({ where: { id: f.b.tenantId }, data: { domain: null } })
+    }
+  })
+
   it("B2 + S-L1: an existing email in another case is refused, with one generic answer for every case", async () => {
     const lenderAdminEmail = `admin-a-${f.token}@iso-it.invalid`.toUpperCase()
     const provisioned = await statusAndBody(await provision(post(lenderBody({ admin: { email: lenderAdminEmail, name: "X" } }))))

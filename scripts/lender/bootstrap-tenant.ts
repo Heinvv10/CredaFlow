@@ -8,11 +8,12 @@
 import type { Prisma, PrismaClient } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditDb } from "./audit-db"
+import { tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
 import { DATE_FIELDS, LENDER_IDENTITY_FIELDS, storedDateString } from "@/lib/config/identity-schema"
 import { TENANT_COLOUR_VARS } from "@/lib/theme/tenant-colours"
 import { FEATURE_COLUMNS, type TenantBootstrapConfig } from "./tenant-config"
 
-export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE"
+export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE" | "DOMAIN_RESERVED" | "SLUG_HOST_TAKEN"
 
 export class TenantBootstrapRefusal extends Error {
   readonly code: TenantRefusalCode
@@ -85,6 +86,13 @@ export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig
     if (c.domain && (await tx.tenant.findUnique({ where: { domain: c.domain } }))) {
       throw new TenantBootstrapRefusal("DOMAIN_IN_USE", `Domain ${c.domain} already belongs to another tenant.`)
     }
+    // The host rules the console and the admin API apply (lib/config/tenant-domain.ts):
+    // a domain outranks the slug in host resolution, so neither may take a host
+    // the deployment or another lender serves.
+    const domainRefusal = c.domain ? await tenantDomainRefusal(c.domain, null, tx) : null
+    if (domainRefusal) throw new TenantBootstrapRefusal("DOMAIN_RESERVED", domainRefusal)
+    const slugRefusal = await tenantSlugRefusal(c.slug, tx)
+    if (slugRefusal) throw new TenantBootstrapRefusal("SLUG_HOST_TAKEN", slugRefusal)
     if (opts.dryRun) return { status: "dry-run-create", tenantId: null }
 
     const created = await tx.tenant.create({
