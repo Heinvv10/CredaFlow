@@ -6,6 +6,8 @@ import { DocumentsPanel } from "@/components/asset-finance/DocumentsPanel"
 import { FinancialsEvidencePanel } from "@/components/asset-finance/FinancialsEvidencePanel"
 import { EntityRecordsTables } from "@/components/asset-finance/EntityRecordsTables"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
+import { hasMinRole } from "@/lib/auth-guards"
+import { ScreeningPanel } from "@/components/clients/ScreeningPanel"
 import {
   loadEntityCore,
   loadEntityDocuments,
@@ -16,7 +18,7 @@ import { FINANCIALS_EVIDENCE_TYPES, STAFF_UPLOAD_DOC_TYPES } from "@/lib/asset-f
 import { ENTITY_TYPE_LABELS } from "@/lib/asset-finance/labels"
 
 export default async function EntityPage({ params }: { params: Promise<{ id: string }> }) {
-  const { tenantId, canManage } = await requireAssetFinanceStaffPage()
+  const { tenantId, canManage, user } = await requireAssetFinanceStaffPage()
   const { id } = await params
   const entity = await loadEntityCore(tenantId, id)
   if (!entity) notFound()
@@ -40,6 +42,11 @@ export default async function EntityPage({ params }: { params: Promise<{ id: str
       />
       <div className="space-y-5 p-4 lg:p-8">
         <EntityDetailsPanel entity={entity} canManage={canManage} />
+        {hasMinRole(user.role, "CREDIT_OFFICER") && (
+          <div className="rounded-lg border border-[var(--cf-border-subtle)] p-4">
+            <ScreeningPanel endpoint={`/api/asset-finance/entities/${id}/screening`} />
+          </div>
+        )}
         <PeoplePanel entityId={id} people={people} canManage={canManage} />
         <DocumentsPanel
           apiBase={`/api/asset-finance/entities/${id}/documents`}

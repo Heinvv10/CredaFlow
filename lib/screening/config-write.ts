@@ -6,14 +6,15 @@ import { getScreeningConfig, isScreeningReviewMinRole, type ScreeningReviewMinRo
 
 type Tx = Pick<typeof prisma, "$executeRaw" | "tenantConfig" | "auditLog">
 
-export type ScreeningConfigInput = { provider: unknown; reviewMinRole: unknown }
+export type ScreeningConfigInput = { provider: unknown; reviewMinRole: unknown; requireSecondReviewer: unknown }
 
-export type ParsedScreeningConfig = { provider: string | null; reviewMinRole: ScreeningReviewMinRole }
+export type ParsedScreeningConfig = { provider: string | null; reviewMinRole: ScreeningReviewMinRole; requireSecondReviewer: boolean }
 
 /**
  * Validates a screening-settings write. Refuses an unknown provider, a review
- * role other than BRANCH_MANAGER or ADMIN, and the simulated provider on a
- * deployment that forbids simulated screening.
+ * role other than BRANCH_MANAGER or ADMIN, a non-boolean maker-checker
+ * setting, and the simulated provider on a deployment that forbids simulated
+ * screening.
  */
 export function parseScreeningConfig(input: ScreeningConfigInput): { ok: true; value: ParsedScreeningConfig } | { ok: false; error: string } {
   const provider = input.provider === null || input.provider === "" ? null : input.provider
@@ -23,10 +24,13 @@ export function parseScreeningConfig(input: ScreeningConfigInput): { ok: true; v
   if (!isScreeningReviewMinRole(input.reviewMinRole)) {
     return { ok: false, error: "Minimum review role must be BRANCH_MANAGER or ADMIN." }
   }
+  if (typeof input.requireSecondReviewer !== "boolean") {
+    return { ok: false, error: "requireSecondReviewer must be true or false." }
+  }
   if (provider !== null && getScreeningProvider(provider).simulated && !isSimulationPermitted("screening")) {
     return { ok: false, error: "The simulated provider is not permitted on this deployment." }
   }
-  return { ok: true, value: { provider, reviewMinRole: input.reviewMinRole } }
+  return { ok: true, value: { provider, reviewMinRole: input.reviewMinRole, requireSecondReviewer: input.requireSecondReviewer } }
 }
 
 /** Writes TenantConfig's screening settings and their audit row in the caller's transaction. */
@@ -37,12 +41,10 @@ export async function applyScreeningConfig(
   const { tenantId, actor, value, ipAddress } = args
   await tx.$executeRaw`SELECT 1 FROM "TenantConfig" WHERE "tenantId" = ${tenantId} FOR UPDATE`
   const before = await getScreeningConfig(tenantId, tx)
-  if (before.provider === value.provider && before.reviewMinRole === value.reviewMinRole) return { changed: false }
-  await tx.tenantConfig.upsert({
-    where: { tenantId },
-    update: { screeningProvider: value.provider, screeningReviewMinRole: value.reviewMinRole },
-    create: { tenantId, screeningProvider: value.provider, screeningReviewMinRole: value.reviewMinRole },
-  })
+  if (before.provider === value.provider && before.reviewMinRole === value.reviewMinRole
+      && before.requireSecondReviewer === value.requireSecondReviewer) return { changed: false }
+  const data = { screeningProvider: value.provider, screeningReviewMinRole: value.reviewMinRole, requireSecondReviewer: value.requireSecondReviewer }
+  await tx.tenantConfig.upsert({ where: { tenantId }, update: data, create: { tenantId, ...data } })
   await logAuditStrict({
     tenantId,
     userId: actor.id,
@@ -50,8 +52,8 @@ export async function applyScreeningConfig(
     action: AuditAction.SCREENING_CONFIG_UPDATED,
     entity: "TenantConfig",
     entityId: tenantId,
-    oldValue: { provider: before.provider, reviewMinRole: before.reviewMinRole },
-    newValue: { provider: value.provider, reviewMinRole: value.reviewMinRole },
+    oldValue: { provider: before.provider, reviewMinRole: before.reviewMinRole, requireSecondReviewer: before.requireSecondReviewer },
+    newValue: { provider: value.provider, reviewMinRole: value.reviewMinRole, requireSecondReviewer: value.requireSecondReviewer },
     ipAddress,
   }, tx)
   return { changed: true }

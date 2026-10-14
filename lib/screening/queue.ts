@@ -1,10 +1,7 @@
-import type { ScreeningBlockReason, ScreeningResult, ScreeningType } from "@prisma/client"
+import { Prisma, type ScreeningBlockReason, type ScreeningResult, type ScreeningType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { loadLatestRun } from "./store"
-import { isConfirmedSanctionsMatch } from "./state"
-import { refOf, subjectKey } from "./subject"
 
-export const REVIEW_QUEUE_CAP = 100
+export const REVIEW_QUEUE_PAGE_SIZE = 50
 
 type Party = { client: { firstName: string; lastName: string; reference: string } | null; entity: { legalName: string; registrationNumber: string } | null }
 
@@ -27,42 +24,51 @@ export type ReviewQueueItem = {
   simulated: boolean
   createdAt: Date
   triggeredById: string | null
-  /** A confirmed sanctions match: shown, never decidable. */
-  hardBlock: boolean
 }
 
+export type ReviewQueuePage = { items: ReviewQueueItem[]; total: number; page: number; pageSize: number }
+
 /**
- * Undecided matches in each subject's LATEST run, oldest first: the review
- * queue. Matches in a superseded run are not shown — a newer run replaced them.
+ * The review queue (N5): undecided matches of each subject's LATEST run only —
+ * a superseded run's matches are not shown — oldest first, a page at a time,
+ * with the true total. A confirmed sanctions match is never decidable, so it
+ * is not here: its sticky block is in the blocks list.
  */
-export async function listReviewQueue(tenantId: string): Promise<ReviewQueueItem[]> {
-  const open = await prisma.screeningCheck.findMany({
-    where: { tenantId, decision: null, result: { in: ["POSSIBLE_MATCH", "CONFIRMED_MATCH"] } },
-    orderBy: { createdAt: "asc" },
-    take: REVIEW_QUEUE_CAP * 3,
+export async function listReviewQueue(tenantId: string, page = 1): Promise<ReviewQueuePage> {
+  const pageSize = REVIEW_QUEUE_PAGE_SIZE
+  const current = Math.max(1, Math.floor(page))
+  const where = Prisma.sql`
+    WITH latest AS (
+      SELECT DISTINCT ON ("clientId", "entityId") "runId" FROM "ScreeningCheck"
+       WHERE "tenantId" = ${tenantId}
+       ORDER BY "clientId", "entityId", "createdAt" DESC, id DESC
+    )
+    SELECT s.id, s."createdAt" FROM "ScreeningCheck" s JOIN latest l ON l."runId" = s."runId"
+     WHERE s."tenantId" = ${tenantId} AND s.decision IS NULL
+       AND s.result IN ('POSSIBLE_MATCH', 'CONFIRMED_MATCH')
+       AND NOT (s.type = 'SANCTIONS' AND s.result = 'CONFIRMED_MATCH')`
+  const [rows, counted] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`${where} ORDER BY s."createdAt" ASC, s.id ASC LIMIT ${pageSize} OFFSET ${(current - 1) * pageSize}`),
+    prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT count(*) AS total FROM (${where}) q`),
+  ])
+  const checks = await prisma.screeningCheck.findMany({
+    where: { tenantId, id: { in: rows.map((r) => r.id) } },
     select: {
-      id: true, clientId: true, entityId: true, runId: true, type: true, result: true, matches: true,
+      id: true, clientId: true, entityId: true, type: true, result: true, matches: true,
       simulated: true, createdAt: true, triggeredById: true, ...partySelect,
     },
   })
-  const latestRunBySubject = new Map<string, string | null>()
-  const items: ReviewQueueItem[] = []
-  for (const c of open) {
-    const ref = refOf(c)
-    const key = subjectKey(ref)
-    if (!latestRunBySubject.has(key)) {
-      latestRunBySubject.set(key, (await loadLatestRun(prisma, tenantId, ref))?.runId ?? null)
-    }
-    if (latestRunBySubject.get(key) !== c.runId) continue
-    items.push({
+  const byId = new Map(checks.map((c) => [c.id, c]))
+  const items = rows.flatMap(({ id }) => {
+    const c = byId.get(id)
+    return c ? [{
       checkId: c.id, clientId: c.clientId, entityId: c.entityId,
       partyName: partyName(c), partyReference: partyReference(c),
       type: c.type, result: c.result, matches: c.matches, simulated: c.simulated, createdAt: c.createdAt,
-      triggeredById: c.triggeredById, hardBlock: isConfirmedSanctionsMatch(c),
-    })
-    if (items.length >= REVIEW_QUEUE_CAP) break
-  }
-  return items
+      triggeredById: c.triggeredById,
+    }] : []
+  })
+  return { items, total: Number(counted[0]?.total ?? 0), page: current, pageSize }
 }
 
 export type ActiveBlock = {

@@ -42,6 +42,31 @@ export async function loadActiveBlocks(db: Pick<typeof prisma, "screeningBlock">
 }
 
 /**
+ * N7: source-check ids of unlifted blocks that bind an entity because of a
+ * person — one screened for this entity (contextEntityId), or anyone with any
+ * relationship row to it, active or not. Deactivating or deleting the
+ * relationship after a hit does not free the entity. Same rule as the SQL
+ * function screeningEntityContextBlocked.
+ */
+export async function loadEntityContextBlocks(
+  db: Pick<typeof prisma, "screeningBlock" | "entityRelationship">,
+  tenantId: string,
+  entityId: string,
+): Promise<string[]> {
+  const related = await db.entityRelationship.findMany({ where: { tenantId, entityId }, select: { clientId: true } })
+  const blocks = await db.screeningBlock.findMany({
+    where: {
+      tenantId,
+      liftedAt: null,
+      OR: [{ contextEntityId: entityId }, { clientId: { in: [...new Set(related.map((r) => r.clientId))] } }],
+    },
+    select: { sourceCheckId: true },
+    orderBy: { createdAt: "asc" },
+  })
+  return blocks.map((b) => b.sourceCheckId)
+}
+
+/**
  * Serialises everything that writes or relies on one subject's screening: a
  * run, a review, a block lift and the approval transaction's re-check.
  * Callers locking several subjects lock them in subjectKey order.

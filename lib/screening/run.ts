@@ -17,8 +17,16 @@ export type RunScreeningArgs = {
   subject: SubjectRef
   trigger: ScreeningTrigger
   applicationId?: string | null
-  /** null for the cron and other system callers. Never the one who decides the run's matches. */
+  /** The audited actor; null for the cron and other system callers. */
   actor: { id: string; email: string } | null
+  /**
+   * Record the run as system-started (triggeredById null) even though an
+   * actor is audited: the approval gate's runs, so maker-checker does not lock
+   * the approver out of reviewing what their approval attempt surfaced.
+   */
+  asSystem?: boolean
+  /** The entity this person is screened for, as a related party (N7). */
+  contextEntityId?: string | null
   /** Override of SCREENING_TIMEOUT_MS (tests). */
   timeoutMs?: number
 }
@@ -54,9 +62,10 @@ export async function runScreening(args: RunScreeningArgs): Promise<RunScreening
   const state = await prisma.$transaction(async (tx) => {
     await lockSubjectScreening(tx, tenantId, ref)
     const priors = await tx.screeningCheck.findMany({
-      where: { tenantId, ...subjectWhere(ref), decision: { not: null } },
+      // Only decisions about THIS identity can carry (N2).
+      where: { tenantId, ...subjectWhere(ref), decision: { not: null }, subjectFingerprint: loaded.fingerprint },
       select: {
-        id: true, type: true, result: true, matchFingerprint: true, decision: true, decisionReason: true,
+        id: true, type: true, result: true, matchFingerprint: true, subjectFingerprint: true, decision: true, decisionReason: true,
         reviewedById: true, reviewedAt: true, carriedFromCheckId: true, createdAt: true,
       },
     })
@@ -71,7 +80,8 @@ export async function runScreening(args: RunScreeningArgs): Promise<RunScreening
       const base = {
         tenantId, ...subjectWhere(ref), runId, trigger, createdAt, type, simulated,
         subjectFingerprint: loaded.fingerprint,
-        triggeredById: actor?.id ?? null,
+        triggeredById: args.asSystem ? null : actor?.id ?? null,
+        contextEntityId: "clientId" in ref ? args.contextEntityId ?? null : null,
         applicationId: args.applicationId ?? null,
         provider: providerKey,
         providerReference: outcome.ok ? outcome.value.providerReference : null,
@@ -83,7 +93,7 @@ export async function runScreening(args: RunScreeningArgs): Promise<RunScreening
       if (found.result === "CLEAR") return { ...base, result: "CLEAR" as const }
       const fingerprint = matchFingerprint(type, found.result, found.matches)
       const carried = carriedDecision(
-        { type, result: found.result, fingerprint, matches: found.matches },
+        { type, result: found.result, fingerprint, matches: found.matches, subjectFingerprint: loaded.fingerprint },
         priors,
         { now: createdAt, reviewerEligible: (id) => eligible.has(id) },
       )

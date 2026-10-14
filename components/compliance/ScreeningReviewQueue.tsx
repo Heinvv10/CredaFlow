@@ -22,7 +22,6 @@ export type QueueItem = {
   simulated: boolean
   createdAt: string
   triggeredById: string | null
-  hardBlock: boolean
 }
 
 export const partyHref = (p: { clientId: string | null; entityId: string | null }) =>
@@ -81,12 +80,20 @@ function ReviewForm({ item, onDone }: { item: QueueItem; onDone: () => void }) {
   )
 }
 
-export function ScreeningReviewQueue({ items, canReview, viewerId }: { items: QueueItem[]; canReview: boolean; viewerId: string }) {
+export function ScreeningReviewQueue({ items, total, page, pageSize, canReview, viewerId }: {
+  items: QueueItem[]
+  total: number
+  page: number
+  pageSize: number
+  canReview: boolean
+  viewerId: string | null
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
   const router = useRouter()
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Review queue ({items.length})</CardTitle>
+        <CardTitle>Review queue ({total})</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {items.length === 0 && <p className="text-sm text-[var(--cf-text-muted)]">No matches are waiting for a decision.</p>}
@@ -100,7 +107,7 @@ export function ScreeningReviewQueue({ items, canReview, viewerId }: { items: Qu
                 {item.partyName}
               </Link>
               <span className="text-xs text-[var(--cf-text-muted)]">{item.entityId ? "Entity · " : ""}{item.partyReference}</span>
-              <Badge variant={item.hardBlock ? "danger" : "warning"}>
+              <Badge variant="warning">
                 {TYPE_LABEL[item.type] ?? item.type} · {item.result === "CONFIRMED_MATCH" ? "match" : "possible match"}
               </Badge>
               {item.simulated && <Badge variant="neutral">Simulated</Badge>}
@@ -114,17 +121,20 @@ export function ScreeningReviewQueue({ items, canReview, viewerId }: { items: Qu
                 </li>
               ))}
             </ul>
-            {item.hardBlock ? (
-              <p className="mt-3 text-sm text-[var(--cf-danger)]">
-                Confirmed sanctions match. This cannot be cleared or overridden: no credit may be granted.
-              </p>
-            ) : item.triggeredById === viewerId ? (
+            {viewerId !== null && item.triggeredById === viewerId ? (
               <p className="mt-3 text-sm text-[var(--cf-text-muted)]">You started this screening run; another reviewer decides it.</p>
             ) : canReview ? (
               <ReviewForm item={item} onDone={() => router.refresh()} />
             ) : null}
           </div>
         ))}
+        {pages > 1 && (
+          <div className="flex items-center gap-3 text-sm text-[var(--cf-text-secondary)]">
+            {page > 1 && <Link className="text-[var(--cf-brand-soft)] hover:underline" href={`?page=${page - 1}`}>Previous</Link>}
+            <span>Page {page} of {pages}</span>
+            {page < pages && <Link className="text-[var(--cf-brand-soft)] hover:underline" href={`?page=${page + 1}`}>Next</Link>}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

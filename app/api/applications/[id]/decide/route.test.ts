@@ -41,6 +41,7 @@ const lockedScreeningAllowsApprovalMock = vi.fn()
 vi.mock("@/lib/screening/gate", () => ({
   borrowerScreeningGate: (a: unknown) => screeningApprovalGateMock(a),
   lockedBorrowerScreeningAllows: (...a: unknown[]) => lockedScreeningAllowsApprovalMock(...a),
+  isScreeningRefusal: (e: unknown) => String(e).includes("screening blocks approval") || String(e).includes("has not been screened"),
 }))
 const auditRefusalMock = vi.fn()
 vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: (a: unknown) => auditRefusalMock(a) }))
@@ -751,20 +752,21 @@ it("refuses a sanctions match even with a bureau override reason: nothing overri
   expect(txUpdateManyMock).not.toHaveBeenCalled()
 })
 
-it("re-reads screening under its lock in the approve transaction and refuses a change", async () => {
+it("re-reads screening under its lock in the approve transaction and refuses a change with an audited 422", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
   lockedScreeningAllowsApprovalMock.mockResolvedValue(false)
 
   const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
 
-  expect(res.status).toBe(409)
+  expect(res.status).toBe(422)
   expect((await res.json()).error).toContain("screening changed while approving")
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({ action: "SCREENING_APPROVAL_REFUSED", status: 422 }))
   expect(lockedScreeningAllowsApprovalMock).toHaveBeenCalledWith(expect.anything(), "t1", { clientId: expect.any(String), entityId: null })
   expect(txUpdateManyMock).not.toHaveBeenCalled()
   expect(triggerNotificationMock).not.toHaveBeenCalled()
 })
 
-it("409s when the screening trigger refuses the approval write", async () => {
+it("audits a 422 when the screening trigger refuses the approval write", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
   txUpdateManyMock.mockRejectedValueOnce(new Error(
     "Raw query failed. Code: `23514`. Message: `Application app_1 cannot be approved: its borrower's screening blocks approval`",
@@ -772,8 +774,9 @@ it("409s when the screening trigger refuses the approval write", async () => {
 
   const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
 
-  expect(res.status).toBe(409)
+  expect(res.status).toBe(422)
   expect((await res.json()).error).toContain("screening changed while approving")
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({ action: "SCREENING_APPROVAL_REFUSED", status: 422 }))
 })
 
 it("still 500s an approval whose constraint check fails for any other reason", async () => {

@@ -3,7 +3,7 @@ import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { getScreeningConfig, screeningCutoff } from "./policy"
 import { expectedTypesFor } from "./registry"
 import { runScreening } from "./run"
-import { loadActiveBlocks, loadLatestRun, lockSubjectScreening } from "./store"
+import { loadActiveBlocks, loadEntityContextBlocks, loadLatestRun, lockSubjectScreening } from "./store"
 import { deriveScreeningState, needsRerun, screeningAllowsApproval, screeningStateMessage, type ScreeningState } from "./state"
 import { borrowerSubjects, currentFingerprint, subjectKey } from "./subject"
 import type { SubjectRef } from "./types"
@@ -55,8 +55,20 @@ export type BorrowerScreening = {
 const label = (ref: SubjectRef, borrower: Borrower) =>
   "clientId" in ref ? (borrower.entityId ? "A related party (director, member, trustee, signatory, surety or owner)" : "The client") : "The entity"
 
-function combine(borrower: Borrower, subjects: Array<{ ref: SubjectRef; state: ScreeningState }>, providerError: string | null, configured: boolean): BorrowerScreening {
+const CONTEXT_BLOCK_MESSAGE =
+  "A person related to the entity, now or before, has a sanctions or rejected-match block. A super admin must lift it."
+
+function combine(
+  borrower: Borrower,
+  subjects: Array<{ ref: SubjectRef; state: ScreeningState }>,
+  providerError: string | null,
+  configured: boolean,
+  contextBlocks: string[] = [],
+): BorrowerScreening {
   if (!configured) return { allowed: true, state: { state: "NOT_CONFIGURED" }, message: screeningStateMessage({ state: "NOT_CONFIGURED" }), subjects, providerError }
+  if (contextBlocks.length > 0) {
+    return { allowed: false, state: { state: "BLOCKED", reason: "STICKY_BLOCK", checkIds: contextBlocks }, message: CONTEXT_BLOCK_MESSAGE, subjects, providerError }
+  }
   if (subjects.length === 0) {
     return { allowed: false, state: { state: "NOT_SCREENED" }, message: "The application has no borrower to screen.", subjects, providerError }
   }
@@ -72,7 +84,8 @@ export async function readBorrowerScreening(tenantId: string, borrower: Borrower
   const refs = await borrowerSubjects(prisma, tenantId, borrower)
   const subjects = []
   for (const ref of refs) subjects.push({ ref, state: (await readSubjectScreening(tenantId, ref)).state })
-  return combine(borrower, subjects, null, true)
+  const contextBlocks = borrower.entityId ? await loadEntityContextBlocks(prisma, tenantId, borrower.entityId) : []
+  return combine(borrower, subjects, null, true, contextBlocks)
 }
 
 /**
@@ -99,7 +112,11 @@ export async function borrowerScreeningGate(args: {
     let state = current.state
     const stale = !current.runAt || current.runAt < screeningCutoff(args.now)
     if (state.state !== "NOT_CONFIGURED" && state.state !== "BLOCKED" && (needsRerun(state) || stale)) {
-      const ran = await runScreening({ tenantId, subject: ref, trigger: "PRE_APPROVAL", applicationId, actor })
+      // System-started (asSystem): the approver may still review what it surfaces.
+      const ran = await runScreening({
+        tenantId, subject: ref, trigger: "PRE_APPROVAL", applicationId, actor, asSystem: true,
+        contextEntityId: "clientId" in ref ? borrower.entityId : null,
+      })
       if (ran.configured) {
         state = ran.state
         providerError = providerError ?? ran.providerError
@@ -107,7 +124,8 @@ export async function borrowerScreeningGate(args: {
     }
     subjects.push({ ref, state })
   }
-  return combine(borrower, subjects, providerError, true)
+  const contextBlocks = borrower.entityId ? await loadEntityContextBlocks(prisma, tenantId, borrower.entityId) : []
+  return combine(borrower, subjects, providerError, true, contextBlocks)
 }
 
 /**
@@ -126,6 +144,7 @@ export async function lockedBorrowerScreeningAllows(
   const refs = [...(await borrowerSubjects(tx, tenantId, borrower))].sort((a, b) => subjectKey(a).localeCompare(subjectKey(b)))
   if (refs.length === 0) return false
   for (const ref of refs) await lockSubjectScreening(tx, tenantId, ref)
+  if (borrower.entityId && (await loadEntityContextBlocks(tx, tenantId, borrower.entityId)).length > 0) return false
   for (const ref of refs) {
     if (!screeningAllowsApproval((await readSubjectScreening(tenantId, ref, tx)).state)) return false
   }

@@ -6,8 +6,9 @@ import { callerIp } from "@/lib/rate-limit"
 import { applyScreeningConfig, parseScreeningConfig } from "@/lib/screening/config-write"
 
 /**
- * PUT /api/settings/screening — the lender's screening provider (null = off)
- * and the minimum role that decides matches. SUPER_ADMIN in a session whose
+ * PUT /api/settings/screening — the lender's screening provider (null = off),
+ * the minimum role that decides matches, and maker-checker
+ * (requireSecondReviewer: screening, STR and RMCP decisions by a second user). SUPER_ADMIN in a session whose
  * sign-in verified TOTP, as for the KYC override policy: switching screening
  * off removes the approval gate. The change and its audit row commit together.
  */
@@ -23,11 +24,11 @@ export async function PUT(req: NextRequest) {
   }
 
   return withTenantContext(req, async (tenant) => {
-    const body = (await req.json().catch(() => null)) as { provider?: unknown; reviewMinRole?: unknown } | null
-    if (!body || !Object.hasOwn(body, "provider") || !Object.hasOwn(body, "reviewMinRole")) {
-      return NextResponse.json({ error: "Send provider (or null) and reviewMinRole." }, { status: 400 })
+    const body = (await req.json().catch(() => null)) as { provider?: unknown; reviewMinRole?: unknown; requireSecondReviewer?: unknown } | null
+    if (!body || !Object.hasOwn(body, "provider") || !Object.hasOwn(body, "reviewMinRole") || !Object.hasOwn(body, "requireSecondReviewer")) {
+      return NextResponse.json({ error: "Send provider (or null), reviewMinRole and requireSecondReviewer." }, { status: 400 })
     }
-    const parsed = parseScreeningConfig({ provider: body.provider, reviewMinRole: body.reviewMinRole })
+    const parsed = parseScreeningConfig({ provider: body.provider, reviewMinRole: body.reviewMinRole, requireSecondReviewer: body.requireSecondReviewer })
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
 
     const result = await prisma.$transaction(async (tx) => {

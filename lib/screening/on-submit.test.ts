@@ -37,7 +37,7 @@ describe("screenOnSubmit", () => {
     h.appFindFirst.mockResolvedValue({ clientId: "c1", entityId: null })
     await screenOnSubmit({ tenantId: "t1", applicationId: "a1", actor })
     expect(h.runScreening).toHaveBeenCalledTimes(1)
-    expect(h.runScreening).toHaveBeenCalledWith({ tenantId: "t1", subject: { clientId: "c1" }, trigger: "APPLICATION_SUBMIT", applicationId: "a1", actor })
+    expect(h.runScreening).toHaveBeenCalledWith({ tenantId: "t1", subject: { clientId: "c1" }, trigger: "APPLICATION_SUBMIT", applicationId: "a1", actor, contextEntityId: null })
   })
 
   it("screens an entity application's entity and every active related party", async () => {
@@ -46,6 +46,8 @@ describe("screenOnSubmit", () => {
     await screenOnSubmit({ tenantId: "t1", applicationId: "a1", actor })
     expect(h.relFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", entityId: "e1", active: true } }))
     expect(h.runScreening.mock.calls.map((c) => c[0].subject)).toEqual([{ entityId: "e1" }, { clientId: "d1" }, { clientId: "d2" }])
+    // N7: the related parties are screened FOR the entity, so their blocks bind it.
+    expect(h.runScreening.mock.calls.map((c) => c[0].contextEntityId)).toEqual([null, "e1", "e1"])
   })
 
   it("resolves an asset-finance deal to its application", async () => {

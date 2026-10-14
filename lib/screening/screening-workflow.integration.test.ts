@@ -98,6 +98,16 @@ suite("screening workflow against Postgres", () => {
     expect((await openCheck(id)).carriedFromCheckId).toBeNull()
   })
 
+  it("records a run the approval gate started as a system run, so the approver may still review it", async () => {
+    const id = await client("Fixture-Pep")
+    const gated = await borrowerScreeningGate({ tenantId, borrower: { clientId: id, entityId: null }, applicationId: "app-n/a", actor: admin })
+    expect(gated).toMatchObject({ allowed: false, state: { state: "REFER" } })
+    const check = await openCheck(id)
+    expect(check.triggeredById).toBeNull()
+    expect(await db.auditLog.count({ where: { tenantId, action: "SCREENING_RUN", entityId: id, userId: admin.id } })).toBe(1)
+    expect(await review(check.id, "ACCEPTED")).toMatchObject({ ok: true })
+  })
+
   it("hard-blocks a confirmed sanctions match: no reviewer clears it and every re-run still blocks", async () => {
     const id = await client("Fixture-Sanction")
     // The database raised a sticky block the moment the match was recorded.

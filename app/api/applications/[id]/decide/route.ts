@@ -49,7 +49,7 @@ import {
   type PasqBillingEvidence,
 } from "@/lib/compliance/pasq"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
-import { borrowerScreeningGate, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
+import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
 import { auditRefusal } from "@/lib/audit-refusals"
 
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
@@ -1096,6 +1096,24 @@ export async function POST(
           applicationId: id,
           actor: { id: guard.user.id, email: guard.user.email },
         })
+        // A screening refusal found only inside the approve transaction (the
+        // re-read under the lock, or the trigger): the same audited 422.
+        const screeningChangedRefusal = async (refusalReason: string) => {
+          await auditRefusal({
+            action: AuditAction.SCREENING_APPROVAL_REFUSED,
+            entity: "LoanApplication",
+            entityId: id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: refusalReason,
+            status: 422,
+          })
+          return NextResponse.json(
+            { error: "Approval blocked: the client's screening changed while approving. Review it and try again.", requiresOverride: false },
+            { status: 422 },
+          )
+        }
         if (!screening.allowed) {
           await auditRefusal({
             action: AuditAction.SCREENING_APPROVAL_REFUSED,
@@ -1383,12 +1401,7 @@ export async function POST(
             )
           }
           // The screening trigger: a run that landed after the re-read above.
-          if (String(error).includes("screening blocks approval") || String(error).includes("has not been screened")) {
-            return NextResponse.json(
-              { error: "Approval blocked: the client's screening changed while approving. Refresh and review it first." },
-              { status: 409 },
-            )
-          }
+          if (isScreeningRefusal(error)) return await screeningChangedRefusal("screening_trigger")
           // The open-check-flags trigger: a flag raised after the count above.
           if (String(error).includes("open credit-check flags")) {
             return NextResponse.json(
@@ -1414,12 +1427,7 @@ export async function POST(
               { status: 409 },
             )
           }
-          if (approvalWrite.reason === "screening_changed") {
-            return NextResponse.json(
-              { error: "Approval blocked: the client's screening changed while approving. Refresh and review it first." },
-              { status: 409 },
-            )
-          }
+          if (approvalWrite.reason === "screening_changed") return await screeningChangedRefusal("screening_changed")
           if (approvalWrite.reason === "checks_open") {
             return NextResponse.json(
               { error: "Approval blocked: a credit check was raised while approving. Refresh Credit checks and clear it first." },

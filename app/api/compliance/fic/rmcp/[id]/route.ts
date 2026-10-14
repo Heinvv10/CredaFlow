@@ -7,13 +7,14 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import { readFile } from "@/lib/storage"
 import { ficTotpRefusal } from "@/lib/fic/session"
+import { getScreeningConfig } from "@/lib/screening/policy"
 
 /**
  * GET   — download one RMCP version; the bytes must still match the stored
  *         hash, and the download is audited before the bytes are returned.
- * PATCH — record its approval: { approvalNote }. Once, and never by the user
- *         who uploaded it; the trigger guardRmcpDocument and the CHECK
- *         RmcpDocument_maker_checker repeat both rules.
+ * PATCH — record its approval: { approvalNote }. Once, and — while the lender
+ *         requires a second reviewer — never by the user who uploaded it; the
+ *         triggers guardRmcpDocument and RmcpDocument_second_reviewer repeat both.
  * FIC compliance role, TOTP-verified where the lender requires staff 2FA.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -65,7 +66,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const doc = await tx.rmcpDocument.findFirst({ where: { id, tenantId: tenant.id }, select: { uploadedById: true, approvedById: true } })
       if (!doc) return { status: 404 as const, error: "RMCP version not found." }
       if (doc.approvedById) return { status: 409 as const, error: "This version is already approved." }
-      if (doc.uploadedById === guard.user.id) {
+      const { requireSecondReviewer } = await getScreeningConfig(tenant.id, tx)
+      if (requireSecondReviewer && doc.uploadedById === guard.user.id) {
         return { status: 403 as const, error: "You uploaded this version; another compliance officer must approve it." }
       }
       const approvedAt = new Date()

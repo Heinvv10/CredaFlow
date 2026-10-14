@@ -5,12 +5,12 @@ const m = (listEntryId: string, listVersion: string | null = null) => ({ listEnt
 const now = new Date("2026-10-14T10:00:00Z")
 const prior = (over: Partial<PriorDecision>): PriorDecision => ({
   id: "p1", type: "PEP", result: "POSSIBLE_MATCH", matchFingerprint: matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a")]),
-  decision: "FALSE_POSITIVE", decisionReason: "reason", reviewedById: "rev", reviewedAt: new Date("2026-06-01T00:00:00Z"),
+  subjectFingerprint: "identity-1", decision: "FALSE_POSITIVE", decisionReason: "reason", reviewedById: "rev", reviewedAt: new Date("2026-06-01T00:00:00Z"),
   carriedFromCheckId: null, createdAt: new Date("2026-06-01T00:00:00Z"), ...over,
 })
 const candidate = (over: Partial<Parameters<typeof carriedDecision>[0]> = {}) => ({
   type: "PEP" as const, result: "POSSIBLE_MATCH" as const, matches: [m("a")],
-  fingerprint: matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a")]), ...over,
+  fingerprint: matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a")]), subjectFingerprint: "identity-1", ...over,
 })
 const opts = { now, reviewerEligible: () => true }
 
@@ -25,7 +25,23 @@ describe("matchFingerprint", () => {
   })
 })
 
+describe("matchFingerprint (round 2)", () => {
+  it("LOW: differs when the matched name or score of the same entry changes", () => {
+    const base = matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a")])
+    expect(matchFingerprint("PEP", "POSSIBLE_MATCH", [{ ...m("a"), matchedName: "Other" }])).not.toBe(base)
+    expect(matchFingerprint("PEP", "POSSIBLE_MATCH", [{ ...m("a"), score: 91 }])).not.toBe(base)
+  })
+
+  it("is unambiguous: separators inside a field cannot make two entry sets collide", () => {
+    expect(matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a@b", null)])).not.toBe(matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a", "b")]))
+  })
+})
+
 describe("carriedDecision", () => {
+  it("N2: never carries a clearance made for a different identity of the subject", () => {
+    expect(carriedDecision(candidate({ subjectFingerprint: "identity-2" }), [prior({})], opts)).toBeNull()
+  })
+
   it("carries a recent clearance of the same possible match by a still-eligible reviewer", () => {
     expect(carriedDecision(candidate(), [prior({})], opts)?.prior.id).toBe("p1")
   })

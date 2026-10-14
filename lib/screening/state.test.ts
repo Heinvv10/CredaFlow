@@ -109,7 +109,7 @@ describe("deriveScreeningState", () => {
 })
 
 describe("reviewEligibility", () => {
-  const policy = { reviewMinRole: "ADMIN" as const, requireStaffTotp: true }
+  const policy = { reviewMinRole: "ADMIN" as const, requireStaffTotp: true, requireSecondReviewer: true }
   const admin = { id: "admin", role: "ADMIN" as const, totpVerified: true }
   const pep = { type: "PEP" as const, result: "CONFIRMED_MATCH" as const, decision: null, triggeredById: "officer" }
 
@@ -119,10 +119,12 @@ describe("reviewEligibility", () => {
     }
   })
 
-  it("maker-checker: never the user who started the run", () => {
+  it("maker-checker: never the user who started the run, while the lender requires a second reviewer", () => {
     expect(reviewEligibility({ check: { ...pep, triggeredById: "admin" }, decision: "ACCEPTED", policy, caller: admin }))
       .toEqual({ allowed: false, code: "own_run" })
     expect(reviewEligibility({ check: { ...pep, triggeredById: null }, decision: "ACCEPTED", policy, caller: admin })).toEqual({ allowed: true })
+    expect(reviewEligibility({ check: { ...pep, triggeredById: "admin" }, decision: "ACCEPTED", policy: { ...policy, requireSecondReviewer: false }, caller: admin }))
+      .toEqual({ allowed: true })
   })
 
   it("never clears a confirmed sanctions match, whoever asks and whatever the decision", () => {
@@ -146,7 +148,7 @@ describe("reviewEligibility", () => {
       .toEqual({ allowed: false, code: "totp_required" })
     expect(reviewEligibility({
       check: pep, decision: "ACCEPTED",
-      policy: { reviewMinRole: "BRANCH_MANAGER", requireStaffTotp: false },
+      policy: { reviewMinRole: "BRANCH_MANAGER", requireStaffTotp: false, requireSecondReviewer: true },
       caller: { id: "m", role: "BRANCH_MANAGER", totpVerified: false },
     })).toEqual({ allowed: true })
   })

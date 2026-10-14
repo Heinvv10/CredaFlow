@@ -1,5 +1,6 @@
 import type { UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { ROLE_HIERARCHY } from "@/lib/permissions"
 
 /**
  * Screening thresholds and roles. Every number here is a product choice, not a
@@ -57,6 +58,8 @@ export type ScreeningConfig = {
   provider: string | null
   reviewMinRole: ScreeningReviewMinRole
   requireStaffTotp: boolean
+  /** Maker-checker on screening, STR and RMCP decisions (default on; DB triggers read it too). */
+  requireSecondReviewer: boolean
 }
 
 type ConfigReader = Pick<typeof prisma, "tenantConfig">
@@ -64,7 +67,7 @@ type ConfigReader = Pick<typeof prisma, "tenantConfig">
 export async function getScreeningConfig(tenantId: string, db: ConfigReader = prisma): Promise<ScreeningConfig> {
   const config = await db.tenantConfig.findUnique({
     where: { tenantId },
-    select: { screeningProvider: true, screeningReviewMinRole: true, requireStaffTotp: true },
+    select: { screeningProvider: true, screeningReviewMinRole: true, requireStaffTotp: true, requireSecondReviewer: true },
   })
   const role: UserRole | undefined = config?.screeningReviewMinRole
   return {
@@ -72,7 +75,19 @@ export async function getScreeningConfig(tenantId: string, db: ConfigReader = pr
     reviewMinRole: isScreeningReviewMinRole(role) ? role : SCREENING_REVIEW_MIN_ROLE_DEFAULT,
     // Fail closed, as the staff TOTP policy does: no row means 2FA required.
     requireStaffTotp: config?.requireStaffTotp ?? true,
+    // Fail closed like the database trigger: no row means a second reviewer is required.
+    requireSecondReviewer: config?.requireSecondReviewer ?? true,
   }
+}
+
+/**
+ * Active staff at or above `minRole`. With requireSecondReviewer on, a lender
+ * with fewer than two cannot decide what its only reviewer started; the
+ * screening and FIC pages say so.
+ */
+export async function eligibleReviewerCount(tenantId: string, minRole: UserRole): Promise<number> {
+  const roles = ROLE_HIERARCHY.slice(ROLE_HIERARCHY.indexOf(minRole))
+  return prisma.user.count({ where: { tenantId, active: true, role: { in: roles } } })
 }
 
 export function screeningCutoff(now: Date = new Date()): Date {

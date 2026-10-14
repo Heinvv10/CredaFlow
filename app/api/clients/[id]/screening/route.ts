@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { readSubjectScreening } from "@/lib/screening/gate"
-import { runScreening } from "@/lib/screening/run"
-import { screeningStateMessage } from "@/lib/screening/state"
+import { screenSubjectNow, subjectScreeningResponse } from "@/lib/screening/subject-route"
 
 /**
  * GET  /api/clients/[id]/screening — the client's screening state and latest run.
@@ -23,27 +21,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const { id } = await ctx.params
-    if (!(await clientInTenant(tenant.id, id))) {
-      return NextResponse.json({ error: "Client not found" }, { status: 404 })
-    }
-    const current = await readSubjectScreening(tenant.id, { clientId: id })
-    const checks = current.runId
-      ? await prisma.screeningCheck.findMany({
-          where: { tenantId: tenant.id, runId: current.runId },
-          orderBy: { type: "asc" },
-          select: {
-            id: true, type: true, result: true, matches: true, simulated: true, provider: true,
-            trigger: true, errorCode: true, decision: true, decisionReason: true,
-            reviewedById: true, reviewedAt: true, carriedFromCheckId: true, createdAt: true,
-          },
-        })
-      : []
-    return NextResponse.json({
-      state: current.state,
-      message: screeningStateMessage(current.state),
-      runAt: current.runAt,
-      checks,
-    })
+    if (!(await clientInTenant(tenant.id, id))) return NextResponse.json({ error: "Client not found" }, { status: 404 })
+    return subjectScreeningResponse(tenant.id, { clientId: id })
   })
 }
 
@@ -52,27 +31,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const { id } = await ctx.params
-    if (!(await clientInTenant(tenant.id, id))) {
-      return NextResponse.json({ error: "Client not found" }, { status: 404 })
-    }
-    const ran = await runScreening({
-      tenantId: tenant.id,
-      subject: { clientId: id },
-      trigger: "MANUAL",
-      actor: { id: guard.user.id, email: guard.user.email },
-    })
-    if (!ran.configured) {
-      return NextResponse.json({ error: screeningStateMessage({ state: "NOT_CONFIGURED" }) }, { status: 409 })
-    }
-    // A provider failure is recorded (state INCOMPLETE) and surfaced, never retried silently.
-    return NextResponse.json(
-      {
-        runId: ran.runId,
-        state: ran.state,
-        message: screeningStateMessage(ran.state),
-        ...(ran.providerError ? { providerError: ran.providerError } : {}),
-      },
-      { status: ran.providerError ? 502 : 200 },
-    )
+    if (!(await clientInTenant(tenant.id, id))) return NextResponse.json({ error: "Client not found" }, { status: 404 })
+    return screenSubjectNow(tenant.id, { clientId: id }, { id: guard.user.id, email: guard.user.email })
   })
 }

@@ -7,6 +7,7 @@ import { loadCtrRegister, loadStrRegister, RECORDED_PAGE_SIZE, type CtrCandidate
 import { TIPPING_OFF_WARNING, logStrAccess } from "@/lib/fic/str-cases"
 import { FIC_TOTP_ERROR, ficSessionNeedsTotp } from "@/lib/fic/session"
 import { rmcpReviewState } from "@/lib/fic/rmcp"
+import { eligibleReviewerCount, getScreeningConfig } from "@/lib/screening/policy"
 import { CtrRegister } from "@/components/compliance/fic/CtrRegister"
 import { StrRegister } from "@/components/compliance/fic/StrRegister"
 import { RmcpPanel } from "@/components/compliance/fic/RmcpPanel"
@@ -41,6 +42,10 @@ export default async function FicPage() {
     )
   }
 
+  const { requireSecondReviewer } = await getScreeningConfig(tenantId)
+  const tooFewReviewers = requireSecondReviewer && (await eligibleReviewerCount(tenantId, PERMISSIONS.manage_fic_compliance)) < 2
+  // With maker-checker off, nothing is withheld from the user who raised or uploaded it.
+  const makerId = requireSecondReviewer ? user.id : null
   const [ctr, str, rmcp] = await Promise.all([
     loadCtrRegister(tenantId),
     loadStrRegister(tenantId),
@@ -61,6 +66,13 @@ export default async function FicPage() {
           {TIPPING_OFF_WARNING} Views of this page are logged.
         </p>
       </div>
+      {tooFewReviewers && (
+        <p className="rounded-md border border-[var(--cf-warning)] p-3 text-sm text-[var(--cf-warning)]" role="alert">
+          A second reviewer is required, but fewer than two active users hold the FIC compliance role. An STR case
+          cannot be decided by whoever raised it, nor an RMCP version approved by whoever uploaded it, until another
+          user holds the role or a super admin turns the requirement off.
+        </p>
+      )}
       <CtrRegister
         unfiled={ctr.unfiled.map(ctrRow)}
         recorded={ctr.recorded.map(ctrRow)}
@@ -72,10 +84,10 @@ export default async function FicPage() {
         open={str.open.map(strRow)}
         decided={str.decided.map(strRow)}
         decidedTotal={str.decidedTotal}
-        viewerId={user.id}
+        viewerId={makerId}
       />
       <RmcpPanel
-        viewerId={user.id}
+        viewerId={makerId}
         versions={rmcp.map((v) => ({
           ...v, uploadedAt: v.uploadedAt.toISOString(), approvedAt: iso(v.approvedAt),
           reviewDueAt: v.reviewDueAt.toISOString().slice(0, 10), reviewState: rmcpReviewState(v.reviewDueAt),

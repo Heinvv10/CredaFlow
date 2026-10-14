@@ -125,6 +125,15 @@ describe("maker-checker on an STR case", () => {
     const start = new NextRequest("http://x", { method: "PATCH", body: JSON.stringify({ status: "UNDER_REVIEW" }) })
     expect((await PATCH(start, caseCtx)).status).toBe(200)
   })
+
+  it("lets the raiser decide when the lender has turned the second-reviewer requirement off", async () => {
+    authMock.mockResolvedValue(session("ADMIN"))
+    configFindUnique.mockResolvedValue({ requireStaffTotp: true, requireSecondReviewer: false })
+    caseFindFirst.mockResolvedValue({ status: "OPEN", raisedById: "u-ADMIN" })
+    caseUpdateMany.mockResolvedValue({ count: 1 })
+    const close = new NextRequest("http://x", { method: "PATCH", body: JSON.stringify({ status: "CLOSED_NO_REPORT", assessmentNote: "Explained by a salary advance." }) })
+    expect((await PATCH(close, caseCtx)).status).toBe(200)
+  })
 })
 
 describe("raising an STR", () => {

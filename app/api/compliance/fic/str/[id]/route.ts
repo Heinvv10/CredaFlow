@@ -7,6 +7,7 @@ import { callerIp } from "@/lib/rate-limit"
 import { listStrCases } from "@/lib/fic/registers"
 import { TIPPING_OFF_WARNING, canTransitionStr, logStrAccess, parseStrUpdate } from "@/lib/fic/str-cases"
 import { ficTotpRefusal } from "@/lib/fic/session"
+import { getScreeningConfig } from "@/lib/screening/policy"
 
 /**
  * GET   — one STR case (logged).
@@ -43,9 +44,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const outcome = await prisma.$transaction(async (tx) => {
       const current = await tx.suspiciousReportCase.findFirst({ where: { id, tenantId: tenant.id }, select: { status: true, raisedById: true } })
       if (!current) return { status: 404 as const, error: "Case not found" }
-      // Maker-checker (CHECK SuspiciousReportCase_maker_checker): whoever raised
-      // the case does not decide it.
-      if (update.status !== "UNDER_REVIEW" && current.raisedById === guard.user.id) {
+      // Maker-checker (trigger SuspiciousReportCase_second_reviewer, per lender):
+      // whoever raised the case does not decide it.
+      const { requireSecondReviewer } = await getScreeningConfig(tenant.id, tx)
+      if (requireSecondReviewer && update.status !== "UNDER_REVIEW" && current.raisedById === guard.user.id) {
         return { status: 403 as const, error: "You raised this case; another compliance officer must decide it." }
       }
       if (!canTransitionStr(current.status, update.status)) {

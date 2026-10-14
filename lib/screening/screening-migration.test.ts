@@ -60,10 +60,26 @@ describe("migration 20261014150000_w4_screening_fic", () => {
     expect(baselineConstraintSql("ScreeningBlock_lift_complete")).toContain(`char_length(btrim(coalesce("liftReason", ''))) >= ${REVIEW_REASON_MIN_LENGTH}`)
   })
 
-  it("enforces maker-checker on screening reviews, STR decisions and RMCP approvals", () => {
-    expect(baselineConstraintSql("ScreeningCheck_maker_checker")).toContain(`"reviewedById" <> "triggeredById"`)
-    expect(baselineConstraintSql("SuspiciousReportCase_maker_checker")).toContain(`"assessedById" <> "raisedById"`)
-    expect(baselineConstraintSql("RmcpDocument_maker_checker")).toContain(`"approvedById" <> "uploadedById"`)
+  it("enforces maker-checker per lender (requireSecondReviewer) on screening reviews, STR decisions and RMCP approvals", () => {
+    const fn = baselineFunctionSql("enforceSecondReviewer")
+    expect(fn).toContain(`SELECT c."requireSecondReviewer" FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId"), true)`)
+    expect(fn).toContain(`NEW."reviewedById" = NEW."triggeredById"`)
+    expect(fn).toContain(`NEW."assessedById" = NEW."raisedById"`)
+    expect(fn).toContain(`NEW."approvedById" = NEW."uploadedById"`)
+    for (const t of ["ScreeningCheck", "SuspiciousReportCase", "RmcpDocument"]) {
+      expect(baselineTriggerSql(`${t}_second_reviewer`), t).toContain(`BEFORE UPDATE ON "${t}"`)
+      expect(() => baselineConstraintSql(`${t}_maker_checker`), t).toThrow()
+    }
+  })
+
+  it("round 2: identity-bound carry, length-prefixed fingerprints, fingerprint-based staleness, entity-context blocks", () => {
+    expect(baselineFunctionSql("guardScreeningCheckRecord")).toContain(`p."subjectFingerprint" = NEW."subjectFingerprint"`)
+    expect(baselineFunctionSql("screeningFingerprintField")).toContain(`char_length(v)::text || ':' || v`)
+    expect(baselineFunctionSql("screeningPersonFingerprint")).toContain(`"screeningFingerprintField"(regexp_replace(btrim(first_name)`)
+    expect(baselineFunctionSql("screeningEntityFingerprint")).toContain(`"screeningFingerprintField"(entity_type)`)
+    expect(baselineFunctionSql("markScreeningStaleOnIdentityChange")).toContain(`"screeningPersonFingerprint"(OLD."firstName"`)
+    expect(baselineFunctionSql("screeningEntityContextBlocked")).toContain(`b."contextEntityId" = eid`)
+    expect(baselineFunctionSql("guardLoanApplicationScreening")).toContain(`"screeningEntityContextBlocked"(NEW."tenantId", NEW."entityId")`)
   })
 
   it("keeps screening checks, STR cases, the access log, CTRs and RMCP versions undeletable", () => {

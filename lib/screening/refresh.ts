@@ -23,22 +23,24 @@ export async function rescreenCandidates(tenantId: string, now: Date): Promise<S
   const loans = Prisma.join(RESCREEN_LOAN_STATUSES)
   const apps = Prisma.join(RESCREEN_APPLICATION_STATUSES)
   const rows = await prisma.$queryRaw<Array<{ clientId: string | null; entityId: string | null }>>(Prisma.sql`
-    WITH runs AS (
-      SELECT "clientId", "entityId", "runId", max("createdAt") AS at, bool_or(result = 'ERROR') AS errored,
-             min("subjectFingerprint") AS fp
-        FROM "ScreeningCheck" WHERE "tenantId" = ${tenantId}
-       GROUP BY "clientId", "entityId", "runId"
+    WITH last_ok AS (
+      -- Each subject's latest row that is not an error: history before it is never read.
+      SELECT "clientId", "entityId", max("createdAt") AS ok_at FROM "ScreeningCheck"
+       WHERE "tenantId" = ${tenantId} AND result <> 'ERROR' GROUP BY 1, 2
+    ), runs AS (
+      -- Bounded: the latest successful run and every run since it (the failure streak).
+      SELECT s."clientId", s."entityId", s."runId", max(s."createdAt") AS at, bool_or(s.result = 'ERROR') AS errored,
+             min(s."subjectFingerprint") AS fp
+        FROM "ScreeningCheck" s
+        LEFT JOIN last_ok o ON o."clientId" IS NOT DISTINCT FROM s."clientId" AND o."entityId" IS NOT DISTINCT FROM s."entityId"
+       WHERE s."tenantId" = ${tenantId} AND (o.ok_at IS NULL OR s."createdAt" >= o.ok_at)
+       GROUP BY s."clientId", s."entityId", s."runId"
     ), latest AS (
       SELECT * FROM (
         SELECT runs.*, row_number() OVER (PARTITION BY "clientId", "entityId" ORDER BY at DESC, "runId" DESC) AS rn FROM runs
       ) r WHERE rn = 1
-    ), last_ok AS (
-      SELECT "clientId", "entityId", max(at) AS ok_at FROM runs WHERE NOT errored GROUP BY 1, 2
     ), streak AS (
-      SELECT r."clientId", r."entityId", min(r.at) AS first_err FROM runs r
-        LEFT JOIN last_ok o ON o."clientId" IS NOT DISTINCT FROM r."clientId" AND o."entityId" IS NOT DISTINCT FROM r."entityId"
-       WHERE r.errored AND (o.ok_at IS NULL OR r.at > o.ok_at)
-       GROUP BY 1, 2
+      SELECT "clientId", "entityId", min(at) AS first_err FROM runs WHERE errored GROUP BY 1, 2
     ), active_entities AS (
       SELECT e.id FROM "BusinessEntity" e WHERE e."tenantId" = ${tenantId} AND (
         EXISTS (SELECT 1 FROM "Loan" l WHERE l."tenantId" = ${tenantId} AND l."entityId" = e.id AND l.status::text IN (${loans}))

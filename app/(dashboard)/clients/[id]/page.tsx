@@ -569,7 +569,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                     </p>
                   </div>
                 </div>
-                {staffRole && hasMinRole(staffRole, "CREDIT_OFFICER") && <ScreeningPanel clientId={client.id} />}
+                {staffRole && hasMinRole(staffRole, "CREDIT_OFFICER") && <ScreeningPanel endpoint={`/api/clients/${client.id}/screening`} />}
                 {staffRole && canDo(staffRole, "raise_suspicious_report") && <RaiseStrButton clientId={client.id} />}
               </div>
             </div>

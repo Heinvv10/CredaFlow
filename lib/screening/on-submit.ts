@@ -35,7 +35,11 @@ export async function screenOnSubmit(args: { tenantId: string; actor: Actor } & 
     })
     if (!application) return
     for (const subject of await borrowerSubjects(prisma, args.tenantId, application)) {
-      const ran = await runScreening({ tenantId: args.tenantId, subject, trigger: "APPLICATION_SUBMIT", applicationId, actor: args.actor })
+      const ran = await runScreening({
+        tenantId: args.tenantId, subject, trigger: "APPLICATION_SUBMIT", applicationId, actor: args.actor,
+        // A related party is screened for this entity: its blocks bind the entity (N7).
+        contextEntityId: "clientId" in subject ? application.entityId : null,
+      })
       if (!ran.configured) return
     }
   } catch (error) {

@@ -69,7 +69,7 @@ function CaseActions({ row, onDone }: { row: StrRow; onDone: () => void }) {
   )
 }
 
-function CaseCard({ c, viewerId, onDone }: { c: StrRow; viewerId: string; onDone: () => void }) {
+function CaseCard({ c, viewerId, onDone }: { c: StrRow; viewerId: string | null; onDone: () => void }) {
   return (
     <div className="rounded-md border border-[var(--cf-border-subtle)] p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -92,7 +92,7 @@ function CaseCard({ c, viewerId, onDone }: { c: StrRow; viewerId: string; onDone
   )
 }
 
-export function StrRegister({ open, decided, decidedTotal, viewerId }: { open: StrRow[]; decided: StrRow[]; decidedTotal: number; viewerId: string }) {
+export function StrRegister({ open, decided, decidedTotal, viewerId }: { open: StrRow[]; decided: StrRow[]; decidedTotal: number; viewerId: string | null }) {
   const router = useRouter()
   return (
     <Card>

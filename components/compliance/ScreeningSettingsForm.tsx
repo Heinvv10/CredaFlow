@@ -16,11 +16,12 @@ export function ScreeningSettingsForm({
   initial,
 }: {
   providers: Provider[]
-  initial: { provider: string | null; reviewMinRole: "BRANCH_MANAGER" | "ADMIN" }
+  initial: { provider: string | null; reviewMinRole: "BRANCH_MANAGER" | "ADMIN"; requireSecondReviewer: boolean }
 }) {
   const router = useRouter()
   const [provider, setProvider] = useState(initial.provider ?? "")
   const [reviewMinRole, setReviewMinRole] = useState(initial.reviewMinRole)
+  const [requireSecondReviewer, setRequireSecondReviewer] = useState(initial.requireSecondReviewer)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -31,7 +32,7 @@ export function ScreeningSettingsForm({
       const res = await fetch("/api/settings/screening", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: provider || null, reviewMinRole }),
+        body: JSON.stringify({ provider: provider || null, reviewMinRole, requireSecondReviewer }),
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) throw new Error(body.error ?? "Settings were not saved.")
@@ -71,6 +72,18 @@ export function ScreeningSettingsForm({
             <option value="BRANCH_MANAGER">Branch manager and above</option>
           </select>
         </div>
+        <label className="flex items-start gap-2 text-sm text-[var(--cf-text)]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={requireSecondReviewer}
+            onChange={(e) => setRequireSecondReviewer(e.target.checked)}
+          />
+          <span>
+            Require a second reviewer: whoever started a screening run, raised an STR case or uploaded an RMCP version
+            cannot decide or approve it. Turn off only if the lender has a single compliance reviewer.
+          </span>
+        </label>
         {message && (
           <p className={`text-sm ${message.ok ? "text-[var(--cf-success)]" : "text-[var(--cf-danger)]"}`}>{message.text}</p>
         )}

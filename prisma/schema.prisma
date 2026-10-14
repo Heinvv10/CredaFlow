@@ -307,6 +307,9 @@ model TenantConfig {
   // (BRANCH_MANAGER or ADMIN), with TOTP when requireStaffTotp is on.
   screeningProvider      String?
   screeningReviewMinRole UserRole @default(ADMIN)
+  // Maker-checker for screening decisions, STR decisions and RMCP approvals
+  // (the database triggers read it). Changed only by a SUPER_ADMIN with TOTP.
+  requireSecondReviewer  Boolean  @default(true)
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -663,8 +666,13 @@ model ScreeningCheck {
   // SQL screeningCurrentFingerprint() of the subject when it was screened. A
   // run whose fingerprint differs from the subject's current one is stale.
   subjectFingerprint String?
-  // Who started the run (null for system runs): never the one who decides it.
+  // Who started the run (null for system runs, including the approval gate's).
+  // With TenantConfig.requireSecondReviewer on, never the one who decides it.
   triggeredById      String?
+  // A person screened as a related party of this entity (director, member,
+  // trustee, ...). A block raised by such a run blocks the entity even after
+  // the relationship is deactivated or deleted.
+  contextEntityId    String?
   runId              String
   trigger            ScreeningTrigger
   applicationId      String?
@@ -697,23 +705,27 @@ model ScreeningCheck {
 // confirmed sanctions match or a reviewer REJECTS a match. A later clear run
 // does not end it; only a SUPER_ADMIN with TOTP lifts it, with a reason, once.
 model ScreeningBlock {
-  id            String               @id @default(cuid())
-  tenantId      String
-  tenant        Tenant               @relation(fields: [tenantId], references: [id])
-  clientId      String?
-  client        Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  entityId      String?
-  entity        BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  sourceCheckId String               @unique
-  sourceCheck   ScreeningCheck       @relation(fields: [tenantId, sourceCheckId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  reason        ScreeningBlockReason
-  createdAt     DateTime             @default(now())
-  liftedById    String?
-  liftedAt      DateTime?
-  liftReason    String?
+  id              String               @id @default(cuid())
+  tenantId        String
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  clientId        String?
+  client          Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId        String?
+  entity          BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  sourceCheckId   String               @unique
+  sourceCheck     ScreeningCheck       @relation(fields: [tenantId, sourceCheckId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Copied from the source check by the database: the entity the person was
+  // screened for, if any.
+  contextEntityId String?
+  reason          ScreeningBlockReason
+  createdAt       DateTime             @default(now())
+  liftedById      String?
+  liftedAt        DateTime?
+  liftReason      String?
 
   @@index([tenantId, clientId])
   @@index([tenantId, entityId])
+  @@index([tenantId, contextEntityId])
 }
 
 enum ScreeningBlockReason {

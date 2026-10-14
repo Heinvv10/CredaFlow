@@ -28,7 +28,7 @@ const REVIEW_BADGE = {
   OVERDUE: { variant: "danger" as const, label: "Review overdue" },
 }
 
-export function RmcpPanel({ versions, viewerId }: { versions: RmcpVersion[]; viewerId: string }) {
+export function RmcpPanel({ versions, viewerId }: { versions: RmcpVersion[]; viewerId: string | null }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

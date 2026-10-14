@@ -14,14 +14,18 @@ const STATE_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"
 }
 const TYPE_LABEL: Record<string, string> = { PEP: "PEP", SANCTIONS: "Sanctions", ADVERSE_MEDIA: "Adverse media" }
 
-/** PEP / sanctions screening on the client's Compliance tab. Credit officer and up. */
-export function ScreeningPanel({ clientId }: { clientId: string }) {
+/**
+ * PEP / sanctions screening of one party: a client (Compliance tab) or a
+ * business entity (entity page). `endpoint` is its screening route. Credit
+ * officer and up.
+ */
+export function ScreeningPanel({ endpoint }: { endpoint: string }) {
   const [data, setData] = useState<Screening | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/clients/${clientId}/screening`)
+    const res = await fetch(endpoint)
     if (res.status === 403) {
       setError("Your role cannot view screening results.")
       return
@@ -31,7 +35,7 @@ export function ScreeningPanel({ clientId }: { clientId: string }) {
       return
     }
     setData((await res.json()) as Screening)
-  }, [clientId])
+  }, [endpoint])
 
   useEffect(() => {
     void load()
@@ -41,7 +45,7 @@ export function ScreeningPanel({ clientId }: { clientId: string }) {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`/api/clients/${clientId}/screening`, { method: "POST" })
+      const res = await fetch(endpoint, { method: "POST" })
       const body = (await res.json().catch(() => ({}))) as { error?: string; providerError?: string }
       if (!res.ok) setError(body.providerError ?? body.error ?? "Screening failed.")
       await load()

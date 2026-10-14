@@ -133,7 +133,7 @@ export type ReviewRefusalCode =
 export function reviewEligibility(input: {
   check: Pick<ScreeningCheckFacts, "type" | "result" | "decision"> & { triggeredById: string | null }
   decision: ScreeningDecision
-  policy: { reviewMinRole: UserRole; requireStaffTotp: boolean }
+  policy: { reviewMinRole: UserRole; requireStaffTotp: boolean; requireSecondReviewer: boolean }
   caller: { id: string; role: UserRole; totpVerified: boolean }
 }): { allowed: true } | { allowed: false; code: ReviewRefusalCode } {
   const { check, decision, policy, caller } = input
@@ -141,7 +141,9 @@ export function reviewEligibility(input: {
   if (!isMatch(check.result)) return { allowed: false, code: "not_a_match" }
   if (isConfirmedSanctionsMatch(check)) return { allowed: false, code: "sanctions_not_clearable" }
   if (check.type === "SANCTIONS" && decision === "ACCEPTED") return { allowed: false, code: "sanctions_not_acceptable" }
-  if (check.triggeredById !== null && check.triggeredById === caller.id) return { allowed: false, code: "own_run" }
+  if (policy.requireSecondReviewer && check.triggeredById !== null && check.triggeredById === caller.id) {
+    return { allowed: false, code: "own_run" }
+  }
   if (!hasMinRole(caller.role, policy.reviewMinRole)) return { allowed: false, code: "role_below_policy" }
   if (policy.requireStaffTotp && !caller.totpVerified) return { allowed: false, code: "totp_required" }
   return { allowed: true }
