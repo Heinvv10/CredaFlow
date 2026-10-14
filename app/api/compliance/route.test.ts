@@ -9,6 +9,8 @@ vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock()
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, cb: (tenant: { id: string }) => Promise<unknown>) => cb({ id: "tenant-1" }),
 }))
+const logAuditMock = vi.fn()
+vi.mock("@/lib/audit", () => ({ logAudit: (args: unknown) => logAuditMock(args) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     complianceRecord: {
@@ -65,12 +67,38 @@ describe("POST /api/compliance", () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it("continues to create non-Section-129 compliance records", async () => {
-    const response = await POST(request({ type: "POPIA_REVIEW", status: "PENDING" }))
+  it.each([
+    "CREDIT_BUREAU_CHECK",
+    "NCR_QUARTERLY_RETURN",
+    "FSCA_QUARTERLY_RETURN",
+    "FAIS_DISCLOSURE",
+    "DISBURSEMENT_EXCEPTION",
+    "KYC_EXCEPTION",
+    "DEBIT_MANDATE_ARTIFACT",
+    "NOT_A_TYPE",
+  ])("rejects system-written type %s", async (type) => {
+    const response = await POST(request({
+      type,
+      status: "COMPLETED",
+      referenceId: "app-1",
+      data: { score: 999, reviewGeneration: "gen-1" },
+    }))
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toContain(type)
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it("continues to create a manual (legacy) record and audits it", async () => {
+    createMock.mockResolvedValue({ id: "record-1", type: "POPIA_CONSENT", status: "PENDING", referenceId: null })
+    const response = await POST(request({ type: "POPIA_CONSENT", status: "PENDING" }))
 
     expect(response.status).toBe(200)
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ tenantId: "tenant-1", type: "POPIA_REVIEW" }),
+      data: expect.objectContaining({ tenantId: "tenant-1", type: "POPIA_CONSENT" }),
+    }))
+    expect(logAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "tenant-1", userId: "admin-1", entityId: "record-1", action: "COMPLIANCE_RECORD_CREATED",
     }))
   })
 })
