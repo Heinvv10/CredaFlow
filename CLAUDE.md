@@ -243,6 +243,7 @@ Domain-specific rules live next to the code:
 - `lib/integrations/.claude.md` — third-party API contracts
 - `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
+- `lib/operator/.claude.md` — operator console; borrower rows only through a grant
 - `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it
