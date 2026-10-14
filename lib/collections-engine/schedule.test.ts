@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { debitDateOnOrAfter, earliestActionDate, planInstructions, type PlanRow } from "./schedule"
+import { debitDateOnOrAfter, earliestActionDate, planInstructions, submissionWindow, type PlanRow } from "./schedule"
 
 describe("debitDateOnOrAfter", () => {
   it("takes the debit day of the month, rolling a weekend forward to the next business day", () => {
@@ -54,16 +54,36 @@ describe("planInstructions", () => {
     expect(planInstructions({ mandate, today: "2026-10-20", rows: [row({ dueOn: "2026-11-25" })] })).toEqual([])
   })
 
-  it("collects only what is still outstanding, capped at the mandate maximum", () => {
+  it("collects only what is still outstanding on an instalment", () => {
+    const plan = planInstructions({ mandate, today: "2026-10-20", rows: [row({ id: "a", totalDue: 100_000, totalPaid: 40_000, status: "PARTIAL" })] })
+    expect(plan.map((p) => [p.repaymentScheduleId, p.amountCents])).toEqual([["a", 60_000]])
+  })
+
+  it("caps one instalment at the mandate maximum", () => {
+    const plan = planInstructions({ mandate, today: "2026-10-20", rows: [row({ id: "b", totalDue: 200_000 })] })
+    expect(plan.map((p) => [p.repaymentScheduleId, p.amountCents])).toEqual([["b", 150_000]])
+  })
+
+  it("caps everything one mandate debits on one action date at its maximum (arrears + instalment)", () => {
     const plan = planInstructions({
       mandate,
       today: "2026-10-20",
       rows: [
-        row({ id: "a", totalDue: 100_000, totalPaid: 40_000, status: "PARTIAL" }),
-        row({ id: "b", installmentNo: 2, totalDue: 200_000 }),
+        row({ id: "a", totalDue: 100_000 }),
+        row({ id: "b", installmentNo: 2, totalDue: 100_000 }),
+        row({ id: "c", installmentNo: 3, totalDue: 100_000 }),
       ],
     })
-    expect(plan.map((p) => [p.repaymentScheduleId, p.amountCents])).toEqual([["a", 60_000], ["b", 150_000]])
+    expect(plan.map((p) => [p.repaymentScheduleId, p.actionDate, p.amountCents])).toEqual([
+      ["a", "2026-10-26", 100_000], ["b", "2026-10-26", 50_000],
+    ])
+  })
+
+  it("counts what is already instructed on that date against the maximum", () => {
+    const plan = planInstructions({
+      mandate, today: "2026-10-20", rows: [row({ id: "a" })], committedByDate: new Map([["2026-10-26", 150_000]]),
+    })
+    expect(plan).toEqual([])
   })
 
   it("skips paid, written-off and fully paid instalments", () => {
@@ -113,5 +133,13 @@ describe("planInstructions", () => {
       rows: [row({})],
     })
     expect(plan).toEqual([])
+  })
+})
+
+describe("submissionWindow", () => {
+  it("submits every action date from the earliest allowed to three business days after it", () => {
+    expect(submissionWindow("2026-10-20")).toEqual({ from: "2026-10-22", to: "2026-10-27" })
+    // Christmas week: 25 and 26 Dec are holidays, the 26th and 27th a weekend.
+    expect(submissionWindow("2026-12-23")).toEqual({ from: "2026-12-28", to: "2026-12-31" })
   })
 })

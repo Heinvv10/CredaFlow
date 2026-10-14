@@ -1,29 +1,38 @@
 /**
  * Submits due instructions to the provider, one batch per action date.
  *
+ * Due = an action date inside this run's submission window, so a missed run
+ * does not push a debit a month. Before anything is sent, an instruction is
+ * cancelled if its action date has passed, its instalment is settled, its
+ * mandate is not ACTIVE, or its loan is no longer collectible.
+ *
  * Never double-debits: instructions are claimed PENDING → SUBMITTING inside a
- * transaction before the provider is called, so a concurrent run cannot send
- * them again. If the call fails in a way that proves nothing was sent they go
- * back to PENDING; any other failure leaves them SUBMITTING for a person to
- * reconcile with the provider, because they may have reached the bank.
+ * transaction before the provider is called. A failure that proves nothing
+ * was sent releases them to PENDING; any other failure leaves them SUBMITTING
+ * for reconcileStuckInstructions (reconcile.ts), which never re-sends on its
+ * own. A file-based rail answers awaitingLoadReport: the batch and its
+ * instructions wait UPLOADED for the load report.
  */
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import type { CollectionInstructionInput } from "@/lib/integrations/collections/types"
-import { earliestActionDate } from "./schedule"
-import { ENGINE_ACTOR, dateOnly, dayOf, definitelyNotSent, errorSummary, type EngineContext, type EngineTx } from "./context"
+import type { CollectionInstructionInput, SubmitResult } from "@/lib/integrations/collections/types"
+import { COLLECTIBLE_LOAN_STATUSES } from "./scheme-rules"
+import { submissionWindow } from "./schedule"
+import { ENGINE_ACTOR, dateOnly, dayOf, definitelyNotSent, errorSummary, redact, type EngineContext, type EngineTx } from "./context"
 
 export interface SubmitSummary {
   stale: number
   settled: number
+  notCollectible: number
   batches: number
   submitted: number
+  uploaded: number
   rejected: number
   failedBatches: string[]
 }
 
-const audit = (ctx: EngineContext, action: string, entity: string, entityId: string, newValue: Record<string, unknown>, tx: EngineTx) =>
+export const audit = (ctx: EngineContext, action: string, entity: string, entityId: string, newValue: Record<string, unknown>, tx: EngineTx) =>
   logAuditStrict({ tenantId: ctx.tenantId, userEmail: ENGINE_ACTOR.userEmail, action, entity, entityId, newValue }, tx)
 
 async function cancelInstruction(ctx: EngineContext, id: string, reason: string): Promise<void> {
@@ -36,23 +45,50 @@ async function cancelInstruction(ctx: EngineContext, id: string, reason: string)
   })
 }
 
-export async function submitDueInstructions(ctx: EngineContext): Promise<SubmitSummary> {
-  const earliest = earliestActionDate(sastCalendarDate(ctx.now))
-  const summary: SubmitSummary = { stale: 0, settled: 0, batches: 0, submitted: 0, rejected: 0, failedBatches: [] }
+/** Write a provider's per-instruction answer (sync submit or a load report) onto the batch. */
+export async function applyLoadReport(ctx: EngineContext, batchId: string, from: "SUBMITTING" | "UPLOADED", refs: string[], report: Pick<SubmitResult, "accepted" | "rejected" | "batchRef" | "simulated">): Promise<{ accepted: number; rejected: number }> {
+  const rejected = new Map(report.rejected.map((r) => [r.instructionRef, redact(r.error)]))
+  const accepted = new Set(report.accepted)
+  await prisma.$transaction(async (tx) => {
+    for (const ref of refs) {
+      const where = { tenantId: ctx.tenantId, batchId, instructionRef: ref, status: from }
+      if (accepted.has(ref)) await tx.collectionInstruction.updateMany({ where, data: { status: "SUBMITTED", submittedAt: ctx.now } })
+      else if (rejected.has(ref)) await tx.collectionInstruction.updateMany({ where, data: { status: "REJECTED", statusReason: rejected.get(ref) } })
+      // Neither: left as is for reconcileStuckInstructions.
+    }
+    await tx.collectionBatch.update({
+      where: { id: batchId, tenantId: ctx.tenantId },
+      data: {
+        status: "SUBMITTED", providerBatchRef: report.batchRef, submittedAt: ctx.now, ...(report.simulated ? { simulated: true } : {}),
+        acceptedCount: refs.filter((r) => accepted.has(r)).length, rejectedCount: refs.filter((r) => rejected.has(r)).length,
+      },
+    })
+    await audit(ctx, AuditAction.COLLECTION_BATCH_LOADED, "CollectionBatch", batchId, {
+      provider: ctx.provider.id, batchRef: report.batchRef, accepted: accepted.size, rejected: rejected.size,
+    }, tx)
+  })
+  return { accepted: refs.filter((r) => accepted.has(r)).length, rejected: refs.filter((r) => rejected.has(r)).length }
+}
+
+async function dueInstructions(ctx: EngineContext, summary: SubmitSummary) {
+  const window = submissionWindow(sastCalendarDate(ctx.now))
   const pending = await prisma.collectionInstruction.findMany({
-    where: { tenantId: ctx.tenantId, status: "PENDING", actionDate: { lte: dateOnly(earliest) }, mandate: { provider: ctx.provider.id } },
+    where: { tenantId: ctx.tenantId, status: "PENDING", actionDate: { lte: dateOnly(window.to) }, mandate: { provider: ctx.provider.id } },
     include: {
       mandate: { select: { providerMandateRef: true, status: true } },
+      loan: { select: { status: true } },
       repaymentSchedule: { select: { totalDue: true, totalPaid: true, status: true } },
     },
     orderBy: [{ actionDate: "asc" }, { createdAt: "asc" }],
   })
-
   const due: typeof pending = []
   for (const i of pending) {
     const outstanding = i.repaymentSchedule.totalDue - i.repaymentSchedule.totalPaid
-    if (dayOf(i.actionDate) < earliest) {
-      // Too late to submit for this date: the planner re-plans it for the next debit day.
+    if (!(COLLECTIBLE_LOAN_STATUSES as readonly string[]).includes(i.loan.status)) {
+      await cancelInstruction(ctx, i.id, `Loan is ${i.loan.status}`)
+      summary.notCollectible++
+    } else if (dayOf(i.actionDate) < window.from) {
+      // Too late for this date: the planner re-plans it for the next debit day.
       await cancelInstruction(ctx, i.id, "Action date passed before submission")
       summary.stale++
     } else if (outstanding <= 0 || i.repaymentSchedule.status === "PAID" || i.repaymentSchedule.status === "WRITTEN_OFF") {
@@ -68,76 +104,64 @@ export async function submitDueInstructions(ctx: EngineContext): Promise<SubmitS
       due.push(i)
     }
   }
+  return due
+}
 
+export async function submitDueInstructions(ctx: EngineContext): Promise<SubmitSummary> {
+  const summary: SubmitSummary = { stale: 0, settled: 0, notCollectible: 0, batches: 0, submitted: 0, uploaded: 0, rejected: 0, failedBatches: [] }
+  const due = await dueInstructions(ctx, summary)
   const byDate = new Map<string, typeof due>()
   for (const i of due) byDate.set(dayOf(i.actionDate), [...(byDate.get(dayOf(i.actionDate)) ?? []), i])
 
   for (const [actionDate, group] of byDate) {
     const { batchId, claimed } = await prisma.$transaction(async (tx) => {
       const batch = await tx.collectionBatch.create({
-        data: {
-          tenantId: ctx.tenantId, provider: ctx.provider.id, actionDate: dateOnly(actionDate),
-          instructionCount: group.length, totalCents: group.reduce((s, i) => s + i.amountCents, 0),
-        },
+        data: { tenantId: ctx.tenantId, provider: ctx.provider.id, actionDate: dateOnly(actionDate), instructionCount: 0, totalCents: 0 },
       })
       await tx.collectionInstruction.updateMany({
         where: { tenantId: ctx.tenantId, id: { in: group.map((i) => i.id) }, status: "PENDING" },
-        data: { status: "SUBMITTING", batchId: batch.id },
+        // submittedAt = when the submission was attempted; the stuck sweep measures from it.
+        data: { status: "SUBMITTING", batchId: batch.id, submittedAt: ctx.now },
       })
-      const mine = await tx.collectionInstruction.findMany({ where: { tenantId: ctx.tenantId, batchId: batch.id }, select: { id: true } })
-      const ids = new Set(mine.map((r) => r.id))
+      const ids = new Set((await tx.collectionInstruction.findMany({ where: { tenantId: ctx.tenantId, batchId: batch.id }, select: { id: true } })).map((r) => r.id))
       const claimed = group.filter((i) => ids.has(i.id))
       await tx.collectionBatch.update({
         where: { id: batch.id, tenantId: ctx.tenantId },
-        data: { instructionCount: claimed.length, totalCents: claimed.reduce((s, i) => s + i.amountCents, 0) },
+        data: { instructionCount: claimed.length, totalCents: claimed.reduce((s, i) => s + i.amountCents, 0), ...(claimed.length === 0 ? { status: "FAILED", error: "Nothing left to submit" } : {}) },
       })
       return { batchId: batch.id, claimed }
     })
-    if (claimed.length === 0) {
-      await prisma.collectionBatch.update({ where: { id: batchId, tenantId: ctx.tenantId }, data: { status: "FAILED", error: "Nothing left to submit" } })
-      continue
-    }
+    if (claimed.length === 0) continue
     summary.batches++
+    const refs = claimed.map((i) => i.instructionRef)
     const inputs: CollectionInstructionInput[] = claimed.map((i) => ({
       instructionRef: i.instructionRef, mandateRef: i.mandate.providerMandateRef!, amountCents: i.amountCents,
       actionDate: i.actionDate, trackingDays: i.trackingDays,
     }))
     try {
       const result = await ctx.provider.collect(inputs, ctx.creds)
-      const rejected = new Map(result.rejected.map((r) => [r.instructionRef, r.error]))
-      const accepted = new Set(result.accepted)
-      await prisma.$transaction(async (tx) => {
-        for (const i of claimed) {
-          if (accepted.has(i.instructionRef)) {
-            await tx.collectionInstruction.update({ where: { id: i.id, tenantId: ctx.tenantId }, data: { status: "SUBMITTED", submittedAt: ctx.now } })
-          } else if (rejected.has(i.instructionRef)) {
-            await tx.collectionInstruction.update({ where: { id: i.id, tenantId: ctx.tenantId }, data: { status: "REJECTED", statusReason: rejected.get(i.instructionRef) } })
-          }
-          // Neither accepted nor rejected: stays SUBMITTING for a person to reconcile.
-        }
-        await tx.collectionBatch.update({
-          where: { id: batchId, tenantId: ctx.tenantId },
-          data: {
-            status: "SUBMITTED", providerBatchRef: result.batchRef, submittedAt: ctx.now, simulated: result.simulated === true,
-            acceptedCount: claimed.filter((i) => accepted.has(i.instructionRef)).length,
-            rejectedCount: claimed.filter((i) => rejected.has(i.instructionRef)).length,
-          },
+      if (result.awaitingLoadReport) {
+        await prisma.$transaction(async (tx) => {
+          await tx.collectionInstruction.updateMany({ where: { tenantId: ctx.tenantId, batchId, status: "SUBMITTING" }, data: { status: "UPLOADED", submittedAt: ctx.now } })
+          await tx.collectionBatch.update({
+            where: { id: batchId, tenantId: ctx.tenantId },
+            data: { status: "UPLOADED", providerBatchRef: result.batchRef, submittedAt: ctx.now, simulated: result.simulated === true },
+          })
+          await audit(ctx, AuditAction.COLLECTION_BATCH_SUBMITTED, "CollectionBatch", batchId, {
+            provider: ctx.provider.id, actionDate, batchRef: result.batchRef, uploaded: refs.length, simulated: result.simulated === true,
+          }, tx)
         })
-        await audit(ctx, AuditAction.COLLECTION_BATCH_SUBMITTED, "CollectionBatch", batchId, {
-          provider: ctx.provider.id, actionDate, batchRef: result.batchRef, accepted: result.accepted.length,
-          rejected: result.rejected.length, simulated: result.simulated === true,
-        }, tx)
-      })
-      summary.submitted += result.accepted.length
-      summary.rejected += result.rejected.length
+        summary.uploaded += refs.length
+        continue
+      }
+      const loaded = await applyLoadReport(ctx, batchId, "SUBMITTING", refs, result)
+      summary.submitted += loaded.accepted
+      summary.rejected += loaded.rejected
     } catch (error) {
       const safe = definitelyNotSent(error)
       await prisma.$transaction(async (tx) => {
         if (safe) {
-          await tx.collectionInstruction.updateMany({
-            where: { tenantId: ctx.tenantId, batchId, status: "SUBMITTING" },
-            data: { status: "PENDING", batchId: null },
-          })
+          await tx.collectionInstruction.updateMany({ where: { tenantId: ctx.tenantId, batchId, status: "SUBMITTING" }, data: { status: "PENDING", batchId: null } })
         }
         await tx.collectionBatch.update({ where: { id: batchId, tenantId: ctx.tenantId }, data: { status: "FAILED", error: errorSummary(error) } })
         await audit(ctx, AuditAction.COLLECTION_BATCH_FAILED, "CollectionBatch", batchId, {

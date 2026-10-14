@@ -78,7 +78,7 @@ export const netcashCollections: CollectionProvider = {
   collect: async (_batch: CollectionInstructionInput[], _creds: ProviderCredentials): Promise<SubmitResult> =>
     notImplemented("collect"),
   fetchResults: async (
-    _window: { from: Date; awaiting?: AwaitingInstruction[] },
+    _window: { from: Date; to: Date; awaiting?: AwaitingInstruction[] },
     _creds: ProviderCredentials,
   ): Promise<CollectionOutcome[]> => notImplemented("fetchResults"),
 }

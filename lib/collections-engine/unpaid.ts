@@ -1,54 +1,40 @@
 /**
- * What an unpaid or disputed collection sets in motion.
+ * The LoanNote an unpaid or disputed collection leaves on the loan, written in
+ * the same transaction as the result it describes, so the two cannot diverge.
  *
- * - A LoanNote on the loan, so collections staff see it in the contact history.
- *   Arrears and DPD come from the schedule, which an unpaid debit does not
- *   change; the existing reminder and escalation crons act on them. The
- *   collections stage stays staff-advanced (lib/collections/.claude.md): the
- *   engine never moves it, and it sends no borrower message itself.
- * - The scheme stop rules (scheme-rules.ts suspensionReason) over every result
- *   on the mandate: two consecutive NPFs, a hard-stop reason or a dispute
- *   suspend it, which also cancels its unsubmitted instructions.
+ * Arrears and DPD come from the schedule, which an unpaid debit does not
+ * change; the existing reminder and escalation crons act on them. The
+ * collections stage stays staff-advanced (lib/collections/.claude.md): the
+ * engine never moves it and sends no borrower message itself.
  */
-import { prisma } from "@/lib/prisma"
 import { formatZAR } from "@/lib/utils"
-import { suspensionReason } from "./scheme-rules"
-import { transitionMandate, engineActor } from "./mandate-lifecycle"
-import type { EngineContext } from "./context"
+import type { EngineTx } from "./context"
 
 export const UNPAID_NOTE_TYPE = "debit_order_unpaid"
+/** A return or dispute reported for a debit already booked as paid. */
+export const REVIEW_NOTE_TYPE = "debit_order_review"
 
-export async function noteUnpaidCollection(ctx: EngineContext, args: {
+export async function noteCollectionOutcome(tx: EngineTx, args: {
+  tenantId: string
   loanId: string
   instalmentNo: number
   presentmentNo: number
   amountCents: number
   outcome: "UNPAID" | "DISPUTED"
   reasonCode: string | null
+  afterPayment: boolean
 }): Promise<void> {
   const what = args.outcome === "DISPUTED" ? "was disputed by the debtor" : `came back unpaid (${args.reasonCode ?? "no reason given"})`
-  await prisma.loanNote.create({
+  const debit = `Debit order of ${formatZAR(args.amountCents)} for instalment ${args.instalmentNo} (presentment ${args.presentmentNo})`
+  await tx.loanNote.create({
     data: {
-      tenantId: ctx.tenantId,
+      tenantId: args.tenantId,
       loanId: args.loanId,
-      type: UNPAID_NOTE_TYPE,
-      note: `Debit order of ${formatZAR(args.amountCents)} for instalment ${args.instalmentNo} (presentment ${args.presentmentNo}) ${what}.`,
+      type: args.afterPayment ? REVIEW_NOTE_TYPE : UNPAID_NOTE_TYPE,
+      note: args.afterPayment
+        ? `${debit}, already booked as paid, ${what} afterwards. The receipt stands until staff review it.`
+        : `${debit} ${what}.`,
       createdBy: "system",
     },
   })
-}
-
-/** Suspend the mandate if the scheme stop rules say so. Returns the reason, or null. */
-export async function applyStopRules(ctx: EngineContext, mandateId: string): Promise<string | null> {
-  const mandate = await prisma.debitMandate.findFirst({
-    where: { id: mandateId, tenantId: ctx.tenantId },
-    select: { status: true, instructions: { select: { results: { select: { outcome: true, reasonCode: true, resolvedAt: true } } } } },
-  })
-  if (!mandate || mandate.status !== "ACTIVE") return null
-  const reason = suspensionReason(mandate.instructions.flatMap((i) => i.results))
-  if (!reason) return null
-  await transitionMandate({
-    tenantId: ctx.tenantId, mandateId, from: "ACTIVE", to: "SUSPENDED", reason, actor: engineActor, now: ctx.now,
-  })
-  return reason
 }

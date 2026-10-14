@@ -68,6 +68,20 @@ describe("evaluateAvsGate (pure)", () => {
   it("fails when the client has no bank account captured", () => {
     expect(evaluateAvsGate(passingAvs, { ...avsClient, bankAccountNumber: null }, "app1").ok).toBe(false)
   })
+  it("refuses a simulated AVS pass on a deployed build that has not declared the simulated rail", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "")
+    try {
+      expect(evaluateAvsGate({ ...passingAvs, provider: "simulated" }, avsClient, "app1")).toEqual({
+        ok: false, reason: "Simulated AVS evidence is not accepted on this deployment",
+      })
+      expect(evaluateAvsGate({ ...passingAvs, provider: "netcash" }, avsClient, "app1").ok).toBe(true)
+      vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-collections")
+      expect(evaluateAvsGate({ ...passingAvs, provider: "simulated" }, avsClient, "app1").ok).toBe(true)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe("runAvsCheck", () => {

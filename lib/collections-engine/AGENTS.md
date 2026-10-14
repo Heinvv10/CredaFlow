@@ -8,41 +8,41 @@
 
 ## Purpose
 Provider-agnostic DebiCheck / debit-order collections: mandate lifecycle,
-instructions planned from the instalment schedule, batch submission, result
-ingestion. Adapters live in `lib/integrations/collections/`. Dark per tenant
-behind `TenantConfig.collectionsEngineEnabled`.
+instructions planned from the instalment schedule, batch submission (sync or
+file-based rails), result ingestion, review queue. Adapters live in
+`lib/integrations/collections/`. Dark per tenant behind `collectionsEngineEnabled`.
 
 ## Critical Rules
-- **Scheme rules live in `lib/collections-engine/scheme-rules.ts` only.** Presentment
-  cap, NPF stop rule, tracking window, max-amount multiple, submission lead.
-  They are unverified against a provider rulebook: verify before go-live.
-  The cap and tracking window are also DB CHECKs; change both together
-  (`lib/collections-engine/migration.test.ts`).
+- **Scheme rules live in `lib/collections-engine/scheme-rules.ts` only**, marked
+  unverified against a provider rulebook. Cap and tracking window are also DB
+  CHECKs; change both together (`lib/collections-engine/migration.test.ts`).
+- **The presentment cap is per instalment, across mandates.** A fresh mandate
+  never resets it (planner and the DB unique both key on the instalment).
 - **The database enforces the hard rules** (migration
-  `20261014150000_collections_engine`): one live mandate per loan, mandate
-  transitions (SUSPENDED never returns to ACTIVE), instructions only on an
-  ACTIVE mandate, presentment cap, unique `resultKey`. Only
-  `collections-engine.integration.test.ts` proves them.
-- **Money goes through `applyManualReceipt`** (`lib/collections-engine/allocate.ts`).
-  Never write a `Payment` here. Idempotency key = result id.
-- **Never re-send what may have reached the bank.** Only a provider error that
-  proves nothing was sent (`definitelyNotSent`) releases instructions;
-  anything else leaves them SUBMITTING for a person.
-- **Every status write goes through `transitionMandate`** (audited, checked).
-- The engine never moves `Loan.collectionsStage` and sends no borrower
-  message; an unpaid writes a `LoanNote` (`debit_order_unpaid`).
-- Simulated rail: `lib/integrations/collections/simulated.ts`, refused on a
-  deployed build unless `SIMULATED_INTEGRATIONS` names `simulated-collections`.
+  `20261014150000_collections_engine`). Only the `RUN_COLLECTIONS_ENGINE_IT`
+  suites prove them.
+- **Money goes through `applyManualReceipt`** (`lib/collections-engine/allocate.ts`),
+  idempotency key = result id. A PAID instruction is never moved by a later
+  UNPAID/DISPUTED: that is a review item, not an NPF.
+- **Never re-send what may have reached the bank.** Only `definitelyNotSent`
+  releases work; stuck submissions are looked up or become NEEDS_REVIEW, which
+  only staff resolve (`lib/collections-engine/review.ts`).
+- **Derive, don't trust events:** stop rules, unbooked PAID results, closed
+  loans and provider cancellations are re-checked on every cron run.
+- **Every mandate status write goes through `transitionMandate`** (audited).
+- The engine never moves `Loan.collectionsStage` and sends no borrower message.
 
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `lib/collections-engine/mandates.ts` | Staff create / cancel |
-| `lib/collections-engine/schedule.ts` | Pure instruction planner, action dates |
-| `lib/collections-engine/strike-date.ts` | Pure debit-day recommendation |
+| `lib/collections-engine/mandate-lifecycle.ts` | Status writer, claimed submission, retries |
+| `lib/collections-engine/schedule.ts` | Pure planner, action dates, submit window |
 | `lib/collections-engine/submit.ts` | Batch submission |
+| `lib/collections-engine/reconcile.ts` | Load reports, stuck submissions |
 | `lib/collections-engine/results.ts` | Result ingestion |
-| `lib/collections-engine/cron.ts` | Cron runner (`app/api/cron/collections-submit`, `app/api/cron/collections-results`) |
+| `lib/collections-engine/stop-rules.ts` | Scheme stop rules, re-derived |
+| `lib/collections-engine/mandate-sweeps.ts` | Closed loans, provider cancellation |
+| `lib/collections-engine/cron.ts` | Runner for `app/api/cron/collections-submit` / `app/api/cron/collections-results` |
 
 ---
-<!-- Hand-written 2026-10-14. Refresh via /kb when files change. -->
+<!-- Hand-written 2026-10-14, round-1 review fixes. Refresh via /kb when files change. -->

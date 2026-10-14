@@ -103,7 +103,7 @@ export async function createDebitMandate(tenantId: string, actor: Actor & { user
     if (isUniqueViolation(error)) throw new MandateError("LIVE_MANDATE_EXISTS", "This loan already has a live mandate")
     throw error
   }
-  const status = await submitMandate(ctx, mandate, loan.reference, client)
+  const status = await submitMandate(ctx, mandate.id)
   const saved = await prisma.debitMandate.findFirstOrThrow({ where: { id: mandate.id, tenantId } })
   if (status === "CANCELLED") {
     throw new MandateError("NOT_ELIGIBLE", `${ctx.provider.id} could not register the mandate (${saved.statusReason ?? "no reason given"})`)
@@ -123,9 +123,11 @@ export async function cancelDebitMandate(tenantId: string, actor: Actor & { user
     throw new MandateError("INVALID_STATE", `This mandate is held by ${mandate.provider}, not the configured provider`)
   }
   // Provider first: a mandate still live at the debtor's bank must not read as cancelled here.
-  if (mandate.providerMandateRef) await ctx.provider.cancelMandate(mandate.providerMandateRef, ctx.creds)
+  const atProvider = !!mandate.providerMandateRef && !mandate.providerCancelledAt
+  if (atProvider) await ctx.provider.cancelMandate(mandate.providerMandateRef!, ctx.creds)
   const moved = await transitionMandate({
     tenantId, mandateId, from: mandate.status, to: "CANCELLED", reason, actor, now,
+    set: atProvider ? { providerCancelledAt: now } : undefined,
   })
   if (!moved) throw new MandateError("INVALID_STATE", "The mandate changed while it was being cancelled; reload and retry")
   return prisma.debitMandate.findFirstOrThrow({ where: { id: mandateId, tenantId } })

@@ -41,9 +41,11 @@ describe("migration 20261014150000_collections_engine", () => {
     expect(baselineFunctionSql("guardCollectionInstructionMandate")).toContain("m.status IS DISTINCT FROM 'ACTIVE'")
   })
 
-  it("keeps each presentment number once per instalment per mandate, and one in flight", () => {
-    expect(baselineIndexSql("CollectionInstruction_presentment_once")).toContain(`("mandateId", "repaymentScheduleId", "presentmentNo")`)
-    expect(baselineIndexSql("CollectionInstruction_one_open_per_instalment")).toContain(`IN ('PENDING', 'SUBMITTING', 'SUBMITTED')`)
+  it("keeps each presentment number once per instalment across every mandate, and one in flight", () => {
+    expect(baselineIndexSql("CollectionInstruction_presentment_once")).toContain(`("repaymentScheduleId", "presentmentNo")`)
+    expect(baselineIndexSql("CollectionInstruction_presentment_once")).not.toContain("mandateId")
+    expect(baselineIndexSql("CollectionInstruction_one_open_per_instalment"))
+      .toContain(`IN ('PENDING', 'SUBMITTING', 'UPLOADED', 'SUBMITTED', 'NEEDS_REVIEW')`)
   })
 
   it("makes result ingestion idempotent and books one receipt per result", () => {

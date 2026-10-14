@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { loadApplicationFacts } from "@/lib/credit-checks/load-facts"
 import { recommendStrikeDate, type StrikeDateRecommendation } from "./strike-date"
 import { LIVE_MANDATE_STATUSES } from "./state-machine"
+import { loadReviewQueue, type ReviewQueue } from "./review"
 
 export type MandateWithHistory = DebitMandate & {
   instructions: Array<CollectionInstruction & { results: CollectionResult[] }>
@@ -21,6 +22,7 @@ export interface LoanCollectionsView {
   recommendation: StrikeDateRecommendation | null
   /** Why no recommendation could be computed, when that was an error rather than missing evidence. */
   recommendationError: string | null
+  review: ReviewQueue
 }
 
 async function engineConfig(tenantId: string) {
@@ -77,14 +79,22 @@ export async function loadLoanCollectionsView(tenantId: string, loan: {
     canCreate: !liveMandate && collectible && Boolean(loan.clientId) && Boolean(config.collectionProvider),
     recommendation,
     recommendationError,
+    review: await loadReviewQueue(tenantId, loan.id),
   }
 }
 
-export type BatchListRow = CollectionBatch
+export interface BatchListView {
+  batches: CollectionBatch[]
+  review: ReviewQueue
+}
 
-/** The latest batches, newest first; null while the engine is off. */
-export async function loadBatchList(tenantId: string, take = 100): Promise<BatchListRow[] | null> {
+/** The latest batches, newest first, and the tenant's review queue; null while the engine is off. */
+export async function loadBatchList(tenantId: string, take = 100): Promise<BatchListView | null> {
   const config = await engineConfig(tenantId)
   if (!config?.collectionsEngineEnabled) return null
-  return prisma.collectionBatch.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take })
+  const [batches, review] = await Promise.all([
+    prisma.collectionBatch.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take }),
+    loadReviewQueue(tenantId),
+  ])
+  return { batches, review }
 }

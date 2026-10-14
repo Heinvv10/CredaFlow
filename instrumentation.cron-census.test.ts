@@ -64,17 +64,6 @@ const INTENTIONALLY_UNWIRED = new Map([
       "registering it on a server is the operator's decision, and nothing is sent until Experian confirms a channel.",
   ],
   [
-    "collections-submit",
-    "The collections engine's submit side (lib/collections-engine). Built but not scheduled: it moves " +
-      "borrowers' money, it is dark unless a lender enables it, and no provider credentials exist yet. " +
-      "Schedule it once per business day, after collections-results, when a lender goes live.",
-  ],
-  [
-    "collections-results",
-    "The collections engine's results side (lib/collections-engine). Built but not scheduled, as " +
-      "collections-submit. Run it before collections-submit so a re-presentment sees the latest unpaid.",
-  ],
-  [
     "bureau-monthly",
     "The monthly bureau file (lib/bureau-submission). Built but not scheduled, as " +
       "bureau-daily. When it is, run it early on the 1st: a loan paid or reversed after month end is held.",

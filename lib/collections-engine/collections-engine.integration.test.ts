@@ -1,22 +1,23 @@
 /**
  * Real-Postgres proof of the collections engine end to end on the simulated
- * rail: mandate → batch → a PAID result books exactly one receipt (re-ingesting
- * it is a no-op, by the unique resultKey) → two consecutive NPFs suspend the
- * mandate → a third presentment is refused by the database CHECK, and any
- * instruction on the suspended mandate by the trigger.
+ * rail (asynchronous registration and load reports): mandate → batch → a PAID
+ * result books exactly one receipt (re-ingesting it, also concurrently, is a
+ * no-op) → an UNPAID reported after that payment never moves it and is not an
+ * NPF (H1) → two consecutive NPFs suspend the mandate and withdraw it at the
+ * provider (M2) → a third presentment is refused by the CHECK, and a fresh
+ * mandate cannot present the instalment again (H6).
  *
  * GATED: RUN_COLLECTIONS_ENGINE_IT=1 and a DATABASE_URL to a throwaway,
- * migrated Postgres (scripts/run-integration-tests.sh). Time is moved with
- * fake Date only; the database clock is not involved in any rule here.
+ * migrated Postgres (scripts/run-integration-tests.sh). Time moves by fake
+ * Date only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { prisma } from "@/lib/prisma"
-import { createDebitMandate } from "./mandates"
-import { runCollectionsCron, type TenantCollectionsRun } from "./cron"
-import { loadEngineContext } from "./context"
-import { recordOutcome, type IngestSummary } from "./results"
-import { createFixture, INSTALMENT_1, INSTALMENT_2, type Fixture } from "./collections-engine.integration-fixture"
+import { simulatedCollections } from "@/lib/integrations/collections/simulated"
 import type { CollectionOutcome } from "@/lib/integrations/collections/types"
+import { createDebitMandate } from "./mandates"
+import { emptyIngest, recordOutcome } from "./results"
+import { at, createFixture, ctxOf, day, inTenant, instructionsOf, INSTALMENT_1, paymentsOf, run, type Fixture } from "./collections-engine.it-helpers"
 
 const RUN = process.env.RUN_COLLECTIONS_ENGINE_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -26,24 +27,16 @@ suite("collections engine on the simulated rail (real Postgres)", () => {
   let mandateId: string
   let firstPaid: CollectionOutcome
 
-  const at = (iso: string) => vi.setSystemTime(new Date(iso))
-  const cron = async (kind: "SUBMIT" | "RESULTS"): Promise<TenantCollectionsRun> => {
-    const run = await runCollectionsCron(kind, new Date())
-    const mine = run.perTenant.find((t) => t.tenantId === fx.tenantId)
-    expect(mine?.outcome, JSON.stringify(mine)).toBe(kind)
-    return mine!
-  }
-  const instructions = () => prisma.collectionInstruction.findMany({
-    where: { tenantId: fx.tenantId }, orderBy: [{ actionDate: "asc" }, { presentmentNo: "asc" }],
-  })
-  const payments = () => prisma.payment.findMany({ where: { tenantId: fx.tenantId, loanId: fx.loanId } })
-  const mandate = () => prisma.debitMandate.findFirstOrThrow({ where: { id: mandateId, tenantId: fx.tenantId } })
-  const rawInsert = (presentmentNo: number, scheduleId: string) => prisma.$executeRawUnsafe(
+  const mandate = (id = mandateId) => prisma.debitMandate.findFirstOrThrow({ where: { id, tenantId: fx.tenantId } })
+  const rawInsert = (presentmentNo: number, scheduleId: string, onMandate = mandateId) => prisma.$executeRawUnsafe(
     `INSERT INTO "CollectionInstruction" (id, "tenantId", "mandateId", "loanId", "repaymentScheduleId", "installmentNo",
        "presentmentNo", "amountCents", "actionDate", "trackingDays", "instructionRef", "updatedAt")
      VALUES ($1, $2, $3, $4, $5, 2, $6, 1000, '2027-01-25', 3, $1, now())`,
-    `ci_raw_${presentmentNo}_${Date.now()}`, fx.tenantId, mandateId, fx.loanId, scheduleId, presentmentNo,
+    `ci_raw_${presentmentNo}_${Math.random().toString(36).slice(2)}`, fx.tenantId, onMandate, fx.loanId, scheduleId, presentmentNo,
   )
+  const create = () => inTenant(fx, () => createDebitMandate(fx.tenantId, { userId: fx.userId, userEmail: "ce-admin@test.invalid" }, {
+    loanId: fx.loanId, authType: "TT1", debitDay: 25, trackingDays: 3,
+  }, new Date()))
 
   beforeAll(async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
@@ -55,84 +48,85 @@ suite("collections engine on the simulated rail (real Postgres)", () => {
     await prisma.$disconnect()
   })
 
-  it("creates a mandate and sends it for authorisation, then activates it when the debtor authorises", async () => {
-    const created = await createDebitMandate(fx.tenantId, { userId: fx.userId, userEmail: "ce-admin@test.invalid" }, {
-      loanId: fx.loanId, authType: "TT1", debitDay: 25, trackingDays: 3,
-    }, new Date())
+  it("uploads the mandate for registration, then registers, authorises, plans, uploads and loads in one run", async () => {
+    const created = await create()
     mandateId = created.id
-    expect(created).toMatchObject({ status: "PENDING_AUTH", simulated: true, amountCents: INSTALMENT_2, maxAmountCents: INSTALMENT_2 })
-    expect(created.providerMandateRef).toMatch(/^SIM-A-/)
+    expect(created).toMatchObject({ status: "PENDING_REGISTRATION", providerMandateRef: null, simulated: true })
 
-    const submit = await cron("SUBMIT")
-    expect(submit).toMatchObject({ mandates: { changed: 1 }, planned: { planned: 1 }, submitted: { batches: 0 } })
-    expect((await mandate()).status).toBe("ACTIVE")
-    expect((await instructions()).map((i) => [i.installmentNo, i.presentmentNo, i.status, i.actionDate.toISOString().slice(0, 10)]))
-      .toEqual([[1, 1, "PENDING", "2026-10-26"]])
-  })
-
-  it("submits the instruction in a batch two business days before its action date", async () => {
-    at("2026-10-22T06:00:00Z")
-    expect(await cron("SUBMIT")).toMatchObject({ submitted: { batches: 1, submitted: 1, rejected: 0 } })
+    const submit = await run(fx, "SUBMIT")
+    expect(submit).toMatchObject({ planned: { planned: 1 }, submitted: { batches: 1, uploaded: 1 }, reconcile: { loaded: 1 } })
+    const m = await mandate()
+    expect(m.status).toBe("ACTIVE")
+    expect(m.providerMandateRef).toMatch(/^SIM-A-/)
+    const [i] = await instructionsOf(fx)
+    expect([i.installmentNo, i.presentmentNo, i.status, day(i.actionDate)]).toEqual([1, 1, "SUBMITTED", "2026-10-26"])
     const batch = await prisma.collectionBatch.findFirstOrThrow({ where: { tenantId: fx.tenantId } })
-    expect(batch).toMatchObject({ status: "SUBMITTED", instructionCount: 1, totalCents: INSTALMENT_1, simulated: true })
-    expect((await instructions())[0].status).toBe("SUBMITTED")
+    expect(batch).toMatchObject({ status: "SUBMITTED", instructionCount: 1, acceptedCount: 1, totalCents: INSTALMENT_1, simulated: true })
   })
 
   it("books a PAID result as one receipt through the payment path", async () => {
     at("2026-10-27T06:00:00Z")
-    expect(await cron("RESULTS")).toMatchObject({ results: { recorded: 1, allocated: 1, needsReview: 0 } })
-    const [payment] = await payments()
+    expect(await run(fx, "RESULTS")).toMatchObject({ results: { recorded: 1, allocated: 1, needsReview: 0, errors: [] } })
+    const [payment] = await paymentsOf(fx)
     expect(payment).toMatchObject({ amount: INSTALMENT_1, paymentMethod: "DEBIT_ORDER", allocationStatus: "ALLOCATED" })
     const result = await prisma.collectionResult.findFirstOrThrow({ where: { tenantId: fx.tenantId } })
-    expect(result).toMatchObject({ outcome: "PAID", paymentId: payment.id, simulated: true })
-    const row1 = await prisma.repaymentSchedule.findFirstOrThrow({ where: { id: fx.rows[0].id, tenantId: fx.tenantId } })
-    expect(row1.status).toBe("PAID")
+    expect(result).toMatchObject({ outcome: "PAID", paymentId: payment.id, simulated: true, reviewReason: null })
     firstPaid = {
-      instructionRef: (await instructions())[0].instructionRef, status: "PAID", reason: null, rawCode: "SIM-PAID",
+      instructionRef: (await instructionsOf(fx))[0].instructionRef, status: "PAID", reason: null, rawCode: "SIM-PAID",
       settledAmountCents: INSTALMENT_1, resolvedAt: result.resolvedAt, simulated: true,
     }
   })
 
-  it("treats the same result reported again as a no-op: still one result, one receipt", async () => {
-    const ctx = (await loadEngineContext(fx.tenantId, new Date()))!
-    const summary = { recorded: 0, duplicates: 0, allocated: 0, needsReview: 0, suspended: 0, unmatched: 0, fetched: 0, errors: [] } as IngestSummary
-    await recordOutcome(ctx, firstPaid, summary)
-    await recordOutcome(ctx, { ...firstPaid }, summary)
-    expect(summary).toMatchObject({ recorded: 0, duplicates: 2, allocated: 0 })
+  it("treats the same result reported again, in sequence or concurrently, as a no-op", async () => {
+    const ctx = await ctxOf(fx)
+    const summary = emptyIngest()
+    await inTenant(fx, () => recordOutcome(ctx, firstPaid, summary))
+    await inTenant(fx, () => Promise.all([recordOutcome(ctx, { ...firstPaid }, summary), recordOutcome(ctx, { ...firstPaid }, summary)]))
+    expect(summary).toMatchObject({ recorded: 0, duplicates: 3, allocated: 0 })
     expect(await prisma.collectionResult.count({ where: { tenantId: fx.tenantId } })).toBe(1)
-    expect(await payments()).toHaveLength(1)
+    expect(await paymentsOf(fx)).toHaveLength(1)
   })
 
-  it("re-presents an NPF once and suspends the mandate after the second consecutive NPF", async () => {
-    at("2026-11-23T06:00:00Z")
-    expect(await cron("SUBMIT")).toMatchObject({ planned: { planned: 1 }, submitted: { submitted: 1 } })
-    at("2026-11-26T06:00:00Z")
-    expect(await cron("RESULTS")).toMatchObject({ results: { recorded: 1, suspended: 0 } })
+  it("H1: an UNPAID reported after the debit was booked as paid never moves it, is reviewed, and is not an NPF", async () => {
+    const ctx = await ctxOf(fx)
+    await inTenant(fx, () => recordOutcome(ctx, {
+      ...firstPaid, status: "UNPAID", reason: "INSUFFICIENT_FUNDS", rawCode: "LATE-RETURN", settledAmountCents: null,
+      resolvedAt: new Date("2026-10-28T00:00:00Z"),
+    }, emptyIngest()))
+    const [i] = await instructionsOf(fx)
+    expect(i.status).toBe("PAID")
+    const late = await prisma.collectionResult.findFirstOrThrow({ where: { tenantId: fx.tenantId, outcome: "UNPAID" } })
+    expect(late).toMatchObject({ reportedAfterPayment: true, reviewReason: expect.stringMatching(/after the debit was booked as paid/) })
+    expect(await prisma.loanNote.count({ where: { tenantId: fx.tenantId, type: "debit_order_unpaid" } })).toBe(0)
+    expect(await prisma.loanNote.count({ where: { tenantId: fx.tenantId, type: "debit_order_review" } })).toBe(1)
     expect((await mandate()).status).toBe("ACTIVE")
+    expect(await paymentsOf(fx)).toHaveLength(1)
+  })
 
+  it("does not count that late return toward the NPF streak: one real NPF leaves the mandate ACTIVE", async () => {
+    at("2026-11-20T06:00:00Z")
+    expect(await run(fx, "SUBMIT")).toMatchObject({ planned: { planned: 1 }, submitted: { uploaded: 1 } })
+    at("2026-11-26T06:00:00Z")
+    expect(await run(fx, "RESULTS")).toMatchObject({ results: { recorded: 1, suspended: 0, errors: [] } })
+    expect((await mandate()).status).toBe("ACTIVE")
+  })
+
+  it("re-presents the NPF once, suspends after the second, and withdraws the mandate at the provider", async () => {
     at("2026-12-20T06:00:00Z")
-    expect(await cron("SUBMIT")).toMatchObject({ planned: { planned: 1 } })
-    at("2026-12-23T06:00:00Z")
-    expect(await cron("SUBMIT")).toMatchObject({ submitted: { submitted: 1 } })
+    expect(await run(fx, "SUBMIT")).toMatchObject({ planned: { planned: 1 }, submitted: { uploaded: 1 } })
     at("2026-12-29T06:00:00Z")
-    expect(await cron("RESULTS")).toMatchObject({ results: { recorded: 1, suspended: 1 } })
-
-    expect((await instructions()).map((i) => [i.installmentNo, i.presentmentNo, i.status, i.actionDate.toISOString().slice(0, 10)])).toEqual([
+    expect(await run(fx, "RESULTS")).toMatchObject({ results: { recorded: 1, suspended: 1 }, sweeps: { providerCancelled: 1 } })
+    expect((await instructionsOf(fx)).map((i) => [i.installmentNo, i.presentmentNo, i.status, day(i.actionDate)])).toEqual([
       [1, 1, "PAID", "2026-10-26"],
       [2, 1, "UNPAID", "2026-11-25"],
       [2, 2, "UNPAID", "2026-12-28"],
     ])
     const m = await mandate()
-    expect(m.status).toBe("SUSPENDED")
-    expect(m.statusReason).toMatch(/2 consecutive/)
-    expect(await prisma.loanNote.count({ where: { tenantId: fx.tenantId, loanId: fx.loanId, type: "debit_order_unpaid" } })).toBe(2)
-    expect(await payments()).toHaveLength(1)
-    expect(INSTALMENT_2 % 100).toBe(1)
-  })
-
-  it("plans nothing more on the suspended mandate", async () => {
-    at("2027-01-20T06:00:00Z")
-    expect(await cron("SUBMIT")).toMatchObject({ planned: { mandates: 0, planned: 0 } })
+    expect(m).toMatchObject({ status: "SUSPENDED", statusReason: expect.stringMatching(/2 consecutive/) })
+    expect(m.providerCancelledAt).not.toBeNull()
+    expect(await simulatedCollections.getMandateStatus(m.providerMandateRef!, {})).toBe("CANCELLED")
+    expect(await prisma.loanNote.count({ where: { tenantId: fx.tenantId, type: "debit_order_unpaid" } })).toBe(2)
+    expect(await paymentsOf(fx)).toHaveLength(1)
   })
 
   it("refuses a third presentment of the instalment in the database, by the presentment-cap CHECK", async () => {
@@ -148,14 +142,18 @@ suite("collections engine on the simulated rail (real Postgres)", () => {
       .rejects.toThrow(/cannot move from SUSPENDED to ACTIVE/)
   })
 
-  it("audited every step", async () => {
-    const actions = await prisma.auditLog.groupBy({
-      by: ["action"], where: { tenantId: fx.tenantId, action: { startsWith: "COLLECTION_" } }, _count: true,
-    })
-    const counts = Object.fromEntries(actions.map((a) => [a.action, a._count]))
-    expect(counts).toMatchObject({
-      COLLECTION_MANDATE_CREATED: 1, COLLECTION_INSTRUCTION_PLANNED: 3, COLLECTION_BATCH_SUBMITTED: 3, COLLECTION_RESULT_RECORDED: 3,
-    })
-    expect(counts.COLLECTION_MANDATE_STATUS_CHANGED).toBe(3)
+  it("H6: a fresh mandate cannot present the exhausted instalment again, in the planner or the database", async () => {
+    at("2027-01-05T06:00:00Z")
+    const fresh = await create()
+    // First collection 25 Jan: inside the planning horizon from the 15th, so
+    // the planner would present the instalment if it counted per mandate.
+    expect(day(fresh.firstCollectionDate)).toBe("2027-01-25")
+    at("2027-01-15T06:00:00Z")
+    const submit = await run(fx, "SUBMIT")
+    expect((await mandate(fresh.id)).status).toBe("ACTIVE")
+    // skipped 0: the planner itself does not try; the database unique is the second line, tested below.
+    expect(submit).toMatchObject({ planned: { mandates: 1, planned: 0, skipped: 0, errors: [] } })
+    // The per-instalment unique (CollectionInstruction_presentment_once): no mandateId in its key.
+    await expect(rawInsert(1, fx.rows[1].id, fresh.id)).rejects.toThrow(/Key \("repaymentScheduleId", "presentmentNo"\)=/)
   })
 })

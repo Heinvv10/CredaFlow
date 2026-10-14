@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   CONSECUTIVE_NPF_LIMIT,
   MAX_PRESENTMENTS_PER_CYCLE,
+  capPerActionDate,
+  submitBackoffMs,
   consecutiveNpf,
   nextPresentmentNo,
   suspensionReason,
@@ -98,5 +100,29 @@ describe("validateMandateTerms", () => {
     [{ amountCents: 100_000.5 }, /amount/i],
   ])("refuses %o", (patch, message) => {
     expect(validateMandateTerms({ ...ok, ...patch })).toMatch(message)
+  })
+})
+
+describe("round-1 rules", () => {
+  it("suspends on a dispute even when a later collection was paid", () => {
+    const dispute: ResultFact = { outcome: "DISPUTED", reasonCode: "PAYMENT_STOPPED", resolvedAt: new Date("2026-10-01T00:00:00Z") }
+    expect(suspensionReason([dispute, paid("2026-11-25")])).toMatch(/disputed/i)
+  })
+
+  it("does not present an instalment again while its fate is unknown or it awaits a load report", () => {
+    for (const status of ["UPLOADED", "NEEDS_REVIEW"] as const) {
+      expect(nextPresentmentNo([{ presentmentNo: 1, status, reasonCode: null }])).toBeNull()
+    }
+  })
+
+  it("caps one mandate's debits on one date at its maximum", () => {
+    expect(capPerActionDate(150_000, 0, 100_000)).toBe(100_000)
+    expect(capPerActionDate(150_000, 100_000, 100_000)).toBe(50_000)
+    expect(capPerActionDate(150_000, 150_000, 100_000)).toBe(0)
+    expect(capPerActionDate(150_000, 160_000, 100_000)).toBe(0)
+  })
+
+  it("doubles the retry delay per failed submission", () => {
+    expect([1, 2, 3].map(submitBackoffMs)).toEqual([3_600_000, 7_200_000, 14_400_000])
   })
 })

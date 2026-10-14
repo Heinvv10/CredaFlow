@@ -79,8 +79,13 @@ describe("collections engine with the flag off", () => {
   it("does render once the flag is on (the double above is not vacuous)", async () => {
     responses.set("tenantConfig.findUnique", { collectionsEngineEnabled: true, collectionProvider: "simulated" })
     responses.set("debitMandate.findMany", [])
+    responses.set("collectionInstruction.findMany", [])
+    responses.set("collectionResult.findMany", [])
     const view = await loadLoanCollectionsView("t1", { ...loan, clientId: null, client: null })
     expect(view).toMatchObject({ provider: "simulated", mandates: [], liveMandate: null, canCreate: false })
-    expect(ops()).toEqual(["tenantConfig.findUnique", "debitMandate.findMany"])
+    expect(ops()).toEqual([
+      "tenantConfig.findUnique", "debitMandate.findMany",
+      "collectionInstruction.findMany", "collectionResult.findMany", "debitMandate.findMany",
+    ])
   })
 })

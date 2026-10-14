@@ -71,3 +71,19 @@ describe("recommendStrikeDate", () => {
     expect(rec?.trackingDays).toBeLessThanOrEqual(10)
   })
 })
+
+describe("recommendStrikeDate edges", () => {
+  it("breaks a tie between equally common pay days by the earliest, tracking to the latest", () => {
+    const rec = recommendStrikeDate(input([credit("2026-07-23", NET), credit("2026-08-25", NET), credit("2026-09-24", NET)]))
+    expect(rec).toMatchObject({ debitDay: 23, trackingDays: 3 })
+  })
+
+  it.each([0, 32, 15.5, -1])("ignores a declared pay day outside 1–31 (%s)", (declaredPayDay) => {
+    expect(recommendStrikeDate(input([], { declaredPayDay }))).toBeNull()
+  })
+
+  it("accepts the declared pay day bounds 1 and 31", () => {
+    expect(recommendStrikeDate(input([], { declaredPayDay: 1 }))?.debitDay).toBe(1)
+    expect(recommendStrikeDate(input([], { declaredPayDay: 31 }))?.debitDay).toBe(31)
+  })
+})

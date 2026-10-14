@@ -14,6 +14,8 @@ import { addSouthAfricanBusinessDays, isSouthAfricanBusinessDate } from "@/lib/c
 import {
   PLANNING_HORIZON_DAYS,
   SUBMISSION_LEAD_BUSINESS_DAYS,
+  SUBMISSION_WINDOW_BUSINESS_DAYS,
+  capPerActionDate,
   nextPresentmentNo,
   type PresentmentFact,
 } from "./scheme-rules"
@@ -47,6 +49,12 @@ export function earliestActionDate(today: string): string {
   return addSouthAfricanBusinessDays(today, SUBMISSION_LEAD_BUSINESS_DAYS)
 }
 
+/** The action dates a run on `today` submits: [earliest, earliest + window business days]. */
+export function submissionWindow(today: string): { from: string; to: string } {
+  const from = earliestActionDate(today)
+  return { from, to: addSouthAfricanBusinessDays(from, SUBMISSION_WINDOW_BUSINESS_DAYS) }
+}
+
 export interface PlanRow {
   id: string
   installmentNo: number
@@ -55,7 +63,7 @@ export interface PlanRow {
   totalDue: number
   totalPaid: number
   status: ScheduleStatus
-  /** This instalment's instructions under the mandate being planned. */
+  /** This instalment's instructions under every mandate (the cap is per instalment). */
   presentments: PresentmentFact[]
   /** SAST date of the latest result on this instalment, if any. */
   lastResolvedOn: string | null
@@ -75,7 +83,10 @@ export function planInstructions(input: {
   mandate: { debitDay: number; maxAmountCents: number; firstCollectionDate: string }
   today: string
   rows: readonly PlanRow[]
+  /** Already instructed under this mandate per action date (not cancelled or rejected), cents. */
+  committedByDate?: ReadonlyMap<string, number>
 }): InstructionDraft[] {
+  const committed = new Map(input.committedByDate ?? [])
   const earliest = earliestActionDate(input.today)
   const horizon = addDays(input.today, PLANNING_HORIZON_DAYS)
   const drafts: InstructionDraft[] = []
@@ -89,13 +100,11 @@ export function planInstructions(input: {
     const notBefore = latest(row.dueOn, earliest, input.mandate.firstCollectionDate, retryFrom)
     const actionDate = debitDateOnOrAfter(notBefore, input.mandate.debitDay)
     if (actionDate > horizon) continue
-    drafts.push({
-      repaymentScheduleId: row.id,
-      installmentNo: row.installmentNo,
-      presentmentNo,
-      amountCents: Math.min(outstanding, input.mandate.maxAmountCents),
-      actionDate,
-    })
+    const used = committed.get(actionDate) ?? 0
+    const amountCents = capPerActionDate(input.mandate.maxAmountCents, used, outstanding)
+    if (amountCents <= 0) continue
+    committed.set(actionDate, used + amountCents)
+    drafts.push({ repaymentScheduleId: row.id, installmentNo: row.installmentNo, presentmentNo, amountCents, actionDate })
   }
   return drafts
 }

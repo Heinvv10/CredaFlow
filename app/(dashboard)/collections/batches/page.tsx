@@ -6,17 +6,24 @@ import { StatusPill } from "@/components/app-shell/StatusPill"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { loadBatchList } from "@/lib/collections-engine/view.server"
+import { getSession } from "@/lib/auth-session"
+import { hasMinRole } from "@/lib/auth-guards"
+import { ReviewList } from "@/components/collections-engine/ReviewList"
 
-const TONE: Record<CollectionBatchStatus, "warning" | "success" | "danger"> = {
+const TONE: Record<CollectionBatchStatus, "warning" | "success" | "danger" | "info"> = {
   SUBMITTING: "warning",
+  UPLOADED: "info",
   SUBMITTED: "success",
   FAILED: "danger",
+  NEEDS_REVIEW: "warning",
 }
 
 /** Collections engine: every batch submitted to the provider, newest first. */
 export default async function CollectionBatchesPage() {
   const tenantId = await getStaffTenantId()
-  const batches = await loadBatchList(tenantId)
+  const [view, session] = await Promise.all([loadBatchList(tenantId), getSession()])
+  const canManage = session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false
+  const batches = view?.batches ?? null
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -24,6 +31,10 @@ export default async function CollectionBatchesPage() {
       {batches === null ? (
         <InfoStrip>The DebiCheck collections engine is off for this lender (Settings → Integrations → Collections).</InfoStrip>
       ) : (
+        <>
+        <DataPanel title="Needs review" description="Debits, results and mandates the engine will not decide alone" variant="default" density="loose">
+          <ReviewList queue={view!.review} canManage={canManage} showLoan />
+        </DataPanel>
         <DataPanel title="Debit order batches" description="The latest 100 submissions to the collection provider" variant="default" density="loose">
           {batches.length === 0 ? (
             <p className="text-sm text-[var(--cf-text-muted)]">No batches submitted yet</p>
@@ -62,6 +73,7 @@ export default async function CollectionBatchesPage() {
             </div>
           )}
         </DataPanel>
+        </>
       )}
     </div>
   )

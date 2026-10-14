@@ -169,6 +169,18 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 13 jobs active")
+    // DebiCheck collections engine (lib/collections-engine). Idle for every
+    // tenant without TenantConfig.collectionsEngineEnabled (the run reads only
+    // the enabled-tenant list). Results first, so a re-presentment is planned
+    // from the latest unpaid; submit after, early enough for the two-business-
+    // day lead to land on the day's earliest action date.
+    cron.schedule("15 6 * * *", () => callCron("/api/cron/collections-results"), {
+      timezone: SAST,
+    })
+    cron.schedule("45 6 * * *", () => callCron("/api/cron/collections-submit"), {
+      timezone: SAST,
+    })
+
+    console.log("[cron] scheduler registered — 15 jobs active")
   }
 }

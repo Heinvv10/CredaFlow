@@ -3,7 +3,7 @@
 -- triggers): ship with the code in lib/collections-engine, never ahead of it.
 
 -- CreateEnum
-CREATE TYPE "DebitMandateStatus" AS ENUM ('CREATED', 'PENDING_AUTH', 'ACTIVE', 'REJECTED', 'EXPIRED', 'SUSPENDED', 'CANCELLED');
+CREATE TYPE "DebitMandateStatus" AS ENUM ('CREATED', 'SUBMITTING', 'PENDING_REGISTRATION', 'PENDING_AUTH', 'ACTIVE', 'REJECTED', 'EXPIRED', 'SUSPENDED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "DebitMandateAuthType" AS ENUM ('TT1', 'TT1_DELAYED', 'TT2');
@@ -15,10 +15,10 @@ CREATE TYPE "DebitMandateFrequency" AS ENUM ('ONCE_OFF', 'MONTHLY');
 CREATE TYPE "DebitMandateAdjustment" AS ENUM ('NEVER', 'QUARTERLY', 'BIANNUALLY', 'ANNUALLY', 'REPO_RATE');
 
 -- CreateEnum
-CREATE TYPE "CollectionBatchStatus" AS ENUM ('SUBMITTING', 'SUBMITTED', 'FAILED');
+CREATE TYPE "CollectionBatchStatus" AS ENUM ('SUBMITTING', 'UPLOADED', 'SUBMITTED', 'FAILED', 'NEEDS_REVIEW');
 
 -- CreateEnum
-CREATE TYPE "CollectionInstructionStatus" AS ENUM ('PENDING', 'SUBMITTING', 'SUBMITTED', 'REJECTED', 'CANCELLED', 'PAID', 'UNPAID', 'DISPUTED');
+CREATE TYPE "CollectionInstructionStatus" AS ENUM ('PENDING', 'SUBMITTING', 'UPLOADED', 'SUBMITTED', 'NEEDS_REVIEW', 'REJECTED', 'CANCELLED', 'PAID', 'UNPAID', 'DISPUTED');
 
 -- CreateEnum
 CREATE TYPE "CollectionResultOutcome" AS ENUM ('PAID', 'UNPAID', 'DISPUTED');
@@ -51,6 +51,10 @@ CREATE TABLE "DebitMandate" (
     "accountNumber" TEXT NOT NULL,
     "accountType" TEXT NOT NULL,
     "simulated" BOOLEAN NOT NULL DEFAULT false,
+    "submitAttempts" INTEGER NOT NULL DEFAULT 0,
+    "nextAttemptAt" TIMESTAMP(3),
+    "reviewReason" TEXT,
+    "providerCancelledAt" TIMESTAMP(3),
     "createdById" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -117,7 +121,11 @@ CREATE TABLE "CollectionResult" (
     "simulated" BOOLEAN NOT NULL DEFAULT false,
     "paymentId" TEXT,
     "processedAt" TIMESTAMP(3),
-    "allocationError" TEXT,
+    "reviewReason" TEXT,
+    "reportedAfterPayment" BOOLEAN NOT NULL DEFAULT false,
+    "reviewResolvedAt" TIMESTAMP(3),
+    "reviewResolvedById" TEXT,
+    "reviewNote" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CollectionResult_pkey" PRIMARY KEY ("id")
@@ -210,6 +218,8 @@ ALTER TABLE "CollectionResult" ADD CONSTRAINT "CollectionResult_tenantId_instruc
 -- AddForeignKey
 ALTER TABLE "CollectionResult" ADD CONSTRAINT "CollectionResult_tenantId_paymentId_fkey" FOREIGN KEY ("tenantId", "paymentId") REFERENCES "Payment"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
+-- AddForeignKey
+ALTER TABLE "CollectionResult" ADD CONSTRAINT "CollectionResult_tenantId_reviewResolvedById_fkey" FOREIGN KEY ("tenantId", "reviewResolvedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- ── Hand-written: the scheme rules the database enforces ────────────────────
 -- Same numbers as lib/collections-engine/scheme-rules.ts (the static test
@@ -227,11 +237,12 @@ ALTER TABLE "DebitMandate" ADD CONSTRAINT "DebitMandate_terms_valid" CHECK (
 -- One live mandate per loan: a second would debit the same instalment twice.
 -- A SUSPENDED mandate is not live; it is replaced by a fresh one.
 CREATE UNIQUE INDEX "DebitMandate_one_live_per_loan" ON "DebitMandate"("tenantId", "loanId")
-  WHERE "status" IN ('CREATED', 'PENDING_AUTH', 'ACTIVE');
+  WHERE "status" IN ('CREATED', 'SUBMITTING', 'PENDING_REGISTRATION', 'PENDING_AUTH', 'ACTIVE');
 
--- A mandate is born CREATED and only moves forward. SUSPENDED never returns to
--- ACTIVE (after two consecutive unpaids the scheme requires a fresh mandate).
--- The terms the debtor authorises are fixed once the row exists.
+-- A mandate is born CREATED and only moves forward, except that a failed
+-- submission returns SUBMITTING to CREATED for a retry. SUSPENDED never
+-- returns to ACTIVE (after two consecutive unpaids the scheme requires a fresh
+-- mandate). The terms the debtor authorises are fixed once the row exists.
 CREATE FUNCTION "guardDebitMandateStatus"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -258,7 +269,9 @@ BEGIN
     RETURN NEW;
   END IF;
   IF NOT (
-    (OLD.status = 'CREATED' AND NEW.status IN ('PENDING_AUTH', 'ACTIVE', 'REJECTED', 'CANCELLED'))
+    (OLD.status = 'CREATED' AND NEW.status IN ('SUBMITTING', 'CANCELLED'))
+    OR (OLD.status = 'SUBMITTING' AND NEW.status IN ('CREATED', 'PENDING_REGISTRATION', 'PENDING_AUTH', 'ACTIVE', 'REJECTED', 'CANCELLED'))
+    OR (OLD.status = 'PENDING_REGISTRATION' AND NEW.status IN ('PENDING_AUTH', 'ACTIVE', 'REJECTED', 'EXPIRED', 'CANCELLED'))
     OR (OLD.status = 'PENDING_AUTH' AND NEW.status IN ('ACTIVE', 'REJECTED', 'EXPIRED', 'CANCELLED'))
     OR (OLD.status = 'ACTIVE' AND NEW.status IN ('SUSPENDED', 'CANCELLED'))
     OR (OLD.status = 'SUSPENDED' AND NEW.status = 'CANCELLED')
@@ -272,8 +285,9 @@ $$;
 CREATE TRIGGER "DebitMandate_guard_status" BEFORE INSERT OR UPDATE ON "DebitMandate"
   FOR EACH ROW EXECUTE FUNCTION "guardDebitMandateStatus"();
 
--- Scheme rule: at most two presentments of one instalment per cycle (one
--- mandate). Bank-level tracking retries inside trackingDays are not presentments.
+-- Scheme rule: at most two presentments of one instalment. Counted per
+-- instalment across every mandate: a fresh mandate does not reset the count.
+-- Bank-level tracking retries inside trackingDays are not presentments.
 ALTER TABLE "CollectionInstruction" ADD CONSTRAINT "CollectionInstruction_presentment_cap"
   CHECK ("presentmentNo" BETWEEN 1 AND 2);
 ALTER TABLE "CollectionInstruction" ADD CONSTRAINT "CollectionInstruction_amount_positive"
@@ -281,16 +295,16 @@ ALTER TABLE "CollectionInstruction" ADD CONSTRAINT "CollectionInstruction_amount
 ALTER TABLE "CollectionInstruction" ADD CONSTRAINT "CollectionInstruction_tracking_days"
   CHECK ("trackingDays" BETWEEN 1 AND 10);
 
--- Each presentment number once per instalment per mandate. A CANCELLED
--- instruction never reached the bank and frees its number.
+-- Each presentment number once per instalment, whichever mandate carries it.
+-- A CANCELLED instruction never reached the bank and frees its number.
 CREATE UNIQUE INDEX "CollectionInstruction_presentment_once"
-  ON "CollectionInstruction"("mandateId", "repaymentScheduleId", "presentmentNo")
+  ON "CollectionInstruction"("repaymentScheduleId", "presentmentNo")
   WHERE "status" <> 'CANCELLED';
 
--- One instruction per instalment in flight at a time.
+-- One instruction per instalment in flight (or of unknown fate) at a time.
 CREATE UNIQUE INDEX "CollectionInstruction_one_open_per_instalment"
   ON "CollectionInstruction"("repaymentScheduleId")
-  WHERE "status" IN ('PENDING', 'SUBMITTING', 'SUBMITTED');
+  WHERE "status" IN ('PENDING', 'SUBMITTING', 'UPLOADED', 'SUBMITTED', 'NEEDS_REVIEW');
 
 -- An instruction is created only against an ACTIVE mandate of the same loan,
 -- for an instalment of that loan, within the mandate's maximum amount. AFTER
@@ -329,6 +343,8 @@ ALTER TABLE "CollectionResult" ADD CONSTRAINT "CollectionResult_paid_has_amount"
   CHECK ("outcome" <> 'PAID' OR "settledAmountCents" > 0);
 ALTER TABLE "CollectionResult" ADD CONSTRAINT "CollectionResult_payment_only_when_paid"
   CHECK ("paymentId" IS NULL OR "outcome" = 'PAID');
+ALTER TABLE "CollectionResult" ADD CONSTRAINT "CollectionResult_review_resolution_complete"
+  CHECK (("reviewResolvedAt" IS NULL) = ("reviewResolvedById" IS NULL) AND ("reviewResolvedAt" IS NULL OR "reviewReason" IS NOT NULL));
 
 -- A receipt is booked for one collection result only.
 CREATE UNIQUE INDEX "CollectionResult_payment_once" ON "CollectionResult"("paymentId")

@@ -2,15 +2,21 @@
  * Simulated collection rail: a CollectionProvider that never leaves the
  * process. For local development, tests and the demo stacks only.
  *
- * Every method calls assertSimulationAllowed at invocation time, so a deployed
- * build refuses it unless SIMULATED_INTEGRATIONS names "simulated-collections".
- * Every result carries `simulated: true`, and the engine persists that flag on
- * the mandate, batch and result rows it writes.
+ * Behaves like a FILE-BASED rail, so the engine's asynchronous path is the one
+ * exercised: createMandate answers PENDING_REGISTRATION without a reference
+ * (registration is read back through findMandate), and collect answers
+ * awaitingLoadReport (the load report is read back through
+ * getBatchLoadReport).
  *
- * Deterministic and stateless: outcomes come from the fixtures in
- * __fixtures__/simulated-scenarios.ts, keyed on the request itself. The mandate
- * reference encodes the authorisation outcome, so getMandateStatus needs no
- * memory of createMandate.
+ * Every method checks the simulation guard at invocation time. A refusal is a
+ * CollectionProviderError NOT_CONFIGURED: nothing was sent, so the engine may
+ * safely release what it claimed. Every answer carries `simulated: true`.
+ *
+ * Outcomes are deterministic (__fixtures__/simulated-scenarios.ts). The only
+ * memory is per process (globalThis): which mandates were registered, with the
+ * authorisation outcome their account scripted, and which were cancelled. A
+ * restart forgets it; registration then stays pending, which the engine's
+ * timeouts surface to staff.
  */
 import { createHash } from "node:crypto"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
@@ -24,6 +30,7 @@ import {
   type AvsRequest,
   type AvsResult,
   type AwaitingInstruction,
+  type BatchLoadReport,
   type CollectionInstructionInput,
   type CollectionOutcome,
   type CollectionProvider,
@@ -35,18 +42,32 @@ import {
 
 export const SIMULATED_PROVIDER_ID = "simulated"
 
-const guard = () => assertSimulationAllowed("simulated-collections", true)
+type AuthOutcome = "AUTHENTICATED" | "REJECTED" | "EXPIRED"
+const AUTH_CODE: Record<AuthOutcome, string> = { AUTHENTICATED: "A", REJECTED: "R", EXPIRED: "E" }
 
-const AUTH_CODE: Record<"AUTHENTICATED" | "REJECTED" | "EXPIRED", string> = {
-  AUTHENTICATED: "A",
-  REJECTED: "R",
-  EXPIRED: "E",
+const memory = ((globalThis as unknown as { simulatedCollections?: { registered: Map<string, AuthOutcome>; cancelled: Set<string> } })
+  .simulatedCollections ??= { registered: new Map(), cancelled: new Set() })
+
+/** Test seam: forget everything, as a process restart would. */
+export function resetSimulatedRail(): void {
+  memory.registered.clear()
+  memory.cancelled.clear()
 }
 
-function authOutcome(accountNumber: string): "AUTHENTICATED" | "REJECTED" | "EXPIRED" {
+function guard(): void {
+  try {
+    assertSimulationAllowed("simulated-collections", true)
+  } catch (error) {
+    throw new CollectionProviderError("NOT_CONFIGURED", error instanceof Error ? error.message : "Simulation refused")
+  }
+}
+
+function authOutcome(accountNumber: string): AuthOutcome {
   const scripted = MANDATE_AUTH_BY_ACCOUNT_SUFFIX[accountNumber.slice(-4)]
   return scripted === "REJECTED" || scripted === "EXPIRED" ? scripted : "AUTHENTICATED"
 }
+
+const refFor = (mandateReference: string, outcome: AuthOutcome) => `SIM-${AUTH_CODE[outcome]}-${mandateReference}`
 
 async function verifyAccount(req: AvsRequest): Promise<AvsResult> {
   guard()
@@ -61,14 +82,20 @@ async function verifyAccount(req: AvsRequest): Promise<AvsResult> {
 
 async function createMandate(req: CreateMandateReq): Promise<MandateHandle> {
   guard()
-  const outcome = authOutcome(req.account.accountNumber)
-  // The debtor answers asynchronously; the answer is read back through
-  // getMandateStatus, exactly as on a real rail.
-  return { providerMandateRef: `SIM-${AUTH_CODE[outcome]}-${req.mandateReference}`, status: "PENDING_AUTH", simulated: true }
+  memory.registered.set(req.mandateReference, authOutcome(req.account.accountNumber))
+  return { providerMandateRef: null, status: "PENDING_REGISTRATION", simulated: true }
+}
+
+async function findMandate(mandateReference: string): Promise<MandateHandle | null> {
+  guard()
+  const outcome = memory.registered.get(mandateReference)
+  if (!outcome) return null
+  return { providerMandateRef: refFor(mandateReference, outcome), status: "PENDING_AUTH", simulated: true }
 }
 
 async function getMandateStatus(providerMandateRef: string): Promise<MandateStatusValue> {
   guard()
+  if (memory.cancelled.has(providerMandateRef)) return "CANCELLED"
   const code = /^SIM-([ARE])-/.exec(providerMandateRef)?.[1]
   if (!code) throw new CollectionProviderError("PROVIDER_ERROR", "Not a simulated mandate reference")
   return code === "R" ? "REJECTED" : code === "E" ? "EXPIRED" : "AUTHENTICATED"
@@ -79,19 +106,20 @@ async function cancelMandate(providerMandateRef: string): Promise<void> {
   if (!providerMandateRef.startsWith("SIM-")) {
     throw new CollectionProviderError("PROVIDER_ERROR", "Not a simulated mandate reference")
   }
+  memory.cancelled.add(providerMandateRef)
 }
 
 async function collect(batch: CollectionInstructionInput[]): Promise<SubmitResult> {
   guard()
   const refs = batch.map((i) => i.instructionRef).sort()
   const batchRef = `SIM-B-${createHash("sha256").update(refs.join("|")).digest("hex").slice(0, 20)}`
-  const accepted: string[] = []
-  const rejected: SubmitResult["rejected"] = []
-  for (const i of batch) {
-    if (!i.mandateRef.startsWith("SIM-")) rejected.push({ instructionRef: i.instructionRef, error: "Unknown mandate" })
-    else accepted.push(i.instructionRef)
-  }
-  return { batchRef, accepted, rejected, simulated: true }
+  return { batchRef, accepted: [], rejected: [], awaitingLoadReport: true, simulated: true }
+}
+
+async function getBatchLoadReport(batch: { batchRef: string; instructionRefs: string[] }): Promise<BatchLoadReport> {
+  guard()
+  if (!batch.batchRef.startsWith("SIM-B-")) throw new CollectionProviderError("PROVIDER_ERROR", "Not a simulated batch")
+  return { state: "LOADED", accepted: [...batch.instructionRefs], rejected: [] }
 }
 
 function outcomeFor(i: AwaitingInstruction): CollectionOutcome | null {
@@ -108,11 +136,10 @@ function outcomeFor(i: AwaitingInstruction): CollectionOutcome | null {
     : { ...base, status: scripted.status, reason: scripted.reason, rawCode: scripted.rawCode, settledAmountCents: null }
 }
 
-async function fetchResults(window: { from: Date; awaiting?: AwaitingInstruction[] }): Promise<CollectionOutcome[]> {
+async function fetchResults(window: { from: Date; to: Date; awaiting?: AwaitingInstruction[] }): Promise<CollectionOutcome[]> {
   guard()
-  const now = Date.now()
   return (window.awaiting ?? [])
-    .filter((i) => i.actionDate.getTime() <= now && i.actionDate.getTime() >= window.from.getTime())
+    .filter((i) => i.actionDate.getTime() <= window.to.getTime() && i.actionDate.getTime() >= window.from.getTime())
     .map(outcomeFor)
     .filter((o): o is CollectionOutcome => o !== null)
 }
@@ -125,4 +152,6 @@ export const simulatedCollections: CollectionProvider = {
   cancelMandate,
   collect,
   fetchResults,
+  getBatchLoadReport,
+  findMandate,
 }

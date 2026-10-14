@@ -1,20 +1,20 @@
 import Link from "next/link"
 import type { DebitMandateStatus, CollectionInstructionStatus } from "@prisma/client"
 import { DataPanel } from "@/components/app-shell/DataPanel"
-import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { loadLoanCollectionsView, type MandateWithHistory } from "@/lib/collections-engine/view.server"
 import { MandateCancelButton, MandateSetupForm } from "./MandateActions"
+import { ReviewList } from "./ReviewList"
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info"
 
 const MANDATE_TONE: Record<DebitMandateStatus, Tone> = {
-  CREATED: "neutral", PENDING_AUTH: "info", ACTIVE: "success", REJECTED: "danger",
+  CREATED: "neutral", SUBMITTING: "warning", PENDING_REGISTRATION: "info", PENDING_AUTH: "info", ACTIVE: "success", REJECTED: "danger",
   EXPIRED: "warning", SUSPENDED: "danger", CANCELLED: "neutral",
 }
 const INSTRUCTION_TONE: Record<CollectionInstructionStatus, Tone> = {
-  PENDING: "neutral", SUBMITTING: "warning", SUBMITTED: "info", REJECTED: "danger",
+  PENDING: "neutral", SUBMITTING: "warning", UPLOADED: "info", SUBMITTED: "info", NEEDS_REVIEW: "warning", REJECTED: "danger",
   CANCELLED: "neutral", PAID: "success", UNPAID: "danger", DISPUTED: "danger",
 }
 const label = (s: string) => s.replace(/_/g, " ").toLowerCase()
@@ -94,7 +94,6 @@ export async function LoanCollectionsPanel({ tenantId, loan, canManage }: {
   const view = await loadLoanCollectionsView(tenantId, loan)
   if (!view) return null
   const shown = view.liveMandate ?? view.mandates[0] ?? null
-  const review = view.mandates.flatMap((m) => m.instructions.flatMap((i) => i.results)).filter((r) => r.allocationError)
   const rec = view.recommendation
 
   return (
@@ -106,11 +105,9 @@ export async function LoanCollectionsPanel({ tenantId, loan, canManage }: {
       actions={<Link href="/collections/batches" className="text-xs text-[var(--cf-brand)] hover:underline">Batches</Link>}
     >
       <div className="space-y-5">
-        {review.map((r) => (
-          <InfoStrip key={r.id} variant="warning">{r.allocationError}</InfoStrip>
-        ))}
+        <ReviewList queue={view.review} canManage={canManage} />
         {shown && <MandateSummary mandate={shown} />}
-        {shown && canManage && ["CREATED", "PENDING_AUTH", "ACTIVE", "SUSPENDED"].includes(shown.status) && (
+        {shown && canManage && ["CREATED", "SUBMITTING", "PENDING_REGISTRATION", "PENDING_AUTH", "ACTIVE", "SUSPENDED"].includes(shown.status) && (
           <MandateCancelButton loanId={loan.id} mandateId={shown.id} />
         )}
         {view.canCreate && (

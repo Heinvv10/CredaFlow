@@ -64,9 +64,20 @@ export function definitelyNotSent(error: unknown): boolean {
     && (error.code === "NOT_CONFIGURED" || error.code === "NOT_IMPLEMENTED" || error.code === "UNKNOWN_PROVIDER")
 }
 
+const MAX_STORED_MESSAGE = 300
+
+/**
+ * A provider-supplied message made safe to persist and show: digit runs of six
+ * or more (account, ID and card numbers) are masked and the text truncated.
+ */
+export function redact(message: string): string {
+  const masked = message.replace(/\d{6,}/g, "[redacted]")
+  return masked.length > MAX_STORED_MESSAGE ? `${masked.slice(0, MAX_STORED_MESSAGE - 1)}…` : masked
+}
+
 /** A message safe to store and show: provider errors name a rule; others are reduced to their class. */
 export function errorSummary(error: unknown): string {
-  if (error instanceof CollectionProviderError) return `${error.code}: ${error.message}`
+  if (error instanceof CollectionProviderError) return redact(`${error.code}: ${error.message}`)
   const code = typeof (error as { code?: unknown })?.code === "string" ? ` ${(error as { code: string }).code}` : ""
   return `${error instanceof Error ? error.name : "Error"}${code}`
 }

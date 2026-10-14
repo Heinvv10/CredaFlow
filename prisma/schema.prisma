@@ -91,6 +91,7 @@ model User {
   kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
   debitMandatesCreated         DebitMandate[]             @relation("DebitMandatesCreated")
+  collectionResultsResolved    CollectionResult[]         @relation("CollectionResultsResolved")
 
   @@unique([tenantId, id])
 }
@@ -4823,12 +4824,17 @@ model Payout {
 // (lib/collections-engine; adapters in lib/integrations/collections). Dark
 // unless TenantConfig.collectionsEngineEnabled. The hard scheme rules are also
 // enforced by migration 20261014150000_collections_engine: the presentment cap
-// (CHECK), one live mandate per loan, the mandate status transitions,
-// instructions only against an ACTIVE mandate, and idempotent result
-// ingestion (unique resultKey). Kept as one block: append, don't interleave.
+// per instalment (CHECK + unique, across mandates), one live mandate per loan,
+// the mandate status transitions, instructions only against an ACTIVE mandate,
+// and idempotent result ingestion (unique resultKey). Kept as one block:
+// append, don't interleave.
 
 enum DebitMandateStatus {
   CREATED
+  /// Claimed by one writer for the provider call (staff create vs cron).
+  SUBMITTING
+  /// Uploaded to a file-based rail; awaiting its registration / load report.
+  PENDING_REGISTRATION
   PENDING_AUTH
   ACTIVE
   REJECTED
@@ -4859,14 +4865,22 @@ enum DebitMandateAdjustment {
 
 enum CollectionBatchStatus {
   SUBMITTING
+  /// Uploaded to a file-based rail; awaiting its load report.
+  UPLOADED
   SUBMITTED
   FAILED
+  /// The provider's answer is unknown; see its instructions.
+  NEEDS_REVIEW
 }
 
 enum CollectionInstructionStatus {
   PENDING
   SUBMITTING
+  /// In a batch the provider received; awaiting its load report.
+  UPLOADED
   SUBMITTED
+  /// May or may not have reached the bank: a person decides (never re-sent automatically).
+  NEEDS_REVIEW
   REJECTED
   CANCELLED
   PAID
@@ -4921,6 +4935,13 @@ model DebitMandate {
   accountType         String
   /// Created against the simulated provider: no bank ever saw it.
   simulated           Boolean                @default(false)
+  /// Failed provider submissions; retried with backoff until the limit, then reviewReason.
+  submitAttempts      Int                    @default(0)
+  nextAttemptAt       DateTime?
+  /// Set when the engine stops retrying and a person must act.
+  reviewReason        String?
+  /// When the provider confirmed the mandate cancelled (suspension, closure, staff).
+  providerCancelledAt DateTime?
   createdById         String
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -4962,8 +4983,8 @@ model CollectionBatch {
   @@index([tenantId, createdAt])
 }
 
-/// One presentment of one instalment under one mandate. presentmentNo counts
-/// the presentments of that instalment in this mandate's cycle (scheme cap 2).
+/// One presentment of one instalment. presentmentNo counts the presentments of
+/// that instalment across every mandate (scheme cap 2; a fresh mandate does not reset it).
 model CollectionInstruction {
   id                  String                      @id @default(cuid())
   tenantId            String
@@ -5015,12 +5036,19 @@ model CollectionResult {
   paymentId          String?
   /// When the engine finished acting on it (allocated, or recorded why not).
   processedAt        DateTime?
-  allocationError    String?
+  /// Why a person must look at it (not booked, mismatch, reported after payment).
+  reviewReason       String?
+  /// UNPAID/DISPUTED reported for an instruction already PAID: never moves it, never counts as an NPF.
+  reportedAfterPayment Boolean               @default(false)
+  reviewResolvedAt   DateTime?
+  reviewResolvedById String?
+  reviewNote         String?
   createdAt          DateTime                @default(now())
 
   tenant      Tenant                @relation(fields: [tenantId], references: [id])
   instruction CollectionInstruction @relation(fields: [tenantId, instructionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   payment     Payment?              @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reviewResolvedBy User?            @relation("CollectionResultsResolved", fields: [tenantId, reviewResolvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, provider, resultKey])

@@ -41,7 +41,7 @@ describe("unimplemented methods", () => {
           : method === "collect"
             ? netcashCollections.collect([], {})
             : method === "fetchResults"
-              ? netcashCollections.fetchResults({ from: new Date() }, {})
+              ? netcashCollections.fetchResults({ from: new Date(), to: new Date() }, {})
               : method === "getMandateStatus"
                 ? netcashCollections.getMandateStatus("x", {})
                 : netcashCollections.cancelMandate("x", {})
