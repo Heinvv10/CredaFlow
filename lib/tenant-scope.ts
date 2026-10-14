@@ -103,6 +103,9 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // Signing OTP challenges (lib/signing-otp). Non-null tenantId, passed
+  // explicitly on every query (sign routes run inside withTenantContext too).
+  "SigningOtpChallenge",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

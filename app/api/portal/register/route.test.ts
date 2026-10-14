@@ -44,10 +44,18 @@ const {
   resolveMessagingTarget: vi.fn(),
 }))
 
+// TenantConfig / CommsSettings rows for the portal switches and the WhatsApp
+// leg; null = no row = every default (portal and registration on, no WhatsApp Cloud).
+const lenderRows = vi.hoisted(() => ({
+  tenantConfig: null as null | Record<string, unknown>,
+  commsSettings: null as null | Record<string, unknown>,
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: findFirstClient, update: updateClient },
     clientOtp: { findFirst: findFirstClientOtp, create: createClientOtp, update: updateClientOtp, updateMany: updateManyClientOtp },
+    tenantConfig: { findUnique: async () => lenderRows.tenantConfig },
+    commsSettings: { findUnique: async () => lenderRows.commsSettings },
   },
 }))
 
@@ -78,6 +86,12 @@ vi.mock("@/lib/messaging/route-delivery", () => ({ resolveMessagingTarget }))
 vi.mock("@/lib/audit", () => ({
   logAudit,
   AuditAction: new Proxy({}, { get: (_t, k) => String(k) }),
+}))
+
+const sendPortalOtpByWhatsApp = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/portal/portal-otp-whatsapp", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/portal/portal-otp-whatsapp")>()),
+  sendPortalOtpByWhatsApp,
 }))
 
 function makeRequest(body: Record<string, unknown>) {
@@ -132,10 +146,83 @@ beforeEach(() => {
   updateClientOtp.mockResolvedValue({ ...validOtpRecord, used: true })
   updateManyClientOtp.mockResolvedValue({ count: 1 })
   sendEmail.mockResolvedValue({ ok: true })
+  sendPortalOtpByWhatsApp.mockResolvedValue(undefined)
+  lenderRows.tenantConfig = null
+  lenderRows.commsSettings = null
 })
 
 afterEach(() => {
   vi.clearAllMocks()
+})
+
+describe("POST /api/portal/register — lender switches", () => {
+  it("refuses every request with the portal-unavailable 404 while the portal is off", async () => {
+    lenderRows.tenantConfig = { featurePortal: false, allowNewRegistrations: true }
+    for (const body of [requestCodeBody, verifyBody]) {
+      const res = await POST(makeRequest(body))
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual(expect.objectContaining({ portal: "disabled" }))
+    }
+    expect(findFirstClient).not.toHaveBeenCalled()
+    expect(createClientOtp).not.toHaveBeenCalled()
+  })
+
+  it("refuses new activations while registrations are closed, in both modes, before any lookup", async () => {
+    lenderRows.tenantConfig = { featurePortal: true, allowNewRegistrations: false }
+    for (const body of [requestCodeBody, verifyBody]) {
+      const res = await POST(makeRequest(body))
+      expect(res.status).toBe(403)
+      expect(await res.json()).toEqual(expect.objectContaining({ portal: "registrations_closed" }))
+    }
+    expect(findFirstClient).not.toHaveBeenCalled()
+    expect(findFirstClientOtp).not.toHaveBeenCalled()
+    expect(updateClient).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/portal/register — WhatsApp as the code channel", () => {
+  const waCloud = { whatsappEnabled: true, waProvider: "WA_CLOUD", wabaPhoneNumberId: "pn-1", wabaAccessToken: "token" }
+  const withWhatsapp = { ...unactivatedClient, whatsapp: "0820000001" }
+  const WA_MESSAGE = /WhatsApp number on file, or by email/
+
+  it("sends the code on WhatsApp, not email, when the lender runs WhatsApp Cloud and the client has a number", async () => {
+    lenderRows.commsSettings = waCloud
+    findFirstClient.mockResolvedValue(withWhatsapp)
+    const data = await (await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))).json()
+
+    expect(data.message).toMatch(WA_MESSAGE)
+    await vi.waitFor(() => expect(sendPortalOtpByWhatsApp).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "tenant-1", purpose: "activation", otpRecordId: "otp-1", code: expect.stringMatching(/^\d{6}$/),
+    })))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it("falls back to email when the client has no WhatsApp number, with the same answer", async () => {
+    lenderRows.commsSettings = waCloud
+    const data = await (await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))).json()
+
+    expect(data.message).toMatch(WA_MESSAGE)
+    await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledTimes(1))
+    expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
+  })
+
+  it("falls back to email when the lender has no WhatsApp Cloud (never SMS)", async () => {
+    findFirstClient.mockResolvedValue(withWhatsapp)
+    await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))
+
+    await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledTimes(1))
+    expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
+  })
+
+  it("answers an unmatched WhatsApp request identically", async () => {
+    lenderRows.commsSettings = waCloud
+    findFirstClient.mockResolvedValue(null)
+    const unmatched = await (await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))).json()
+    findFirstClient.mockResolvedValue(withWhatsapp)
+    const matched = await (await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))).json()
+    expect(unmatched).toEqual(matched)
+  })
 })
 
 describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration safety)", () => {

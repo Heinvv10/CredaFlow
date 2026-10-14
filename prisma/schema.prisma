@@ -186,6 +186,7 @@ model Tenant {
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  signingOtpChallenges       SigningOtpChallenge[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -281,6 +282,21 @@ model TenantConfig {
   kycOverrideEnabled        Boolean  @default(true)
   kycOverrideMinRole        UserRole @default(ADMIN)
   kycOverrideSecondApprover Boolean  @default(false)
+
+  // Borrower signing OTP (lib/signing-otp). Portal signing of the agreement,
+  // debit mandate and other documents needs a verified one-time code when
+  // requireSigningOtp is on; branch signing (staff present) is exempt while
+  // signingOtpBranchExempt is on.
+  requireSigningOtp      Boolean @default(true)
+  signingOtpBranchExempt Boolean @default(true)
+  // Portal self-registration (app/api/portal/register). Off refuses new
+  // activations; clients who already activated are unaffected.
+  allowNewRegistrations  Boolean @default(true)
+  // Staff access restrictions (lib/security/staff-access-policy.ts). Hours:
+  // null = any time, else per-weekday SAST windows. Allowlist: empty = any
+  // address, else CIDR blocks the staff caller's IP must fall in.
+  staffAccessHours       Json?
+  staffIpAllowlist       String[] @default([])
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -491,6 +507,7 @@ model Client {
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
   kycOverrideRequests    KycOverrideRequest[]
+  signingOtpChallenges   SigningOtpChallenge[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -2786,6 +2803,45 @@ model NotificationLog {
   createdAt DateTime @default(now())
 
   @@index([tenantId, messageId])
+}
+
+enum SigningOtpPurpose {
+  AGREEMENT
+  DEBIT_MANDATE
+  DOCUMENT
+}
+
+// One borrower signing OTP (lib/signing-otp). Bound to the client, the thing
+// being signed (subjectId: the application for AGREEMENT / DEBIT_MANDATE, the
+// ClientDocument for DOCUMENT) and the SHA-256 of the exact bytes shown. The
+// code is stored only as a keyed hash. Consumed once, inside the signing
+// transaction; from then on the row is the OTP evidence of that signature and
+// the database refuses to change or delete it.
+model SigningOtpChallenge {
+  id                String            @id @default(cuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  clientId          String
+  client            Client            @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  purpose           SigningOtpPurpose
+  subjectId         String
+  documentSha256    String
+  codeHash          String
+  channel           Channel
+  maskedDestination String
+  deliveryStatus    String // ACCEPTED | SIMULATED | FAILED
+  sentAt            DateTime?
+  expiresAt         DateTime
+  attempts          Int               @default(0)
+  maxAttempts       Int
+  verifiedAt        DateTime?
+  consumedAt        DateTime?
+  signingMethod     String? // portal | branch, set at consumption
+  requestedByUserId String? // the staff witness for a branch request
+  requestedIp       String?
+  createdAt         DateTime          @default(now())
+
+  @@index([tenantId, clientId, purpose, subjectId, createdAt])
 }
 
 model ClientOtp {

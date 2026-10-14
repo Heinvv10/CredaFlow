@@ -5,6 +5,8 @@ import { getDocumentCaller } from "@/lib/document-auth"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
+import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
+import { isSigningOtpRequired, signingOtpChallengeIdFrom, signingOtpRefusal } from "@/lib/signing-otp/policy"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -76,18 +78,60 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Document is already signed" }, { status: 409 })
     }
 
+    // Signing OTP (lib/signing-otp/policy.ts). A CLIENT session is portal
+    // signing whatever `method` it names, so it cannot claim the branch
+    // exemption. The code is bound to the document's content digest.
+    const otpMethod = caller.type === "client" ? "portal" : method
+    const signingOtpNeeded = await isSigningOtpRequired(tenant.id, otpMethod)
+    const signingOtpChallengeId = signingOtpChallengeIdFrom(body)
+    const signingOtpBinding = {
+      tenantId: tenant.id,
+      clientId: doc.clientId,
+      purpose: "DOCUMENT" as const,
+      subjectId: id,
+      documentSha256: doc.contentSha256 ?? "",
+    }
+    if (signingOtpNeeded) {
+      if (!doc.contentSha256) {
+        return NextResponse.json(
+          { error: "This document has no integrity digest, so it cannot be signed with a code.", signingOtp: "no_digest" },
+          { status: 422 },
+        )
+      }
+      const refusal = await checkSigningOtp(prisma, signingOtpChallengeId, signingOtpBinding)
+      if (refusal) return signingOtpRefusal(refusal)
+    }
+
     const ip = recordedCallerIp(req)
 
     const signedAt = new Date()
 
-    const updated = await prisma.clientDocument.update({
-      where: { id, tenantId: tenant.id },
-      data: {
-        signatureState: "signed",
-        signedAt,
-        signedByIp: ip,
-      },
-    })
+    let signed
+    try {
+      signed = await prisma.$transaction(async (tx) => {
+        const signingOtp = signingOtpNeeded
+          ? await consumeSigningOtp(tx, {
+              ...signingOtpBinding,
+              challengeId: signingOtpChallengeId!,
+              method: otpMethod,
+              now: signedAt,
+            })
+          : null
+        const row = await tx.clientDocument.update({
+          where: { id, tenantId: tenant.id },
+          data: {
+            signatureState: "signed",
+            signedAt,
+            signedByIp: ip,
+          },
+        })
+        return { row, signingOtp }
+      })
+    } catch (error) {
+      if (error instanceof SigningOtpRefusedError) return signingOtpRefusal(error.reason)
+      throw error
+    }
+    const { row: updated, signingOtp } = signed
 
     await logAudit({
       tenantId: tenant.id,
@@ -96,7 +140,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       action: AuditAction.DOCUMENT_SIGNED,
       entity: "ClientDocument",
       entityId: id,
-      newValue: { method, signedAt: signedAt.toISOString() },
+      newValue: { method, signedAt: signedAt.toISOString(), ...(signingOtp ? { signingOtp } : {}) },
       ipAddress: ip ?? undefined,
     })
 

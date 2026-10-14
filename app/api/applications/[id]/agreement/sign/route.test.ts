@@ -31,7 +31,13 @@ const {
   verifyStoredPasqBindingMock,
   verifyPasqDocumentArtifactMock,
   readFileMock,
+  otpFindFirstMock,
+  txOtpUpdateManyMock,
+  txOtpFindFirstMock,
 } = vi.hoisted(() => ({
+  otpFindFirstMock: vi.fn(),
+  txOtpUpdateManyMock: vi.fn(),
+  txOtpFindFirstMock: vi.fn(),
   authMock: vi.fn(),
   applicationFindUniqueMock: vi.fn(),
   agreementDocumentFindFirstMock: vi.fn(),
@@ -66,6 +72,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     creditBureauCheck: { findFirst: (...args: unknown[]) => bureauCheckFindFirstMock(...args) },
     tenantConfig: { findUnique: (...args: unknown[]) => tenantConfigFindUniqueMock(...args) },
+    signingOtpChallenge: { findFirst: (...args: unknown[]) => otpFindFirstMock(...args) },
     $transaction: (...args: unknown[]) => transactionMock(...args),
   },
 }))
@@ -261,6 +268,10 @@ beforeEach(() => {
     ndiBufferPct: 110,
     bureauMinScore: 450,
     bureauBlockAdverse: false,
+    // The signing-OTP gate has its own describe block below; elsewhere the
+    // lender has it switched off so each test exercises its own rule.
+    requireSigningOtp: false,
+    signingOtpBranchExempt: true,
   })
   verifyCurrentAffordabilityApprovalMock.mockReturnValue({
     ok: true,
@@ -309,6 +320,11 @@ beforeEach(() => {
       updateMany: txDocumentUpdateManyMock,
     },
     auditLog: { create: txAuditCreateMock },
+    signingOtpChallenge: {
+      updateMany: txOtpUpdateManyMock,
+      findFirst: txOtpFindFirstMock,
+      findFirstOrThrow: txOtpFindFirstMock,
+    },
     $queryRaw: txQueryRawMock,
   }))
 })
@@ -1074,5 +1090,161 @@ describe("signature-to-document binding (regeneration safety)", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       agreementIntegrity: "document_changed",
     }))
+  })
+})
+
+describe("signing OTP gate (lender requires a verified code)", () => {
+  // Fake clock is 2026-07-20T10:00Z (beforeEach).
+  const verifiedChallenge = {
+    id: "otp-1",
+    tenantId: "tenant-1",
+    clientId: "client-1",
+    purpose: "AGREEMENT",
+    subjectId: "app-1",
+    documentSha256: agreementPdfSha256,
+    channel: "EMAIL",
+    maskedDestination: "c***t@e***.test",
+    deliveryStatus: "ACCEPTED",
+    sentAt: new Date("2026-07-20T09:57:00.000Z"),
+    expiresAt: new Date("2026-07-20T10:02:00.000Z"),
+    attempts: 1,
+    maxAttempts: 5,
+    verifiedAt: new Date("2026-07-20T09:58:00.000Z"),
+    consumedAt: null,
+  }
+  const withOtp = { method: "portal", signature: "Jane Doe", signingOtpChallengeId: "otp-1" }
+
+  beforeEach(() => {
+    tenantConfigFindUniqueMock.mockResolvedValue({
+      ndiBufferPct: 110,
+      bureauMinScore: 450,
+      bureauBlockAdverse: false,
+      requireSigningOtp: true,
+      signingOtpBranchExempt: true,
+    })
+    otpFindFirstMock.mockResolvedValue(verifiedChallenge)
+    txOtpUpdateManyMock.mockResolvedValue({ count: 1 })
+    txOtpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, consumedAt: new Date("2026-07-20T10:00:00.000Z") })
+  })
+
+  it("refuses a portal signature that carries no code, before any transaction", async () => {
+    const response = await POST(request({ method: "portal", signature: "Jane Doe" }), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "required" }))
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a code that was sent but never verified", async () => {
+    otpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, verifiedAt: null })
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "not_verified" }))
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a code bound to other agreement bytes", async () => {
+    otpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, documentSha256: "f".repeat(64) })
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "document_changed" }))
+  })
+
+  it("refuses another client's code", async () => {
+    otpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, clientId: "client-2" })
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "not_found" }))
+  })
+
+  it("refuses a code that was already spent", async () => {
+    otpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, consumedAt: new Date("2026-07-20T09:59:00.000Z") })
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "already_used" }))
+  })
+
+  it("refuses a code verified longer ago than the signing window", async () => {
+    otpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, verifiedAt: new Date("2026-07-20T09:44:59.000Z") })
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "verification_stale" }))
+  })
+
+  it("spends the code inside the signing transaction, bound to client, subject and bytes, and records the evidence", async () => {
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(200)
+    expect(txOtpUpdateManyMock).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: "otp-1",
+        tenantId: "tenant-1",
+        clientId: "client-1",
+        purpose: "AGREEMENT",
+        subjectId: "app-1",
+        documentSha256: agreementPdfSha256,
+        consumedAt: null,
+        verifiedAt: { not: null, gte: new Date("2026-07-20T09:45:00.000Z") },
+      }),
+      data: { consumedAt: expect.any(Date), signingMethod: "portal" },
+    })
+    expect(txAuditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "AGREEMENT_SIGNED",
+        newValue: expect.objectContaining({
+          signingOtp: {
+            challengeId: "otp-1",
+            channel: "EMAIL",
+            maskedDestination: "c***t@e***.test",
+            deliveryStatus: "ACCEPTED",
+            sentAt: "2026-07-20T09:57:00.000Z",
+            verifiedAt: "2026-07-20T09:58:00.000Z",
+            attempts: 1,
+          },
+        }),
+      }),
+    })
+  })
+
+  it("rolls the signature back when a concurrent signing spent the code first", async () => {
+    txOtpUpdateManyMock.mockResolvedValue({ count: 0 })
+    txOtpFindFirstMock.mockResolvedValue({ ...verifiedChallenge, consumedAt: new Date("2026-07-20T09:59:59.000Z") })
+    const response = await POST(request(withOtp), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "already_used" }))
+    expect(txApplicationUpdateManyMock).not.toHaveBeenCalled()
+  })
+
+  it("does not ask a witnessed branch signing for a code while the branch exemption is on", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "officer-1", role: "CREDIT_OFFICER", email: "officer@example.test", tenantId: "tenant-1" },
+    })
+    txQueryRawMock.mockResolvedValue([{
+      id: "officer-1", email: "officer@example.test", name: "Credit Officer", role: "CREDIT_OFFICER",
+    }])
+    const response = await POST(request({ method: "branch", signature: drawnSignature, attestation: true }), context)
+
+    expect(response.status).toBe(200)
+    expect(txOtpUpdateManyMock).not.toHaveBeenCalled()
+  })
+
+  it("asks a branch signing for a code once the lender removes the exemption", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({
+      ndiBufferPct: 110, bureauMinScore: 450, bureauBlockAdverse: false,
+      requireSigningOtp: true, signingOtpBranchExempt: false,
+    })
+    authMock.mockResolvedValue({
+      user: { id: "officer-1", role: "CREDIT_OFFICER", email: "officer@example.test", tenantId: "tenant-1" },
+    })
+    const response = await POST(request({ method: "branch", signature: drawnSignature, attestation: true }), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(expect.objectContaining({ signingOtp: "required" }))
   })
 })

@@ -29,6 +29,12 @@ import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-el
 import { verifyStoredPasqBinding } from "@/lib/compliance/pasq"
 import { verifyPasqDocumentArtifact } from "@/lib/compliance/pasq-document.server"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
+import {
+  isSigningOtpRequired,
+  signingOtpChallengeIdFrom,
+  signingOtpRefusal,
+} from "@/lib/signing-otp/policy"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -345,6 +351,23 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     if (recordsReturnedPacket) {
       signatureData =
         `signed-packet-v1:${body.signedPacketDocumentId}:${body.signedPacketSha256}`
+    }
+    // Signing OTP (lib/signing-otp/policy.ts). A returned wet-ink packet is a
+    // paper signature and needs none. Checked here for a clear refusal; it is
+    // spent inside the transaction below.
+    const signingOtpChallengeId = signingOtpChallengeIdFrom(body)
+    const signingOtpBinding = {
+      tenantId: tenant.id,
+      clientId: application.clientId,
+      purpose: "AGREEMENT" as const,
+      subjectId: id,
+      documentSha256: agreementDocumentSha256,
+    }
+    const signingOtpNeeded =
+      !recordsReturnedPacket && await isSigningOtpRequired(tenant.id, method)
+    if (signingOtpNeeded) {
+      const refusal = await checkSigningOtp(prisma, signingOtpChallengeId, signingOtpBinding)
+      if (refusal) return signingOtpRefusal(refusal)
     }
     if (!signatureData) {
       return NextResponse.json({
@@ -779,6 +802,14 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             throw new AgreementSigningRaceError("signed_packet_changed")
           }
         }
+        const signingOtp = signingOtpNeeded
+          ? await consumeSigningOtp(tx, {
+              ...signingOtpBinding,
+              challengeId: signingOtpChallengeId!,
+              method,
+              now,
+            })
+          : null
         const applicationChanged = await tx.loanApplication.updateMany({
           where: {
             id,
@@ -977,6 +1008,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
               pasqDocumentSha256: pasqBinding.documentSha256,
               pasqEvidenceSha256: pasqBinding.evidence.evidenceSha256,
               signatureSha256: signatureData ? sha256Text(signatureData) : null,
+              ...(signingOtp ? { signingOtp } : {}),
               ...(recordsReturnedPacket
                 ? {
                     signingChannel: "returned_pdf",
@@ -1002,6 +1034,9 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       })
       return NextResponse.json(updated)
     } catch (error) {
+      if (error instanceof SigningOtpRefusedError) {
+        return signingOtpRefusal(error.reason)
+      }
       if (error instanceof AgreementSigningRaceError) {
         if (error.reason === "kyc_changed") {
           return NextResponse.json(

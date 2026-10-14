@@ -92,16 +92,24 @@ export function _resetRateLimitStore(): void {
  * callers together, which is conservative but not exploitable.
  */
 export function callerIp(req: Request): string {
+  return callerIpFromHeaders(req.headers)
+}
+
+/**
+ * callerIp for code that holds the request headers rather than the Request
+ * (a NextAuth callback reading `headers()` from next/headers). Same algorithm.
+ */
+export function callerIpFromHeaders(headers: Headers): string {
   const trustedProxies = parseInt(process.env.TRUSTED_PROXY ?? "0", 10)
 
-  const forwarded = trustedForwardedIp(req, trustedProxies)
+  const forwarded = trustedForwardedIp(headers, trustedProxies)
   if (forwarded) return forwarded
 
   return "unknown"
 }
 
-function trustedForwardedIp(req: Request, trustedProxies: number): string | null {
-  const xff = req.headers.get("x-forwarded-for")
+function trustedForwardedIp(headers: Headers, trustedProxies: number): string | null {
+  const xff = headers.get("x-forwarded-for")
   if (!xff || trustedProxies <= 0) return null
   const ips = xff.split(",").map((s) => s.trim()).filter(Boolean)
   const idx = ips.length - trustedProxies
@@ -116,5 +124,5 @@ function trustedForwardedIp(req: Request, trustedProxies: number): string | null
  */
 export function recordedCallerIp(req: Request): string | null {
   const trustedProxies = parseInt(process.env.TRUSTED_PROXY ?? "0", 10)
-  return trustedForwardedIp(req, trustedProxies)
+  return trustedForwardedIp(req.headers, trustedProxies)
 }

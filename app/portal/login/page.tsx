@@ -6,6 +6,8 @@ import { safePortalPath } from "@/lib/portal-urls"
 import { getLenderBrandName } from "@/lib/config/identity"
 import { DeploymentConfigError, requireAppBaseUrl } from "@/lib/config/deployment-urls"
 import { getResolvedTenantId, getTenantConfig } from "@/lib/tenant"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
+import { PortalUnavailable } from "@/components/portal/PortalUnavailable"
 
 // The lender's brand is read from the DB per request, so this page cannot be
 // prerendered at build time.
@@ -31,7 +33,16 @@ export default async function PortalLoginPage({
     redirect(safePortalPath(callbackUrl) ?? "/portal")
   }
   const tenantId = await getResolvedTenantId()
-  const [brandName, config] = await Promise.all([getLenderBrandName(tenantId), getTenantConfig(tenantId)])
+  const [brandName, config, portalEnabled] = await Promise.all([
+    getLenderBrandName(tenantId), getTenantConfig(tenantId), isPortalEnabled(tenantId),
+  ])
+  if (!portalEnabled) {
+    return (
+      <TenantThemeProvider config={config}>
+        <PortalUnavailable />
+      </TenantThemeProvider>
+    )
+  }
   // The staff app lives on its own host: omit the link when that host is not configured.
   let crossLink: { href: string; label: string } | null = null
   try {

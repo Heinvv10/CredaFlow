@@ -13,6 +13,14 @@ import { escapeHtml } from "@/lib/utils"
 import { sendMessage, SendBlockedError } from "@/lib/messaging/send"
 import { isPortalActivationNewSendEnabled } from "@/lib/messaging/flags"
 import { resolveMessagingTarget } from "@/lib/messaging/route-delivery"
+import { portalRegistrationRefusal } from "@/lib/portal/portal-policy"
+import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
+import {
+  clientReachableOnWhatsApp,
+  portalOtpChannelFrom,
+  sendPortalOtpByWhatsApp,
+  type PortalOtpChannel,
+} from "@/lib/portal/portal-otp-whatsapp"
 
 const REGISTER_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
@@ -31,6 +39,10 @@ const REGISTER_IP_CALL_CAP = { limit: 30, windowMs: 15 * 60 * 1000 } as const
 const GENERIC_REQUEST_MESSAGE =
   "If those details match an application, we've emailed a 6-digit activation code. Enter it below to finish."
 const GENERIC_INVALID_MESSAGE = "Invalid or expired code."
+// Same rule when the borrower chose WhatsApp: every response to that request
+// carries this text, matched or not, delivered on WhatsApp or by email.
+const GENERIC_REQUEST_MESSAGE_WHATSAPP =
+  "If those details match an application, we've sent a 6-digit activation code to the WhatsApp number on file, or by email if we can't reach you there. Enter it below to finish."
 
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
@@ -53,6 +65,7 @@ export async function POST(req: NextRequest) {
     password?: string
     confirmPassword?: string
     turnstileToken?: string
+    channel?: string
   }
   try {
     body = await req.json()
@@ -60,6 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 })
   }
   const { email, idNumber, otp, password, confirmPassword, turnstileToken } = body
+  const channel = portalOtpChannelFrom(body.channel)
 
   // Bot defence (SIGN-07). Missing tokens short-circuit with no network call;
   // token-bearing requests hit Cloudflare but are bounded per IP by the cap above.
@@ -96,7 +110,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!otp) {
-    return requestActivationCode(req, ip, normalisedEmail, trimmedId)
+    return requestActivationCode(req, ip, normalisedEmail, trimmedId, channel)
   }
 
   if (typeof otp !== "string" || typeof password !== "string" || typeof confirmPassword !== "string"
@@ -120,9 +134,22 @@ export async function POST(req: NextRequest) {
 // the address on file for an un-activated client matching email+ID. Always
 // returns the same generic success regardless of whether a match was found,
 // so the response carries no information about account existence (SIGN-02).
-async function requestActivationCode(req: NextRequest, ip: string, email: string, idNumber: string) {
+async function requestActivationCode(
+  req: NextRequest,
+  ip: string,
+  email: string,
+  idNumber: string,
+  channel: PortalOtpChannel,
+) {
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
+    // Lender-wide switches: the same answer for every caller.
+    const refusal = await portalRegistrationRefusal(tenantId)
+    if (refusal) return refusal
+    // Read for every request, BEFORE the account lookup, so the matched path
+    // awaits nothing the unmatched one does not (see the timing note below).
+    const whatsappLeg = channel === "WHATSAPP" && await isWhatsAppCloudConfigured(tenantId)
+    const genericMessage = channel === "WHATSAPP" ? GENERIC_REQUEST_MESSAGE_WHATSAPP : GENERIC_REQUEST_MESSAGE
 
     const client = await prisma.client.findFirst({
       where: { email, idNumber, tenantId, portalPassword: null },
@@ -132,6 +159,13 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
       const code = generateOtp()
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
       const otpRecord = await prisma.clientOtp.create({ data: { email, otp: code, expiresAt } })
+
+      if (whatsappLeg && clientReachableOnWhatsApp(client)) {
+        // Detached for the same timing reason as the email legs below.
+        void sendPortalOtpByWhatsApp({ tenantId, client, code, purpose: "activation", otpRecordId: otpRecord.id })
+          .catch((err: unknown) => { console.error("[portal-register] WhatsApp activation send failed:", err) })
+        return NextResponse.json({ success: true, message: genericMessage, ...demoCodeReveal(code, email) })
+      }
 
       if (isPortalActivationNewSendEnabled()) {
         // New path: sendMessage() via the Phase 9 S2 pipeline, so the
@@ -224,7 +258,7 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
           }
         })
 
-        return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code, email) })
+        return NextResponse.json({ success: true, message: genericMessage, ...demoCodeReveal(code, email) })
       }
 
       // Legacy path: direct sendEmail(). Kept until the new path has soaked.
@@ -263,10 +297,10 @@ async function requestActivationCode(req: NextRequest, ip: string, email: string
         console.error("[portal-register] activation email failed:", err)
       })
 
-      return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE, ...demoCodeReveal(code, email) })
+      return NextResponse.json({ success: true, message: genericMessage, ...demoCodeReveal(code, email) })
     }
 
-    return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE })
+    return NextResponse.json({ success: true, message: genericMessage })
   })
 }
 
@@ -284,6 +318,9 @@ async function verifyAndActivate(
 ) {
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
+    // A code issued before registrations closed does not activate after.
+    const refusal = await portalRegistrationRefusal(tenantId)
+    if (refusal) return refusal
 
     const otpRecord = await prisma.clientOtp.findFirst({
       where: { email, used: false, expiresAt: { gt: new Date() } },

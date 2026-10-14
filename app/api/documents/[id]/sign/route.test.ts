@@ -7,7 +7,13 @@ const {
   updateClientDocument,
   createDocumentAccessLog,
   logAudit,
+  tenantConfigFindUnique,
+  otpFindFirst,
+  otpUpdateMany,
 } = vi.hoisted(() => ({
+  tenantConfigFindUnique: vi.fn(),
+  otpFindFirst: vi.fn(),
+  otpUpdateMany: vi.fn(),
   getDocumentCaller: vi.fn(),
   findFirstClientDocument: vi.fn(),
   updateClientDocument: vi.fn(),
@@ -19,12 +25,19 @@ vi.mock("@/lib/document-auth", () => ({ getDocumentCaller }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "t1" }),
 }))
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    clientDocument: { findFirst: findFirstClientDocument, update: updateClientDocument },
-    documentAccessLog: { create: createDocumentAccessLog },
-  },
-}))
+vi.mock("@/lib/prisma", () => {
+  const signingOtpChallenge = { findFirst: otpFindFirst, findFirstOrThrow: otpFindFirst, updateMany: otpUpdateMany }
+  const tx = { clientDocument: { update: updateClientDocument }, signingOtpChallenge }
+  return {
+    prisma: {
+      clientDocument: { findFirst: findFirstClientDocument, update: updateClientDocument },
+      documentAccessLog: { create: createDocumentAccessLog },
+      tenantConfig: { findUnique: tenantConfigFindUnique },
+      signingOtpChallenge,
+      $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+    },
+  }
+})
 vi.mock("@/lib/audit", () => ({
   logAudit,
   AuditAction: { DOCUMENT_SIGNED: "DOCUMENT_SIGNED" },
@@ -59,6 +72,8 @@ beforeEach(() => {
   updateClientDocument.mockResolvedValue({ ...PENDING_DOC, signatureState: "signed" })
   createDocumentAccessLog.mockResolvedValue({})
   logAudit.mockResolvedValue(undefined)
+  // The signing-OTP gate has its own describe block; off for the rest.
+  tenantConfigFindUnique.mockResolvedValue({ requireSigningOtp: false, signingOtpBranchExempt: true })
 })
 
 afterEach(() => {
@@ -190,5 +205,106 @@ describe("POST /api/documents/[id]/sign", () => {
     expect(createDocumentAccessLog).toHaveBeenCalledWith({
       data: expect.objectContaining({ accessorType: "client", accessorId: "client-1" }),
     })
+  })
+})
+
+describe("POST /api/documents/[id]/sign — signing OTP gate", () => {
+  const DIGEST = "c".repeat(64)
+  const now = Date.now()
+  const verified = {
+    id: "otp-1", tenantId: "t1", clientId: "client-1", purpose: "DOCUMENT", subjectId: "doc1",
+    documentSha256: DIGEST, channel: "WHATSAPP", maskedDestination: "+27 *** *** 4567",
+    deliveryStatus: "ACCEPTED", sentAt: new Date(now - 60_000), expiresAt: new Date(now + 240_000),
+    attempts: 2, maxAttempts: 5, verifiedAt: new Date(now - 30_000), consumedAt: null,
+  }
+  const client = { type: "client", clientId: "client-1", email: "x@y.com" }
+
+  beforeEach(() => {
+    tenantConfigFindUnique.mockResolvedValue({ requireSigningOtp: true, signingOtpBranchExempt: true })
+    findFirstClientDocument.mockResolvedValue({ ...PENDING_DOC, contentSha256: DIGEST })
+    otpFindFirst.mockResolvedValue(verified)
+    otpUpdateMany.mockResolvedValue({ count: 1 })
+  })
+
+  it("refuses a portal signature without a code and changes nothing", async () => {
+    getDocumentCaller.mockResolvedValue(client)
+
+    const res = await POST(req({ method: "portal" }), ctx())
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({ signingOtp: "required" }))
+    expect(updateClientDocument).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it("does not let a CLIENT session claim the branch exemption", async () => {
+    getDocumentCaller.mockResolvedValue(client)
+
+    const res = await POST(req({ method: "branch" }), ctx())
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({ signingOtp: "required" }))
+    expect(updateClientDocument).not.toHaveBeenCalled()
+  })
+
+  it("lets a witnessed staff branch signing through while the exemption is on", async () => {
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "t1" })
+
+    const res = await POST(req({ method: "branch" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(otpUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a code issued for other bytes of the document", async () => {
+    getDocumentCaller.mockResolvedValue(client)
+    otpFindFirst.mockResolvedValue({ ...verified, documentSha256: "d".repeat(64) })
+
+    const res = await POST(req({ method: "portal", signingOtpChallengeId: "otp-1" }), ctx())
+
+    expect(res.status).toBe(409)
+    expect(updateClientDocument).not.toHaveBeenCalled()
+  })
+
+  it("refuses a document with no content digest to bind a code to", async () => {
+    getDocumentCaller.mockResolvedValue(client)
+    findFirstClientDocument.mockResolvedValue({ ...PENDING_DOC, contentSha256: null })
+
+    const res = await POST(req({ method: "portal", signingOtpChallengeId: "otp-1" }), ctx())
+
+    expect(res.status).toBe(422)
+    expect(updateClientDocument).not.toHaveBeenCalled()
+  })
+
+  it("spends a verified code with the signature and audits its evidence", async () => {
+    getDocumentCaller.mockResolvedValue(client)
+
+    const res = await POST(req({ method: "portal", signingOtpChallengeId: "otp-1" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(otpUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: "otp-1", clientId: "client-1", purpose: "DOCUMENT", subjectId: "doc1", documentSha256: DIGEST, consumedAt: null,
+      }),
+      data: expect.objectContaining({ signingMethod: "portal" }),
+    }))
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      newValue: expect.objectContaining({
+        signingOtp: expect.objectContaining({ challengeId: "otp-1", channel: "WHATSAPP", attempts: 2 }),
+      }),
+    }))
+  })
+
+  it("does not sign when the code is spent concurrently", async () => {
+    getDocumentCaller.mockResolvedValue(client)
+    otpUpdateMany.mockResolvedValue({ count: 0 })
+    otpFindFirst
+      .mockResolvedValueOnce(verified)
+      .mockResolvedValueOnce({ ...verified, consumedAt: new Date() })
+
+    const res = await POST(req({ method: "portal", signingOtpChallengeId: "otp-1" }), ctx())
+
+    expect(res.status).toBe(403)
+    expect(updateClientDocument).not.toHaveBeenCalled()
   })
 })

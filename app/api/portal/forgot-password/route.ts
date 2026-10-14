@@ -11,6 +11,9 @@ import { generateOtp } from "@/lib/otp"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { demoCodeReveal } from "@/lib/config/demo-mode"
 import { escapeHtml } from "@/lib/utils"
+import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
+import { clientReachableOnWhatsApp, portalOtpChannelFrom, sendPortalOtpByWhatsApp } from "@/lib/portal/portal-otp-whatsapp"
 
 // Per-EMAIL send cap: bounds OTP-email spam on a single account regardless of
 // source IP (distributed / CGNAT), and is the invariant a brute-force campaign
@@ -33,8 +36,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const body = await req.json() as { email?: string; turnstileToken?: string }
+  const body = await req.json() as { email?: string; turnstileToken?: string; channel?: string }
   const { email, turnstileToken } = body
+  const channel = portalOtpChannelFrom(body.channel)
 
   // Bot defence: block automated OTP-email spam / account-enumeration sweeps.
   // A missing token short-circuits with no outbound call.
@@ -65,6 +69,10 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
+    const portalOff = await portalOffRefusal(tenantId)
+    if (portalOff) return portalOff
+    // Read for every request, before the account lookup, like the identity.
+    const whatsappLeg = channel === "WHATSAPP" && await isWhatsAppCloudConfigured(tenantId)
 
     // Resolved BEFORE the account lookup, for every request: if the lender
     // identity were read only once a client matched, an unconfigured identity
@@ -90,6 +98,13 @@ export async function POST(req: NextRequest) {
     const otp = generateOtp()
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
     const otpRecord = await prisma.clientOtp.create({ data: { email: normalised, otp, expiresAt } })
+
+    if (whatsappLeg && clientReachableOnWhatsApp(client)) {
+      // Failures are audited inside; the caller is told the same as always.
+      await sendPortalOtpByWhatsApp({ tenantId, client, code: otp, purpose: "password_reset", otpRecordId: otpRecord.id })
+        .catch((err: unknown) => { console.error("[portal-forgot] WhatsApp send failed:", err) })
+      return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
+    }
 
     if (newSend || !legacyIdentity) {
       // New path: sendMessage() via the Phase 9 S2 pipeline.

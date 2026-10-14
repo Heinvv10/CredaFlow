@@ -9,6 +9,10 @@ import { withoutTenantScope } from "@/lib/tenant-scope"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { claimTotpCounter } from "./totp-claim"
+import { checkStaffSignIn, staffSessionAllowed } from "@/lib/security/staff-access-enforcement"
+import type { StaffAccessPolicyColumns } from "@/lib/security/staff-access-policy"
+import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/staff-access-messages"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
 
 export { claimTotpCounter }
 
@@ -26,6 +30,18 @@ class RateLimitedError extends CredentialsSignin {
 
 class WrongAudienceError extends CredentialsSignin {
   code = "wrong_audience"
+}
+
+/** The lender's staff working hours or IP allowlist refused this sign-in. */
+class StaffAccessRefusedError extends CredentialsSignin {
+  constructor(reason: StaffAccessRefusal) {
+    super()
+    this.code = staffAccessSignInCode(reason)
+  }
+}
+
+class PortalDisabledError extends CredentialsSignin {
+  code = "portal_disabled"
 }
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
@@ -53,22 +69,28 @@ async function equalizeAuthTiming(candidate: string): Promise<void> {
  * Returns null  → force sign-out (user deactivated or token version bumped).
  * Returns "error" → transient DB failure; caller should retain the existing token.
  * Returns the current role and tenant binding on success; either may differ
- * from the token when the principal changes mid-session.
+ * from the token when the principal changes mid-session. `accessPolicy` is the
+ * tenant's staff access columns, read in the same query for the session gate
+ * (lib/security/staff-access-enforcement.ts).
  */
 export async function revalidatePrincipal(
   userId: string,
   tokenVersion: number,
-): Promise<{ role: UserRole; tenantId: string } | null | "error"> {
+): Promise<{ role: UserRole; tenantId: string; accessPolicy: StaffAccessPolicyColumns | null } | null | "error"> {
   let fresh: {
     active: boolean
     role: UserRole
     tenantId: string | null
     tokenVersion: number
+    tenant?: { config: StaffAccessPolicyColumns | null } | null
   } | null
   try {
     fresh = await prisma.user.findUnique({
       where: { id: userId },
-      select: { active: true, role: true, tenantId: true, tokenVersion: true },
+      select: {
+        active: true, role: true, tenantId: true, tokenVersion: true,
+        tenant: { select: { config: { select: { staffAccessHours: true, staffIpAllowlist: true } } } },
+      },
     })
   } catch (err) {
     console.error("[auth] revalidatePrincipal DB error — retaining existing token:", err)
@@ -77,7 +99,7 @@ export async function revalidatePrincipal(
 
   if (!fresh || !fresh.active || !fresh.tenantId) return null
   if (fresh.tokenVersion !== tokenVersion) return null
-  return { role: fresh.role, tenantId: fresh.tenantId }
+  return { role: fresh.role, tenantId: fresh.tenantId, accessPolicy: fresh.tenant?.config ?? null }
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -214,6 +236,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             totpEnrolmentRequired = await isStaffTotpRequired(loginTenantId)
           }
 
+          // Working hours and IP allowlist, checked once both factors passed.
+          const access = await checkStaffSignIn({
+            tenantId: loginTenantId, userId: user.id, email: user.email, role: user.role, ip, userAgent,
+          })
+          if (!access.allowed) throw new StaffAccessRefusedError(access.reason)
+
           // Update last login + log the sign-in
           const now = new Date()
           await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: now } })
@@ -267,6 +295,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           await recordFailure("wrong_password")
           return null
         }
+        if (!(await isPortalEnabled(client.tenantId))) {
+          await recordFailure("portal_disabled")
+          throw new PortalDisabledError()
+        }
 
         return {
           id: client.id,
@@ -319,6 +351,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return typeof token.tenantId === "string" ? token : null
         }
         if (freshPrincipal === null) return null       // deactivated or version bump — force sign-out
+        const allowed = await staffSessionAllowed({
+          tenantId: freshPrincipal.tenantId, userId: tokenId, role: freshPrincipal.role,
+          email: typeof token.email === "string" ? token.email : null,
+        }, freshPrincipal.accessPolicy)
+        if (!allowed) return null                      // outside hours / off the allowlist: ends it like a revocation
         token.role = freshPrincipal.role               // picks up role changes mid-session
         token.tenantId = freshPrincipal.tenantId
       }

@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { DemoCodeNotice, demoCodeFrom } from "@/components/demo/DemoCodeNotice"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Mail, ArrowLeft, CheckCircle, KeyRound } from "lucide-react"
+import { OtpChannelPicker, type OtpChannelChoice } from "@/components/auth/OtpChannelPicker"
 
 // Client-facing self-service password reset. A locked-out portal
 // client previously had no route back in except a dead support mailbox. This
@@ -17,8 +18,16 @@ import { Mail, ArrowLeft, CheckCircle, KeyRound } from "lucide-react"
 // The forgot endpoint always returns success (no account enumeration), so the
 // UI always advances to the code-entry step.
 /** `brandName` is `getLenderBrandName` of the resolved tenant. */
-export default function PortalForgotPasswordForm({ brandName }: { brandName: string }) {
+export default function PortalForgotPasswordForm({
+  brandName,
+  whatsappAvailable = false,
+}: {
+  brandName: string
+  /** The lender runs WhatsApp Cloud, so the code may be sent there instead. */
+  whatsappAvailable?: boolean
+}) {
   const [step, setStep] = useState<"request" | "reset" | "done">("request")
+  const [channel, setChannel] = useState<OtpChannelChoice>("EMAIL")
   const [email, setEmail] = useState("")
   const [otp, setOtp] = useState("")
   const [password, setPassword] = useState("")
@@ -41,7 +50,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
       const res = await fetch("/api/portal/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, turnstileToken }),
+        body: JSON.stringify({ email, turnstileToken, channel }),
       })
       if (res.ok) {
         setDemoCode(demoCodeFrom(await res.json()))
@@ -127,6 +136,7 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
                     />
                   </div>
                 </div>
+                {whatsappAvailable && <OtpChannelPicker value={channel} onChange={setChannel} />}
                 <TurnstileWidget
                   onToken={setTurnstileToken}
                   onError={() => setTurnstileToken(null)}
@@ -148,8 +158,9 @@ export default function PortalForgotPasswordForm({ brandName }: { brandName: str
               <div className="mb-6">
                 <h2 className="text-lg font-bold text-[var(--cf-text)]">Enter your reset code</h2>
                 <p className="mt-1 text-sm text-[var(--cf-text-secondary)]">
-                  If an account exists for <strong>{email}</strong>, we&apos;ve emailed a 6-digit code. Enter it below
-                  with your new password. The code expires in 15 minutes.
+                  If an account exists for <strong>{email}</strong>, we&apos;ve sent a 6-digit code
+                  {channel === "WHATSAPP" ? " to the WhatsApp number on file (or by email if we can't reach you there)" : " by email"}.
+                  Enter it below with your new password. The code expires in 15 minutes.
                 </p>
               </div>
               <form onSubmit={resetPassword} className="space-y-4">

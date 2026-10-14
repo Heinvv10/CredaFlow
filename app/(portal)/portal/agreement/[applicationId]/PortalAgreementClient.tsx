@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button"
 import { CheckCircle, Loader2, PenLine, Keyboard, RotateCcw } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { SAST_TIME_ZONE } from "@/lib/utils"
+import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
+
+const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
 
 interface Props {
   applicationId: string
@@ -17,6 +20,8 @@ interface Props {
   agreementExecutedDocumentId: string | null
   pasqDocumentSha256: string | null
   repaymentMethod: "EFT" | "DEBIT_ORDER" | null
+  /** The lender requires a verified one-time code before signing (lib/signing-otp). */
+  signingOtp?: { required: boolean; channels: SigningOtpChannel[] }
 }
 
 type SignMode = "draw" | "type"
@@ -74,8 +79,12 @@ export function AgreementSignedPanel({ applicationId, agreementExecutedDocumentI
   )
 }
 
-export function PortalAgreementClient({ applicationId, reference, clientName, agreementDocumentSha256, agreementExecutedDocumentId, pasqDocumentSha256, repaymentMethod }: Props) {
+export function PortalAgreementClient({ applicationId, reference, clientName, agreementDocumentSha256, agreementExecutedDocumentId, pasqDocumentSha256, repaymentMethod, signingOtp = NO_SIGNING_OTP }: Props) {
   const [checks, setChecks] = useState([false, false, false, false, false])
+  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null)
+  // Remounts the OTP step after a signing refusal that spent or voided the code.
+  const [otpAttempt, setOtpAttempt] = useState(0)
+  const otpSatisfied = !signingOtp.required || otpChallengeId !== null
   const [signing, setSigning] = useState(false)
   const [signed, setSigned] = useState(false)
   const [signMode, setSignMode] = useState<SignMode>("draw")
@@ -160,7 +169,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const toggle = (i: number) => setChecks(prev => prev.map((v, idx) => idx === i ? !v : v))
 
   const handleSign = async () => {
-    if (!allChecked || !hasSignature) return
+    if (!allChecked || !hasSignature || !otpSatisfied) return
     setSigning(true)
     try {
       let signatureData: string | undefined
@@ -178,13 +187,18 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           signature: signatureData,
           agreementDocumentSha256,
           pasqDocumentSha256,
+          ...(otpChallengeId ? { signingOtpChallengeId: otpChallengeId } : {}),
         }),
       })
       if (res.ok) {
         setSigned(true)
         toast.agreement?.signed?.()
       } else {
-        const data = await res.json() as { error?: string }
+        const data = await res.json() as { error?: string; signingOtp?: string }
+        if (data.signingOtp) {
+          setOtpChallengeId(null)
+          setOtpAttempt((n) => n + 1)
+        }
         toast.error?.("Signing failed", data.error ?? "Please try again")
       }
     } catch {
@@ -333,11 +347,22 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
         )}
       </div>
 
+      {signingOtp.required && (
+        <SigningOtpStep
+          key={otpAttempt}
+          purpose="AGREEMENT"
+          subjectId={applicationId}
+          documentSha256={agreementDocumentSha256}
+          channels={signingOtp.channels}
+          onVerified={setOtpChallengeId}
+        />
+      )}
+
       <Button
         onClick={handleSign}
-        disabled={!allChecked || !hasSignature || signing}
+        disabled={!allChecked || !hasSignature || !otpSatisfied || signing}
         className="w-full py-6 text-lg"
-        style={{ backgroundColor: allChecked && hasSignature ? "#4F46E5" : undefined }}
+        style={{ backgroundColor: allChecked && hasSignature && otpSatisfied ? "#4F46E5" : undefined }}
       >
         {signing ? (
           <><Loader2 className="h-5 w-5 mr-2 animate-spin" />Signing...</>

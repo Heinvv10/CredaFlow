@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { notFound, redirect } from "next/navigation"
 import { PortalAgreementClient } from "./PortalAgreementClient"
 import { getResolvedTenantId } from "@/lib/tenant"
+import { signingOtpView } from "@/lib/signing-otp/view"
 
 interface Props { params: Promise<{ applicationId: string }> }
 
@@ -29,7 +30,7 @@ export default async function PortalAgreementPage({ params }: Props) {
       agreementExecutedDocumentId: true,
       pasqDocumentSha256: true,
       repaymentMethod: true,
-      client: { select: { firstName: true, lastName: true } },
+      client: { select: { firstName: true, lastName: true, email: true, whatsapp: true } },
     },
   })
 
@@ -48,8 +49,11 @@ export default async function PortalAgreementPage({ params }: Props) {
     )
   }
 
+  const signingOtp = await signingOtpView(tenantId, application.client, "portal")
+
   return (
     <PortalAgreementClient
+      signingOtp={signingOtp}
       applicationId={application.id}
       reference={application.reference}
       clientName={`${application.client.firstName} ${application.client.lastName}`}
