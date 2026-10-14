@@ -387,7 +387,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
     if (!fullyUnapplied) {
       await issueLeaseInvoicesOnReceipt(tx, {
         tenantId: input.tenantId, loanId: input.loanId, contractType: loan.contractType,
-        receivedOn: sastCalendarDate(receivedAt), today: sastCalendarDate(new Date()), createdById: input.capturedById,
+        today: sastCalendarDate(new Date()), createdById: input.capturedById,
       })
     }
 

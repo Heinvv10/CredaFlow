@@ -308,7 +308,7 @@ export async function applyBankTransaction(args: {
     if (!fullyUnapplied) {
       await issueLeaseInvoicesOnReceipt(tx, {
         tenantId: loan.tenantId, loanId: loan.id, contractType: loan.contractType,
-        receivedOn: sastCalendarDate(receivedAt), today: sastCalendarDate(new Date()), createdById: args.userId ?? null,
+        today: sastCalendarDate(new Date()), createdById: args.userId ?? null,
       })
     }
     await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")

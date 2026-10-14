@@ -21,6 +21,7 @@ import { settleReceipt } from "@/app/api/portal/payment/webhook/settle-receipt"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
 import { addMonthsClamped, dbDate, isoOfDbDate } from "./dates"
+import { dueDateInstant } from "./schedule-records"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { runLeaseInvoiceBatch } from "./lease-invoice-batch"
@@ -37,6 +38,7 @@ let fx: LeaseFixture
 let entityLoan = ""
 let clientLoan = ""
 let spareLoan = ""
+let backLoan = ""
 const today = () => sastCalendarDate(new Date())
 const yesterday = () => isoOfDbDate(new Date(dbDate(today()).getTime() - 86_400_000))
 
@@ -81,6 +83,8 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
       rateBasis: "FIXED", rateMargin: undefined, fixedRate: "0.135", firstDueDate: firstDue,
     }, firstDue)
     spareLoan = await book({ assetId: fx.assets[2], contractType: "OPERATING_LEASE", rentalTiming: "ARREARS", entityId: fx.evidenced })
+    backLoan = await book({ assetId: fx.assets[3], contractType: "OPERATING_LEASE", rentalTiming: "ARREARS", entityId: fx.evidenced })
+    await backdate(backLoan, 1) // rental 1 falls due today, rental 2 next month
     await backdate(entityLoan, 3)
     await backdate(clientLoan, 1)
     expect((await runLeaseInvoiceBatch(database() as never, today())).ok).toBe(true)
@@ -97,6 +101,17 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
     await cleanupLeaseRows(database(), tenantId).catch(() => undefined)
     await cleanupDealFixture(database(), { tenantId })
     await db?.$disconnect()
+  }, 60_000)
+
+  it("a back-dated receipt captured after a later one: the rental is supplied the day the cash reached it, not the receipt's date", async () => {
+    const [first, second] = await rentals(backLoan)
+    const receipt = (amount: number, receivedAt: Date, reference: string) =>
+      applyManualReceipt(database() as unknown as PaymentDb, { loanId: backLoan, tenantId: fx.tenantId, amount, capturedById: fx.officer, reference, receivedAt })
+    await receipt(first.totalCents, new Date(), "SYNTHETIC-BACK-A") // today: settles rental 1 exactly
+    await receipt(500, dueDateInstant(yesterday()), "SYNTHETIC-BACK-B") // back-dated R5.00: the cash passes rental 1 only today
+    const invoiced = (await rentals(backLoan)).find((r) => r.id === second.id)
+    expect(invoiced?.taxInvoice && isoOfDbDate(invoiced.taxInvoice.supplyDate)).toBe(today())
+    expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "LEASE_INVOICE_REFUSED", entityId: second.id } })).toBe(0)
   }, 60_000)
 
   it("a back-dated bank deposit invoices the rental it reaches before its due date, on the deposit's value date", async () => {
