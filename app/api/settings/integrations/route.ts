@@ -4,15 +4,19 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
+import {
+  isSingleTenantDeployment,
+  maskCredential,
+  sealCredential,
+  SEALED_CREDENTIAL_FIELDS,
+  type SealedCredentialField,
+} from "@/lib/integrations/tenant-credentials"
 
 // Registry keys from lib/integrations/collections/registry.ts, plus null (= off).
 const VALID_COLLECTION_PROVIDERS = [null, "netcash"]
 
-function maskKey(value: string | null): string {
-  if (!value) return ""
-  if (value.length <= 4) return "****"
-  return value.slice(0, 4) + "****"
-}
+// The lender's Stitch collection account: not secret, stored as typed.
+const STITCH_BENEFICIARY_FIELDS = ["stitchBeneficiaryName", "stitchBankId", "stitchAccountNumber", "stitchBranchCode"] as const
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("ADMIN")
@@ -23,36 +27,33 @@ export async function GET(req: NextRequest) {
       const config = await prisma.tenantConfig.findUnique({
         where: { tenantId: tenant.id },
         select: {
-          bulkSmsKey: true,
-          netcashKey: true,
-          transunionKey: true,
-          smileIdentityKey: true,
+          ...Object.fromEntries(SEALED_CREDENTIAL_FIELDS.map((key) => [key, true])),
+          ...Object.fromEntries(STITCH_BENEFICIARY_FIELDS.map((key) => [key, true])),
           collectionsEngineEnabled: true,
           collectionProvider: true,
           avsProvider: true,
-          netcashDebitOrderKey: true,
-          netcashRiskReportsKey: true,
         },
-      })
+      }) as (Record<string, string | null> & {
+        collectionsEngineEnabled: boolean
+        collectionProvider: string | null
+        avsProvider: string | null
+      }) | null
 
-      // Experian credentials live in .env (EXPERIAN_*), not TenantConfig — a
-      // runtime form cannot write .env, so this is read-only status only.
-      const experianConfigured = !!(process.env.EXPERIAN_USERNAME && process.env.EXPERIAN_PASSWORD)
+      // Per-tenant first; the EXPERIAN_* environment pair only counts on a
+      // single-tenant deployment (lib/integrations/tenant-credentials.ts).
+      const experianConfigured = !!config?.experianKey ||
+        (!!(process.env.EXPERIAN_USERNAME && process.env.EXPERIAN_PASSWORD) && await isSingleTenantDeployment())
       const experianEnv = (process.env.EXPERIAN_ENV ?? "UAT").toUpperCase()
 
+      // Credentials are masked whole: whether one is set, never any of it.
+      const masked = Object.fromEntries(SEALED_CREDENTIAL_FIELDS.flatMap((key) => [
+        [key, maskCredential(config?.[key])],
+        [`${key.replace(/Key$|Secret$/, "")}Configured`, !!config?.[key]],
+      ]))
+
       return NextResponse.json({
-        bulkSmsKey: maskKey(config?.bulkSmsKey ?? null),
-        netcashKey: maskKey(config?.netcashKey ?? null),
-        transunionKey: maskKey(config?.transunionKey ?? null),
-        smileIdentityKey: maskKey(config?.smileIdentityKey ?? null),
-        netcashDebitOrderKey: maskKey(config?.netcashDebitOrderKey ?? null),
-        netcashRiskReportsKey: maskKey(config?.netcashRiskReportsKey ?? null),
-        bulkSmsConfigured: !!config?.bulkSmsKey,
-        netcashConfigured: !!config?.netcashKey,
-        transunionConfigured: !!config?.transunionKey,
-        smileIdentityConfigured: !!config?.smileIdentityKey,
-        netcashDebitOrderConfigured: !!config?.netcashDebitOrderKey,
-        netcashRiskReportsConfigured: !!config?.netcashRiskReportsKey,
+        ...masked,
+        ...Object.fromEntries(STITCH_BENEFICIARY_FIELDS.map((key) => [key, config?.[key] ?? null])),
         collectionsEngineEnabled: config?.collectionsEngineEnabled ?? false,
         collectionProvider: config?.collectionProvider ?? null,
         avsProvider: config?.avsProvider ?? null,
@@ -73,29 +74,27 @@ export async function PATCH(req: NextRequest) {
   return withTenantContext(req, async (tenant) => {
     try {
       const body = await req.json()
-      const allowed = [
-        "bulkSmsKey",
-        "netcashKey",
-        "transunionKey",
-        "smileIdentityKey",
-        "netcashDebitOrderKey",
-        "netcashRiskReportsKey",
-      ] as const
-      const updates: {
-        bulkSmsKey?: string
-        netcashKey?: string
-        transunionKey?: string
-        smileIdentityKey?: string
-        netcashDebitOrderKey?: string
-        netcashRiskReportsKey?: string
+      const updates: Partial<Record<SealedCredentialField | (typeof STITCH_BENEFICIARY_FIELDS)[number], string>> & {
         collectionsEngineEnabled?: boolean
         collectionProvider?: string | null
         avsProvider?: string | null
       } = {}
 
-      for (const key of allowed) {
+      // Sealed on the way in (lib/integrations/tenant-credentials.ts); a
+      // deployment without the key refuses rather than store plaintext.
+      for (const key of SEALED_CREDENTIAL_FIELDS) {
         if (typeof body[key] === "string" && body[key].length > 0) {
-          updates[key] = body[key]
+          try {
+            updates[key] = sealCredential(body[key])
+          } catch (e) {
+            console.error("Refusing to store a provider credential:", e)
+            return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
+          }
+        }
+      }
+      for (const key of STITCH_BENEFICIARY_FIELDS) {
+        if (typeof body[key] === "string" && body[key].trim().length > 0) {
+          updates[key] = body[key].trim()
         }
       }
 

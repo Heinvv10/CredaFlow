@@ -1,0 +1,100 @@
+/**
+ * Per-tenant provider credentials: the only reader and writer of the secret
+ * TenantConfig columns. Each lender brings its own Netcash, TransUnion,
+ * Experian, SmileIdentity, BulkSMS and Stitch accounts.
+ *
+ * Sealed at rest with lib/crypto/secret-box.ts under WABA_ENC_KEY, the one
+ * key the email and WhatsApp credentials already share (lib/email/secrets.ts).
+ * WRITES FAIL CLOSED: a secret with no key configured is refused. READS ARE
+ * TOLERANT of a legacy plaintext row (no `enc:v1:` marker), so values saved
+ * before this change keep working until they are next saved.
+ *
+ * Environment fallback: Experian, SmileIdentity and Stitch were configured by
+ * environment variables before they were per tenant. Those variables are
+ * still honoured, but only on a single-tenant (dedicated) deployment — exactly
+ * one ACTIVE tenant, the same rule as getTenantFromRequest's fallback. The
+ * moment a second lender exists they stop applying, so one lender's accounts
+ * can never serve another's borrowers.
+ */
+import { prisma } from "@/lib/prisma"
+import { isSealed, openSecret, sealSecret } from "@/lib/crypto/secret-box"
+
+const KEY_ENV = "WABA_ENC_KEY"
+
+export const SEALED_CREDENTIAL_FIELDS = [
+  "netcashKey",
+  "netcashDebitOrderKey",
+  "netcashRiskReportsKey",
+  "bulkSmsKey",
+  "transunionKey",
+  "smileIdentityKey",
+  "experianKey",
+  "stitchKey",
+  "stitchWebhookSecret",
+] as const
+export type SealedCredentialField = (typeof SEALED_CREDENTIAL_FIELDS)[number]
+
+export function isSealedCredentialField(key: string): key is SealedCredentialField {
+  return (SEALED_CREDENTIAL_FIELDS as readonly string[]).includes(key)
+}
+
+/** Seals a credential for storage. Already-sealed values pass through. */
+export function sealCredential(value: string): string {
+  if (isSealed(value)) return value
+  const key = process.env[KEY_ENV]
+  if (!key) throw new Error(`${KEY_ENV} must be set to store provider credentials (refusing to store a secret in plaintext)`)
+  return sealSecret(value, key)
+}
+
+/** Opens a stored credential; a legacy plaintext value passes through. */
+export function openCredential(value: string | null | undefined): string | null {
+  if (value == null || value === "") return null
+  if (!isSealed(value)) return value
+  const key = process.env[KEY_ENV]
+  if (!key) throw new Error(`${KEY_ENV} is not set but a stored provider credential is encrypted`)
+  return openSecret(value, key)
+}
+
+/** What a settings screen may show of a credential: whether it is set, never any of it. */
+export function maskCredential(value: string | null | undefined): string {
+  return value ? "********" : ""
+}
+
+/** A TenantConfig row as an API may return it: every credential column masked. */
+export function maskConfigCredentials<T extends Record<string, unknown>>(config: T): T {
+  const masked: Record<string, unknown> = { ...config }
+  for (const key of SEALED_CREDENTIAL_FIELDS) {
+    if (key in masked) masked[key] = maskCredential(masked[key] as string | null)
+  }
+  return masked as T
+}
+
+/** Splits an "id:secret" pair at the FIRST colon, so a secret may contain colons. */
+export function splitCredentialPair(value: string | null): { id: string; secret: string } | null {
+  if (!value) return null
+  const at = value.indexOf(":")
+  if (at <= 0 || at === value.length - 1) return null
+  return { id: value.slice(0, at), secret: value.slice(at + 1) }
+}
+
+export async function loadTenantCredential(tenantId: string, field: SealedCredentialField): Promise<string | null> {
+  const config = await prisma.tenantConfig.findUnique({ where: { tenantId }, select: { [field]: true } })
+  return openCredential((config as Record<string, string | null> | null)?.[field])
+}
+
+/** True when this deployment serves exactly one ACTIVE lender. */
+export async function isSingleTenantDeployment(): Promise<boolean> {
+  return (await prisma.tenant.count({ where: { status: "ACTIVE" }, take: 2 })) === 1
+}
+
+/** The tenant's "id:secret" credential, or the env pair on a single-tenant deployment. */
+export async function loadCredentialPair(
+  tenantId: string,
+  field: SealedCredentialField,
+  envFallback: { id?: string; secret?: string },
+): Promise<{ id: string; secret: string } | null> {
+  const own = splitCredentialPair(await loadTenantCredential(tenantId, field))
+  if (own) return own
+  if (!envFallback.id || !envFallback.secret) return null
+  return (await isSingleTenantDeployment()) ? { id: envFallback.id, secret: envFallback.secret } : null
+}

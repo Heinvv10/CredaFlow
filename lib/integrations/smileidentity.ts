@@ -4,8 +4,11 @@
 
 import { createHmac } from "crypto"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { loadCredentialPair } from "@/lib/integrations/tenant-credentials"
 
 interface VerifyIdOptions {
+  /** Whose Smile ID account is used. */
+  tenantId: string
   idNumber: string
   firstName: string
   lastName: string
@@ -53,10 +56,18 @@ function smileSimulationEnabled(): boolean {
   return process.env.NODE_ENV === "test" || process.env.SMILE_DRY_RUN === "true"
 }
 
-function getConfig(): { apiKey: string; partnerId: string; baseUrl: string } | null {
-  const apiKey = process.env.SMILE_IDENTITY_API_KEY
-  const partnerId = process.env.SMILE_IDENTITY_PARTNER_ID
-  if (!apiKey || !partnerId) return null
+/**
+ * The lender's own Smile ID account: TenantConfig.smileIdentityKey, sealed
+ * "partnerId:apiKey". SMILE_IDENTITY_PARTNER_ID / SMILE_IDENTITY_API_KEY apply
+ * only on a single-tenant deployment (lib/integrations/tenant-credentials.ts).
+ */
+async function getConfig(tenantId: string): Promise<{ apiKey: string; partnerId: string; baseUrl: string } | null> {
+  const creds = await loadCredentialPair(tenantId, "smileIdentityKey", {
+    id: process.env.SMILE_IDENTITY_PARTNER_ID,
+    secret: process.env.SMILE_IDENTITY_API_KEY,
+  })
+  if (!creds) return null
+  const { id: partnerId, secret: apiKey } = creds
 
   const isProd = process.env.SMILE_IDENTITY_ENV === "production"
   const baseUrl = isProd
@@ -75,7 +86,7 @@ export async function verifyId(opts: VerifyIdOptions): Promise<VerifyIdResult> {
     return { ok: true, verified: true, confidence: 99 }
   }
 
-  const config = getConfig()
+  const config = await getConfig(opts.tenantId)
   if (!config) {
     return { ok: false, verified: false, error: "Smile Identity not configured" }
   }
@@ -134,6 +145,8 @@ export async function verifyId(opts: VerifyIdOptions): Promise<VerifyIdResult> {
 }
 
 export async function verifyBiometric(opts: {
+  /** Whose Smile ID account is used. */
+  tenantId: string
   selfieBase64: string
   idNumber: string
   firstName: string
@@ -145,7 +158,7 @@ export async function verifyBiometric(opts: {
     return { ok: true, verified: true, simulated: true, matchScore: 98, livenessScore: 97 }
   }
 
-  const config = getConfig()
+  const config = await getConfig(opts.tenantId)
   if (!config) {
     return { ok: false, verified: false, error: "Smile Identity not configured" }
   }

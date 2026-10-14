@@ -117,6 +117,7 @@ export async function runBureauReviewCheck(
         consentGranted: true,
         applicationId: opts.applicationId,
       }),
+      opts.tenantId,
     )
     const subjectFingerprint = bureauSubjectFingerprint({
       id: opts.clientId,

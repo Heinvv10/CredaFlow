@@ -250,6 +250,7 @@ async function enquire(db: BureauDb, tenantId: string, applicationId: string, cl
         consentGranted: true,
         applicationId,
       }),
+      tenantId,
     )
   } catch (error) {
     await recordAttempt(db, tenantId, applicationId, "PENDING", {

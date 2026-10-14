@@ -28,13 +28,15 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 
 **Per integration** (all optional until the feature is used)
 
+Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_KEY` (`lib/integrations/tenant-credentials.ts`). The Stitch, SmileIdentity and Experian credential variables below are a fallback for a dedicated deployment and are ignored while more than one tenant is ACTIVE; a shared platform sets each lender's credentials on its TenantConfig instead.
+
 | Feature | Variables |
 |---|---|
 | Payments (Stitch) | `STITCH_CLIENT_ID`, `STITCH_CLIENT_SECRET`, `STITCH_WEBHOOK_SECRET`, `STITCH_BENEFICIARY_NAME`, `STITCH_BANK_ID`, `STITCH_BANK_NAME`, `STITCH_ACCOUNT_NUMBER`, `STITCH_ACCOUNT_TYPE`, `STITCH_BRANCH_CODE` |
 | Debit mandates | `DEBIT_MANDATE_CREDITOR_BANK_NAME`, `_ACCOUNT_NUMBER`, `_BRANCH_CODE` (real, printed on every mandate; placeholders are refused), `DEBIT_MANDATE_CREDITOR_TENANT_ID` (must equal the tenant id; provision sets it) |
 | KYC (SmileIdentity) | `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY`, `SMILE_IDENTITY_ENV` (`production` or `test`), `SMILE_DRY_RUN` |
 | Face match | `FACE_MODEL_DIR`, `FACE_SIMILARITY_THRESHOLD`, `FACE_MODEL_LOAD_TIMEOUT_MS`, `FACE_COMPARISON_TIMEOUT_MS` (models are in the image) |
-| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD`, `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings |
+| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD` (single-tenant fallback for `TenantConfig.experianKey`), `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings |
 | Bureau submission | `BUREAU_SUBMISSION_MODE` |
 | Dry-run switches | `EXPERIAN_DRY_RUN`, `TRANSUNION_DRY_RUN`, `NETCASH_DRY_RUN`, `NETCASH_COLLECTIONS_DRY_RUN`, `BULKSMS_DRY_RUN` (SMS is off by policy), `WA_DRY_RUN`, `SIMULATED_INTEGRATIONS`. On `NODE_ENV=production` a dry-run for a financial or credit provider throws unless declared a sandbox (`lib/integrations/simulation-guard.ts`) |
 | Email | primary: Settings > Email, stored sealed with `WABA_ENC_KEY`. Fallback: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`. Delivery guard: `EMAIL_DELIVERY_MODE` (default restricted to an allowlist; `unrestricted` on production only), `EMAIL_RECIPIENT_ALLOWLIST`, `EMAIL_INTERNAL_DOMAINS`, `EMAIL_INBOUND_ALLOWED_HOSTS` |

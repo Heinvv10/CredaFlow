@@ -3,6 +3,7 @@ import { revalidateTag } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { maskConfigCredentials, sealCredential } from "@/lib/integrations/tenant-credentials"
 import { cleanAddressLine } from "@/lib/bureau-submission/clean"
 import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
@@ -44,8 +45,16 @@ export async function GET(
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
   }
 
-  return NextResponse.json(tenant)
+  return NextResponse.json(withMaskedCredentials(tenant))
 }
+
+/** Provider credentials never leave in a response, sealed or not. */
+function withMaskedCredentials<T extends { config: Record<string, unknown> | null }>(tenant: T): T {
+  return { ...tenant, config: tenant.config && maskConfigCredentials(tenant.config) }
+}
+
+// Sealed on write (lib/integrations/tenant-credentials.ts); null clears one.
+const CREDENTIAL_KEYS = ["netcashKey", "bulkSmsKey", "transunionKey"] as const
 
 export async function PATCH(
   req: NextRequest,
@@ -94,7 +103,6 @@ export async function PATCH(
     primaryColor, secondaryColor, darkColor,
     faviconUrl,
     featureLms, featureCrm, featureIms, featureMarketing, featurePortal, featureReports,
-    netcashKey, bulkSmsKey, transunionKey,
     featureBureauSubmission, bureauSupplierNumber, bureauTradingName, bureauReportingStartDate,
     ..._ // discard unknown fields
   } = body as Record<string, string | boolean | null | undefined>
@@ -123,9 +131,19 @@ export async function PATCH(
   if (featureMarketing !== undefined) configUpdate.featureMarketing = featureMarketing
   if (featurePortal !== undefined) configUpdate.featurePortal = featurePortal
   if (featureReports !== undefined) configUpdate.featureReports = featureReports
-  if (netcashKey !== undefined) configUpdate.netcashKey = netcashKey
-  if (bulkSmsKey !== undefined) configUpdate.bulkSmsKey = bulkSmsKey
-  if (transunionKey !== undefined) configUpdate.transunionKey = transunionKey
+  const credentialKeys = CREDENTIAL_KEYS.filter((key) => body[key] !== undefined)
+  for (const key of credentialKeys) {
+    const value = body[key]
+    if (value !== null && (typeof value !== "string" || value.length === 0)) {
+      return NextResponse.json({ error: `${key} must be a non-empty string, or null` }, { status: 400 })
+    }
+    try {
+      configUpdate[key] = value === null ? null : sealCredential(value)
+    } catch (e) {
+      console.error("Refusing to store a provider credential:", e)
+      return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
+    }
+  }
 
   // Bureau data submission (lib/bureau-submission). These decide whether real
   // people's loans are reported to a credit bureau and under whose name, so
@@ -173,9 +191,9 @@ export async function PATCH(
       },
     }),
   }
-  if (bureauKeys.length === 0 && colourKeys.length === 0) {
+  if (bureauKeys.length === 0 && colourKeys.length === 0 && credentialKeys.length === 0) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
-    return NextResponse.json(updated)
+    return NextResponse.json(withMaskedCredentials(updated))
   }
 
   // The change and its audit rows commit together, or neither does.
@@ -206,6 +224,18 @@ export async function PATCH(
         entityId: tenantId,
         oldValue: Object.fromEntries(colourKeys.map((key) => [key, before?.[key] ?? null])),
         newValue: Object.fromEntries(colourKeys.map((key) => [key, configUpdate[key]])),
+      }, tx)
+    }
+    if (credentialKeys.length > 0) {
+      // Which credentials changed, never their values.
+      await logAuditStrict({
+        tenantId,
+        userId: session?.user?.id,
+        userEmail: session?.user?.email ?? undefined,
+        action: AuditAction.PROVIDER_CREDENTIALS_UPDATED,
+        entity: "TenantConfig",
+        entityId: tenantId,
+        newValue: { updatedKeys: credentialKeys, cleared: credentialKeys.filter((key) => body[key] === null) },
       }, tx)
     }
     if (bureauKeys.length === 0) return result
@@ -241,5 +271,5 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json(updated)
+  return NextResponse.json(withMaskedCredentials(updated))
 }

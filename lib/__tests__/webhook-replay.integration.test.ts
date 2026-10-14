@@ -5,6 +5,10 @@ import { prisma } from "../prisma"
 import { withoutTenantScope } from "../tenant-scope"
 import { createApprovedPasqV3Application, bookLoan } from "../compliance/pasq-v3-application.integration-fixture"
 import { POST } from "../../app/api/portal/payment/webhook/route"
+import { PrismaClient } from "@prisma/client"
+import { storeStitchWebhookSecret } from "../integrations/stitch-webhook.integration-fixture"
+
+const admin = new PrismaClient()
 
 // Opt-in: needs a fully migrated database. See "Integration tests" in CLAUDE.md.
 //   RUN_WEBHOOK_REPLAY_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/__tests__/webhook-replay.integration.test.ts
@@ -13,7 +17,6 @@ const d = process.env.RUN_WEBHOOK_REPLAY_IT === "1" ? describe : describe.skip
 const STAMP = `${Date.now()}-${process.pid}`
 const SECRET = "test-webhook-secret"
 
-let originalSecret: string | undefined
 let originalTenantSlug: string | undefined
 let tenantId = ""
 let decoyTenantId = ""
@@ -39,9 +42,7 @@ function sign(body: string): string {
 
 d("Stitch webhook — replay protection (integration)", () => {
   beforeAll(async () => {
-    originalSecret = process.env.STITCH_WEBHOOK_SECRET
     originalTenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG
-    process.env.STITCH_WEBHOOK_SECRET = SECRET
 
     // An approved application needs a locked PASQ v3 document (trigger +
     // LoanApplication_approved_status_requires_pasq CHECK), so the shared
@@ -50,6 +51,9 @@ d("Stitch webhook — replay protection (integration)", () => {
     tenantId = scenario.tenantId
     clientId = scenario.clientId
     loanId = await bookLoan(scenario)
+    // The lender's own Stitch webhook secret (per tenant; the environment
+    // secret applies only on a single-tenant deployment).
+    await storeStitchWebhookSecret(admin, tenantId, SECRET)
 
     // Point the default tenant at a DIFFERENT tenant. The webhook must take
     // its tenant from the loan; if it ever falls back to the default tenant,
@@ -83,9 +87,6 @@ d("Stitch webhook — replay protection (integration)", () => {
 
   afterAll(async () => {
     // Restore env vars
-    if (originalSecret === undefined) delete process.env.STITCH_WEBHOOK_SECRET
-    else process.env.STITCH_WEBHOOK_SECRET = originalSecret
-
     if (originalTenantSlug === undefined) delete process.env.NEXT_PUBLIC_TENANT_SLUG
     else process.env.NEXT_PUBLIC_TENANT_SLUG = originalTenantSlug
 
@@ -148,12 +149,13 @@ d("Stitch webhook — replay protection (integration)", () => {
     expect(paymentsCount).toBe(1)
   })
 
-  it("unknown stitchId returns 200 ok with no Payment created", async () => {
+  it("unknown stitchId is refused (no lender's secret can verify it) with no Payment created", async () => {
+    // Each lender signs with its own secret, found through the payment the
+    // event names. An id that is no payment of ours names no lender, and on a
+    // multi-tenant database no deployment-wide secret applies.
     const body = JSON.stringify({ type: "payment.completed", data: { id: `nope-${STAMP}` } })
     const res = await POST(makeRequest(body, sign(body)))
-    expect(res.status).toBe(200)
-    const json = (await res.json()) as any
-    expect(json.ok).toBe(true)
+    expect(res.status).toBe(401)
     // Still only one Payment from the first test
     const paymentsCount = await withoutTenantScope(async () =>
       prisma.payment.count({ where: { loanId } })

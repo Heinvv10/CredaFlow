@@ -26,7 +26,9 @@ vi.mock("@/lib/prisma", () => ({
 }))
 vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1" }))
 
+import { randomBytes } from "node:crypto"
 import { PATCH } from "./route"
+import { openCredential } from "@/lib/integrations/tenant-credentials"
 
 describe("PATCH /api/settings/integrations", () => {
   beforeEach(() => {
@@ -100,5 +102,39 @@ describe("PATCH /api/settings/integrations", () => {
     expect(response.status).toBe(500)
     expect(tenantConfigUpsertMock).toHaveBeenCalledOnce()
     expect(auditLogCreateMock).toHaveBeenCalledOnce()
+  })
+
+  const patch = (body: Record<string, unknown>) => PATCH(new NextRequest(
+    "https://staging.acme-lending.example/api/settings/integrations",
+    { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+  ))
+
+  it("seals every provider credential before it is stored, and audits the field names only", async () => {
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      const response = await patch({ experianKey: "synthetic-user:synthetic-pass", stitchWebhookSecret: "synthetic-whsec" })
+      expect(response.status).toBe(200)
+      const { update } = tenantConfigUpsertMock.mock.calls[0][0] as { update: Record<string, string> }
+      expect(update.experianKey.startsWith("enc:v1:")).toBe(true)
+      expect(openCredential(update.experianKey)).toBe("synthetic-user:synthetic-pass")
+      expect(openCredential(update.stitchWebhookSecret)).toBe("synthetic-whsec")
+      const audit = JSON.stringify(auditLogCreateMock.mock.calls[0][0])
+      expect(audit).toContain("experianKey")
+      expect(audit).not.toContain("synthetic-pass")
+      expect(audit).not.toContain("synthetic-whsec")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("refuses to store a credential in plaintext when no key is configured", async () => {
+    vi.stubEnv("WABA_ENC_KEY", "")
+    try {
+      const response = await patch({ netcashKey: "synthetic-service-key" })
+      expect(response.status).toBe(500)
+      expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

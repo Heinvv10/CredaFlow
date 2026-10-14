@@ -3,7 +3,15 @@
  * Docs: https://stitch.money/docs
  */
 
-const STITCH_TOKEN_URL = "https://secure.stitch.money/connect/token"
+import { prisma } from "@/lib/prisma"
+import {
+  isSingleTenantDeployment,
+  loadTenantCredential,
+  openCredential,
+  splitCredentialPair,
+} from "@/lib/integrations/tenant-credentials"
+
+const STITCH_TOKEN_URL ="https://secure.stitch.money/connect/token"
 const STITCH_GRAPHQL_URL = "https://api.stitch.money/graphql"
 
 interface StitchTokenResponse {
@@ -12,13 +20,65 @@ interface StitchTokenResponse {
   token_type: string
 }
 
-export async function getStitchAccessToken(): Promise<string> {
-  const clientId = process.env.STITCH_CLIENT_ID
-  const clientSecret = process.env.STITCH_CLIENT_SECRET
+/** A lender's Stitch account and the collection account it pays into. */
+export interface StitchAccount {
+  clientId: string
+  clientSecret: string
+  beneficiary: { name: string; bankId: string; accountNumber: string; branchCode: string }
+}
 
-  if (!clientId || !clientSecret) {
-    throw new Error("Stitch credentials not configured (STITCH_CLIENT_ID / STITCH_CLIENT_SECRET)")
+/**
+ * The lender's own Stitch account (TenantConfig.stitchKey, sealed
+ * "clientId:clientSecret", and the stitchBeneficiary* columns), taken whole.
+ * The STITCH_* environment variables are used, also whole, only when the
+ * lender has no stitchKey and this is a single-tenant deployment
+ * (lib/integrations/tenant-credentials.ts): a payment must never be routed to
+ * another lender's account. Throws when neither is complete.
+ */
+export async function loadStitchAccount(tenantId: string): Promise<StitchAccount> {
+  const config = await prisma.tenantConfig.findUnique({
+    where: { tenantId },
+    select: { stitchKey: true, stitchBeneficiaryName: true, stitchBankId: true, stitchAccountNumber: true, stitchBranchCode: true },
+  })
+  const own = splitCredentialPair(openCredential(config?.stitchKey))
+  const source = own
+    ? {
+        clientId: own.id, clientSecret: own.secret, name: config?.stitchBeneficiaryName, bankId: config?.stitchBankId,
+        accountNumber: config?.stitchAccountNumber, branchCode: config?.stitchBranchCode,
+      }
+    : (await isSingleTenantDeployment())
+      ? {
+          clientId: process.env.STITCH_CLIENT_ID, clientSecret: process.env.STITCH_CLIENT_SECRET,
+          name: process.env.STITCH_BENEFICIARY_NAME, bankId: process.env.STITCH_BANK_ID,
+          accountNumber: process.env.STITCH_ACCOUNT_NUMBER, branchCode: process.env.STITCH_BRANCH_CODE,
+        }
+      : null
+  if (!source?.clientId || !source.clientSecret) {
+    throw new Error("Stitch is not configured for this lender (Settings → Integrations)")
   }
+  // No defaults: the beneficiary is the lender's own collection account, so a
+  // missing value must stop the payment rather than route it to another bank.
+  const { name, bankId, accountNumber, branchCode } = source
+  if (!name || !bankId || !accountNumber || !branchCode) {
+    throw new Error("Stitch beneficiary account is not configured for this lender (name, bank, account number, branch code)")
+  }
+  return { clientId: source.clientId, clientSecret: source.clientSecret, beneficiary: { name, bankId, accountNumber, branchCode } }
+}
+
+/**
+ * The secret that signs this lender's Stitch webhooks; the deployment's
+ * STITCH_WEBHOOK_SECRET only on a single-tenant deployment. `tenantId` null
+ * (a webhook naming no payment of ours) gets only the deployment secret.
+ */
+export async function loadStitchWebhookSecret(tenantId: string | null): Promise<string | null> {
+  const own = tenantId ? await loadTenantCredential(tenantId, "stitchWebhookSecret") : null
+  if (own) return own
+  const env = process.env.STITCH_WEBHOOK_SECRET
+  return env && (await isSingleTenantDeployment()) ? env : null
+}
+
+export async function getStitchAccessToken(account: Pick<StitchAccount, "clientId" | "clientSecret">): Promise<string> {
+  const { clientId, clientSecret } = account
 
   const res = await fetch(STITCH_TOKEN_URL, {
     method: "POST",
@@ -76,30 +136,14 @@ interface GraphQLResponse {
   errors?: Array<{ message: string }>
 }
 
+/** Creates a payment request on `tenantId`'s Stitch account, into its collection account. */
 export async function createStitchPayment(
+  tenantId: string,
   input: StitchPaymentInput
 ): Promise<StitchPaymentResult> {
-  const token = await getStitchAccessToken()
-
-  const beneficiaryName = process.env.STITCH_BENEFICIARY_NAME
-  // No defaults: the beneficiary is the lender's own collection account, so a
-  // missing value must stop the payment rather than route it to another bank.
-  const bankId = process.env.STITCH_BANK_ID
-  const accountNumber = process.env.STITCH_ACCOUNT_NUMBER
-  const branchCode = process.env.STITCH_BRANCH_CODE
-
-  if (!beneficiaryName) {
-    throw new Error("STITCH_BENEFICIARY_NAME not configured")
-  }
-  if (!bankId) {
-    throw new Error("STITCH_BANK_ID not configured")
-  }
-  if (!accountNumber) {
-    throw new Error("STITCH_ACCOUNT_NUMBER not configured")
-  }
-  if (!branchCode) {
-    throw new Error("STITCH_BRANCH_CODE not configured")
-  }
+  const account = await loadStitchAccount(tenantId)
+  const token = await getStitchAccessToken(account)
+  const { name: beneficiaryName, bankId, accountNumber, branchCode } = account.beneficiary
 
   const res = await fetch(STITCH_GRAPHQL_URL, {
     method: "POST",

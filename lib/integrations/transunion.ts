@@ -2,7 +2,7 @@
  * TransUnion integration — Credit bureau checks via REST API
  */
 
-import { prisma } from "@/lib/prisma"
+import { loadTenantCredential, splitCredentialPair } from "@/lib/integrations/tenant-credentials"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
 import { bureauAccounts, type BureauAccount } from "@/lib/integrations/bureau-accounts"
 
@@ -32,14 +32,8 @@ let cachedToken: { token: string; expiresAt: number } | null = null
 
 async function getCredentials(tenantId: string): Promise<{ clientId: string; clientSecret: string } | null> {
   try {
-    const config = await prisma.tenantConfig.findUnique({
-      where: { tenantId },
-      select: { transunionKey: true },
-    })
-    if (!config?.transunionKey) return null
-    const [clientId, clientSecret] = config.transunionKey.split(":")
-    if (!clientId || !clientSecret) return null
-    return { clientId, clientSecret }
+    const pair = splitCredentialPair(await loadTenantCredential(tenantId, "transunionKey"))
+    return pair ? { clientId: pair.id, clientSecret: pair.secret } : null
   } catch {
     return null
   }
