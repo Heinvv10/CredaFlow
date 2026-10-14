@@ -22,6 +22,7 @@ import {
   type InPersonKycVerificationMethod,
   type InPersonRouteState,
 } from "@/lib/kyc/in-person-verification"
+import type { KycOverrideMinRole, KycOverrideRefusalCode } from "@/lib/kyc/override-policy"
 
 type KycStatus = "PENDING" | "VERIFIED" | "FAILED" | "EXPIRED"
 
@@ -48,6 +49,14 @@ interface Props {
   imageUrl: string | null
   currentManualException?: ManualExceptionSummary | null
   canGrantManualException?: boolean
+  canRecordInPersonVerification?: boolean
+  canDecideOverrideRequest?: boolean
+  overrideRefusalCode?: KycOverrideRefusalCode | null
+  inPersonOverrideRefusalCode?: KycOverrideRefusalCode | null
+  overrideMinRole?: KycOverrideMinRole
+  secondApproverRequired?: boolean
+  currentUserId?: string | null
+  pendingOverrideRequests?: PendingOverrideRequest[]
   currentInPersonVerification?: InPersonVerificationSummary | null
   coreDocumentsComplete?: boolean
   /**
@@ -82,6 +91,15 @@ interface Props {
   seniorExceptionAvailable: boolean
 }
 
+interface PendingOverrideRequest {
+  id: string
+  kind: "EXCEPTION" | "IN_PERSON"
+  requestedById: string
+  requestedAt: string
+  expiresAt: string
+  requestedBy: { email: string; name: string | null }
+}
+
 interface InPersonVerificationSummary {
   method: InPersonKycVerificationMethod
   note: string
@@ -106,6 +124,14 @@ export function SelfieKycTab({
   imageUrl,
   currentManualException = null,
   canGrantManualException = false,
+  canRecordInPersonVerification = canGrantManualException,
+  canDecideOverrideRequest = false,
+  overrideRefusalCode = null,
+  inPersonOverrideRefusalCode = null,
+  overrideMinRole = "ADMIN",
+  secondApproverRequired = false,
+  currentUserId = null,
+  pendingOverrideRequests = [],
   currentInPersonVerification = null,
   coreDocumentsComplete = false,
   biometricEvidence,
@@ -284,10 +310,16 @@ export function SelfieKycTab({
     setRecordingInPerson(true)
     setError(null)
     try {
-      const res = await fetch(`/api/clients/${clientId}/kyc-in-person-verification`, {
+      const res = await fetch(secondApproverRequired
+        ? `/api/clients/${clientId}/kyc-override-requests`
+        : `/api/clients/${clientId}/kyc-in-person-verification`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method: inPersonMethod, note: inPersonNote }),
+        body: JSON.stringify({
+          ...(secondApproverRequired ? { kind: "IN_PERSON" } : {}),
+          method: inPersonMethod,
+          note: inPersonNote,
+        }),
       })
       if (res.ok) {
         router.refresh()
@@ -306,10 +338,13 @@ export function SelfieKycTab({
     setGrantingException(true)
     setError(null)
     try {
-      const res = await fetch(`/api/clients/${clientId}/kyc-exception`, {
+      const res = await fetch(secondApproverRequired
+        ? `/api/clients/${clientId}/kyc-override-requests`
+        : `/api/clients/${clientId}/kyc-exception`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(secondApproverRequired ? { kind: "EXCEPTION" } : {}),
           reason: exceptionReason,
           supportingEvidence: exceptionEvidence,
         }),
@@ -323,8 +358,10 @@ export function SelfieKycTab({
         setError(data.error ?? "Could not grant the KYC exception.")
         return
       }
-      setKycStatus(data.kycStatus ?? "VERIFIED")
-      setManualException(data.manualException ?? null)
+      if (!secondApproverRequired) {
+        setKycStatus(data.kycStatus ?? "VERIFIED")
+        setManualException(data.manualException ?? null)
+      }
       setExceptionReason("")
       setExceptionEvidence("")
       router.refresh()
@@ -333,6 +370,38 @@ export function SelfieKycTab({
     } finally {
       setGrantingException(false)
     }
+  }
+
+  const decideRequest = async (requestId: string, decision: "APPROVED" | "DECLINED") => {
+    const reason = window.prompt(`Enter the reason for this ${decision.toLowerCase()} decision (minimum 20 characters):`)?.trim()
+    if (!reason || Array.from(reason).length < 20) {
+      setError("A decision reason of at least 20 characters is required.")
+      return
+    }
+    setError(null)
+    try {
+      const response = await fetch(`/api/clients/${clientId}/kyc-override-requests/${requestId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, reason }),
+      })
+      const data = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) {
+        setError(data.error ?? "Could not decide the override request.")
+        return
+      }
+      router.refresh()
+    } catch {
+      setError("Network error — please try again")
+    }
+  }
+
+  const roleWithArticle = overrideMinRole === "BRANCH_MANAGER" ? "A Branch Manager" : "An Admin"
+  const refusalNote = (code: KycOverrideRefusalCode | null) => {
+    if (code === "role_below_policy") return `${roleWithArticle} or more senior role is required.`
+    if (code === "totp_required") return "Sign out and back in with two-factor authentication to perform this override."
+    if (code === "overrides_disabled") return "KYC overrides are disabled for this lender."
+    return null
   }
 
   const failureCopy = biometricFailureCopy(biometricEvidence)
@@ -360,9 +429,9 @@ export function SelfieKycTab({
 
   const inPersonVerificationForm = inPersonFormOffered ? (
     <>
-            {canGrantManualException ? (
+            {canRecordInPersonVerification ? (
               <div className="mt-4 space-y-3 border-t border-amber-300 pt-4">
-                <p className="font-semibold">ADMIN-only in-person verification</p>
+                <p className="font-semibold">{overrideMinRole === "ADMIN" ? "ADMIN-only in-person verification" : "Senior in-person verification"}</p>
                 <label className="block">
                   <span className="text-xs font-medium">How was identity verified?</span>
                   <select
@@ -410,12 +479,12 @@ export function SelfieKycTab({
                   ) : (
                     <UserCheck className="mr-1.5 h-4 w-4" />
                   )}
-                  Record in-person verification
+                  {secondApproverRequired ? "Request in-person verification" : "Record in-person verification"}
                 </Button>
               </div>
             ) : (
               <p className="mt-3 font-medium">
-                An ADMIN or SUPER_ADMIN must record an in-person verification.
+                {refusalNote(inPersonOverrideRefusalCode) ?? `${roleWithArticle} or more senior role must record this verification.`}
               </p>
             )}
     </>
@@ -491,7 +560,32 @@ export function SelfieKycTab({
               . Lapses automatically if the ID document or the client&apos;s identity changes.
             </p>
           </div>
-        ) : !selfieDoc && coreDocumentsComplete && !currentManualRejectionActive ? (
+        ) : null}
+        {pendingOverrideRequests.map((request) => (
+          <div key={request.id} className="mt-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-semibold">Pending {request.kind === "EXCEPTION" ? "selfie exception" : "in-person verification"} request</p>
+            <p className="mt-1">
+              Requested by {request.requestedBy.name ?? request.requestedBy.email} on{" "}
+              {new Date(request.requestedAt).toLocaleString("en-ZA", { timeZone: SAST_TIME_ZONE })}; expires{" "}
+              {new Date(request.expiresAt).toLocaleString("en-ZA", { timeZone: SAST_TIME_ZONE })}.
+            </p>
+            {request.requestedById === currentUserId ? (
+              <p className="mt-2 font-medium">Awaiting another approver.</p>
+            ) : canDecideOverrideRequest ? (
+              <div className="mt-3 flex gap-2">
+                {(
+                  request.kind === "EXCEPTION"
+                    ? canGrantManualException
+                    : canRecordInPersonVerification
+                ) && (
+                  <Button size="sm" type="button" onClick={() => void decideRequest(request.id, "APPROVED")}>Approve</Button>
+                )}
+                <Button size="sm" type="button" variant="outline" onClick={() => void decideRequest(request.id, "DECLINED")}>Decline</Button>
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {!manualException && !currentInPersonVerification && !selfieDoc && coreDocumentsComplete && !currentManualRejectionActive ? (
           <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <p className="font-semibold">No selfie captured</p>
             <p className="mt-1">
@@ -509,7 +603,11 @@ export function SelfieKycTab({
             <p className="mt-1">
               The ordinary Approve KYC action cannot bypass this.
             </p>
-            {!seniorExceptionAvailable ? (
+            {overrideRefusalCode === "clear_mismatch" ? (
+              <p className="mt-3 font-semibold">
+                Faces clearly don&apos;t match — this can&apos;t be overridden. Ask the client for a new selfie, or verify them in person.
+              </p>
+            ) : !seniorExceptionAvailable ? (
               <p className="mt-3">
                 A senior exception applies only where the check ran against the
                 ID photograph and returned an adverse result, so it does not
@@ -518,7 +616,7 @@ export function SelfieKycTab({
               </p>
             ) : canGrantManualException ? (
               <div className="mt-4 space-y-3 border-t border-red-200 pt-4">
-                <p className="font-semibold">ADMIN-only senior exception</p>
+                <p className="font-semibold">{overrideMinRole === "ADMIN" ? "ADMIN-only senior exception" : "Senior KYC exception"}</p>
                 <label className="block">
                   <span className="text-xs font-medium">
                     Reason (minimum {MANUAL_KYC_EXCEPTION_MIN_REASON_CHARACTERS} characters)
@@ -561,12 +659,12 @@ export function SelfieKycTab({
                   ) : (
                     <AlertCircle className="mr-1.5 h-4 w-4" />
                   )}
-                  Grant senior KYC exception
+                  {secondApproverRequired ? "Request override" : "Grant senior KYC exception"}
                 </Button>
               </div>
             ) : (
               <p className="mt-3 font-medium">
-                An ADMIN or SUPER_ADMIN must review any exception.
+                {refusalNote(overrideRefusalCode) ?? `${roleWithArticle} or more senior role must review any exception.`}
               </p>
             )}
             <div className="mt-4 border-t border-red-200 pt-4">

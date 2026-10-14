@@ -28,6 +28,19 @@ import {
   normalizeManualKycExceptionText,
 } from "@/lib/kyc/manual-exception-policy"
 import { selectUsableIdDocument } from "@/lib/kyc/usable-id-document"
+import { getLockedKycOverridePolicy, overrideEligibility, type KycOverrideRefusalCode } from "@/lib/kyc/override-policy"
+
+function policyRefusal(code: KycOverrideRefusalCode) {
+  const messages: Record<KycOverrideRefusalCode, string> = {
+    clear_mismatch: "Clear selfie mismatches may be resolved only through an in-person verification.",
+    never_exceptionable: "This KYC override is not allowed.",
+    overrides_disabled: "KYC overrides are disabled for this lender.",
+    role_below_policy: "Your role is below this lender's minimum role for KYC overrides.",
+    totp_required: "Sign in with two-factor authentication before performing a KYC override.",
+    second_approver_required: "This lender requires a different senior to approve the override request.",
+  }
+  return NextResponse.json({ error: messages[code], code }, { status: code === "second_approver_required" ? 409 : 403 })
+}
 
 /**
  * Record an in-person identity verification where no biometric was captured.
@@ -44,7 +57,7 @@ export async function POST(
   try {
     // Same authority floor as the senior biometric exception: a credit officer
     // or loan admin may not substitute their own word for a biometric.
-    const guard = await requireApiRole("ADMIN")
+    const guard = await requireApiRole("BRANCH_MANAGER")
     if (guard.error) return guard.error
 
     const body = (await req.json().catch(() => null)) as
@@ -77,6 +90,15 @@ export async function POST(
     return await withTenantContext(req, async (tenant) => {
       const { id: clientId } = await params
       const outcome = await prisma.$transaction(async (tx) => {
+        const policy = await getLockedKycOverridePolicy(tx, tenant.id)
+        const eligibility = overrideEligibility({
+          kind: "IN_PERSON",
+          mode: "direct",
+          attempt: null,
+          policy,
+          caller: { role: guard.user.role, totpVerified: guard.user.totpVerified === true },
+        })
+        if (!eligibility.allowed) return { kind: "policy_refused" as const, code: eligibility.code }
         await lockAffordabilityClientEvidence(tx, {
           tenantId: tenant.id,
           clientId,
@@ -198,6 +220,7 @@ export async function POST(
           approvedAt: approvedAt.toISOString(),
           approvedById: guard.user.id,
           approvedByEmail: guard.user.email,
+          approvedWithTotp: guard.user.totpVerified === true,
         }
         // Keyed to the exact circumstances attested to, so the same admin
         // cannot stack duplicate attestations over one identity + ID pair.
@@ -274,6 +297,7 @@ export async function POST(
             },
           },
         })
+        await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
         return {
           kind: "granted" as const,
           recordId: record.id,
@@ -285,6 +309,7 @@ export async function POST(
       if (outcome.kind === "client_missing") {
         return NextResponse.json({ error: "Client not found" }, { status: 404 })
       }
+      if (outcome.kind === "policy_refused") return policyRefusal(outcome.code)
       if (outcome.kind === "manual_rejection_active") {
         return NextResponse.json(
           { error: "Resolve the active manual KYC rejection before recording an in-person verification." },
@@ -353,6 +378,9 @@ export async function POST(
         },
         { status: 409 },
       )
+    }
+    if (error instanceof Prisma.PrismaClientUnknownRequestError && error.message.includes("KYC override")) {
+      return NextResponse.json({ error: "The lender policy or KYC evidence changed. Refresh and review the current state." }, { status: 409 })
     }
     console.error("Failed to record in-person KYC verification:", error)
     return NextResponse.json(

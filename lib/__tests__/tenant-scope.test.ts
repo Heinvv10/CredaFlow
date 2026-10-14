@@ -98,6 +98,8 @@ describe("tenant-scope — ALS primitives", () => {
       "BusinessEntity",
       "EntityRelationship",
       "NcaRegimeOverride",
+      // Dual-approval KYC override requests — non-null tenantId.
+      "KycOverrideRequest",
     ])
   })
 
