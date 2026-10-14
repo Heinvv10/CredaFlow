@@ -5,27 +5,35 @@ import { Bell } from "lucide-react"
 import { NotificationTabs } from "./NotificationTabs"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
+import { SAST_TIME_ZONE } from "@/lib/utils"
+import { getLocale } from "@/lib/i18n/server"
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
+import { formatDayTime } from "@/lib/i18n/format"
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
+import { portalNotifications } from "@/lib/i18n/messages/en/portal-notifications"
 
-const EVENT_LABELS: Record<string, string> = {
-  PAYMENT_REMINDER: "Payment reminder",
-  PAYMENT_RECEIVED: "Payment received",
-  PAYMENT_CONFIRMATION: "Payment confirmed",
-  AGREEMENT_GENERATED: "Agreement ready",
-  AGREEMENT_SIGNED: "Agreement signed",
-  LOAN_APPROVED: "Loan approved",
-  LOAN_DISBURSED: "Loan disbursed",
-  LOAN_APPLICATION_RECEIVED: "Application received",
-  LOAN_APPLICATION_APPROVED: "Application approved",
-  LOAN_APPLICATION_DECLINED: "Application declined",
-  DOCUMENT_UPLOADED: "Document uploaded",
-  DOCUMENT_VERIFIED: "Document verified",
-  DOCUMENT_REJECTED: "Document rejected",
-  KYC_VERIFIED: "Identity verified",
-  KYC_FAILED: "Identity check failed",
-  SECTION_129_NOTICE: "Section 129 notice",
-  WELCOME: "Welcome message",
-  OVERDUE_NOTICE: "Overdue notice",
-  INSURANCE_CREATED: "Insurance policy created",
+type NotificationsKey = MessageKey<"portalNotifications">
+const KEYS: ReadonlySet<string> = new Set(Object.keys(portalNotifications))
+
+// NotificationLog.event is upper case from some writers and lower case from
+// lib/notifications.ts; both name the same events.
+function eventLabel(t: Translator<"portalNotifications">, event: string): string {
+  const key = `ev_${event.toUpperCase()}`
+  return KEYS.has(key) ? t(key as NotificationsKey) : event.replace(/_/g, " ").toLowerCase()
+}
+
+// Formatted here, on the server, so the client list cannot render a different
+// string from the server's (a browser without ICU data for the locale would).
+function notificationDate(iso: Date, locale: Locale): string {
+  if (locale !== DEFAULT_LOCALE) return formatDayTime(iso, locale)
+  return iso.toLocaleDateString("en-ZA", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: SAST_TIME_ZONE,
+  })
 }
 
 interface NotificationItem {
@@ -92,14 +100,17 @@ export default async function NotificationsPage() {
     )
   }
 
+  const locale = await getLocale()
+  const t = createTranslator(locale, "portalNotifications")
   const serialized = notifications.map((n) => ({
     id: n.id,
     event: n.event,
-    eventLabel: EVENT_LABELS[n.event] || n.event.replace(/_/g, " ").toLowerCase(),
+    eventLabel: eventLabel(t, n.event),
     channel: n.channel,
     status: n.status,
     error: n.error,
     createdAt: n.createdAt.toISOString(),
+    createdAtLabel: notificationDate(n.createdAt, locale),
   }))
 
   return (
@@ -112,9 +123,9 @@ export default async function NotificationsPage() {
           <Bell className="w-5 h-5" style={{ color: "#4338CA" }} />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-[var(--cf-text)]">Notifications</h1>
+          <h1 className="text-xl font-bold text-[var(--cf-text)]">{t("title")}</h1>
           <p className="text-sm text-[var(--cf-text-muted)]">
-            History of all communications sent to you
+            {t("subtitle")}
           </p>
         </div>
       </div>

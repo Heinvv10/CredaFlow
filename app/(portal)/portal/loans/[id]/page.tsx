@@ -1,18 +1,21 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { displayPaymentMethod } from "@/lib/payments/waiver"
 import { redirect } from "next/navigation"
-import { formatZAR, formatDate } from "@/lib/utils"
+import { formatZAR } from "@/lib/utils"
 import Link from "next/link"
 import { Download, CreditCard } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
-import { formatStatusLabel } from "@/lib/status-style"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
+import { getLocale } from "@/lib/i18n/server"
+import { createTranslator, type Translator } from "@/lib/i18n/translate"
+import { formatDay } from "@/lib/i18n/format"
+import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
+import type { Locale } from "@/lib/i18n/locales"
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -45,6 +48,9 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   const { id } = await params
   const loan = await getPortalLoan(id, session.user.email)
   if (!loan) redirect("/portal")
+  const locale = await getLocale()
+  const t = createTranslator(locale, "portalLoans")
+  const l = createTranslator(locale, "portalLabels")
 
   const nextPayment = loan.repaymentSchedule.find(
     s => s.status === "PENDING" || s.status === "PARTIAL"
@@ -73,7 +79,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       {/* Back */}
-      <BackLink href="/portal/loans" label="Back to Loans" className="mb-6" />
+      <BackLink href="/portal/loans" label={t("backToLoans")} className="mb-6" />
 
       {/* Hero card */}
       <div className="mb-6 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-6 text-[var(--cf-text)]">
@@ -85,32 +91,32 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
           <div className="flex items-center gap-3">
             {loan.daysInArrears > 0 && (
               <span className="rounded bg-red-500/20 px-2 py-1 text-xs font-bold text-[var(--cf-danger)]">
-                {loan.daysInArrears} days overdue
+                {t("daysOverdue", { n: loan.daysInArrears })}
               </span>
             )}
             <span
               className="px-3 py-1 rounded text-xs font-bold"
               style={{ backgroundColor: sc.bg, color: sc.text }}
             >
-              {formatStatusLabel(loan.status)}
+              {statusLabel(l, loan.status)}
             </span>
           </div>
         </div>
         <p className="text-3xl font-bold mt-4">{formatZAR(portalOutstanding(loan.outstandingPrincipal, charges))}</p>
-        <p className="text-xs text-gray-400 mt-1">Outstanding Balance</p>
-        <ChargesBreakdown lines={charges.lines} className="mt-1" />
+        <p className="text-xs text-gray-400 mt-1">{t("outstandingBalance")}</p>
+        <ChargesBreakdown lines={charges.lines} className="mt-1" prefix={l("chargesIncludes")} />
       </div>
 
       {/* Summary grid 2x3 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {[
-          { label: "Principal", value: formatZAR(loan.principal) },
-          { label: "Total Repayable", value: formatZAR(loan.totalRepayable) },
-          { label: "Total Paid", value: formatZAR(cashPaid) },
-          { label: "Monthly Instalment", value: formatZAR(monthlyInstalment) },
-          { label: "Next Payment Date", value: nextPayment ? formatDate(nextPayment.dueDate) : "—" },
+          { label: t("principal"), value: formatZAR(loan.principal) },
+          { label: t("totalRepayable"), value: formatZAR(loan.totalRepayable) },
+          { label: t("totalPaid"), value: formatZAR(cashPaid) },
+          { label: t("monthlyInstalment"), value: formatZAR(monthlyInstalment) },
+          { label: t("nextPaymentDate"), value: nextPayment ? formatDay(nextPayment.dueDate, locale) : "—" },
           {
-            label: "Next Payment Amount",
+            label: t("nextPaymentAmount"),
             value: nextPayment ? formatZAR(nextPayment.totalDue - nextPayment.totalPaid + charges.outstanding) : "—",
             // Why it differs from the monthly instalment.
             sub: nextPayment ? charges.lines : [],
@@ -119,7 +125,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
           <div key={item.label} className="bg-white rounded-lg border border-gray-100 shadow-sm p-4 text-center">
             <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">{item.label}</p>
             <p className="text-lg font-bold text-gray-900">{item.value}</p>
-            {"sub" in item && item.sub && <ChargesBreakdown lines={item.sub} className="mt-1" />}
+            {"sub" in item && item.sub && <ChargesBreakdown lines={item.sub} className="mt-1" prefix={l("chargesIncludes")} />}
           </div>
         ))}
       </div>
@@ -127,7 +133,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
       {/* Progress */}
       <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5 mb-6">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-gray-600">You have paid {paidPct}% of your loan</span>
+          <span className="text-sm text-gray-600">{t("paidPercent", { pct: paidPct })}</span>
           <span className="text-sm font-bold" style={{ color: "#4338CA" }}>{paidPct}%</span>
         </div>
         <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
@@ -137,8 +143,8 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
           />
         </div>
         <div className="flex justify-between mt-2 text-xs text-gray-400">
-          <span>Paid: <span className="whitespace-nowrap">{formatZAR(cashPaid)}</span></span>
-          <span>Total: <span className="whitespace-nowrap">{formatZAR(loan.totalRepayable)}</span></span>
+          <span>{t("paidLabel")} <span className="whitespace-nowrap">{formatZAR(cashPaid)}</span></span>
+          <span>{t("totalLabel")} <span className="whitespace-nowrap">{formatZAR(loan.totalRepayable)}</span></span>
         </div>
       </div>
 
@@ -150,7 +156,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
             style={{ backgroundColor: "#4338CA" }}
           >
             <Download className="h-4 w-4" />
-            Download Statement
+            {t("downloadStatement")}
           </button>
         </a>
         <Link href="/portal/payment">
@@ -159,13 +165,13 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
             style={{ borderColor: "#4338CA", color: "#4338CA" }}
           >
             <CreditCard className="h-4 w-4" />
-            Make a Payment
+            {t("makeAPayment")}
           </button>
         </Link>
       </div>
 
       {/* Tabs — Repayment Schedule + Payment History */}
-      <PortalLoanTabs loan={loan} />
+      <PortalLoanTabs loan={loan} t={t} l={l} locale={locale} />
       {loan.ncaRegime === "NCA" && loan.contractType !== "LOAN" && loan.assetId && (
         <div className="mt-6">
           <SurrenderRequestCard loanId={loan.id} existing={loan.surrenderRequests[0] ?? null} />
@@ -175,7 +181,12 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   )
 }
 
-function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoan>> }) {
+function PortalLoanTabs({ loan, t, l, locale }: {
+  loan: Awaited<ReturnType<typeof getPortalLoan>>
+  t: Translator<"portalLoans">
+  l: Translator<"portalLabels">
+  locale: Locale
+}) {
   if (!loan) return null
 
   return (
@@ -183,13 +194,13 @@ function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoa
       {/* Repayment Schedule */}
       <div className="bg-white rounded-lg border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-50">
-          <h2 className="font-bold text-gray-900">Repayment Schedule</h2>
+          <h2 className="font-bold text-gray-900">{t("repaymentSchedule")}</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr style={{ backgroundColor: "#F8F8F8" }}>
-                {["No.", "Due Date", "Amount", "Status"].map(h => (
+                {[t("colNo"), t("colDueDate"), t("colAmount"), t("colStatus")].map(h => (
                   <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">{h}</th>
                 ))}
               </tr>
@@ -210,7 +221,7 @@ function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoa
                     }}
                   >
                     <td className="px-5 py-3 text-gray-600">{s.installmentNo}</td>
-                    <td className="px-5 py-3 text-gray-700">{formatDate(s.dueDate)}</td>
+                    <td className="px-5 py-3 text-gray-700">{formatDay(s.dueDate, locale)}</td>
                     <td className="px-5 py-3 font-medium text-gray-900">{formatZAR(s.totalDue)}</td>
                     <td className="px-5 py-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
@@ -219,10 +230,10 @@ function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoa
                         s.status === "PARTIAL" ? "bg-amber-100 text-amber-700" :
                         "bg-gray-100 text-gray-600"
                       }`}>
-                        {s.status}
+                        {statusLabel(l, s.status)}
                       </span>
                       {isNext && (
-                        <span className="ml-2 text-[10px] font-semibold" style={{ color: "#4338CA" }}>← NEXT</span>
+                        <span className="ml-2 text-[10px] font-semibold" style={{ color: "#4338CA" }}>{t("nextMarker")}</span>
                       )}
                     </td>
                   </tr>
@@ -236,13 +247,13 @@ function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoa
       {/* Payment History */}
       <div className="bg-white rounded-lg border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-          <h2 className="font-bold text-gray-900">Payment History</h2>
+          <h2 className="font-bold text-gray-900">{t("paymentHistory")}</h2>
           <a href={`/api/loans/${loan.id}/statement`} target="_blank" rel="noopener noreferrer">
             <button
               className="px-3 py-1.5 rounded border text-xs font-semibold"
               style={{ borderColor: "#4338CA", color: "#4338CA" }}
             >
-              Download Statement
+              {t("downloadStatement")}
             </button>
           </a>
         </div>
@@ -250,31 +261,31 @@ function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoa
           <table className="w-full text-sm">
             <thead>
               <tr style={{ backgroundColor: "#F8F8F8" }}>
-                {["Date", "Amount", "Method", "Reference"].map(h => (
+                {[t("colDate"), t("colAmount"), t("colMethod"), t("colReference")].map(h => (
                   <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loan.payments.length === 0 ? (
-                <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400 text-sm">No payments recorded yet</td></tr>
+                <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400 text-sm">{t("noPayments")}</td></tr>
               ) : (
                 loan.payments.map((p, i) => {
                   const inactive =
                     p.reversed || p.allocationStatus !== "ALLOCATED"
                   const status = p.reversed
-                    ? "reversed"
+                    ? t("paymentReversed")
                     : p.allocationStatus === "UNAPPLIED"
-                      ? "allocation pending"
+                      ? t("paymentAllocationPending")
                       : p.allocationStatus === "REFUNDED"
-                        ? "refunded"
+                        ? t("paymentRefunded")
                         : null
                   return (
                   <tr key={p.id} className={`border-b border-gray-50 ${inactive ? "opacity-70" : ""}`} style={{ backgroundColor: i % 2 === 0 ? "#fff" : "#fafafa" }}>
-                    <td className="px-5 py-3 text-gray-700">{formatDate(p.receivedAt)}</td>
+                    <td className="px-5 py-3 text-gray-700">{formatDay(p.receivedAt, locale)}</td>
                     <td className="px-5 py-3 font-medium text-gray-900">{formatZAR(p.amount)}</td>
                     <td className="px-5 py-3 text-gray-600 capitalize">
-                      {displayPaymentMethod(p.paymentMethod, (method) => method.toLowerCase().replace("_", " "))}
+                      {paymentMethodLabel(l, p.paymentMethod)}
                       {status ? ` / ${status}` : ""}
                     </td>
                     <td className="px-5 py-3 font-mono text-gray-500 text-xs">{p.reference || "—"}</td>

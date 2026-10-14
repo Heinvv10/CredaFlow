@@ -15,16 +15,39 @@ import {
 import { PrintButton } from "./PrintButton"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { formatZAR } from "@/lib/utils"
 import { getPortalTenantId } from "@/lib/session-tenant"
-import { methodLabelWithReversal, reversalDetailLine } from "@/lib/payments/reversal-label"
-import { displayPaymentMethod } from "@/lib/payments/waiver"
+import { getLocale } from "@/lib/i18n/server"
+import { createTranslator, type Translator } from "@/lib/i18n/translate"
+import { formatDay } from "@/lib/i18n/format"
+import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
+import type { Locale } from "@/lib/i18n/locales"
+
+type StatementT = Translator<"portalStatement">
+
+/**
+ * reversalDetailLine (lib/payments/reversal-label.ts), translated. The shared
+ * helper stays English because the statement PDF uses it.
+ */
+function reversalDetail(
+  t: StatementT,
+  locale: Locale,
+  p: { reversed?: boolean; reversedAt?: Date | null; reversalReason?: string | null },
+): string | null {
+  if (!p.reversed) return null
+  const when = p.reversedAt ? t("reversedOn", { date: formatDay(new Date(p.reversedAt), locale) }) : t("reversedPlain")
+  const reason = p.reversalReason?.trim()
+  return reason ? t("reversedWithReason", { when, reason }) : when
+}
 
 export default async function StatementPage() {
   const session = await auth()
   if (!session?.user) redirect("/portal/login")
 
   const tenantId = await getPortalTenantId()
+  const locale = await getLocale()
+  const t = createTranslator(locale, "portalStatement")
+  const l = createTranslator(locale, "portalLabels")
 
   const client = await prisma.client.findFirst({ where: { email: session.user.email!, tenantId } })
   if (!client) {
@@ -32,9 +55,9 @@ export default async function StatementPage() {
       <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
         <EmptyState
           icon={FileText}
-          title="No client record found"
-          description="This login is valid, but it is not linked to a client record yet. Contact support so we can connect your portal access."
-          action={{ label: "Back to Overview", href: "/portal" }}
+          title={t("noClientTitle")}
+          description={t("noClientDesc")}
+          action={{ label: t("backToOverview"), href: "/portal" }}
         />
       </div>
     )
@@ -52,22 +75,22 @@ export default async function StatementPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 md:px-6 md:py-8">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">Your Account</p>
-        <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">Payment History & Statements</h1>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">{t("eyebrow")}</p>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--cf-text-muted)]">
-          View active loan balances, download official statements and track recorded repayments.
+          {t("desc")}
         </p>
       </div>
 
       {loans.length === 0 ? (
         <EmptyState
           icon={CreditCard}
-          title="No loans on this account yet"
-          description="Statements become available once a loan is approved and disbursed. You can apply online or upload supporting documents while an application is being reviewed."
-          action={{ label: "Start Application", href: "/portal/apply" }}
+          title={t("noLoansTitle")}
+          description={t("noLoansDesc")}
+          action={{ label: t("startApplication"), href: "/portal/apply" }}
           secondaryAction={
             <Button asChild variant="outline" size="sm">
-              <Link href="/portal/documents">Manage Documents</Link>
+              <Link href="/portal/documents">{t("manageDocuments")}</Link>
             </Button>
           }
         />
@@ -77,13 +100,13 @@ export default async function StatementPage() {
             <DataPanel
               key={loan.id}
               title={loan.reference}
-              description={`${loan.product.name} / ${loan.status}`}
+              description={`${loan.product.name} / ${statusLabel(l, loan.status)}`}
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <Button asChild size="sm">
                     <a href={`/api/loans/${loan.id}/statement`} target="_blank" rel="noopener noreferrer">
                       <Download className="h-3.5 w-3.5" />
-                      PDF
+                      {t("pdf")}
                     </a>
                   </Button>
                   <PrintButton />
@@ -91,24 +114,24 @@ export default async function StatementPage() {
               }
             >
               <div className="mb-4 rounded-lg border border-[rgba(79,70,229,0.28)] bg-[rgba(79,70,229,0.06)] px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Payment Reference</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("paymentReference")}</p>
                 <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--cf-brand)]">{loan.reference}</p>
                 <p className="mt-1 text-[11px] text-[var(--cf-text-muted)]">
-                  Quote this reference on every payment or deposit so it is allocated to this loan.
+                  {t("quoteReference")}
                 </p>
               </div>
 
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Outstanding</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("outstanding")}</p>
                   <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(loan.outstandingPrincipal)}</p>
                 </div>
                 <div className="rounded-lg border border-[rgba(63,191,127,0.24)] bg-[rgba(63,191,127,0.08)] p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Total Paid</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("totalPaid")}</p>
                   <p className="mt-1 text-lg font-semibold text-[var(--cf-success)]">{formatZAR(loan.totalPaid)}</p>
                 </div>
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Total Repayable</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("totalRepayable")}</p>
                   <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(loan.totalRepayable)}</p>
                 </div>
               </div>
@@ -116,29 +139,29 @@ export default async function StatementPage() {
               {loan.payments.length === 0 ? (
                 <EmptyState
                   icon={CreditCard}
-                  title="No payments recorded yet"
-                  description="Payment history will appear here once a repayment is captured or confirmed."
-                  action={{ label: "Make Payment", href: "/portal/payment" }}
+                  title={t("noPaymentsTitle")}
+                  description={t("noPaymentsDesc")}
+                  action={{ label: t("makePayment"), href: "/portal/payment" }}
                 />
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead>Reference</TableHead>
+                      <TableHead>{t("colDate")}</TableHead>
+                      <TableHead>{t("colAmount")}</TableHead>
+                      <TableHead>{t("colMethod")}</TableHead>
+                      <TableHead>{t("colReference")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loan.payments.map((payment) => {
-                      const method = displayPaymentMethod(payment.paymentMethod, (m) => m.toLowerCase().replace("_", " "))
-                      const reversalDetail = reversalDetailLine(payment, formatDate)
+                      const method = paymentMethodLabel(l, payment.paymentMethod)
+                      const reversalLine = reversalDetail(t, locale, payment)
                       const allocationDetail =
                         payment.allocationStatus === "UNAPPLIED"
-                          ? "Allocation pending — this receipt has not reduced your loan balance."
+                          ? t("allocationPendingDetail")
                           : payment.allocationStatus === "REFUNDED"
-                            ? "Refund recorded — this receipt is not counted as a repayment."
+                            ? t("refundedDetail")
                             : null
                       const inactive =
                         payment.reversed || payment.allocationStatus !== "ALLOCATED"
@@ -146,18 +169,18 @@ export default async function StatementPage() {
                         <TableRow
                           key={payment.id}
                           className={inactive ? "opacity-70" : undefined}
-                          title={reversalDetail ?? allocationDetail ?? undefined}
+                          title={reversalLine ?? allocationDetail ?? undefined}
                         >
-                          <TableCell>{formatDate(payment.receivedAt)}</TableCell>
+                          <TableCell>{formatDay(payment.receivedAt, locale)}</TableCell>
                           <TableCell className={`font-medium ${inactive ? "text-[var(--cf-text-muted)]" : "text-[var(--cf-text)]"} ${payment.reversed ? "line-through" : ""}`}>{formatZAR(payment.amount)}</TableCell>
                           <TableCell className="capitalize">
-                            {methodLabelWithReversal(method, payment.reversed)}
+                            {payment.reversed ? t("reversedMarker", { method }) : method}
                             {!payment.reversed && payment.allocationStatus !== "ALLOCATED"
-                              ? ` / ${payment.allocationStatus.toLowerCase()}`
+                              ? ` / ${payment.allocationStatus === "UNAPPLIED" ? t("allocation_UNAPPLIED") : t("allocation_REFUNDED")}`
                               : ""}
-                            {reversalDetail && (
+                            {reversalLine && (
                               <span className="mt-0.5 block text-[11px] normal-case text-[var(--cf-text-muted)]">
-                                {reversalDetail}
+                                {reversalLine}
                               </span>
                             )}
                             {allocationDetail && (

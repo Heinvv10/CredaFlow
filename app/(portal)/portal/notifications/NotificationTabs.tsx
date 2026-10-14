@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { Mail, MessageSquare, Phone, Bell } from "lucide-react"
 import { EmptyState } from "@/components/app-shell/EmptyState"
-import { SAST_TIME_ZONE } from "@/lib/utils"
+import { useT } from "@/lib/i18n/client"
+import type { MessageKey, Translator } from "@/lib/i18n/translate"
 
 interface NotificationDisplay {
   id: string
@@ -13,33 +14,39 @@ interface NotificationDisplay {
   status: string
   error: string | null
   createdAt: string
+  /** Server-formatted in the reader's language. */
+  createdAtLabel: string
 }
 
 interface NotificationTabsProps {
   items: NotificationDisplay[]
 }
 
-const CHANNEL_LABELS: Record<string, string> = {
-  SMS: "SMS",
-  EMAIL: "Email",
-  WHATSAPP: "WhatsApp",
+type NotificationsT = Translator<"portalNotifications">
+
+const CHANNEL_LABELS: Record<string, MessageKey<"portalNotifications">> = {
+  SMS: "channelSms",
+  EMAIL: "channelEmail",
+  WHATSAPP: "channelWhatsapp",
 }
 
 // NotificationLog.status is stored lowercase (e.g. "sent", "failed"). Map the
 // known values to friendly labels; anything else falls back to capitalised.
-const STATUS_LABELS: Record<string, string> = {
-  sent: "Sent",
-  simulated: "Simulated — not sent",
-  review_required: "Review required — delivery unverified",
-  delivered: "Delivered",
-  failed: "Failed",
-  pending: "Pending",
-  read: "Read",
-  skipped: "Skipped",
+const STATUS_LABELS: Record<string, MessageKey<"portalNotifications">> = {
+  sent: "st_sent",
+  simulated: "st_simulated",
+  review_required: "st_review_required",
+  delivered: "st_delivered",
+  failed: "st_failed",
+  pending: "st_pending",
+  read: "st_read",
+  skipped: "st_skipped",
+  blocked: "st_blocked",
 }
 
-function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status.charAt(0).toUpperCase() + status.slice(1)
+function statusLabel(t: NotificationsT, status: string): string {
+  const key = STATUS_LABELS[status]
+  return key ? t(key) : status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 function channelIcon(channel: string) {
@@ -68,21 +75,10 @@ function channelColor(channel: string): string {
   }
 }
 
-function formatNotifDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString("en-ZA", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: SAST_TIME_ZONE,
-  })
-}
-
 export function NotificationTabs({ items }: NotificationTabsProps) {
   const [activeChannel, setActiveChannel] = useState<string>("ALL")
   const [activeStatus, setActiveStatus] = useState<string>("ALL")
+  const t = useT("portalNotifications")
 
   const presentChannels = Array.from(new Set(items.map((i) => i.channel)))
     .filter((ch) => ch in CHANNEL_LABELS)
@@ -90,12 +86,12 @@ export function NotificationTabs({ items }: NotificationTabsProps) {
   const presentStatuses = Array.from(new Set(items.map((i) => i.status))).sort()
 
   const channelTabs = [
-    { key: "ALL", label: "All" },
-    ...presentChannels.map((ch) => ({ key: ch, label: CHANNEL_LABELS[ch] })),
+    { key: "ALL", label: t("all") },
+    ...presentChannels.map((ch) => ({ key: ch, label: t(CHANNEL_LABELS[ch]) })),
   ]
   const statusTabs = [
-    { key: "ALL", label: "All" },
-    ...presentStatuses.map((s) => ({ key: s, label: statusLabel(s) })),
+    { key: "ALL", label: t("all") },
+    ...presentStatuses.map((s) => ({ key: s, label: statusLabel(t, s) })),
   ]
 
   // Channel and status are independent facets, combined with AND.
@@ -143,7 +139,7 @@ export function NotificationTabs({ items }: NotificationTabsProps) {
       {presentStatuses.length > 1 && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--cf-text-muted)]">
-            Status
+            {t("status")}
           </span>
           {statusTabs.map((tab) => {
             // Count reflects the other active facet (channel) so badges match the list.
@@ -176,9 +172,9 @@ export function NotificationTabs({ items }: NotificationTabsProps) {
       {filtered.length === 0 ? (
         <EmptyState
           icon={Bell}
-          title="No notifications found"
-          description="Payment reminders, document updates and application decisions will appear here once they are sent."
-          action={{ label: "Back to Overview", href: "/portal" }}
+          title={t("emptyTitle")}
+          description={t("emptyDesc")}
+          action={{ label: t("backToOverview"), href: "/portal" }}
         />
       ) : (
         <div className="divide-y divide-[var(--cf-border-subtle)] rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)]">
@@ -198,7 +194,7 @@ export function NotificationTabs({ items }: NotificationTabsProps) {
                   {n.eventLabel}
                 </p>
                 <p className="text-xs text-[var(--cf-text-muted)]">
-                  {formatNotifDate(n.createdAt)}
+                  {n.createdAtLabel}
                 </p>
               </div>
               <div className="shrink-0 flex items-center gap-2">
@@ -226,7 +222,7 @@ export function NotificationTabs({ items }: NotificationTabsProps) {
                         : "#991B1B",
                   }}
                 >
-                  {statusLabel(n.status)}
+                  {statusLabel(t, n.status)}
                 </span>
               </div>
             </div>

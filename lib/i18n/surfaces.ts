@@ -9,6 +9,12 @@ import type { Namespace } from "./catalog"
 export const PORTAL_CLIENT_NAMESPACES = [
   "common",
   "portalShell",
+  "portalLabels",
+  "portalPayment",
+  "portalStatement",
+  "portalProfile",
+  "portalNotifications",
+  "portalDocuments",
 ] as const satisfies readonly Namespace[]
 
 export const WEBSITE_CLIENT_NAMESPACES = [

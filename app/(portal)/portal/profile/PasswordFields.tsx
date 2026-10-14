@@ -1,8 +1,10 @@
 "use client"
 
 import { useState } from "react"
+import { useT } from "@/lib/i18n/client"
 
 export function PasswordFields() {
+  const t = useT("portalProfile")
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -16,11 +18,11 @@ export function PasswordFields() {
     setSuccess(false)
 
     if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters.")
+      setError(t("pwTooShort"))
       return
     }
     if (newPassword !== confirmPassword) {
-      setError("New passwords do not match.")
+      setError(t("pwMismatch"))
       return
     }
 
@@ -33,7 +35,7 @@ export function PasswordFields() {
       })
       const json = (await res.json()) as { success?: boolean; error?: string }
       if (!res.ok || !json.success) {
-        setError(json.error ?? "Could not update password. Please try again.")
+        setError(json.error ?? t("pwFailed"))
         return
       }
       setSuccess(true)
@@ -41,7 +43,7 @@ export function PasswordFields() {
       setNewPassword("")
       setConfirmPassword("")
     } catch {
-      setError("An unexpected error occurred. Please try again.")
+      setError(t("unexpected"))
     } finally {
       setLoading(false)
     }
@@ -50,7 +52,7 @@ export function PasswordFields() {
   return (
     <form className="space-y-3" onSubmit={handleSubmit}>
       <div>
-        <label className="text-xs text-gray-500 mb-1 block">Current Password</label>
+        <label className="text-xs text-gray-500 mb-1 block">{t("currentPassword")}</label>
         <input
           type="password"
           name="currentPassword"
@@ -58,11 +60,11 @@ export function PasswordFields() {
           value={currentPassword}
           onChange={(e) => setCurrentPassword(e.target.value)}
           className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2"
-          placeholder="Enter current password"
+          placeholder={t("currentPlaceholder")}
         />
       </div>
       <div>
-        <label className="text-xs text-gray-500 mb-1 block">New Password</label>
+        <label className="text-xs text-gray-500 mb-1 block">{t("newPassword")}</label>
         <input
           type="password"
           name="newPassword"
@@ -70,11 +72,11 @@ export function PasswordFields() {
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2"
-          placeholder="At least 8 characters"
+          placeholder={t("newPlaceholder")}
         />
       </div>
       <div>
-        <label className="text-xs text-gray-500 mb-1 block">Confirm New Password</label>
+        <label className="text-xs text-gray-500 mb-1 block">{t("confirmPassword")}</label>
         <input
           type="password"
           name="confirmPassword"
@@ -82,12 +84,12 @@ export function PasswordFields() {
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2"
-          placeholder="Confirm new password"
+          placeholder={t("confirmPlaceholder")}
         />
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {success && <p className="text-sm text-green-600">Password updated successfully.</p>}
+      {success && <p className="text-sm text-green-600">{t("pwUpdated")}</p>}
 
       <button
         type="submit"
@@ -95,7 +97,7 @@ export function PasswordFields() {
         className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity disabled:opacity-60"
         style={{ backgroundColor: "#4338CA" }}
       >
-        {loading ? "Updating…" : "Update Password"}
+        {loading ? t("updating") : t("updatePassword")}
       </button>
     </form>
   )

@@ -10,6 +10,8 @@ import { ManualPaymentForm } from "@/components/portal/ManualPaymentForm"
 import type { LoanOption } from "@/components/portal/StitchPaymentForm"
 import { currentSettlementAmount } from "@/lib/loan/settlement"
 import { portalLoanCharges } from "@/lib/portal/loan-charges"
+import { getT } from "@/lib/i18n/server"
+import type { Translator } from "@/lib/i18n/translate"
 
 export const metadata = {
   title: "Make a Payment",
@@ -72,7 +74,7 @@ async function getLoansForClient(email: string): Promise<LoanOption[]> {
 // account holder. We deliberately do NOT fall back to a placeholder — a client
 // could otherwise transcribe and pay a non-payable account number.
 // When any is unset, the whole EFT panel is hidden.
-function eftBankRows() {
+function eftBankRows(t: Translator<"portalPayment">) {
   const accountName = process.env.STITCH_BENEFICIARY_NAME?.trim()
   const bank = process.env.STITCH_BANK_NAME?.trim()
   const accountNumber = process.env.STITCH_ACCOUNT_NUMBER?.trim()
@@ -80,11 +82,11 @@ function eftBankRows() {
   const accountType = process.env.STITCH_ACCOUNT_TYPE?.trim()
   if (!accountName || !bank || !accountNumber || !branchCode || !accountType) return []
   return [
-    { label: "Bank", value: bank },
-    { label: "Account Name", value: accountName },
-    { label: "Account Number", value: accountNumber },
-    { label: "Branch Code", value: branchCode },
-    { label: "Account Type", value: accountType },
+    { label: t("bank"), value: bank },
+    { label: t("accountName"), value: accountName },
+    { label: t("accountNumber"), value: accountNumber },
+    { label: t("branchCode"), value: branchCode },
+    { label: t("accountType"), value: accountType },
   ]
 }
 
@@ -96,13 +98,14 @@ export default async function PaymentPage() {
   // Same tenant source as the page's own data above, so the contact
   // details and account name always belong to the lender whose loans are shown.
   const identity = await getLenderIdentity(await getPortalTenantId())
-  const bankRows = eftBankRows()
+  const t = await getT("portalPayment")
+  const bankRows = eftBankRows(t)
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-8">
       <div className="mb-6 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-6 text-[var(--cf-text)]">
-        <h1 className="text-2xl font-bold">Make a Payment</h1>
-        <p className="text-gray-400 text-sm mt-1">{identity.tradingName} Client Portal</p>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
+        <p className="text-gray-400 text-sm mt-1">{t("portalOf", { brand: identity.tradingName })}</p>
       </div>
 
       {/* Stitch online payment */}
@@ -115,12 +118,12 @@ export default async function PaymentPage() {
 
       {/* Contact */}
       <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-6 mb-5">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-4">Contact Us to Pay</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-4">{t("contactToPay")}</p>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <Phone className="h-4 w-4 shrink-0" style={{ color: "#4F46E5" }} />
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Phone / WhatsApp</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide">{t("phoneWhatsapp")}</p>
               <a href={`tel:${identity.publicPhoneE164}`} className="font-semibold text-gray-800 hover:underline">
                 {identity.publicPhone}
               </a>
@@ -129,7 +132,7 @@ export default async function PaymentPage() {
           <div className="flex items-center gap-3">
             <Mail className="h-4 w-4 shrink-0" style={{ color: "#4F46E5" }} />
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Email</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide">{t("email")}</p>
               <a href={`mailto:${identity.publicEmail}`} className="font-semibold text-gray-800 hover:underline">
                 {identity.publicEmail}
               </a>
@@ -143,7 +146,7 @@ export default async function PaymentPage() {
         <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-4">
             <Building2 className="h-4 w-4" style={{ color: "#4F46E5" }} />
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Bank Transfer Details</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{t("bankDetails")}</p>
           </div>
           <div className="space-y-3 text-sm">
             {bankRows.map(({ label, value }) => (
@@ -162,14 +165,14 @@ export default async function PaymentPage() {
           {loans.length > 0 && (
             <div className="mt-4 rounded-md border p-3" style={{ borderColor: "#4F46E5", backgroundColor: "#4F46E514" }}>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
-                Payment Reference{loans.length > 1 ? "s" : ""}
+                {loans.length > 1 ? t("paymentReferences") : t("paymentReference")}
               </p>
               <div className="space-y-1">
                 {loans.map((l) => (
                   <div key={l.id} className="flex justify-between items-center gap-3">
                     <span className="font-mono font-bold text-sm" style={{ color: "#4F46E5" }}>{l.reference}</span>
                     {loans.length > 1 && (
-                      <span className="text-[11px] text-gray-400">{formatZAR(l.settlementAmount)} settlement</span>
+                      <span className="text-[11px] text-gray-400">{t("settlementSuffix", { amount: formatZAR(l.settlementAmount) })}</span>
                     )}
                   </div>
                 ))}
@@ -178,8 +181,7 @@ export default async function PaymentPage() {
           )}
 
           <p className="text-[11px] text-gray-400 mt-4">
-            Always use your loan reference above as the payment reference so your payment can be allocated correctly.
-            Payments made without the correct reference may take longer to reflect.
+            {t("referenceNote")}
           </p>
         </div>
       )}

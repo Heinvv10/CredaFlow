@@ -1,0 +1,38 @@
+/**
+ * The portal statement page (/portal/statement). The statement PDF itself is
+ * an NCA document and stays English (lib/pdf/statement.ts).
+ */
+export const portalStatement = {
+  noClientTitle: "No client record found",
+  noClientDesc: "This login is valid, but it is not linked to a client record yet. Contact support so we can connect your portal access.",
+  backToOverview: "Back to Overview",
+  eyebrow: "Your Account",
+  title: "Payment History & Statements",
+  desc: "View active loan balances, download official statements and track recorded repayments.",
+  noLoansTitle: "No loans on this account yet",
+  noLoansDesc: "Statements become available once a loan is approved and disbursed. You can apply online or upload supporting documents while an application is being reviewed.",
+  startApplication: "Start Application",
+  manageDocuments: "Manage Documents",
+  pdf: "PDF",
+  print: "Print",
+  paymentReference: "Payment Reference",
+  quoteReference: "Quote this reference on every payment or deposit so it is allocated to this loan.",
+  outstanding: "Outstanding",
+  totalPaid: "Total Paid",
+  totalRepayable: "Total Repayable",
+  noPaymentsTitle: "No payments recorded yet",
+  noPaymentsDesc: "Payment history will appear here once a repayment is captured or confirmed.",
+  makePayment: "Make Payment",
+  colDate: "Date",
+  colAmount: "Amount",
+  colMethod: "Method",
+  colReference: "Reference",
+  allocationPendingDetail: "Allocation pending — this receipt has not reduced your loan balance.",
+  refundedDetail: "Refund recorded — this receipt is not counted as a repayment.",
+  reversedMarker: "{method} / Reversed",
+  reversedOn: "Reversed {date}",
+  reversedPlain: "Reversed",
+  reversedWithReason: "{when} — {reason}",
+  allocation_UNAPPLIED: "unapplied",
+  allocation_REFUNDED: "refunded",
+} as const
