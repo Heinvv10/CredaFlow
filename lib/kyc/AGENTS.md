@@ -41,6 +41,9 @@
   adverse, never exceptionable, never VERIFIED. Do not use a benign reason.
 - A worker answering after the sweep is accepted by `persistBiometricOutcome`
   only if adverse, for the current attempt, current ID and unchanged subject.
-- Known gap: an in-person attestation survives a late face mismatch (both
-  layers); only a refused ID portrait lapses it. Changing that needs SQL + TS.
-- Real-DB suite: `RUN_SELFIE_SWEEPER_IT=1`.
+- An in-person attestation lapses (both layers, migration
+  20261014120000) when the latest attempt records an adverse face verdict AFTER
+  the attestation's `completedAt` on the attested ID (`verdictRecordedAt`), or
+  any selfie submitted after it ends with an unknown outcome. A verdict recorded
+  before it, or about a superseded ID, leaves it standing. Re-attest to recover.
+- Real-DB suites: `RUN_SELFIE_SWEEPER_IT=1`, and `RUN_KYC_IN_PERSON_IT=1` for the lapse parity.

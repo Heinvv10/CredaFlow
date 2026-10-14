@@ -165,7 +165,7 @@ export async function POST(
           tx.clientDocument.findFirst({
             where: { tenantId: tenant.id, clientId, docType: "SELFIE" },
             orderBy: latestSelfieOrder(),
-            select: { id: true },
+            select: { id: true, biometricResult: true },
           }),
         ])
 
@@ -228,6 +228,12 @@ export async function POST(
         // attestation from before a later attempt no longer counts once that
         // attempt is released (selfieBlocksInPersonVerification), so staff
         // must be able to attest afresh after it.
+        // So is the time its verdict was recorded: an adverse verdict landing
+        // after an attestation lapses it (adverseVerdictRecordedAfter), and the
+        // fresh attestation over that same attempt must not hit the old key.
+        // Absent on rows written before the stamp, so their keys are unchanged.
+        const verdictRecordedAt = (latestAttempt?.biometricResult as { verdictRecordedAt?: unknown } | null)
+          ?.verdictRecordedAt
         const idempotencyKey = [
           "kyc-in-person",
           clientId,
@@ -235,6 +241,7 @@ export async function POST(
           idDocument.contentSha256,
           subjectFingerprint,
           latestAttempt?.id ?? "no-selfie",
+          ...(typeof verdictRecordedAt === "string" ? [verdictRecordedAt] : []),
         ].join(":")
         const existing = await tx.complianceRecord.findUnique({
           where: { idempotencyKey },

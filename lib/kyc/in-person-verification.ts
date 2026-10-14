@@ -1,4 +1,5 @@
 import {
+  adverseFaceVerdict,
   biometricSubjectFingerprint,
   type BiometricEvidenceAssessment,
   type BiometricSubjectClient,
@@ -312,13 +313,64 @@ export function idDocumentPortraitRefused(
   })
 }
 
+/** biometricResult.verdictRecordedAt: fixed-format ISO, so text order is time order. */
+const VERDICT_RECORDED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
+/**
+ * Whether the client's LATEST selfie attempt carries an adverse face verdict
+ * recorded after the attestation was completed, against the ID copy the
+ * attestation is bound to. Staff attested without seeing that verdict, so it
+ * lapses the attestation. A verdict recorded before it (staff could see it), a
+ * stale answer about another ID copy, and a row without the stamp (written
+ * before the stamp existed) never count.
+ *
+ * Mirrors the `verdict` NOT EXISTS in subject_has_in_person_kyc_verification
+ * (migration 20261014120000_in_person_lapse_on_adverse_verdict).
+ */
+export function adverseVerdictRecordedAfter(
+  latestSelfie: { biometricResult: unknown } | null,
+  attestationCompletedAt: Date,
+  idDocument: { id: string },
+): boolean {
+  const result = jsonRecord(latestSelfie?.biometricResult)
+  if (!result) return false
+  const recordedAt = result.verdictRecordedAt
+  if (typeof recordedAt !== "string" || !VERDICT_RECORDED_AT.test(recordedAt)) return false
+  if (!(recordedAt > attestationCompletedAt.toISOString())) return false
+  if (typeof result.idDocumentId !== "string" || result.idDocumentId !== idDocument.id) return false
+  return adverseFaceVerdict(result)
+}
+
+/** The failure reason of an attempt whose outcome was never recorded (swept, or unrecorded). */
+const UNKNOWN_OUTCOME_REASON = "biometric_outcome_not_recorded"
+
+/**
+ * Whether ANY selfie attempt (deleted or not, latest or not) submitted after
+ * the attestation has an unknown outcome. The lost verdict could have been a
+ * mismatch, so it fails closed and lapses the attestation.
+ *
+ * Mirrors the `unknown_outcome` NOT EXISTS in the same SQL function.
+ */
+export function unknownOutcomeAfterAttestation(
+  attempts: readonly { biometricResult: unknown; createdAt?: Date | null }[],
+  attestationCompletedAt: Date,
+): boolean {
+  return attempts.some((attempt) =>
+    jsonRecord(attempt.biometricResult)?.biometricFailureReason === UNKNOWN_OUTCOME_REASON &&
+    attempt.createdAt instanceof Date &&
+    attempt.createdAt.getTime() > attestationCompletedAt.getTime())
+}
+
 /**
  * Valid only while the exact circumstances the approver attested to still hold.
  *
  * A live biometric attempt — processing or passed — takes this out of scope:
  * the biometric rules govern it. A failed or deleted attempt does not. A
  * replaced ID, an unverified or deleted ID, or an edited identity all lapse
- * it, so this can never become a standing "this client is exempt" flag.
+ * it, so this can never become a standing "this client is exempt" flag. So
+ * does an adverse face verdict recorded after the attestation, or a selfie
+ * attempt submitted after it whose outcome is unknown: the client must be
+ * re-verified (a new attestation completed after it, or a selfie that passes).
  */
 export function currentInPersonKycVerification(
   record: InPersonKycVerificationRecord | null,
@@ -330,6 +382,10 @@ export function currentInPersonKycVerification(
     biometricAssessment: BiometricEvidenceAssessment
     /** Selfie attempts matching ID_PORTRAIT_REFUSAL_CONDITIONS. */
     portraitRefusals: readonly { biometricResult: unknown }[]
+    /** The client's newest selfie attempt of any outcome, deleted or not. */
+    latestSelfie: { biometricResult: unknown } | null
+    /** Selfie attempts matching PRIOR_FAILED_ATTEMPT_CONDITIONS, with their creation time. */
+    selfieAttempts: readonly { biometricResult: unknown; createdAt?: Date | null }[]
   },
 ): InPersonKycVerificationEvidence | null {
   if (
@@ -354,6 +410,12 @@ export function currentInPersonKycVerification(
     evidence.idDocumentSha256 !== args.idDocument.contentSha256 ||
     evidence.subjectFingerprint !== biometricSubjectFingerprint(args.subject) ||
     evidence.approvedAt !== record.completedAt.toISOString()
+  ) {
+    return null
+  }
+  if (
+    adverseVerdictRecordedAfter(args.latestSelfie, record.completedAt, args.idDocument) ||
+    unknownOutcomeAfterAttestation(args.selfieAttempts, record.completedAt)
   ) {
     return null
   }

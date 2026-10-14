@@ -8,7 +8,7 @@ import { sweepStuckSelfies } from "@/lib/kyc/selfie-sweeper.server"
  * Every 5 minutes: fails selfie attempts stuck in `processing` past the
  * timeout (lib/kyc/selfie-sweeper.server.ts), so a client whose worker died
  * can retake. Each swept attempt is an adverse, non-verifying result. Any
- * failed tenant makes the response 503: the scheduler treats only a non-2xx
+ * failed tenant or row makes the response 503: the scheduler treats only a non-2xx
  * as a failure, and never reads the body.
  */
 export async function GET(req: NextRequest) {
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const now = new Date()
   const tenants = await prisma.tenant.findMany({ select: { id: true }, orderBy: { id: "asc" } })
-  const perTenant: Array<{ tenantId: string; swept: number } | { tenantId: string; error: string }> = []
+  const perTenant: Array<{ tenantId: string; swept: number; failed: number } | { tenantId: string; error: string }> = []
   for (const { id: tenantId } of tenants) {
     try {
       perTenant.push({ tenantId, ...(await runWithTenant(tenantId, () => sweepStuckSelfies(tenantId, now))) })
@@ -26,6 +26,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const ok = perTenant.every((t) => !("error" in t))
+  const ok = perTenant.every((t) => !("error" in t) && t.failed === 0)
   return NextResponse.json({ ok, runAt: now.toISOString(), perTenant }, { status: ok ? 200 : 503 })
 }

@@ -29,19 +29,26 @@ describe("GET /api/cron/sweep-stuck-selfies", () => {
   })
 
   it("sweeps each tenant inside that tenant's frame", async () => {
-    m.sweep.mockImplementation(async (tenantId: string) => { expect(m.current).toBe(tenantId); return { swept: tenantId === "t1" ? 2 : 0 } })
+    m.sweep.mockImplementation(async (tenantId: string) => { expect(m.current).toBe(tenantId); return { swept: tenantId === "t1" ? 2 : 0, failed: 0 } })
     const res = await GET(req())
     expect(res.status).toBe(200)
     expect(m.frames).toEqual(["t1", "t2"])
     expect(m.sweep).toHaveBeenCalledWith("t1", expect.any(Date))
-    expect(await res.json()).toMatchObject({ ok: true, perTenant: [{ tenantId: "t1", swept: 2 }, { tenantId: "t2", swept: 0 }] })
+    expect(await res.json()).toMatchObject({ ok: true, perTenant: [{ tenantId: "t1", swept: 2, failed: 0 }, { tenantId: "t2", swept: 0, failed: 0 }] })
+  })
+
+  it("returns a NON-2XX when a row failed inside an otherwise healthy tenant", async () => {
+    m.sweep.mockResolvedValueOnce({ swept: 3, failed: 1 }).mockResolvedValueOnce({ swept: 0, failed: 0 })
+    const res = await GET(req())
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ ok: false, perTenant: [{ tenantId: "t1", swept: 3, failed: 1 }, { tenantId: "t2", swept: 0, failed: 0 }] })
   })
 
   it("returns a NON-2XX when a tenant fails, after trying the rest", async () => {
-    m.sweep.mockRejectedValueOnce(new Error("connection reset")).mockResolvedValueOnce({ swept: 1 })
+    m.sweep.mockRejectedValueOnce(new Error("connection reset")).mockResolvedValueOnce({ swept: 1, failed: 0 })
     const res = await GET(req())
     expect(res.status).toBe(503)
     expect(m.sweep).toHaveBeenCalledTimes(2)
-    expect(await res.json()).toMatchObject({ ok: false, perTenant: [{ tenantId: "t1", error: "connection reset" }, { tenantId: "t2", swept: 1 }] })
+    expect(await res.json()).toMatchObject({ ok: false, perTenant: [{ tenantId: "t1", error: "connection reset" }, { tenantId: "t2", swept: 1, failed: 0 }] })
   })
 })

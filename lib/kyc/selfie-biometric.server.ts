@@ -326,7 +326,17 @@ async function persistBiometricOutcome(args: {
     // verification replacement is separately covered by the composite-KYC
     // revoke trigger, which lapses the client's KYC when ID_COPY evidence
     // changes.
-    const boundIdDocumentId = args.biometricResult?.idDocumentId ?? null
+    //
+    // A worker answering after the sweeper failed its attempt (see below).
+    const lateAnswer = currentDocument.extractionStatus === "failed"
+    // On the error path there is no provider result to name the copy, so the
+    // ordinary attempt is not bound to one (unchanged). A LATE answer is: it
+    // is bound to the copy the worker itself was handed (args.idDocument),
+    // because it may re-project the client and must not act for a superseded ID.
+    const boundIdDocumentId = args.biometricResult?.idDocumentId ?? (lateAnswer ? args.idDocument.id : null)
+    const boundIdDocumentSha256 = args.biometricResult
+      ? args.biometricResult.idDocumentSha256
+      : args.idDocument.contentSha256
     let idDocumentUnchanged = true
     if (boundIdDocumentId) {
       const currentIdDocuments = await tx.clientDocument.findMany({
@@ -342,7 +352,7 @@ async function persistBiometricOutcome(args: {
       const currentIdDocument = currentIdDocuments[0]
       idDocumentUnchanged = currentIdDocument?.id === boundIdDocumentId
         && isSha256Digest(currentIdDocument.contentSha256)
-        && currentIdDocument.contentSha256 === args.biometricResult?.idDocumentSha256
+        && currentIdDocument.contentSha256 === boundIdDocumentSha256
     }
     const latestSelfieAtCompletion = await tx.clientDocument.findFirst({
       where: {
@@ -395,13 +405,19 @@ async function persistBiometricOutcome(args: {
       // On every attempt either judge answered, pass or fail: an adverse
       // same-person answer must survive a path that wrote no provider result.
       faceVerdict: args.faceVerdict,
+      // When this verdict became part of the record. An adverse one recorded
+      // after an in-person attestation lapses it (adverseVerdictRecordedAfter,
+      // mirrored in SQL): staff could not have seen it.
+      verdictRecordedAt: completedAt.toISOString(),
     } as Prisma.InputJsonValue
     // A worker answering after the sweeper failed its attempt. Only an ADVERSE
     // answer for the client's current attempt, on the current ID and unchanged
     // subject, is recorded: it re-projects the client's KYC below. A pass, a
-    // benign failure or a stale one changes nothing, so the swept (adverse)
-    // verdict can only be sharpened, never loosened.
-    const lateAnswer = currentDocument.extractionStatus === "failed"
+    // benign failure or a stale one changes nothing, so the swept attempt can
+    // never be loosened into a pass or a benign reason. The recorded reason
+    // replaces the swept one even when it is a more lenient adverse reason (an
+    // exceptionable `match_score_below_threshold` for the non-exceptionable
+    // `biometric_outcome_not_recorded`): it is the real verdict.
     if (lateAnswer && !(
       !biometricPassed &&
       outcomeIsCurrent &&
@@ -490,7 +506,11 @@ async function persistBiometricOutcome(args: {
           ? clientAfter.kycStatus === "VERIFIED"
             ? AuditAction.KYC_APPROVED
             : AuditAction.DOCUMENT_VERIFIED
-          : AuditAction.KYC_REJECTED,
+          // A late answer's action names what happened to the client: rejected
+          // only if the re-projection ended FAILED, else a status change.
+          : lateAnswer && clientAfter.kycStatus !== "FAILED"
+            ? AuditAction.KYC_STATUS_CHANGED
+            : AuditAction.KYC_REJECTED,
         entity: "ClientDocument",
         entityId: args.docId,
         oldValue: {

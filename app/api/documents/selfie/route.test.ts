@@ -1474,6 +1474,7 @@ describe("POST /api/documents/selfie", () => {
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       biometricFailureReason: reason,
       faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: null },
+      verdictRecordedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     })
     expect(update.data.extractionError).toBe(message)
     const audit = auditCreateMock.mock.calls[1][0] as { data: { action: string; newValue: { document: Record<string, unknown> } } }

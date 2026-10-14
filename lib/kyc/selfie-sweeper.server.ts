@@ -25,6 +25,11 @@ import {
 export const SELFIE_PROCESSING_TIMEOUT_MS = 15 * 60 * 1000
 /** Per tenant per run; the 5-minute schedule drains any backlog. */
 const BATCH = 200
+/**
+ * The transaction waits on the client evidence advisory lock, which counts
+ * against Prisma's 5 s default; a held lock must not fail a sweep.
+ */
+const SWEEP_TRANSACTION = { maxWait: 15_000, timeout: 30_000 } as const
 
 /**
  * The reason a swept attempt carries. Adverse in BIOMETRIC_FAILURE_REASON_CLASS
@@ -74,8 +79,10 @@ function staleWhere(tenantId: string, now: Date) {
     docType: "SELFIE" as const,
     deletedAt: null,
     extractionStatus: "processing",
+    // A staff-rejected attempt (verificationNote set) is swept too: left
+    // `processing` it would block the in-person route for ever. Its note and
+    // rejecter are kept.
     verified: false,
-    verificationNote: null,
     // extractionStartedAt is the lease clock; a row without one falls back to
     // its creation time rather than being skipped for ever.
     OR: [
@@ -102,11 +109,12 @@ export async function sweepStuckSelfie(
     const where = { ...staleWhere(tenantId, now), id: candidate.id, clientId: candidate.clientId }
     const attempt = await tx.clientDocument.findFirst({
       where,
-      select: { id: true, extractionGeneration: true, extractionStartedAt: true },
+      select: { id: true, extractionGeneration: true, extractionStartedAt: true, verificationNote: true },
     } as never) as unknown as {
       id: string
       extractionGeneration: string | null
       extractionStartedAt: Date | null
+      verificationNote: string | null
     } | null
     if (!attempt) return false
 
@@ -136,7 +144,8 @@ export async function sweepStuckSelfie(
         verified: false,
         verifiedAt: null,
         verifiedById: null,
-        verificationNote: extractionError,
+        // verificationRejectedAt/ById are untouched, so a staff rejection stands.
+        verificationNote: attempt.verificationNote ?? extractionError,
       },
     } as never)
     if (swept.count !== 1) return false
@@ -165,7 +174,12 @@ export async function sweepStuckSelfie(
     await logAuditStrict({
       tenantId,
       userEmail: "system@selfie-sweeper",
-      action: AuditAction.KYC_REJECTED,
+      // Names what happened to the client: a status change if the latest
+      // selfie was swept and the re-projection did not end FAILED, otherwise
+      // the attempt (and the client) were rejected.
+      action: latestSelfie && clientAfter.kycStatus !== "FAILED"
+        ? AuditAction.KYC_STATUS_CHANGED
+        : AuditAction.KYC_REJECTED,
       entity: "ClientDocument",
       entityId: candidate.id,
       oldValue: {
@@ -190,11 +204,19 @@ export async function sweepStuckSelfie(
       },
     }, tx)
     return true
-  })
+  }, SWEEP_TRANSACTION)
 }
 
-/** Sweeps one tenant's stale selfie attempts; oldest first. */
-export async function sweepStuckSelfies(tenantId: string, now: Date): Promise<{ swept: number }> {
+/**
+ * Sweeps one tenant's stale selfie attempts; oldest first. A row that throws
+ * is logged and counted, and the rest are still swept: one poisoned row at the
+ * head of the queue must not starve the newer ones on every later run. The
+ * route answers non-2xx while `failed` is above zero.
+ */
+export async function sweepStuckSelfies(
+  tenantId: string,
+  now: Date,
+): Promise<{ swept: number; failed: number }> {
   const stale = await prisma.clientDocument.findMany({
     where: staleWhere(tenantId, now),
     select: { id: true, clientId: true },
@@ -202,6 +224,18 @@ export async function sweepStuckSelfies(tenantId: string, now: Date): Promise<{ 
     take: BATCH,
   } as never) as unknown as Array<{ id: string; clientId: string }>
   let swept = 0
-  for (const attempt of stale) if (await sweepStuckSelfie(tenantId, attempt, now)) swept++
-  return { swept }
+  let failed = 0
+  for (const attempt of stale) {
+    try {
+      if (await sweepStuckSelfie(tenantId, attempt, now)) swept++
+    } catch (error) {
+      failed++
+      console.error("[selfie-sweeper] failed to sweep attempt", {
+        tenantId,
+        documentId: attempt.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  return { swept, failed }
 }

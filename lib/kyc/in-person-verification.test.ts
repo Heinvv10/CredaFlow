@@ -72,6 +72,8 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
     portraitRefusals: [],
+    latestSelfie: null,
+    selfieAttempts: [],
     ...over,
   })
 }
@@ -189,6 +191,8 @@ describe("currentInPersonKycVerification", () => {
       blockingBiometricAttempt: false,
       biometricAssessment: MISSING,
       portraitRefusals: [],
+      latestSelfie: null,
+      selfieAttempts: [],
     })).toBeNull()
   })
 
@@ -394,5 +398,43 @@ describe("matchesBlockingSelfie", () => {
     // enum member cannot leave the in-memory half matching a stale literal.
     expect(matchesBlockingSelfie({ ...live, docType: BLOCKING_SELFIE_CONDITIONS.docType }))
       .toBe(true)
+  })
+})
+
+describe("lapse on a later face verdict or an unknown outcome", () => {
+  const at = (offsetMs: number) => new Date(APPROVED_AT.getTime() + offsetMs)
+  const verdict = (offsetMs: number, over: Record<string, unknown> = {}) => ({
+    biometricResult: {
+      verdictRecordedAt: at(offsetMs).toISOString(),
+      idDocumentId: "doc-id-copy",
+      faceVerdict: { samePerson: "different" },
+      ...over,
+    },
+  })
+
+  it("lapses when an adverse verdict was recorded after the attestation", () => {
+    expect(current({ latestSelfie: verdict(1_000) })).toBeNull()
+  })
+
+  it.each([
+    ["recorded at the attestation", verdict(0)],
+    ["recorded before the attestation", verdict(-1_000)],
+    ["about another ID copy", verdict(1_000, { idDocumentId: "doc-old" })],
+    ["a passing answer", verdict(1_000, { faceVerdict: { samePerson: "same", faceMatch: true } })],
+    ["no stamp", { biometricResult: { idDocumentId: "doc-id-copy", faceVerdict: { samePerson: "different" } } }],
+    ["a malformed stamp", verdict(1_000, { verdictRecordedAt: "2099-01-01 00:00:00" })],
+  ])("stands for a verdict %s", (_name, latestSelfie) => {
+    expect(current({ latestSelfie })).not.toBeNull()
+  })
+
+  it("lapses for ANY attempt with an unknown outcome created after the attestation", () => {
+    const unknown = { biometricResult: { biometricFailureReason: "biometric_outcome_not_recorded" } }
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(1_000) }] })).toBeNull()
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(-1_000) }] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(0) }] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: null }] })).not.toBeNull()
+    expect(current({
+      selfieAttempts: [{ biometricResult: { biometricFailureReason: "face_not_detected" }, createdAt: at(1_000) }],
+    })).not.toBeNull()
   })
 })
