@@ -183,6 +183,17 @@ suite.sequential("lease ledger SQL rules (real Postgres)", () => {
         ${invoice(`inv_f_${t}`, ids.loan, rental.totalCents, "CURRENT_DATE")};
         UPDATE "LeaseRental" SET "taxInvoiceId" = 'inv_f_${t}' WHERE "id" = '${ids.rental2}'`), "earlier only once a payment has reached it")
     })
+    it("refuses an early invoice resting on an earlier rental's real receipt (breaker round 3)", async () => {
+      // A real receipt that settles rental 1 exactly has not reached rental 2: receipts settle the oldest rows first.
+      const [first, rental] = await Promise.all([ids.rental, ids.rental2].map((id) => database().leaseRental.findUniqueOrThrow({ where: { id } })))
+      expectRejected(withoutTotals(`SET LOCAL session_replication_role = replica;
+        INSERT INTO "Payment" ("id", "tenantId", "loanId", "amount", "allocationStatus", "receivedAt")
+          VALUES ('pay_r3_${t}', '${fx.tenantId}', '${ids.loan}', ${first.totalCents}, 'ALLOCATED', now());
+        UPDATE "RepaymentSchedule" SET "totalPaid" = 1 WHERE "id" = '${rental.scheduleId}';
+        SET LOCAL session_replication_role = origin;
+        ${invoice(`inv_r3_${t}`, ids.loan, rental.totalCents, "CURRENT_DATE")};
+        UPDATE "LeaseRental" SET "taxInvoiceId" = 'inv_r3_${t}' WHERE "id" = '${ids.rental2}'`), "earlier only once a payment has reached it")
+    })
 
     it("the invoice is set once", () => {
       expectRejected(`BEGIN; ALTER TABLE "TaxInvoice" DISABLE TRIGGER "TaxInvoice_totals_match_lines";

@@ -147,21 +147,26 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
   }, 60_000)
 
   it("an invoice that throws after it is written is rolled back alone: the receipt stands", async () => {
-    // Tamper rental 3 consistently (triggers off): its total no longer equals what its invoice lines add up to.
+    // A test-only deferred check that refuses binding rental 3's invoice: the invoice passes every check in code and
+    // fails only at a deferred constraint, which the savepoint must force and roll back alone (dropped below).
     const [, second, third] = await rentals(clientLoan)
-    await database().$transaction([
-      database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
-      database().$executeRawUnsafe(`UPDATE "LeaseRental" SET "vatCents" = "vatCents" + 1, "totalCents" = "totalCents" + 1 WHERE "id" = $1`, third.id),
-      database().$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "totalDue" = "totalDue" + 1, "principalDue" = "principalDue" + 1 WHERE "id" = $1`, third.scheduleId),
-    ])
-    const paidOnSecond = (await database().repaymentSchedule.findUniqueOrThrow({ where: { id: second.scheduleId } })).totalPaid
-    const amount = second.totalCents - paidOnSecond + 100 // settles rental 2; R1.00 reaches rental 3
-    const result = await applyManualReceipt(database() as unknown as PaymentDb, { loanId: clientLoan, tenantId: fx.tenantId, amount, capturedById: fx.officer, reference: "SYNTHETIC-3" })
-    expect(await database().payment.count({ where: { id: result.payment.id } })).toBe(1)
-    expect((await rentals(clientLoan))[2].taxInvoiceId).toBeNull()
-    expect(await database().taxInvoice.count({ where: { loanId: clientLoan } })).toBe(2) // rentals 1 and 2 only
-    const audit = await database().auditLog.findFirstOrThrow({ where: { tenantId: fx.tenantId, action: "LEASE_INVOICE_REFUSED", entityId: third.id } })
-    expect(audit.newValue).toMatchObject({ reason: "invoice_error", source: "receipt" })
+    await database().$executeRawUnsafe(`CREATE OR REPLACE FUNCTION "it_refuse_rental_invoice"() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN IF NEW."id" = '${third.id}' AND NEW."taxInvoiceId" IS NOT NULL THEN RAISE EXCEPTION 'it: deferred refusal'; END IF; RETURN NULL; END $f$`)
+    await database().$executeRawUnsafe(`CREATE CONSTRAINT TRIGGER "it_refuse_rental_invoice" AFTER UPDATE ON "LeaseRental"
+      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "it_refuse_rental_invoice"()`)
+    try {
+      const paidOnSecond = (await database().repaymentSchedule.findUniqueOrThrow({ where: { id: second.scheduleId } })).totalPaid
+      const amount = second.totalCents - paidOnSecond + 100 // settles rental 2; R1.00 reaches rental 3
+      const result = await applyManualReceipt(database() as unknown as PaymentDb, { loanId: clientLoan, tenantId: fx.tenantId, amount, capturedById: fx.officer, reference: "SYNTHETIC-3" })
+      expect(await database().payment.count({ where: { id: result.payment.id } })).toBe(1)
+      expect((await rentals(clientLoan))[2].taxInvoiceId).toBeNull()
+      expect(await database().taxInvoice.count({ where: { loanId: clientLoan } })).toBe(2) // rentals 1 and 2 only
+      const audit = await database().auditLog.findFirstOrThrow({ where: { tenantId: fx.tenantId, action: "LEASE_INVOICE_REFUSED", entityId: third.id } })
+      expect(audit.newValue).toMatchObject({ reason: "invoice_error", source: "receipt" })
+    } finally {
+      await database().$executeRawUnsafe(`DROP TRIGGER IF EXISTS "it_refuse_rental_invoice" ON "LeaseRental"`)
+      await database().$executeRawUnsafe(`DROP FUNCTION IF EXISTS "it_refuse_rental_invoice"()`)
+    }
   }, 60_000)
 
   it("the issuer refuses a supply date after the due date, and a lessee with no address", async () => {
