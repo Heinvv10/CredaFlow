@@ -32,6 +32,7 @@ import type { VatTransaction } from "@/lib/vat/db"
 import { recipientAddress } from "./booking-load"
 import { completeEndOfTermIfSettled } from "./lease-end-invoice"
 import { dbDate, isoOfDbDate } from "./dates"
+import { cashReachedOn } from "./lease-supply-date"
 
 export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement" | "leaseEndOfTerm" | "financedAsset" | "loan">
 
@@ -127,18 +128,21 @@ export async function issueLeaseRentalInvoice(
  * cron and staff. The money is recorded either way.
  */
 export async function issueLeaseInvoicesOnReceipt(
-  tx: LeaseInvoiceTx & Pick<VatTransaction, "repaymentSchedule">,
+  tx: LeaseInvoiceTx & Pick<VatTransaction, "repaymentSchedule" | "payment">,
   input: { tenantId: string; loanId: string; contractType: ContractType | null | undefined; receivedOn: string; today: string; createdById: string | null },
 ): Promise<void> {
   if (input.contractType !== "OPERATING_LEASE" && input.contractType !== "FULL_MAINTENANCE_LEASE") return
   const rentals = await tx.leaseRental.findMany({
     where: { tenantId: input.tenantId, loanId: input.loanId, taxInvoiceId: null, cancelledAt: null, schedule: { totalPaid: { gt: 0 } } },
     orderBy: { periodNo: "asc" },
-    select: { id: true, dueDate: true },
+    select: { id: true, dueDate: true, periodNo: true },
   })
   for (const rental of rentals) {
     const due = isoOfDbDate(rental.dueDate)
-    const supplyDate = input.receivedOn < due ? input.receivedOn : due
+    // The earliest day the cash reached the rental (./lease-supply-date.ts), never later than its due date.
+    const reached = await cashReachedOn(tx, { tenantId: input.tenantId, loanId: input.loanId, periodNo: rental.periodNo })
+    if (reached === null) continue
+    const supplyDate = reached < due ? reached : due
     await tx.$executeRawUnsafe("SAVEPOINT lease_rental_invoice")
     let refusal: { reason: string; error: string } | null = null
     try {
