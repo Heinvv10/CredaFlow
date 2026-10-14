@@ -1,0 +1,100 @@
+import { BackLink } from "@/components/nav/BackLink"
+import { DataPanel } from "@/components/app-shell/DataPanel"
+import { StatusPill } from "@/components/app-shell/StatusPill"
+import { ASSET_CLASS_LABELS } from "@/lib/asset-finance/asset-labels"
+import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
+import { statusLabel } from "@/lib/asset-finance/labels"
+import type { PortalContractDocument } from "@/lib/asset-finance/portal-contract"
+import type { PortalLeaseView } from "@/lib/asset-finance/portal-lease"
+import { canSubmitReading, endOfTermOffer, terminationActions } from "@/lib/asset-finance/portal-lease-view"
+import { LeaseDocuments } from "./LeaseDocuments"
+import { LeaseEndOfTermPanel } from "./LeaseEndOfTermPanel"
+import { LeaseMaintenanceFund } from "./LeaseMaintenanceFund"
+import { LeaseMeterReadingForm } from "./LeaseMeterReadingForm"
+import { LeaseRentalsTable } from "./LeaseRentalsTable"
+import { LeaseTerminationPanel } from "./LeaseTerminationPanel"
+
+function Figure({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-[var(--cf-text-muted)]">{label}</dt>
+      <dd className="font-semibold text-[var(--cf-text)]">{value}</dd>
+      {sub && <dd className="text-xs text-[var(--cf-text-muted)]">{sub}</dd>}
+    </div>
+  )
+}
+
+/**
+ * A lease as its lessee sees it: shared by the entity contract page and the
+ * sole proprietor's contract page. `view` was read through loadPortalLease,
+ * so the lessee is already authorised; `documents` (the entity routes' signed
+ * documents) is passed by the entity page only.
+ */
+export function PortalLeaseDetail({ view, back, documents }: {
+  view: PortalLeaseView
+  back: { href: string; label: string }
+  documents?: PortalContractDocument[]
+}) {
+  const { loan, asset, today } = view
+  const status = loan.status
+  const termination = terminationActions({
+    status, endOfTermStarted: view.endOfTerm.chosen !== null, penaltyConfigured: view.termination.penaltyConfigured,
+    quote: view.termination.latestQuote, today,
+  })
+  const offer = endOfTermOffer({ status, lastRentalDate: loan.maturityDate, chosen: view.endOfTerm.chosen !== null, currentValuation: view.endOfTerm.valuation !== null, today })
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-5 px-4 py-8 md:px-6">
+      <BackLink href={back.href} label={back.label} />
+      <DataPanel
+        title={`Lease ${loan.reference}`}
+        description={[statusLabel(loan.contractType), view.entity?.legalName].filter(Boolean).join(" · ")}
+        actions={<StatusPill tone={view.arrearsCents > 0 ? "danger" : "success"}>{statusLabel(status)}</StatusPill>}
+      >
+        <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
+          <Figure
+            label="Asset"
+            value={asset ? `${asset.year} ${asset.make} ${asset.model}` : "Not recorded"}
+            sub={asset ? `${ASSET_CLASS_LABELS[asset.assetClass]} · serial ${asset.serialNumber}${asset.registrationNumber ? ` · reg ${asset.registrationNumber}` : ""}` : undefined}
+          />
+          <Figure label="Term" value={`${formatIsoDate(loan.startDate)} – ${formatIsoDate(loan.maturityDate)}`} sub="First to last rental" />
+          <Figure
+            label="Next rental"
+            value={view.nextRental ? formatMoney(view.nextRental.amountCents) : "None due"}
+            sub={view.nextRental ? `Due ${formatIsoDate(view.nextRental.dueDate)}` : undefined}
+          />
+          <Figure label="Overdue rentals" value={view.arrearsCents > 0 ? formatMoney(view.arrearsCents) : "None"} />
+          {view.fund && <Figure label="Maintenance fund" value={formatMoney(view.fund.balanceCents)} />}
+        </dl>
+      </DataPanel>
+      <DataPanel title="Rentals" description="Rental and maintenance exclude VAT; the total includes it. Each rental has its own tax invoice." density="compact">
+        <LeaseRentalsTable loanId={loan.id} rentals={view.rentals} />
+      </DataPanel>
+      {view.fund && (
+        <DataPanel title="Maintenance fund" description="What the maintenance part of your rentals has built up, and the claims made against it">
+          <LeaseMaintenanceFund fund={view.fund} />
+        </DataPanel>
+      )}
+      {view.meter && canSubmitReading({ status, usageUnit: view.meter.unit }) && (
+        <DataPanel title="Meter reading" description="Your lease has contracted usage: tell us what the meter reads today">
+          <LeaseMeterReadingForm loanId={loan.id} today={today} unit={view.meter.unit} latest={view.meter.latest} />
+        </DataPanel>
+      )}
+      {(termination.canRequest || termination.state !== "NONE") && (
+        <DataPanel title="End the lease early" description="Ask for a quote and, if it suits you, accept it">
+          <LeaseTerminationPanel loanId={loan.id} quote={view.termination.latestQuote} actions={termination} />
+        </DataPanel>
+      )}
+      {offer.kind !== "closed" && (
+        <DataPanel title="End of the lease" description="Return the asset, extend the lease or buy the asset">
+          <LeaseEndOfTermPanel loanId={loan.id} offer={offer} chosen={view.endOfTerm.chosen} valuation={view.endOfTerm.valuation} />
+        </DataPanel>
+      )}
+      {documents && (
+        <DataPanel title="Documents" description="Statement and the signed contract documents">
+          <LeaseDocuments loanId={loan.id} documents={documents} />
+        </DataPanel>
+      )}
+    </div>
+  )
+}

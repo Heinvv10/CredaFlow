@@ -13,6 +13,9 @@ import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
+import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
+import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { loadPortalLease } from "@/lib/asset-finance/portal-lease"
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -45,6 +48,13 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   const { id } = await params
   const loan = await getPortalLoan(id, session.user.email)
   if (!loan) redirect("/portal")
+
+  if (isLeaseContract(loan.contractType)) {
+    // A sole proprietor's lease: rentals, not a loan. The lease gate decides who may see it.
+    const lease = loan.clientId ? await loadPortalLease(loan.tenantId, loan.clientId, loan.id) : null
+    if (!lease) redirect("/portal")
+    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} />
+  }
 
   const nextPayment = loan.repaymentSchedule.find(
     s => s.status === "PENDING" || s.status === "PARTIAL"
