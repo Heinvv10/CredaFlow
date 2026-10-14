@@ -20,8 +20,9 @@
  * - LEGACY — enum values nothing in the app writes. The evidence they name is
  *   real but lives in another model (see LEGACY_EVIDENCE_HOME). They stay in
  *   the enum because Postgres cannot drop an enum value and dev seeds still
- *   insert them; they are never scored, so a hand-entered row through the
- *   generic POST /api/compliance cannot move the health figure.
+ *   insert them; they are never scored, so a hand-entered row (inserted directly
+ *   in the database; the app has no generic create endpoint) cannot move the
+ *   health figure.
  *
  * `Record<ComplianceType, …>` is deliberate: adding a value to the enum without
  * classifying it fails the build. The previous hardcoded list of five types
