@@ -51,8 +51,10 @@ const pay = (tx: Tx, id: string) => tx.maintenanceClaim.update({ where: { id }, 
 const movement = (tx: Tx, data: Record<string, unknown>) => tx.maintenanceFundMovement.create({
   data: { tenantId: fx.tenantId, fundId: ids.fund, occurredOn: dbDate(sastCalendarDate(new Date())), kind: "SETTLEMENT_REFUND", amountCents: 1, ...data },
 })
-const reading = (tx: Tx, readingDate: string, value: number) => tx.assetMeterReading.create({
-  data: { tenantId: fx.tenantId, assetId: ids.asset, loanId: ids.loan, readingDate: dbDate(readingDate), value, unit: "HOURS", source: "STAFF", recordedById: fx.officer },
+/** A settlement movement settles its fund in the same transaction (MaintenanceFundMovement_settles_fund, deferred). */
+const settle = (tx: Tx) => tx.maintenanceFund.update({ where: { id: ids.fund }, data: { settledAt: new Date(), settledBalanceCents: 0, settledById: fx.adminA } })
+const reading = (tx: Tx, readingDate: string, value: number, unit: "HOURS" | "KM" = "HOURS") => tx.assetMeterReading.create({
+  data: { tenantId: fx.tenantId, assetId: ids.asset, loanId: ids.loan, readingDate: dbDate(readingDate), value, unit, source: "STAFF", recordedById: fx.officer },
 })
 
 suite.sequential("lease servicing rules: fund, movements, claims, readings (each rule removed → the attack goes through)", () => {
@@ -93,12 +95,12 @@ suite.sequential("lease servicing rules: fund, movements, claims, readings (each
 
   it("MaintenanceFundMovement_shape: a settlement names no rental", async () => {
     await refuses({ table: "MaintenanceFundMovement", constraint: "MaintenanceFundMovement_shape" }, /MaintenanceFundMovement_shape/,
-      (tx) => movement(tx, { leaseRentalId: ids.openRental }))
+      async (tx) => { await movement(tx, { leaseRentalId: ids.openRental }); await settle(tx) })
   })
 
   it("MaintenanceFundMovement_one_settlement: a fund is settled by one movement", async () => {
     await refuses({ index: "MaintenanceFundMovement_one_settlement" }, /Unique constraint/,
-      async (tx) => { await movement(tx, {}); await movement(tx, {}) })
+      async (tx) => { await movement(tx, {}); await movement(tx, {}); await settle(tx) })
   })
 
   it("MaintenanceClaim_shape: a claim describes the work", async () => {
@@ -132,7 +134,8 @@ suite.sequential("lease servicing rules: fund, movements, claims, readings (each
   })
 
   it("AssetMeterReading_value: a reading is not negative", async () => {
+    // Dated inside the lease, in a unit with no readings yet, so no monotonic or date bound is in play.
     await refuses({ table: "AssetMeterReading", constraint: "AssetMeterReading_value" }, /AssetMeterReading_value/,
-      (tx) => reading(tx, "2000-01-03", -1))
+      (tx) => reading(tx, sastCalendarDate(new Date()), -1, "KM"))
   })
 })

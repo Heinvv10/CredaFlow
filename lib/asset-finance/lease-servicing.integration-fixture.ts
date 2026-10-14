@@ -46,15 +46,27 @@ export function leaseRoutes(host: string) {
 
 /** Test setup only (triggers off): move a booked lease's dates, readings and fund `months` back. */
 export async function backdateLease(db: PrismaClient, loanId: string, months: number): Promise<void> {
-  const i = `INTERVAL '${months} months'`
+  await shiftLease(db, loanId, `${months} months`)
+}
+
+/**
+ * Test setup only (triggers off): move a booked lease's dates, readings, fund,
+ * rental invoices and end-of-term dates back by `interval` (a Postgres
+ * interval; negative moves them forward).
+ */
+export async function shiftLease(db: PrismaClient, loanId: string, interval: string): Promise<void> {
+  const i = `INTERVAL '${interval}'`
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
     db.$executeRawUnsafe(`UPDATE "Loan" SET "startDate" = "startDate" - ${i}, "maturityDate" = "maturityDate" - ${i}, "nextPaymentDate" = "nextPaymentDate" - ${i} WHERE "id" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "dueDate" = "dueDate" - ${i} WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "LeaseRental" SET "dueDate" = ("dueDate" - ${i})::date WHERE "loanId" = $1`, loanId),
+    db.$executeRawUnsafe(`UPDATE "TaxInvoice" SET "issueDate" = ("issueDate" - ${i})::date, "supplyDate" = ("supplyDate" - ${i})::date WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "AssetMeterReading" SET "readingDate" = ("readingDate" - ${i})::date WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "MaintenanceFund" SET "leaseEndDate" = ("leaseEndDate" - ${i})::date WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "ContractRate" SET "effectiveDate" = ("effectiveDate" - ${i})::date WHERE "loanId" = $1`, loanId),
+    db.$executeRawUnsafe(`UPDATE "LeaseEndOfTerm" SET "electedAt" = "electedAt" - ${i}, "extensionNoticeOn" = ("extensionNoticeOn" - ${i})::date,
+      "extensionEndsOn" = ("extensionEndsOn" - ${i})::date, "inspectedOn" = ("inspectedOn" - ${i})::date WHERE "loanId" = $1`, loanId),
   ])
 }
 
@@ -78,15 +90,36 @@ export async function payAllOwed(db: PrismaClient, fx: LeaseFixture, loanId: str
   return owed
 }
 
-/** A database rule: a trigger (disabled), or a CHECK constraint or unique index (dropped), only inside a rolled-back transaction. */
-export type DbRule = { table: string; trigger: string } | { table: string; constraint: string } | { index: string }
+/** Test setup only (triggers off): raw statements, each `[sql, ...params]`, in one transaction. */
+export async function testSetup(db: PrismaClient, ...statements: [string, ...unknown[]][]): Promise<void> {
+  await db.$transaction([
+    db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+    ...statements.map(([sql, ...params]) => db.$executeRawUnsafe(sql, ...params)),
+  ])
+}
+
+/**
+ * A database rule: a trigger (disabled), a CHECK constraint or unique index
+ * (dropped), or ONE clause of a trigger function (`replace: [clause, with]`:
+ * the function is redefined with that exact clause, which must occur once,
+ * replaced) — only inside a rolled-back transaction.
+ */
+export type DbRule = { table: string; trigger: string } | { table: string; constraint: string } | { index: string } | { fn: string; replace: readonly [string, string] }
 type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]
 class RolledBack extends Error {}
 
-function ruleOff(rule: DbRule): string {
-  if ("trigger" in rule) return `ALTER TABLE "${rule.table}" DISABLE TRIGGER "${rule.trigger}"`
-  if ("constraint" in rule) return `ALTER TABLE "${rule.table}" DROP CONSTRAINT "${rule.constraint}"`
-  return `DROP INDEX "${rule.index}"`
+async function ruleOff(tx: Tx, rule: DbRule): Promise<void> {
+  if ("fn" in rule) {
+    const [row] = await tx.$queryRawUnsafe<{ def: string }[]>(`SELECT pg_get_functiondef('public."${rule.fn}"'::regproc) AS def`)
+    const [clause, replacement] = rule.replace
+    const found = row.def.split(clause).length - 1
+    if (found !== 1) throw new Error(`${rule.fn}: the clause must occur exactly once, found ${found}: ${clause}`)
+    await tx.$executeRawUnsafe(row.def.replace(clause, () => replacement))
+    return
+  }
+  if ("trigger" in rule) await tx.$executeRawUnsafe(`ALTER TABLE "${rule.table}" DISABLE TRIGGER "${rule.trigger}"`)
+  else if ("constraint" in rule) await tx.$executeRawUnsafe(`ALTER TABLE "${rule.table}" DROP CONSTRAINT "${rule.constraint}"`)
+  else await tx.$executeRawUnsafe(`DROP INDEX "${rule.index}"`)
 }
 
 /**
@@ -97,7 +130,7 @@ function ruleOff(rule: DbRule): string {
 export async function attempt(db: PrismaClient, attack: (tx: Tx) => Promise<unknown>, without?: DbRule): Promise<string> {
   try {
     await db.$transaction(async (tx) => {
-      if (without) await tx.$executeRawUnsafe(ruleOff(without))
+      if (without) await ruleOff(tx, without)
       await attack(tx)
       await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
       throw new RolledBack()
@@ -117,4 +150,10 @@ export async function ruleRefuses(db: PrismaClient, rule: DbRule, message: RegEx
   if (!message.test(refused)) throw new Error(`expected a refusal matching ${message}, got: ${refused}`)
   const without = await attempt(db, attack, rule)
   if (without !== "ok") throw new Error(`without ${JSON.stringify(rule)} the attack should go through, got: ${without}`)
+}
+
+/** The attack goes through as it is: the control for a boundary a rule must admit. */
+export async function ruleAdmits(db: PrismaClient, attack: (tx: Tx) => Promise<unknown>): Promise<void> {
+  const result = await attempt(db, attack)
+  if (result !== "ok") throw new Error(`expected the database to admit it, got: ${result}`)
 }

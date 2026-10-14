@@ -376,7 +376,7 @@ ALTER TABLE "LeaseTerminationQuote" ADD CONSTRAINT "LeaseTerminationQuote_tenant
 
 -- ===========================================================================
 -- Hand-written: lease servicing (slice 3, C5–C8). Every rule below has a
--- RUN_ASSET_FINANCE_LEASE_IT case (lib/asset-finance/lease-servicing-sql.integration.test.ts).
+-- RUN_ASSET_FINANCE_LEASE_IT case (lib/asset-finance/lease-servicing-rules-*.integration.test.ts).
 -- ===========================================================================
 
 -- The charge rows an end-of-term outcome or a termination bills (tenant-safe).
@@ -414,6 +414,9 @@ BEGIN
      OR OLD."settledAt" IS NOT NULL OR NEW."settledAt" IS NULL OR NEW."settledBalanceCents" IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance fund changes only by being settled, once';
   END IF;
+  IF EXISTS (SELECT 1 FROM "MaintenanceClaim" c WHERE c."fundId" = NEW."id" AND c."tenantId" = NEW."tenantId" AND c."status" IN ('SUBMITTED', 'APPROVED')) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance fund is settled with no claim open';
+  END IF;
   RETURN NEW;
 END;
 $function$;
@@ -444,14 +447,19 @@ BEGIN
   END IF;
   IF NEW."kind" = 'CONTRIBUTION' THEN
     SELECT EXISTS (SELECT 1 FROM "LeaseRental" r JOIN "MaintenanceFund" f ON f."loanId" = r."loanId" AND f."tenantId" = r."tenantId"
-      WHERE r."id" = NEW."leaseRentalId" AND r."tenantId" = NEW."tenantId" AND f."id" = NEW."fundId"
+      WHERE r."id" = NEW."leaseRentalId" AND r."tenantId" = NEW."tenantId" AND f."id" = NEW."fundId" AND f."settledAt" IS NULL
         AND r."taxInvoiceId" IS NOT NULL AND r."maintenanceExclVatCents" = NEW."amountCents") INTO ok;
   ELSIF NEW."kind" = 'CLAIM' THEN
-    SELECT EXISTS (SELECT 1 FROM "MaintenanceClaim" c WHERE c."id" = NEW."claimId" AND c."tenantId" = NEW."tenantId"
+    SELECT EXISTS (SELECT 1 FROM "MaintenanceClaim" c JOIN "MaintenanceFund" f ON f."id" = c."fundId" AND f."tenantId" = c."tenantId"
+      WHERE c."id" = NEW."claimId" AND c."tenantId" = NEW."tenantId" AND f."settledAt" IS NULL
       AND c."fundId" = NEW."fundId" AND c."status" = 'PAID' AND c."amountExclVatCents" = NEW."amountCents") INTO ok;
   ELSE
+    -- A settlement: of an unsettled lessee-settled fund, settled in the same
+    -- transaction (checkSettlementMovement); a billed deficit on an invoice of the fund's loan.
     SELECT EXISTS (SELECT 1 FROM "MaintenanceFund" f WHERE f."id" = NEW."fundId" AND f."tenantId" = NEW."tenantId"
-      AND f."riskModel" = 'LESSEE_SETTLED' AND f."settledAt" IS NULL) INTO ok;
+      AND f."riskModel" = 'LESSEE_SETTLED' AND f."settledAt" IS NULL
+      AND (NEW."kind" = 'SETTLEMENT_REFUND' OR EXISTS (SELECT 1 FROM "TaxInvoice" i WHERE i."id" = NEW."taxInvoiceId"
+        AND i."tenantId" = NEW."tenantId" AND i."loanId" = f."loanId"))) INTO ok;
   END IF;
   IF NOT ok THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
@@ -465,6 +473,20 @@ CREATE TRIGGER "MaintenanceFundMovement_guard" BEFORE INSERT OR UPDATE OR DELETE
 CREATE TRIGGER "MaintenanceFundMovement_no_truncate" BEFORE TRUNCATE ON "MaintenanceFundMovement"
   FOR EACH STATEMENT EXECUTE FUNCTION public."guardMaintenanceFundMovement"();
 
+-- At commit, a settlement movement's fund is settled (the movement and the settlement are one act).
+CREATE OR REPLACE FUNCTION public."checkSettlementMovement"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NEW."kind" IN ('SETTLEMENT_REFUND', 'SETTLEMENT_BILLED') AND NOT EXISTS (
+      SELECT 1 FROM "MaintenanceFund" f WHERE f."id" = NEW."fundId" AND f."tenantId" = NEW."tenantId" AND f."settledAt" IS NOT NULL) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A settlement movement settles its fund in the same transaction';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "MaintenanceFundMovement_settles_fund" AFTER INSERT ON "MaintenanceFundMovement"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkSettlementMovement"();
+
 ALTER TABLE "MaintenanceClaim" ADD CONSTRAINT "MaintenanceClaim_shape" CHECK (
   "amountExclVatCents" > 0
   AND length(btrim("description")) >= 3
@@ -473,6 +495,9 @@ ALTER TABLE "MaintenanceClaim" ADD CONSTRAINT "MaintenanceClaim_shape" CHECK (
   AND ("status" = 'PAID') = ("paidById" IS NOT NULL AND "paidAt" IS NOT NULL AND length(btrim(COALESCE("paymentReference", ''))) >= 3)
   AND ("status" = 'REJECTED') = ("rejectedById" IS NOT NULL AND "rejectedAt" IS NOT NULL AND length(btrim(COALESCE("rejectionReason", ''))) >= 5)
 );
+-- One live claim per provider invoice (a rejected claim frees it).
+CREATE UNIQUE INDEX "MaintenanceClaim_one_per_invoice" ON "MaintenanceClaim"("providerInvoiceDocumentId") WHERE "status" <> 'REJECTED';
+
 -- Four-eyes: no one approves their own claim; two approvers are two people.
 ALTER TABLE "MaintenanceClaim" ADD CONSTRAINT "MaintenanceClaim_four_eyes" CHECK (
   "approvedById" IS DISTINCT FROM "submittedById"
@@ -491,22 +516,23 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance claim is never deleted';
   END IF;
   IF TG_OP = 'INSERT' THEN
-    SELECT f."leaseEndDate", l."status"::TEXT AS loan_status, d."id" AS deal_id INTO fund
+    SELECT f."leaseEndDate", f."settledAt", l."status"::TEXT AS loan_status, d."id" AS deal_id,
+      EXISTS (SELECT 1 FROM "LeaseEndOfTerm" e WHERE e."loanId" = l."id" AND e."status" = 'EXTENDING') AS extending INTO fund
       FROM "MaintenanceFund" f JOIN "Loan" l ON l."id" = f."loanId" AND l."tenantId" = f."tenantId"
       JOIN "AssetFinanceDeal" d ON d."loanId" = l."id" AND d."tenantId" = l."tenantId"
       WHERE f."id" = NEW."fundId" AND f."tenantId" = NEW."tenantId";
     IF NEW."status" <> 'SUBMITTED' OR NEW."firstApprovedById" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance claim is submitted unapproved';
     END IF;
-    IF fund.loan_status NOT IN ('ACTIVE', 'DEFAULTED') OR today > fund."leaseEndDate" THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'No maintenance claim after the lease ends';
+    IF fund.loan_status NOT IN ('ACTIVE', 'DEFAULTED') OR (today > fund."leaseEndDate" AND NOT fund.extending) OR fund."settledAt" IS NOT NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'No maintenance claim after the lease ends or its fund is settled';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM "Supplier" s JOIN "SupplierBankAccount" a ON a."supplierId" = s."id" AND a."tenantId" = s."tenantId"
         WHERE s."id" = NEW."supplierId" AND s."tenantId" = NEW."tenantId" AND s."active" AND a."status" = 'APPROVED') THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance claim''s provider is an active supplier with an APPROVED bank account';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM "EntityDocument" e WHERE e."id" = NEW."providerInvoiceDocumentId" AND e."tenantId" = NEW."tenantId"
-        AND e."dealId" = fund.deal_id AND e."deletedAt" IS NULL) THEN
+        AND e."dealId" = fund.deal_id AND e."deletedAt" IS NULL AND e."docType" IN ('SUPPLIER_INVOICE', 'OTHER')) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A maintenance claim''s provider invoice is a live document of its lease';
     END IF;
     RETURN NEW;
@@ -526,6 +552,10 @@ BEGIN
   END IF;
   IF OLD."firstApprovedById" IS NOT NULL AND NEW."firstApprovedById" IS DISTINCT FROM OLD."firstApprovedById" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A first approval is not changed';
+  END IF;
+  IF (NEW."status" IS DISTINCT FROM OLD."status" AND NEW."status" IN ('APPROVED', 'PAID') OR NEW."firstApprovedById" IS DISTINCT FROM OLD."firstApprovedById")
+     AND EXISTS (SELECT 1 FROM "MaintenanceFund" f WHERE f."id" = NEW."fundId" AND f."tenantId" = NEW."tenantId" AND f."settledAt" IS NOT NULL) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A claim on a settled fund is only rejected';
   END IF;
   IF NEW."status" = 'APPROVED' AND OLD."status" = 'SUBMITTED' THEN
     SELECT COALESCE((SELECT c."maintenanceClaimDualApprovalCents" FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId"), 0) INTO threshold;
@@ -564,6 +594,15 @@ BEGIN
   IF TG_OP <> 'INSERT' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A meter reading is immutable';
   END IF;
+  -- Never in the future (but for the start reading, dated the lease's start);
+  -- a lease's reading is of its own asset, from its start.
+  IF (NEW."readingDate" > (now() AT TIME ZONE 'Africa/Johannesburg')::date AND NOT EXISTS (
+      SELECT 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND NEW."readingDate" = (l."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date))
+    OR (NEW."loanId" IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND l."assetId" = NEW."assetId"
+        AND NEW."readingDate" >= (l."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A meter reading is dated no later than today, of its lease''s asset, from the lease''s start';
+  END IF;
   -- Serialise readings of one asset: lock it.
   PERFORM 1 FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId" FOR UPDATE;
   IF EXISTS (SELECT 1 FROM "AssetMeterReading" r WHERE r."tenantId" = NEW."tenantId" AND r."assetId" = NEW."assetId" AND r."unit" = NEW."unit"
@@ -591,7 +630,18 @@ ALTER TABLE "LeaseEndOfTerm" ADD CONSTRAINT "LeaseEndOfTerm_shape" CHECK (
         = ("inspectedOn" IS NOT NULL AND "inspectedById" IS NOT NULL AND length(btrim(COALESCE("inspectionCondition", ''))) >= 3))
   AND ("status" = 'COMPLETED') = ("completedAt" IS NOT NULL)
   AND ("excessUsageCents" IS NULL OR "excessUsageCents" >= 0)
+  AND ("outcome" <> 'PURCHASE' OR "status" NOT IN ('INVOICED', 'COMPLETED') OR ("taxInvoiceId" IS NOT NULL AND "scheduleId" IS NOT NULL))
 );
+
+-- The day a lease's fixed term (or an extension's rentals) ends: its last
+-- uncancelled rental's due date, a month later in advance (lib/asset-finance/lease-term-end.ts).
+CREATE OR REPLACE FUNCTION public."leaseTermEnd"(loan_id TEXT, tenant_id TEXT)
+RETURNS DATE LANGUAGE sql STABLE AS $function$
+  SELECT CASE WHEN d."rentalTiming" = 'ADVANCE' THEN (MAX(r."dueDate") + INTERVAL '1 month')::date ELSE MAX(r."dueDate") END
+  FROM "LeaseRental" r LEFT JOIN "AssetFinanceDeal" d ON d."loanId" = r."loanId" AND d."tenantId" = r."tenantId"
+  WHERE r."loanId" = loan_id AND r."tenantId" = tenant_id AND r."cancelledAt" IS NULL
+  GROUP BY d."rentalTiming";
+$function$;
 
 CREATE OR REPLACE FUNCTION public."guardLeaseEndOfTerm"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -599,6 +649,7 @@ DECLARE
   loan_row RECORD;
   valuation RECORD;
   max_age INTEGER;
+  returns_on DATE;
   today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
   IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
@@ -607,51 +658,97 @@ BEGIN
   SELECT l."contractType"::TEXT AS contract_type, l."assetId", a."registrationNumber" INTO loan_row
     FROM "Loan" l LEFT JOIN "FinancedAsset" a ON a."id" = l."assetId" AND a."tenantId" = l."tenantId"
     WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId";
+  SELECT COALESCE((SELECT c."leasePurchaseValuationMaxAgeDays" FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId"), 30) INTO max_age;
   IF TG_OP = 'INSERT' THEN
     IF loan_row.contract_type NOT IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An end of term belongs to a lease';
     END IF;
     IF NEW."status" IS DISTINCT FROM (CASE WHEN NEW."outcome" = 'EXTEND' THEN 'EXTENDING' ELSE 'ELECTED' END)::"LeaseEndStatus"
-       OR NEW."taxInvoiceId" IS NOT NULL OR NEW."scheduleId" IS NOT NULL OR NEW."natisTransferConfirmedAt" IS NOT NULL THEN
+       OR NEW."taxInvoiceId" IS NOT NULL OR NEW."scheduleId" IS NOT NULL OR NEW."natisTransferConfirmedAt" IS NOT NULL
+       OR NEW."inspectedOn" IS NOT NULL OR NEW."extensionNoticeOn" IS NOT NULL OR NEW."extensionEndsOn" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An end of term is elected: ELECTED (EXTENDING for an extension), nothing billed yet';
     END IF;
-  ELSE
-    IF NEW."loanId" IS DISTINCT FROM OLD."loanId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" OR NEW."origin" IS DISTINCT FROM OLD."origin"
-      OR NEW."outcome" IS DISTINCT FROM OLD."outcome" OR NEW."electedAt" IS DISTINCT FROM OLD."electedAt"
-      OR NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents" OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"
-      OR (OLD."taxInvoiceId" IS NOT NULL AND NEW."taxInvoiceId" IS DISTINCT FROM OLD."taxInvoiceId")
-      OR (OLD."scheduleId" IS NOT NULL AND NEW."scheduleId" IS DISTINCT FROM OLD."scheduleId")
-      OR (OLD."inspectedOn" IS NOT NULL AND (NEW."inspectedOn" IS DISTINCT FROM OLD."inspectedOn" OR NEW."finalReadingId" IS DISTINCT FROM OLD."finalReadingId"
-        OR NEW."inspectionCondition" IS DISTINCT FROM OLD."inspectionCondition"))
-      OR (OLD."extensionNoticeOn" IS NOT NULL AND NEW."extensionNoticeOn" IS DISTINCT FROM OLD."extensionNoticeOn") THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An end of term''s outcome, election, purchase terms, inspection, notice and billing are fixed once set';
-    END IF;
-    IF OLD."status" = 'COMPLETED' THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A completed end of term is final';
-    END IF;
-    IF NEW."status" IS DISTINCT FROM OLD."status" AND NOT (
-      (OLD."status" = 'ELECTED' AND NEW."status" = 'INSPECTED' AND NEW."outcome" = 'RETURN')
-      OR (OLD."status" = 'EXTENDING' AND NEW."status" = 'INSPECTED' AND NEW."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" <= today)
-      OR (OLD."status" = 'INSPECTED' AND NEW."status" = 'INVOICED')
-      OR (OLD."status" = 'ELECTED' AND NEW."status" = 'INVOICED' AND NEW."outcome" = 'PURCHASE')
-      OR (OLD."status" = 'INVOICED' AND NEW."status" = 'COMPLETED')
-    ) THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('A %s end of term cannot move from %s to %s', NEW."outcome", OLD."status", NEW."status");
-    END IF;
-    IF NEW."status" = 'COMPLETED' AND NEW."outcome" = 'PURCHASE'
-      AND NULLIF(btrim(loan_row."registrationNumber"), '') IS NOT NULL AND NEW."natisTransferConfirmedAt" IS NULL THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purchase completes once the eNaTIS change of ownership is confirmed';
+    IF NEW."outcome" = 'PURCHASE' THEN
+      -- Market value: an assessor's or a dealer's valuation of this asset, current, recorded by someone other than the elector.
+      SELECT v."assetId", v."valuedOn", v."amountCents", v."source"::TEXT AS source, v."createdById" INTO valuation FROM "AssetValuation" v
+        WHERE v."id" = NEW."purchaseValuationId" AND v."tenantId" = NEW."tenantId";
+      IF valuation."assetId" IS DISTINCT FROM loan_row."assetId" OR valuation."valuedOn" < today - max_age
+         OR valuation.source NOT IN ('ASSESSOR', 'DEALER') OR NEW."purchasePriceExclVatCents" < valuation."amountCents"
+         OR (NEW."electedById" IS NOT NULL AND valuation."createdById" IS NOT DISTINCT FROM NEW."electedById") THEN
+        RAISE EXCEPTION USING ERRCODE = '23514',
+          MESSAGE = format('A purchase is at least the asset''s market value: an assessor''s or dealer''s valuation of this asset dated within %s days, recorded by someone other than the elector', max_age);
+      END IF;
     END IF;
     RETURN NEW;
   END IF;
-  IF NEW."outcome" = 'PURCHASE' THEN
-    SELECT v."assetId", v."valuedOn", v."amountCents" INTO valuation FROM "AssetValuation" v
-      WHERE v."id" = NEW."purchaseValuationId" AND v."tenantId" = NEW."tenantId";
-    SELECT COALESCE((SELECT c."leasePurchaseValuationMaxAgeDays" FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId"), 30) INTO max_age;
-    IF valuation."assetId" IS DISTINCT FROM loan_row."assetId" OR valuation."valuedOn" < today - max_age
-       OR NEW."purchasePriceExclVatCents" < valuation."amountCents" THEN
-      RAISE EXCEPTION USING ERRCODE = '23514',
-        MESSAGE = format('A purchase is at least the asset''s market value: a valuation of this asset dated within %s days', max_age);
+
+  IF NEW."loanId" IS DISTINCT FROM OLD."loanId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" OR NEW."origin" IS DISTINCT FROM OLD."origin"
+    OR NEW."outcome" IS DISTINCT FROM OLD."outcome" OR NEW."electedAt" IS DISTINCT FROM OLD."electedAt"
+    OR NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId"
+    OR NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents" OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"
+    OR (OLD."taxInvoiceId" IS NOT NULL AND NEW."taxInvoiceId" IS DISTINCT FROM OLD."taxInvoiceId")
+    OR (OLD."scheduleId" IS NOT NULL AND NEW."scheduleId" IS DISTINCT FROM OLD."scheduleId")
+    OR (OLD."inspectedOn" IS NOT NULL AND (NEW."inspectedOn" IS DISTINCT FROM OLD."inspectedOn" OR NEW."finalReadingId" IS DISTINCT FROM OLD."finalReadingId"
+      OR NEW."inspectionCondition" IS DISTINCT FROM OLD."inspectionCondition" OR NEW."inspectedById" IS DISTINCT FROM OLD."inspectedById"))
+    OR (OLD."extensionNoticeOn" IS NOT NULL AND NEW."extensionNoticeOn" IS DISTINCT FROM OLD."extensionNoticeOn")
+    OR (OLD."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" IS DISTINCT FROM OLD."extensionEndsOn")
+    OR (OLD."natisTransferConfirmedAt" IS NOT NULL AND NEW."natisTransferConfirmedAt" IS DISTINCT FROM OLD."natisTransferConfirmedAt")
+    OR (OLD."status" IN ('INVOICED', 'COMPLETED') AND (NEW."excessUsageCents" IS DISTINCT FROM OLD."excessUsageCents"
+      OR NEW."fundSettlementCents" IS DISTINCT FROM OLD."fundSettlementCents")) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An end of term''s outcome, election, purchase terms, inspection, notice and billing are fixed once set';
+  END IF;
+  IF OLD."status" = 'COMPLETED' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A completed end of term is final';
+  END IF;
+  -- Notice ends an extension a month on (or at its last appended rental), given between the election and today.
+  IF OLD."extensionNoticeOn" IS NULL AND NEW."extensionNoticeOn" IS NOT NULL AND (
+      NEW."outcome" <> 'EXTEND' OR NEW."extensionNoticeOn" < (NEW."electedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
+      OR NEW."extensionNoticeOn" > today OR NEW."extensionEndsOn" IS NULL
+      OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Notice is given between the election and today, and ends the extension at least a month later';
+  END IF;
+  IF NEW."status" IS DISTINCT FROM OLD."status" AND NOT (
+    (OLD."status" = 'ELECTED' AND NEW."status" = 'INSPECTED' AND NEW."outcome" = 'RETURN')
+    OR (OLD."status" = 'EXTENDING' AND NEW."status" = 'INSPECTED' AND NEW."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" <= today)
+    OR (OLD."status" = 'INSPECTED' AND NEW."status" = 'INVOICED')
+    OR (OLD."status" = 'ELECTED' AND NEW."status" = 'INVOICED' AND NEW."outcome" = 'PURCHASE')
+    OR (OLD."status" = 'INVOICED' AND NEW."status" = 'COMPLETED')
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('A %s end of term cannot move from %s to %s', NEW."outcome", OLD."status", NEW."status");
+  END IF;
+  IF NEW."status" = 'INSPECTED' AND OLD."status" <> 'INSPECTED' THEN
+    -- The asset is inspected once it comes back: when the term (or the extension) ends, or on the accepted termination's date.
+    returns_on := CASE
+      WHEN NEW."origin" = 'EARLY_TERMINATION' THEN (SELECT q."terminationDate" FROM "LeaseTerminationQuote" q
+        WHERE q."loanId" = NEW."loanId" AND q."tenantId" = NEW."tenantId" AND q."status" = 'ACCEPTED')
+      WHEN NEW."outcome" = 'EXTEND' THEN NEW."extensionEndsOn"
+      ELSE public."leaseTermEnd"(NEW."loanId", NEW."tenantId") END;
+    IF returns_on IS NULL OR NEW."inspectedOn" < returns_on OR NEW."inspectedOn" > today
+       OR NEW."inspectedOn" < (NEW."electedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A return is inspected from the day the asset comes back, after the election, never in the future';
+    END IF;
+    -- The final reading is this lease's asset's, taken at the inspection, and the latest.
+    IF NEW."finalReadingId" IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM "AssetMeterReading" m WHERE m."id" = NEW."finalReadingId" AND m."tenantId" = NEW."tenantId"
+          AND m."assetId" = loan_row."assetId" AND m."readingDate" = NEW."inspectedOn"
+          AND NOT EXISTS (SELECT 1 FROM "AssetMeterReading" x WHERE x."tenantId" = m."tenantId" AND x."assetId" = m."assetId"
+            AND x."unit" = m."unit" AND x."readingDate" > m."readingDate")) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The final reading is the lease''s asset''s latest, taken at the inspection';
+    END IF;
+  END IF;
+  IF NEW."status" = 'INVOICED' AND OLD."status" = 'ELECTED' THEN
+    -- A purchase is sold when the term ends, on a valuation still current.
+    SELECT v."valuedOn" INTO valuation FROM "AssetValuation" v WHERE v."id" = NEW."purchaseValuationId" AND v."tenantId" = NEW."tenantId";
+    IF today < public."leaseTermEnd"(NEW."loanId", NEW."tenantId") OR valuation."valuedOn" < today - max_age THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purchase is invoiced when the term ends, on a current valuation';
+    END IF;
+  END IF;
+  IF NEW."status" = 'COMPLETED' THEN
+    IF EXISTS (SELECT 1 FROM "RepaymentSchedule" r WHERE r."loanId" = NEW."loanId" AND r."tenantId" = NEW."tenantId" AND r."totalPaid" < r."totalDue") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An end of term completes once everything owed on the lease is paid';
+    END IF;
+    IF NEW."outcome" = 'PURCHASE' AND NULLIF(btrim(loan_row."registrationNumber"), '') IS NOT NULL AND NEW."natisTransferConfirmedAt" IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purchase completes once the eNaTIS change of ownership is confirmed';
     END IF;
   END IF;
   RETURN NEW;
@@ -689,6 +786,11 @@ BEGIN
   IF OLD."lessorStatus" = 'SOLD_TO_LESSEE' AND NEW."lessorStatus" IS DISTINCT FROM OLD."lessorStatus" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An asset sold to the lessee is not the lessor''s any more';
   END IF;
+  IF NEW."lessorStatus" = 'SOLD_TO_LESSEE' AND OLD."lessorStatus" IS DISTINCT FROM NEW."lessorStatus" AND NOT EXISTS (
+      SELECT 1 FROM "LeaseEndOfTerm" e JOIN "Loan" l ON l."id" = e."loanId" AND l."tenantId" = e."tenantId"
+      WHERE l."assetId" = NEW."id" AND l."tenantId" = NEW."tenantId" AND e."outcome" = 'PURCHASE' AND e."status" = 'COMPLETED') THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An asset is sold to the lessee by a completed purchase';
+  END IF;
   RETURN NEW;
 END;
 $function$;
@@ -707,6 +809,10 @@ ALTER TABLE "LeaseTerminationQuote" ADD CONSTRAINT "LeaseTerminationQuote_amount
   AND ("status" = 'ACCEPTED') = ("acceptedAt" IS NOT NULL)
   AND ("status" = 'ACCEPTED' OR ("taxInvoiceId" IS NULL AND "scheduleId" IS NULL))
 );
+-- An accepted quote with something to invoice carries its invoice and charge row.
+ALTER TABLE "LeaseTerminationQuote" ADD CONSTRAINT "LeaseTerminationQuote_accepted_billed" CHECK (
+  "status" <> 'ACCEPTED' OR "invoiceExclVatCents" = 0 OR ("taxInvoiceId" IS NOT NULL AND "scheduleId" IS NOT NULL)
+);
 CREATE UNIQUE INDEX "LeaseTerminationQuote_one_accepted" ON "LeaseTerminationQuote"("loanId") WHERE "status" = 'ACCEPTED';
 
 CREATE OR REPLACE FUNCTION public."guardLeaseTerminationQuote"()
@@ -721,11 +827,13 @@ BEGIN
         AND l."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') AND l."status" IN ('ACTIVE', 'DEFAULTED')) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A termination quote is written QUOTED for a running lease';
     END IF;
+    IF NEW."quotedOn" <> today OR NEW."validUntil" > today + COALESCE((SELECT c."leaseTerminationQuoteValidDays" FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId"), 10) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A termination quote is dated today and valid for the tenant''s days at most';
+    END IF;
     RETURN NEW;
   END IF;
-  IF OLD."status" = 'ACCEPTED' AND (OLD."taxInvoiceId" IS NOT NULL OR OLD."scheduleId" IS NOT NULL OR NEW."status" <> 'ACCEPTED'
-      OR NEW."acceptedAt" IS DISTINCT FROM OLD."acceptedAt") THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An accepted termination quote is final once billed';
+  IF OLD."status" = 'ACCEPTED' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An accepted termination quote is final';
   END IF;
   IF (to_jsonb(NEW) - ARRAY['status', 'acceptedAt', 'acceptedById', 'acceptedByClientId', 'taxInvoiceId', 'scheduleId'])
      IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'acceptedAt', 'acceptedById', 'acceptedByClientId', 'taxInvoiceId', 'scheduleId']) THEN
@@ -806,7 +914,8 @@ BEGIN
     OLD."cancelledAt" IS NOT NULL OR OLD."taxInvoiceId" IS NOT NULL OR NEW."taxInvoiceId" IS NOT NULL
     OR current_setting('credaflow.lease_terminate', true) IS DISTINCT FROM 'on'
     OR NOT EXISTS (SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."loanId" = NEW."loanId" AND q."tenantId" = NEW."tenantId"
-      AND q."status" = 'QUOTED' AND NEW."dueDate" > q."terminationDate")) THEN
+      AND q."status" = 'QUOTED' AND NEW."dueDate" > q."terminationDate"
+      AND q."validUntil" >= (now() AT TIME ZONE 'Africa/Johannesburg')::date)) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental is cancelled once, uninvoiced, only by an accepted early termination';
   END IF;
   IF OLD."cancelledAt" IS NOT NULL AND NEW."taxInvoiceId" IS NOT NULL THEN
@@ -902,9 +1011,11 @@ BEGIN
 END;
 $function$;
 
--- A lease's charge row (its end of term's or termination's) is a fresh row
--- of the same loan, its total due the total of the tax invoice it bills:
--- never a rental's row or invoice, never adjusted later.
+-- A lease's charge (its end of term's or termination's) is a tax invoice of
+-- its own loan, never a rental's invoice, never shared between the two, and
+-- for a termination exactly the quoted invoice amount; its schedule row is a
+-- fresh row of the same loan (never a rental's row) whose total due is that
+-- invoice's total, never adjusted later.
 CREATE OR REPLACE FUNCTION public."leaseChargeRowMismatch"(schedule_id TEXT, tenant_id TEXT)
 RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
   SELECT EXISTS (
@@ -918,12 +1029,27 @@ RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
     WHERE s."id" IS NULL OR i."id" IS NULL OR s."loanId" IS DISTINCT FROM c."loanId" OR i."loanId" IS DISTINCT FROM c."loanId"
       OR s."totalDue" IS DISTINCT FROM i."totalInclVatCents"
       OR EXISTS (SELECT 1 FROM "LeaseRental" r WHERE r."tenantId" = tenant_id AND (r."scheduleId" = schedule_id OR r."taxInvoiceId" = c."taxInvoiceId"))
-  );
+  ) OR (
+    SELECT count(*) FROM (
+      SELECT 1 FROM "LeaseEndOfTerm" e WHERE e."scheduleId" = schedule_id AND e."tenantId" = tenant_id
+      UNION ALL SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."scheduleId" = schedule_id AND q."tenantId" = tenant_id
+    ) n
+  ) > 1;
 $function$;
 
 CREATE OR REPLACE FUNCTION public."checkLeaseChargeLink"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
+  IF NEW."taxInvoiceId" IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM "TaxInvoice" i WHERE i."id" = NEW."taxInvoiceId" AND i."tenantId" = NEW."tenantId" AND i."loanId" = NEW."loanId"
+        AND (TG_TABLE_NAME <> 'LeaseTerminationQuote'
+          OR i."totalInclVatCents" = (to_jsonb(NEW) ->> 'invoiceExclVatCents')::INTEGER + (to_jsonb(NEW) ->> 'invoiceVatCents')::INTEGER))
+      OR EXISTS (SELECT 1 FROM "LeaseRental" r WHERE r."taxInvoiceId" = NEW."taxInvoiceId" AND r."tenantId" = NEW."tenantId")
+      OR EXISTS (SELECT 1 FROM "LeaseEndOfTerm" e WHERE e."taxInvoiceId" = NEW."taxInvoiceId" AND e."tenantId" = NEW."tenantId" AND e."id" <> NEW."id")
+      OR EXISTS (SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."taxInvoiceId" = NEW."taxInvoiceId" AND q."tenantId" = NEW."tenantId" AND q."id" <> NEW."id")) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'A lease charge''s tax invoice is its own loan''s, not a rental''s, not shared, and a termination''s is the quoted amount';
+  END IF;
   IF NEW."scheduleId" IS NOT NULL AND "leaseChargeRowMismatch"(NEW."scheduleId", NEW."tenantId") THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'A lease charge row is a schedule row of its own loan, not a rental''s, its total due its tax invoice''s total';
@@ -947,3 +1073,26 @@ END;
 $function$;
 CREATE CONSTRAINT TRIGGER "RepaymentSchedule_lease_charge_total" AFTER UPDATE OF "totalDue", "loanId" ON "RepaymentSchedule"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseChargeRowTotal"();
+
+-- At commit, a rental cancelled in this transaction rests on a termination
+-- quote of its loan accepted in this same transaction, ending before it.
+CREATE OR REPLACE FUNCTION public."checkLeaseRentalCancelled"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NEW."cancelledAt" IS NOT NULL AND OLD."cancelledAt" IS NULL AND NOT EXISTS (
+      SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."loanId" = NEW."loanId" AND q."tenantId" = NEW."tenantId"
+        AND q."status" = 'ACCEPTED' AND q."xmin" = pg_current_xact_id()::xid AND NEW."dueDate" > q."terminationDate") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A rental is cancelled only by a termination accepted with it';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "LeaseRental_cancelled_by_acceptance" AFTER UPDATE OF "cancelledAt" ON "LeaseRental"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseRentalCancelled"();
+
+-- The lease settings stay in range: a threshold so high it switches dual approval off is refused.
+ALTER TABLE "TenantConfig" ADD CONSTRAINT "TenantConfig_lease_settings" CHECK (
+  "maintenanceClaimDualApprovalCents" BETWEEN 1 AND 1000000000
+  AND "leasePurchaseValuationMaxAgeDays" BETWEEN 1 AND 180
+  AND "leaseTerminationQuoteValidDays" BETWEEN 1 AND 60
+);

@@ -33,6 +33,7 @@ import { excessUsage } from "./lease-usage"
 import { fundBalance, fundSettlement } from "./maintenance-fund"
 import type { SigningTx } from "./signing-prepare"
 import type { EndResult } from "./lease-end-of-term"
+import { billingRefusal } from "./lease-end-billing"
 
 export const END_OF_TERM_PAYMENT_DAYS = 7
 
@@ -45,15 +46,14 @@ interface FundToSettle {
   settlement: ReturnType<typeof fundSettlement>
 }
 
-/** The fund's settlement (./maintenance-fund.ts); a surplus refund is recorded now, a deficit once its invoice exists. */
-async function prepareFundSettlement(tx: SigningTx, tenantId: string, loanId: string, today: string, userId: string): Promise<FundToSettle | null> {
+/** The fund's settlement (./maintenance-fund.ts), written after the invoice: the refund or billed deficit movement, then the fund settled. */
+async function prepareFundSettlement(tx: SigningTx, tenantId: string, loanId: string): Promise<FundToSettle | null> {
+  // Lock the fund: a claim paid concurrently waits, then finds the fund settled (guardMaintenanceFundMovement).
+  await tx.$queryRaw`SELECT "id" FROM "MaintenanceFund" WHERE "tenantId" = ${tenantId} AND "loanId" = ${loanId} FOR UPDATE`
   const fund = await tx.maintenanceFund.findFirst({ where: { tenantId, loanId }, select: { id: true, riskModel: true, settledAt: true, movements: { select: { kind: true, amountCents: true } } } })
   if (!fund || fund.settledAt) return null
   const balanceCents = fundBalance(fund.movements)
   const settlement = fundSettlement(fund.riskModel, balanceCents)
-  if (settlement.kind === "REFUND") {
-    await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fund.id, kind: "SETTLEMENT_REFUND", amountCents: settlement.amountCents, occurredOn: dbDate(today), createdById: userId, note: "Surplus refunded to the lessee (paid outside CredaFlow)" } })
-  }
   return { fundId: fund.id, balanceCents, billCents: settlement.kind === "BILL" ? settlement.amountCents : 0, settlement }
 }
 
@@ -87,6 +87,11 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
   const purchase = row.outcome === "PURCHASE"
   if (purchase ? row.status !== "ELECTED" : row.status !== "INSPECTED") return refused("not_ready", `The end of term is ${row.status}: ${purchase ? "elect" : "inspect"} first`)
   const { loan } = row
+  const refusal = await billingRefusal(tx, { tenantId, loanId: input.loanId, today: input.today, actorUserId: actor.userId, row: { ...row, assetId } })
+  if (refusal) return refusal
+  const lessee = loan.entity ?? loan.client
+  const address = lessee ? recipientAddress(lessee) : null
+  if (!lessee || !address) return refused("recipient", "The lessee's name and address are needed on the tax invoice")
   const lines: { description: string; quantity: number; unitExclVatCents: number }[] = []
   let excessUsageCents: number | null = null
   const deal = loan.assetFinanceDeal
@@ -105,15 +110,12 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
   }
   for (const item of row.damageItems) lines.push({ description: `Damage: ${item.description}`, quantity: 1, unitExclVatCents: item.amountExclVatCents })
   if (purchase && row.purchasePriceExclVatCents) lines.push({ description: `Sale of ${describeAsset(asset)}`, quantity: 1, unitExclVatCents: row.purchasePriceExclVatCents })
-  const fund = await prepareFundSettlement(tx, tenantId, input.loanId, input.today, actor.userId)
+  const fund = await prepareFundSettlement(tx, tenantId, input.loanId)
   if (fund && fund.billCents > 0) lines.push({ description: "Maintenance fund deficit settled by the lessee", quantity: 1, unitExclVatCents: fund.billCents })
 
   let taxInvoiceId: string | null = null
   let scheduleId: string | null = null
   if (lines.length > 0) {
-    const lessee = loan.entity ?? loan.client
-    const address = lessee ? recipientAddress(lessee) : null
-    if (!lessee || !address) return refused("recipient", "The lessee's name and address are needed on the tax invoice")
     const name = loan.entity?.legalName ?? `${loan.client?.firstName ?? ""} ${loan.client?.lastName ?? ""}`.trim()
     const invoice = await issueTaxInvoice(tx, {
       tenantId, loanId: input.loanId, issueDate: input.today, supplyDate: input.today, createdById: actor.userId,
@@ -128,6 +130,9 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
       dueDate: fromDayNumber(toDayNumber(input.today) + END_OF_TERM_PAYMENT_DAYS), why: "lease_end_of_term_invoice",
     })
   }
+  if (fund && fund.settlement.kind === "REFUND") {
+    await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fund.fundId, kind: "SETTLEMENT_REFUND", amountCents: fund.settlement.amountCents, occurredOn: dbDate(input.today), createdById: actor.userId, note: "Surplus refunded to the lessee (paid outside CredaFlow)" } })
+  }
   if (fund) await markFundSettled(tx, tenantId, input.loanId, fund, actor.userId)
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId }, data: { status: "INVOICED", taxInvoiceId, scheduleId, excessUsageCents, fundSettlementCents: fund?.billCents ?? null } })
   if (!purchase) await tx.financedAsset.update({ where: { id: assetId, tenantId }, data: { lessorStatus: "RETURNED_TO_STOCK", lessorStatusAt: new Date() } })
@@ -140,7 +145,10 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
 }
 
 /** Closes an invoiced end of term once nothing is owed (and a purchased registered vehicle's eNaTIS change is confirmed). */
-export async function completeEndOfTermIfSettled(tx: SigningTx, input: { tenantId: string; loanId: string; userId: string | null }): Promise<boolean> {
+/** What closing needs: the receipt paths pass their own transaction (./lease-invoices.ts). */
+export type CompleteEndTx = Pick<SigningTx, "leaseEndOfTerm" | "financedAsset" | "loan" | "auditLog">
+
+export async function completeEndOfTermIfSettled(tx: CompleteEndTx, input: { tenantId: string; loanId: string; userId: string | null }): Promise<boolean> {
   const { tenantId, loanId } = input
   const row = await tx.leaseEndOfTerm.findFirst({
     where: { tenantId, loanId, status: "INVOICED" },
@@ -170,7 +178,7 @@ export async function confirmPurchaseNatis(tx: SigningTx, actor: { tenantId: str
   if (!row) return { kind: "not_found" }
   if (row.natisTransferConfirmedAt) return refused("confirmed", `Confirmed on ${isoOfDbDate(row.natisTransferConfirmedAt)}`)
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId: actor.tenantId }, data: { natisTransferConfirmedAt: new Date(), natisTransferConfirmedById: actor.userId } })
-  await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: AuditAction.LEASE_PURCHASED, entity: "LeaseEndOfTerm", entityId: row.id, newValue: { loanId, natisTransferConfirmed: true } }, tx)
+  await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: AuditAction.LEASE_NATIS_CONFIRMED, entity: "LeaseEndOfTerm", entityId: row.id, newValue: { loanId, natisTransferConfirmed: true } }, tx)
   await completeEndOfTermIfSettled(tx, { tenantId: actor.tenantId, loanId, userId: actor.userId })
   return { kind: "ok", endOfTermId: row.id, status: row.status }
 }

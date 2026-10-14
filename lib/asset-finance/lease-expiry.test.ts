@@ -21,4 +21,16 @@ describe("CPA s14 expiry notice window (C7)", () => {
     expect(expiryNoticeDue({ today: day80, expiryDate: expiry, cpaApplies: false })).toBe(false)
     expect(expiryNoticeDue({ today: "2028-06-29", expiryDate: expiry, cpaApplies: true })).toBe(false) // 1: too late
   })
+  it("the last day it is due has 40 business days to go; with 39 it is too late", () => {
+    const expiry = "2028-06-30"
+    let day = new Date(`${expiry}T00:00:00Z`)
+    const iso = () => day.toISOString().slice(0, 10)
+    while (businessDaysBefore(iso(), expiry) < 39) day = new Date(day.getTime() - 86_400_000)
+    const day39 = iso()
+    while (businessDaysBefore(iso(), expiry) < 40) day = new Date(day.getTime() - 86_400_000)
+    const day40 = iso()
+    expect([businessDaysBefore(day39, expiry), businessDaysBefore(day40, expiry)]).toEqual([39, 40])
+    expect(expiryNoticeDue({ today: day40, expiryDate: expiry, cpaApplies: true })).toBe(true)
+    expect(expiryNoticeDue({ today: day39, expiryDate: expiry, cpaApplies: true })).toBe(false)
+  })
 })

@@ -15,7 +15,9 @@
  * a RETURN end of term (origin EARLY_TERMINATION) is opened for the
  * inspection (./lease-end-of-term.ts). The loan closes once paid
  * (./lease-end-invoice.ts completeEndOfTermIfSettled, after the return).
- * A quote whose rentals changed since (a rental was invoiced or repriced) is refused.
+ * Accepting re-prices the quote: if the remaining rentals changed since (one
+ * was invoiced, cancelled or repriced) the present value differs and the
+ * quote is refused as stale; so is a lease no longer running.
  */
 import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -66,13 +68,19 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
   if (!loan) return { kind: "not_found" }
   if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (loan.leaseEndOfTerm) return refused("end_of_term", "The lease's end of term is already under way")
+  // One open quote a day: asking again the same day returns it (no quote rows, or audit rows, on demand).
+  const todays = await tx.leaseTerminationQuote.findFirst({
+    where: { tenantId, loanId: loan.id, status: "QUOTED", quotedOn: dbDate(input.today) }, orderBy: { createdAt: "desc" },
+    select: { id: true, totalCents: true, terminationDate: true, validUntil: true },
+  })
+  if (todays) return { kind: "quoted", quoteId: todays.id, totalCents: todays.totalCents, terminationDate: isoOfDbDate(todays.terminationDate), validUntil: isoOfDbDate(todays.validUntil) }
   const penalty = loan.assetFinanceDeal?.earlyTerminationPenaltyRate
   if (!penalty) return refused("penalty", "The lease has no early-termination penalty rate")
   const cpa = loan.cpaApplies === true
   const terminationDate = cpa ? cpaCancellationDate(input.today) : input.today
   const config = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { leaseTerminationQuoteValidDays: true } })
   const validUntil = fromDayNumber(toDayNumber(input.today) + (config?.leaseTerminationQuoteValidDays ?? 10))
-  const figures = await loanSettlementFigures(tx as never, loan, new Date())
+  const figures = await loanSettlementFigures(tx, loan, new Date())
   const vat = await loadRateOn(tx, input.today)
   const amount = earlyTerminationAmount({
     rentals: loan.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
@@ -106,7 +114,8 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
       entity: { select: { legalName: true, vatNumber: true, addressLine1: true, addressLine2: true, city: true, province: true, postalCode: true } },
       client: { select: { firstName: true, lastName: true, addressLine1: true, city: true, province: true, postalCode: true } },
       asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true } },
-      leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null }, select: { dueDate: true } },
+      interestRatePm: true, contractRates: { orderBy: { effectiveDate: "desc" }, take: 1, select: { resultingRate: true } },
+      leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null }, select: { dueDate: true, rentalExclVatCents: true } },
     } } },
   })
   if (await clientLeaseRefusal(actor, quote.loanId)) return { kind: "not_found" }
@@ -114,17 +123,25 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
   if (input.today > isoOfDbDate(quote.validUntil)) return refused("expired", `The quote expired on ${isoOfDbDate(quote.validUntil)}`)
   const { loan } = quote
   if (loan.leaseEndOfTerm) return refused("end_of_term", "The lease's end of term is already under way")
-  const remaining = loan.leaseRentals.filter((r) => r.dueDate.getTime() > quote.terminationDate.getTime()).length
-  if (remaining !== quote.remainingRentals) return refused("stale_quote", "The rentals changed since the quote; ask for a new quote")
-  await cancelFutureRentals(tx, { tenantId, loanId: quote.loanId, terminationDate: isoOfDbDate(quote.terminationDate), actorUserId: actor.userId ?? null })
+  if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
+  const now = earlyTerminationAmount({
+    rentals: loan.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
+    terminationDate: isoOfDbDate(quote.terminationDate), annualRate: Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12)),
+    arrearsCents: 0, penaltyRate: "0", vatRateTenThousandths: 0,
+  })
+  if (now.remainingRentals !== quote.remainingRentals || now.pvCents !== quote.pvCents) {
+    return refused("stale_quote", "The rentals changed since the quote; ask for a new quote")
+  }
+  const lessee = loan.entity ?? loan.client
+  const address = lessee ? recipientAddress(lessee) : null
+  if (quote.invoiceExclVatCents > 0 && (!lessee || !address || !loan.asset)) return refused("recipient", "The lessee's name and address are needed on the tax invoice")
   let taxInvoiceId: string | null = null
   let scheduleId: string | null = null
+  let invoice: Awaited<ReturnType<typeof issueTaxInvoice>> | null = null
   if (quote.invoiceExclVatCents > 0) {
-    const lessee = loan.entity ?? loan.client
-    const address = lessee ? recipientAddress(lessee) : null
     if (!lessee || !address || !loan.asset) return refused("recipient", "The lessee's name and address are needed on the tax invoice")
     const what = `lease ${loan.reference} (${describeAsset(loan.asset)}), terminated ${isoOfDbDate(quote.terminationDate)}`
-    const invoice = await issueTaxInvoice(tx, {
+    invoice = await issueTaxInvoice(tx, {
       tenantId, loanId: quote.loanId, issueDate: input.today, supplyDate: input.today, createdById: actor.userId ?? null,
       recipient: { name: loan.entity?.legalName ?? `${loan.client?.firstName ?? ""} ${loan.client?.lastName ?? ""}`.trim(), address, vatNumber: loan.entity?.vatNumber ?? null },
       lines: [
@@ -134,6 +151,9 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
     })
     if (invoice.totalInclVatCents !== quote.invoiceExclVatCents + quote.invoiceVatCents) throw new Error(`termination invoice ${invoice.invoiceNumber} does not match the quote`)
     taxInvoiceId = invoice.id
+  }
+  await cancelFutureRentals(tx, { tenantId, loanId: quote.loanId, terminationDate: isoOfDbDate(quote.terminationDate), actorUserId: actor.userId ?? null })
+  if (invoice) {
     scheduleId = await appendLeaseCharge(tx, { tenantId, loanId: quote.loanId, amountCents: invoice.totalInclVatCents, dueDate: isoOfDbDate(quote.terminationDate), actorUserId: actor.userId ?? null, why: "lease_early_termination" })
   }
   await tx.leaseTerminationQuote.update({ where: { id: quote.id, tenantId }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: actor.userId ?? null, acceptedByClientId: actor.clientId ?? null, taxInvoiceId, scheduleId } })

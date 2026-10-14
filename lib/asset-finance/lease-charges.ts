@@ -58,12 +58,14 @@ export async function appendLeaseCharge(
 ): Promise<string> {
   if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) throw new RangeError("a lease charge must be a positive number of cents")
   await lockLoanForUpdate(tx, input.loanId)
-  const last = await tx.repaymentSchedule.findFirstOrThrow({ where: { tenantId: input.tenantId, loanId: input.loanId }, orderBy: { installmentNo: "desc" }, select: { installmentNo: true, dueDate: true } })
+  const last = await tx.repaymentSchedule.findFirstOrThrow({ where: { tenantId: input.tenantId, loanId: input.loanId }, orderBy: { installmentNo: "desc" }, select: { installmentNo: true } })
+  // Never before the last row still owed; cancelled rentals (0 due) do not push the charge out to the old term's end.
+  const lastOwed = await tx.repaymentSchedule.findFirst({ where: { tenantId: input.tenantId, loanId: input.loanId, totalDue: { gt: 0 } }, orderBy: { dueDate: "desc" }, select: { dueDate: true } })
   const due = dueDateInstant(input.dueDate)
   const row = await tx.repaymentSchedule.create({
     data: {
       tenantId: input.tenantId, loanId: input.loanId, installmentNo: last.installmentNo + 1,
-      dueDate: due.getTime() < last.dueDate.getTime() ? last.dueDate : due,
+      dueDate: lastOwed && due.getTime() < lastOwed.dueDate.getTime() ? lastOwed.dueDate : due,
       principalDue: input.amountCents, interestDue: 0, feesDue: 0, creditLifePremiumDue: 0, totalDue: input.amountCents, status: "PENDING",
     },
     select: { id: true },
