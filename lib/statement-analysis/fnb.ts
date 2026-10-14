@@ -53,7 +53,8 @@ function columnsOf(line: PdfWord[], below: PdfWord[] | undefined, above: PdfWord
   const at = (ws: PdfWord[] | undefined, t: string) => ws?.find((w) => w.text === t)
   const amount = at(line, "Amount")
   const balance = at(line, "Balance")
-  if (!at(line, "Date") || !amount || !balance) return null
+  // The header starts with "Date": a reference that happens to say "Date Amount Balance" must not move the columns.
+  if (line[0]?.text !== "Date" || !amount || !balance) return null
   const charges = at(below, "Charges") ?? at(above, "Accrued") ?? at(line, "Bank")
   return { amount: amount.xMax, balance: balance.xMax, charges: charges?.xMax ?? balance.xMax + 50 }
 }

@@ -17,18 +17,23 @@ export interface BalanceCheckResult {
  * the previous balance + its amount.
  *
  * It is the oracle for reading accuracy (a misread figure breaks it) and, on a
- * digital PDF, the strongest tamper signal (an edited figure breaks it unless
- * the forger re-derived every later balance).
+ * digital PDF, the strongest tamper signal: an edited figure breaks it unless
+ * the forger also re-derived the balances up to a compensating edit.
+ *
+ * A missing opening or closing (a deleted line) does not switch off the row
+ * check: without an opening, the running balance starts from the first printed
+ * one; without either, the totals cannot be checked but every printed balance is.
  */
 export function checkBalance(read: StatementRead): BalanceCheckResult {
   const { openingBalanceCents: opening, closingBalanceCents: closing, transactions } = read
-  if (opening === null) {
-    return { result: "NOT_APPLICABLE", diffCents: null, breaks: [] }
-  }
   const breaks: number[] = []
-  let running = opening
+  let running: number | null = opening
   transactions.forEach((t, i) => {
     if (t.nonPosting) return
+    if (running === null) {
+      running = t.balanceCents
+      return
+    }
     running += t.amountCents
     if (t.balanceCents === null) return
     if (Math.abs(running - t.balanceCents) > BALANCE_TOLERANCE_CENTS) breaks.push(i)
@@ -38,7 +43,7 @@ export function checkBalance(read: StatementRead): BalanceCheckResult {
   })
   // Without a closing the totals cannot be checked, but every printed balance still is:
   // deleting the closing line must not switch off the row-by-row check.
-  if (closing === null) return { result: breaks.length ? "FAIL" : "NOT_APPLICABLE", diffCents: null, breaks }
+  if (opening === null || closing === null) return { result: breaks.length ? "FAIL" : "NOT_APPLICABLE", diffCents: null, breaks }
   const total = opening + transactions.reduce((sum, t) => sum + (t.nonPosting ? 0 : t.amountCents), 0)
   const diffCents = total - closing
   const ok = Math.abs(diffCents) <= BALANCE_TOLERANCE_CENTS && breaks.length === 0
