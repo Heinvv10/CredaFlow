@@ -21,7 +21,7 @@ const CLIENT: Session = { user: { id: "c-1", role: "CLIENT", tenantId: "tenant-1
 // A write from the console's own pages: same origin, JSON. `raw` sends exactly the headers given.
 function visit(host: string, pathname: string, session: Session, init: { method?: string; headers?: Record<string, string>; raw?: boolean } = {}) {
   const write = !!init.method && init.method !== "GET" && init.method !== "HEAD"
-  const sameOrigin = write && !init.raw ? { origin: `https://${host}`, "sec-fetch-site": "same-origin", "content-type": "application/json" } : {}
+  const sameOrigin: Record<string, string> = write && !init.raw ? { origin: `https://${host}`, "sec-fetch-site": "same-origin", "content-type": "application/json" } : {}
   const req = new NextRequest(`https://${host}${pathname}`, { method: init.method, headers: { host, ...sameOrigin, ...init.headers } }) as NextRequest & { auth: unknown }
   req.auth = session
   return handler(req)
