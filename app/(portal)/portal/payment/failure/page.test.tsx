@@ -23,6 +23,22 @@ describe("portal payment failure page", () => {
     )
   })
 
+  it("says the payment is not confirmed, not that it failed", async () => {
+    const html = renderToStaticMarkup(await PaymentFailurePage())
+    expect(html).toContain(">Payment not confirmed</h1>")
+    expect(html).not.toMatch(/Payment Failed|Try Again/)
+  })
+
+  it("leads back to the loans, with paying again only as a secondary link after the text", async () => {
+    const html = renderToStaticMarkup(await PaymentFailurePage())
+    const links = [...html.matchAll(/<a [^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/g)].map((m) => [m[1], m[2]])
+    expect(links[0]).toEqual(["/portal/loans", "Back to my loans"])
+    expect(links).toContainEqual(["/portal/payment", "Make a new payment"])
+    const pay = html.indexOf('href="/portal/payment"')
+    expect(pay).toBeGreaterThan(html.indexOf("checked your bank statement"))
+    expect(pay).toBeGreaterThan(html.indexOf('href="/portal/loans"'))
+  })
+
   it("keeps the support contact", async () => {
     const html = renderToStaticMarkup(await PaymentFailurePage())
     expect(html).toContain('href="mailto:hello@acme-lending.example"')
