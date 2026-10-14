@@ -45,4 +45,8 @@ export const websiteProducts: Catalog["websiteProducts"] = {
   months: "Izinyanga ezingu-{n}",
   unitDays: "izinsuku",
   unitMonths: "izinyanga",
+  perMonth: "/ngenyanga",
+  model_FLAT: "eqinile",
+  model_REDUCING_BALANCE: "encipha nebhalansi",
+  model_DAILY_ACCRUAL: "ehlanganiswa nsuku zonke",
 }

@@ -1,4 +1,4 @@
-import type { PublicLoanProduct, PublicLoanProductCode } from "@/lib/public-loan-products"
+import { formatRatePct, type PublicLoanProduct, type PublicLoanProductCode } from "@/lib/public-loan-products"
 import type { MessageKey, Translator } from "./translate"
 
 type ProductsT = Translator<"websiteProducts">
@@ -44,6 +44,12 @@ export function localizeProduct(product: PublicLoanProduct, t: ProductsT): Publi
 export function termText(t: ProductsT, product: Pick<PublicLoanProduct, "termUnit">, term: number): string {
   if (product.termUnit === "days") return term === 1 ? t("oneDay") : t("days", { n: term })
   return term === 1 ? t("oneMonth") : t("months", { n: term })
+}
+
+/** formatInterestLabel, translated: "5%/mo flat", "2.8%/mo reducing". */
+export function interestText(t: ProductsT, product: Pick<PublicLoanProduct, "interestRatePm" | "interestModel">): string {
+  const model = `model_${product.interestModel}` as MessageKey<"websiteProducts">
+  return `${formatRatePct(product.interestRatePm)}${t("perMonth")} ${t(model)}`.trim()
 }
 
 /** The bare unit word for a range ("3-60 months"). */

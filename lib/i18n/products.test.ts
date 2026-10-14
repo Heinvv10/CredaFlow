@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { publicLoanProducts } from "@/lib/public-loan-products"
+import { formatInterestLabel, publicLoanProducts } from "@/lib/public-loan-products"
 import { createTranslator } from "./translate"
-import { localizeProduct, termText } from "./products"
+import { interestText, localizeProduct, termText } from "./products"
 
 describe("localizeProduct", () => {
   // The English catalogue repeats lib/public-loan-products.ts' copy; this keeps the two from drifting.
@@ -17,6 +17,14 @@ describe("localizeProduct", () => {
     const words = ["label", "shortLabel", "description", "amountLabel", "modelLabel", "primaryMetricLabel", "secondaryMetricLabel", "tertiaryMetricLabel", "desktopCta", "mobileCta", "note"]
     const strip = (p: object) => Object.fromEntries(Object.entries(p).filter(([k]) => !words.includes(k)))
     expect(strip(af)).toEqual(strip(product))
+  })
+})
+
+describe("interestText", () => {
+  it("English matches formatInterestLabel (the chat knowledge base still uses it)", () => {
+    const t = createTranslator("en", "websiteProducts")
+    for (const product of publicLoanProducts) expect(interestText(t, product)).toBe(formatInterestLabel(product))
+    expect(interestText(createTranslator("af", "websiteProducts"), { interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" })).toBe("3%/md dalende saldo")
   })
 })
 

@@ -14,6 +14,7 @@ import { websiteCalculators } from "./website-calculators"
 import { websiteContact } from "./website-contact"
 import { websiteHome } from "./website-home"
 import { websiteProducts } from "./website-products"
+import { websiteQualify } from "./website-qualify"
 import { websiteShell } from "./website-shell"
 
 /** The English catalogue: the source of truth for every key (lib/i18n/catalog.ts). */
@@ -34,5 +35,6 @@ export const en = {
   websiteContact,
   websiteHome,
   websiteProducts,
+  websiteQualify,
   websiteShell,
 } as const

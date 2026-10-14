@@ -47,4 +47,8 @@ export const websiteProducts = {
   months: "{n} months",
   unitDays: "days",
   unitMonths: "months",
+  perMonth: "/mo",
+  model_FLAT: "flat",
+  model_REDUCING_BALANCE: "reducing",
+  model_DAILY_ACCRUAL: "daily accrual",
 } as const

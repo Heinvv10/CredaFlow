@@ -16,6 +16,7 @@ import { websiteCalculators } from "./website-calculators"
 import { websiteContact } from "./website-contact"
 import { websiteHome } from "./website-home"
 import { websiteProducts } from "./website-products"
+import { websiteQualify } from "./website-qualify"
 import { websiteShell } from "./website-shell"
 
 export const af: Catalog = {
@@ -35,5 +36,6 @@ export const af: Catalog = {
   websiteContact,
   websiteHome,
   websiteProducts,
+  websiteQualify,
   websiteShell,
 }

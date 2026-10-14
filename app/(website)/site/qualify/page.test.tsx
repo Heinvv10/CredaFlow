@@ -16,6 +16,7 @@ import QualifyPage from "./page"
 import QualifyResult from "./QualifyResult"
 import QualifyLayout, { generateMetadata } from "./layout"
 import { qualifyFaqs } from "./faqs"
+import { createTranslator } from "@/lib/i18n/translate"
 
 const wrap = (el: React.ReactNode) => <WebsiteIdentityProvider identity={ACME_LENDER}>{el}</WebsiteIdentityProvider>
 
@@ -27,7 +28,7 @@ describe("qualify page", () => {
   })
 
   it("FAQs name the tenant and no one else", () => {
-    const text = JSON.stringify(qualifyFaqs(ACME_LENDER))
+    const text = JSON.stringify(qualifyFaqs(ACME_LENDER, createTranslator("en", "websiteQualify")))
     expect(text).toContain("Acme Lending")
     expectNoOtherLender(text)
   })

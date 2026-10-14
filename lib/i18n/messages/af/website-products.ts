@@ -45,4 +45,8 @@ export const websiteProducts: Catalog["websiteProducts"] = {
   months: "{n} maande",
   unitDays: "dae",
   unitMonths: "maande",
+  perMonth: "/md",
+  model_FLAT: "vas",
+  model_REDUCING_BALANCE: "dalende saldo",
+  model_DAILY_ACCRUAL: "daaglikse oploop",
 }

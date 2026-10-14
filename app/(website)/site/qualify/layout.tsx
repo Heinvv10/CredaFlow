@@ -4,6 +4,7 @@ import { buildPageMetadata } from "@/lib/seo/metadata"
 import { JsonLd } from "@/components/seo/JsonLd"
 import { breadcrumbLd, faqLd } from "@/lib/seo/jsonld"
 import { getWebsiteIdentity } from "@/lib/website/identity"
+import { getT } from "@/lib/i18n/server"
 import { qualifyFaqs } from "./faqs"
 
 // The qualify page itself is a client component ("use client"), so metadata
@@ -29,7 +30,7 @@ export default async function QualifyLayout({ children }: { children: ReactNode 
       { name: "Home", path: "/" },
       { name: "Qualify", path: "/site/qualify" },
     ]),
-    faqLd(qualifyFaqs(identity)),
+    faqLd(qualifyFaqs(identity, await getT("websiteQualify"))),
   ]
   return (
     <>
