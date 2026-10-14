@@ -14,6 +14,7 @@ vi.mock("next/server", () => ({ NextResponse: { json: vi.fn() } }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: mockFindUnique, updateMany: mockUpdateMany },
+    tenantConfig: { findUnique: async () => ({ requireStaffTotp: false }) },
   },
 }))
 
@@ -34,7 +35,7 @@ describe("revalidatePrincipal", () => {
       tokenVersion: 1,
     })
     const result = await revalidatePrincipal("user-1", 1)
-    expect(result).toEqual({ role: "LOAN_ADMIN", tenantId: "tenant-1" })
+    expect(result).toEqual({ role: "LOAN_ADMIN", tenantId: "tenant-1", operatorId: null, totpEnrolmentRequired: false })
   })
 
   it("returns null when user is not found", async () => {
@@ -80,7 +81,7 @@ describe("revalidatePrincipal", () => {
       tokenVersion: 1,
     })
     const result = await revalidatePrincipal("user-1", 1)
-    expect(result).toEqual({ role: "BRANCH_MANAGER", tenantId: "tenant-2" })
+    expect(result).toEqual({ role: "BRANCH_MANAGER", tenantId: "tenant-2", operatorId: null, totpEnrolmentRequired: false })
   })
 
   it("returns 'error' on DB failure without forcing sign-out", async () => {

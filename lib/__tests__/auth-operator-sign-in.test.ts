@@ -155,7 +155,9 @@ describe("suspended lender — staff sign-in and sessions", () => {
 })
 
 describe("operator sessions — jwt/session callbacks", () => {
-  const fresh = (extra: Record<string, unknown> = {}) => ({ active: true, role: "OPERATOR_SUPPORT", operatorId: "operator-1", tenantId: null, tokenVersion: 3, ...extra })
+  const fresh = (extra: Record<string, unknown> = {}) => ({
+    active: true, role: "OPERATOR_SUPPORT", operatorId: "operator-1", tenantId: null, tokenVersion: 3, totpEnabled: true, totpSecret: SECRET, ...extra,
+  })
   const token = () => ({ id: "op1", role: "OPERATOR_SUPPORT", operatorId: "operator-1", tenantId: null, tokenVersion: 3, totpVerified: true, totpEnrolmentRequired: false })
 
   it("mints a token with the operator and no tenant; refuses one without an operator", async () => {

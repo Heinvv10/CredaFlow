@@ -7,12 +7,14 @@
  * says the same). 2FA is mandatory and no lender policy applies: a user with
  * no TOTP gets a session held at enrolment (lib/proxy/operator-host.ts), and
  * nothing in the console accepts a session whose sign-in did not verify a code
- * (lib/operator/console-auth.ts).
+ * (lib/operator/console-auth.ts). Every request re-applies the same rules
+ * (revalidatePrincipal, lib/auth-principal.ts).
  */
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
 import { signInTotpOutcome } from "@/lib/auth-totp-step"
-import { isOperatorRole, type OperatorRole } from "./roles"
+import { enrolmentRequired, principalRefusal } from "@/lib/auth-principal"
+import type { OperatorRole } from "./roles"
 
 export type OperatorSignInUser = {
   id: string
@@ -51,9 +53,10 @@ export async function authorizeOperator(input: {
   // bcrypt first, whatever the row says, so timing does not tell an inactive
   // or lender account from an active operator one.
   const passwordMatch = await bcrypt.compare(password, user.password)
-  const isOperator = isOperatorRole(user.role) && !!user.operatorId && !user.tenantId
-  if (!passwordMatch || !user.active || !isOperator) {
-    await recordFailure(!passwordMatch ? "wrong_password" : !user.active ? "operator_inactive" : "not_operator")
+  // The same rules revalidatePrincipal applies on every request (lib/auth-principal.ts).
+  const refusal = principalRefusal(user, "operator")
+  if (!passwordMatch || refusal) {
+    await recordFailure(!passwordMatch ? "wrong_password" : refusal === "inactive" ? "operator_inactive" : refusal ?? "refused")
     return { ok: false, error: "refused" }
   }
 
@@ -78,31 +81,7 @@ export async function authorizeOperator(input: {
       tokenVersion: user.tokenVersion,
       totpVerified: totp.kind === "verified",
       // Not enrolled: the session reaches the enrolment page only.
-      totpEnrolmentRequired: totp.kind === "not_enrolled",
+      totpEnrolmentRequired: totp.kind === "not_enrolled" && await enrolmentRequired(user, "operator"),
     },
   }
-}
-
-/**
- * The operator user as the database has it now, for every request's JWT
- * revalidation. null → sign out (deactivated, role or binding changed,
- * tokenVersion bumped); "error" → transient DB failure (keep the token).
- */
-export async function revalidateOperatorPrincipal(
-  userId: string,
-  tokenVersion: number,
-): Promise<{ role: OperatorRole; operatorId: string } | null | "error"> {
-  let fresh: { active: boolean; role: string; operatorId: string | null; tenantId: string | null; tokenVersion: number } | null
-  try {
-    fresh = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { active: true, role: true, operatorId: true, tenantId: true, tokenVersion: true },
-    })
-  } catch (err) {
-    console.error("[auth] revalidateOperatorPrincipal DB error — retaining existing token:", err)
-    return "error"
-  }
-  if (!fresh || !fresh.active || !isOperatorRole(fresh.role) || !fresh.operatorId || fresh.tenantId) return null
-  if (fresh.tokenVersion !== tokenVersion) return null
-  return { role: fresh.role, operatorId: fresh.operatorId }
 }

@@ -4,16 +4,15 @@ import { prisma } from "./prisma"
 import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "./rate-limit"
 import { authBaseConfig, roleRefusedOnThisHost, type AppRole } from "./auth-config"
-import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
-import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { claimTotpCounter } from "./totp-claim"
 import { signInTotpOutcome } from "./auth-totp-step"
 import { normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
 import { isOperatorRole } from "@/lib/operator/roles"
-import { authorizeOperator, revalidateOperatorPrincipal } from "@/lib/operator/sign-in"
+import { authorizeOperator } from "@/lib/operator/sign-in"
+import { audienceOf, enrolmentRequired, principalRefusal, revalidatePrincipal } from "./auth-principal"
 
 export { claimTotpCounter }
 
@@ -53,40 +52,8 @@ async function equalizeAuthTiming(candidate: string): Promise<void> {
   await bcrypt.compare(candidate, DUMMY_BCRYPT_HASH)
 }
 
-/**
- * Revalidate a staff token against the DB.
- * Returns null  → force sign-out (user deactivated or token version bumped).
- * Returns "error" → transient DB failure; caller should retain the existing token.
- * Returns the current role and tenant binding on success; either may differ
- * from the token when the principal changes mid-session.
- */
-export async function revalidatePrincipal(
-  userId: string,
-  tokenVersion: number,
-): Promise<{ role: UserRole; tenantId: string } | null | "error"> {
-  let fresh: {
-    active: boolean
-    role: UserRole
-    tenantId: string | null
-    tokenVersion: number
-    tenant?: { status: string } | null
-  } | null
-  try {
-    fresh = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { active: true, role: true, tenantId: true, tokenVersion: true, tenant: { select: { status: true } } },
-    })
-  } catch (err) {
-    console.error("[auth] revalidatePrincipal DB error — retaining existing token:", err)
-    return "error"
-  }
-
-  if (!fresh || !fresh.active || !fresh.tenantId) return null
-  if (fresh.tokenVersion !== tokenVersion) return null
-  // A suspended lender's staff are signed out on their next request.
-  if (fresh.tenant?.status === "SUSPENDED") return null
-  return { role: fresh.role, tenantId: fresh.tenantId }
-}
+// One rule set for sign-in and every request's revalidation (lib/auth-principal.ts).
+export { revalidatePrincipal }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authBaseConfig,
@@ -186,15 +153,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Always run bcrypt regardless of active status to prevent a timing oracle
           // distinguishing active from inactive staff accounts.
           const passwordMatch = await bcrypt.compare(String(credentials.password), user.password)
-          // A suspended lender's staff cannot sign in (the operator console
-          // suspends; revalidatePrincipal ends the sessions already open).
-          const tenantSuspended = user.tenant?.status === "SUSPENDED"
-          if (!user.active || !passwordMatch || !user.tenantId || tenantSuspended) {
+          // The same rules revalidatePrincipal applies on every request
+          // (inactive, binding, a suspended lender).
+          const refusal = principalRefusal(user, "staff")
+          if (refusal || !passwordMatch || !user.tenantId) {
             const attempts: Array<Promise<unknown>> = [
               recordFailure(
                 !user.tenantId
                   ? "tenant_unassigned"
-                  : passwordMatch && user.active && tenantSuspended ? "tenant_suspended" : "wrong_password",
+                  : passwordMatch && refusal && refusal !== "inactive" ? refusal : "wrong_password",
               ),
             ]
             if (user.active && user.tenantId) {
@@ -233,7 +200,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const totpVerified = totp.kind === "verified"
           // The lender requires 2FA and this user has none: the session may
           // reach only the enrolment page (proxy.ts, lib/auth-guards.ts).
-          const totpEnrolmentRequired = totp.kind === "not_enrolled" ? await isStaffTotpRequired(loginTenantId) : false
+          const totpEnrolmentRequired = totp.kind === "not_enrolled" ? await enrolmentRequired(user, "staff") : false
 
           // Update last login + log the sign-in
           const now = new Date()
@@ -346,23 +313,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Minted before the enrolment claim existed: unknown, so not trusted.
         if (typeof token.totpEnrolmentRequired !== "boolean") return null
         const tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : 0
-        if (isOperatorRole(token.role)) {
-          const freshOperator = await revalidateOperatorPrincipal(tokenId, tokenVersion)
-          if (freshOperator === "error") return typeof token.operatorId === "string" ? token : null
-          if (freshOperator === null) return null
-          token.role = freshOperator.role
-          token.operatorId = freshOperator.operatorId
+        // The audience the token was minted for; the row must still fit it
+        // (a lender user's token is never re-checked as an operator's).
+        const audience = audienceOf(token.role)
+        const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion, {
+          audience, totpVerified: token.totpVerified === true, totpEnrolmentRequired: token.totpEnrolmentRequired,
+        })
+        if (freshPrincipal === "error") {
+          // A transient failure may retain an already bound token, but must
+          // never revive a legacy/null-tenant staff JWT.
+          const bound = audience === "operator" ? token.operatorId : token.tenantId
+          return typeof bound === "string" ? token : null
+        }
+        if (freshPrincipal === null) return null       // refused, deactivated or version bump — force sign-out
+        token.role = freshPrincipal.role as AppRole    // picks up role changes mid-session
+        token.tenantId = freshPrincipal.tenantId
+        token.totpEnrolmentRequired = freshPrincipal.totpEnrolmentRequired
+        if (audience === "operator") {
+          token.operatorId = freshPrincipal.operatorId
           return token
         }
-        const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion)
-        if (freshPrincipal === "error") {
-          // A transient failure may retain an already tenant-bound token, but
-          // must never revive a legacy/null-tenant staff JWT.
-          return typeof token.tenantId === "string" ? token : null
-        }
-        if (freshPrincipal === null) return null       // deactivated or version bump — force sign-out
-        token.role = freshPrincipal.role               // picks up role changes mid-session
-        token.tenantId = freshPrincipal.tenantId
       }
 
       if (token.role && typeof token.tenantId !== "string") return null

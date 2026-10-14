@@ -26,6 +26,10 @@ Operator console.
   nothing else is served there and no other host serves it or accepts an
   operator session. Writes there are the console's own management APIs; the
   grant-gated support paths stay GET/HEAD, and there are no server actions.
+- **Sign-in and every request apply one rule set** (`lib/auth-principal.ts`:
+  active, binding, suspended lender, TOTP state, enrolment hold). Add a rule
+  there, never to one path only; `lib/__tests__/auth-principal-parity.test.ts`
+  runs each rule on both.
 - **Operator 2FA is mandatory.** `lib/operator/console-auth.ts` accepts only a
   session whose sign-in verified a code; no lender's `requireStaffTotp` applies.
 - **Scope every lender by the caller's operator** (`operatorTenant`, or
