@@ -214,9 +214,21 @@ export function PortalDocumentsClient({
           return { label: "Action needed", tone: "danger" as const }
         }
       }
-      return doc.verified
-        ? { label: "Verified", tone: "success" as const }
-        : { label: "Superseded", tone: "neutral" as const }
+      if (doc.verified) return { label: "Verified", tone: "success" as const }
+      // Superseded means an older copy that a newer one replaced. The newest
+      // copy of a type is never superseded, even while an older one is
+      // verified: it shows its own state.
+      const replacedByNewer = docs.some((other) =>
+        other.id !== doc.id &&
+        other.docType === doc.docType &&
+        !other.deletedAt &&
+        (Date.parse(other.createdAt) > Date.parse(doc.createdAt) ||
+          (Date.parse(other.createdAt) === Date.parse(doc.createdAt) && other.id > doc.id)),
+      )
+      if (replacedByNewer) return { label: "Superseded", tone: "neutral" as const }
+      return doc.verificationRejectedById || doc.validationMismatch
+        ? { label: "Action needed", tone: "danger" as const }
+        : { label: "Pending review", tone: "info" as const }
     }
     if (doc.id !== kycChecklist.latestSelfieId) {
       return { label: "Superseded", tone: "neutral" as const }
