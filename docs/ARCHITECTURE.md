@@ -63,7 +63,8 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   (`prisma/migrations/20261014130000_tenant_rls`) filters the scoped tables and
   the borrower core's children by `app.tenant_id`, which `lib/tenant-rls.ts`
   sets transaction-locally for every query and transaction run inside a frame
-  (`withoutTenantScope` sets `app.rls_bypass` instead). It catches what the
+  when `TENANT_RLS=on` (`withoutTenantScope` sets `app.rls_bypass` instead).
+  It is off by default; see the activation checklist below. It catches what the
   extension cannot see: raw SQL, nested relation reads, trigger bodies. With no
   frame the policies let rows through unless the database sets
   `app.rls_strict = 'on'`. RLS binds only a role that is neither superuser nor
@@ -72,12 +73,16 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   Operator staff (`OPERATOR_ADMIN`, `OPERATOR_SUPPORT`) hold no tenant and
   clear no tenant role gate; a lender's ADMIN may grant one of them read-only
   access for up to 7 days (`TenantSupportGrant`, `lib/operator/`), and every
-  grant and use is audited.
+  grant and use is audited. Read-only means GET/HEAD: `proxy.ts` refuses any
+  other method from an operator session, server actions included. New
+  tenants default to the root operator. Operator sign-in and the grant UI
+  come with the operator console (W1).
 - **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
   and `(tenantId, email)`; one person may be a client of two lenders.
 - **Provider credentials** are per tenant, sealed in `TenantConfig`
   (`lib/integrations/tenant-credentials.ts`). The Experian, SmileIdentity and
-  Stitch environment variables apply only while exactly one tenant is ACTIVE.
+  Stitch environment variables serve only the one ACTIVE tenant of a
+  single-tenant deployment.
 - **Lender identity.** Legal name, trading name, NCR, FSP and company
   registration numbers, office address, contacts and logo are columns of
   `TenantConfig`. `lib/config/identity.ts` reads them:
@@ -121,6 +126,58 @@ migrated database (below). Before changing a rule, enumerate the live
 enforcement (`pg_trigger`, `pg_constraint`; the queries are in `CLAUDE.md`),
 and `npm run db:drift` compares a live database's objects with what the
 migrations declare.
+
+## Row-level security: activation checklist
+
+The policies (`prisma/migrations/20261014130000_tenant_rls`) are in every
+database, but nothing enforces them yet. Every stack connects as a superuser,
+which Postgres exempts from all policies, and the query hook that sets the
+tenant (`lib/tenant-rls.ts`) is off unless `TENANT_RLS=on`. `/api/health`
+warns an operator session while the role bypasses RLS. Turning RLS on is a
+separate workstream (W0b); in this order:
+
+1. **Two database roles.** A migrate role that owns the schema and runs
+   `prisma migrate deploy`, and an application role that is neither
+   superuser nor `BYPASSRLS`, with `SELECT, INSERT, UPDATE, DELETE` on the
+   tables and `USAGE` on the sequences. FORCE binds an owner too, so the app
+   role may own the tables, but must not be a superuser.
+2. **Handle `P2002` without `meta.target`.** Under RLS, Postgres withholds the
+   key of a unique violation on a covered table and Prisma reports
+   "Unique constraint failed on the (not available)". Each site that reads
+   the target must find the collided key another way (as
+   `app/api/clients/route.ts` now does) or stop depending on it:
+   `app/api/webhooks/whatsapp/route.ts`,
+   `app/api/webhooks/whatsapp-cloud/route.ts`,
+   `app/api/insurance/policies/route.ts`, `lib/insurance/quote/create.ts`,
+   `lib/insurance/policy/bind.ts`, `lib/asset-finance/asset-input.ts`,
+   `lib/inbox/resolve-thread.ts`. Error-message parsing of 23505 `DETAIL`
+   (asset serial/VIN, supplier bank account) has the same problem.
+3. **Scripts on a plain `PrismaClient`** run with no frame, so strict mode
+   shows them nothing: `prisma/seed.ts`, `prisma/seed-staging.ts`,
+   `scripts/lender/bootstrap-tenant-cli.ts`,
+   `scripts/lender/bootstrap-admin-cli.ts`,
+   `scripts/bureau-submission-seed-local.ts` and `scripts/demo/*` (the
+   simulator's operator and read-only clients). Give each a bypass
+   (`SET app.rls_bypass = 'on'` on its session) or a tenant frame.
+4. **Frames on every entry point.** Most Server Component pages, some API
+   routes and crons pass `where.tenantId` by hand with no
+   `runWithTenant` frame; webhook handlers read before they know the tenant
+   (the Stitch and WhatsApp webhooks look the payment or phone number up
+   first). Each needs a frame, or an explicit `withoutTenantScope` for a
+   cross-tenant lookup by an unguessable key.
+5. **`withoutTenantScope` inside a transaction opened in a tenant frame**
+   keeps that tenant's setting: the setting is the one in force when the
+   transaction opened. Find those call sites and open the transaction in the
+   bypass frame instead.
+6. **Data migrations** run as the migrate role with no frame. With strict
+   mode on (`ALTER DATABASE … SET app.rls_strict = 'on'`) a migration that
+   reads or updates rows must `SET LOCAL app.rls_bypass = 'on'` first.
+7. **Tables not yet covered:** `TenantConfig`, `User` and `AuditLog`
+   (nullable tenant), `IntegrationConfig`, `EmailConfig` and the others the
+   RLS migration's header lists. Each needs a policy, and the nullable ones a
+   decision on rows with no tenant.
+8. Run every integration suite as the application role (not a superuser),
+   then set `TENANT_RLS=on` in the app, then strict mode.
 
 ## Migrations
 
