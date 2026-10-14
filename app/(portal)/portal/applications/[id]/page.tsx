@@ -8,6 +8,7 @@ import { AlertCircle, CheckCircle, Clock } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
 import type { AppStatus } from "@prisma/client"
 import { portalDecisionLabel } from "@/lib/applications/decision-kind"
+import { ExecutedAgreementCard } from "@/components/portal/ExecutedAgreementCard"
 import { PasqAcknowledgementCard } from "@/components/portal/PasqAcknowledgementCard"
 import {
   portalApplicationNextStep,
@@ -257,6 +258,8 @@ export default async function ApplicationDetailPage({
           </Link>
         </div>
       )}
+
+      <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} />
 
       {/* Declined reason */}
       {app.status === "DECLINED" && app.decisionReason && (
