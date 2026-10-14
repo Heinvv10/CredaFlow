@@ -23,7 +23,7 @@ const lease: PortalLeaseView = {
   loan: { id: "L1", reference: "TEST-LS-1", status: "ACTIVE", contractType: "OPERATING_LEASE", startDate: "2027-01-01", maturityDate: "2029-12-31" },
   entity: null, asset: null, rentals: [], arrearsCents: 0, otherCharges: [], defaultCharges: { outstandingCents: 0, lines: [] }, overdueInclChargesCents: 0,
   nextRental: null, fund: null, meter: null,
-  termination: { penaltyConfigured: true, latestQuote: null }, endOfTerm: { chosen: null, valuation: null },
+  termination: { penaltyConfigured: true, latestQuote: null }, endOfTerm: { chosen: null, valuation: null, expiryNotice: false },
 }
 const row = { id: "L1", clientId: "c1", tenantId: "t1", reference: "TEST-LS-1", contractType: "OPERATING_LEASE", status: "ACTIVE" }
 

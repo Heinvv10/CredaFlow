@@ -93,7 +93,12 @@ export interface PortalLeaseView {
   /** Leases with contracted usage only. */
   meter: { unit: UsageUnit; latest: { readingDate: string; value: number } | null } | null
   termination: { penaltyConfigured: boolean; latestQuote: PortalLeaseQuote | null }
-  endOfTerm: { chosen: { outcome: LeaseEndOutcome; status: LeaseEndStatus; early: boolean; inspected: boolean } | null; valuation: { valuedOn: string; amountExclVatCents: number } | null }
+  endOfTerm: {
+    chosen: { outcome: LeaseEndOutcome; status: LeaseEndStatus; early: boolean; inspected: boolean } | null
+    valuation: { valuedOn: string; amountExclVatCents: number } | null
+    /** A CPA expiry notice is queued for the lessee (its PDF is theirs to download). */
+    expiryNotice: boolean
+  }
 }
 
 export async function loadPortalLease(tenantId: string, clientId: string, loanId: string, asOf: Date = new Date()): Promise<PortalLeaseView | null> {
@@ -111,6 +116,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
       asset: { select: { assetClass: true, make: true, model: true, year: true, serialNumber: true, registrationNumber: true } },
       assetFinanceDeal: { select: { usageUnit: true, earlyTerminationPenaltyRate: true } },
       leaseEndOfTerm: { select: { outcome: true, status: true, origin: true, inspectedOn: true } },
+      leaseExpiryNotice: { select: { id: true } },
       leaseRentals: {
         orderBy: { periodNo: "asc" },
         select: {
@@ -163,7 +169,8 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
       paidCents: row.paidCents, outstandingCents: rentalOutstanding(row), state: rentalState(row, today), invoice: r.taxInvoice,
     }
   })
-  const otherCharges: PortalLeaseCharge[] = loan.repaymentSchedule.map((s) => {
+  // A charge row is an end of term's or a termination's (the database links each; anything else is not shown as a charge).
+  const otherCharges: PortalLeaseCharge[] = loan.repaymentSchedule.filter((s) => s.leaseTerminationCharge || s.leaseEndOfTermCharge).map((s) => {
     const row = { cancelled: false, totalCents: s.totalDue, paidCents: s.totalPaid, dueDate: sastCalendarDate(s.dueDate) }
     return {
       id: s.id, kind: s.leaseTerminationCharge ? "TERMINATION" : "END_OF_TERM", dueDate: row.dueDate, totalCents: s.totalDue, paidCents: s.totalPaid,
@@ -209,6 +216,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
         inspected: loan.leaseEndOfTerm.inspectedOn !== null,
       },
       valuation: valuation && { valuedOn: isoOfDbDate(valuation.valuedOn), amountExclVatCents: valuation.amountCents },
+      expiryNotice: loan.leaseExpiryNotice !== null,
     },
   }
 }

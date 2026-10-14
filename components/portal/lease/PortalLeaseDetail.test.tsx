@@ -31,7 +31,7 @@ function view(over: Partial<PortalLeaseView> = {}): PortalLeaseView {
     nextRental: { dueDate: "2027-03-01", amountCents: 126_500 },
     fund: null, meter: null,
     termination: { penaltyConfigured: true, latestQuote: null },
-    endOfTerm: { chosen: null, valuation: null },
+    endOfTerm: { chosen: null, valuation: null, expiryNotice: false },
     ...over,
   }
 }
@@ -91,9 +91,15 @@ describe("PortalLeaseDetail", () => {
   })
 
   it("hides the early-termination panel once the end of term is chosen", () => {
-    const html = render(view({ today: "2029-07-01", endOfTerm: { chosen: { outcome: "RETURN", status: "ELECTED", early: false, inspected: false }, valuation: null } }))
+    const html = render(view({ today: "2029-07-01", endOfTerm: { chosen: { outcome: "RETURN", status: "ELECTED", early: false, inspected: false }, valuation: null, expiryNotice: false } }))
     expect(html).not.toContain("End the lease early")
     expect(html).toContain("You chose to return the asset.")
+  })
+
+  it("links the CPA expiry notice once one is queued for the lessee, and not before", () => {
+    const notice = "/documents/expiry-notice?download=1"
+    expect(render(view({ today: "2029-07-01" }))).not.toContain(notice)
+    expect(render(view({ today: "2029-07-01", endOfTerm: { chosen: null, valuation: null, expiryNotice: true } }))).toContain(notice)
   })
 
   it("shows a documents panel only when the page supplies the entity documents", () => {

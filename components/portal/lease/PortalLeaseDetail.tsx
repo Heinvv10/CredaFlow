@@ -74,7 +74,7 @@ export function PortalLeaseDetail({ view, back, documents }: {
           {view.fund && <Figure label="Maintenance fund" value={formatMoney(view.fund.balanceCents)} />}
         </dl>
       </DataPanel>
-      <DataPanel title="Rentals" description="Rental and maintenance exclude VAT; the total includes it. Each rental has its own tax invoice." density="compact">
+      <DataPanel title="Rentals" description={`${loan.contractType === "FULL_MAINTENANCE_LEASE" ? "Rental and maintenance exclude" : "The rental excludes"} VAT; the total includes it. Each rental has its own tax invoice.`} density="compact">
         <LeaseRentalsTable loanId={loan.id} rentals={view.rentals} maintenance={loan.contractType === "FULL_MAINTENANCE_LEASE"} />
       </DataPanel>
       {(view.otherCharges.length > 0 || charges.outstandingCents > 0) && (
@@ -99,7 +99,7 @@ export function PortalLeaseDetail({ view, back, documents }: {
       )}
       {offer.kind !== "closed" && (
         <DataPanel title="End of the lease" description="Return the asset, extend the lease or buy the asset">
-          <LeaseEndOfTermPanel loanId={loan.id} offer={offer} chosen={view.endOfTerm.chosen} valuation={view.endOfTerm.valuation} />
+          <LeaseEndOfTermPanel loanId={loan.id} offer={offer} chosen={view.endOfTerm.chosen} valuation={view.endOfTerm.valuation} expiryNotice={view.endOfTerm.expiryNotice} />
         </DataPanel>
       )}
       {documents && (

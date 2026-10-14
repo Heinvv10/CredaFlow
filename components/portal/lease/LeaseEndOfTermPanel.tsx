@@ -14,6 +14,7 @@ interface Props {
   offer: EndOfTermOffer
   chosen: PortalLeaseView["endOfTerm"]["chosen"]
   valuation: PortalLeaseView["endOfTerm"]["valuation"]
+  expiryNotice?: boolean
 }
 
 const OUTCOME_LABEL: Record<EndOption, string> = {
@@ -22,7 +23,20 @@ const OUTCOME_LABEL: Record<EndOption, string> = {
   PURCHASE: "Buy the asset",
 }
 
-export function LeaseEndOfTermPanel({ loanId, offer, chosen, valuation }: Props) {
+export function LeaseEndOfTermPanel(props: Props) {
+  return (
+    <div className="space-y-3">
+      {props.expiryNotice && (
+        <a href={`${leaseApi(props.loanId)}/documents/expiry-notice?download=1`} className="inline-block text-xs font-medium text-[var(--cf-brand)] underline-offset-2 hover:underline">
+          Download the notice about the end of your lease (PDF)
+        </a>
+      )}
+      <EndOfTermChoice {...props} />
+    </div>
+  )
+}
+
+function EndOfTermChoice({ loanId, offer, chosen, valuation }: Props) {
   const router = useRouter()
   const [selected, setSelected] = useState<EndOption | null>(null)
   const [busy, setBusy] = useState(false)

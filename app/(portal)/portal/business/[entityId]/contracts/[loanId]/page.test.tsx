@@ -28,7 +28,7 @@ const lease: PortalLeaseView = {
   loan: { id: "L1", reference: "TEST-1", status: "ACTIVE", contractType: "FULL_MAINTENANCE_LEASE", startDate: "2027-01-01", maturityDate: "2029-12-31" },
   entity: { id: "e1", legalName: "TEST Lessee (Pty) Ltd" }, asset: null, rentals: [], arrearsCents: 0, otherCharges: [], defaultCharges: { outstandingCents: 0, lines: [] }, overdueInclChargesCents: 0,
   nextRental: null, fund: null, meter: null,
-  termination: { penaltyConfigured: true, latestQuote: null }, endOfTerm: { chosen: null, valuation: null },
+  termination: { penaltyConfigured: true, latestQuote: null }, endOfTerm: { chosen: null, valuation: null, expiryNotice: false },
 }
 
 const render = async () => renderToStaticMarkup(await PortalContractPage({ params: Promise.resolve({ entityId: "e1", loanId: "L1" }) })).replace(/<!-- -->/g, "")
