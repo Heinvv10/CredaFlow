@@ -12,7 +12,10 @@ import { portalPayment } from "./portal-payment"
 import { portalProfile } from "./portal-profile"
 import { portalShell } from "./portal-shell"
 import { portalStatement } from "./portal-statement"
+import { websiteCalculators } from "./website-calculators"
+import { websiteContact } from "./website-contact"
 import { websiteHome } from "./website-home"
+import { websiteProducts } from "./website-products"
 import { websiteShell } from "./website-shell"
 
 export const zu: Catalog = {
@@ -28,6 +31,9 @@ export const zu: Catalog = {
   portalProfile,
   portalShell,
   portalStatement,
+  websiteCalculators,
+  websiteContact,
   websiteHome,
+  websiteProducts,
   websiteShell,
 }

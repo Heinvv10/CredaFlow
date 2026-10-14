@@ -8,6 +8,7 @@ import { HomeLoanCalculatorCard } from "@/app/(website)/site/HomeLoanCalculatorC
 import { homeFaqs } from "@/app/(website)/site/home-faqs"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
+import { localizeProduct } from "@/lib/i18n/products"
 
 // Client-facing portal URLs (lib/portal-urls.ts), null when the deployment has
 // no portal URL configured: the portal links are then left out rather than
@@ -48,8 +49,10 @@ function productRange(product: PublicLoanProduct, t: Translator<"websiteHome">):
  * The public home page. Everything about the lender comes from its identity,
  * and the product cards only from the loan products it has configured.
  */
-export function HomePage({ identity, products, locale = DEFAULT_LOCALE }: { identity: LenderIdentity; products: PublicLoanProduct[]; locale?: Locale }) {
+export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCALE }: { identity: LenderIdentity; products: PublicLoanProduct[]; locale?: Locale }) {
   const t = createTranslator(locale, "websiteHome")
+  const tp = createTranslator(locale, "websiteProducts")
+  const products = catalogue.map((product) => localizeProduct(product, tp))
   return (
     <div className="bg-[#11141b] text-white">
       <section className="relative min-h-[560px] overflow-hidden bg-[#11141b]">
@@ -259,7 +262,7 @@ export function HomePage({ identity, products, locale = DEFAULT_LOCALE }: { iden
       </section>
 
       <div className="hidden md:block">
-        <HomeFaqSection brand={identity.tradingName} faqs={homeFaqs(identity, products, locale)} locale={locale} />
+        <HomeFaqSection brand={identity.tradingName} faqs={homeFaqs(identity, catalogue, locale)} locale={locale} />
       </div>
 
       <section className="relative overflow-hidden bg-[#11141b] px-4 py-16 text-center text-white sm:px-6 lg:px-8">

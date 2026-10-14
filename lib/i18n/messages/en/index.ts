@@ -10,7 +10,10 @@ import { portalPayment } from "./portal-payment"
 import { portalProfile } from "./portal-profile"
 import { portalShell } from "./portal-shell"
 import { portalStatement } from "./portal-statement"
+import { websiteCalculators } from "./website-calculators"
+import { websiteContact } from "./website-contact"
 import { websiteHome } from "./website-home"
+import { websiteProducts } from "./website-products"
 import { websiteShell } from "./website-shell"
 
 /** The English catalogue: the source of truth for every key (lib/i18n/catalog.ts). */
@@ -27,6 +30,9 @@ export const en = {
   portalProfile,
   portalShell,
   portalStatement,
+  websiteCalculators,
+  websiteContact,
   websiteHome,
+  websiteProducts,
   websiteShell,
 } as const

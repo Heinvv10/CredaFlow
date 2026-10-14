@@ -21,4 +21,7 @@ export const WEBSITE_CLIENT_NAMESPACES = [
   "common",
   "websiteShell",
   "websiteHome",
+  "websiteContact",
+  "websiteCalculators",
+  "websiteProducts",
 ] as const satisfies readonly Namespace[]

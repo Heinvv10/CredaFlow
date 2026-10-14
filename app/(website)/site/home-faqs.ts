@@ -9,6 +9,7 @@
  */
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import type { PublicLoanProduct } from "@/lib/public-loan-products"
+import { localizeProduct } from "@/lib/i18n/products"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator } from "@/lib/i18n/translate"
 
@@ -21,12 +22,13 @@ type HomeFaqIdentity = Pick<LenderIdentity, "tradingName" | "legalName" | "ncrNu
 
 export function homeFaqs(
   identity: HomeFaqIdentity,
-  products: readonly Pick<PublicLoanProduct, "label">[],
+  products: readonly PublicLoanProduct[],
   locale: Locale = DEFAULT_LOCALE,
 ): HomeFaq[] {
   const t = createTranslator(locale, "websiteHome")
+  const tp = createTranslator(locale, "websiteProducts")
   const brand = identity.tradingName
-  const offered = products.map((product) => product.label.toLowerCase())
+  const offered = products.map((product) => localizeProduct(product, tp).label.toLowerCase())
   return [
     {
       question: t("faqWhatQ", { brand }),
