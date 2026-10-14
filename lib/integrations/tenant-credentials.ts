@@ -38,9 +38,21 @@ export function isSealedCredentialField(key: string): key is SealedCredentialFie
   return (SEALED_CREDENTIAL_FIELDS as readonly string[]).includes(key)
 }
 
-/** Seals a credential for storage. Already-sealed values pass through. */
+/** A credential a caller may not store: input that is already ciphertext. */
+export class CredentialInputError extends Error {
+  constructor() {
+    super("A credential must be given as entered, not as a sealed value")
+    this.name = "CredentialInputError"
+  }
+}
+
+/**
+ * Seals a credential for storage. Input that already looks sealed is refused,
+ * never stored as-is: a caller must not plant ciphertext it did not seal here
+ * (another tenant's sealed value, say, read from a backup).
+ */
 export function sealCredential(value: string): string {
-  if (isSealed(value)) return value
+  if (isSealed(value)) throw new CredentialInputError()
   const key = process.env[KEY_ENV]
   if (!key) throw new Error(`${KEY_ENV} must be set to store provider credentials (refusing to store a secret in plaintext)`)
   return sealSecret(value, key)
@@ -67,6 +79,11 @@ export function maskConfigCredentials<T extends Record<string, unknown>>(config:
     if (key in masked) masked[key] = maskCredential(masked[key] as string | null)
   }
   return masked as T
+}
+
+/** A Tenant row with its config, as an API may return it. */
+export function withMaskedCredentials<T extends { config: Record<string, unknown> | null }>(tenant: T): T {
+  return { ...tenant, config: tenant.config && maskConfigCredentials(tenant.config) }
 }
 
 /** Splits an "id:secret" pair at the FIRST colon, so a secret may contain colons. */

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { withMaskedCredentials } from "@/lib/integrations/tenant-credentials"
 import { DEFAULT_TENANT_COLOURS, tenantColourErrors } from "@/lib/theme/tenant-colours"
 import type { Session } from "next-auth"
 
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "asc" },
   })
 
-  return NextResponse.json(tenants)
+  // Provider credentials never leave in a response, sealed or not.
+  return NextResponse.json(tenants.map(withMaskedCredentials))
 }
 
 export async function POST(req: NextRequest) {
@@ -91,5 +93,5 @@ export async function POST(req: NextRequest) {
     return created
   })
 
-  return NextResponse.json(tenant, { status: 201 })
+  return NextResponse.json(withMaskedCredentials(tenant), { status: 201 })
 }

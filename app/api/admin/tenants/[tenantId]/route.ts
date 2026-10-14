@@ -3,7 +3,7 @@ import { revalidateTag } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { maskConfigCredentials, sealCredential } from "@/lib/integrations/tenant-credentials"
+import { CredentialInputError, sealCredential, withMaskedCredentials } from "@/lib/integrations/tenant-credentials"
 import { cleanAddressLine } from "@/lib/bureau-submission/clean"
 import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
@@ -46,11 +46,6 @@ export async function GET(
   }
 
   return NextResponse.json(withMaskedCredentials(tenant))
-}
-
-/** Provider credentials never leave in a response, sealed or not. */
-function withMaskedCredentials<T extends { config: Record<string, unknown> | null }>(tenant: T): T {
-  return { ...tenant, config: tenant.config && maskConfigCredentials(tenant.config) }
 }
 
 // Sealed on write (lib/integrations/tenant-credentials.ts); null clears one.
@@ -140,6 +135,9 @@ export async function PATCH(
     try {
       configUpdate[key] = value === null ? null : sealCredential(value)
     } catch (e) {
+      if (e instanceof CredentialInputError) {
+        return NextResponse.json({ error: `${key}: enter the credential itself, not a sealed value` }, { status: 400 })
+      }
       console.error("Refusing to store a provider credential:", e)
       return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
     }

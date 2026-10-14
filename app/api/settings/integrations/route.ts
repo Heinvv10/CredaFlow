@@ -4,9 +4,11 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
+import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import {
   isTheSingleActiveTenant,
   maskCredential,
+  CredentialInputError,
   sealCredential,
   SEALED_CREDENTIAL_FIELDS,
   type SealedCredentialField,
@@ -17,6 +19,8 @@ const VALID_COLLECTION_PROVIDERS = [null, "netcash"]
 
 // The lender's Stitch collection account: not secret, stored as typed.
 const STITCH_BENEFICIARY_FIELDS = ["stitchBeneficiaryName", "stitchBankId", "stitchAccountNumber", "stitchBranchCode"] as const
+// Every field that decides where Stitch payments land.
+const STITCH_SENSITIVE_FIELDS = ["stitchKey", "stitchWebhookSecret", ...STITCH_BENEFICIARY_FIELDS] as const
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("ADMIN")
@@ -80,6 +84,17 @@ export async function PATCH(req: NextRequest) {
         avsProvider?: string | null
       } = {}
 
+      // Where Stitch pays borrowers' money is as sensitive as the lender's
+      // identity (PUT /api/settings/identity): changing it takes a sign-in
+      // that verified a TOTP code, wherever the lender requires staff 2FA.
+      const stitchTouched = STITCH_SENSITIVE_FIELDS.some((key) => typeof body[key] === "string" && body[key].trim().length > 0)
+      if (stitchTouched && guard.user.totpVerified !== true && await isStaffTotpRequired(tenant.id)) {
+        return NextResponse.json(
+          { error: "Sign in with two-factor authentication to change the Stitch account or payee. Enable it under Settings → Security, then sign out and back in." },
+          { status: 403 },
+        )
+      }
+
       // Sealed on the way in (lib/integrations/tenant-credentials.ts); a
       // deployment without the key refuses rather than store plaintext.
       for (const key of SEALED_CREDENTIAL_FIELDS) {
@@ -87,6 +102,9 @@ export async function PATCH(req: NextRequest) {
           try {
             updates[key] = sealCredential(body[key])
           } catch (e) {
+            if (e instanceof CredentialInputError) {
+              return NextResponse.json({ error: `${key}: enter the credential itself, not a sealed value` }, { status: 400 })
+            }
             console.error("Refusing to store a provider credential:", e)
             return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
           }
@@ -128,6 +146,11 @@ export async function PATCH(req: NextRequest) {
         // admin cannot enable AVS after payout has read the defaults but before
         // the loan commits.
         await lockAffordabilityTenantPolicy(tx, { tenantId: tenant.id })
+        // The payee account is not secret: its change is audited old -> new.
+        const payeeKeys = STITCH_BENEFICIARY_FIELDS.filter((key) => key in updates)
+        const before = payeeKeys.length > 0
+          ? await tx.tenantConfig.findUnique({ where: { tenantId: tenant.id }, select: Object.fromEntries(payeeKeys.map((k) => [k, true])) })
+          : null
         await tx.tenantConfig.upsert({
           where: { tenantId: tenant.id },
           update: updates,
@@ -141,8 +164,12 @@ export async function PATCH(req: NextRequest) {
             entityId: tenant.id,
             userId: guard.user.id,
             userEmail: guard.user.email,
+            ...(payeeKeys.length > 0
+              ? { oldValue: Object.fromEntries(payeeKeys.map((k) => [k, (before as Record<string, string | null> | null)?.[k] ?? null])) }
+              : {}),
             newValue: {
               updatedKeys: Object.keys(keyUpdates),
+              ...Object.fromEntries(payeeKeys.map((k) => [k, updates[k]])),
               ...("collectionsEngineEnabled" in updates ? { collectionsEngineEnabled } : {}),
               ...("collectionProvider" in updates ? { collectionProvider } : {}),
               ...("avsProvider" in updates ? { avsProvider } : {}),

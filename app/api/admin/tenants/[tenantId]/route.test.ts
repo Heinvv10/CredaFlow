@@ -147,6 +147,17 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     }
   })
 
+  it("refuses a client-supplied sealed credential (400) and writes nothing", async () => {
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      const response = await patch({ bulkSmsKey: "enc:v1:forged:sealed:value" })
+      expect(response.status).toBe(400)
+      expect(update).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("is refused without the super-admin session and the admin secret", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await patch({ featureBureauSubmission: true })).status).toBe(403)

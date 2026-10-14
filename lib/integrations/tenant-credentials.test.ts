@@ -10,6 +10,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import {
+  CredentialInputError,
   isTheSingleActiveTenant,
   loadCredentialPair,
   loadTenantCredential,
@@ -34,6 +35,12 @@ describe("sealing", () => {
     expect(sealed.startsWith("enc:v1:")).toBe(true)
     expect(sealed).not.toContain("synthetic-pass")
     expect(openCredential(sealed)).toBe("synthetic-user:synthetic-pass")
+  })
+
+  it("refuses ciphertext as input: a caller cannot plant a sealed value it did not seal here", () => {
+    const sealed = sealCredential("synthetic-secret")
+    expect(() => sealCredential(sealed)).toThrow(CredentialInputError)
+    expect(() => sealCredential("enc:v1:forged:value:here")).toThrow(CredentialInputError)
   })
 
   it("refuses to store a credential when no key is configured", () => {
