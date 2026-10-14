@@ -112,9 +112,11 @@ export async function borrowerScreeningGate(args: {
     let state = current.state
     const stale = !current.runAt || current.runAt < screeningCutoff(args.now)
     if (state.state !== "NOT_CONFIGURED" && state.state !== "BLOCKED" && (needsRerun(state) || stale)) {
-      // System-started (asSystem): the approver may still review what it surfaces.
+      // Maker-checker on: the approver is the run's maker, so they cannot clear
+      // its matches and then approve (segregation of duties). Off: a system
+      // run, so a lone reviewer is not locked out of what it surfaced.
       const ran = await runScreening({
-        tenantId, subject: ref, trigger: "PRE_APPROVAL", applicationId, actor, asSystem: true,
+        tenantId, subject: ref, trigger: "PRE_APPROVAL", applicationId, actor, asSystem: !config.requireSecondReviewer,
         contextEntityId: "clientId" in ref ? borrower.entityId : null,
       })
       if (ran.configured) {

@@ -26,10 +26,10 @@ describe("matchFingerprint", () => {
 })
 
 describe("matchFingerprint (round 2)", () => {
-  it("LOW: differs when the matched name or score of the same entry changes", () => {
+  it("LOW: differs when the matched name of the same entry changes; R3: a score change alone does not", () => {
     const base = matchFingerprint("PEP", "POSSIBLE_MATCH", [m("a")])
     expect(matchFingerprint("PEP", "POSSIBLE_MATCH", [{ ...m("a"), matchedName: "Other" }])).not.toBe(base)
-    expect(matchFingerprint("PEP", "POSSIBLE_MATCH", [{ ...m("a"), score: 91 }])).not.toBe(base)
+    expect(matchFingerprint("PEP", "POSSIBLE_MATCH", [{ ...m("a"), score: 91 }])).toBe(base)
   })
 
   it("is unambiguous: separators inside a field cannot make two entry sets collide", () => {

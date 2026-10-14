@@ -21,8 +21,9 @@ export type RunScreeningArgs = {
   actor: { id: string; email: string } | null
   /**
    * Record the run as system-started (triggeredById null) even though an
-   * actor is audited: the approval gate's runs, so maker-checker does not lock
-   * the approver out of reviewing what their approval attempt surfaced.
+   * actor is audited. The approval gate sets it ONLY when the lender does not
+   * require a second reviewer; with maker-checker on, the approver is the
+   * maker and cannot clear the matches their approval depends on.
    */
   asSystem?: boolean
   /** The entity this person is screened for, as a related party (N7). */

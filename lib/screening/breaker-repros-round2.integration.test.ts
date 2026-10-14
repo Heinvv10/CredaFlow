@@ -5,7 +5,7 @@
  *   N2   a clearance never carries onto a different identity
  *   N1   identity fingerprints are unambiguous ('|' in a name)
  *   N7   deactivating or deleting a sanctioned related person does not free the entity
- *   LOW  a clearance does not carry when the matched name or score changed
+ *   LOW  a clearance does not carry when the matched name changed (R3: a score change alone carries)
  *
  *   RUN_SCREENING_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/screening/breaker-repros-round2.integration.test.ts
@@ -154,8 +154,9 @@ suite("round-2 breaker repros", () => {
     })
   }
 
-  it("LOW: a clearance does not carry when the matched name or score of the same entry changed", async () => {
-    for (const changed of [{ matchedName: "SOMEONE ELSE" }, { score: 99 }]) {
+  it("LOW: a clearance does not carry when the matched name of the same entry changed; R3: a score-only change carries", async () => {
+    const cases: Array<[Partial<ScreeningMatch>, string]> = [[{ matchedName: "SOMEONE ELSE" }, "REFER"], [{ score: 99 }, "CLEAR"]]
+    for (const [changed, expected] of cases) {
       const id = await client("Synthetic", `Low-${n()}`)
       const last = (await db.client.findUniqueOrThrow({ where: { id } })).lastName
       answers.set(last, withMatch({ type: "PEP", result: "POSSIBLE_MATCH", matches: [entry("PEP-LOW")] }))
@@ -163,7 +164,7 @@ suite("round-2 breaker repros", () => {
       expect(await decide((await latestMatch(id)).id, "FALSE_POSITIVE")).toMatchObject({ ok: true })
       answers.set(last, withMatch({ type: "PEP", result: "POSSIBLE_MATCH", matches: [entry("PEP-LOW", changed)] }))
       await run(id)
-      expect(await stateOf(id), JSON.stringify(changed)).toBe("REFER")
+      expect(await stateOf(id), JSON.stringify(changed)).toBe(expected)
     }
   })
 })

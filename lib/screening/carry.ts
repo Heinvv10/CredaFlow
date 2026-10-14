@@ -12,9 +12,10 @@
  *     sticky ScreeningBlock, which is what keeps the subject blocked.
  *   - Only for the SAME screened identity (subjectFingerprint): a clearance
  *     made for one name / ID never carries onto a client whose details changed.
- *   - Only for the same type, result and list entries (ids, versions, matched
- *     names and scores), and only when every match has a list-entry id. A match without ids, or
- *     with none at all, is referred every time.
+ *   - Only for the same type, result and list entries (ids, versions and
+ *     matched names; a score change alone is not new evidence), and only
+ *     when every match has a list-entry id. A match without ids, or with none
+ *     at all, is referred every time.
  *   - Only within CARRY_MAX_AGE_DAYS of the original human decision, and only
  *     if that reviewer still holds the lender's current minimum review role.
  */
@@ -25,11 +26,12 @@ import type { ScreeningMatch } from "./types"
 
 /**
  * Stable across runs: type, result and the sorted, de-duplicated entries —
- * id, list version, matched name and score. JSON-encoded, so no character in
- * any field can make two different match sets hash alike.
+ * id, list version and matched name (not the score, which providers re-tune).
+ * JSON-encoded, so no character in any field can make two different match
+ * sets hash alike.
  */
 export function matchFingerprint(type: ScreeningType, result: ScreeningResult, matches: ScreeningMatch[]): string {
-  const entries = [...new Set(matches.map((m) => JSON.stringify([m.listEntryId, m.listVersion ?? null, m.matchedName ?? null, m.score ?? null])))].sort()
+  const entries = [...new Set(matches.map((m) => JSON.stringify([m.listEntryId, m.listVersion ?? null, m.matchedName ?? null])))].sort()
   return createHash("sha256").update(JSON.stringify([type, result, entries])).digest("hex")
 }
 

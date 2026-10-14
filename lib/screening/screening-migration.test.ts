@@ -67,7 +67,7 @@ describe("migration 20261014150000_w4_screening_fic", () => {
     expect(fn).toContain(`NEW."assessedById" = NEW."raisedById"`)
     expect(fn).toContain(`NEW."approvedById" = NEW."uploadedById"`)
     for (const t of ["ScreeningCheck", "SuspiciousReportCase", "RmcpDocument"]) {
-      expect(baselineTriggerSql(`${t}_second_reviewer`), t).toContain(`BEFORE UPDATE ON "${t}"`)
+      expect(baselineTriggerSql(`${t}_second_reviewer`), t).toContain(`BEFORE INSERT OR UPDATE ON "${t}"`)
       expect(() => baselineConstraintSql(`${t}_maker_checker`), t).toThrow()
     }
   })

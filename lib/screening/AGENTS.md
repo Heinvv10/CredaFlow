@@ -7,13 +7,11 @@
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
-PEP / sanctions / adverse-media screening of borrowers: a client, or a business
-entity and every person actively related to it. Provider-agnostic: adapters
-implement `ScreeningProvider` (`lib/screening/types.ts`, with `supportedTypes`
-and an abort `signal`) and register in `lib/screening/registry.ts`, keyed by
-`TenantConfig.screeningProvider` (null = not configured: nothing screened,
-approval not gated). Only the simulated provider exists until a vendor is
-contracted. FIC registers (CTR, STR, RMCP) live in `lib/fic/`.
+PEP / sanctions / adverse-media screening of a client, or an entity and its
+related people. Adapters implement `ScreeningProvider` (`lib/screening/types.ts`)
+and register in `lib/screening/registry.ts`, keyed by
+`TenantConfig.screeningProvider` (null = off, approval not gated). Only the
+simulated provider exists so far. FIC registers live in `lib/fic/`.
 
 ## Critical Rules
 - **A run is bound to the identity it screened** (`subjectFingerprint`, from
@@ -23,19 +21,21 @@ contracted. FIC registers (CTR, STR, RMCP) live in `lib/fic/`.
 - **Blocks are sticky.** A confirmed sanctions match or a REJECTED decision
   raises a `ScreeningBlock` in the database; a later clear run does not end it.
   Only a SUPER_ADMIN with TOTP lifts one, with a reason (`blocks.ts`).
-  REJECTED is never carried forward: the block is what keeps it.
-- **A confirmed sanctions match is never cleared**, and never ACCEPTED.
+  REJECTED is never carried. A confirmed sanctions match is never cleared.
 - **Carry-forward** (`carry.ts`, DB `guardScreeningCheckRecord`): same result
   level only (POSSIBLE→POSSIBLE, CONFIRMED→CONFIRMED), never upward, never for
-  SANCTIONS; from an identical FALSE_POSITIVE/ACCEPTED (type, entry ids +
-  versions), within `CARRY_MAX_AGE_DAYS`, by a reviewer who still holds the
-  minimum role. No ids, no carry.
+  SANCTIONS; from an identical FALSE_POSITIVE/ACCEPTED (type, entry ids,
+  versions, matched names — not scores) within `CARRY_MAX_AGE_DAYS`, by a
+  reviewer still holding the role. No ids, no carry.
 - **Maker-checker** is per lender (`TenantConfig.requireSecondReviewer`,
-  default on; DB trigger `enforceSecondReviewer` reads it): whoever started a
-  run never decides it. The approval gate's runs are system runs.
-- **Entity borrowers:** a block on a person screened for the entity
-  (`contextEntityId`), or on anyone ever related to it, blocks the entity even
-  after the relationship is deactivated or deleted.
+  default on; DB trigger `enforceSecondReviewer`, on insert and update):
+  whoever started a run never decides it. With it on, the approval gate's
+  runs belong to the approver, so they cannot clear and then approve; off,
+  they are system runs.
+- **Entity borrowers:** a block on any person screened for the entity
+  (`contextEntityId`) or ever related to it blocks the entity, even after the
+  relationship is deactivated or deleted, until a SUPER_ADMIN lifts it — and
+  that lift clears the person everywhere, not just for this entity.
 - **State = latest run** (`state.ts`); the SQL `screeningSubjectRefusal` holds
   the same rule. Change both together (`screening-migration.test.ts`).
 - **A provider failure or timeout is an ERROR row (INCOMPLETE), which blocks.**

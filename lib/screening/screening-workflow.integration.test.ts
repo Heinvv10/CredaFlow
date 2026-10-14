@@ -98,14 +98,26 @@ suite("screening workflow against Postgres", () => {
     expect((await openCheck(id)).carriedFromCheckId).toBeNull()
   })
 
-  it("records a run the approval gate started as a system run, so the approver may still review it", async () => {
-    const id = await client("Fixture-Pep")
-    const gated = await borrowerScreeningGate({ tenantId, borrower: { clientId: id, entityId: null }, applicationId: "app-n/a", actor: admin })
-    expect(gated).toMatchObject({ allowed: false, state: { state: "REFER" } })
-    const check = await openCheck(id)
-    expect(check.triggeredById).toBeNull()
-    expect(await db.auditLog.count({ where: { tenantId, action: "SCREENING_RUN", entityId: id, userId: admin.id } })).toBe(1)
-    expect(await review(check.id, "ACCEPTED")).toMatchObject({ ok: true })
+  it("attributes a gate-started run to the approver while a second reviewer is required, else records it as a system run", async () => {
+    const gateRun = async () => {
+      const id = await client("Fixture-Pep")
+      const gated = await borrowerScreeningGate({ tenantId, borrower: { clientId: id, entityId: null }, applicationId: "app-n/a", actor: admin })
+      expect(gated).toMatchObject({ allowed: false, state: { state: "REFER" } })
+      expect(await db.auditLog.count({ where: { tenantId, action: "SCREENING_RUN", entityId: id, userId: admin.id } })).toBe(1)
+      return openCheck(id)
+    }
+    const owned = await gateRun()
+    expect(owned.triggeredById).toBe(admin.id)
+    expect(await review(owned.id, "ACCEPTED")).toMatchObject({ ok: false, code: "own_run" })
+
+    await db.tenantConfig.updateMany({ where: { tenantId }, data: { requireSecondReviewer: false } })
+    try {
+      const system = await gateRun()
+      expect(system.triggeredById).toBeNull()
+      expect(await review(system.id, "ACCEPTED")).toMatchObject({ ok: true })
+    } finally {
+      await db.tenantConfig.updateMany({ where: { tenantId }, data: { requireSecondReviewer: true } })
+    }
   })
 
   it("hard-blocks a confirmed sanctions match: no reviewer clears it and every re-run still blocks", async () => {
