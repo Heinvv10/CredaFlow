@@ -103,6 +103,12 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // Collections engine (lib/collections-engine). Non-null tenantId, passed
+  // explicitly on every query: the crons run outside a request frame.
+  "DebitMandate",
+  "CollectionBatch",
+  "CollectionInstruction",
+  "CollectionResult",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

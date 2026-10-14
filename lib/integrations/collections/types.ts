@@ -68,6 +68,8 @@ export type MandateStatusValue =
   | "CANCELLED"
 
 export interface CreateMandateReq {
+  /** The engine's own mandate id: adapters pass it as the contract reference so a retried submission is idempotent. */
+  mandateReference: string
   loanReference: string
   debtor: { firstName: string; lastName: string; idNumber: string; phone: string }
   account: AvsRequest
@@ -76,11 +78,18 @@ export interface CreateMandateReq {
   maxCollectionAmountCents: number | null
   debitDayOfMonth: number
   authType: MandateAuthType
+  frequency: "ONCE_OFF" | "MONTHLY"
+  firstCollectionDate: Date
+  /** Bank-level auto-re-presentment window, 1–10 days (scheme rule). */
+  trackingDays: number
+  adjustment: "NEVER" | "QUARTERLY" | "BIANNUALLY" | "ANNUALLY" | "REPO_RATE"
 }
 
 export interface MandateHandle {
   providerMandateRef: string | null
   status: MandateStatusValue
+  /** Synthetic provider response: no bank saw this mandate. */
+  simulated?: true
 }
 
 export interface CollectionInstructionInput {
@@ -96,6 +105,21 @@ export interface SubmitResult {
   batchRef: string
   accepted: string[]
   rejected: { instructionRef: string; error: string }[]
+  /** Synthetic provider response: nothing was sent to a bank. */
+  simulated?: true
+}
+
+/**
+ * An instruction the engine is still waiting on. Adapters whose rail reports
+ * by date window may ignore it; adapters that query per batch or per item
+ * (and the simulator) use it.
+ */
+export interface AwaitingInstruction {
+  instructionRef: string
+  mandateRef: string
+  batchRef: string | null
+  amountCents: number
+  actionDate: Date
 }
 
 export interface CollectionOutcome {
@@ -105,6 +129,10 @@ export interface CollectionOutcome {
   rawCode: string | null
   settledAmountCents: number | null
   resolvedAt: Date
+  /** The provider's record as received, persisted for audit. */
+  raw?: unknown
+  /** Synthetic provider outcome: no money moved. */
+  simulated?: true
 }
 
 export interface CollectionProvider {
@@ -114,7 +142,7 @@ export interface CollectionProvider {
   getMandateStatus(providerMandateRef: string, creds: ProviderCredentials): Promise<MandateStatusValue>
   cancelMandate(providerMandateRef: string, creds: ProviderCredentials): Promise<void>
   collect(batch: CollectionInstructionInput[], creds: ProviderCredentials): Promise<SubmitResult>
-  fetchResults(window: { from: Date }, creds: ProviderCredentials): Promise<CollectionOutcome[]>
+  fetchResults(window: { from: Date; awaiting?: AwaitingInstruction[] }, creds: ProviderCredentials): Promise<CollectionOutcome[]>
 }
 
 /** Opaque per-tenant credential bag; each adapter documents the keys it reads. */

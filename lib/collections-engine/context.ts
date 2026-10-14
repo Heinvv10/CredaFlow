@@ -1,0 +1,82 @@
+/**
+ * Per-tenant engine context and the small shared pieces of the DB layer.
+ *
+ * The engine is dark unless TenantConfig.collectionsEngineEnabled is true AND
+ * a collection provider is configured: loadEngineContext returns null
+ * otherwise, and every entry point stops there without reading anything else.
+ */
+import { Prisma } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
+import { getCollectionProvider } from "@/lib/integrations/collections/registry"
+import {
+  CollectionProviderError,
+  type CollectionProvider,
+  type ProviderCredentials,
+} from "@/lib/integrations/collections/types"
+
+export interface EngineContext {
+  tenantId: string
+  provider: CollectionProvider
+  creds: ProviderCredentials
+  now: Date
+}
+
+/** The machine actor on engine-written rows. AuditLog.userId is a User FK, so it stays null. */
+export const ENGINE_ACTOR = {
+  userId: null,
+  userEmail: "system@collections-engine",
+  capturedBy: "collections-engine",
+} as const
+
+/** The interactive-transaction client of the tenant-scoped prisma singleton. */
+export type EngineTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+
+export async function loadEngineContext(tenantId: string, now: Date): Promise<EngineContext | null> {
+  const config = await prisma.tenantConfig.findUnique({
+    where: { tenantId },
+    select: {
+      collectionsEngineEnabled: true,
+      collectionProvider: true,
+      avsProvider: true,
+      netcashDebitOrderKey: true,
+      netcashRiskReportsKey: true,
+    },
+  })
+  if (!config?.collectionsEngineEnabled || !config.collectionProvider) return null
+  return {
+    tenantId,
+    provider: getCollectionProvider(config),
+    // Each adapter documents the keys it reads (lib/integrations/collections).
+    creds: {
+      netcashDebitOrderKey: config.netcashDebitOrderKey,
+      netcashRiskReportsKey: config.netcashRiskReportsKey,
+    },
+    now,
+  }
+}
+
+/**
+ * A provider error that proves nothing reached the rail: retrying cannot
+ * double-debit. Anything else (a timeout, a 5xx) may have been received.
+ */
+export function definitelyNotSent(error: unknown): boolean {
+  return error instanceof CollectionProviderError
+    && (error.code === "NOT_CONFIGURED" || error.code === "NOT_IMPLEMENTED" || error.code === "UNKNOWN_PROVIDER")
+}
+
+/** A message safe to store and show: provider errors name a rule; others are reduced to their class. */
+export function errorSummary(error: unknown): string {
+  if (error instanceof CollectionProviderError) return `${error.code}: ${error.message}`
+  const code = typeof (error as { code?: unknown })?.code === "string" ? ` ${(error as { code: string }).code}` : ""
+  return `${error instanceof Error ? error.name : "Error"}${code}`
+}
+
+export function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+}
+
+/** A SAST calendar date as the @db.Date value Prisma writes. */
+export const dateOnly = (day: string): Date => new Date(`${day}T00:00:00.000Z`)
+
+/** A @db.Date value back to its calendar date. */
+export const dayOf = (value: Date): string => value.toISOString().slice(0, 10)

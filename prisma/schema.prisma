@@ -90,6 +90,7 @@ model User {
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
   kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
+  debitMandatesCreated         DebitMandate[]             @relation("DebitMandatesCreated")
 
   @@unique([tenantId, id])
 }
@@ -186,6 +187,10 @@ model Tenant {
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  debitMandates              DebitMandate[]
+  collectionBatches          CollectionBatch[]
+  collectionInstructions     CollectionInstruction[]
+  collectionResults          CollectionResult[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -491,6 +496,7 @@ model Client {
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
   kycOverrideRequests    KycOverrideRequest[]
+  debitMandates          DebitMandate[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1493,6 +1499,8 @@ model Loan {
   contractRates               ContractRate[]
   taxInvoices                 TaxInvoice[]
   surrenderRequests           SurrenderRequest[]
+  debitMandates               DebitMandate[]
+  collectionInstructions      CollectionInstruction[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1681,7 +1689,9 @@ model RepaymentSchedule {
   status                          ScheduleStatus @default(PENDING)
   paidAt                          DateTime?
   loan                            Loan           @relation(fields: [loanId], references: [id])
+  collectionInstructions          CollectionInstruction[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
 }
 
@@ -1738,6 +1748,7 @@ model Payment {
   parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
   excessPayments           Payment[]               @relation("PaymentOverpayment")
   surrenderProceeds        SurrenderRequest[]      @relation("SurrenderProceedsPayment")
+  collectionResults        CollectionResult[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])
@@ -4805,4 +4816,213 @@ model Payout {
   createdAt             DateTime            @default(now())
 
   @@unique([tenantId, dealId])
+}
+
+// ── Collections engine (W2) ─────────────────────────────────────────────────
+// DebiCheck / debit-order mandates and collections, provider-agnostic
+// (lib/collections-engine; adapters in lib/integrations/collections). Dark
+// unless TenantConfig.collectionsEngineEnabled. The hard scheme rules are also
+// enforced by migration 20261014150000_collections_engine: the presentment cap
+// (CHECK), one live mandate per loan, the mandate status transitions,
+// instructions only against an ACTIVE mandate, and idempotent result
+// ingestion (unique resultKey). Kept as one block: append, don't interleave.
+
+enum DebitMandateStatus {
+  CREATED
+  PENDING_AUTH
+  ACTIVE
+  REJECTED
+  EXPIRED
+  SUSPENDED
+  CANCELLED
+}
+
+enum DebitMandateAuthType {
+  TT1
+  TT1_DELAYED
+  TT2
+}
+
+enum DebitMandateFrequency {
+  ONCE_OFF
+  MONTHLY
+}
+
+/// DebiCheck amount-adjustment category agreed with the debtor.
+enum DebitMandateAdjustment {
+  NEVER
+  QUARTERLY
+  BIANNUALLY
+  ANNUALLY
+  REPO_RATE
+}
+
+enum CollectionBatchStatus {
+  SUBMITTING
+  SUBMITTED
+  FAILED
+}
+
+enum CollectionInstructionStatus {
+  PENDING
+  SUBMITTING
+  SUBMITTED
+  REJECTED
+  CANCELLED
+  PAID
+  UNPAID
+  DISPUTED
+}
+
+enum CollectionResultOutcome {
+  PAID
+  UNPAID
+  DISPUTED
+}
+
+/// Mirrors NormalizedReason in lib/integrations/collections/types.ts.
+enum CollectionReasonCode {
+  INSUFFICIENT_FUNDS
+  ACCOUNT_CLOSED
+  PAYMENT_STOPPED
+  MANDATE_SUSPENDED
+  MANDATE_CANCELLED
+  ACCOUNT_FROZEN
+  NO_DEBIT_FACILITY
+  NOT_FICA
+  UNKNOWN
+}
+
+/// One DebiCheck / debit-order mandate for a loan. The bank account is a
+/// snapshot: the mandate binds the account the debtor authorised, not whatever
+/// the client record says later.
+model DebitMandate {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  loanId              String
+  clientId            String
+  provider            String
+  providerMandateRef  String?
+  authType            DebitMandateAuthType
+  status              DebitMandateStatus     @default(CREATED)
+  statusReason        String?
+  statusChangedAt     DateTime               @default(now())
+  amountCents         Int
+  maxAmountCents      Int
+  debitDay            Int
+  frequency           DebitMandateFrequency
+  adjustment          DebitMandateAdjustment @default(NEVER)
+  trackingDays        Int
+  firstCollectionDate DateTime               @db.Date
+  accountHolder       String
+  bankName            String
+  branchCode          String
+  accountNumber       String
+  accountType         String
+  /// Created against the simulated provider: no bank ever saw it.
+  simulated           Boolean                @default(false)
+  createdById         String
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  loan         Loan                    @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  client       Client                  @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdBy    User                    @relation("DebitMandatesCreated", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  instructions CollectionInstruction[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, providerMandateRef])
+  @@index([tenantId, loanId])
+  @@index([tenantId, status])
+}
+
+/// One submission to the provider: every instruction sharing an action date.
+model CollectionBatch {
+  id               String                @id @default(cuid())
+  tenantId         String
+  provider         String
+  providerBatchRef String?
+  actionDate       DateTime              @db.Date
+  status           CollectionBatchStatus @default(SUBMITTING)
+  instructionCount Int
+  totalCents       Int
+  acceptedCount    Int                   @default(0)
+  rejectedCount    Int                   @default(0)
+  error            String?
+  simulated        Boolean               @default(false)
+  submittedAt      DateTime?
+  createdAt        DateTime              @default(now())
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  instructions CollectionInstruction[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, providerBatchRef])
+  @@index([tenantId, createdAt])
+}
+
+/// One presentment of one instalment under one mandate. presentmentNo counts
+/// the presentments of that instalment in this mandate's cycle (scheme cap 2).
+model CollectionInstruction {
+  id                  String                      @id @default(cuid())
+  tenantId            String
+  mandateId           String
+  loanId              String
+  repaymentScheduleId String
+  installmentNo       Int
+  presentmentNo       Int
+  amountCents         Int
+  actionDate          DateTime                    @db.Date
+  trackingDays        Int
+  instructionRef      String
+  status              CollectionInstructionStatus @default(PENDING)
+  statusReason        String?
+  batchId             String?
+  submittedAt         DateTime?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  mandate           DebitMandate       @relation(fields: [tenantId, mandateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loan              Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  repaymentSchedule RepaymentSchedule  @relation(fields: [tenantId, repaymentScheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  batch             CollectionBatch?   @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  results           CollectionResult[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, instructionRef])
+  @@index([tenantId, status, actionDate])
+  @@index([tenantId, loanId])
+  @@index([mandateId])
+}
+
+/// A provider outcome for one instruction. resultKey is unique per provider,
+/// so ingesting the same outcome twice is a no-op.
+model CollectionResult {
+  id                 String                  @id @default(cuid())
+  tenantId           String
+  provider           String
+  instructionId      String
+  resultKey          String
+  outcome            CollectionResultOutcome
+  reasonCode         CollectionReasonCode?
+  rawCode            String?
+  rawPayload         Json
+  settledAmountCents Int?
+  resolvedAt         DateTime
+  simulated          Boolean                 @default(false)
+  paymentId          String?
+  /// When the engine finished acting on it (allocated, or recorded why not).
+  processedAt        DateTime?
+  allocationError    String?
+  createdAt          DateTime                @default(now())
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id])
+  instruction CollectionInstruction @relation(fields: [tenantId, instructionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  payment     Payment?              @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, resultKey])
+  @@index([tenantId, instructionId])
 }

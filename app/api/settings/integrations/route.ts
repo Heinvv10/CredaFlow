@@ -4,9 +4,11 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
+import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { SIMULATED_PROVIDER_ID } from "@/lib/integrations/collections/simulated"
 
 // Registry keys from lib/integrations/collections/registry.ts, plus null (= off).
-const VALID_COLLECTION_PROVIDERS = [null, "netcash"]
+const VALID_COLLECTION_PROVIDERS = [null, "netcash", SIMULATED_PROVIDER_ID]
 
 function maskKey(value: string | null): string {
   if (!value) return ""
@@ -104,6 +106,17 @@ export async function PATCH(req: NextRequest) {
       }
       if (!VALID_COLLECTION_PROVIDERS.includes(body.avsProvider ?? null)) {
         return NextResponse.json({ error: "Unknown AVS provider" }, { status: 400 })
+      }
+      // Choosing the simulator where it would refuse every call is a
+      // misconfiguration: say so now, not at the first collection run.
+      if (
+        (body.collectionProvider === SIMULATED_PROVIDER_ID || body.avsProvider === SIMULATED_PROVIDER_ID)
+        && !isSimulationPermitted("simulated-collections")
+      ) {
+        return NextResponse.json(
+          { error: "The simulated provider is not permitted on this deployment (SIMULATED_INTEGRATIONS)" },
+          { status: 422 },
+        )
       }
 
       if ("collectionsEngineEnabled" in body) {

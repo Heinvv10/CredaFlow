@@ -26,6 +26,7 @@ import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
+import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -296,6 +297,8 @@ export default async function LoanDetailPage(
               />
             </DataPanel>
           )}
+
+          <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
 
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (
