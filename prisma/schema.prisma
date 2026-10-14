@@ -2809,6 +2809,9 @@ enum SigningOtpPurpose {
   AGREEMENT
   DEBIT_MANDATE
   DOCUMENT
+  // An asset-finance deal document (DealSigner row): agreement, suretyship,
+  // resolution. subjectId is the DealSigner id.
+  DEAL_DOCUMENT
 }
 
 // One borrower signing OTP (lib/signing-otp). Bound to the client, the thing
@@ -2829,7 +2832,7 @@ model SigningOtpChallenge {
   codeHash          String
   channel           Channel
   maskedDestination String
-  deliveryStatus    String // ACCEPTED | SIMULATED | FAILED
+  deliveryStatus    String // PENDING (before the send) | ACCEPTED | SIMULATED | FAILED
   sentAt            DateTime?
   expiresAt         DateTime
   attempts          Int               @default(0)

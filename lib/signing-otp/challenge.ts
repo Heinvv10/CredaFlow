@@ -14,6 +14,8 @@ import { SIGNING_OTP_SIGN_WINDOW_MS, signingOtpMatches } from "./code"
 
 type Db = Pick<typeof PrismaClientInstance, "signingOtpChallenge">
 
+const DELIVERED: readonly string[] = ["ACCEPTED", "SIMULATED"]
+
 export type ChallengeState = {
   attempts: number
   maxAttempts: number
@@ -28,7 +30,8 @@ export type VerifyRefusal = "not_found" | "already_used" | "delivery_failed" | "
 /** Why a code may not be tried at all right now; null when it may. */
 export function verifyBlockedReason(row: ChallengeState, now: Date): Exclude<VerifyRefusal, "not_found" | "wrong_code"> | null {
   if (row.consumedAt) return "already_used"
-  if (row.deliveryStatus === "FAILED") return "delivery_failed"
+  // PENDING (send not yet settled) and FAILED codes never reached anyone.
+  if (!DELIVERED.includes(row.deliveryStatus)) return "delivery_failed"
   if (now.getTime() >= row.expiresAt.getTime()) return "expired"
   if (row.attempts >= row.maxAttempts) return "locked"
   return null
@@ -90,7 +93,7 @@ export async function verifySigningOtp(
       attempts: { lt: row.maxAttempts },
       verifiedAt: null,
       consumedAt: null,
-      deliveryStatus: { not: "FAILED" },
+      deliveryStatus: { in: [...DELIVERED] },
       expiresAt: { gt: now },
     },
     data: { attempts: { increment: 1 } },

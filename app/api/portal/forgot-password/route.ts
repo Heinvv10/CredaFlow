@@ -100,8 +100,10 @@ export async function POST(req: NextRequest) {
     const otpRecord = await prisma.clientOtp.create({ data: { email: normalised, otp, expiresAt } })
 
     if (whatsappLeg && clientReachableOnWhatsApp(client)) {
+      // Detached: awaiting the provider round-trip would make a matched email
+      // measurably slower than an unknown one (an account-existence oracle).
       // Failures are audited inside; the caller is told the same as always.
-      await sendPortalOtpByWhatsApp({ tenantId, client, code: otp, purpose: "password_reset", otpRecordId: otpRecord.id })
+      void sendPortalOtpByWhatsApp({ tenantId, client, code: otp, purpose: "password_reset", otpRecordId: otpRecord.id })
         .catch((err: unknown) => { console.error("[portal-forgot] WhatsApp send failed:", err) })
       return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
     }
@@ -134,8 +136,9 @@ export async function POST(req: NextRequest) {
       // route. The OTP row is already written; the user can re-request a
       // code on the second screen. The messaging-retry cron picks up TRANSIENT
       // failures + the SUPPRESSED_BY_CONSENT terminal state is logged in
-      // the Message row for ops.
-      await sendMessage({
+      // the Message row for ops. Not awaited, so the provider round-trip does
+      // not tell a matched email from an unknown one by response time.
+      void sendMessage({
         contactId: contact.id,
         channel: "EMAIL",
         template,
@@ -152,7 +155,8 @@ export async function POST(req: NextRequest) {
     // Legacy path: direct sendEmail() — kept until all tenants are
     // confirmed on the new send pipeline.
     const { tradingName } = legacyIdentity
-    await sendEmail({
+    // Detached for the same timing reason as the legs above.
+    void sendEmail({
       tenantId,
       to: normalised,
       toName: `${client.firstName} ${client.lastName}`,
@@ -174,6 +178,8 @@ export async function POST(req: NextRequest) {
       `,
       text: `Your ${tradingName} portal password reset code is: ${otp}. It expires in 15 minutes.`,
       category: "portal-otp",
+    }).catch((err: unknown) => {
+      console.error("[portal-forgot] reset email failed:", err)
     })
 
     return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })

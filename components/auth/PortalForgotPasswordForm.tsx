@@ -159,7 +159,7 @@ export default function PortalForgotPasswordForm({
                 <h2 className="text-lg font-bold text-[var(--cf-text)]">Enter your reset code</h2>
                 <p className="mt-1 text-sm text-[var(--cf-text-secondary)]">
                   If an account exists for <strong>{email}</strong>, we&apos;ve sent a 6-digit code
-                  {channel === "WHATSAPP" ? " to the WhatsApp number on file (or by email if we can't reach you there)" : " by email"}.
+                  {channel === "WHATSAPP" ? " to the WhatsApp number on file (or by email if there is no WhatsApp number on file)" : " by email"}.
                   Enter it below with your new password. The code expires in 15 minutes.
                 </p>
               </div>

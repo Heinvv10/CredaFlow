@@ -11,8 +11,14 @@ import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
 import { dbDate } from "./dates"
 import { createPayoutChecklist } from "./payout-checklist-store"
+import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
+import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 
-type AgreementResult = { kind: "not_found" } | { kind: "not_ready"; reason: string } | { kind: "done"; documentId?: string; sha256?: string }
+type AgreementResult =
+  | { kind: "not_found" }
+  | { kind: "not_ready"; reason: string }
+  | { kind: "signing_otp"; reason: SigningOtpRefusedError["reason"] }
+  | { kind: "done"; documentId?: string; sha256?: string }
 
 const SELECT = {
   id: true, tenantId: true, clientId: true, status: true, contractType: true, decidedAt: true,
@@ -104,7 +110,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
   return { kind: "done", documentId, sha256 }
 }
 
-export async function signAssetNcaAgreement(args: { tenantId: string; clientId: string; clientEmail?: string | null; dealId: string; signature: string; documentSha256: string; ip?: string | null }): Promise<AgreementResult> {
+export async function signAssetNcaAgreement(args: { tenantId: string; clientId: string; clientEmail?: string | null; dealId: string; signature: string; documentSha256: string; ip?: string | null; signingOtpChallengeId?: string | null }): Promise<AgreementResult> {
   const deal = await prisma.assetFinanceDeal.findFirst({ where: { id: args.dealId, tenantId: args.tenantId, clientId: args.clientId }, select: { status: true, application: { select: { id: true, status: true, agreementDocumentId: true, agreementDocumentSha256: true, agreementSignedAt: true } } } })
   if (!deal) return { kind: "not_found" }
   const app = deal.application
@@ -113,18 +119,43 @@ export async function signAssetNcaAgreement(args: { tenantId: string; clientId: 
   const documentId = app.agreementDocumentId
   const document = await prisma.clientDocument.findFirst({ where: { id: documentId, tenantId: args.tenantId, clientId: args.clientId, storagePath: { not: null }, contentSha256: args.documentSha256 }, select: { storagePath: true } })
   if (!document?.storagePath || !documentBytesMatchSha256(await readFile(document.storagePath), args.documentSha256)) return { kind: "not_ready", reason: "The agreement bytes failed their integrity check" }
+  // Signing OTP (lib/signing-otp): bound to the AGREEMENT signer row (its
+  // digest is the agreement's, set when issued) and these bytes; checked
+  // here, spent first in the transaction.
+  const signer = await prisma.dealSigner.findFirst({ where: { tenantId: args.tenantId, dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, select: { id: true } })
+  if (!signer) return { kind: "not_found" }
+  const otpBinding = { tenantId: args.tenantId, clientId: args.clientId, purpose: "DEAL_DOCUMENT" as const, subjectId: signer.id, documentSha256: args.documentSha256 }
+  const otpRequired = await isSigningOtpRequired(args.tenantId, "portal")
+  if (otpRequired) {
+    const refusal = await checkSigningOtp(prisma, args.signingOtpChallengeId, otpBinding)
+    if (refusal) return { kind: "signing_otp", reason: refusal }
+  }
   const signedAt = new Date()
-  await prisma.$transaction(async (tx) => {
-    await tx.clientDocument.update({ where: { id: documentId }, data: { verified: true, verifiedAt: signedAt, signatureState: "signed", signedAt, signedByIp: args.ip ?? null } })
-    await tx.loanApplication.update({ where: { id: app.id, tenantId: args.tenantId }, data: { agreementSignedAt: signedAt, agreementSignedMethod: "portal", agreementSignedByIp: args.ip ?? null, agreementSignatureData: args.signature } })
-    await tx.dealSigner.update({ where: { dealId_clientId_document: { dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, tenantId: args.tenantId }, data: {
-      method: "E_SIGN", signedAt, signatureData: args.signature,
-      signatureSha256: providerCountersignatureSha256(args.signature), signedByIp: args.ip ?? null,
-    } })
-    await logAuditStrict({ tenantId: args.tenantId, userEmail: args.clientEmail ?? undefined, action: AuditAction.AGREEMENT_SIGNED, entity: "LoanApplication", entityId: app.id, newValue: { assetFinanceDealId: args.dealId, documentSha256: args.documentSha256, method: "portal", actorClientId: args.clientId } }, tx)
-  })
+  try {
+    await prisma.$transaction(async (tx) => {
+      const signingOtp = otpRequired
+        ? await consumeSigningOtp(tx, { ...otpBinding, challengeId: args.signingOtpChallengeId!, method: "portal", now: signedAt })
+        : null
+      // Claimed only while still unsigned and still these bytes: a concurrent
+      // signature, or a re-issued agreement, makes one of these miss.
+      const doc = await tx.clientDocument.updateMany({ where: { id: documentId, tenantId: args.tenantId, contentSha256: args.documentSha256, OR: [{ signatureState: null }, { signatureState: { not: "signed" } }] }, data: { verified: true, verifiedAt: signedAt, signatureState: "signed", signedAt, signedByIp: args.ip ?? null } })
+      const application = await tx.loanApplication.updateMany({ where: { id: app.id, tenantId: args.tenantId, agreementSignedAt: null, agreementDocumentSha256: args.documentSha256 }, data: { agreementSignedAt: signedAt, agreementSignedMethod: "portal", agreementSignedByIp: args.ip ?? null, agreementSignatureData: args.signature } })
+      if (doc.count !== 1 || application.count !== 1) throw new AgreementChangedWhileSigning()
+      await tx.dealSigner.update({ where: { dealId_clientId_document: { dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, tenantId: args.tenantId }, data: {
+        method: "E_SIGN", signedAt, signatureData: args.signature,
+        signatureSha256: providerCountersignatureSha256(args.signature), signedByIp: args.ip ?? null,
+      } })
+      await logAuditStrict({ tenantId: args.tenantId, userEmail: args.clientEmail ?? undefined, action: AuditAction.AGREEMENT_SIGNED, entity: "LoanApplication", entityId: app.id, newValue: { assetFinanceDealId: args.dealId, documentSha256: args.documentSha256, method: "portal", actorClientId: args.clientId, ...(signingOtp ? { signingOtp } : {}) } }, tx)
+    })
+  } catch (error) {
+    if (error instanceof SigningOtpRefusedError) return { kind: "signing_otp", reason: error.reason }
+    if (error instanceof AgreementChangedWhileSigning) return { kind: "not_ready", reason: "The agreement was signed or changed while you were signing" }
+    throw error
+  }
   return { kind: "done" }
 }
+
+class AgreementChangedWhileSigning extends Error {}
 
 export async function countersignAssetNcaAgreement(actor: { tenantId: string; userId: string; userEmail: string }, dealId: string, signature: string): Promise<AgreementResult> {
   const deal = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId: actor.tenantId }, select: { clientId: true, application: { select: { id: true, status: true, agreementDocumentSha256: true, agreementSignedAt: true, agreementSignedMethod: true, agreementSignatureData: true, agreementCountersignedAt: true } } } })

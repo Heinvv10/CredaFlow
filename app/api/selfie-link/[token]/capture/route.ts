@@ -9,6 +9,7 @@ import {
   SELFIE_LINK_REJECTION_MESSAGE,
   type SelfieLinkRejection,
 } from "@/lib/kyc/selfie-link-token.server"
+import { portalOffRefusal } from "@/lib/portal/portal-policy"
 
 export const dynamic = "force-dynamic"
 
@@ -118,6 +119,9 @@ export async function POST(
       { status: STATUS[resolved.reason] },
     )
   }
+  // The lender switched its portal off: its borrower-facing links close too.
+  const portalOff = await portalOffRefusal(resolved.link.tenantId)
+  if (portalOff) return portalOff
 
   // Parsed inside its own guard for the same reason the authenticated sibling
   // route is: a malformed or truncated multipart body — routine on the flaky

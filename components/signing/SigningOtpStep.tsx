@@ -24,7 +24,7 @@ export function SigningOtpStep({
   channels,
   onVerified,
 }: {
-  purpose: "AGREEMENT" | "DEBIT_MANDATE" | "DOCUMENT"
+  purpose: "AGREEMENT" | "DEBIT_MANDATE" | "DOCUMENT" | "DEAL_DOCUMENT"
   subjectId: string
   documentSha256: string | null
   channels: SigningOtpChannel[]

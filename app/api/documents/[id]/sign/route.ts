@@ -78,10 +78,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Document is already signed" }, { status: 409 })
     }
 
-    // Signing OTP (lib/signing-otp/policy.ts). A CLIENT session is portal
-    // signing whatever `method` it names, so it cannot claim the branch
-    // exemption. The code is bound to the document's content digest.
-    const otpMethod = caller.type === "client" ? "portal" : method
+    // Signing OTP (lib/signing-otp/policy.ts). The session decides the method,
+    // not the body: a CLIENT is portal signing (it cannot claim the branch
+    // exemption), staff are a branch witness. The code is bound to the
+    // document's content digest.
+    const otpMethod = caller.type === "client" ? "portal" : "branch"
     const signingOtpNeeded = await isSigningOtpRequired(tenant.id, otpMethod)
     const signingOtpChallengeId = signingOtpChallengeIdFrom(body)
     const signingOtpBinding = {
@@ -117,18 +118,32 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               now: signedAt,
             })
           : null
-        const row = await tx.clientDocument.update({
-          where: { id, tenantId: tenant.id },
+        // Claimed only while still unsigned and still the bytes that were
+        // checked: a concurrent signature or a replaced file misses, and the
+        // transaction (code included) rolls back.
+        const claimed = await tx.clientDocument.updateMany({
+          where: {
+            id,
+            tenantId: tenant.id,
+            deletedAt: null,
+            contentSha256: doc.contentSha256,
+            OR: [{ signatureState: null }, { signatureState: { not: "signed" } }],
+          },
           data: {
             signatureState: "signed",
             signedAt,
             signedByIp: ip,
           },
         })
+        if (claimed.count !== 1) throw new DocumentChangedWhileSigning()
+        const row = await tx.clientDocument.findFirstOrThrow({ where: { id, tenantId: tenant.id } })
         return { row, signingOtp }
       })
     } catch (error) {
       if (error instanceof SigningOtpRefusedError) return signingOtpRefusal(error.reason)
+      if (error instanceof DocumentChangedWhileSigning) {
+        return NextResponse.json({ error: "The document was signed or changed while you were signing." }, { status: 409 })
+      }
       throw error
     }
     const { row: updated, signingOtp } = signed
@@ -158,3 +173,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json(updated)
   })
 }
+
+class DocumentChangedWhileSigning extends Error {}

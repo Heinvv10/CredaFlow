@@ -14,12 +14,13 @@ import { prisma } from "@/lib/prisma"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 import type { OtpRecipient } from "./deliver"
 
-export const SIGNING_OTP_PURPOSES: readonly SigningOtpPurpose[] = ["AGREEMENT", "DEBIT_MANDATE", "DOCUMENT"]
+export const SIGNING_OTP_PURPOSES: readonly SigningOtpPurpose[] = ["AGREEMENT", "DEBIT_MANDATE", "DOCUMENT", "DEAL_DOCUMENT"]
 
 export const DOCUMENT_LABELS: Record<SigningOtpPurpose, string> = {
   AGREEMENT: "credit agreement",
   DEBIT_MANDATE: "debit order mandate",
   DOCUMENT: "document",
+  DEAL_DOCUMENT: "finance document",
 }
 
 export type SigningSubject = {
@@ -43,6 +44,23 @@ export async function resolveSigningSubject(
   purpose: SigningOtpPurpose,
   subjectId: string,
 ): Promise<SubjectResult> {
+  if (purpose === "DEAL_DOCUMENT") {
+    // The asset-finance signer row; its digest is what both e-sign paths
+    // (recordESignature, signAssetNcaAgreement) bind the signature to.
+    const signer = await prisma.dealSigner.findFirst({
+      where: { id: subjectId, tenantId },
+      select: { clientId: true, method: true, documentSha256: true, deal: { select: { status: true } }, client: clientSelect },
+    })
+    if (!signer) return { ok: false, status: 404, error: "Document not found." }
+    if (signer.method !== null || signer.deal.status !== "APPROVED") return notAwaiting("document")
+    if (!isSha256Digest(signer.documentSha256)) {
+      return { ok: false, status: 422, error: "The document has not been prepared for signing yet." }
+    }
+    return {
+      ok: true,
+      subject: { tenantId, clientId: signer.clientId, purpose, subjectId, documentSha256: signer.documentSha256, recipient: signer.client },
+    }
+  }
   if (purpose === "DOCUMENT") {
     const doc = await prisma.clientDocument.findFirst({
       where: { id: subjectId, tenantId, deletedAt: null },

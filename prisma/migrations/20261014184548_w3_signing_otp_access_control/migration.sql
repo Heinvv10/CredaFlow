@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "SigningOtpPurpose" AS ENUM ('AGREEMENT', 'DEBIT_MANDATE', 'DOCUMENT');
+CREATE TYPE "SigningOtpPurpose" AS ENUM ('AGREEMENT', 'DEBIT_MANDATE', 'DOCUMENT', 'DEAL_DOCUMENT');
 
 -- AlterTable
 ALTER TABLE "TenantConfig" ADD COLUMN     "allowNewRegistrations" BOOLEAN NOT NULL DEFAULT true,
@@ -56,10 +56,12 @@ ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_tenantId_c
 -- ever travel by email or WhatsApp.
 ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_channel_check"
   CHECK ("channel" IN ('EMAIL', 'WHATSAPP'));
+-- PENDING: the row is written (and counted against the request budget) before
+-- the send; the send's outcome then settles it once.
 ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_delivery_check"
   CHECK (
     ("deliveryStatus" IN ('ACCEPTED', 'SIMULATED') AND "sentAt" IS NOT NULL)
-    OR ("deliveryStatus" = 'FAILED' AND "sentAt" IS NULL)
+    OR ("deliveryStatus" IN ('PENDING', 'FAILED') AND "sentAt" IS NULL)
   );
 ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_document_sha256_check"
   CHECK ("documentSha256" ~ '^[0-9a-f]{64}$');
@@ -68,22 +70,26 @@ ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_attempts_c
 -- A code is verified before it expires, by an attempt, and only a verified
 -- code is consumed by a signature (portal or branch).
 ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_verified_check"
-  CHECK ("verifiedAt" IS NULL OR ("verifiedAt" <= "expiresAt" AND "attempts" >= 1 AND "deliveryStatus" <> 'FAILED'));
+  CHECK ("verifiedAt" IS NULL OR ("verifiedAt" <= "expiresAt" AND "attempts" >= 1 AND "deliveryStatus" IN ('ACCEPTED', 'SIMULATED')));
 ALTER TABLE "SigningOtpChallenge" ADD CONSTRAINT "SigningOtpChallenge_consumed_check"
   CHECK (
     ("consumedAt" IS NULL AND "signingMethod" IS NULL)
     OR ("consumedAt" IS NOT NULL AND "verifiedAt" IS NOT NULL AND "signingMethod" IN ('portal', 'branch'))
   );
 
--- The row is written whole once the code has been handed to the channel. After
--- that only the attempt counter may rise, and verification and consumption may
--- each be recorded once. A consumed row is the OTP evidence of a signature and
--- is frozen, delete included.
+-- The row is written PENDING before the send, and the send's outcome
+-- (deliveryStatus, sentAt) is recorded once. After that only the attempt
+-- counter may rise, and verification and consumption may each be recorded
+-- once. A consumed row is the OTP evidence of a signature and is frozen,
+-- delete included.
 CREATE OR REPLACE FUNCTION "guardSigningOtpChallenge"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
   mutable_columns TEXT[] := ARRAY['attempts', 'verifiedAt', 'consumedAt', 'signingMethod'];
 BEGIN
+  IF TG_OP = 'UPDATE' AND OLD."deliveryStatus" = 'PENDING' AND NEW."deliveryStatus" <> 'PENDING' THEN
+    mutable_columns := mutable_columns || ARRAY['deliveryStatus', 'sentAt'];
+  END IF;
   IF TG_OP = 'DELETE' THEN
     IF OLD."consumedAt" IS NOT NULL THEN
       RAISE EXCEPTION 'SigningOtpChallenge %: a consumed signing OTP is signature evidence and cannot be deleted', OLD."id"

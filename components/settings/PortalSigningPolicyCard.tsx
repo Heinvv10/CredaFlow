@@ -20,7 +20,7 @@ const ROWS: { key: keyof Policy; label: string; help: string }[] = [
   {
     key: "requireSigningOtp",
     label: "Require a one-time code for portal signing",
-    help: "Borrowers verify a code sent by email or WhatsApp before signing the agreement, debit mandate or any other document.",
+    help: "Borrowers verify a code sent by email or WhatsApp before signing the credit agreement, the debit mandate or an asset-finance document in the portal.",
   },
   {
     key: "signingOtpBranchExempt",

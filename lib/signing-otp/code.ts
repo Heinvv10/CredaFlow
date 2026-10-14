@@ -16,6 +16,8 @@ export const SIGNING_OTP_MAX_ATTEMPTS = 5
 export const SIGNING_OTP_SIGN_WINDOW_MS = 15 * 60 * 1000
 /** Codes one client may request for one signing subject per window. */
 export const SIGNING_OTP_REQUEST_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
+/** Codes one client may request across every subject per window. */
+export const SIGNING_OTP_CLIENT_REQUEST_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 } as const
 
 function otpKey(): string {
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET

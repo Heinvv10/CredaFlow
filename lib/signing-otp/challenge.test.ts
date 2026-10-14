@@ -26,6 +26,7 @@ describe("verifyBlockedReason", () => {
   it("never accepts a code that was used, or one that never left", () => {
     expect(verifyBlockedReason({ ...fresh, consumedAt: now }, now)).toBe("already_used")
     expect(verifyBlockedReason({ ...fresh, deliveryStatus: "FAILED" }, now)).toBe("delivery_failed")
+    expect(verifyBlockedReason({ ...fresh, deliveryStatus: "PENDING" }, now)).toBe("delivery_failed")
   })
 })
 

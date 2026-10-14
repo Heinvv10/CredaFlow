@@ -131,6 +131,24 @@ describe("POST /api/portal/forgot-password — portal switch and WhatsApp channe
     expect(sendMessageMock).not.toHaveBeenCalled()
   })
 
+  it("answers before the WhatsApp send settles, so timing cannot reveal the account", async () => {
+    lenderRows.commsSettings = waCloud
+    sendPortalOtpByWhatsApp.mockReturnValue(new Promise(() => undefined))
+    clientFindFirstMock.mockResolvedValue({
+      id: "cl_a", email: "user@example.com", firstName: "Alice", lastName: "X", tenantId: "tenant_acme", whatsapp: "0820000001",
+    })
+    const res = await POST(buildReq({ email: "user@example.com", channel: "WHATSAPP" }))
+    expect(res.status).toBe(200)
+  })
+
+  it("answers before the legacy reset email settles", async () => {
+    delete process.env.MESSAGING_NEW_SEND_PORTAL_FORGOT
+    sendEmailMock.mockReturnValue(new Promise(() => undefined))
+    const res = await POST(buildReq({ email: "user@example.com" }))
+    expect(res.status).toBe(200)
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+  })
+
   it("uses email when the client has no WhatsApp number", async () => {
     lenderRows.commsSettings = waCloud
     const res = await POST(buildReq({ email: "user@example.com", channel: "WHATSAPP" }))

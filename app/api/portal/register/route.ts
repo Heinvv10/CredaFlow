@@ -42,7 +42,7 @@ const GENERIC_INVALID_MESSAGE = "Invalid or expired code."
 // Same rule when the borrower chose WhatsApp: every response to that request
 // carries this text, matched or not, delivered on WhatsApp or by email.
 const GENERIC_REQUEST_MESSAGE_WHATSAPP =
-  "If those details match an application, we've sent a 6-digit activation code to the WhatsApp number on file, or by email if we can't reach you there. Enter it below to finish."
+  "If those details match an application, we've sent a 6-digit activation code to the WhatsApp number on file, or by email if there is no WhatsApp number on file. Enter it below to finish."
 
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)

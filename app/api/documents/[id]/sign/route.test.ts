@@ -27,7 +27,14 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/prisma", () => {
   const signingOtpChallenge = { findFirst: otpFindFirst, findFirstOrThrow: otpFindFirst, updateMany: otpUpdateMany }
-  const tx = { clientDocument: { update: updateClientDocument }, signingOtpChallenge }
+  // updateClientDocument is the guarded claim (updateMany); the signed row is read back.
+  const tx = {
+    clientDocument: {
+      updateMany: updateClientDocument,
+      findFirstOrThrow: async () => ({ id: "doc1", tenantId: "t1", clientId: "client-1", signatureState: "signed" }),
+    },
+    signingOtpChallenge,
+  }
   return {
     prisma: {
       clientDocument: { findFirst: findFirstClientDocument, update: updateClientDocument },
@@ -69,7 +76,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv("TRUSTED_PROXY", "1")
   findFirstClientDocument.mockResolvedValue(PENDING_DOC)
-  updateClientDocument.mockResolvedValue({ ...PENDING_DOC, signatureState: "signed" })
+  updateClientDocument.mockResolvedValue({ count: 1 })
   createDocumentAccessLog.mockResolvedValue({})
   logAudit.mockResolvedValue(undefined)
   // The signing-OTP gate has its own describe block; off for the rest.
@@ -111,7 +118,13 @@ describe("POST /api/documents/[id]/sign", () => {
     expect(res.status).toBe(200)
 
     expect(updateClientDocument).toHaveBeenCalledWith({
-      where: { id: "doc1", tenantId: "t1" },
+      where: {
+        id: "doc1",
+        tenantId: "t1",
+        deletedAt: null,
+        contentSha256: undefined,
+        OR: [{ signatureState: null }, { signatureState: { not: "signed" } }],
+      },
       data: expect.objectContaining({
         signatureState: "signed",
         signedAt: expect.any(Date),
@@ -306,5 +319,40 @@ describe("POST /api/documents/[id]/sign — signing OTP gate", () => {
 
     expect(res.status).toBe(403)
     expect(updateClientDocument).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/documents/[id]/sign — guarded claim and session-decided method", () => {
+  it("409s and writes no audit or access log when the claim misses (signed or replaced concurrently)", async () => {
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "t1" })
+    updateClientDocument.mockResolvedValue({ count: 0 })
+
+    const res = await POST(req({ method: "branch" }), ctx())
+
+    expect(res.status).toBe(409)
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(createDocumentAccessLog).not.toHaveBeenCalled()
+  })
+
+  it("restates the bytes that were checked in the claim", async () => {
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "t1" })
+    findFirstClientDocument.mockResolvedValue({ ...PENDING_DOC, contentSha256: "e".repeat(64) })
+
+    await POST(req({ method: "branch" }), ctx())
+
+    expect(updateClientDocument).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ contentSha256: "e".repeat(64) }),
+    }))
+  })
+
+  it("treats a staff caller as a branch witness even when the body says portal", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ requireSigningOtp: true, signingOtpBranchExempt: true })
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "t1" })
+    findFirstClientDocument.mockResolvedValue({ ...PENDING_DOC, contentSha256: "e".repeat(64) })
+
+    const res = await POST(req({ method: "portal" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(otpUpdateMany).not.toHaveBeenCalled()
   })
 })

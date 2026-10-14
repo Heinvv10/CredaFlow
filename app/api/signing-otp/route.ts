@@ -47,9 +47,10 @@ export async function POST(req: NextRequest) {
     if (!isSha256Digest(body?.documentSha256)) {
       return NextResponse.json({ error: "documentSha256 of the document shown is required." }, { status: 400 })
     }
-    // The debit mandate is signed by the account holder in the portal only.
-    if (caller.kind === "staff" && purpose === "DEBIT_MANDATE") {
-      return NextResponse.json({ error: "The debit mandate is signed in the customer portal." }, { status: 403 })
+    // The debit mandate and asset-finance deal documents are e-signed by the
+    // signer in the portal only (a deal's branch path is wet ink, confirmed).
+    if (caller.kind === "staff" && (purpose === "DEBIT_MANDATE" || purpose === "DEAL_DOCUMENT")) {
+      return NextResponse.json({ error: "This document is signed in the customer portal." }, { status: 403 })
     }
     if (!(await isSigningOtpRequired(tenant.id, caller.method))) {
       return NextResponse.json({ error: "A signing code is not required for this signature." }, { status: 409 })

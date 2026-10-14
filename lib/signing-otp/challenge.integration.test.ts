@@ -39,6 +39,13 @@ async function challenge(over: Record<string, unknown> = {}) {
   })
   return id
 }
+async function freshClient(): Promise<string> {
+  const email = `otp-${randomUUID().slice(0, 8)}@client.invalid`
+  const c = await db.client.create({
+    data: { tenantId, idNumber: syntheticSaId(), firstName: "Otp", lastName: "Fixture", email, phone: "0820000000" },
+  })
+  return c.id
+}
 const binding = () => ({ tenantId, clientId, purpose: "AGREEMENT" as const, subjectId: "app-1", documentSha256: DIGEST })
 const verify = (challengeId: string, code: string) => verifySigningOtp(prisma, { tenantId, clientId, challengeId, code })
 const consume = (challengeId: string, over: Partial<ReturnType<typeof binding>> = {}) =>
@@ -126,6 +133,7 @@ suite("signing OTP lifecycle (real database)", () => {
 
   it("issues a code end to end (demo mailbox reveal), verifies and spends it, and counts requests in the database", async () => {
     vi.stubEnv("DEMO_MODE", "true")
+    clientId = await freshClient() // its own client: the per-client request budget is shared
     const subject = {
       tenantId, clientId, purpose: "DOCUMENT" as const, subjectId: `doc-${t}`, documentSha256: DIGEST,
       recipient: { firstName: "Otp", lastName: "Fixture", email: `otp-${t}@client.invalid`, whatsapp: null },
@@ -156,6 +164,7 @@ suite("signing OTP lifecycle (real database)", () => {
   })
 
   it("records an undeliverable code as FAILED and never lets it be verified", async () => {
+    clientId = await freshClient()
     const subject = {
       tenantId, clientId, purpose: "DOCUMENT" as const, subjectId: `doc-failed-${t}`, documentSha256: DIGEST,
       recipient: { firstName: "Otp", lastName: "Fixture", email: `nobody-${t}@client.invalid`, whatsapp: null },
