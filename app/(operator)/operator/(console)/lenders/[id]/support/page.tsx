@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic"
 const REFUSAL_TEXT: Record<string, string> = {
   no_active_grant: "You hold no active support grant for this lender. Its ADMIN grants access under Settings → Support access.",
   wrong_operator: "This lender is not run by your operator.",
+  tenant_inactive: "This lender is suspended (or not yet active): support access is closed while its own staff cannot sign in.",
   totp_required: "Sign in again with two-factor authentication.",
 }
 
