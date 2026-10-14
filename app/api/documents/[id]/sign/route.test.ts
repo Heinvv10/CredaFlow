@@ -354,5 +354,15 @@ describe("POST /api/documents/[id]/sign — guarded claim and session-decided me
 
     expect(res.status).toBe(200)
     expect(otpUpdateMany).not.toHaveBeenCalled()
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ method: "branch" }) }))
+  })
+
+  it("audits a CLIENT signature as portal even when the body says branch", async () => {
+    getDocumentCaller.mockResolvedValue({ type: "client", clientId: "client-1", email: "x@y.com" })
+
+    const res = await POST(req({ method: "branch" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ method: "portal" }) }))
   })
 })

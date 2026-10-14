@@ -42,6 +42,18 @@ export type RequestResult =
 const CHANNEL_LABEL: Record<OtpChannel, string> = { EMAIL: "email", WHATSAPP: "WhatsApp" }
 
 /**
+ * A provider or pipeline error, fit for the server log and the audit row: an
+ * error text may echo the recipient or the message, so email addresses and
+ * digit runs (a phone number, the code itself) are masked, and it is capped.
+ */
+export function redactDeliveryError(text: string): string {
+  return text
+    .replace(/[^\s@"'<>]+@[^\s@"'<>]+/g, "[email]")
+    .replace(/\d[\d\s-]{4,}\d/g, "[digits]")
+    .slice(0, 300)
+}
+
+/**
  * Count the client's recent challenges (this subject, and all subjects) and
  * insert a PENDING one if both budgets allow, serialised per client. False
  * when a budget is spent.
@@ -148,6 +160,10 @@ export async function requestSigningOtp(args: {
     },
     idempotencyKey: `signing-otp:${challengeId}:${channel}`,
   }).catch((err: unknown) => ({ status: "FAILED" as const, error: err instanceof Error ? err.message : String(err) }))
+  const deliveryError = delivery.error ? redactDeliveryError(delivery.error) : null
+  if (deliveryError) {
+    console.error("[signing-otp] code delivery failed:", { challengeId, channel, error: deliveryError })
+  }
 
   // A demo borrower's .invalid mailbox never receives mail; there the screen
   // is the channel (lib/config/demo-mode.ts), recorded as SIMULATED.
@@ -173,7 +189,7 @@ export async function requestSigningOtp(args: {
       channel,
       maskedDestination,
       deliveryStatus,
-      ...(delivery.error ? { deliveryError: delivery.error } : {}),
+      ...(deliveryError ? { deliveryError } : {}),
       ...(reveal.demoCode ? { demoCodeRevealed: true } : {}),
     },
     ipAddress: args.ip ?? undefined,

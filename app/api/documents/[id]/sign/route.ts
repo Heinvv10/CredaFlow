@@ -155,7 +155,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       action: AuditAction.DOCUMENT_SIGNED,
       entity: "ClientDocument",
       entityId: id,
-      newValue: { method, signedAt: signedAt.toISOString(), ...(signingOtp ? { signingOtp } : {}) },
+      newValue: { method: otpMethod, signedAt: signedAt.toISOString(), ...(signingOtp ? { signingOtp } : {}) },
       ipAddress: ip ?? undefined,
     })
 
