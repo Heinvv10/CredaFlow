@@ -201,4 +201,21 @@ suite.sequential("bureau checks: one enquiry per person under concurrency (real 
     expect(row).toMatchObject({ provider: "experian", status: "OK", attempt: 1 })
     expect(row.obligations).toMatchObject({ simulated: true, simulationSource: "experian" })
   }, 30_000)
+
+  it("falls back only across approval bureaus: a non-approval fallback is recorded as skipped, never called", async () => {
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { bureauProviderOrder: ["experian", "transunion"] } })
+    m.provider = async () => ({ ok: false, error: "Experian 503: NS_999", errorCode: "NS_999", errorClass: "TRANSIENT", retryable: true } as Report)
+    try {
+      expect(await forced()).toBe("failed")
+    } finally {
+      m.provider = slowReport
+      await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { bureauProviderOrder: ["experian"] } })
+    }
+    const rows = await database().creditBureauCheck.findMany({
+      where: { tenantId: fx.tenantId, applicationId, clientId: fx.director },
+      orderBy: [{ createdAt: "desc" }, { attempt: "desc" }],
+      take: 2,
+    })
+    expect(rows.map((r) => [r.attempt, r.provider, r.status])).toEqual([[2, "transunion", "SKIPPED_NOT_APPROVABLE"], [1, "experian", "FAILED"]])
+  }, 30_000)
 })

@@ -44,8 +44,10 @@ suite.sequential("bureau framework (real Postgres)", () => {
 
   beforeAll(async () => {
     await prisma.tenant.create({ data: { id: tenantId, slug: `bfw-${token}`, name: "Bureau framework IT" } })
-    // XDS first: a skeleton with no credentials, so the primary fails and the run falls back.
-    await prisma.tenantConfig.create({ data: { tenantId, bureauProviderOrder: ["xds", "simulated"] } })
+    // Experian first, with no credentials and no dry-run (stubbed below), so the
+    // primary fails; XDS is not an approval bureau, so it is skipped; the
+    // simulator answers.
+    await prisma.tenantConfig.create({ data: { tenantId, bureauProviderOrder: ["experian", "xds", "simulated"] } })
     await prisma.client.create({
       data: {
         id: clientId, tenantId, reference: `CLI-${token}`, idNumber: syntheticSaId(), firstName: "Synthetic",
@@ -70,16 +72,25 @@ suite.sequential("bureau framework (real Postgres)", () => {
     await prisma.$disconnect()
   })
 
-  it("falls back from the failing primary and persists every attempt, in order", async () => {
-    await expect(runWithTenant(tenantId, () => runBureauReviewCheck(review))).resolves.toBe("stored")
+  it("falls back from the failing primary, skips a non-approval bureau, and persists every attempt in order", async () => {
+    // Experian's live path with nothing configured: NOT_CONFIGURED, not a dry-run.
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("EXPERIAN_DRY_RUN", "")
+    vi.stubEnv("EXPERIAN_USERNAME", "")
+    try {
+      await expect(runWithTenant(tenantId, () => runBureauReviewCheck(review))).resolves.toBe("stored")
+    } finally {
+      vi.unstubAllEnvs()
+    }
 
     const rows = await prisma.creditBureauCheck.findMany({ where: { tenantId, applicationId }, orderBy: { attempt: "asc" } })
     expect(rows.map((r) => [r.attempt, r.provider, r.status, r.ok])).toEqual([
-      [1, "xds", "NOT_CONFIGURED", false],
-      [2, "simulated", "OK", true],
+      [1, "experian", "NOT_CONFIGURED", false],
+      [2, "xds", "SKIPPED_NOT_APPROVABLE", false],
+      [3, "simulated", "OK", true],
     ])
     expect(rows[0].errorMessage).toMatch(/not configured/)
-    expect(rows[1].obligations).toMatchObject({ simulated: true, simulationSource: "simulated-bureau" })
+    expect(rows[2].obligations).toMatchObject({ simulated: true, simulationSource: "simulated-bureau" })
     expect(rows.every((r) => r.reviewGeneration === reviewGeneration && r.subjectFingerprint)).toBe(true)
 
     const record = await prisma.complianceRecord.findFirstOrThrow({ where: { tenantId, referenceId: applicationId, type: "CREDIT_BUREAU_CHECK" } })
