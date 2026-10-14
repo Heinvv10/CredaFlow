@@ -33,6 +33,10 @@ describe("minimumLivingExpense (NCA Reg 23A, 2015)", () => {
     expect(minimumLivingExpense(6_250_00)).toBe(1_167_88)
   })
 
+  it("enters the 9% bracket at R6,250.01", () => {
+    expect(minimumLivingExpense(6_250_01)).toBe(1_167_88)
+  })
+
   it("uses the 9% bracket above R6,250", () => {
     // R1,167.88 + 9% × (R10,000 - R6,250) = 1167.88 + 337.50 = R1,505.38
     expect(minimumLivingExpense(10_000_00)).toBe(1_505_38)
@@ -43,6 +47,10 @@ describe("minimumLivingExpense (NCA Reg 23A, 2015)", () => {
     expect(minimumLivingExpense(25_000_00)).toBe(2_855_38)
   })
 
+  it("enters the 8.2% bracket at R25,000.01", () => {
+    expect(minimumLivingExpense(25_000_01)).toBe(2_855_38)
+  })
+
   it("uses the 8.2% bracket above R25,000", () => {
     // R2,855.38 + 8.2% × (R40,000 - R25,000) = 2855.38 + 1230.00 = R4,085.38
     expect(minimumLivingExpense(40_000_00)).toBe(4_085_38)
@@ -51,6 +59,10 @@ describe("minimumLivingExpense (NCA Reg 23A, 2015)", () => {
   it("computes R4,905.38 at the R50,000 boundary", () => {
     // R2,855.38 + 8.2% × (R50,000 - R25,000) = 2855.38 + 2050.00 = R4,905.38
     expect(minimumLivingExpense(50_000_00)).toBe(4_905_38)
+  })
+
+  it("enters the 6.75% bracket at R50,000.01", () => {
+    expect(minimumLivingExpense(50_000_01)).toBe(4_905_38)
   })
 
   it("uses the 6.75% bracket above R50,000", () => {
