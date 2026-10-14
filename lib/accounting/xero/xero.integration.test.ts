@@ -15,7 +15,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { sealSecret, openSecret } from "@/lib/crypto/secret-box"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { closePeriod } from "../generate"
-import { xeroAccessToken } from "./connection"
+import { completeXeroConnect, disconnectXero, startXeroConnect, xeroAccessToken } from "./connection"
 import { pushBatchToXero } from "./push"
 
 const suite = process.env.RUN_ACCOUNTING_IT === "1" ? describe : describe.skip
@@ -31,7 +31,7 @@ async function connect(expiresAt: Date) {
   await db.xeroConnection.upsert({
     where: { tenantId },
     create: { tenantId, status: "CONNECTED", xeroTenantId: "org-1", xeroTenantName: "Demo Org", accessTokenSealed: sealSecret("at-0", KEY), refreshTokenSealed: sealSecret("rt-0", KEY), accessTokenExpiresAt: expiresAt },
-    update: { status: "CONNECTED", accessTokenSealed: sealSecret("at-0", KEY), refreshTokenSealed: sealSecret("rt-0", KEY), accessTokenExpiresAt: expiresAt },
+    update: { status: "CONNECTED", xeroTenantId: "org-1", xeroTenantName: "Demo Org", accessTokenSealed: sealSecret("at-0", KEY), refreshTokenSealed: sealSecret("rt-0", KEY), accessTokenExpiresAt: expiresAt },
   })
 }
 
@@ -49,6 +49,28 @@ suite.sequential("Xero push (real Postgres, stubbed fetch)", () => {
   afterAll(async () => {
     vi.unstubAllEnvs()
     await db.$disconnect()
+  })
+
+  it("connects through PKCE: the state is this admin's, fresh and single-use; tokens land sealed", async () => {
+    const url = new URL(await startXeroConnect(prisma, { tenantId, userId: actor.id }))
+    const state = url.searchParams.get("state")!
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256")
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(json(200, { access_token: "at-c", refresh_token: "rt-c", expires_in: 1800 }))
+      .mockResolvedValueOnce(json(200, [{ id: "conn-1", tenantId: "org-1", tenantName: "Demo Org", tenantType: "ORGANISATION" }]))
+    await expect(completeXeroConnect(prisma, { tenantId, userId: "someone-else", state, code: "c" }, { fetch })).rejects.toThrow(/not valid here or has expired/)
+    await expect(completeXeroConnect(prisma, { tenantId, userId: actor.id, state, code: "c", now: new Date(Date.now() + 11 * 60_000) }, { fetch })).rejects.toThrow(/expired/)
+    const out = await completeXeroConnect(prisma, { tenantId, userId: actor.id, state, code: "c" }, { fetch })
+    expect(out).toMatchObject({ status: "CONNECTED", organisation: { tenantId: "org-1" } })
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(new URLSearchParams(String(init.body)).get("code_verifier")).toBeTruthy()
+    await expect(completeXeroConnect(prisma, { tenantId, userId: actor.id, state, code: "c" }, { fetch })).rejects.toThrow(/not valid here/)
+    const row = await db.xeroConnection.findUniqueOrThrow({ where: { tenantId } })
+    expect(row).toMatchObject({ status: "CONNECTED", xeroTenantId: "org-1", authState: null, authVerifierSealed: null })
+    expect(row.accessTokenSealed).not.toContain("at-c")
+    const cleanup = vi.fn(async () => new Response(null, { status: 200 }))
+    expect(await disconnectXero(prisma, { tenantId }, { fetch: cleanup })).toEqual({ remoteCleanup: true })
+    expect(await db.xeroConnection.findUniqueOrThrow({ where: { tenantId } })).toMatchObject({ status: "DISCONNECTED", accessTokenSealed: null, refreshTokenSealed: null })
   })
 
   it("refreshes an expired token once when two callers race, and stores the rotated pair sealed", async () => {
