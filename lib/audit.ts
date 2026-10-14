@@ -544,4 +544,19 @@ export const AuditAction = {
   // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
   TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
   TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
+  // PEP / sanctions screening (lib/screening). Types and results only: never
+  // the matched list entries, which would put "possible PEP" in the audit view.
+  SCREENING_RUN: "SCREENING_RUN",
+  SCREENING_RUN_FAILED: "SCREENING_RUN_FAILED",
+  SCREENING_MATCH_REVIEWED: "SCREENING_MATCH_REVIEWED",
+  SCREENING_CONFIG_UPDATED: "SCREENING_CONFIG_UPDATED",
+  // FIC Act registers (lib/fic). STR rows carry the case id and status only:
+  // the audit view is wider than the STR register, and naming the client
+  // there would spread knowledge of the report (tipping-off risk).
+  CTR_RECORDED: "CTR_RECORDED",
+  FIC_EXPORTED: "FIC_EXPORTED",
+  STR_CASE_RAISED: "STR_CASE_RAISED",
+  STR_CASE_UPDATED: "STR_CASE_UPDATED",
+  RMCP_UPLOADED: "RMCP_UPLOADED",
+  RMCP_APPROVED: "RMCP_APPROVED",
 } as const

@@ -49,6 +49,7 @@ import {
   type PasqBillingEvidence,
 } from "@/lib/compliance/pasq"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { lockedScreeningAllowsApproval, screeningApprovalGate } from "@/lib/screening/gate"
 
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
@@ -1087,6 +1088,28 @@ export async function POST(
           },
         })
 
+        // PEP / sanctions screening (lib/screening): re-screens when stale, then
+        // a match refers to a senior reviewer and a sanctions match blocks with
+        // no override. The transaction re-reads it under the client's screening
+        // lock; the trigger LoanApplication_a1_guard_screening is the backstop.
+        const screening = await screeningApprovalGate({
+          tenantId: tenant.id,
+          clientId: application.clientId,
+          applicationId: id,
+          actor: { id: guard.user.id, email: guard.user.email },
+        })
+        if (!screening.allowed) {
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${screening.message}`,
+              screening: screening.state,
+              requiresOverride: false,
+              ...(screening.providerError ? { screeningProviderError: screening.providerError } : {}),
+            },
+            { status: 422 },
+          )
+        }
+
         // Credit checks (lib/credit-checks) refer, they do not decide: every
         // flag still OPEN after a fresh recompute blocks approval until a
         // LOAN_ADMIN clears it with a reason. The transaction re-counts under
@@ -1148,6 +1171,9 @@ export async function POST(
             })
             if (openFlags > 0) {
               return { ok: false as const, reason: "checks_open" as const }
+            }
+            if (!(await lockedScreeningAllowsApproval(tx, tenant.id, locked.application.client.id))) {
+              return { ok: false as const, reason: "screening_changed" as const }
             }
             // Evidence that arrived after the recompute read it has not been
             // checked: new or deleted statements and payslips, new statement
@@ -1348,6 +1374,13 @@ export async function POST(
               { status: 409 }
             )
           }
+          // The screening trigger: a run that landed after the re-read above.
+          if (String(error).includes("screening blocks approval") || String(error).includes("has not been screened")) {
+            return NextResponse.json(
+              { error: "Approval blocked: the client's screening changed while approving. Refresh and review it first." },
+              { status: 409 },
+            )
+          }
           // The open-check-flags trigger: a flag raised after the count above.
           if (String(error).includes("open credit-check flags")) {
             return NextResponse.json(
@@ -1370,6 +1403,12 @@ export async function POST(
           if (approvalWrite.reason === "checks_stale") {
             return NextResponse.json(
               { error: "Statements or payslips changed while approving (one arrived, was deleted, or finished extracting). Refresh Credit checks and review them first." },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "screening_changed") {
+            return NextResponse.json(
+              { error: "Approval blocked: the client's screening changed while approving. Refresh and review it first." },
               { status: 409 },
             )
           }

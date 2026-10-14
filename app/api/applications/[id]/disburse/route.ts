@@ -54,6 +54,8 @@ import {
   DisbursementPreconditionError,
 } from "@/lib/disbursement/preconditions"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { readClientScreening } from "@/lib/screening/gate"
+import { screeningAllowsApproval, screeningStateMessage } from "@/lib/screening/state"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -316,6 +318,18 @@ export async function POST(
           { error: "Only approved applications can be disbursed" },
           { status: 400 }
         )
+      }
+
+      // A sanctions hit, or a match a periodic re-screen raised after approval,
+      // stops the payout. No provider call here; the trigger
+      // LoanApplication_a1_guard_screening refuses the DISBURSED write as well.
+      const screening = await readClientScreening(tenant.id, application.clientId)
+      if (!screeningAllowsApproval(screening.state)) {
+        return NextResponse.json({
+          error: `Cannot disburse: ${screeningStateMessage(screening.state)}`,
+          disbursementPrecondition: "screening",
+          screening: screening.state,
+        }, { status: 422 })
       }
 
       // Require signed agreement before disbursement

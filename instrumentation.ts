@@ -169,6 +169,14 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 13 jobs active")
+    // PEP / sanctions re-screen of active clients whose latest run is older
+    // than SCREENING_MAX_AGE_DAYS (lib/screening/refresh.ts). Idle for tenants
+    // without TenantConfig.screeningProvider. Nightly, outside business hours,
+    // because each client is a provider call.
+    cron.schedule("15 2 * * *", () => callCron("/api/cron/screening-refresh"), {
+      timezone: SAST,
+    })
+
+    console.log("[cron] scheduler registered — 14 jobs active")
   }
 }

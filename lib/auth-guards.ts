@@ -345,6 +345,9 @@ export const PERMISSIONS = {
   // decide: credit decisions, NCA regime overrides, supplier bank approvals, payouts.
   manage_asset_finance: "CREDIT_OFFICER" as UserRole,
   decide_asset_finance: "LOAN_ADMIN" as UserRole,
+  // FIC Act tooling (lib/fic). Keep identical to lib/permissions.ts.
+  manage_fic_compliance: "ADMIN" as UserRole,
+  raise_suspicious_report: "COLLECTIONS_OFFICER" as UserRole,
 } as const
 
 export type PermissionKey = keyof typeof PERMISSIONS

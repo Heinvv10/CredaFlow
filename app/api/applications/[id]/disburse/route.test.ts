@@ -184,6 +184,12 @@ const {
 
 // No tenant logo: documents print the text letterhead (lib/config/lender-logo.ts).
 vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: async () => undefined }))
+// Screening state is tested in lib/screening; default CLEAR keeps the payout
+// gates below the subject of every other test.
+const { readClientScreening } = vi.hoisted(() => ({
+  readClientScreening: vi.fn(),
+}))
+vi.mock("@/lib/screening/gate", () => ({ readClientScreening }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: {
@@ -736,6 +742,8 @@ function buildTxMock(opts: {
 }
 
 beforeEach(() => {
+  readClientScreening.mockReset()
+  readClientScreening.mockResolvedValue({ state: { state: "CLEAR" }, runAt: null, runId: null })
   getLenderIdentityMock.mockReset()
   getLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
@@ -3687,5 +3695,38 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
       },
       select: expect.objectContaining({ subjectFingerprint: true }),
     }))
+  })
+})
+
+describe("POST /api/applications/[id]/disburse — screening", () => {
+  it("refuses the payout of a client whose latest screening blocks, before any transaction", async () => {
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1",
+      tenantId: "tenant-1",
+      status: "APPROVED",
+      agreementSignedAt: new Date("2026-05-01"),
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      clientId: "client-1",
+      productId: "prod-1",
+      client: { bankName: "FNB", bankAccountNumber: "12345", bankBranchCode: "250655", accountType: "SAVINGS" },
+      product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+      productType: "MICRO",
+    })
+    buildTxMock({})
+    readClientScreening.mockResolvedValueOnce({
+      state: { state: "BLOCKED", reason: "SANCTIONS_MATCH", checkIds: ["s1"] },
+      runAt: new Date("2026-10-01"),
+      runId: "run-1",
+    })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.disbursementPrecondition).toBe("screening")
+    expect(body.error).toContain("confirmed sanctions match")
+    expect(readClientScreening).toHaveBeenCalledWith(expect.any(String), "client-1")
+    expect(prismaTransaction).not.toHaveBeenCalled()
   })
 })
