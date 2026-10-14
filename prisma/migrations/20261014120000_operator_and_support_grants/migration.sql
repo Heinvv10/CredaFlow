@@ -89,7 +89,10 @@ LANGUAGE plpgsql
 AS $function$
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NEW."createdAt" > clock_timestamp() OR NEW."expiresAt" <= clock_timestamp() THEN
+    -- The second of slack absorbs TIMESTAMP(3) rounding the default up past
+    -- clock_timestamp(); a createdAt set later than that would stretch the
+    -- 7-day window past 7 days from now.
+    IF NEW."createdAt" > clock_timestamp() + interval '1 second' OR NEW."expiresAt" <= clock_timestamp() THEN
       RAISE EXCEPTION 'Support grant must start now and expire in the future';
     END IF;
     IF NEW."revokedAt" IS NOT NULL THEN
