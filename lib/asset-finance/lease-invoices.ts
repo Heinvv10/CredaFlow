@@ -150,8 +150,15 @@ export async function issueLeaseInvoicesOnReceipt(
       refusal = { reason: "invoice_error", error: error instanceof Error ? error.name : "unknown" }
     }
     if (refusal === null) {
-      await tx.$executeRawUnsafe("RELEASE SAVEPOINT lease_rental_invoice")
-      continue
+      // The invoice's deferred checks run inside the savepoint, so a failure is rolled back with it, never with the receipt.
+      try {
+        await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+        await tx.$executeRawUnsafe("SET CONSTRAINTS ALL DEFERRED")
+        await tx.$executeRawUnsafe("RELEASE SAVEPOINT lease_rental_invoice")
+        continue
+      } catch (error) {
+        refusal = { reason: "invoice_error", error: error instanceof Error ? error.name : "unknown" }
+      }
     }
     await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT lease_rental_invoice")
     const already = await tx.auditLog.findFirst({

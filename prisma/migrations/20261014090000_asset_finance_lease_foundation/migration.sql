@@ -252,17 +252,26 @@ CREATE TRIGGER "LoanApplication_lease_rule_fixed" BEFORE UPDATE OF "ncaClassific
 CREATE OR REPLACE FUNCTION public."checkLeaseApplicationBinding"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
-  target_application TEXT := CASE WHEN TG_TABLE_NAME = 'LoanApplication' THEN to_jsonb(NEW) ->> 'id' ELSE to_jsonb(NEW) ->> 'applicationId' END;
+  target_application TEXT;
   rule TEXT;
   deal_is_lease BOOLEAN;
 BEGIN
-  SELECT a."ncaClassificationRule" INTO rule FROM "LoanApplication" a WHERE a."id" = target_application;
-  SELECT d."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') INTO deal_is_lease
-    FROM "AssetFinanceDeal" d WHERE d."applicationId" = target_application;
-  IF (rule IS NOT DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT') IS DISTINCT FROM COALESCE(deal_is_lease, FALSE) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = 'A lease deal''s application is NON_NCA / LEASE_NOT_CREDIT_AGREEMENT, and only a lease deal''s is';
-  END IF;
+  -- The application written, or the deal's application before and after (a
+  -- deal moved off a lease application must not leave it orphaned).
+  FOREACH target_application IN ARRAY ARRAY[
+    CASE WHEN TG_TABLE_NAME = 'LoanApplication' THEN to_jsonb(NEW) ->> 'id' ELSE to_jsonb(NEW) ->> 'applicationId' END,
+    CASE WHEN TG_TABLE_NAME = 'AssetFinanceDeal' AND TG_OP = 'UPDATE' THEN to_jsonb(OLD) ->> 'applicationId' END
+  ] LOOP
+    CONTINUE WHEN target_application IS NULL;
+    SELECT a."ncaClassificationRule" INTO rule FROM "LoanApplication" a WHERE a."id" = target_application;
+    deal_is_lease := NULL;
+    SELECT d."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') INTO deal_is_lease
+      FROM "AssetFinanceDeal" d WHERE d."applicationId" = target_application;
+    IF (rule IS NOT DISTINCT FROM 'LEASE_NOT_CREDIT_AGREEMENT') IS DISTINCT FROM COALESCE(deal_is_lease, FALSE) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514',
+        MESSAGE = 'A lease deal''s application is NON_NCA / LEASE_NOT_CREDIT_AGREEMENT, and only a lease deal''s is';
+    END IF;
+  END LOOP;
   RETURN NULL;
 END;
 $function$;
@@ -378,10 +387,12 @@ ALTER TABLE "LeaseRental" ADD CONSTRAINT "LeaseRental_amounts" CHECK (
 -- never change. The amounts change only before the rental is invoiced and
 -- only inside a repricing: the transaction-local flag credaflow.lease_reprice
 -- (lib/asset-finance/lease-reprice.ts) AND a ContractRate of the loan written
--- in this same transaction; the VAT rate stays the booked one and the VAT is
+-- by this same transaction (its xmin), reference-linked, at a rate other than
+-- the one before it; the VAT rate stays the booked one and the VAT is
 -- recomputed on it (vatHalfUpCents per line). The tax invoice is set once, to
 -- an invoice of the same loan for the rental's total, supplied no later than
--- the due date, and before it only if money has reached the rental.
+-- the due date, and before it only if money has reached the rental from an
+-- allocated, unreversed receipt of the loan received by the supply date.
 CREATE OR REPLACE FUNCTION public."guardLeaseRental"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -402,6 +413,11 @@ BEGIN
     IF NEW."taxInvoiceId" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental is written uninvoiced';
     END IF;
+    -- Only booking writes rentals: its deal is not BOOKED yet (it becomes
+    -- BOOKED later in the same transaction; guardLeaseDealBooking).
+    IF EXISTS (SELECT 1 FROM "AssetFinanceDeal" d WHERE d."loanId" = NEW."loanId" AND d."tenantId" = NEW."tenantId" AND d."status" = 'BOOKED') THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease''s rentals are written when it is booked';
+    END IF;
     RETURN NEW;
   END IF;
 
@@ -421,7 +437,11 @@ BEGIN
     OR NEW."vatRate" IS DISTINCT FROM OLD."vatRate" THEN
     IF OLD."taxInvoiceId" IS NOT NULL OR NEW."taxInvoiceId" IS NOT NULL
       OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on'
-      OR NOT EXISTS (SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId" AND c."createdAt" >= date_trunc('milliseconds', now()) - INTERVAL '1 millisecond') THEN
+      OR NOT EXISTS (
+        SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId"
+          AND c."xmin" = pg_current_xact_id()::xid AND c."basis" <> 'FIXED'
+          AND c."resultingRate" IS DISTINCT FROM (SELECT p."resultingRate" FROM "ContractRate" p WHERE p."loanId" = c."loanId"
+            AND p."effectiveDate" < c."effectiveDate" ORDER BY p."effectiveDate" DESC LIMIT 1)) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental''s amounts are fixed at booking; only a repricing changes them, before the rental is invoiced';
     END IF;
@@ -440,8 +460,12 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental''s tax invoice is of its loan, for the rental''s total';
     END IF;
     -- Time of supply: the earlier of the due date and a payment towards the rental.
-    IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND NOT EXISTS (
-        SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)) THEN
+    IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND (NOT EXISTS (
+        SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)
+      OR NOT EXISTS (
+        SELECT 1 FROM "Payment" p WHERE p."loanId" = NEW."loanId" AND p."tenantId" = NEW."tenantId" AND p."reversed" = false
+          AND p."allocationStatus" = 'ALLOCATED'
+          AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= invoice_row."supplyDate"))) THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental is supplied on its due date, or earlier only once a payment has reached it';
     END IF;

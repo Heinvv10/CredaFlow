@@ -209,8 +209,11 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
 
     it("inside a recorded repricing a rental's maintenance still never changes; once invoiced its amounts never do", () => {
       // A ContractRate of the loan written in the same transaction: the repricing record guardLeaseRental requires.
-      const recorded = `INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "margin", "resultingRate", "newInstalmentCents")
-        SELECT 'cr_m_${t}', "tenantId", "loanId", CURRENT_DATE + 7, "basis", "margin", "resultingRate", "newInstalmentCents" FROM "ContractRate"
+      const recorded = `INSERT INTO "ReferenceRate" ("id", "tenantId", "basis", "effectiveDate", "rate", "requestedById")
+          VALUES ('rr_m_${t}', '${fx.tenantId}', 'PRIME', CURRENT_DATE + 7, 0.1250, '${fx.adminA}');
+        UPDATE "ReferenceRate" SET "status" = 'APPROVED', "decidedById" = '${fx.adminB}', "decidedAt" = now() WHERE "id" = 'rr_m_${t}';
+        INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "margin", "resultingRate", "newInstalmentCents")
+        SELECT 'cr_m_${t}', "tenantId", "loanId", CURRENT_DATE + 7, "basis", "margin", 0.1250 + "margin", "newInstalmentCents" FROM "ContractRate"
         WHERE "loanId" = '${ids.fmlLoan}' ORDER BY "effectiveDate" DESC LIMIT 1;`
       const flagged = (set: string, setup = "") => `BEGIN; SELECT set_config('credaflow.lease_reprice', 'on', true); ${recorded} ${setup}
         UPDATE "LeaseRental" SET ${set} WHERE "id" = '${ids.rental}'; ROLLBACK;`
