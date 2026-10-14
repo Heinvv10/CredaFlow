@@ -10,7 +10,9 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import {
+  _resetEnvCredentialsWarningForTests,
   CredentialInputError,
+  envCredentialsWarning,
   isEnvCredentialsTenant,
   loadCredentialPair,
   loadTenantCredential,
@@ -112,5 +114,37 @@ describe("loading", () => {
     vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "nobody")
     tenantFindUnique.mockResolvedValue(null)
     expect(await loadCredentialPair("tA", "experianKey", env)).toBeNull()
+  })
+
+  // Env credentials present but owned by no tenant: Stitch then says "not
+  // configured for this lender", which misleads unless the log says why.
+  describe("env credentials with no owner", () => {
+    it.each([
+      ["unset", ""],
+      ["naming no tenant", "nobody"],
+    ])("warn once when ENV_CREDENTIALS_TENANT_SLUG is %s", async (_label, slug) => {
+      _resetEnvCredentialsWarningForTests()
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      vi.stubEnv("STITCH_CLIENT_ID", "env-client")
+      vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", slug)
+      tenantFindUnique.mockResolvedValue(null)
+      expect(await envCredentialsWarning()).toMatch(/ENV_CREDENTIALS_TENANT_SLUG/)
+      tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
+      await loadCredentialPair("tA", "experianKey", env)
+      await loadCredentialPair("tA", "experianKey", env)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("ENV_CREDENTIALS_TENANT_SLUG"))
+      warn.mockRestore()
+    })
+
+    it("say nothing when no env credentials are set, or their owner exists", async () => {
+      for (const k of ["STITCH_CLIENT_ID", "STITCH_CLIENT_SECRET", "STITCH_WEBHOOK_SECRET", "SMILE_IDENTITY_PARTNER_ID",
+        "SMILE_IDENTITY_API_KEY", "EXPERIAN_USERNAME", "EXPERIAN_PASSWORD"]) vi.stubEnv(k, "")
+      expect(await envCredentialsWarning()).toBeNull()
+      vi.stubEnv("EXPERIAN_USERNAME", "env-user")
+      vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "lender-a")
+      tenantFindUnique.mockResolvedValue({ id: "tA" })
+      expect(await envCredentialsWarning()).toBeNull()
+    })
   })
 })

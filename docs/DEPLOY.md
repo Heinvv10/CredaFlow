@@ -64,6 +64,13 @@ build. Both images carry the labels `io.credaflow.lender-slug` and `io.credaflow
 is missing), because the slug is baked into the bundle and another lender's image answers
 `/api/health` yet fails every page.
 
+**The env-credential owner's slug is never reused.** `ENV_CREDENTIALS_TENANT_SLUG`
+(set by `provision-lender.sh` to the stack's lender) hands the Stitch, SmileIdentity and
+Experian accounts in `.env` to whichever tenant holds that slug. Renaming the owner
+tenant's slug, or deleting and recreating a tenant under it, gives those accounts to the
+new holder. Retire such a slug for good; to move the accounts, change
+`ENV_CREDENTIALS_TENANT_SLUG` (or better, store them on the lender's TenantConfig).
+
 `NEXT_PUBLIC_*` values are baked into the client bundle at build, so an image is
 specific to one lender (`NEXT_PUBLIC_TENANT_SLUG` plus whichever `NEXT_PUBLIC_*`
 keys are set in the lender's `.env`).

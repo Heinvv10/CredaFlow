@@ -80,4 +80,18 @@ describe("/api/health", () => {
       expect(body).not.toHaveProperty("warnings")
     })
   })
+
+  describe("when environment credentials have no owner tenant", () => {
+    it("warns an operator session, and tells a public probe nothing", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      vi.stubEnv("STITCH_CLIENT_ID", "env-client")
+      vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "")
+      queryRaw.mockResolvedValue([{ su: false, bypass: false }])
+      authMock.mockResolvedValue({ user: { id: "op1", role: "OPERATOR_ADMIN", tenantId: null } })
+      expect((await getHealth()).body.warnings).toEqual([expect.stringContaining("ENV_CREDENTIALS_TENANT_SLUG")])
+      authMock.mockResolvedValue(null)
+      expect((await getHealth()).body).not.toHaveProperty("warnings")
+      warn.mockRestore()
+    })
+  })
 })

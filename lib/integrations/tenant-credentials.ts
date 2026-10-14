@@ -108,9 +108,45 @@ export async function loadTenantCredential(tenantId: string, field: SealedCreden
  */
 export async function isEnvCredentialsTenant(tenantId: string): Promise<boolean> {
   const slug = process.env.ENV_CREDENTIALS_TENANT_SLUG?.trim()
-  if (!slug) return false
-  const owner = await prisma.tenant.findUnique({ where: { slug }, select: { id: true } })
+  const owner = slug ? await prisma.tenant.findUnique({ where: { slug }, select: { id: true } }) : null
+  if (!owner) {
+    const warning = ownerlessWarning(slug)
+    if (warning) warnEnvCredentialsOnce(warning)
+  }
   return owner?.id === tenantId
+}
+
+const ENV_CREDENTIAL_VARS = [
+  "STITCH_CLIENT_ID", "STITCH_CLIENT_SECRET", "STITCH_WEBHOOK_SECRET",
+  "SMILE_IDENTITY_PARTNER_ID", "SMILE_IDENTITY_API_KEY", "EXPERIAN_USERNAME", "EXPERIAN_PASSWORD",
+] as const
+
+/** Why the environment's credentials serve no one, when some are set; null when they have no owner problem. */
+function ownerlessWarning(slug: string | undefined): string | null {
+  const present = ENV_CREDENTIAL_VARS.filter((key) => process.env[key])
+  if (present.length === 0) return null
+  return slug
+    ? `ENV_CREDENTIALS_TENANT_SLUG="${slug}" names no tenant, so the environment credentials (${present.join(", ")}) serve no lender; lenders without their own show as not configured`
+    : `ENV_CREDENTIALS_TENANT_SLUG is unset, so the environment credentials (${present.join(", ")}) serve no lender; lenders without their own show as not configured`
+}
+
+/** The health warning: environment credentials are set but owned by no tenant. */
+export async function envCredentialsWarning(): Promise<string | null> {
+  const slug = process.env.ENV_CREDENTIALS_TENANT_SLUG?.trim()
+  if (!ownerlessWarning(slug)) return null
+  const owner = slug ? await prisma.tenant.findUnique({ where: { slug }, select: { id: true } }) : null
+  return owner ? null : ownerlessWarning(slug)
+}
+
+// Logged once per process: every credential load would repeat it.
+let envWarningLogged = false
+export function warnEnvCredentialsOnce(message: string): void {
+  if (envWarningLogged) return
+  envWarningLogged = true
+  console.warn(`[tenant-credentials] ${message}`)
+}
+export function _resetEnvCredentialsWarningForTests(): void {
+  envWarningLogged = false
 }
 
 /** The tenant's "id:secret" credential, or the env pair when the tenant owns the env credentials. */

@@ -192,7 +192,14 @@ separate workstream (W0b); in this order:
    `IntegrationConfig`, `EmailConfig` (mail credentials) and `AuditLog`
    (nullable tenant: decide who sees platform rows). The other tables the RLS
    migration's header lists follow.
-8. Run every integration suite as the application role (not a superuser),
+8. **Batch transactions built across frames.** `$transaction([...])` takes
+   the frame it is *called* in, not the frames its promises were created in.
+   A batch called outside any frame from promises built inside tenant frames
+   runs with no tenant setting, so its raw operations see every tenant
+   (permissive) or nothing (strict). Before activation, either refuse a
+   frame-less batch that contains a raw operation, or find and fix every
+   such call site.
+9. Run every integration suite as the application role (not a superuser),
    then set `TENANT_RLS=on` in the app, then strict mode.
 
 ## Migrations

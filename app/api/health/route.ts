@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { isOperatorRole } from "@/lib/operator/roles"
+import { envCredentialsWarning, warnEnvCredentialsOnce } from "@/lib/integrations/tenant-credentials"
 
 const noStoreHeaders = { "Cache-Control": "no-store" }
 
@@ -20,21 +21,30 @@ function deployMetadata() {
   }
 }
 
-/** The RLS warning, for an operator session only: a public probe learns nothing of the setup. */
+/** Setup warnings, for an operator session only: a public probe learns nothing of the setup. */
 let warnedThisProcess = false
 async function operatorWarnings(rlsBypassed: boolean): Promise<{ warnings?: string[] }> {
-  if (!rlsBypassed) return {}
-  // Every probe would repeat it; once per process is enough for the logs.
-  if (!warnedThisProcess) console.warn(`[health] ${RLS_INACTIVE}`)
-  warnedThisProcess = true
+  const warnings: string[] = []
+  if (rlsBypassed) {
+    // Every probe would repeat it; once per process is enough for the logs.
+    if (!warnedThisProcess) console.warn(`[health] ${RLS_INACTIVE}`)
+    warnedThisProcess = true
+    warnings.push(RLS_INACTIVE)
+  }
+  const envCredentials = await envCredentialsWarning()
+  if (envCredentials) {
+    warnEnvCredentialsOnce(envCredentials)
+    warnings.push(envCredentials)
+  }
+  if (warnings.length === 0) return {}
   try {
     // Loaded only when there is something to say, so the probe stays cheap.
     const { auth } = await import("@/lib/auth")
     const session = await auth()
-    return isOperatorRole(session?.user?.role) ? { warnings: [RLS_INACTIVE] } : {}
+    return isOperatorRole(session?.user?.role) ? { warnings } : {}
   } catch (err) {
     // The probe reports the database, not the session: never fail it on auth.
-    console.error("[health] could not read the session for the RLS warning:", err)
+    console.error("[health] could not read the session for the setup warnings:", err)
     return {}
   }
 }
