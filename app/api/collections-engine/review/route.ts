@@ -5,9 +5,9 @@ import { resolveReviewItem, type ReviewAction } from "@/lib/collections-engine/r
 import { mandateErrorResponse } from "@/lib/collections-engine/http"
 
 const ALLOWED: Record<ReviewAction["kind"], readonly string[]> = {
-  INSTRUCTION: ["MARK_SUBMITTED", "RELEASE"],
+  INSTRUCTION: ["MARK_SUBMITTED", "RELEASE", "ACKNOWLEDGE"],
   RESULT: ["ACKNOWLEDGE"],
-  MANDATE: ["RETRY"],
+  MANDATE: ["RETRY", "ACKNOWLEDGE"],
 }
 
 /**

@@ -56,6 +56,15 @@ export async function loadEngineContext(tenantId: string, now: Date): Promise<En
 }
 
 /**
+ * The adapter for a mandate's own provider: the tenant's current one, or the
+ * one the mandate was created with if the tenant has since switched. Sweeps
+ * and cancellations must reach mandates on a former provider too.
+ */
+export function providerFor(ctx: EngineContext, providerId: string): CollectionProvider {
+  return providerId === ctx.provider.id ? ctx.provider : getCollectionProvider({ collectionProvider: providerId, avsProvider: null })
+}
+
+/**
  * A provider error that proves nothing reached the rail: retrying cannot
  * double-debit. Anything else (a timeout, a 5xx) may have been received.
  */

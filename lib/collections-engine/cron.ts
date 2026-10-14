@@ -47,7 +47,7 @@ export function tenantRunErrors(run: TenantCollectionsRun): string[] {
     case "RESULTS":
       return [...run.results.errors, ...run.sweeps.errors]
     case "SUBMIT":
-      return [...run.sweeps.errors, ...run.mandates.errors, ...run.reconcile.errors, ...run.planned.errors, ...run.submitted.failedBatches]
+      return [...run.sweeps.errors, ...run.mandates.errors, ...run.reconcile.errors, ...run.planned.errors, ...run.submitted.failedBatches, ...run.submitted.errors]
   }
 }
 

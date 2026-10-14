@@ -6,10 +6,14 @@
  * - INSTRUCTION (NEEDS_REVIEW, fate unknown): MARK_SUBMITTED once the provider
  *   confirms it has it, or RELEASE to PENDING once it confirms it does not.
  *   The engine never makes this call itself: a wrong guess is a double debit
- *   or a missed one.
+ *   or a missed one. A REJECTED instruction: ACKNOWLEDGE (it is not presented
+ *   again; collect the instalment another way).
  * - RESULT (reviewReason set): ACKNOWLEDGE after acting on it elsewhere (a
  *   reversal, a manual receipt, a refund).
- * - MANDATE (submission retries exhausted): RETRY resets the retry budget.
+ * - MANDATE: RETRY (CREATED, submission retries exhausted) resets the retry
+ *   budget; ACKNOWLEDGE (SUSPENDED / CANCELLED, provider could not confirm the
+ *   withdrawal) records that staff confirmed it with the provider. A mandate
+ *   still waiting for registration is resolved by cancelling it.
  */
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -18,9 +22,9 @@ import { MandateError } from "./mandates"
 import { loadEngineContext } from "./context"
 
 export type ReviewAction =
-  | { kind: "INSTRUCTION"; id: string; action: "MARK_SUBMITTED" | "RELEASE" }
+  | { kind: "INSTRUCTION"; id: string; action: "MARK_SUBMITTED" | "RELEASE" | "ACKNOWLEDGE" }
   | { kind: "RESULT"; id: string; action: "ACKNOWLEDGE" }
-  | { kind: "MANDATE"; id: string; action: "RETRY" }
+  | { kind: "MANDATE"; id: string; action: "RETRY" | "ACKNOWLEDGE" }
 
 export async function resolveReviewItem(
   tenantId: string,
@@ -32,7 +36,12 @@ export async function resolveReviewItem(
   if (!(await loadEngineContext(tenantId, now))) throw new MandateError("FLAG_OFF", "The collections engine is off for this lender")
   await prisma.$transaction(async (tx) => {
     let changed = 0
-    if (item.kind === "INSTRUCTION") {
+    if (item.kind === "INSTRUCTION" && item.action === "ACKNOWLEDGE") {
+      changed = (await tx.collectionInstruction.updateMany({
+        where: { id: item.id, tenantId, status: "REJECTED", reviewResolvedAt: null },
+        data: { reviewResolvedAt: now },
+      })).count
+    } else if (item.kind === "INSTRUCTION") {
       const data: Prisma.CollectionInstructionUncheckedUpdateManyInput = item.action === "MARK_SUBMITTED"
         ? { status: "SUBMITTED", submittedAt: now, statusReason: `Confirmed submitted: ${reason}` }
         : { status: "PENDING", batchId: null, statusReason: `Released: ${reason}` }
@@ -42,10 +51,15 @@ export async function resolveReviewItem(
         where: { id: item.id, tenantId, reviewReason: { not: null }, reviewResolvedAt: null },
         data: { reviewResolvedAt: now, reviewResolvedById: actor.userId, reviewNote: reason },
       })).count
-    } else {
+    } else if (item.action === "RETRY") {
       changed = (await tx.debitMandate.updateMany({
         where: { id: item.id, tenantId, status: "CREATED", reviewReason: { not: null } },
         data: { reviewReason: null, submitAttempts: 0, nextAttemptAt: null },
+      })).count
+    } else {
+      changed = (await tx.debitMandate.updateMany({
+        where: { id: item.id, tenantId, status: { in: ["SUSPENDED", "CANCELLED"] }, reviewReason: { not: null }, providerCancelledAt: null },
+        data: { reviewReason: null, providerCancelledAt: now },
       })).count
     }
     if (changed === 0) throw new MandateError("INVALID_STATE", "Nothing to resolve: the item is not waiting for review")
@@ -60,9 +74,9 @@ export async function resolveReviewItem(
 }
 
 export interface ReviewQueue {
-  instructions: Array<{ id: string; loanId: string; instructionRef: string; amountCents: number; actionDate: Date; statusReason: string | null }>
+  instructions: Array<{ id: string; loanId: string; status: string; instructionRef: string; amountCents: number; actionDate: Date; statusReason: string | null }>
   results: Array<{ id: string; loanId: string; outcome: string; reviewReason: string | null; resolvedAt: Date; paymentId: string | null }>
-  mandates: Array<{ id: string; loanId: string; reviewReason: string | null }>
+  mandates: Array<{ id: string; loanId: string; status: string; reviewReason: string | null }>
 }
 
 /** Everything waiting for a person, tenant-wide or for one loan. */
@@ -70,8 +84,8 @@ export async function loadReviewQueue(tenantId: string, loanId?: string): Promis
   const loan = loanId ? { loanId } : {}
   const [instructions, results, mandates] = await Promise.all([
     prisma.collectionInstruction.findMany({
-      where: { tenantId, status: "NEEDS_REVIEW", ...loan },
-      select: { id: true, loanId: true, instructionRef: true, amountCents: true, actionDate: true, statusReason: true },
+      where: { tenantId, OR: [{ status: "NEEDS_REVIEW" }, { status: "REJECTED", reviewResolvedAt: null }], ...loan },
+      select: { id: true, loanId: true, status: true, instructionRef: true, amountCents: true, actionDate: true, statusReason: true },
       orderBy: { actionDate: "asc" },
     }),
     prisma.collectionResult.findMany({
@@ -80,8 +94,8 @@ export async function loadReviewQueue(tenantId: string, loanId?: string): Promis
       orderBy: { resolvedAt: "asc" },
     }),
     prisma.debitMandate.findMany({
-      where: { tenantId, status: "CREATED", reviewReason: { not: null }, ...loan },
-      select: { id: true, loanId: true, reviewReason: true },
+      where: { tenantId, reviewReason: { not: null }, ...loan },
+      select: { id: true, loanId: true, status: true, reviewReason: true },
     }),
   ])
   return {

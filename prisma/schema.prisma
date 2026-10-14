@@ -4942,6 +4942,9 @@ model DebitMandate {
   reviewReason        String?
   /// When the provider confirmed the mandate cancelled (suspension, closure, staff).
   providerCancelledAt DateTime?
+  /// First claim for a provider call: from then on the provider may hold this
+  /// mandate even without a reference here, so a cancellation must find it there.
+  providerContactedAt DateTime?
   createdById         String
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -5001,6 +5004,8 @@ model CollectionInstruction {
   statusReason        String?
   batchId             String?
   submittedAt         DateTime?
+  /// A REJECTED instruction stays in the review queue until staff acknowledge it.
+  reviewResolvedAt    DateTime?
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
 

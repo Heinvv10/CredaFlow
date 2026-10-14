@@ -14,7 +14,7 @@ import type { DebitMandateStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { avsWireAccountType } from "@/lib/avs"
-import { MANDATE_AMOUNT_TYPE, MAX_SUBMIT_ATTEMPTS, STUCK_SUBMISSION_HOURS, submitBackoffMs } from "./scheme-rules"
+import { LOAD_REPORT_TIMEOUT_HOURS, MANDATE_AMOUNT_TYPE, MAX_SUBMIT_ATTEMPTS, STUCK_SUBMISSION_HOURS, submitBackoffMs } from "./scheme-rules"
 import { canTransition, fromProviderStatus } from "./state-machine"
 import { ENGINE_ACTOR, definitelyNotSent, errorSummary, type EngineContext } from "./context"
 
@@ -73,6 +73,40 @@ export async function transitionMandate(args: {
   })
 }
 
+/**
+ * Keep a provider reference even when the local transition lost a race (staff
+ * cancelled while the call was in flight): without it the provider would hold
+ * a live mandate nothing here can cancel. The cancel sweep acts on it.
+ */
+export async function keepProviderReference(ctx: EngineContext, mandateId: string, ref: string | null, simulated: boolean): Promise<void> {
+  if (!ref) return
+  await prisma.$transaction(async (tx) => {
+    const kept = await tx.debitMandate.updateMany({
+      where: { id: mandateId, tenantId: ctx.tenantId, providerMandateRef: null },
+      data: { providerMandateRef: ref, ...(simulated ? { simulated: true } : {}) },
+    })
+    if (kept.count === 0) return
+    await logAuditStrict({
+      tenantId: ctx.tenantId, userEmail: ENGINE_ACTOR.userEmail,
+      action: AuditAction.COLLECTION_MANDATE_PROVIDER_REF_RECORDED, entity: "DebitMandate", entityId: mandateId,
+      newValue: { providerMandateRef: ref, afterLostRace: true },
+    }, tx)
+  })
+}
+
+/** Put a mandate in front of a person (once): the engine will not decide this alone. */
+export async function flagMandateForReview(ctx: EngineContext, mandateId: string, reason: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const flagged = await tx.debitMandate.updateMany({ where: { id: mandateId, tenantId: ctx.tenantId, reviewReason: null }, data: { reviewReason: reason } })
+    if (flagged.count === 0) return false
+    await logAuditStrict({
+      tenantId: ctx.tenantId, userEmail: ENGINE_ACTOR.userEmail,
+      action: AuditAction.COLLECTION_MANDATE_NEEDS_REVIEW, entity: "DebitMandate", entityId: mandateId, newValue: { reason },
+    }, tx)
+    return true
+  })
+}
+
 async function recordSubmissionFailure(ctx: EngineContext, mandateId: string, attempts: number, error: unknown): Promise<DebitMandateStatus> {
   const summary = errorSummary(error)
   await logAuditStrict({
@@ -109,7 +143,7 @@ export async function submitMandate(ctx: EngineContext, mandateId: string): Prom
   const claimed = await prisma.$transaction(async (tx) => {
     const won = await tx.debitMandate.updateMany({
       where: { id: mandateId, tenantId: ctx.tenantId, status: "CREATED", reviewReason: null, ...due },
-      data: { status: "SUBMITTING", statusChangedAt: ctx.now, statusReason: `Submitting to ${ctx.provider.id}` },
+      data: { status: "SUBMITTING", statusChangedAt: ctx.now, statusReason: `Submitting to ${ctx.provider.id}`, providerContactedAt: ctx.now },
     })
     if (won.count === 1) {
       await logAuditStrict({
@@ -155,11 +189,16 @@ export async function submitMandate(ctx: EngineContext, mandateId: string): Prom
   if (!canTransition("SUBMITTING", to) || to === "CREATED") {
     return recordSubmissionFailure(ctx, m.id, m.submitAttempts + 1, new Error(`Provider answered a new mandate with ${handle.status}`))
   }
-  await transitionMandate({
+  const moved = await transitionMandate({
     tenantId: ctx.tenantId, mandateId: m.id, from: "SUBMITTING", to,
     reason: `Submitted to ${ctx.provider.id}`, actor: engineActor, now: ctx.now,
     set: { providerMandateRef: handle.providerMandateRef, simulated: handle.simulated === true },
   })
+  if (!moved) {
+    // Cancelled while the call was in flight: keep what the provider gave us.
+    await keepProviderReference(ctx, m.id, handle.providerMandateRef, handle.simulated === true)
+    return (await prisma.debitMandate.findFirstOrThrow({ where: { id: m.id, tenantId: ctx.tenantId }, select: { status: true } })).status
+  }
   return to
 }
 
@@ -173,10 +212,12 @@ async function reconcileStuckSubmission(ctx: EngineContext, mandateId: string, a
   if (found) {
     const to = fromProviderStatus(found.status)
     if (canTransition("SUBMITTING", to) && to !== "CREATED") {
-      return transitionMandate({
+      const moved = await transitionMandate({
         tenantId: ctx.tenantId, mandateId, from: "SUBMITTING", to, reason: `${ctx.provider.id} reported ${to} on reconcile`,
         actor: engineActor, now: ctx.now, set: { providerMandateRef: found.providerMandateRef, simulated: found.simulated === true },
       })
+      if (!moved) await keepProviderReference(ctx, mandateId, found.providerMandateRef, found.simulated === true)
+      return moved
     }
   }
   await recordSubmissionFailure(ctx, mandateId, attempts + 1, new Error("Submission outcome lost; retrying under the same reference"))
@@ -192,6 +233,7 @@ export interface RefreshSummary {
 /** Submit due mandates, reconcile lost submissions, and read back the provider's view of the rest. */
 export async function refreshMandates(ctx: EngineContext): Promise<RefreshSummary> {
   const stuckBefore = new Date(ctx.now.getTime() - STUCK_SUBMISSION_HOURS * 3_600_000)
+  const registrationTimeout = new Date(ctx.now.getTime() - LOAD_REPORT_TIMEOUT_HOURS * 3_600_000)
   const mandates = await prisma.debitMandate.findMany({
     where: { tenantId: ctx.tenantId, provider: ctx.provider.id, status: { in: ["CREATED", "SUBMITTING", "PENDING_REGISTRATION", "PENDING_AUTH", "ACTIVE"] } },
     select: { id: true, status: true, providerMandateRef: true, submitAttempts: true, reviewReason: true, statusChangedAt: true },
@@ -218,12 +260,21 @@ export async function refreshMandates(ctx: EngineContext): Promise<RefreshSummar
       if (m.status === "PENDING_REGISTRATION") {
         const found = ctx.provider.findMandate ? await ctx.provider.findMandate(m.id, ctx.creds) : null
         const to = found ? fromProviderStatus(found.status) : null
-        if (!found || !to || to === "PENDING_REGISTRATION" || !canTransition(m.status, to)) continue
+        if (!found || !to || to === "PENDING_REGISTRATION" || !canTransition(m.status, to)) {
+          if (m.statusChangedAt < registrationTimeout) {
+            await flagMandateForReview(ctx, m.id,
+              `Uploaded to ${ctx.provider.id} but not registered after ${LOAD_REPORT_TIMEOUT_HOURS} hours: confirm with the provider, or cancel it`)
+          }
+          continue
+        }
         const moved = await transitionMandate({
           tenantId: ctx.tenantId, mandateId: m.id, from: m.status, to, reason: `${ctx.provider.id} registered the mandate`,
-          actor: engineActor, now: ctx.now, set: { providerMandateRef: found.providerMandateRef },
+          actor: engineActor, now: ctx.now, set: { providerMandateRef: found.providerMandateRef, reviewReason: null },
         })
-        if (!moved) continue
+        if (!moved) {
+          await keepProviderReference(ctx, m.id, found.providerMandateRef, found.simulated === true)
+          continue
+        }
         summary.changed++
         current = { status: to, ref: found.providerMandateRef }
       }

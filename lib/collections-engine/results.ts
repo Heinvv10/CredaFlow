@@ -5,9 +5,13 @@
  * Idempotent by the database, not by a lookup: each outcome is INSERTed under
  * the unique (tenantId, provider, resultKey). A repeat collides and does
  * nothing. The result, the instruction's new status and the loan note are one
- * transaction. A PAID instruction is never moved by a later UNPAID or
- * DISPUTED: that report is recorded for review (reportedAfterPayment) and is
- * not an NPF. Booking a receipt and the stop rules are re-derived from what is
+ * transaction, under a lock on the instruction row, and it decides from the
+ * results already recorded, not from a status read before it:
+ * - an UNPAID/DISPUTED for an instruction with a PAID result never moves it;
+ *   it is recorded for review (reportedAfterPayment) and is not an NPF;
+ * - a PAID dated before a return already recorded is not booked: it is
+ *   recorded for review, so a returned debit cannot leave a silent receipt.
+ * A fetch's outcomes are applied in resolvedAt order. Booking a receipt and the stop rules are re-derived from what is
  * stored on every run (sweepUnbooked, applyStopRulesToAll), so a failure after
  * the recording transaction is repaired by the next run.
  */
@@ -54,6 +58,9 @@ export async function sweepUnbooked(ctx: EngineContext, summary: IngestSummary):
   }
 }
 
+const RETURNED_BEFORE_REPORT =
+  "A return dated after this payment is already recorded: not booked. Confirm with the provider whether the money stayed, then capture the receipt by hand if it did."
+
 function reviewReasonFor(o: CollectionOutcome, afterPayment: boolean): string | null {
   if (afterPayment) {
     return `Reported ${o.status}${o.reason ? ` (${o.reason})` : ""} after the debit was booked as paid: the receipt stands; reverse it through the payment reversal flow if the money went back.`
@@ -72,11 +79,23 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
     summary.unmatched++
     return
   }
-  const afterPayment = instruction.status === "PAID" && status !== "PAID"
-  const reviewReason = reviewReasonFor(o, afterPayment)
+  let afterPayment = false
+  let reviewReason: string | null = null
   let recorded
   try {
     recorded = await prisma.$transaction(async (tx) => {
+      // Serialise outcomes for one instruction, then decide from what is recorded.
+      await tx.$queryRaw`SELECT id FROM "CollectionInstruction" WHERE id = ${instruction.id} AND "tenantId" = ${ctx.tenantId} FOR UPDATE`
+      const prior = await tx.collectionResult.findMany({
+        where: { tenantId: ctx.tenantId, instructionId: instruction.id },
+        select: { outcome: true, resolvedAt: true, reportedAfterPayment: true },
+      })
+      const current = await tx.collectionInstruction.findFirstOrThrow({ where: { id: instruction.id, tenantId: ctx.tenantId }, select: { status: true } })
+      afterPayment = status !== "PAID" && (current.status === "PAID" || prior.some((r) => r.outcome === "PAID"))
+      const returnedLater = status === "PAID"
+        && prior.some((r) => r.outcome !== "PAID" && !r.reportedAfterPayment && r.resolvedAt > o.resolvedAt)
+      reviewReason = returnedLater ? RETURNED_BEFORE_REPORT : reviewReasonFor(o, afterPayment)
+      const moveInstruction = !afterPayment && !returnedLater
       const row = await tx.collectionResult.create({
         data: {
           tenantId: ctx.tenantId, provider: ctx.provider.id, instructionId: instruction.id, resultKey: resultKey(o),
@@ -84,11 +103,11 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
           rawCode: o.rawCode, rawPayload: (o.raw ?? o) as Prisma.InputJsonValue,
           settledAmountCents: status === "PAID" ? o.settledAmountCents : null,
           resolvedAt: o.resolvedAt, simulated: o.simulated === true,
-          reportedAfterPayment: afterPayment, reviewReason,
-          ...(status === "PAID" ? {} : { processedAt: ctx.now }),
+          reportedAfterPayment: afterPayment, reviewReason, createdAt: ctx.now,
+          ...(status === "PAID" && !returnedLater ? {} : { processedAt: ctx.now }),
         },
       })
-      if (!afterPayment) {
+      if (moveInstruction) {
         await tx.collectionInstruction.update({
           where: { id: instruction.id, tenantId: ctx.tenantId },
           data: { status, statusReason: o.reason ?? null },
@@ -121,6 +140,7 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
   if (reviewReason) summary.needsReview++
 
   if (recorded.outcome === "PAID") {
+    if (recorded.processedAt) return
     const outcome = await allocatePaidResult(ctx, recorded, instruction)
     summary[outcome === "ALLOCATED" ? "allocated" : "needsReview"]++
     return
@@ -154,7 +174,8 @@ export async function ingestResults(ctx: EngineContext): Promise<IngestSummary> 
       })),
     }, ctx.creds)
     summary.fetched = outcomes.length
-    for (const o of outcomes) {
+    // Chronological: a payment is recorded before the return that reverses it.
+    for (const o of [...outcomes].sort((a, b) => a.resolvedAt.getTime() - b.resolvedAt.getTime())) {
       try {
         await recordOutcome(ctx, o, summary)
       } catch (error) {

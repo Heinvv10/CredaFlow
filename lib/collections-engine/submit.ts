@@ -30,6 +30,8 @@ export interface SubmitSummary {
   uploaded: number
   rejected: number
   failedBatches: string[]
+  /** Instructions that failed while being vetted; the rest of the run went on. */
+  errors: string[]
 }
 
 export const audit = (ctx: EngineContext, action: string, entity: string, entityId: string, newValue: Record<string, unknown>, tx: EngineTx) =>
@@ -83,32 +85,56 @@ async function dueInstructions(ctx: EngineContext, summary: SubmitSummary) {
   })
   const due: typeof pending = []
   for (const i of pending) {
-    const outstanding = i.repaymentSchedule.totalDue - i.repaymentSchedule.totalPaid
-    if (!(COLLECTIBLE_LOAN_STATUSES as readonly string[]).includes(i.loan.status)) {
-      await cancelInstruction(ctx, i.id, `Loan is ${i.loan.status}`)
-      summary.notCollectible++
-    } else if (dayOf(i.actionDate) < window.from) {
-      // Too late for this date: the planner re-plans it for the next debit day.
-      await cancelInstruction(ctx, i.id, "Action date passed before submission")
-      summary.stale++
-    } else if (outstanding <= 0 || i.repaymentSchedule.status === "PAID" || i.repaymentSchedule.status === "WRITTEN_OFF") {
-      await cancelInstruction(ctx, i.id, "Instalment settled before submission")
-      summary.settled++
-    } else if (i.mandate.status !== "ACTIVE" || !i.mandate.providerMandateRef) {
-      await cancelInstruction(ctx, i.id, `Mandate is ${i.mandate.status}`)
-    } else {
-      if (outstanding < i.amountCents) {
-        await prisma.collectionInstruction.updateMany({ where: { id: i.id, tenantId: ctx.tenantId, status: "PENDING" }, data: { amountCents: outstanding } })
-        i.amountCents = outstanding
-      }
-      due.push(i)
+    try {
+      if (await vet(ctx, i, window.from, summary)) due.push(i)
+    } catch (error) {
+      summary.errors.push(`${i.id}: ${errorSummary(error)}`)
     }
   }
   return due
 }
 
+type Pending = {
+  id: string
+  amountCents: number
+  actionDate: Date
+  mandate: { providerMandateRef: string | null; status: string }
+  loan: { status: string }
+  repaymentSchedule: { totalDue: number; totalPaid: number; status: string }
+}
+
+/** Cancel an instruction that must not go out, clamp its amount; true when it is due. */
+async function vet(ctx: EngineContext, i: Pending, earliest: string, summary: SubmitSummary): Promise<boolean> {
+  const outstanding = i.repaymentSchedule.totalDue - i.repaymentSchedule.totalPaid
+  if (!(COLLECTIBLE_LOAN_STATUSES as readonly string[]).includes(i.loan.status)) {
+    await cancelInstruction(ctx, i.id, `Loan is ${i.loan.status}`)
+    summary.notCollectible++
+    return false
+  }
+  if (dayOf(i.actionDate) < earliest) {
+    // Too late for this date: the planner re-plans it for the next debit day.
+    await cancelInstruction(ctx, i.id, "Action date passed before submission")
+    summary.stale++
+    return false
+  }
+  if (outstanding <= 0 || i.repaymentSchedule.status === "PAID" || i.repaymentSchedule.status === "WRITTEN_OFF") {
+    await cancelInstruction(ctx, i.id, "Instalment settled before submission")
+    summary.settled++
+    return false
+  }
+  if (i.mandate.status !== "ACTIVE" || !i.mandate.providerMandateRef) {
+    await cancelInstruction(ctx, i.id, `Mandate is ${i.mandate.status}`)
+    return false
+  }
+  if (outstanding < i.amountCents) {
+    await prisma.collectionInstruction.updateMany({ where: { id: i.id, tenantId: ctx.tenantId, status: "PENDING" }, data: { amountCents: outstanding } })
+    i.amountCents = outstanding
+  }
+  return true
+}
+
 export async function submitDueInstructions(ctx: EngineContext): Promise<SubmitSummary> {
-  const summary: SubmitSummary = { stale: 0, settled: 0, notCollectible: 0, batches: 0, submitted: 0, uploaded: 0, rejected: 0, failedBatches: [] }
+  const summary: SubmitSummary = { stale: 0, settled: 0, notCollectible: 0, batches: 0, submitted: 0, uploaded: 0, rejected: 0, failedBatches: [], errors: [] }
   const due = await dueInstructions(ctx, summary)
   const byDate = new Map<string, typeof due>()
   for (const i of due) byDate.set(dayOf(i.actionDate), [...(byDate.get(dayOf(i.actionDate)) ?? []), i])

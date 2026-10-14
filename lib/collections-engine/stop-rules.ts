@@ -34,10 +34,10 @@ export async function applyStopRules(ctx: EngineContext, mandateId: string): Pro
   return moved ? reason : null
 }
 
-/** Re-apply the stop rules to every ACTIVE mandate of the tenant. */
+/** Re-apply the stop rules to every ACTIVE mandate of the tenant, whichever provider it was created with. */
 export async function applyStopRulesToAll(ctx: EngineContext, errors: string[]): Promise<number> {
   const active = await prisma.debitMandate.findMany({
-    where: { tenantId: ctx.tenantId, provider: ctx.provider.id, status: "ACTIVE" },
+    where: { tenantId: ctx.tenantId, status: "ACTIVE" },
     select: { id: true },
   })
   let suspended = 0

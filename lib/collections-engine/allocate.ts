@@ -40,7 +40,7 @@ export async function markNeedsReview(ctx: EngineContext, result: Pick<Collectio
 
 export async function allocatePaidResult(
   ctx: EngineContext,
-  result: Pick<CollectionResult, "id" | "settledAmountCents" | "resolvedAt" | "simulated">,
+  result: Pick<CollectionResult, "id" | "settledAmountCents" | "resolvedAt" | "simulated" | "createdAt">,
   instruction: { loanId: string; instructionRef: string; amountCents: number; repaymentScheduleId: string },
 ): Promise<AllocationOutcome> {
   if (result.simulated && !isSimulationPermitted("simulated-collections")) {
@@ -57,9 +57,17 @@ export async function allocatePaidResult(
     where: { id: instruction.repaymentScheduleId, tenantId: ctx.tenantId },
     select: { status: true, totalDue: true, totalPaid: true },
   })
-  const alreadyPaid = !!row && (row.status === "PAID" || row.totalPaid >= row.totalDue)
-  // The provider's settlement date, never later than now (a provider clock ahead of ours).
-  const receivedAt = result.resolvedAt > ctx.now ? ctx.now : result.resolvedAt
+  // A replay after a crash finds our own receipt already booked under this
+  // result's key: it does not count as an earlier payment of the instalment.
+  const ours = await prisma.payment.findFirst({
+    where: { tenantId: ctx.tenantId, idempotencyKey: `collection-result:${result.id}` },
+    select: { amount: true },
+  })
+  const paidBeforeUs = row ? row.totalPaid - Math.min(ours?.amount ?? 0, row.totalPaid) : 0
+  const alreadyPaid = !!row && paidBeforeUs >= row.totalDue
+  // The provider's settlement date, never later than when the result was
+  // recorded: fixed at recording, so a replay dates the receipt identically.
+  const receivedAt = result.resolvedAt > result.createdAt ? result.createdAt : result.resolvedAt
   let paymentId: string
   try {
     const receipt = await applyManualReceipt(prisma, {

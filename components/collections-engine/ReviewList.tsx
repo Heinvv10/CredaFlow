@@ -19,9 +19,9 @@ export function ReviewList({ queue, canManage, showLoan }: { queue: ReviewQueue;
       {queue.instructions.map((i) => (
         <InfoStrip key={i.id} variant="warning">
           <div>
-            Debit {i.instructionRef} of {formatZAR(i.amountCents)} for {formatDate(i.actionDate)}: {i.statusReason ?? "fate unknown"}
+            Debit {i.instructionRef} of {formatZAR(i.amountCents)} for {formatDate(i.actionDate)}{i.status === "REJECTED" ? " was rejected by the provider" : ""}: {i.statusReason ?? "fate unknown"}
             {loanLink(i.loanId)}
-            {canManage && <ReviewActions kind="INSTRUCTION" id={i.id} actions={["MARK_SUBMITTED", "RELEASE"]} />}
+            {canManage && <ReviewActions kind="INSTRUCTION" id={i.id} actions={i.status === "REJECTED" ? ["ACKNOWLEDGE"] : ["MARK_SUBMITTED", "RELEASE"]} />}
           </div>
         </InfoStrip>
       ))}
@@ -37,9 +37,10 @@ export function ReviewList({ queue, canManage, showLoan }: { queue: ReviewQueue;
       {queue.mandates.map((m) => (
         <InfoStrip key={m.id} variant="warning">
           <div>
-            Mandate submission stopped: {m.reviewReason}
+            Mandate ({m.status.toLowerCase().replace(/_/g, " ")}): {m.reviewReason}
             {loanLink(m.loanId)}
-            {canManage && <ReviewActions kind="MANDATE" id={m.id} actions={["RETRY"]} />}
+            {canManage && m.status === "CREATED" && <ReviewActions kind="MANDATE" id={m.id} actions={["RETRY"]} />}
+            {canManage && (m.status === "SUSPENDED" || m.status === "CANCELLED") && <ReviewActions kind="MANDATE" id={m.id} actions={["ACKNOWLEDGE"]} />}
           </div>
         </InfoStrip>
       ))}

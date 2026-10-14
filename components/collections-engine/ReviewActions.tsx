@@ -9,7 +9,7 @@ type Kind = "INSTRUCTION" | "RESULT" | "MANDATE"
 const LABELS: Record<string, string> = {
   MARK_SUBMITTED: "Provider has it: mark submitted",
   RELEASE: "Provider does not have it: release",
-  ACKNOWLEDGE: "Dealt with: acknowledge",
+  ACKNOWLEDGE: "Dealt with / confirmed with the provider: acknowledge",
   RETRY: "Retry submission",
 }
 

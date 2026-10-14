@@ -14,7 +14,7 @@ import { vi } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { registerProvider } from "@/lib/integrations/collections/registry"
 import { simulatedCollections } from "@/lib/integrations/collections/simulated"
-import type { CollectionProvider, InstructionLookup } from "@/lib/integrations/collections/types"
+import type { CollectionOutcome, CollectionProvider, InstructionLookup } from "@/lib/integrations/collections/types"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { runTenant, type CollectionsCronKind, type TenantCollectionsRun } from "./cron"
 import { dateOnly, loadEngineContext, type EngineContext } from "./context"
@@ -37,14 +37,32 @@ export const flaky = {
   collectError: null as Error | null,
   createMandateError: null as Error | null,
   findInstruction: null as ((ref: string) => InstructionLookup) | null,
-  calls: { collect: [] as string[][], createMandate: 0 },
+  /** Answer createMandate synchronously with a provider reference (a real-time rail). */
+  syncRef: false,
+  /** Runs after the provider accepted the mandate, before createMandate returns: a staff cancel racing the call. */
+  beforeCreateReturn: null as (() => Promise<void>) | null,
+  /** The rail cannot look a mandate up by our reference. */
+  noFindMandate: false,
+  /** The rail never registers what it was sent. */
+  registerNever: false,
+  /** Load reports reject every instruction with this error. */
+  rejectAll: null as string | null,
+  /** Replace fetchResults' answer. */
+  outcomes: null as CollectionOutcome[] | null,
+  calls: { collect: [] as string[][], createMandate: 0, cancelMandate: [] as string[] },
 }
 
 export function resetFlaky(): void {
   flaky.collectError = null
   flaky.createMandateError = null
   flaky.findInstruction = null
-  flaky.calls = { collect: [], createMandate: 0 }
+  flaky.syncRef = false
+  flaky.beforeCreateReturn = null
+  flaky.noFindMandate = false
+  flaky.registerNever = false
+  flaky.rejectAll = null
+  flaky.outcomes = null
+  flaky.calls = { collect: [], createMandate: 0, cancelMandate: [] }
 }
 
 const flakyRail: CollectionProvider = {
@@ -55,7 +73,24 @@ const flakyRail: CollectionProvider = {
     // Yield so two concurrent submitters genuinely overlap.
     await new Promise((resolve) => setImmediate(resolve))
     if (flaky.createMandateError) throw flaky.createMandateError
-    return simulatedCollections.createMandate(req, creds)
+    let handle = await simulatedCollections.createMandate(req, creds)
+    if (flaky.syncRef) {
+      const registered = await simulatedCollections.findMandate!(req.mandateReference, creds)
+      handle = { ...registered!, status: "PENDING_AUTH" }
+    }
+    if (flaky.beforeCreateReturn) await flaky.beforeCreateReturn()
+    return handle
+  },
+  async cancelMandate(ref, creds) {
+    flaky.calls.cancelMandate.push(ref)
+    return simulatedCollections.cancelMandate(ref, creds)
+  },
+  async getBatchLoadReport(batch, creds) {
+    if (flaky.rejectAll) return { state: "LOADED", accepted: [], rejected: batch.instructionRefs.map((instructionRef) => ({ instructionRef, error: flaky.rejectAll! })) }
+    return simulatedCollections.getBatchLoadReport!(batch, creds)
+  },
+  async fetchResults(window, creds) {
+    return flaky.outcomes ?? simulatedCollections.fetchResults(window, creds)
   },
   async collect(batch, creds) {
     flaky.calls.collect.push(batch.map((i) => i.instructionRef))
@@ -63,6 +98,11 @@ const flakyRail: CollectionProvider = {
     return simulatedCollections.collect(batch, creds)
   },
 }
+Object.defineProperty(flakyRail, "findMandate", {
+  enumerable: true,
+  get: () => (flaky.noFindMandate ? undefined
+    : async (ref: string, creds: Record<string, string>) => (flaky.registerNever ? null : simulatedCollections.findMandate!(ref, creds))),
+})
 Object.defineProperty(flakyRail, "findInstruction", {
   enumerable: true,
   get: () => (flaky.findInstruction ? async (ref: string) => flaky.findInstruction!(ref) : undefined),

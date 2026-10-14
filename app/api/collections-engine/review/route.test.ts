@@ -29,7 +29,7 @@ describe("POST /api/collections-engine/review", () => {
   })
 
   it.each([
-    [{ kind: "INSTRUCTION", id: "i1", action: "ACKNOWLEDGE", reason: "x" }],
+    [{ kind: "MANDATE", id: "m1", action: "RELEASE", reason: "x" }],
     [{ kind: "RESULT", id: "r1", action: "RELEASE", reason: "x" }],
     [{ kind: "INSTRUCTION", id: "i1", action: "RELEASE", reason: " " }],
     [{ kind: "NOPE", id: "i1", action: "RELEASE", reason: "x" }],
