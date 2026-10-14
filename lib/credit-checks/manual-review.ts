@@ -59,15 +59,19 @@ function review(s: StatementFacts): FlagCandidate[] {
   }
   // A photo, a scan, an unrecognised layout or an unprofiled bank's PDF has
   // had no file-level authenticity check at all: an edited image balances too.
+  // Nor has a PDF that names no producer or creator: some banks (Discovery's
+  // app) write none, so its producer check passes, but so does any file
+  // stripped of its metadata.
   const signals = s.authenticity?.signals ?? []
-  if (signals.some((x) => UNCHECKABLE.includes(x)) || !s.bank || !EXPECTED_PRODUCERS[s.bank]) {
+  const noMetadata = !!s.authenticity && !s.authenticity.producer && !s.authenticity.creator
+  if (signals.some((x) => UNCHECKABLE.includes(x)) || !s.bank || !EXPECTED_PRODUCERS[s.bank] || noMetadata) {
     out.push({
       ...base,
       code: "AUTHENTICITY_UNCHECKED",
       summary: signals.includes("METADATA_AMBIGUOUS")
         ? "The PDF's metadata contradicts itself (a field appears twice), so its authenticity could not be checked. Treat it as possibly altered and compare it with the bank's original."
-        : "This statement is a photo, a scan, an unrecognised layout or from a bank without a known PDF profile, so its authenticity could not be checked automatically. Compare it with the bank's original.",
-      evidence: { ...evidence, signals, bank: s.bank },
+        : "This statement is a photo, a scan, an unrecognised layout, a PDF without producer metadata or from a bank without a known PDF profile, so its authenticity could not be checked automatically. Compare it with the bank's original.",
+      evidence: { ...evidence, signals, bank: s.bank, ...(noMetadata ? { noMetadata } : {}) },
     })
   }
   return out

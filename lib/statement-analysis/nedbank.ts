@@ -17,7 +17,7 @@
  * Rows are read from word boxes: the table is set in a proportional font.
  */
 import { parseRandToCents } from "./money"
-import { holderFromTitleLine, isoFromDmy, lineMatch } from "./layout"
+import { holderFromTitleLine, isoFromDmy, lineMatch, MAX_LINE_CHARS } from "./layout"
 import type { PdfWord } from "./pdf-tools"
 import type { StatementRead, StatementTransaction } from "./types"
 import { labelEdge, lineText, nearestColumn, splitFigures, wordLines } from "./word-table"
@@ -82,8 +82,9 @@ function summaryAmount(text: string, label: string): number | null {
 /** The digits printed under the "Account number" label. */
 function accountLast4(page1: string): string | null {
   const lines = page1.split("\n")
-  const at = lines.findIndex((l) => /Account type[ \t]+Account number/.test(l))
-  const m = at >= 0 ? /(\d{6,})[ \t]*$/.exec(lines[at + 1] ?? "") : null
+  const at = lines.findIndex((l) => l.length <= MAX_LINE_CHARS && /Account type[ \t]+Account number/.test(l))
+  const next = lines[at + 1] ?? ""
+  const m = at >= 0 && next.length <= MAX_LINE_CHARS ? /(\d{6,})[ \t]*$/.exec(next) : null
   return m ? m[1].slice(-4) : null
 }
 

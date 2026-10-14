@@ -29,21 +29,32 @@ export function commaCents(text: string): number | null {
 /**
  * Fees ABSA prints but has not levied: "( PENDING )" and "DECLINED FEE". The
  * words alone are not enough — a client can type them into a reference — so
- * the row must also leave the balance where it was: the printed balance equals
- * the running balance without it, or (eStatement) no balance is printed and
- * the next printed one is left to the balance check to confirm.
+ * the balance must confirm it. Rows are taken in runs ending at the next
+ * printed balance (or the closing balance): the run's marked rows are
+ * non-posting only when that balance is reached without them and not with
+ * them. Otherwise nothing is marked and the balance check reports the run.
  */
 const NOT_LEVIED = /\(\s*PENDING\s*\)|\bDECLINED FEE\b/i
 
-export function markNonPosting(rows: StatementTransaction[], opening: number | null): StatementTransaction[] {
-  let running = opening
-  return rows.map((t) => {
-    const unmoved = t.amountCents !== 0 && (t.balanceCents === null || (running !== null && t.balanceCents === running))
-    const out = NOT_LEVIED.test(t.description) && unmoved ? { ...t, nonPosting: true as const } : t
-    if (running !== null && !out.nonPosting) running += t.amountCents
-    if (t.balanceCents !== null) running = t.balanceCents
-    return out
-  })
+export function markNonPosting(rows: StatementTransaction[], opening: number | null, closing: number | null): StatementTransaction[] {
+  const out = [...rows]
+  let base = opening
+  let start = 0
+  for (let i = 0; i < rows.length; i++) {
+    const last = i === rows.length - 1
+    const anchor = rows[i].balanceCents ?? (last ? closing : null)
+    if (anchor === null) continue
+    const run = rows.slice(start, i + 1)
+    const marked = run.map((t) => NOT_LEVIED.test(t.description) && t.amountCents !== 0)
+    const all = run.reduce((sum, t) => sum + t.amountCents, 0)
+    const posted = run.reduce((sum, t, j) => sum + (marked[j] ? 0 : t.amountCents), 0)
+    if (base !== null && marked.some(Boolean) && base + all !== anchor && base + posted === anchor) {
+      marked.forEach((m, j) => { if (m) out[start + j] = { ...run[j], nonPosting: true } })
+    }
+    base = anchor
+    start = i + 1
+  }
+  return out
 }
 
 type Columns = { amount: number; balance: number; date: number }
@@ -107,6 +118,7 @@ export function readAbsaEstatement(pages: string[], words: PdfWord[][]): Stateme
   if (!period || !/Transaction history/i.test(all)) return null
   const { rows, opening } = read(words)
   const closing = lineMatch(all, CLOSING)
+  const closingCents = closing ? commaCents(closing[1]) : null
   const account = lineMatch(all, /Account number[ \t]+(\d{2} \d{4} \d{4})\b/)
   return {
     // The address block carries no label to anchor the holder's name on.
@@ -115,7 +127,7 @@ export function readAbsaEstatement(pages: string[], words: PdfWord[][]): Stateme
     periodStart: isoFromDayMonthYear(period[1]),
     periodEnd: isoFromDayMonthYear(period[2]),
     openingBalanceCents: opening,
-    closingBalanceCents: closing ? commaCents(closing[1]) : null,
-    transactions: markNonPosting(rows, opening),
+    closingBalanceCents: closingCents,
+    transactions: markNonPosting(rows, opening, closingCents),
   }
 }

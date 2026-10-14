@@ -8,6 +8,8 @@ import { analyseStatement } from "./analyse"
 import { syntheticStatement, type SynthBank } from "./fixtures/dataset"
 import { buildStatement, DETECTED_AS } from "./fixtures/synthetic-banks"
 import type { BuildOptions, SynthStatement } from "./fixtures/synthetic"
+import { readNedbank } from "./nedbank"
+import { splitFigures } from "./word-table"
 
 const scenario = { start: "2026-07-01", undisclosedLoan: true, gambling: true, paydayLender: true, returnedDebit: true }
 const BANKS = ["NEDBANK", "ABSA", "ABSA_ESTATEMENT", "STANDARD_BANK", "DISCOVERY"] as const
@@ -106,5 +108,39 @@ describe("Nedbank's Fees column", () => {
     const r = await read("NEDBANK", s)
     expect(r.balanceCheck).toBe("PASS")
     expect(r.read!.transactions[2].amountCents).toBe(s.transactions[2].amountCents)
+  })
+})
+
+describe("ABSA eStatement: a marked row without a printed balance", () => {
+  it("stays posting when the next printed balance includes it", async () => {
+    const s = syntheticStatement({ bank: "ABSA_ESTATEMENT", start: "2026-07-01" })
+    // A real payment whose reference happens to say "(PENDING)": it moved the money.
+    s.transactions = [...s.transactions, { date: "2026-08-10", description: "PAYMENT REF (PENDING) SYNTH", amountCents: -2_500 }]
+      .sort((a, b) => a.date.localeCompare(b.date))
+    const r = await read("ABSA_ESTATEMENT", s)
+    expect(r.balanceCheck).toBe("PASS")
+    expect(r.read!.transactions.find((t) => t.description.includes("PENDING"))?.nonPosting).toBeUndefined()
+  })
+})
+
+describe("hostile word boxes", () => {
+  it("skips an over-long line of adjacent figure-like words quickly", () => {
+    const line = Array.from({ length: 50_000 }, (_, i) => ({ text: i % 2 ? "234.56" : "1", xMin: i * 2, xMax: i * 2 + 1.5, yMin: 0 }))
+    const started = performance.now()
+    expect(splitFigures(line, () => true).figures).toEqual([])
+    const short = line.slice(0, 150)
+    expect(splitFigures(short, (t) => /^\d+(?: \d+)*\.\d{2}$/.test(t)).figures.length).toBeGreaterThan(0)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+})
+
+describe("hostile long lines", () => {
+  // The account number is read from the line after its label: a long run of
+  // digits there made the pattern quadratic before that line was bounded.
+  it("reads a Nedbank page with a very long line quickly and takes nothing from it", () => {
+    const started = performance.now()
+    const page = `Statement period: 01/07/2026 – 30/09/2026\nOpening balance R1.00\n  Account type   Account number\n${"1".repeat(30_000)}x`
+    expect(readNedbank([page], [[]])?.accountNumberLast4).toBeNull()
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })

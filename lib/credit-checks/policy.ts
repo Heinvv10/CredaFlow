@@ -37,8 +37,9 @@ export const STALE_STATEMENT_DAYS = 45
  * Added 2026-10-14 from the same corpus: Nedbank (no producer, OpenText
  * Exstream), ABSA's two systems (BIRT on iText; TargetStream), Standard Bank
  * (PDFlib+PDI by Designer). Discovery writes no metadata on its app statements
- * (8 of 9 files) and StreamServe on the other — a file stripped of metadata
- * passes for Discovery, so its producer check is weak. Standard Bank and
+ * (8 of 9 files) and StreamServe on the other. A file stripped of its metadata
+ * would pass for Discovery, so manual-review.ts sends every PDF without a
+ * producer or creator to a person (AUTHENTICITY_UNCHECKED). Standard Bank and
  * Discovery are limited evidence (6–9 files each).
  */
 export const EXPECTED_PRODUCERS: Partial<Record<string, { producer: string[]; creator: string[] }>> = {

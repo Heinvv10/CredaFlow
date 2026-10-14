@@ -25,6 +25,11 @@ export interface Figure {
 
 /** Words closer than this (pt) belong to one printed figure ("R" "1" "234.56"). */
 const FIGURE_GAP_PT = 4
+/**
+ * A statement line holds a few dozen words. A longer one is not statement text,
+ * and is skipped like an over-long `-layout` line (layout.ts MAX_LINE_CHARS).
+ */
+export const MAX_LINE_WORDS = 200
 
 /**
  * Splits a line into the figures `isFigure` accepts and the remaining words.
@@ -33,6 +38,7 @@ const FIGURE_GAP_PT = 4
  * words to its left that still reads as one figure.
  */
 export function splitFigures(line: PdfWord[], isFigure: (text: string) => boolean): { figures: Figure[]; words: PdfWord[] } {
+  if (line.length > MAX_LINE_WORDS) return { figures: [], words: [] }
   const used = new Set<number>()
   const figures: Figure[] = []
   for (let end = line.length - 1; end >= 0; end--) {

@@ -97,8 +97,8 @@ function readTransactionHistory(pages: string[]): StatementRead | null {
   const first = rows[0]
   // The opening is derived from the first row, so that row is never one to skip.
   const opening = first?.balanceCents != null ? first.balanceCents - first.amountCents : null
-  const transactions = [...rows.slice(0, 1), ...markNonPosting(rows.slice(1), first?.balanceCents ?? null)]
-  const last = transactions[transactions.length - 1]
+  const closing = carriedForward(all) ?? rows[rows.length - 1]?.balanceCents ?? null
+  const transactions = [...rows.slice(0, 1), ...markNonPosting(rows.slice(1), first?.balanceCents ?? null, closing)]
   const { holder, last4 } = holderAndAccount(pages[0] ?? "")
   return {
     accountHolderName: holder,
@@ -106,7 +106,7 @@ function readTransactionHistory(pages: string[]): StatementRead | null {
     periodStart: validDate(period[1]),
     periodEnd: validDate(period[2]),
     openingBalanceCents: opening,
-    closingBalanceCents: carriedForward(all) ?? last?.balanceCents ?? null,
+    closingBalanceCents: closing,
     transactions,
   }
 }
