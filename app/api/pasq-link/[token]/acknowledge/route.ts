@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { checkRateLimit, callerIp } from "@/lib/rate-limit"
+import { checkRateLimit, callerIp, recordedCallerIp } from "@/lib/rate-limit"
 import { recordPasqAcknowledgement } from "@/lib/compliance/pasq-acknowledgement.server"
 import {
   PASQ_LINK_REJECTION_MESSAGE,
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     clientId: link.clientId,
     clientEmail: link.clientEmail,
     method: "token_link",
-    ipAddress: req.headers.get("x-forwarded-for") ?? null,
+    ipAddress: recordedCallerIp(req),
     userAgent: req.headers.get("user-agent") ?? null,
     auditEvidence: {
       tokenId: link.tokenId,

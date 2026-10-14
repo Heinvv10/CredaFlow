@@ -4,6 +4,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAudit } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { sendEmail } from "@/lib/email/service"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { readFile } from "@/lib/storage"
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         action: AuditAction.AGREEMENT_EMAIL_FAILED,
         entity: "LoanApplication",
         entityId: id,
-        ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+        ipAddress: recordedCallerIp(req) ?? undefined,
         newValue: {
           documentId: document.id,
           deliveredExecutedArtifact: deliversExecuted,
@@ -232,7 +233,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
           accessorType: "staff",
           accessorId: guard.user.id,
           action: "email_to_client",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })
@@ -247,7 +248,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         : AuditAction.AGREEMENT_EMAIL_FAILED,
       entity: "LoanApplication",
       entityId: id,
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: recordedCallerIp(req) ?? undefined,
       newValue: {
         documentId: document.id,
         // MUST be the digest of the document actually attached. Pairing the

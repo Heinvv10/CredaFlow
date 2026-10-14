@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { clientViewableDisclosureDocumentId } from "@/lib/insurance/disclosure-access"
 
 interface RouteParams {
@@ -140,7 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       action: AuditAction.INSURANCE_PPR_ACKNOWLEDGED,
       entity: "InsurancePolicy",
       entityId: policy.id,
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: recordedCallerIp(req) ?? undefined,
       oldValue: { pprAcknowledgedAt: null },
       newValue: {
         pprAcknowledgedAt: acknowledgedAt.toISOString(),

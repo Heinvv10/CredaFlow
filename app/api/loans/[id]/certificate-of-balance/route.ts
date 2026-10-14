@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { recordedCallerIp } from "@/lib/rate-limit"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: "staff",
           accessorId: guard.user.id,
           action: "download",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })

@@ -12,6 +12,7 @@ import {
 } from "@/lib/documents/content-integrity"
 import { createSigningPacketPdf } from "@/lib/pdf/signingPacket"
 import { AuditAction } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
@@ -143,7 +144,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: access.type,
           accessorId,
           action: "view_in_signing_packet",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       }),
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: access.type,
           accessorId,
           action: "view_in_signing_packet",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       }),

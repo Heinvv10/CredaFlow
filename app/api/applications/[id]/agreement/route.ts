@@ -14,6 +14,7 @@ import {
   saveFileToManagedPath,
 } from "@/lib/storage"
 import { withTenantContext } from "@/lib/tenant"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
 import {
   acceptedPasqCalculatorFingerprint,
@@ -400,7 +401,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: access.type,
           accessorId: access.type === "staff" ? access.user.id : access.clientId,
           action: "view",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })

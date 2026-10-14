@@ -20,6 +20,7 @@ import {
 } from "@/lib/compliance/pasq"
 import { readAffordabilitySnapshotStore } from "@/lib/affordability/snapshot"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
@@ -186,9 +187,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         accessorType: "staff",
         accessorId: guard.user.id,
         action: "view_draft",
-        ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-          ?? req.headers.get("x-real-ip")
-          ?? null,
+        ipAddress: recordedCallerIp(req),
         userAgent: req.headers.get("user-agent") ?? null,
       },
     })

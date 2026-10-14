@@ -4,6 +4,7 @@ import { Prisma, type UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { hasMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { AuditAction } from "@/lib/audit"
 import { withTenantContext } from "@/lib/tenant"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
@@ -631,9 +632,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       )
     }
 
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-      ?? req.headers.get("x-real-ip")
-      ?? null
+    const ip = recordedCallerIp(req)
 
     try {
       const updated = await prisma.$transaction(async (tx) => {

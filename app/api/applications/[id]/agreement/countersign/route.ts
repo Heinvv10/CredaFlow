@@ -5,6 +5,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import {
   affordabilityContractCanBeDisbursed,
   affordabilityContractEvidenceIsIntact,
@@ -402,9 +403,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
 
     const countersignedAt = new Date()
     const signatureSha256 = providerCountersignatureSha256(signature)
-    const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-      ?? req.headers.get("x-real-ip")
-      ?? null
+    const ipAddress = recordedCallerIp(req)
 
     // ── The executed artifact ────────────────────────────────────────────────
     //

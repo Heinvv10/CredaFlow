@@ -12,6 +12,7 @@ import { sendEmail } from "@/lib/email/service"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { escapeHtml } from "@/lib/utils"
 import { AuditAction, logAudit } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             accessorType: "staff",
             accessorId: guard.user.id,
             action: "email_in_signing_packet",
-            ipAddress: req.headers.get("x-forwarded-for") ?? null,
+            ipAddress: recordedCallerIp(req),
             userAgent: req.headers.get("user-agent") ?? null,
           },
         }),
@@ -186,7 +187,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             accessorType: "staff",
             accessorId: guard.user.id,
             action: "email_in_signing_packet",
-            ipAddress: req.headers.get("x-forwarded-for") ?? null,
+            ipAddress: recordedCallerIp(req),
             userAgent: req.headers.get("user-agent") ?? null,
           },
         }),
@@ -201,7 +202,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         : AuditAction.SIGNING_PACKET_EMAIL_FAILED,
       entity: "LoanApplication",
       entityId: id,
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: recordedCallerIp(req) ?? undefined,
       newValue: {
         pasqDocumentId: pasqDocument.id,
         pasqDocumentSha256: application.pasqDocumentSha256,

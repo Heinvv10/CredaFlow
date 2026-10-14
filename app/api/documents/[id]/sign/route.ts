@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -75,9 +76,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Document is already signed" }, { status: 409 })
     }
 
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-      ?? req.headers.get("x-real-ip")
-      ?? null
+    const ip = recordedCallerIp(req)
 
     const signedAt = new Date()
 
