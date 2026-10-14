@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
+import { otpauthQrDataUrl } from "./totp-qr"
 import { Shield, ShieldCheck, ShieldOff, Loader2, Copy, CheckCircle } from "lucide-react"
 
 interface Props {
@@ -48,7 +49,7 @@ export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced 
     try {
       const res = await fetch("/api/settings/totp")
       const data = await res.json() as { secret: string; otpauth: string }
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.otpauth)}`
+      const qrUrl = await otpauthQrDataUrl(data.otpauth)
       setSetup({ ...data, qrUrl })
     } catch {
       setError("Failed to generate setup code")
