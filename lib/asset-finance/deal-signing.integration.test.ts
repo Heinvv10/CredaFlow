@@ -172,8 +172,9 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     expect((await routes().wetInk(fx.dealId, row.id, "SIGNED_SURETYSHIP")).status).toBe(201)
     const uploaded = await signerOf(fx.suretyB, "SURETYSHIP")
     expect(uploaded).toMatchObject({ method: "WET_INK", scanUploadedById: fx.officer, confirmedById: null })
+    if (!uploaded.scanDocumentId) throw new Error("wet-ink scan was not bound to the signer")
 
-    expect((await routes().confirm(fx.dealId, row.id)).status).toBe(403)
+    expect((await routes().confirm(fx.dealId, row.id, uploaded.scanDocumentId)).status).toBe(403)
     expect(await database().auditLog.count({ where: { entityId: fx.dealId, action: "ASSET_DEAL_SIGNING_REFUSED" } })).toBeGreaterThan(0)
     expect(await sqlError(() => database().dealSigner.update({
       where: { id: row.id }, data: { confirmedById: fx.officer, confirmedAt: new Date() },
@@ -183,7 +184,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     }))).toContain("A signed scan on record for a deal signer cannot be deleted")
 
     signIn(fx.adminA, "LOAN_ADMIN")
-    expect((await routes().confirm(fx.dealId, row.id)).status).toBe(200)
+    expect((await routes().confirm(fx.dealId, row.id, uploaded.scanDocumentId)).status).toBe(200)
     expect(await signerOf(fx.suretyB, "SURETYSHIP")).toMatchObject({ confirmedById: fx.adminA })
   })
 
