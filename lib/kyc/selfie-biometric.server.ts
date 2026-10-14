@@ -14,6 +14,7 @@ import {
 import {
   BIOMETRIC_FAILURE_REASON_CLASS,
   biometricSubjectFingerprint,
+  isAdversePriorAttempt,
   type BiometricEvidenceFailureReason,
 } from "@/lib/kyc/biometric-evidence"
 import {
@@ -27,6 +28,7 @@ import { compareFaces, type FaceComparison } from "@/lib/kyc/face-model/compare.
 import { canonicalBiometricImage } from "@/lib/kyc/biometric-image.server"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
+import { SWEPT_ATTEMPT_CONDITIONS } from "@/lib/kyc/selfie-sweeper.server"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -42,6 +44,18 @@ type IdDocumentReference = {
   storagePath: string | null
   mimeType: string | null
   contentSha256: string | null
+}
+
+/**
+ * The rows a worker's answer may land on: its own `processing` attempt, or the
+ * same attempt after the sweeper failed it (lib/kyc/selfie-sweeper.server.ts).
+ * A later manual decision supersedes either.
+ */
+const AWAITING_OUTCOME = {
+  OR: [
+    { extractionStatus: "processing", verified: false, verificationNote: null },
+    SWEPT_ATTEMPT_CONDITIONS,
+  ],
 }
 
 export async function runBiometricVerification(
@@ -237,11 +251,8 @@ async function persistBiometricOutcome(args: {
         tenantId: args.tenantId,
         clientId: args.clientId,
         deletedAt: null,
-        extractionStatus: "processing",
         extractionGeneration: args.extractionGeneration,
-        // A later manual decision supersedes this background callback.
-        verified: false,
-        verificationNote: null,
+        ...AWAITING_OUTCOME,
       },
       select: {
         id: true,
@@ -385,16 +396,29 @@ async function persistBiometricOutcome(args: {
       // same-person answer must survive a path that wrote no provider result.
       faceVerdict: args.faceVerdict,
     } as Prisma.InputJsonValue
+    // A worker answering after the sweeper failed its attempt. Only an ADVERSE
+    // answer for the client's current attempt, on the current ID and unchanged
+    // subject, is recorded: it re-projects the client's KYC below. A pass, a
+    // benign failure or a stale one changes nothing, so the swept (adverse)
+    // verdict can only be sharpened, never loosened.
+    const lateAnswer = currentDocument.extractionStatus === "failed"
+    if (lateAnswer && !(
+      !biometricPassed &&
+      outcomeIsCurrent &&
+      subjectUnchanged &&
+      idDocumentUnchanged &&
+      isAdversePriorAttempt({ extractionStatus: "failed", biometricResult: biometricResultJson })
+    )) {
+      return false
+    }
     const documentChanged = await tx.clientDocument.updateMany({
       where: {
         id: args.docId,
         tenantId: args.tenantId,
         clientId: args.clientId,
         deletedAt: null,
-        extractionStatus: "processing",
         extractionGeneration: args.extractionGeneration,
-        verified: false,
-        verificationNote: null,
+        ...AWAITING_OUTCOME,
       },
       data: {
         extractionStatus,
@@ -489,6 +513,7 @@ async function persistBiometricOutcome(args: {
             subjectFingerprint: args.subjectFingerprint,
             biometricFailureReason,
             latestSelfie: outcomeIsCurrent,
+            lateAfterSweep: lateAnswer,
             // The model's judgements behind the outcome. No personal data:
             // enums, booleans and confidences only.
             faceMatchVerdict: args.biometricResult

@@ -245,11 +245,14 @@ describe("POST /api/documents/selfie", () => {
     expect(txDocumentFindFirstMock.mock.calls[1][0]).toEqual(expect.objectContaining({
       where: expect.objectContaining({
         id: "selfie-doc-1",
-        extractionStatus: "processing",
         extractionGeneration: generation,
         deletedAt: null,
-        verified: false,
-        verificationNote: null,
+        // Its own processing attempt, or that attempt after the sweeper
+        // failed it (a late answer is then accepted only if adverse).
+        OR: [
+          { extractionStatus: "processing", verified: false, verificationNote: null },
+          expect.objectContaining({ extractionStatus: "failed", verified: false }),
+        ],
       }),
     }))
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
