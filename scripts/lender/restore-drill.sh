@@ -92,7 +92,15 @@ volumes:
   pgdata:
   uploads:
 YAML
-dcompose() { env -i PATH="$PATH" HOME="$HOME" ${DOCKER_HOST:+DOCKER_HOST="$DOCKER_HOST"} docker compose -p "$DRILL" -f "$work/docker-compose.yml" --project-directory "$work" --env-file "$work/drill.env" "$@"; }
+# Compose on the drill project only, with a scrubbed environment (as lcompose), v2 plugin or standalone.
+dcompose() {
+  local pre=(env -i) v
+  for v in PATH HOME USER LANG TMPDIR DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY XDG_RUNTIME_DIR; do
+    [ -z "${!v:-}" ] || pre+=("$v=${!v}")
+  done
+  local cmd=(docker compose); docker compose version >/dev/null 2>&1 || cmd=(docker-compose)
+  "${pre[@]}" "${cmd[@]}" -p "$DRILL" -f "$work/docker-compose.yml" --project-directory "$work" --env-file "$work/drill.env" "$@"
+}
 teardown() {
   if $keep; then note "--keep-stack: project $DRILL left running (remove: docker compose -p $DRILL -f $work/docker-compose.yml down -v)"; return; fi
   dcompose down -v --remove-orphans >/dev/null 2>&1 || note "WARNING: teardown of $DRILL failed; remove it by hand (docker compose -p $DRILL down -v)"

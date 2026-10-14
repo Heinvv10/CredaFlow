@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withApiKey } from "@/lib/lender-api/handler"
-import { optionalIdParam, pageOf, pageQuery, parsePageParams } from "@/lib/lender-api/pagination"
+import { optionalIdParam, pageOf, pageQuery, pageWhere, parsePageParams } from "@/lib/lender-api/pagination"
 import { paymentSelect, toApiPayment } from "@/lib/lender-api/serializers"
 
 export async function GET(req: Request) {
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     const loanId = optionalIdParam(url, "loanId")
     if (loanId instanceof Response) return loanId
     const rows = await prisma.payment.findMany({
-      where: { tenantId: caller.tenantId, ...(loanId ? { loanId } : {}) },
+      where: { tenantId: caller.tenantId, ...(loanId ? { loanId } : {}), ...pageWhere(page) },
       select: paymentSelect,
       ...pageQuery(page),
     })

@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import net from "node:net"
 import type { LookupAddress } from "node:dns"
-import { assertWebhookUrl, isBlockedAddress, SsrfError, type Resolver } from "./ssrf"
-import { postWebhook } from "./post"
+import { assertWebhookUrl, isBlockedAddress, SsrfError, withTimeout, type Resolver } from "./ssrf"
+import { postWebhook, REFUSED_DESTINATION } from "./post"
 
 const PUBLIC = "93.184.215.14"
 
@@ -58,26 +58,36 @@ beforeAll(async () => {
 afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())))
 
 describe("postWebhook never dials a blocked address", () => {
-  it("refuses an IP-literal URL before connecting", async () => {
+  beforeEach(() => {
     connections = 0
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  // The delivery log is shown to the lender: a refusal must not say which
+  // address a name resolved to (that would make it a probe of the network).
+  const isGenericRefusal = (error: string | null) => {
+    expect(error).toBe(REFUSED_DESTINATION)
+    expect(error).not.toMatch(/127\.|10\.|resolve|port/)
+  }
+
+  it("refuses an IP-literal URL before connecting", async () => {
     const result = await postWebhook(`https://127.0.0.1:${port}/hook`, "{}", {})
     expect(result).toMatchObject({ ok: false, status: null })
-    expect(result.error).toMatch(/not a public address/)
+    isGenericRefusal(result.error)
     expect(connections).toBe(0)
   })
 
   it("checks the address inside the connection's own lookup", async () => {
-    connections = 0
     const resolve = vi.fn<Resolver>(async () => answers("127.0.0.1"))
     const result = await postWebhook(`https://internal.example.test:${port}/hook`, "{}", {}, { resolve })
     expect(resolve).toHaveBeenCalledWith("internal.example.test")
     expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/not a public address/)
+    isGenericRefusal(result.error)
     expect(connections).toBe(0)
   })
 
   it("DNS rebinding: a name that was public when saved and private when dialled is refused", async () => {
-    connections = 0
     let calls = 0
     const rebinding: Resolver = async () => (++calls === 1 ? answers(PUBLIC) : answers("127.0.0.1"))
     const url = `https://rebind.example.test:${port}/hook`
@@ -85,11 +95,37 @@ describe("postWebhook never dials a blocked address", () => {
     const result = await postWebhook(url, "{}", {}, { resolve: rebinding })
     expect(calls).toBe(2)
     expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/127\.0\.0\.1.*not a public address/)
+    isGenericRefusal(result.error)
     expect(connections).toBe(0)
+    // The detail is logged server-side.
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).toMatch(/127\.0\.0\.1/)
+  })
+
+  it("answers the same for a name that does not resolve and one that resolves privately", async () => {
+    const gone = await postWebhook(`https://gone.example.test:${port}/`, "{}", {}, { resolve: async () => { throw new Error("ENOTFOUND") } })
+    const inside = await postWebhook(`https://inside.example.test:${port}/`, "{}", {}, { resolve: async () => answers("10.1.2.3") })
+    expect(gone.error).toBe(inside.error)
+    isGenericRefusal(gone.error)
   })
 
   it("refuses an http URL outright", async () => {
-    expect((await postWebhook(`http://example.test:${port}/`, "{}", {})).error).toMatch(/https/)
+    isGenericRefusal((await postWebhook(`http://example.test:${port}/`, "{}", {})).error)
+  })
+
+  it("gives up at its deadline, however long the lookup or the receiver takes", async () => {
+    const started = Date.now()
+    const hanging: Resolver = () => new Promise(() => undefined)
+    const result = await postWebhook(`https://slow.example.test:${port}/`, "{}", {}, { resolve: hanging, timeoutMs: 200 })
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(result).toMatchObject({ ok: false, status: null })
+    expect(connections).toBe(0)
+  })
+})
+
+describe("DNS lookups have a deadline", () => {
+  it("withTimeout fails a lookup that does not answer", async () => {
+    const hanging: Resolver = () => new Promise(() => undefined)
+    await expect(withTimeout(hanging, 50)("slow.example.test")).rejects.toThrow(/timed out/)
+    await expect(withTimeout(async () => answers(PUBLIC), 50)("ok.example.test")).resolves.toHaveLength(1)
   })
 })

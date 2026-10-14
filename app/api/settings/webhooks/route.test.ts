@@ -54,15 +54,22 @@ describe("POST /api/settings/webhooks", () => {
     expect(h.audit.mock.calls[0][0].data.action).toBe("WEBHOOK_ENDPOINT_CREATED")
   })
 
-  it.each([
-    ["http://hooks.example.com/cf", /https/],
-    ["https://127.0.0.1/cf", /not a public address/],
-    ["https://internal.example.com/cf", /10\.0\.0\.7/],
-  ])("refuses %s (SSRF guard)", async (url, message) => {
-    const res = await post({ ...valid, url })
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toMatch(message)
+  // One answer for every refusal: the form must not reveal what a host
+  // resolves to, nor tell "private" from "unresolvable" (an internal-network oracle).
+  it("refuses non-https, private and unresolvable URLs with one generic answer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const answers = new Set<string>()
+    for (const url of ["http://hooks.example.com/cf", "https://127.0.0.1/cf", "https://internal.example.com/cf", "https://[::1]/cf"]) {
+      const res = await post({ ...valid, url })
+      expect(res.status, url).toBe(400)
+      const { error } = await res.json()
+      expect(error).not.toMatch(/10\.0\.0\.7|127\.0\.0\.1|::1|resolves to/)
+      answers.add(error)
+    }
+    expect(answers.size).toBe(1)
     expect(h.create).not.toHaveBeenCalled()
+    expect(JSON.stringify(warn.mock.calls)).toMatch(/10\.0\.0\.7/)
+    warn.mockRestore()
   })
 
   it("refuses unknown events, and works only when the server has a sealing key", async () => {

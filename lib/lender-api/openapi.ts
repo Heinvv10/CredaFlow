@@ -75,6 +75,7 @@ export function buildOpenApiDocument(serverUrl?: string) {
           "400": error("The body is invalid."),
           "404": error("No such client or product."),
           "409": error("An application for this client and product is already open (details.existingApplicationId)."),
+          "413": error("The body is larger than 16 KB."),
           "422": error("Refused: the client is blacklisted, deceased or has a defaulted loan, or the instalment fails affordability."),
         }, { requestBody: { required: true, content: json(ref("CreateApplication")) } }),
       },

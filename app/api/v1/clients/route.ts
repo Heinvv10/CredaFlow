@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withApiKey } from "@/lib/lender-api/handler"
 import { hasScope } from "@/lib/lender-api/scopes"
-import { pageOf, pageQuery, parsePageParams } from "@/lib/lender-api/pagination"
+import { pageOf, pageQuery, pageWhere, parsePageParams } from "@/lib/lender-api/pagination"
 import { clientSelect, toApiClient } from "@/lib/lender-api/serializers"
 
 export async function GET(req: Request) {
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const page = parsePageParams(new URL(req.url))
     if (page instanceof Response) return page
     const rows = await prisma.client.findMany({
-      where: { tenantId: caller.tenantId },
+      where: { tenantId: caller.tenantId, ...pageWhere(page) },
       select: clientSelect,
       ...pageQuery(page),
     })

@@ -62,7 +62,20 @@ export function isBlockedAddress(address: string): boolean {
 
 export type Resolver = (hostname: string) => Promise<LookupAddress[]>
 
-export const systemResolver: Resolver = (hostname) => dnsLookup(hostname, { all: true, verbatim: true })
+export const DNS_TIMEOUT_MS = 5_000
+
+/** Fails a lookup that has not answered in `ms` (getaddrinfo itself has no deadline). */
+export function withTimeout(resolve: Resolver, ms: number = DNS_TIMEOUT_MS): Resolver {
+  return (hostname) => new Promise<LookupAddress[]>((ok, fail) => {
+    const timer = setTimeout(() => fail(new Error(`DNS lookup timed out after ${ms} ms`)), ms)
+    resolve(hostname).then(
+      (addresses) => { clearTimeout(timer); ok(addresses) },
+      (error: unknown) => { clearTimeout(timer); fail(error) },
+    )
+  })
+}
+
+export const systemResolver: Resolver = withTimeout((hostname) => dnsLookup(hostname, { all: true, verbatim: true }))
 
 /** Resolve and require every address to be public. Returns the addresses. */
 export async function resolvePublic(hostname: string, resolve: Resolver): Promise<LookupAddress[]> {

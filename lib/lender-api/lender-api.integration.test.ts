@@ -21,6 +21,7 @@ import { GET as getSchedule } from "@/app/api/v1/loans/[id]/schedule/route"
 import { GET as listPayments } from "@/app/api/v1/payments/route"
 import { GET as getPayment } from "@/app/api/v1/payments/[id]/route"
 import { revokeApiKey } from "./key-admin"
+import { encodeCursor } from "./pagination"
 import { _resetRateLimitStore } from "@/lib/rate-limit"
 
 const post = vi.hoisted(() => ({ calls: [] as Array<{ url: string; body: string; headers: Record<string, string> }>, status: 200 }))
@@ -104,6 +105,30 @@ suite("lender API (real database)", () => {
     expect(body.data.map((c: { id: string }) => c.id)).not.toContain(B.clientId)
     const filtered = await call(listLoans, keyA, `/api/v1/loans?clientId=${B.clientId}`)
     expect(filtered.body.data).toEqual([])
+  })
+
+  it("pages through its own rows; a cursor naming lender B's row only filters A's rows by time", async () => {
+    const seen: string[] = []
+    let cursor: string | null = null
+    do {
+      const q: string = cursor ? `&cursor=${cursor}` : ""
+      const { status, body } = await call(listClients, keyA, `/api/v1/clients?limit=1${q}`)
+      expect(status).toBe(200)
+      seen.push(...body.data.map((c: { id: string }) => c.id))
+      cursor = body.nextCursor
+    } while (cursor && seen.length < 10)
+    expect(seen.sort()).toEqual([A.clientId, A.spareClientId].sort())
+
+    const bRow = await db.client.findUniqueOrThrow({ where: { id: B.clientId }, select: { id: true, createdAt: true } })
+    const forged = encodeCursor({ id: bRow.id, createdAt: new Date(bRow.createdAt.getTime() + 60_000) })
+    const { status, body } = await call(listClients, keyA, `/api/v1/clients?cursor=${forged}`)
+    expect(status).toBe(200)
+    expect(body.data.map((c: { id: string }) => c.id).sort()).toEqual([A.clientId, A.spareClientId].sort())
+  })
+
+  it("refuses an oversized create body (413)", async () => {
+    const big = JSON.stringify({ clientId: A.clientId, productId: A.productId, appliedAmountCents: 1, appliedTermDays: 1, purpose: "x".repeat(20_000) })
+    expect((await call(createApplication, keyA, "/api/v1/applications", { init: { method: "POST", body: big } })).status).toBe(413)
   })
 
   it("masks the ID number without pii:read and shows it with", async () => {

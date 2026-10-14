@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { LoanStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withApiKey } from "@/lib/lender-api/handler"
-import { optionalEnumParam, optionalIdParam, pageOf, pageQuery, parsePageParams } from "@/lib/lender-api/pagination"
+import { optionalEnumParam, optionalIdParam, pageOf, pageQuery, pageWhere, parsePageParams } from "@/lib/lender-api/pagination"
 import { loanSelect, toApiLoan } from "@/lib/lender-api/serializers"
 
 const LOAN_STATUSES: readonly LoanStatus[] = [
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     const clientId = optionalIdParam(url, "clientId")
     if (clientId instanceof Response) return clientId
     const rows = await prisma.loan.findMany({
-      where: { tenantId: caller.tenantId, ...(status ? { status } : {}), ...(clientId ? { clientId } : {}) },
+      where: { tenantId: caller.tenantId, ...(status ? { status } : {}), ...(clientId ? { clientId } : {}), ...pageWhere(page) },
       select: loanSelect,
       ...pageQuery(page),
     })

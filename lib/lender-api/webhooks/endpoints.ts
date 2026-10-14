@@ -34,8 +34,12 @@ export async function createWebhookEndpoint(
   try {
     url = await assertWebhookUrl(args.url, resolve)
   } catch (error) {
-    if (error instanceof SsrfError) return { ok: false, status: 400, error: `Webhook URL refused: ${error.message}.` }
-    throw error
+    if (!(error instanceof SsrfError)) throw error
+    // One answer for every refusal: naming the address a host resolved to, or
+    // telling "private" from "does not resolve" from "timed out", would let the
+    // form be used to map the internal network. The detail is logged here only.
+    console.warn("[webhooks] endpoint URL refused", { tenantId: args.tenantId, reason: error.message })
+    return { ok: false, status: 400, error: "Webhook URL refused: use an https URL whose host resolves only to public internet addresses." }
   }
   const secret = generateWebhookSecret()
   return prisma.$transaction(async (tx) => {

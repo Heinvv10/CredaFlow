@@ -127,7 +127,23 @@ export interface DeliveryRunResult {
   failed: number
 }
 
-export async function runWebhookDeliveries(opts: { budgetMs?: number; deps?: PostDeps } = {}): Promise<DeliveryRunResult> {
+// One run at a time per process: the scheduler fires every minute whether or
+// not the last run finished, and overlapping runs would multiply the outbound
+// concurrency. Each run is itself bounded: DELIVERY_BATCH requests at a time,
+// each under postWebhook's deadline, claimed only until the time budget ends.
+let running = false
+
+export async function runWebhookDeliveries(opts: { budgetMs?: number; deps?: PostDeps } = {}): Promise<DeliveryRunResult & { skipped?: true }> {
+  if (running) return { fannedOut: 0, succeeded: 0, retrying: 0, failed: 0, skipped: true }
+  running = true
+  try {
+    return await runOnce(opts)
+  } finally {
+    running = false
+  }
+}
+
+async function runOnce(opts: { budgetMs?: number; deps?: PostDeps }): Promise<DeliveryRunResult> {
   const deadline = Date.now() + (opts.budgetMs ?? 45_000)
   const result: DeliveryRunResult = { fannedOut: await fanOutEvents(), succeeded: 0, retrying: 0, failed: 0 }
   await withoutTenantScope(async () => {

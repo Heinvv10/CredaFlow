@@ -250,14 +250,16 @@ the files and the database as they were and starts the app again.
 
 `/api/health` answers `status: ok` (200) when the database answers `SELECT 1` and
 storage round-trips a probe file through `lib/storage` (encryption included), else
-`status: error` (503); `deploy.sh` and the compose healthcheck read that. `checks`
-reports `database`, `storage`, `storageEncryption` (`on`/`off`) and `cron`
-(`ok`/`stale`/`not_scheduled`) separately, and `warnings` names what is degraded but does
-not fail the check (`cron_stale`, `storage_encryption_off`), so a stack that was down
-overnight still passes its next deploy. Cron freshness comes from `CronHeartbeat`, written
-after every in-process job (`instrumentation.ts`); jobs an external scheduler owns are not
-tracked. With the `x-cron-secret` header the response adds per-job detail. Point an
-uptime monitor at it; nothing here sends alerts.
+`status: error` (503); `deploy.sh` and the compose healthcheck read that. Without
+credentials the body is `status` plus the deploy marker `deploy.sh` compares (`mode`,
+`commit`, `builtAt`, `checkedAt`) and never says which check failed or why. With the
+`x-cron-secret` header it adds `checks` (`database`, `storage`, `storageEncryption`
+`on`/`off`, `cron` `ok`/`stale`/`not_scheduled`), `warnings` (degraded but not failing:
+`cron_stale`, `storage_encryption_off`, so a stack that was down overnight still passes
+its next deploy) and per-job `detail`. Probe errors go to the container log only. Cron
+freshness comes from `CronHeartbeat`, written after every in-process job
+(`instrumentation.ts`); jobs an external scheduler owns are not tracked. Point an uptime
+monitor at it; nothing here sends alerts.
 
 ## Admin recovery
 

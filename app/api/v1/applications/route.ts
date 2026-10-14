@@ -2,9 +2,11 @@ import { NextResponse } from "next/server"
 import type { AppStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { apiError, withApiKey } from "@/lib/lender-api/handler"
-import { optionalEnumParam, optionalIdParam, pageOf, pageQuery, parsePageParams } from "@/lib/lender-api/pagination"
+import { optionalEnumParam, optionalIdParam, pageOf, pageQuery, pageWhere, parsePageParams } from "@/lib/lender-api/pagination"
 import { applicationSelect, toApiApplication } from "@/lib/lender-api/serializers"
 import { createDraftApplication, parseCreateApplication } from "@/lib/lender-api/create-application"
+
+const MAX_BODY_BYTES = 16 * 1024
 
 const APPLICATION_STATUSES: readonly AppStatus[] = [
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "DECLINED", "DISBURSED", "CANCELLED",
@@ -20,7 +22,7 @@ export async function GET(req: Request) {
     const clientId = optionalIdParam(url, "clientId")
     if (clientId instanceof Response) return clientId
     const rows = await prisma.loanApplication.findMany({
-      where: { tenantId: caller.tenantId, ...(status ? { status } : {}), ...(clientId ? { clientId } : {}) },
+      where: { tenantId: caller.tenantId, ...(status ? { status } : {}), ...(clientId ? { clientId } : {}), ...pageWhere(page) },
       select: applicationSelect,
       ...pageQuery(page),
     })
@@ -30,8 +32,16 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   return withApiKey(req, "applications:write", async (caller) => {
-    const body: unknown = await req.json().catch(() => undefined)
-    if (body === undefined) return apiError(400, "invalid_body", "Send a JSON body.")
+    // The create body is a handful of fields: refuse anything large before reading it.
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return apiError(413, "body_too_large", "The body is too large.")
+    const raw = await req.text()
+    if (Buffer.byteLength(raw) > MAX_BODY_BYTES) return apiError(413, "body_too_large", "The body is too large.")
+    let body: unknown
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      return apiError(400, "invalid_body", "Send a JSON body.")
+    }
     const input = parseCreateApplication(body)
     if ("status" in input) return NextResponse.json(input.body, { status: input.status })
     const outcome = await createDraftApplication(caller, input)

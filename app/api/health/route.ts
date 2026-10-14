@@ -17,8 +17,8 @@ function deployMetadata() {
   }
 }
 
-/** Per-job detail (names, timestamps) is for the operator only: x-cron-secret. */
-function wantsDetail(req: Request | undefined): boolean {
+/** The checks, warnings and per-job detail are for the operator only: x-cron-secret. */
+function isOperator(req: Request | undefined): boolean {
   const secret = process.env.CRON_SECRET
   const given = req?.headers.get("x-cron-secret")
   if (!secret || !given) return false
@@ -28,26 +28,30 @@ function wantsDetail(req: Request | undefined): boolean {
 
 /**
  * `status` is "ok" (200) when the database answers and storage round-trips a
- * file, else "error" (503); deploy.sh waits for "ok". `warnings` names what
- * is degraded but does not fail the check: stale cron jobs, storage
- * encryption off.
+ * file, else "error" (503); deploy.sh waits for "ok". Anyone sees `status` and
+ * the deploy marker deploy.sh compares (mode, commit, build time: as before
+ * this route grew its checks). Which check failed, `warnings` (stale cron
+ * jobs, storage encryption off) and per-job detail are only answered to a
+ * caller with the x-cron-secret header. Probe errors are logged, never returned.
  */
 export async function GET(req?: Request) {
   const [database, storage] = await Promise.all([probeDatabase(), probeStorage()])
+  const ok = database.state === "ok" && storage === "ok"
+  const publicBody = { status: ok ? "ok" : "error", ...deployMetadata() }
+  if (!isOperator(req)) return NextResponse.json(publicBody, { status: ok ? 200 : 503, headers: noStoreHeaders })
+
   const cron = database.state === "ok" ? await probeCron() : { state: "error" as const, jobs: [] }
   const encryption = encryptionState()
-  const ok = database.state === "ok" && storage === "ok"
   const warnings = [
     ...(cron.state === "stale" ? ["cron_stale"] : []),
     ...(cron.state === "error" ? ["cron_unknown"] : []),
     ...(encryption === "off" ? ["storage_encryption_off"] : []),
   ]
   const body = {
-    status: ok ? "ok" : "error",
-    ...deployMetadata(),
+    ...publicBody,
     checks: { database: database.state, storage, storageEncryption: encryption, cron: cron.state },
     warnings,
-    ...(wantsDetail(req) ? { detail: { databaseLatencyMs: database.latencyMs, cronJobs: cron.jobs } } : {}),
+    detail: { databaseLatencyMs: database.latencyMs, cronJobs: cron.jobs },
   }
   return NextResponse.json(body, { status: ok ? 200 : 503, headers: noStoreHeaders })
 }
