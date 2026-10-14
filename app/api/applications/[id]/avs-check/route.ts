@@ -4,6 +4,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { prisma } from "@/lib/prisma"
 import { runAvsCheck } from "@/lib/avs"
 import { CollectionProviderError } from "@/lib/integrations/collections/types"
+import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 
 export async function POST(
   req: NextRequest,
@@ -24,6 +25,10 @@ export async function POST(
       })
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
+      }
+      // Bank-account verification for a consumer debit order; an entity borrower is refused.
+      if (!hasClientBorrowerId(application)) {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
 
       // Phase 7 AVS gate — dark behind TenantConfig.collectionsEngineEnabled.

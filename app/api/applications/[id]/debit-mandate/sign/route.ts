@@ -26,6 +26,7 @@ import {
 } from "@/lib/storage"
 import { DebitMandateConfigurationError } from "@/lib/config/debit-mandate"
 import { LenderIdentityError } from "@/lib/config/identity"
+import { hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -268,7 +269,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         where: { id, tenantId: tenant.id },
         ...debitMandateApplicationArgs,
       })
-      if (!application || application.clientId !== session.user.id) {
+      if (
+        !application
+        || application.clientId !== session.user.id
+        || !hasClientBorrower(application)
+      ) {
         throw new DebitMandateSigningError(404, "not_found", "Application not found.")
       }
       if (application.repaymentMethod !== "DEBIT_ORDER") {
@@ -573,6 +578,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         if (
           !current
           || current.clientId !== session.user.id
+          || !hasClientBorrower(current)
           || current.status !== "APPROVED"
           || current.repaymentMethod !== "DEBIT_ORDER"
           || !current.agreementSignedAt

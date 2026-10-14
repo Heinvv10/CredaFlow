@@ -115,6 +115,7 @@ describe("provision-lender.sh", () => {
     expect(envText).not.toContain(portal)
     expect(envText).toContain("PORTAL_NEXTAUTH_URL=https://portal.example")
     expect(envText).toContain("NEXT_PUBLIC_PORTAL_LOGIN_URL=https://portal.example/portal/login")
+    expect(envText).toContain("TRUSTED_PROXY=1")
     expect(r.out).not.toContain(staff)
 
     expect(provision(dir).status).toBe(0)
@@ -200,6 +201,13 @@ describe("provision-lender.sh", () => {
       const env = readFileSync(join(dir, ".env"), "utf8")
       expect(env).toContain("NEXTAUTH_URL=https://staff.example\n")
       expect(env).toContain("APP_BIND=127.0.0.2\n")
+      expect(env).toContain("TRUSTED_PROXY=1\n")
+    })
+
+    it("fails persisted-IP evidence closed on a non-loopback bind", () => {
+      const dir = join(root, "new-lender")
+      expect(provision(dir, ["--bind", "0.0.0.0"]).status).toBe(0)
+      expect(readFileSync(join(dir, ".env"), "utf8")).toContain("TRUSTED_PROXY=0\n")
     })
   })
 

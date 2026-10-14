@@ -83,13 +83,13 @@ describe("callerIp", () => {
 
   it("takes rightmost XFF entry with TRUSTED_PROXY=1", () => {
     vi.stubEnv("TRUSTED_PROXY", "1")
-    expect(callerIp(makeReq({ "x-forwarded-for": "evil, 1.2.3.4" }))).toBe("1.2.3.4")
+    expect(callerIp(makeReq({ "x-forwarded-for": "198.51.100.7, 1.2.3.4" }))).toBe("1.2.3.4")
   })
 
   it("takes second-from-right with TRUSTED_PROXY=2", () => {
     vi.stubEnv("TRUSTED_PROXY", "2")
-    // client=A, CDN recorded A, LB recorded CDN_ip
-    expect(callerIp(makeReq({ "x-forwarded-for": "A, B, C" }))).toBe("B")
+    // client, CDN and LB addresses in forwarding order
+    expect(callerIp(makeReq({ "x-forwarded-for": "192.0.2.1, 198.51.100.2, 203.0.113.3" }))).toBe("198.51.100.2")
   })
 
   it("falls back to x-real-ip when XFF chain too short", () => {
@@ -115,6 +115,16 @@ describe("callerIp", () => {
 
   it("returns the trusted-proxy caller address for records", () => {
     vi.stubEnv("TRUSTED_PROXY", "1")
-    expect(recordedCallerIp(makeReq({ "x-forwarded-for": "attacker, 203.0.113.9" }))).toBe("203.0.113.9")
+    expect(recordedCallerIp(makeReq({ "x-forwarded-for": "198.51.100.7, 203.0.113.9" }))).toBe("203.0.113.9")
+  })
+
+  it("does not use X-Real-IP for persisted evidence", () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    expect(recordedCallerIp(makeReq({ "x-real-ip": "203.0.113.9" }))).toBeNull()
+  })
+
+  it("does not persist a malformed configured XFF hop", () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    expect(recordedCallerIp(makeReq({ "x-forwarded-for": "attacker" }))).toBeNull()
   })
 })

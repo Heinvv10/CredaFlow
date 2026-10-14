@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
 import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
 import { micro30ContractIssues } from "@/lib/product-config/micro30"
+import { nonNcaArrearsAudit, parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -33,6 +34,16 @@ export async function POST(req: NextRequest) {
         { status: 422 },
       )
     }
+    const arrears = parseNonNcaArrearsTerms(body)
+    if ("issues" in arrears) {
+      return NextResponse.json(
+        {
+          error: "The NON_NCA arrears terms must be a default-interest margin as an annual decimal from 0 to below 1 (0.02 = 2%) and a collection fee in whole cents, or null.",
+          invalidFields: arrears.issues,
+        },
+        { status: 422 },
+      )
+    }
     const data = {
       tenantId: tenant.id,
       code: body.code,
@@ -49,6 +60,7 @@ export async function POST(req: NextRequest) {
       initiationFeeMax: Math.round((body.initiationFeeMax ?? 0) * 100),
       monthlyServiceFee: Math.round((body.monthlyServiceFee ?? 0) * 100),
       active: body.active ?? true,
+      ...arrears.data,
     }
     const contractIssues = micro30ContractIssues(data)
     if (contractIssues.length > 0) {
@@ -79,6 +91,7 @@ export async function POST(req: NextRequest) {
         initiationFeeModel: product.initiationFeeModel,
         initiationFeePct: product.initiationFeePct, initiationFeeMax: product.initiationFeeMax,
         monthlyServiceFee: product.monthlyServiceFee, active: product.active,
+        ...nonNcaArrearsAudit(product),
       },
     })
 

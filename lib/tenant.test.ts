@@ -47,6 +47,7 @@ function config(overrides: Partial<TenantConfigData>): TenantConfigData {
     featureMarketing: true,
     featurePortal: true,
     featureReports: true,
+    featureAssetFinance: false,
     ncrNumber: null,
     fscaNumber: null,
     companyRegNumber: null,
@@ -56,7 +57,7 @@ function config(overrides: Partial<TenantConfigData>): TenantConfigData {
 
 describe("resolveFeatureFlags", () => {
   it("no TenantConfig row resolves both flags OFF (matches sidebar's hidden default)", () => {
-    expect(resolveFeatureFlags(null)).toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false })
+    expect(resolveFeatureFlags(null)).toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false, featureAssetFinance: false })
   })
 
   it("flags ON in the row resolve ON", () => {
@@ -64,6 +65,7 @@ describe("resolveFeatureFlags", () => {
       featureCrm: true,
       featureIms: true,
       featureBureauSubmission: false,
+      featureAssetFinance: false,
     })
   })
 
@@ -72,6 +74,7 @@ describe("resolveFeatureFlags", () => {
       featureCrm: false,
       featureIms: false,
       featureBureauSubmission: false,
+      featureAssetFinance: false,
     })
   })
 
@@ -80,11 +83,17 @@ describe("resolveFeatureFlags", () => {
     expect(resolveFeatureFlags(config({ featureCrm: true, featureIms: true })).featureBureauSubmission).toBe(false)
   })
 
+  it("resolves featureAssetFinance from its own column only, OFF when unselected", () => {
+    expect(resolveFeatureFlags(config({ featureAssetFinance: true })).featureAssetFinance).toBe(true)
+    expect(resolveFeatureFlags({ featureCrm: true, featureIms: true }).featureAssetFinance).toBe(false)
+  })
+
   it("resolves each flag independently", () => {
     expect(resolveFeatureFlags(config({ featureCrm: true, featureIms: false }))).toEqual({
       featureCrm: true,
       featureIms: false,
       featureBureauSubmission: false,
+      featureAssetFinance: false,
     })
   })
 })
@@ -98,23 +107,23 @@ describe("getTenantFeatures", () => {
 
   it("no TenantConfig row (tenant exists) resolves both flags OFF", async () => {
     findUniqueTenantConfig.mockResolvedValue(null)
-    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false })
+    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false, featureAssetFinance: false })
   })
 
   it("a row with flags set passes them through", async () => {
     findUniqueTenantConfig.mockResolvedValue(config({ featureCrm: true, featureIms: true }))
-    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: true, featureIms: true, featureBureauSubmission: false })
+    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: true, featureIms: true, featureBureauSubmission: false, featureAssetFinance: false })
   })
 
   it("tenant lookup miss (unknown slug) resolves both flags OFF without querying config", async () => {
     findUniqueTenant.mockResolvedValue(null)
-    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false })
+    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false, featureAssetFinance: false })
     expect(findUniqueTenantConfig).not.toHaveBeenCalled()
   })
 
   it("a thrown error (e.g. headers()/DB failure) resolves both flags OFF (fail closed)", async () => {
     findUniqueTenant.mockRejectedValue(new Error("db unreachable"))
-    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false })
+    await expect(getTenantFeatures()).resolves.toEqual({ featureCrm: false, featureIms: false, featureBureauSubmission: false, featureAssetFinance: false })
   })
 })
 

@@ -127,8 +127,11 @@ describe("bundled credit-life database containment", () => {
   })
 
   it("leaves loans on applications that never reached approval outside the commit invariant", () => {
+    // Between the two early returns, only the asset-finance regime checks
+    // (20261013090000_asset_finance_foundation): they must also see a loan on
+    // an open application, whose regime could otherwise still move.
     expect(disbursedCoverage).toMatch(
-      /IF loan_id IS NULL\s+AND application_status <> 'DISBURSED'::"AppStatus" THEN\s+RETURN;\s+END IF;\s+(?:--[^\n]*\n\s*)*IF application_status IN \('DRAFT'::"AppStatus", 'SUBMITTED'::"AppStatus", 'UNDER_REVIEW'::"AppStatus"\) THEN\s+RETURN;\s+END IF;\s+(?:--[^\n]*\n\s*)*IF loan_id IS NULL\s+OR application_status <> 'DISBURSED'::"AppStatus"/,
+      /IF loan_id IS NULL\s+AND application_status <> 'DISBURSED'::"AppStatus" THEN\s+RETURN;\s+END IF;\s+(?:IF loan_id IS NOT NULL\s+AND loan_nca_regime IS DISTINCT FROM [^;]+;\s+END IF;\s+IF loan_nca_regime = 'NON_NCA' AND \([\s\S]+?\) THEN\s+RAISE EXCEPTION USING[^;]+;\s+END IF;\s+)?(?:--[^\n]*\n\s*)*IF application_status IN \('DRAFT'::"AppStatus", 'SUBMITTED'::"AppStatus", 'UNDER_REVIEW'::"AppStatus"\) THEN\s+RETURN;\s+END IF;\s+(?:--[^\n]*\n\s*)*IF loan_id IS NULL\s+OR application_status <> 'DISBURSED'::"AppStatus"/,
     )
     for (const status of ["APPROVED", "DECLINED", "CANCELLED", "DISBURSED"]) {
       expect(disbursedCoverage).not.toMatch(new RegExp(`IF application_status IN \\([^)]*'${status}'`))

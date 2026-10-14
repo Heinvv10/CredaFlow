@@ -372,6 +372,10 @@ async function run(c: Case) {
   }
   const fingerprint = biometricSubjectFingerprint(subject)
   await db.tenant.create({ data: { id: tenantId, slug: `fm-par-${sequence}-${token}`, name: "Parity" } })
+  await db.user.create({ data: {
+    id: `reviewer_${clientId}`, tenantId, email: `reviewer-${clientId}@test.invalid`, password: "synthetic",
+    role: "ADMIN", active: true, totpEnabled: true, lastTotpCounter: 1,
+  } })
   await db.client.create({
     data: { ...subject, tenantId, reference: `CLI-FMPAR-${sequence}-${token}`, email: `fm-par-${sequence}-${token}@test.invalid`, phone: "+27820000055" },
   })
@@ -408,7 +412,8 @@ async function run(c: Case) {
           kind: IN_PERSON_KYC_VERIFICATION_KIND, version: IN_PERSON_KYC_VERIFICATION_VERSION, clientId,
           idDocumentId: idCopyId, idDocumentSha256: ID_SHA, subjectFingerprint: fingerprint,
           method: "IN_PERSON_BRANCH", note: "Synthetic client attended a branch; face matched the ID photo.",
-          approvedAt: completedAt.toISOString(), approvedById: "reviewer-synthetic", approvedByEmail: "reviewer@test.invalid",
+          approvedAt: completedAt.toISOString(), approvedById: `reviewer_${clientId}`,
+          approvedByEmail: `reviewer-${clientId}@test.invalid`, approvedWithTotp: true,
         },
       },
     })

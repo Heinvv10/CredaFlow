@@ -18,7 +18,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 
-import { matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller, logDocumentContentAccess } from "./document-auth"
+import { logDocumentAccess, matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller, logDocumentContentAccess } from "./document-auth"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -131,5 +131,32 @@ describe("logDocumentContentAccess", () => {
         { documentId: "d2", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: "203.0.113.9", userAgent: "test-agent" },
       ],
     })
+  })
+})
+
+describe("logDocumentAccess", () => {
+  const write = async (headers: Record<string, string>) => {
+    const create = vi.fn()
+    await logDocumentAccess({ documentAccessLog: { create } } as unknown as Parameters<typeof logDocumentAccess>[0], {
+      documentId: "doc-1",
+      accessorType: "client",
+      accessorId: "client-1",
+      action: "view",
+      req: new Request("http://localhost/x", { headers }),
+    })
+    return create.mock.calls[0][0].data as { ipAddress: string | null; userAgent: string | null }
+  }
+
+  it("records the address the trusted proxy saw, not the caller-written left of X-Forwarded-For", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    const data = await write({ "x-forwarded-for": "198.51.100.7, 203.0.113.9", "user-agent": "vitest" })
+    expect(data).toMatchObject({ ipAddress: "203.0.113.9", userAgent: "vitest" })
+    vi.unstubAllEnvs()
+  })
+
+  it("records no IP when no proxy is trusted: the header is the caller's own claim", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "0")
+    expect((await write({ "x-forwarded-for": "198.51.100.7" })).ipAddress).toBeNull()
+    vi.unstubAllEnvs()
   })
 })

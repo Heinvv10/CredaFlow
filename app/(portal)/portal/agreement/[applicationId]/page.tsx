@@ -33,7 +33,8 @@ export default async function PortalAgreementPage({ params }: Props) {
     },
   })
 
-  if (!application) notFound()
+  // Matched on the session's client id, so the borrower is always that Client.
+  if (!application?.client) notFound()
 
   if (!application.agreementGeneratedAt) {
     redirect("/portal")

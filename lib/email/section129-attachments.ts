@@ -15,7 +15,7 @@ import type { LenderIdentity } from "@/lib/config/identity-schema"
  */
 export async function buildSection129Attachments(args: {
   lender: LenderIdentity
-  client: { firstName: string; lastName: string; idNumber: string; addressLine1?: string; city?: string }
+  client: { firstName: string; lastName: string; idNumber: string; identityLabel?: "ID" | "Registration no."; addressLine1?: string; city?: string }
   loan: {
     reference: string
     arrearsAmount: number

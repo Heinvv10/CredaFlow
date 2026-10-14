@@ -95,6 +95,32 @@ describe("tenant-scope — ALS primitives", () => {
       // statement read runs after its upload request has returned.
       "StatementAnalysis",
       "ApplicationCheckFlag",
+      "BusinessEntity",
+      "EntityRelationship",
+      "NcaRegimeOverride",
+      // Asset-finance rates and VAT documents — non-null tenantId, passed
+      // explicitly on every query (the repricing cron has no frame). VatRate is
+      // national and TaxInvoiceLine is scoped through its invoice: neither is listed.
+      "ReferenceRate",
+      "ContractRate",
+      "TaxInvoice",
+      "CreditNote",
+      "VatConfig",
+      "EntityDocument",
+      "FinancedAsset",
+      "AssetValuation",
+      "Supplier",
+      "SupplierBankAccount",
+      "AssetFinanceDeal",
+      "EntityFinancials",
+      // Deal signing and payout (lib/asset-finance/signing-*.ts, payout*.ts).
+      // Non-null tenantId, passed explicitly on every query; the seed runs
+      // inside runWithTenant (prisma/seed/asset-finance.ts).
+      "DealSigner",
+      "PayoutChecklistItem",
+      "Payout",
+      // Dual-approval KYC override requests — non-null tenantId.
+      "KycOverrideRequest",
     ])
   })
 

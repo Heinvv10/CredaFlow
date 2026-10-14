@@ -24,12 +24,17 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { getSection129IssuanceAvailability } from "@/lib/collections/section129-artifact"
 import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
+import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
+import { hasClientBorrower } from "@/lib/borrower"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
     where: { id, tenantId },
     include: {
       client: true,
+      entity: { select: { id: true, legalName: true, registrationNumber: true } },
+      asset: { select: { id: true, make: true, model: true, year: true, serialNumber: true, registrationNumber: true } },
+      assetFinanceDeal: { select: { id: true } },
       product: true,
       application: true,
       repaymentSchedule: {
@@ -53,6 +58,18 @@ export default async function LoanDetailPage(
 
   if (!loan) {
     notFound()
+  }
+  // An entity borrower (asset finance): its own servicing view, without the
+  // consumer panels.
+  if (!hasClientBorrower(loan)) {
+    return (
+      <StaffAssetLoanView
+        loan={loan}
+        tenantId={tenantId}
+        canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
+        canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
+      />
+    )
   }
 
   const paidPercentage = loan.totalRepayable > 0

@@ -23,6 +23,7 @@ import {
 } from "@/lib/affordability/snapshot"
 import { AuditAction } from "@/lib/audit"
 import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 // PATCH supports two, mutually exclusive request shapes on the same route:
 //   1. `{ action: "update", ...ApplicationWizardData }` — the resumed wizard
@@ -288,6 +289,8 @@ export async function PATCH(
       })
       if (!application) return { kind: "not_found" as const }
       if (application.status !== "DRAFT") return { kind: "not_draft" as const }
+      // Submission snapshots consumer affordability; an entity borrower is refused.
+      if (!hasClientBorrower(application)) return { kind: "entity_borrower" as const }
       if (!verifyStoredCreditLifeDisclosure(application, {
         principalCents: application.appliedAmount,
         termDays: application.appliedTermDays,
@@ -379,6 +382,9 @@ export async function PATCH(
 
     if (outcome.kind === "not_found" || outcome.kind === "evidence_missing") {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    if (outcome.kind === "entity_borrower") {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (outcome.kind === "not_draft") {
       return NextResponse.json(

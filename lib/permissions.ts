@@ -51,6 +51,9 @@ const PERMISSIONS: Record<string, UserRole> = {
   record_payment: "CREDIT_OFFICER",
   manage_insurance: "INSURANCE_OFFICER",
   manage_collections: "COLLECTIONS_OFFICER",
+  // Asset finance (docs/asset-finance/DESIGN.md). Keep identical to lib/auth-guards.ts.
+  manage_asset_finance: "CREDIT_OFFICER",
+  decide_asset_finance: "LOAN_ADMIN",
 }
 
 export function canDo(userRole: UserRole | string, permission: string): boolean {

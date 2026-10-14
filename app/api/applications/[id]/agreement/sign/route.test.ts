@@ -169,6 +169,7 @@ const application = {
   status: "APPROVED",
   updatedAt: new Date("2026-07-20T09:05:00.000Z"),
   clientId: "client-1",
+  client: { id: "client-1" },
   productId: "product-1",
   appliedAmount: calculationInputs.principal,
   appliedTermDays: calculationInputs.termDays,

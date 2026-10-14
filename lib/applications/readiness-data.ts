@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
 import { approvalEvidenceApplicationInclude } from "@/lib/affordability/current-approval"
+import { hasClientBorrower, type WithClientBorrower } from "@/lib/borrower"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
 import {
   CORE_KYC_DOCUMENT_TYPES,
@@ -236,10 +237,13 @@ export function inMemoryKycReader(
 export async function readApplicationReadiness(
   tenantId: string,
 ): Promise<Map<string, ApplicationReadiness>> {
-  const applications = await prisma.loanApplication.findMany({
+  const loaded = await prisma.loanApplication.findMany({
     where: { tenantId, status: { in: [...READINESS_STATUSES] } },
     select: readinessApplicationSelect,
   })
+  // Readiness is the consumer origination chain (KYC, bureau, PASQ, mandate).
+  // An entity-borrower (asset finance) application draws no chip.
+  const applications = loaded.filter(hasClientBorrower)
   if (applications.length === 0) return new Map()
 
   const clientIds = [...new Set(applications.map((app) => app.clientId))]
@@ -415,9 +419,9 @@ export async function assembleReadiness(args: {
   return readiness
 }
 
-type LoadedApplication = Prisma.LoanApplicationGetPayload<{
+type LoadedApplication = WithClientBorrower<Prisma.LoanApplicationGetPayload<{
   select: typeof readinessApplicationSelect
-}>
+}>>
 
 function toReadinessApplication(app: LoadedApplication): ReadinessApplication {
   return {

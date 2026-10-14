@@ -20,6 +20,8 @@ import {
 } from "@/lib/compliance/pasq"
 import { readAffordabilitySnapshotStore } from "@/lib/affordability/snapshot"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { recordedCallerIp } from "@/lib/rate-limit"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -93,6 +95,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     })
 
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    // A debit mandate is a consumer document; an entity borrower is refused.
+    if (!hasClientBorrower(loan) || loan.application.clientId === null) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
 
     let bankDetails
     let paymentTerms
@@ -181,9 +187,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         accessorType: "staff",
         accessorId: guard.user.id,
         action: "view_draft",
-        ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-          ?? req.headers.get("x-real-ip")
-          ?? null,
+        ipAddress: recordedCallerIp(req),
         userAgent: req.headers.get("user-agent") ?? null,
       },
     })

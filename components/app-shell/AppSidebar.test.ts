@@ -32,12 +32,18 @@ describe("itemEnabled (sidebar nav role gate)", () => {
 
 describe("groupEnabled (sidebar nav feature gate)", () => {
   const group = (feature?: NavGroup["feature"]): NavGroup => ({ label: "G", items: [], feature })
-  const off = { featureCrm: false, featureIms: false, featureBureauSubmission: false }
+  const off = { featureCrm: false, featureIms: false, featureBureauSubmission: false, featureAssetFinance: false }
 
   it("shows the bureau submission group only with featureBureauSubmission on", () => {
     expect(groupEnabled(group("bureauSubmission"), off)).toBe(false)
     expect(groupEnabled(group("bureauSubmission"), { ...off, featureCrm: true, featureIms: true })).toBe(false)
     expect(groupEnabled(group("bureauSubmission"), { ...off, featureBureauSubmission: true })).toBe(true)
+  })
+
+  it("shows the asset finance group only with featureAssetFinance on", () => {
+    expect(groupEnabled(group("assetFinance"), off)).toBe(false)
+    expect(groupEnabled(group("assetFinance"), { featureCrm: true, featureIms: true, featureBureauSubmission: true, featureAssetFinance: false })).toBe(false)
+    expect(groupEnabled(group("assetFinance"), { ...off, featureAssetFinance: true })).toBe(true)
   })
 
   it("always shows an ungated group", () => {

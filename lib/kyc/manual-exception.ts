@@ -31,6 +31,10 @@ export interface ManualKycExceptionEvidence {
   approvedAt: string
   approvedById: string
   approvedByEmail: string
+  /** Durable assertion checked by the database when lender policy requires 2FA. */
+  approvedWithTotp?: boolean
+  /** Present for a dual-control grant and checked against the immutable request. */
+  overrideRequestId?: string
 }
 
 export interface ManualKycExceptionRecord {

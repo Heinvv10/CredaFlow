@@ -4,7 +4,7 @@ import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { submissionMode } from "./generate"
 import type { AdverseStatus } from "./map-loan"
 import { dayOf, dayStart, dbDateToDay } from "./period"
-import { REPORTED_PRODUCT_TYPES } from "./population"
+import { CONSUMER_BORROWER_WHERE, REPORTED_PRODUCT_TYPES } from "./population"
 
 // Reads for the staff page. Server-only. Every query carries the tenant id.
 
@@ -60,6 +60,7 @@ export async function listAwaitingAdverse(tenantId: string): Promise<AwaitingAdv
   const loans = await prisma.loan.findMany({
     where: {
       tenantId,
+      ...CONSUMER_BORROWER_WHERE,
       product: { productType: { in: [...REPORTED_PRODUCT_TYPES] } },
       client: { deceasedAt: null },
       OR: [
@@ -138,9 +139,12 @@ export async function listHeldRecords(tenantId: string, now: Date): Promise<Held
     if (seen.has(key)) continue
     seen.add(key)
     if (clearedBy(row) > row.submission.createdAt.getTime()) continue
+    // The consumer file never carries an entity-borrower loan.
+    const clientId = row.loan.clientId
+    if (clientId === null) continue
     held.push({
       loanId: row.loanId,
-      clientId: row.loan.clientId,
+      clientId,
       reference: row.loan.reference,
       reasons: (row.heldReason ?? "").split(","),
       kind: row.kind,

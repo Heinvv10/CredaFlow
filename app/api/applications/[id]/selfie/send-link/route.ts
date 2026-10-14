@@ -3,6 +3,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAudit } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { sendSms, sendWhatsApp } from "@/lib/integrations/bulksms"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 import { sendEmail } from "@/lib/email/service"
@@ -14,6 +15,7 @@ import {
   mintSelfieLinkToken,
   type SelfieLinkChannel,
 } from "@/lib/kyc/selfie-link-token.server"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -93,6 +95,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // Selfie KYC is for a natural person; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (!CAPTURABLE_STATUSES.has(application.status)) {
       return NextResponse.json({
@@ -205,7 +211,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         : AuditAction.SELFIE_LINK_SEND_FAILED,
       entity: "LoanApplication",
       entityId: application.id,
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: recordedCallerIp(req) ?? undefined,
       newValue: {
         selfieLinkSent: delivery.ok,
         tokenId: minted.id,

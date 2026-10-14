@@ -8,6 +8,10 @@ import type { GoLiveInputs } from "@/lib/loan/charges-inputs"
 // is one-way: after --disable nothing is derived for the tenant again, charges
 // clients already paid stay paid, unpaid ones are not collected, and --apply
 // refuses to re-enable.
+//
+// The switch is per tenant, not per regime: it also gates the NON_NCA arrears
+// charges (lib/asset-finance/non-nca-charges.ts). While it is off, or after a
+// stop, a NON_NCA loan accrues no default interest or collection fee either.
 
 type SwitchTx = Pick<typeof prisma, "tenantConfig" | "complianceRecord" | "auditLog">
 export type SwitchDb = SwitchTx & Pick<typeof prisma, "$transaction">

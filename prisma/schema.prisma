@@ -8,55 +8,55 @@ datasource db {
 }
 
 model User {
-  id                           String              @id @default(cuid())
-  email                        String              @unique
+  id                           String                                @id @default(cuid())
+  email                        String                                @unique
   name                         String?
   password                     String
-  role                         UserRole            @default(CREDIT_OFFICER)
-  isCommsAgent                 Boolean             @default(false)
-  active                       Boolean             @default(true)
+  role                         UserRole                              @default(CREDIT_OFFICER)
+  isCommsAgent                 Boolean                               @default(false)
+  active                       Boolean                               @default(true)
   tenantId                     String?
-  tenant                       Tenant?             @relation(fields: [tenantId], references: [id])
+  tenant                       Tenant?                               @relation(fields: [tenantId], references: [id])
   branchId                     String?
-  branch                       Branch?             @relation(fields: [branchId], references: [id])
+  branch                       Branch?                               @relation(fields: [branchId], references: [id])
   totpSecret                   String?
-  totpEnabled                  Boolean             @default(false)
+  totpEnabled                  Boolean                               @default(false)
   lastTotpCounter              Int?
   phone                        String?
   lastLoginAt                  DateTime?
-  resetToken                   String?             @unique
+  resetToken                   String?                               @unique
   resetTokenExp                DateTime?
   qualificationCategory        String?
   // Bumped whenever an existing session must be invalidated (deactivate,
   // role change, password reset). Compared on every JWT decode — see
   // lib/auth.ts jwt callback.
-  tokenVersion                 Int                 @default(0)
+  tokenVersion                 Int                                   @default(0)
   // FAIS Cat I representative tag (Phase 9). Maintained by compliance via
   // Settings → Users; the FSP keeps the authoritative Rep Register
   // separately. Gates insurance / credit-advisory templates in the compose
   // box (see spec §FAIS boundary).
-  faisRepresentative           Boolean             @default(false)
+  faisRepresentative           Boolean                               @default(false)
   faisRepresentativeNumber     String?
   faisRepresentativeFrom       DateTime?
-  createdAt                    DateTime            @default(now())
-  updatedAt                    DateTime            @updatedAt
+  createdAt                    DateTime                              @default(now())
+  updatedAt                    DateTime                              @updatedAt
   loginLogs                    LoginLog[]
   sessions                     Session[]
   accounts                     Account[]
-  approvedLoans                LoanApplication[]   @relation("ApprovedBy")
-  clearedCheckFlags            ApplicationCheckFlag[] @relation("CheckFlagClearedBy")
-  branchSignedApplications     LoanApplication[]   @relation("AgreementSignedBy")
-  countersignedApplications    LoanApplication[]   @relation("AgreementCountersignedBy")
-  bureauOverriddenApplications LoanApplication[]   @relation("BureauOverrideBy")
-  assignedLoans                LoanApplication[]   @relation("AssignedTo")
+  approvedLoans                LoanApplication[]                     @relation("ApprovedBy")
+  clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
+  branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
+  countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
+  bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
+  assignedLoans                LoanApplication[]                     @relation("AssignedTo")
   auditLogs                    AuditLog[]
   fitAndProper                 FitAndProper?
   coiDeclarations              CoiDeclaration[]
-  advisorPolicies              InsurancePolicy[]   @relation("AdvisorPolicies")
-  advisorQuotes                InsuranceQuote[]    @relation("AdvisorQuotes")
-  adviceRecordsRecorded        InsuranceAdviceRecord[] @relation("AdviceRecordedBy")
+  advisorPolicies              InsurancePolicy[]                     @relation("AdvisorPolicies")
+  advisorQuotes                InsuranceQuote[]                      @relation("AdvisorQuotes")
+  adviceRecordsRecorded        InsuranceAdviceRecord[]               @relation("AdviceRecordedBy")
   advisorCommissions           AdvisorCommission[]
-  assessedClaims               InsuranceClaim[]    @relation("ClaimAssessor")
+  assessedClaims               InsuranceClaim[]                      @relation("ClaimAssessor")
   agentTasks                   AgentTask[]
   assignedConversations        Conversation[]
   // Phase 9 audit-pointer relations. Restrict on each (declared on the
@@ -64,102 +64,128 @@ model User {
   // deactivate via active=false); blocking it on outstanding audit
   // references is the auditor-safe default for POPIA s.17 operator-identity
   // records and FAIS GCC s.3(2) record-of-advice retention.
-  contactMergesPerformed       ContactMerge[]      @relation("ContactMergesPerformedBy")
-  contactConsentsCaptured      ContactConsent[]    @relation("ContactConsentsCapturedBy")
-  messagesAuthored             Message[]           @relation("MessagesCreatedBy")
-  messagesEdited               Message[]           @relation("MessagesEditedBy")
-  messagesDeleted              Message[]           @relation("MessagesDeletedBy")
-  messagesDisclosureDelivered  Message[]           @relation("MessagesDisclosureDeliveredBy")
+  contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
+  contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
+  messagesAuthored             Message[]                             @relation("MessagesCreatedBy")
+  messagesEdited               Message[]                             @relation("MessagesEditedBy")
+  messagesDeleted              Message[]                             @relation("MessagesDeletedBy")
+  messagesDisclosureDelivered  Message[]                             @relation("MessagesDisclosureDeliveredBy")
   manualProgress               ManualProgress[]
   notifications                Notification[]
-  pasqAckTokensIssued          PasqAcknowledgementToken[] @relation("PasqAckTokensIssuedBy")
-  selfieCaptureTokensIssued    SelfieCaptureToken[]       @relation("SelfieCaptureTokensIssuedBy")
+  pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
+  selfieCaptureTokensIssued    SelfieCaptureToken[]                  @relation("SelfieCaptureTokensIssuedBy")
   mentionedIn                  MessageMention[]
+  ncaOverridesRequested        NcaRegimeOverride[]                   @relation("NcaOverridesRequested")
+  ncaOverridesDecided          NcaRegimeOverride[]                   @relation("NcaOverridesDecided")
+  payoutChecklistConfirmed     PayoutChecklistItem[]                 @relation("PayoutChecklistConfirmedBy")
+  payoutsCreated               Payout[]                              @relation("PayoutsCreatedBy")
+  payoutsApproved              Payout[]                              @relation("PayoutsApprovedBy")
+  payoutsReleased              Payout[]                              @relation("PayoutsReleasedBy")
+  payoutsCancelled             Payout[]                              @relation("PayoutsCancelledBy")
+  supplierAccountsRequested    SupplierBankAccount[]                 @relation("SupplierAccountRequestedBy")
+  supplierAccountsDecided      SupplierBankAccount[]                 @relation("SupplierAccountDecidedBy")
+  assetDealsCancelled          AssetFinanceDeal[]                    @relation("AssetDealCancelledBy")
+  referenceRatesRequested      ReferenceRate[]                       @relation("ReferenceRatesRequested")
+  referenceRatesDecided        ReferenceRate[]                       @relation("ReferenceRatesDecided")
+  assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
+  kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
+  kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
 
   @@unique([tenantId, id])
 }
 
 model Tenant {
-  id                       String                    @id @default(cuid())
-  slug                     String                    @unique
-  name                     String
-  domain                   String?                   @unique
-  status                   TenantStatus              @default(ACTIVE)
-  config                   TenantConfig?
-  users                    User[]
-  attorneyFirms            AttorneyFirm[]
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  clients                  Client[]
-  loans                    Loan[]
-  loanApplications         LoanApplication[]
-  pasqAcknowledgementTokens PasqAcknowledgementToken[]
-  selfieCaptureTokens      SelfieCaptureToken[]
-  payments                 Payment[]
-  repaymentSchedules       RepaymentSchedule[]
-  loanProducts             LoanProduct[]
-  paymentArrangements      PaymentArrangement[]
-  clientDocuments          ClientDocument[]
-  loanNotes                LoanNote[]
-  tcfOutcomes              TcfOutcome[]
-  breachLogs               BreachLog[]
-  coiDeclarations          CoiDeclaration[]
-  insurers                 Insurer[]
-  loginLogs                LoginLog[]
-  leads                    Lead[]
-  crmActivities            CrmActivity[]
-  crossSellOpps            CrossSellOpportunity[]
-  advisorCommissions       AdvisorCommission[]
-  automationRules          AutomationRule[]
-  automationPauses         AutomationPause[]
-  automationLogs           AutomationLog[]
-  agentTasks               AgentTask[]
-  insurancePolicies        InsurancePolicy[]
-  insuranceClaims          InsuranceClaim[]
-  premiumPayments          PremiumPayment[]
-  insuranceProducts        InsuranceProduct[]
-  insuranceRateTables      InsuranceRateTable[]
-  insuranceEligibilityRules InsuranceEligibilityRule[]
-  insuranceQuotes          InsuranceQuote[]
-  insuranceAdviceRecords   InsuranceAdviceRecord[]
-  emailConfig              EmailConfig?
-  integrationConfig        IntegrationConfig?
-  messageTemplates         MessageTemplate[]
-  branches                 Branch[]
-  auditLogs                AuditLog[]
-  emailLogs                EmailLog[]
-  notificationLogs         NotificationLog[]
-  integrationLogs          IntegrationLog[]
-  creditBureauChecks       CreditBureauCheck[]
-  statementAnalyses        StatementAnalysis[]
-  applicationCheckFlags    ApplicationCheckFlag[]
-  complianceRecords        ComplianceRecord[]
-  consentRecords           ConsentRecord[]
-  complaints               Complaint[]
-  dataSubjectRequests      DataSubjectRequest[]
-  contacts                 Contact[]
-  contactIdentities        ContactIdentity[]
-  contactConsents          ContactConsent[]
-  contactMerges            ContactMerge[]
-  conversations            Conversation[]
-  messages                 Message[]
-  webhookSignatureFailures WebhookSignatureFailure[]
-  referralAgents           ReferralAgent[]
-  referralCodes            ReferralCode[]
-  referralEvents           ReferralEvent[]
-  commsSettings            CommsSettings?
-  websiteChatHandoffs      WebsiteChatHandoff[]
-  cannedReplies            CannedReply[]
-  documentTemplates        DocumentTemplate[]
-  avsChecks                AvsCheck[]
-  bankStatementImports     BankStatementImport[]
-  bankTransactions         BankTransaction[]
-  notifications            Notification[]
-  messageMentions          MessageMention[]
-  loanCharges              LoanCharge[]
-  bureauSubmissions        BureauSubmission[]
-  bureauSubmissionRecords  BureauSubmissionRecord[]
+  id                         String                      @id @default(cuid())
+  slug                       String                      @unique
+  name                       String
+  domain                     String?                     @unique
+  status                     TenantStatus                @default(ACTIVE)
+  config                     TenantConfig?
+  users                      User[]
+  attorneyFirms              AttorneyFirm[]
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  clients                    Client[]
+  loans                      Loan[]
+  loanApplications           LoanApplication[]
+  pasqAcknowledgementTokens  PasqAcknowledgementToken[]
+  selfieCaptureTokens        SelfieCaptureToken[]
+  payments                   Payment[]
+  repaymentSchedules         RepaymentSchedule[]
+  loanProducts               LoanProduct[]
+  paymentArrangements        PaymentArrangement[]
+  clientDocuments            ClientDocument[]
+  loanNotes                  LoanNote[]
+  tcfOutcomes                TcfOutcome[]
+  breachLogs                 BreachLog[]
+  coiDeclarations            CoiDeclaration[]
+  insurers                   Insurer[]
+  loginLogs                  LoginLog[]
+  leads                      Lead[]
+  crmActivities              CrmActivity[]
+  crossSellOpps              CrossSellOpportunity[]
+  advisorCommissions         AdvisorCommission[]
+  automationRules            AutomationRule[]
+  automationPauses           AutomationPause[]
+  automationLogs             AutomationLog[]
+  agentTasks                 AgentTask[]
+  insurancePolicies          InsurancePolicy[]
+  insuranceClaims            InsuranceClaim[]
+  premiumPayments            PremiumPayment[]
+  insuranceProducts          InsuranceProduct[]
+  insuranceRateTables        InsuranceRateTable[]
+  insuranceEligibilityRules  InsuranceEligibilityRule[]
+  insuranceQuotes            InsuranceQuote[]
+  insuranceAdviceRecords     InsuranceAdviceRecord[]
+  emailConfig                EmailConfig?
+  integrationConfig          IntegrationConfig?
+  messageTemplates           MessageTemplate[]
+  branches                   Branch[]
+  auditLogs                  AuditLog[]
+  emailLogs                  EmailLog[]
+  notificationLogs           NotificationLog[]
+  integrationLogs            IntegrationLog[]
+  creditBureauChecks         CreditBureauCheck[]
+  statementAnalyses          StatementAnalysis[]
+  applicationCheckFlags      ApplicationCheckFlag[]
+  complianceRecords          ComplianceRecord[]
+  consentRecords             ConsentRecord[]
+  complaints                 Complaint[]
+  dataSubjectRequests        DataSubjectRequest[]
+  contacts                   Contact[]
+  contactIdentities          ContactIdentity[]
+  contactConsents            ContactConsent[]
+  contactMerges              ContactMerge[]
+  conversations              Conversation[]
+  messages                   Message[]
+  webhookSignatureFailures   WebhookSignatureFailure[]
+  referralAgents             ReferralAgent[]
+  referralCodes              ReferralCode[]
+  referralEvents             ReferralEvent[]
+  commsSettings              CommsSettings?
+  websiteChatHandoffs        WebsiteChatHandoff[]
+  cannedReplies              CannedReply[]
+  documentTemplates          DocumentTemplate[]
+  avsChecks                  AvsCheck[]
+  bankStatementImports       BankStatementImport[]
+  bankTransactions           BankTransaction[]
+  notifications              Notification[]
+  surrenderRequests          SurrenderRequest[]
+  messageMentions            MessageMention[]
+  loanCharges                LoanCharge[]
+  bureauSubmissions          BureauSubmission[]
+  bureauSubmissionRecords    BureauSubmissionRecord[]
   bureauAdverseConfirmations BureauAdverseConfirmation[]
+  businessEntities           BusinessEntity[]
+  referenceRates             ReferenceRate[]
+  vatConfig                  VatConfig?
+  taxInvoices                TaxInvoice[]
+  creditNotes                CreditNote[]
+  entityDocuments            EntityDocument[]
+  financedAssets             FinancedAsset[]
+  suppliers                  Supplier[]
+  assetFinanceDeals          AssetFinanceDeal[]
+  kycOverrideRequests        KycOverrideRequest[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -186,13 +212,22 @@ model TenantConfig {
   faviconUrl     String?
   brandName      String?
 
-  featureLms       Boolean @default(true)
-  featureCrm       Boolean @default(false)
-  featureIms       Boolean @default(false)
-  featureBureauSubmission Boolean @default(false)
-  featureMarketing Boolean @default(false)
-  featurePortal    Boolean @default(true)
-  featureReports   Boolean @default(true)
+  featureLms                       Boolean @default(true)
+  featureCrm                       Boolean @default(false)
+  featureIms                       Boolean @default(false)
+  featureBureauSubmission          Boolean @default(false)
+  featureMarketing                 Boolean @default(false)
+  featurePortal                    Boolean @default(true)
+  featureReports                   Boolean @default(true)
+  // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
+  featureAssetFinance              Boolean @default(false)
+  // Asset-finance payouts at or above this amount (cents) need a second,
+  // different approver (DESIGN D8). Default R1m.
+  assetPayoutDualApprovalCents     Int     @default(100000000)
+  // Asset-finance agreements, suretyships and resolutions render with a
+  // DRAFT — NOT FOR EXECUTION watermark until the lender's legal team approves
+  // the wording. Turning this on is a Confirmation Gate (Hein / legal).
+  assetFinanceLegalWordingApproved Boolean @default(false)
 
   ncrNumber        String?
   fscaNumber       String?
@@ -240,6 +275,13 @@ model TenantConfig {
   // existing rows too.
   requireStaffTotp Boolean @default(true)
 
+  // Failed-selfie and in-person override policy (lib/kyc/override-policy.ts).
+  // A clear biometric mismatch remains non-overridable regardless of these
+  // settings; the database independently enforces that boundary.
+  kycOverrideEnabled        Boolean  @default(true)
+  kycOverrideMinRole        UserRole @default(ADMIN)
+  kycOverrideSecondApprover Boolean  @default(false)
+
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
   collectionProvider       String?
@@ -247,7 +289,7 @@ model TenantConfig {
   netcashDebitOrderKey     String? // Netcash per-service keys (collections
   netcashRiskReportsKey    String? // + AVS); distinct from netcashKey (payouts)
 
-  ndiBufferPct       Int     @default(110)
+  ndiBufferPct Int @default(110)
 
   referralCommissionBps Int @default(0) // agent commission rate, basis points (200 = 2.00%); 0 = off
 
@@ -258,9 +300,9 @@ model TenantConfig {
   // Default interest and post-default charges (lib/loan/default-charges.ts).
   // Dark by default: while false no charge is derived and every receipt path
   // behaves exactly as it did before the feature existed.
-  defaultChargesEnabled    Boolean @default(false)
-  defaultAdminChargeCents  Int     @default(8200) // per Section 129 notice issued
-  defaultAdminPostageCents Int     @default(0)
+  defaultChargesEnabled    Boolean   @default(false)
+  defaultAdminChargeCents  Int       @default(8200) // per Section 129 notice issued
+  defaultAdminPostageCents Int       @default(0)
   // Go-live instant, set (audited) by the first back-fill --apply. The flag
   // without it posts nothing; no charge accrues on a day before it, and a loan
   // current at go-live is never back-charged (lib/loan/charges-replay.ts).
@@ -356,93 +398,99 @@ model VerificationToken {
 }
 
 model Client {
-  id                     String                   @id @default(cuid())
-  tenantId               String
-  tenant                 Tenant                   @relation(fields: [tenantId], references: [id])
-  reference              String                   @unique @default(cuid())
-  idNumber               String                   @unique
-  branchId               String?
-  branch                 Branch?                  @relation(fields: [branchId], references: [id])
-  firstName              String
-  lastName               String
-  dateOfBirth            DateTime?
-  gender                 Gender?
-  email                  String                   @unique
-  phone                  String
-  whatsapp               String?
-  addressLine1           String?
-  suburb                 String?
-  city                   String?
-  province               String?
-  postalCode             String?
-  employmentStatus       EmploymentStatus?
-  employerName           String?
-  monthlyIncome          Int                      @default(0)
-  monthlyExpenses        Int                      @default(0)
-  bankName               String?
-  bankAccountNumber      String?
-  bankBranchCode         String?
-  accountType            BankAccountType?
-  grossMonthlyIncome     Int?
-  incomeSourceType       IncomeSourceType?
-  employmentStartDate    DateTime?
-  salaryPaymentDay       Int?
-  employerAddress        String?
-  nextOfKinName          String?
-  nextOfKinPhone         String?
-  nextOfKinRelationship  String?
-  popiaConsentGiven      Boolean                  @default(false)
-  popiaConsentAt         DateTime?
-  kycVerifiedAt          DateTime?
-  kycVerifiedById        String?
-  kycVerificationMethod  KycVerificationMethod?
-  kycManualRejectionActive           Boolean   @default(false)
+  id                                 String                   @id @default(cuid())
+  tenantId                           String
+  tenant                             Tenant                   @relation(fields: [tenantId], references: [id])
+  reference                          String                   @unique @default(cuid())
+  idNumber                           String                   @unique
+  branchId                           String?
+  branch                             Branch?                  @relation(fields: [branchId], references: [id])
+  firstName                          String
+  lastName                           String
+  dateOfBirth                        DateTime?
+  gender                             Gender?
+  email                              String                   @unique
+  phone                              String
+  whatsapp                           String?
+  addressLine1                       String?
+  suburb                             String?
+  city                               String?
+  province                           String?
+  postalCode                         String?
+  employmentStatus                   EmploymentStatus?
+  employerName                       String?
+  monthlyIncome                      Int                      @default(0)
+  monthlyExpenses                    Int                      @default(0)
+  bankName                           String?
+  bankAccountNumber                  String?
+  bankBranchCode                     String?
+  accountType                        BankAccountType?
+  grossMonthlyIncome                 Int?
+  incomeSourceType                   IncomeSourceType?
+  employmentStartDate                DateTime?
+  salaryPaymentDay                   Int?
+  employerAddress                    String?
+  nextOfKinName                      String?
+  nextOfKinPhone                     String?
+  nextOfKinRelationship              String?
+  popiaConsentGiven                  Boolean                  @default(false)
+  popiaConsentAt                     DateTime?
+  kycVerifiedAt                      DateTime?
+  kycVerifiedById                    String?
+  kycVerificationMethod              KycVerificationMethod?
+  kycManualRejectionActive           Boolean                  @default(false)
   kycManualRejectionAt               DateTime?
   kycManualRejectionById             String?
   kycManualRejectionReason           String?
   kycManualRejectionResolvedAt       DateTime?
   kycManualRejectionResolvedById     String?
   kycManualRejectionResolutionReason String?
-  amlScreeningStatus     AmlStatus                @default(NOT_REQUIRED)
-  amlScreeningAt         DateTime?
-  kycStatus              KycStatus                @default(PENDING)
-  blacklisted            Boolean                  @default(false)
-  blacklistReason        String?
+  amlScreeningStatus                 AmlStatus                @default(NOT_REQUIRED)
+  amlScreeningAt                     DateTime?
+  kycStatus                          KycStatus                @default(PENDING)
+  blacklisted                        Boolean                  @default(false)
+  blacklistReason                    String?
   // Recorded death. Nullable and asserted by staff — never derived, and never
   // inferred from inactivity. Presence alone means DECEASED (lib/clients/status.ts),
   // so the column doubles as the flag and as the date the estate was notified of.
-  deceasedAt             DateTime?
-  deceasedReason         String?
-  riskLevel              ClientRiskLevel          @default(NORMAL)
-  riskFlagNote           String?
-  riskFlaggedAt          DateTime?
-  riskFlaggedById        String?
-  creditScore            Int?
-  portalPassword         String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  applications           LoanApplication[]
-  loans                  Loan[]
-  documents              ClientDocument[]
-  crossSellOpportunities CrossSellOpportunity[]
-  insurancePolicies      InsurancePolicy[]
-  insuranceQuotes        InsuranceQuote[]
-  insuredLives           InsuredLife[]
-  expenseBreakdown       ClientExpenseBreakdown?
-  debtObligations        ExistingDebtObligation[]
-  stitchPayments         StitchPaymentRequest[]
-  referralCount          Int                      @default(0) // count of referrals from this client
-  referredFromId         String? // lead.id that converted to this client (the source lead)
-  referralCodeId         String? // Durable referral-agent attribution, set by staff on the client; credits repeat loans
-  referralCode           ReferralCode?            @relation("ClientReferralCode", fields: [referralCodeId], references: [id], onDelete: SetNull)
-  complaints             Complaint[]
-  dsarRequests           DataSubjectRequest[]
-  consent                ClientConsent?
-  bureauChecks           CreditBureauCheck[]
-  contact                Contact?                 @relation("ClientToContact")
-  avsChecks              AvsCheck[]
-  convertedLeads         Lead[]                   @relation("LeadConvertedClient")
-  portalAccountLeads     Lead[]                   @relation("LeadPortalAccountClient")
+  deceasedAt                         DateTime?
+  deceasedReason                     String?
+  riskLevel                          ClientRiskLevel          @default(NORMAL)
+  riskFlagNote                       String?
+  riskFlaggedAt                      DateTime?
+  riskFlaggedById                    String?
+  creditScore                        Int?
+  portalPassword                     String?
+  createdAt                          DateTime                 @default(now())
+  updatedAt                          DateTime                 @updatedAt
+  applications                       LoanApplication[]
+  ncaRepresentativeApplications      LoanApplication[]        @relation("NcaRepresentative")
+  loans                              Loan[]
+  entityRelationships                EntityRelationship[]
+  dealSigners                        DealSigner[]
+  assetFinanceDeals                  AssetFinanceDeal[]
+  assetFinanceDocuments              EntityDocument[]         @relation("AssetDocumentClient")
+  documents                          ClientDocument[]
+  crossSellOpportunities             CrossSellOpportunity[]
+  insurancePolicies                  InsurancePolicy[]
+  insuranceQuotes                    InsuranceQuote[]
+  insuredLives                       InsuredLife[]
+  expenseBreakdown                   ClientExpenseBreakdown?
+  debtObligations                    ExistingDebtObligation[]
+  stitchPayments                     StitchPaymentRequest[]
+  referralCount                      Int                      @default(0) // count of referrals from this client
+  referredFromId                     String? // lead.id that converted to this client (the source lead)
+  referralCodeId                     String? // Durable referral-agent attribution, set by staff on the client; credits repeat loans
+  referralCode                       ReferralCode?            @relation("ClientReferralCode", fields: [referralCodeId], references: [id], onDelete: SetNull)
+  complaints                         Complaint[]
+  dsarRequests                       DataSubjectRequest[]
+  consent                            ClientConsent?
+  bureauChecks                       CreditBureauCheck[]
+  contact                            Contact?                 @relation("ClientToContact")
+  avsChecks                          AvsCheck[]
+  convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
+  portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
+  kycOverrideRequests    KycOverrideRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -583,63 +631,105 @@ enum AgreementType {
 }
 
 model ClientDocument {
-  id                  String    @id @default(cuid())
-  tenantId            String
-  tenant              Tenant    @relation(fields: [tenantId], references: [id])
-  clientId            String
-  docType             DocType
-  fileUrl             String
-  fileName            String
-  verified            Boolean   @default(false)
+  id                       String              @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant              @relation(fields: [tenantId], references: [id])
+  clientId                 String
+  docType                  DocType
+  fileUrl                  String
+  fileName                 String
+  verified                 Boolean             @default(false)
   // Who refused this document, if anyone. Set only by a human reviewer through
   // the verify endpoint. The SYSTEM also clears `verified` and writes a
   // verificationNote (a bank-detail change re-flags a statement), so the note
   // alone cannot say who acted — these fields can.
   verificationRejectedAt   DateTime?
   verificationRejectedById String?
-  uploadedByType      String    @default("staff")
-  uploadedById        String?
-  deletedAt           DateTime?
-  deletedByType       String?
-  deletedById         String?
-  fileSize            Int?
-  mimeType            String?
-  storagePath         String?
-  contentSha256       String?
-  extractionStatus    String    @default("pending")
-  extractionGeneration String?
-  extractionStartedAt DateTime?
-  extractionResult    Json?
-  extractionError     String?
-  validationResult    Json?
-  validationMismatch  Boolean   @default(false)
-  validationScore     Int?
-  biometricMatchScore Int?
-  biometricLiveness   Int?
-  biometricVerifiedAt DateTime?
-  biometricResult     Json?
+  uploadedByType           String              @default("staff")
+  uploadedById             String?
+  deletedAt                DateTime?
+  deletedByType            String?
+  deletedById              String?
+  fileSize                 Int?
+  mimeType                 String?
+  storagePath              String?
+  contentSha256            String?
+  extractionStatus         String              @default("pending")
+  extractionGeneration     String?
+  extractionStartedAt      DateTime?
+  extractionResult         Json?
+  extractionError          String?
+  validationResult         Json?
+  validationMismatch       Boolean             @default(false)
+  validationScore          Int?
+  biometricMatchScore      Int?
+  biometricLiveness        Int?
+  biometricVerifiedAt      DateTime?
+  biometricResult          Json?
   biometricAttemptSequence Int?
-  verifiedAt          DateTime?
-  verifiedById        String?
-  verificationNote    String?
+  verifiedAt               DateTime?
+  verifiedById             String?
+  verificationNote         String?
   // Provenance for docs generated via the Document Template System — nullable,
   // NULL for staff-uploaded / OCR-captured documents.
-  templateId              String?
-  generatedFromVersionId  String?
+  templateId               String?
+  generatedFromVersionId   String?
   // Native (in-app) e-signature state — see lib/documents/signing/native.ts +
   // app/api/documents/[id]/sign/route.ts. NULL for documents never sent for
   // signature (mirrors SignatureState "none" in lib/documents/signing/index.ts).
-  signatureState          String?
-  signatureRequestedAt    DateTime?
-  signedAt                DateTime?
-  signedByIp              String?
-  createdAt           DateTime  @default(now())
-  client              Client    @relation(fields: [clientId], references: [id])
-  loanNotes           LoanNote[]
-  statementAnalyses   StatementAnalysis[]
+  signatureState           String?
+  signatureRequestedAt     DateTime?
+  signedAt                 DateTime?
+  signedByIp               String?
+  createdAt                DateTime            @default(now())
+  client                   Client              @relation(fields: [clientId], references: [id])
+  loanNotes                LoanNote[]
+  statementAnalyses        StatementAnalysis[]
+  kycOverrideRequests KycOverrideRequest[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, clientId, docType, biometricAttemptSequence], map: "ClientDocument_biometric_attempt_order_idx")
+}
+
+enum KycOverrideKind {
+  EXCEPTION
+  IN_PERSON
+}
+
+enum KycOverrideRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+model KycOverrideRequest {
+  id                String                   @id @default(cuid())
+  tenantId          String
+  clientId          String
+  selfieDocumentId  String?
+  kind              KycOverrideKind
+  payload           Json
+  requestedById     String
+  requestedWithTotp Boolean                  @default(false)
+  requestedAt       DateTime                 @default(now())
+  status            KycOverrideRequestStatus @default(PENDING)
+  decidedById       String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  expiresAt         DateTime
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  client         Client          @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  selfieDocument ClientDocument? @relation(fields: [tenantId, selfieDocumentId], references: [tenantId, id])
+  requestedBy    User            @relation("KycOverrideRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id])
+  decidedBy      User?           @relation("KycOverrideDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, clientId, status, expiresAt])
+  @@index([tenantId, requestedById])
+  @@index([tenantId, decidedById])
 }
 
 enum DocumentTemplateKind {
@@ -660,21 +750,21 @@ enum DocumentSigningMethod {
 }
 
 model DocumentTemplate {
-  id               String   @id @default(cuid())
+  id               String                    @id @default(cuid())
   tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id])
-  key              String   // stable slug, e.g. "settlement_letter"
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
+  key              String // stable slug, e.g. "settlement_letter"
   name             String
-  category         String?  // "Agreement" | "Collections" | "Consent" | ...
+  category         String? // "Agreement" | "Collections" | "Consent" | ...
   kind             DocumentTemplateKind
-  systemGenerator  String?  // SYSTEM only: which lib/pdf module, e.g. "creditAgreement"
-  signingMethod    DocumentSigningMethod @default(NONE)
-  requiresApproval Boolean  @default(false) // CUSTOM legal docs → dual-approval before ACTIVE
-  isActive         Boolean  @default(true)
-  currentVersionId String?  // CUSTOM: FK to the ACTIVE version
+  systemGenerator  String? // SYSTEM only: which lib/pdf module, e.g. "creditAgreement"
+  signingMethod    DocumentSigningMethod     @default(NONE)
+  requiresApproval Boolean                   @default(false) // CUSTOM legal docs → dual-approval before ACTIVE
+  isActive         Boolean                   @default(true)
+  currentVersionId String? // CUSTOM: FK to the ACTIVE version
   createdById      String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
   deletedAt        DateTime?
   versions         DocumentTemplateVersion[]
 
@@ -683,19 +773,19 @@ model DocumentTemplate {
 }
 
 model DocumentTemplateVersion {
-  id            String   @id @default(cuid())
+  id            String                        @id @default(cuid())
   templateId    String
-  template      DocumentTemplate @relation(fields: [templateId], references: [id])
+  template      DocumentTemplate              @relation(fields: [templateId], references: [id])
   version       Int
-  bodyHtml      String   // authored HTML containing {{tokens}}
-  tokensUsed    Json     // tokens referenced — for validation + preview
+  bodyHtml      String // authored HTML containing {{tokens}}
+  tokensUsed    Json // tokens referenced — for validation + preview
   status        DocumentTemplateVersionStatus @default(DRAFT)
   notes         String?
   createdById   String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime                      @default(now())
   activatedById String?
   activatedAt   DateTime?
-  approvedById  String?  // dual-approval (second LOAN_ADMIN)
+  approvedById  String? // dual-approval (second LOAN_ADMIN)
   approvedAt    DateTime?
 
   @@unique([templateId, version])
@@ -826,26 +916,32 @@ enum DocType {
 }
 
 model LoanProduct {
-  id                String            @id @default(cuid())
-  tenantId          String
-  tenant            Tenant            @relation(fields: [tenantId], references: [id])
-  code              String
-  name              String
-  productType       ProductType
-  minAmount         Int
-  maxAmount         Int
-  minTermDays       Int
-  maxTermDays       Int
-  interestRatePm    Float
-  interestModel     InterestModel
-  initiationFeeModel InitiationFeeModel @default(FLAT_PCT)
-  initiationFeePct  Float             @default(0)
-  initiationFeeMax  Int               @default(0)
-  monthlyServiceFee Int               @default(0)
-  active            Boolean           @default(true)
-  createdAt         DateTime          @default(now())
-  applications      LoanApplication[]
-  loans             Loan[]
+  id                          String             @id @default(cuid())
+  tenantId                    String
+  tenant                      Tenant             @relation(fields: [tenantId], references: [id])
+  code                        String
+  name                        String
+  productType                 ProductType
+  minAmount                   Int
+  maxAmount                   Int
+  minTermDays                 Int
+  maxTermDays                 Int
+  interestRatePm              Float
+  interestModel               InterestModel
+  initiationFeeModel          InitiationFeeModel @default(FLAT_PCT)
+  initiationFeePct            Float              @default(0)
+  initiationFeeMax            Int                @default(0)
+  monthlyServiceFee           Int                @default(0)
+  // NON_NCA (asset finance) arrears terms, decision 2a.4 of the slice-1 goal:
+  // default interest at the contract rate plus this annual margin (decimal,
+  // 0.02 = 2%) on overdue amounts, and a collection fee (cents) per missed
+  // instalment. Never applied to an NCA loan, whose caps and s129 rules hold.
+  nonNcaDefaultInterestMargin Decimal?           @db.Decimal(9, 6)
+  nonNcaCollectionFeeCents    Int?
+  active                      Boolean            @default(true)
+  createdAt                   DateTime           @default(now())
+  applications                LoanApplication[]
+  loans                       Loan[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, id])
@@ -862,6 +958,152 @@ enum InterestModel {
   FLAT
   REDUCING_BALANCE
   DAILY_ACCRUAL
+}
+
+enum NcaRegime {
+  NCA
+  NON_NCA
+}
+
+enum ContractType {
+  LOAN
+  INSTALMENT_SALE
+  FINANCE_LEASE
+  OPERATING_LEASE
+  FULL_MAINTENANCE_LEASE
+}
+
+enum BusinessEntityType {
+  COMPANY
+  CC
+  TRUST
+  PARTNERSHIP
+}
+
+enum EntityRole {
+  DIRECTOR
+  MEMBER
+  TRUSTEE
+  AUTHORISED_SIGNATORY
+  SURETY
+  BENEFICIAL_OWNER
+}
+
+enum TrusteeKind {
+  NATURAL
+  JURISTIC
+}
+
+enum NcaOverrideStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Who opened an NcaRegimeOverride: the classifier (a NON_NCA result awaiting a
+// second person) or a staff member through the override route.
+enum NcaOverrideSource {
+  CLASSIFIER
+  MANUAL
+}
+
+// A juristic borrower for asset finance (DESIGN D1). Client stays a natural
+// person keyed on SA ID; a sole proprietor borrows as a Client.
+model BusinessEntity {
+  id                    String               @id @default(cuid())
+  tenantId              String
+  tenant                Tenant               @relation(fields: [tenantId], references: [id])
+  type                  BusinessEntityType
+  legalName             String
+  tradingName           String?
+  registrationNumber    String
+  // Trusts: the Master of the High Court reference (IT number).
+  mastersReference      String?
+  vatNumber             String?
+  // NCA classifier inputs (cents), the financial year they describe and the
+  // document ids that evidence them. Unevidenced → the classifier says NCA.
+  annualTurnover        BigInt?
+  totalAssetValue       BigInt?
+  financialYearEnd      DateTime?            @db.Date
+  financialsEvidenceIds String[]             @default([])
+  addressLine1          String?
+  addressLine2          String?
+  city                  String?
+  province              String?
+  postalCode            String?
+  createdById           String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  relationships         EntityRelationship[]
+  applications          LoanApplication[]
+  loans                 Loan[]
+  documents             EntityDocument[]
+  deals                 AssetFinanceDeal[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, type, registrationNumber])
+  @@index([tenantId])
+}
+
+// A person's role in an entity. One row per (entity, client, role): the same
+// person can be a director, a surety and a beneficial owner.
+model EntityRelationship {
+  id           String         @id @default(cuid())
+  tenantId     String
+  entityId     String
+  entity       BusinessEntity @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId     String
+  client       Client         @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  role         EntityRole
+  // Trustees only (CHECK EntityRelationship_trustee_kind). JURISTIC: the
+  // Client represents a juristic trustee (a company acting as trustee).
+  trusteeKind  TrusteeKind?
+  ownershipPct Decimal?       @db.Decimal(5, 2)
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([entityId, clientId, role])
+  @@index([tenantId, clientId])
+}
+
+// An override of an application's NCA classification. NCA → NON_NCA needs a
+// second, different user with credit permission to approve it (DESIGN D5);
+// a classifier result of NON_NCA is recorded as such a request. Immutable once
+// decided, never deleted (trigger guardNcaRegimeOverrideLifecycle).
+model NcaRegimeOverride {
+  id                         String            @id @default(cuid())
+  tenantId                   String
+  applicationId              String
+  application                LoanApplication   @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  fromRegime                 NcaRegime
+  toRegime                   NcaRegime
+  reason                     String
+  source                     NcaOverrideSource
+  status                     NcaOverrideStatus @default(PENDING)
+  requestedById              String
+  requestedBy                User              @relation("NcaOverridesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedById                String?
+  decidedBy                  User?             @relation("NcaOverridesDecided", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt                  DateTime?
+  // The application as it stood when the override was requested. An approval
+  // to NON_NCA authorises the change for exactly this borrower, amount,
+  // product and classification (rule, and the ncaClassifiedAt of the run the
+  // approver saw): guardLoanApplicationNcaRegime refuses to spend it on an
+  // application that no longer matches, so a re-classification makes it
+  // stale. Required for toRegime NON_NCA (CHECK NcaRegimeOverride_non_nca_snapshot).
+  approvedEntityId           String?
+  approvedAppliedAmount      Int?
+  approvedProductId          String?
+  approvedClassificationRule String?
+  approvedClassifiedAt       DateTime?
+  decisionNote               String?
+  // Set by trigger guardLoanApplicationNcaRegime when it spends this approval
+  // on the NCA → NON_NCA change it authorises: one approval, one change.
+  appliedAt                  DateTime?
+  createdAt                  DateTime          @default(now())
+
+  @@index([tenantId, applicationId])
 }
 
 // How a product's initiation fee is PRICED, as opposed to how it is capped.
@@ -899,93 +1141,107 @@ enum CreditLifeElection {
 }
 
 model LoanApplication {
-  id                            String               @id @default(cuid())
-  tenantId                      String
-  tenant                        Tenant               @relation(fields: [tenantId], references: [id])
-  reference                     String               @unique
-  clientId                      String
-  productId                     String
-  branchId                      String?
-  branch                        Branch?              @relation(fields: [branchId], references: [id])
-  appliedAmount                 Int
-  appliedTermDays               Int
-  purpose                       String?
-  status                        AppStatus            @default(DRAFT)
-  assignedToId                  String?
-  approvedById                  String?
-  affordabilityResult           Json?
-  decisionReason                String?
+  id                                      String                     @id @default(cuid())
+  tenantId                                String
+  tenant                                  Tenant                     @relation(fields: [tenantId], references: [id])
+  reference                               String                     @unique
+  clientId                                String?
+  // Exactly one of clientId / entityId (CHECK LoanApplication_borrower_xor).
+  entityId                                String?
+  // Authorised director/member/trustee/signatory who performs the NCA document
+  // ceremony for an entity borrower. Null for natural-person applications.
+  ncaRepresentativeClientId               String?
+  // NCA classification snapshot (DESIGN D5), written by
+  // lib/asset-finance/classification.ts; an override goes through
+  // NcaRegimeOverride. Null until classified.
+  ncaRegime                               NcaRegime?
+  ncaClassificationRule                   String?
+  ncaClassificationInputs                 Json?
+  ncaClassificationEvidenceIds            String[]                   @default([])
+  ncaClassifiedAt                         DateTime?
+  ncaClassifiedById                       String?
+  productId                               String
+  branchId                                String?
+  branch                                  Branch?                    @relation(fields: [branchId], references: [id])
+  appliedAmount                           Int
+  appliedTermDays                         Int
+  purpose                                 String?
+  status                                  AppStatus                  @default(DRAFT)
+  assignedToId                            String?
+  approvedById                            String?
+  affordabilityResult                     Json?
+  decisionReason                          String?
   // Coarse, for internal reporting. NOT the NCA s.62 statement of reasons.
-  declineCategory               DeclineCategory?
-  loanPurposeCategory           LoanPurposeCategory?
-  productRecommendationNote     String?
-  existingDebtObligations       Json?
-  totalExistingDebt             Int?
-  netDisposableIncome           Int?
-  affordabilityNDI              Int?
-  recklessLendingAssessed       Boolean              @default(false)
-  recklessLendingAssessedById   String?
-  recklessLendingAssessedAt     DateTime?
-  recklessLendingNote           String?
-  bureauOverrideReason          String?
-  bureauOverrideById            String?
-  bureauOverrideBy              User?                @relation("BureauOverrideBy", fields: [bureauOverrideById], references: [id])
-  bureauOverrideAt              DateTime?
+  declineCategory                         DeclineCategory?
+  loanPurposeCategory                     LoanPurposeCategory?
+  productRecommendationNote               String?
+  existingDebtObligations                 Json?
+  totalExistingDebt                       Int?
+  netDisposableIncome                     Int?
+  affordabilityNDI                        Int?
+  recklessLendingAssessed                 Boolean                    @default(false)
+  recklessLendingAssessedById             String?
+  recklessLendingAssessedAt               DateTime?
+  recklessLendingNote                     String?
+  bureauOverrideReason                    String?
+  bureauOverrideById                      String?
+  bureauOverrideBy                        User?                      @relation("BureauOverrideBy", fields: [bureauOverrideById], references: [id])
+  bureauOverrideAt                        DateTime?
   // Identifies the current review cycle. Async bureau responses must carry
   // this exact value or they are stale evidence for a prior assessment.
-  bureauReviewGeneration        String?
-  pasqAcknowledgedAt            DateTime?
-  pasqAcknowledgedBy            String?
-  pasqAcknowledgedSha256        String?
-  pasqVersion                   String?
-  pasqGeneratedAt               DateTime?
-  pasqDocumentId                String?
-  pasqDocumentSha256            String?
-  pasqEvidence                  Json?
-  pasqEvidenceSha256            String?
-  approvedPasqDocumentSha256    String?
-  clientAffordabilityDeclaredAt DateTime?
-  agreementType                 AgreementType?
+  bureauReviewGeneration                  String?
+  pasqAcknowledgedAt                      DateTime?
+  pasqAcknowledgedBy                      String?
+  pasqAcknowledgedSha256                  String?
+  pasqVersion                             String?
+  pasqGeneratedAt                         DateTime?
+  pasqDocumentId                          String?
+  pasqDocumentSha256                      String?
+  pasqEvidence                            Json?
+  pasqEvidenceSha256                      String?
+  approvedPasqDocumentSha256              String?
+  clientAffordabilityDeclaredAt           DateTime?
+  agreementType                           AgreementType?
   // Consumer's NCA s.101 initiation-fee payment option, captured at agreement
   // generation. DEFERRED (default) = full advance, fee interest-free in the
   // schedule; UPFRONT = fee deducted from the advance.
-  initiationFeePayment          InitiationFeePayment @default(DEFERRED)
-  creditLifeElection                    CreditLifeElection?
-  creditLifeProductId                   String?
-  creditLifeProductName                 String?
-  creditLifeInsurerId                   String?
-  creditLifeInsurerName                 String?
-  creditLifeMonthlyPremiumCents         Int?
-  creditLifeDisclosureVersion           String?
-  creditLifeDisclosureSha256            String?
-  creditLifeDisclosureAcknowledgedAt    DateTime?
-  creditLifeDisclosureAcknowledgedBy    String?
-  incomeVerificationMethod      String?
-  incomeVerifiedAt              DateTime?
-  incomeVerifiedById            String?
-  agreementGeneratedAt          DateTime?
-  agreementDocumentId           String?
-  agreementDocumentSha256       String?
-  agreementSignedAt             DateTime?
-  agreementSignedMethod         String?
-  agreementSignedByIp           String?
-  agreementSignedByUserId       String?
-  agreementSignatureData        String? // base64 PNG data URL (drawn) or typed name — the e-signature artifact
-  agreementCountersignedAt              DateTime?
-  agreementCountersignedById            String?
-  agreementCountersignedByName          String?
-  agreementCountersignedByEmail         String?
-  agreementCountersignatureData         String?
-  agreementCountersignatureSha256       String?
+  initiationFeePayment                    InitiationFeePayment       @default(DEFERRED)
+  creditLifeElection                      CreditLifeElection?
+  creditLifeProductId                     String?
+  creditLifeProductName                   String?
+  creditLifeInsurerId                     String?
+  creditLifeInsurerName                   String?
+  creditLifeMonthlyPremiumCents           Int?
+  creditLifeDisclosureVersion             String?
+  creditLifeDisclosureSha256              String?
+  creditLifeDisclosureAcknowledgedAt      DateTime?
+  creditLifeDisclosureAcknowledgedBy      String?
+  incomeVerificationMethod                String?
+  incomeVerifiedAt                        DateTime?
+  incomeVerifiedById                      String?
+  agreementGeneratedAt                    DateTime?
+  agreementDocumentId                     String?
+  agreementDocumentSha256                 String?
+  agreementSignedAt                       DateTime?
+  agreementSignedMethod                   String?
+  agreementSignedByIp                     String?
+  agreementSignedByUserId                 String?
+  agreementSignatureData                  String? // base64 PNG data URL (drawn) or typed name — the e-signature artifact
+  agreementCountersignedAt                DateTime?
+  agreementCountersignedById              String?
+  agreementCountersignedByName            String?
+  agreementCountersignedByEmail           String?
+  agreementCountersignatureData           String?
+  agreementCountersignatureSha256         String?
   agreementCountersignatureEnvelopeSha256 String?
-  agreementCountersignedDocumentSha256  String?
+  agreementCountersignedDocumentSha256    String?
   /// The EXECUTED agreement: the artifact that actually carries both
   /// signatures, minted once inside the countersign transaction. Distinct from
   /// agreementDocumentId, which stays bound to the UNSIGNED document the
   /// consumer was shown — the same draft-vs-signed split the debit mandate
   /// already uses (debitMandateDraftSha256 vs debitMandateDocumentId).
-  agreementExecutedDocumentId           String?
-  agreementExecutedDocumentSha256       String?
+  agreementExecutedDocumentId             String?
+  agreementExecutedDocumentSha256         String?
   /// The RETURNED signed packet on the paper path: the PDF the consumer
   /// physically signed, uploaded before the signature is recorded. Bound here
   /// rather than left discoverable only through the document's own
@@ -996,60 +1252,64 @@ model LoanApplication {
   /// Only writable while agreementSignedAt is NULL: once the signature is
   /// recorded the binding is the record of WHICH bytes were signed, and a
   /// later upload must not be able to move it.
-  signedPacketDocumentId                String?
-  signedPacketDocumentSha256            String?
-  debitMandatePreparedAt                DateTime?
-  debitMandateReference                 String?
-  debitMandateDraftSha256               String?
-  debitMandateEvidence                  Json?
-  debitMandateEvidenceSha256            String?
-  debitMandateSignedAt                  DateTime?
-  debitMandateSignedMethod              String?
-  debitMandateSignedByIp                String?
-  debitMandateSignatureData             String?
-  debitMandateSignatureSha256           String?
-  debitMandateDocumentId                String?
-  debitMandateDocumentSha256            String?
-  repaymentMethod                       LoanRepaymentMethod?
-  approvedAmount                Int?
-  approvedTermDays              Int?
-  approvedRate                  Float?
-  approvedAt                    DateTime?
-  disbursedAt                   DateTime?
-  disbursementBank              String?
-  disbursementAccountNo         String?
-  disbursementBranchCode        String?
-  disbursementAccountType       String?
-  disbursementRef               String?
-  submittedAt                   DateTime?
-  createdAt                     DateTime             @default(now())
-  updatedAt                     DateTime             @updatedAt
-  client                        Client               @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  product                       LoanProduct          @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  creditLifeProduct             InsuranceProduct?    @relation("ApplicationCreditLifeProduct", fields: [tenantId, creditLifeProductId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  creditLifeInsurer             Insurer?             @relation("ApplicationCreditLifeInsurer", fields: [tenantId, creditLifeInsurerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  assignedTo                    User?                @relation("AssignedTo", fields: [assignedToId], references: [id])
-  approvedBy                    User?                @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  agreementCountersignedBy      User?                @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  agreementSignedBy             User?                @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  loan                          Loan?
-  conversations                 Conversation[]
-  convertedLead                Lead?                @relation("LeadConvertedApplication")
-  pasqAcknowledgementTokens     PasqAcknowledgementToken[]
-  selfieCaptureTokens           SelfieCaptureToken[]
-  checkFlags                    ApplicationCheckFlag[]
-
-  @@unique([tenantId, id])
-  @@unique([tenantId, id, clientId])
-  @@index([tenantId])
-  @@index([tenantId, status])
-  @@index([agreementDocumentId])
+  signedPacketDocumentId                  String?
+  signedPacketDocumentSha256              String?
+  debitMandatePreparedAt                  DateTime?
+  debitMandateReference                   String?
+  debitMandateDraftSha256                 String?
+  debitMandateEvidence                    Json?
+  debitMandateEvidenceSha256              String?
+  debitMandateSignedAt                    DateTime?
+  debitMandateSignedMethod                String?
+  debitMandateSignedByIp                  String?
+  debitMandateSignatureData               String?
+  debitMandateSignatureSha256             String?
+  debitMandateDocumentId                  String?
+  debitMandateDocumentSha256              String?
+  repaymentMethod                         LoanRepaymentMethod?
+  approvedAmount                          Int?
+  approvedTermDays                        Int?
+  approvedRate                            Float?
+  approvedAt                              DateTime?
+  disbursedAt                             DateTime?
+  disbursementBank                        String?
+  disbursementAccountNo                   String?
+  disbursementBranchCode                  String?
+  disbursementAccountType                 String?
+  disbursementRef                         String?
+  submittedAt                             DateTime?
+  createdAt                               DateTime                   @default(now())
+  updatedAt                               DateTime                   @updatedAt
+  client                                  Client?                    @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entity                                  BusinessEntity?            @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  ncaRepresentative                       Client?                    @relation("NcaRepresentative", fields: [tenantId, ncaRepresentativeClientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict, map: "LoanApplication_ncaRepresentativeClientId_fkey")
+  ncaRegimeOverrides                      NcaRegimeOverride[]
+  assetFinanceDeal                        AssetFinanceDeal?
+  product                                 LoanProduct                @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  creditLifeProduct                       InsuranceProduct?          @relation("ApplicationCreditLifeProduct", fields: [tenantId, creditLifeProductId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  creditLifeInsurer                       Insurer?                   @relation("ApplicationCreditLifeInsurer", fields: [tenantId, creditLifeInsurerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assignedTo                              User?                      @relation("AssignedTo", fields: [assignedToId], references: [id])
+  approvedBy                              User?                      @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  agreementCountersignedBy                User?                      @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  agreementSignedBy                       User?                      @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loan                                    Loan?
+  conversations                           Conversation[]
+  convertedLead                           Lead?                      @relation("LeadConvertedApplication")
+  pasqAcknowledgementTokens               PasqAcknowledgementToken[]
+  selfieCaptureTokens                     SelfieCaptureToken[]
+  checkFlags                              ApplicationCheckFlag[]
   // PostgreSQL partial unique index (not expressible in Prisma schema):
   // LoanApplication_debitMandateReference_key, created by the baseline
   // migration.
   // PostgreSQL partial unique index (not expressible in Prisma schema):
   // LoanApplication_one_open_per_client_product_idx, created by the baseline
   // migration.
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, clientId])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([agreementDocumentId])
 }
 
 /// One-time link that lets a consumer with no portal account receive and
@@ -1057,29 +1317,29 @@ model LoanApplication {
 /// the emitted secret is stored, so a database read cannot reconstruct a
 /// working link.
 model PasqAcknowledgementToken {
-  id             String    @id @default(cuid())
+  id             String          @id @default(cuid())
   tenantId       String
-  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
   applicationId  String
   clientId       String
   application    LoanApplication @relation(fields: [tenantId, applicationId, clientId], references: [tenantId, id, clientId], onDelete: Restrict, onUpdate: Restrict)
   documentSha256 String
-  tokenHash      String    @unique
+  tokenHash      String          @unique
   channel        String
   sentTo         String
   expiresAt      DateTime
   usedAt         DateTime?
   invalidatedAt  DateTime?
   createdById    String
-  createdBy      User      @relation("PasqAckTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  createdAt      DateTime  @default(now())
-
-  @@index([tenantId, applicationId])
+  createdBy      User            @relation("PasqAckTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt      DateTime        @default(now())
   // PostgreSQL CHECK constraints (not expressible in Prisma schema):
   // PasqAcknowledgementToken_channel_check (SMS/WHATSAPP/EMAIL),
   // PasqAcknowledgementToken_tokenHash_format_check and
   // PasqAcknowledgementToken_documentSha256_format_check, created by the
   // baseline migration.
+
+  @@index([tenantId, applicationId])
 }
 
 /// One-time links that let a consumer capture a KYC selfie bound to ONE
@@ -1107,11 +1367,11 @@ model SelfieCaptureToken {
   createdById   String
   createdBy     User            @relation("SelfieCaptureTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt     DateTime        @default(now())
-
-  @@index([tenantId, applicationId])
   // Partial unique index (not expressible in Prisma schema):
   // SelfieCaptureToken_one_active_per_application, created by the baseline
   // migration — at most one live link per application.
+
+  @@index([tenantId, applicationId])
 }
 
 enum AppStatus {
@@ -1130,59 +1390,81 @@ enum LoanRepaymentMethod {
 }
 
 model Loan {
-  id                        String                 @id @default(cuid())
-  tenantId                  String
-  tenant                    Tenant                 @relation(fields: [tenantId], references: [id])
-  reference                 String                 @unique
-  applicationId             String                 @unique
-  clientId                  String
-  productId                 String
-  principal                 Int
-  totalInterest             Int
-  initiationFee             Int
+  id                          String                      @id @default(cuid())
+  tenantId                    String
+  tenant                      Tenant                      @relation(fields: [tenantId], references: [id])
+  reference                   String                      @unique
+  applicationId               String                      @unique
+  clientId                    String?
+  // Exactly one of clientId / entityId is set (CHECK Loan_borrower_xor):
+  // a natural-person Client or a BusinessEntity (asset finance, DESIGN D1).
+  entityId                    String?
+  // NCA applicability, decided once at application (lib/asset-finance/
+  // nca-classifier.ts). Every consumer-only rule (s129, fee caps, NCA charge
+  // caps, consumer bureau files) keys on NCA.
+  ncaRegime                   NcaRegime                   @default(NCA)
+  contractType                ContractType                @default(LOAN)
+  // Cents; the final scheduled payment on top of the last instalment.
+  balloonAmount               Int?
+  // Original payment-shape weights for a booked asset-finance contract.
+  // Repricing reads these instead of inferring the final weight from a row
+  // whose payment includes the solver's rounding residue.
+  assetFinanceWeights         Json?
+  // The financed asset (FinancedAsset, asset finance). FK added with that table.
+  assetId                     String?
+  asset                       FinancedAsset?              @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // NON_NCA arrears terms copied from the product at booking, so editing the
+  // product never re-prices an existing loan's arrears (lib/asset-finance/non-nca-charges.ts).
+  nonNcaDefaultInterestMargin Decimal?                    @db.Decimal(9, 6)
+  nonNcaCollectionFeeCents    Int?
+  assetFinanceDeal            AssetFinanceDeal?
+  productId                   String
+  principal                   Int
+  totalInterest               Int
+  initiationFee               Int
   // Total credit-life premiums collected through this loan's repayment
   // schedule. Standalone PremiumPayment rows are not created for bundled cover.
-  creditLifePremiums        Int                    @default(0)
-  totalRepayable            Int
+  creditLifePremiums          Int                         @default(0)
+  totalRepayable              Int
   // Original signed maturity totals. totalInterest/totalRepayable may reduce
   // only when a DAILY_ACCRUAL loan settles early; these fields preserve the
   // immutable agreement baseline and make payment reversal deterministic.
-  contractualTotalInterest  Int?
-  contractualTotalRepayable Int?
-  outstandingPrincipal      Int
-  totalPaid                 Int                    @default(0)
-  status                    LoanStatus             @default(ACTIVE)
-  startDate                 DateTime
-  maturityDate              DateTime
-  nextPaymentDate           DateTime?
-  interestRatePm            Float
-  interestModel             InterestModel
-  daysInArrears             Int                    @default(0)
-  arrearsAmount             Int                    @default(0)
-  lastPaymentDate           DateTime?
-  lastPaymentAmount         Int?
-  agreementDocId            String?
-  collectionsStage          CollectionsStage       @default(NONE)
-  collectionsStageUpdatedAt DateTime?
-  collectionsNotes          String?
-  writeOffReason            String?
-  writeOffRequestedById     String?
-  writeOffRequestedAt       DateTime?
-  writeOffApprovedById      String?
-  writeOffAt                DateTime?
+  contractualTotalInterest    Int?
+  contractualTotalRepayable   Int?
+  outstandingPrincipal        Int
+  totalPaid                   Int                         @default(0)
+  status                      LoanStatus                  @default(ACTIVE)
+  startDate                   DateTime
+  maturityDate                DateTime
+  nextPaymentDate             DateTime?
+  interestRatePm              Float
+  interestModel               InterestModel
+  daysInArrears               Int                         @default(0)
+  arrearsAmount               Int                         @default(0)
+  lastPaymentDate             DateTime?
+  lastPaymentAmount           Int?
+  agreementDocId              String?
+  collectionsStage            CollectionsStage            @default(NONE)
+  collectionsStageUpdatedAt   DateTime?
+  collectionsNotes            String?
+  writeOffReason              String?
+  writeOffRequestedById       String?
+  writeOffRequestedAt         DateTime?
+  writeOffApprovedById        String?
+  writeOffAt                  DateTime?
   // Populated on transitions to COMPLETED / WRITTEN_OFF / CANCELLED. Phase 9
   // S1 backfill (step 1b) prefers AuditLog action=LOAN_STATUS_CHANGED, falls
   // back to updatedAt. Drives the s.69(3)(a) soft-opt-in "12-month tail"
   // predicate in canSend() (gated by Tenant.softOptInClosedLoanTailEnabled).
-  closedAt                  DateTime?
+  closedAt                    DateTime?
   // Derived by lib/loan/charges-sync.ts from the default-charges replay. Read
   // models only; LoanCharge rows and the Payment splits are the detail.
-  chargesAccrued            Int                    @default(0)
-  chargesOutstanding        Int                    @default(0)
+  chargesAccrued              Int                         @default(0)
+  chargesOutstanding          Int                         @default(0)
   // Staff exemption: the loan carries no default charges at all. Changed only
   // through PATCH /api/loans/[id]/default-charges-exemption (audited, reason).
-  defaultChargesExempt       Boolean               @default(false)
-  defaultChargesExemptReason String?
+  defaultChargesExempt        Boolean                     @default(false)
+  defaultChargesExemptReason  String?
   // When an exemption was last lifted: charges resume from here, never
   // back-charging the exempt period.
   defaultChargesExemptEndedAt DateTime?
@@ -1190,33 +1472,42 @@ model Loan {
   // snapshot, so editing the product never reprices an existing loan. Every
   // booking path sets it; nullable only so an image older than this column can
   // still book loans while the migration runs ahead of the new image.
-  monthlyServiceFee         Int?
-  createdAt                 DateTime               @default(now())
-  updatedAt                 DateTime               @updatedAt
-  client                    Client                 @relation(fields: [clientId], references: [id])
-  product                   LoanProduct            @relation(fields: [productId], references: [id])
-  application               LoanApplication        @relation(fields: [applicationId], references: [id])
-  repaymentSchedule         RepaymentSchedule[]
-  notes                     LoanNote[]
-  paymentPlan               PaymentPlan?
-  payments                  Payment[]
-  stitchPayments            StitchPaymentRequest[]
-  paymentArrangement        PaymentArrangement?
-  attorneyReferral          AttorneyReferral?
-  conversations             Conversation[]
-  charges                   LoanCharge[]
-  bureauSubmissionRecords   BureauSubmissionRecord[]
-  bureauAdverseConfirmations BureauAdverseConfirmation[]
+  monthlyServiceFee           Int?
+  createdAt                   DateTime                    @default(now())
+  updatedAt                   DateTime                    @updatedAt
+  client                      Client?                     @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entity                      BusinessEntity?             @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  product                     LoanProduct                 @relation(fields: [productId], references: [id])
+  application                 LoanApplication             @relation(fields: [applicationId], references: [id])
+  repaymentSchedule           RepaymentSchedule[]
+  notes                       LoanNote[]
+  paymentPlan                 PaymentPlan?
+  payments                    Payment[]
+  stitchPayments              StitchPaymentRequest[]
+  paymentArrangement          PaymentArrangement?
+  attorneyReferral            AttorneyReferral?
+  conversations               Conversation[]
+  charges                     LoanCharge[]
+  bureauSubmissionRecords     BureauSubmissionRecord[]
+  bureauAdverseConfirmations  BureauAdverseConfirmation[]
+  contractRates               ContractRate[]
+  taxInvoices                 TaxInvoice[]
+  surrenderRequests           SurrenderRequest[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([agreementDocId])
+  @@index([entityId])
 }
 
 enum LoanChargeType {
   DEFAULT_INTEREST
   SERVICE_FEE
   DEFAULT_ADMIN
+  // NON_NCA (asset finance) only: the product's collection fee per missed
+  // instalment (lib/asset-finance/non-nca-charges.ts). Never posted on an NCA loan.
+  COLLECTION_FEE
 }
 
 // A charge posted after a missed instalment. DERIVED: rewritten per loan on
@@ -1316,29 +1607,29 @@ model AttorneyReferral {
 }
 
 model CreditBureauCheck {
-  id            String   @id @default(cuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  clientId      String
-  client        Client   @relation(fields: [clientId], references: [id])
-  applicationId String?
-  reviewGeneration String?
+  id                 String   @id @default(cuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  clientId           String
+  client             Client   @relation(fields: [clientId], references: [id])
+  applicationId      String?
+  reviewGeneration   String?
   subjectFingerprint String?
-  provider      String   @default("transunion")
-  score         Int?
-  riskGrade     String?
-  adverseInfo   Json?
-  hasAdverse    Boolean  @default(false)
-  deceased        Boolean  @default(false)
-  underDebtReview Boolean  @default(false)
-  hasJudgement    Boolean  @default(false)
-  hasNotice       Boolean  @default(false)
-  unscoreable     Boolean  @default(false)
-  declineReasons  Json?
-  obligations   Json?
-  ok            Boolean  @default(false)
-  errorMessage  String?
-  createdAt     DateTime @default(now())
+  provider           String   @default("transunion")
+  score              Int?
+  riskGrade          String?
+  adverseInfo        Json?
+  hasAdverse         Boolean  @default(false)
+  deceased           Boolean  @default(false)
+  underDebtReview    Boolean  @default(false)
+  hasJudgement       Boolean  @default(false)
+  hasNotice          Boolean  @default(false)
+  unscoreable        Boolean  @default(false)
+  declineReasons     Json?
+  obligations        Json?
+  ok                 Boolean  @default(false)
+  errorMessage       String?
+  createdAt          DateTime @default(now())
 
   @@index([clientId])
   @@index([applicationId])
@@ -1348,45 +1639,48 @@ model CreditBureauCheck {
 // Phase 7 — collection engine. Bank-account verification
 // result, persisted for audit; gated behind TenantConfig.collectionsEngineEnabled.
 model AvsCheck {
-  id            String   @id @default(cuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  clientId      String
-  client        Client   @relation(fields: [clientId], references: [id])
-  applicationId String?
+  id                 String   @id @default(cuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  clientId           String
+  client             Client   @relation(fields: [clientId], references: [id])
+  applicationId      String?
   subjectFingerprint String?
-  provider      String
-  accountHolder String
-  bankName      String
-  branchCode    String
-  accountNumber String
-  accountType   String
-  passed        Boolean
-  checks        Json // AvsChecks shape; null members = not returned by provider
-  raw           Json?
-  checkedById   String?
-  createdAt     DateTime @default(now())
+  provider           String
+  accountHolder      String
+  bankName           String
+  branchCode         String
+  accountNumber      String
+  accountType        String
+  passed             Boolean
+  checks             Json // AvsChecks shape; null members = not returned by provider
+  raw                Json?
+  checkedById        String?
+  createdAt          DateTime @default(now())
 
   @@index([tenantId])
   @@index([clientId, createdAt])
 }
 
 model RepaymentSchedule {
-  id            String         @id @default(cuid())
-  tenantId      String
-  tenant        Tenant         @relation(fields: [tenantId], references: [id])
-  loanId        String
-  installmentNo Int
-  dueDate       DateTime
-  principalDue  Int
-  interestDue   Int
-  creditLifePremiumDue Int      @default(0)
-  feesDue       Int
-  totalDue      Int
-  totalPaid     Int            @default(0)
-  status        ScheduleStatus @default(PENDING)
-  paidAt        DateTime?
-  loan          Loan           @relation(fields: [loanId], references: [id])
+  id                              String         @id @default(cuid())
+  tenantId                        String
+  tenant                          Tenant         @relation(fields: [tenantId], references: [id])
+  loanId                          String
+  installmentNo                   Int
+  dueDate                         DateTime
+  principalDue                    Int
+  interestDue                     Int
+  // Opening capital at the last asset-finance solve. Preserved when a paid
+  // row is reopened, so a later reprice can reconstruct its historical accrual.
+  assetFinanceOpeningBalanceCents Int?
+  creditLifePremiumDue            Int            @default(0)
+  feesDue                         Int
+  totalDue                        Int
+  totalPaid                       Int            @default(0)
+  status                          ScheduleStatus @default(PENDING)
+  paidAt                          DateTime?
+  loan                            Loan           @relation(fields: [loanId], references: [id])
 
   @@index([tenantId])
 }
@@ -1400,20 +1694,20 @@ enum ScheduleStatus {
 }
 
 model Payment {
-  id                      String                  @id @default(cuid())
-  tenantId                String
-  tenant                  Tenant                  @relation(fields: [tenantId], references: [id])
-  loanId                  String
-  amount                  Int
-  paymentMethod           PaymentMethod           @default(EFT)
-  reference               String?
-  notes                   String?
-  capturedBy              String?
-  allocationStatus        PaymentAllocationStatus @default(ALLOCATED)
-  reconciliationReason    String?
-  reconciledAt            DateTime?
-  reconciledById          String?
-  reconciliationReference String?
+  id                       String                  @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant                  @relation(fields: [tenantId], references: [id])
+  loanId                   String
+  amount                   Int
+  paymentMethod            PaymentMethod           @default(EFT)
+  reference                String?
+  notes                    String?
+  capturedBy               String?
+  allocationStatus         PaymentAllocationStatus @default(ALLOCATED)
+  reconciliationReason     String?
+  reconciledAt             DateTime?
+  reconciledById           String?
+  reconciliationReference  String?
   // Date the money actually reached us, as distinct from createdAt (when staff
   // captured it). NCA s125(2)(b) charges interest only up to the settlement
   // date, so accrual runs to THIS.
@@ -1423,32 +1717,34 @@ model Payment {
   // unset row silently becomes "the newest receipt" for anything that orders by
   // it — which is how an earlier attempt read the wrong receipt on every loan.
   // A default makes that state unreachable no matter which writer forgets.
-  receivedAt              DateTime                @default(now())
+  receivedAt               DateTime                @default(now())
   // Set on the refund-due half of an over-payment, pointing at the receipt it
   // was split from. Without this link the two halves cannot be re-joined, and
   // the idempotency replay check cannot tell a retried R2 500.00 capture from a
   // different request that happens to have collected R2 425.67.
-  parentPaymentId         String?
-  reversed                Boolean                 @default(false)
-  reversedAt              DateTime?
-  reversedById            String?
-  reversalReason          String?
-  idempotencyKey          String?                 @db.VarChar(128)
+  parentPaymentId          String?
+  reversed                 Boolean                 @default(false)
+  reversedAt               DateTime?
+  reversedById             String?
+  reversalReason           String?
+  idempotencyKey           String?                 @db.VarChar(128)
   // The part of `amount` that paid default charges (s126(3): default interest,
   // then fees and charges, then the schedule). Rewritten by syncLoanCharges;
   // Loan.totalPaid counts only amount minus these two.
-  defaultInterestAllocated Int                    @default(0)
-  chargeFeesAllocated     Int                     @default(0)
-  createdAt               DateTime                @default(now())
-  loan                    Loan                    @relation(fields: [loanId], references: [id])
-  parentPayment           Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
-  excessPayments          Payment[]               @relation("PaymentOverpayment")
+  defaultInterestAllocated Int                     @default(0)
+  chargeFeesAllocated      Int                     @default(0)
+  createdAt                DateTime                @default(now())
+  loan                     Loan                    @relation(fields: [loanId], references: [id])
+  parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
+  excessPayments           Payment[]               @relation("PaymentOverpayment")
+  surrenderProceeds        SurrenderRequest[]      @relation("SurrenderProceedsPayment")
 
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, allocationStatus])
   @@index([parentPaymentId])
   @@index([loanId, receivedAt])
-  @@unique([tenantId, idempotencyKey])
 }
 
 enum PaymentAllocationStatus {
@@ -1468,23 +1764,23 @@ enum PaymentMethod {
 }
 
 model BankStatementImport {
-  id            String            @id @default(cuid())
-  tenantId      String
-  tenant        Tenant            @relation(fields: [tenantId], references: [id])
-  source        String            // "ABSA_ONLINE"
-  accountRef    String            // masked, e.g. "****1234"
-  format        String            // "CSV" | "OFX"
-  periodStart   DateTime?
-  periodEnd     DateTime?
-  fileHash      String            // sha256 of raw file
-  rawFilePath   String            // storage path (retained for audit)
-  lineCount     Int               @default(0)
-  newTxnCount   Int               @default(0)
-  status        String            @default("PENDING") // PENDING|PARSED|RECONCILED|FAILED
-  error         String?
-  startedAt     DateTime          @default(now())
-  finishedAt    DateTime?
-  transactions  BankTransaction[]
+  id           String            @id @default(cuid())
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  source       String // "ABSA_ONLINE"
+  accountRef   String // masked, e.g. "****1234"
+  format       String // "CSV" | "OFX"
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  fileHash     String // sha256 of raw file
+  rawFilePath  String // storage path (retained for audit)
+  lineCount    Int               @default(0)
+  newTxnCount  Int               @default(0)
+  status       String            @default("PENDING") // PENDING|PARSED|RECONCILED|FAILED
+  error        String?
+  startedAt    DateTime          @default(now())
+  finishedAt   DateTime?
+  transactions BankTransaction[]
 
   @@unique([tenantId, fileHash])
   @@index([tenantId])
@@ -1498,15 +1794,15 @@ model BankTransaction {
   import          BankStatementImport @relation(fields: [importId], references: [id])
   postedDate      DateTime
   valueDate       DateTime?
-  amountCents     Int                 // signed; credit positive
-  direction       String              // "CREDIT" | "DEBIT"
+  amountCents     Int // signed; credit positive
+  direction       String // "CREDIT" | "DEBIT"
   rawReference    String?
   counterparty    String?
   balanceCents    Int?
   bankTxnId       String?
   dedupHash       String
   matchStatus     String              @default("UNMATCHED") // UNMATCHED|PROPOSED|MATCHED|IGNORED
-  matchConfidence String?             // HIGH|MEDIUM|LOW
+  matchConfidence String? // HIGH|MEDIUM|LOW
   matchedLoanId   String?
   paymentId       String?
   ignoreReason    String?
@@ -1552,51 +1848,51 @@ model ExistingDebtObligation {
 // ─── CRM Module ───────────────────────────────────────────────────────────────
 
 model Lead {
-  id                  String        @id @default(cuid())
-  tenantId            String
-  tenant              Tenant        @relation(fields: [tenantId], references: [id])
-  submissionKey       String?       @db.VarChar(36)
-  submissionFingerprint String?     @db.Char(64)
-  submissionReference String?       @db.VarChar(64)
-  firstName           String
-  lastName            String
-  email               String?
-  phone               String
-  source              LeadSource    @default(MANUAL)
-  status              LeadStatus    @default(NEW)
-  statusChangedAt     DateTime      @default(now()) // last stage change — powers days-in-stage on the board
-  assignedToId        String?
-  notes               String?
-  tags                String[]
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  activities          CrmActivity[]
-  convertedToClientId      String?
-  convertedToClient        Client?          @relation("LeadConvertedClient", fields: [tenantId, convertedToClientId], references: [tenantId, id], onDelete: Restrict)
-  convertedToApplicationId String?
-  convertedToApplication   LoanApplication? @relation("LeadConvertedApplication", fields: [tenantId, convertedToApplicationId, convertedToClientId], references: [tenantId, id, clientId], onDelete: Restrict)
-  conversionRecoveryRequired Boolean         @default(false)
-  portalAccountClientId     String?
-  portalAccountClient       Client?          @relation("LeadPortalAccountClient", fields: [tenantId, portalAccountClientId], references: [tenantId, id], onDelete: Restrict)
-  callbackDate        DateTime? // when agent scheduled callback
-  callbackNotes       String? // context for the callback
-  lostReason          String? // enum: TOO_EXPENSIVE, WENT_ELSEWHERE, NOT_QUALIFIED, NO_RESPONSE, PRODUCT_MISMATCH
-  referredBy          String? // lead.id of the referring client (or just track via activity)
-  employmentType      String? // SALARIED, SELF_EMPLOYED, UNEMPLOYED, RETIRED
-  declaredIncome      Int? // in cents
-  requestedAmount     Int? // in cents
-  leadScore           Int? // 0-100, auto-calculated
-  scoreCalculatedAt   DateTime?
-  contact             Contact?      @relation("LeadToContact")
-  referralCodeId      String?
-  referralCode        ReferralCode? @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
-  referralEvents      ReferralEvent[]
+  id                         String           @id @default(cuid())
+  tenantId                   String
+  tenant                     Tenant           @relation(fields: [tenantId], references: [id])
+  submissionKey              String?          @db.VarChar(36)
+  submissionFingerprint      String?          @db.Char(64)
+  submissionReference        String?          @db.VarChar(64)
+  firstName                  String
+  lastName                   String
+  email                      String?
+  phone                      String
+  source                     LeadSource       @default(MANUAL)
+  status                     LeadStatus       @default(NEW)
+  statusChangedAt            DateTime         @default(now()) // last stage change — powers days-in-stage on the board
+  assignedToId               String?
+  notes                      String?
+  tags                       String[]
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  activities                 CrmActivity[]
+  convertedToClientId        String?
+  convertedToClient          Client?          @relation("LeadConvertedClient", fields: [tenantId, convertedToClientId], references: [tenantId, id], onDelete: Restrict)
+  convertedToApplicationId   String?
+  convertedToApplication     LoanApplication? @relation("LeadConvertedApplication", fields: [tenantId, convertedToApplicationId, convertedToClientId], references: [tenantId, id, clientId], onDelete: Restrict)
+  conversionRecoveryRequired Boolean          @default(false)
+  portalAccountClientId      String?
+  portalAccountClient        Client?          @relation("LeadPortalAccountClient", fields: [tenantId, portalAccountClientId], references: [tenantId, id], onDelete: Restrict)
+  callbackDate               DateTime? // when agent scheduled callback
+  callbackNotes              String? // context for the callback
+  lostReason                 String? // enum: TOO_EXPENSIVE, WENT_ELSEWHERE, NOT_QUALIFIED, NO_RESPONSE, PRODUCT_MISMATCH
+  referredBy                 String? // lead.id of the referring client (or just track via activity)
+  employmentType             String? // SALARIED, SELF_EMPLOYED, UNEMPLOYED, RETIRED
+  declaredIncome             Int? // in cents
+  requestedAmount            Int? // in cents
+  leadScore                  Int? // 0-100, auto-calculated
+  scoreCalculatedAt          DateTime?
+  contact                    Contact?         @relation("LeadToContact")
+  referralCodeId             String?
+  referralCode               ReferralCode?    @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
+  referralEvents             ReferralEvent[]
 
-  @@index([tenantId, status])
   @@unique([tenantId, submissionKey])
-  @@index([tenantId, convertedToClientId])
   @@unique([tenantId, convertedToApplicationId])
   @@unique([tenantId, convertedToApplicationId, convertedToClientId])
+  @@index([tenantId, status])
+  @@index([tenantId, convertedToClientId])
   @@index([tenantId, portalAccountClientId])
   @@index([tenantId, referralCodeId])
 }
@@ -1846,21 +2142,21 @@ enum PremiumStatus {
 // ─── Compliance Module ────────────────────────────────────────────────────────
 
 model ComplianceRecord {
-  id          String           @id @default(cuid())
-  tenantId    String
-  tenant      Tenant           @relation(fields: [tenantId], references: [id])
-  type        ComplianceType
-  referenceId String?
+  id             String           @id @default(cuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  type           ComplianceType
+  referenceId    String?
   // Durable reservation key for non-repeatable compliance actions such as
   // Section 129 dispatch. Cleared only when a known-not-sent attempt is
   // released or an issued notice ages beyond its cooldown window.
-  idempotencyKey String?       @unique
-  status      ComplianceStatus @default(PENDING)
-  dueDate     DateTime?
-  completedAt DateTime?
-  data        Json?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  idempotencyKey String?          @unique
+  status         ComplianceStatus @default(PENDING)
+  dueDate        DateTime?
+  completedAt    DateTime?
+  data           Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   @@unique([tenantId, id])
   @@index([tenantId, type, referenceId, status, completedAt])
@@ -1983,12 +2279,12 @@ enum ComplianceStatus {
 }
 
 model InsuranceProduct {
-  id             String              @id @default(cuid())
-  tenantId       String
-  tenant         Tenant              @relation(fields: [tenantId], references: [id])
-  code           String
-  name           String
-  type           InsurancePolicyType
+  id               String                     @id @default(cuid())
+  tenantId         String
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id])
+  code             String
+  name             String
+  type             InsurancePolicyType
   // Flat price/cover. PRECEDENCE (Phase 2): for FUNERAL_COVER and
   // LIFE_INSURANCE the product's ACTIVE InsuranceRateTable is authoritative
   // and these two columns are IGNORED by quoting — a rated quote's premium
@@ -1996,19 +2292,19 @@ model InsuranceProduct {
   // in use for credit life, which reads them through
   // LoanApplication.creditLifeProduct at disbursement, so they are neither
   // dropped nor made nullable.
-  premiumAmount  Decimal             @db.Decimal(12, 2)
-  sumAssured     Decimal             @db.Decimal(12, 2)
-  commissionRate Decimal             @default(0.15) @db.Decimal(5, 4)
-  active         Boolean             @default(true)
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  policies       InsurancePolicy[]
-  applications   LoanApplication[]   @relation("ApplicationCreditLifeProduct")
+  premiumAmount    Decimal                    @db.Decimal(12, 2)
+  sumAssured       Decimal                    @db.Decimal(12, 2)
+  commissionRate   Decimal                    @default(0.15) @db.Decimal(5, 4)
+  active           Boolean                    @default(true)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  policies         InsurancePolicy[]
+  applications     LoanApplication[]          @relation("ApplicationCreditLifeProduct")
   // Underwriter for this product. Drives the insurer + commission set on an
   // auto-bundled Credit Life policy at disbursement. Nullable —
   // legacy products and products without a configured underwriter stay valid.
-  insurerId      String?
-  insurer        Insurer?            @relation(fields: [insurerId], references: [id])
+  insurerId        String?
+  insurer          Insurer?                   @relation(fields: [insurerId], references: [id])
   rateTables       InsuranceRateTable[]
   eligibilityRules InsuranceEligibilityRule[]
   quotes           InsuranceQuote[]
@@ -2176,25 +2472,25 @@ enum EligibilityRuleType {
 /// entity. Priced by lookup against the product's ACTIVE InsuranceRateTable —
 /// The lender carries no risk and derives no price of its own.
 model InsuranceQuote {
-  id                String              @id @default(cuid())
+  id                String                 @id @default(cuid())
   tenantId          String
-  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id])
   clientId          String
-  client            Client              @relation(fields: [clientId], references: [id])
+  client            Client                 @relation(fields: [clientId], references: [id])
   productId         String
-  product           InsuranceProduct    @relation(fields: [productId], references: [id])
+  product           InsuranceProduct       @relation(fields: [productId], references: [id])
   advisorId         String?
-  advisor           User?               @relation("AdvisorQuotes", fields: [advisorId], references: [id])
+  advisor           User?                  @relation("AdvisorQuotes", fields: [advisorId], references: [id])
   quoteNumber       String
-  status            QuoteStatus         @default(DRAFT)
+  status            QuoteStatus            @default(DRAFT)
   /// Which rate table version priced this quote. Kept so the price stays
   /// reconstructable after that table is RETIRED.
   rateTableId       String?
-  rateTable         InsuranceRateTable? @relation(fields: [rateTableId], references: [id])
+  rateTable         InsuranceRateTable?    @relation(fields: [rateTableId], references: [id])
   /// Nullable, NOT zero-defaulted: a quote whose rating FAILED is persisted in
   /// DRAFT with the failures recorded, and must never present as a free quote.
-  totalPremium      Decimal?            @db.Decimal(12, 2)
-  totalSumAssured   Decimal?            @db.Decimal(12, 2)
+  totalPremium      Decimal?               @db.Decimal(12, 2)
+  totalSumAssured   Decimal?               @db.Decimal(12, 2)
   /// The persisted pass/fail eligibility breakdown, kept as evidence of what
   /// was screened — including the failures.
   eligibilityResult Json?
@@ -2203,16 +2499,16 @@ model InsuranceQuote {
   effectiveDate     DateTime
   expiresAt         DateTime?
   convertedPolicyId String?
-  convertedPolicy   InsurancePolicy?    @relation("QuoteConvertedPolicy", fields: [convertedPolicyId], references: [id])
+  convertedPolicy   InsurancePolicy?       @relation("QuoteConvertedPolicy", fields: [convertedPolicyId], references: [id])
   /// How many FAIS disclosures have been issued for this quote.
   ///
   /// Incremented by an atomic reservation in the disclosure route BEFORE any
   /// PDF is rendered, so the same statement that bounds re-issuance also closes
   /// the window between reading `expiresAt` and writing the file. Each issue
   /// mints a fresh token and therefore a fresh file that nothing deletes.
-  disclosuresIssued Int                 @default(0)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  disclosuresIssued Int                    @default(0)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
   lives             InsuredLife[]
   adviceRecord      InsuranceAdviceRecord?
 
@@ -2228,29 +2524,29 @@ model InsuranceQuote {
 /// No tenantId — scoped through its parent quote or policy, following the
 /// InsuranceBeneficiary and InsuranceRateBand precedent.
 model InsuredLife {
-  id                String              @id @default(cuid())
+  id                String             @id @default(cuid())
   /// Populated ONLY when the covered life genuinely is an existing client,
   /// typically the main member. Deliberately nullable: SA funeral cover
   /// routinely covers a spouse, children and extended family who have never
   /// applied for credit, and a required FK would manufacture junk Client rows
   /// on every family quote.
   clientId          String?
-  client            Client?             @relation(fields: [clientId], references: [id])
+  client            Client?            @relation(fields: [clientId], references: [id])
   firstName         String
   lastName          String
   idNumber          String?
   dateOfBirth       DateTime
   relationship      String
   lifeType          InsuredLifeType
-  sumAssured        Decimal             @db.Decimal(12, 2)
+  sumAssured        Decimal            @db.Decimal(12, 2)
   /// Null until the life is rated.
-  premiumAmount     Decimal?            @db.Decimal(12, 2)
+  premiumAmount     Decimal?           @db.Decimal(12, 2)
   waitingPeriodEnds DateTime?
-  status            InsuredLifeStatus   @default(PENDING)
+  status            InsuredLifeStatus  @default(PENDING)
   /// Which band priced this life. Audit trail, so the price stays
   /// reconstructable after the rate card is retired.
   rateBandId        String?
-  rateBand          InsuranceRateBand?  @relation(fields: [rateBandId], references: [id])
+  rateBand          InsuranceRateBand? @relation(fields: [rateBandId], references: [id])
   /// A life attaches to a quote first, then to the policy the quote binds.
   ///
   /// RESTRICT on both, deliberately, and NOT cascade. A life belongs to its
@@ -2262,11 +2558,11 @@ model InsuredLife {
   /// deletes a quote or a policy today (policies are CANCELLED), so RESTRICT
   /// costs nothing and forces an explicit, deliberate act if that ever changes.
   quoteId           String?
-  quote             InsuranceQuote?     @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  quote             InsuranceQuote?    @relation(fields: [quoteId], references: [id], onDelete: Restrict)
   policyId          String?
-  policy            InsurancePolicy?    @relation(fields: [policyId], references: [id], onDelete: Restrict)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  policy            InsurancePolicy?   @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([quoteId])
   @@index([policyId])
@@ -2333,33 +2629,33 @@ enum EmailProvider {
 }
 
 model EmailConfig {
-  id            String        @id @default(cuid())
-  tenantId      String        @unique
-  tenant        Tenant        @relation(fields: [tenantId], references: [id])
-  provider      EmailProvider @default(IMAP_SMTP)
-  fromName      String
-  fromAddress   String
+  id               String        @id @default(cuid())
+  tenantId         String        @unique
+  tenant           Tenant        @relation(fields: [tenantId], references: [id])
+  provider         EmailProvider @default(IMAP_SMTP)
+  fromName         String
+  fromAddress      String
   // Default Reply-To for customer-facing mail (e.g. support@). Per-send
   // overrides still win (Section 129/collections force collections@). When
   // null, replies go back to fromAddress.
-  replyToAddress String?
+  replyToAddress   String?
   // MS Graph fields
-  tenantAzureId String?
-  clientId      String?
-  clientSecret  String? // stored encrypted
+  tenantAzureId    String?
+  clientId         String?
+  clientSecret     String? // stored encrypted
   // IMAP/SMTP fields
-  smtpHost      String?
-  smtpPort      Int?
-  smtpUser      String?
-  smtpPass      String? // stored encrypted
-  imapHost      String?
-  imapPort      Int?
-  imapUser      String?
-  imapPass      String? // stored encrypted
-  useTls        Boolean       @default(true)
-  active        Boolean       @default(true)
-  lastTestedAt  DateTime?
-  lastTestOk    Boolean?
+  smtpHost         String?
+  smtpPort         Int?
+  smtpUser         String?
+  smtpPass         String? // stored encrypted
+  imapHost         String?
+  imapPort         Int?
+  imapUser         String?
+  imapPass         String? // stored encrypted
+  useTls           Boolean       @default(true)
+  active           Boolean       @default(true)
+  lastTestedAt     DateTime?
+  lastTestOk       Boolean?
   // IMAP login check (POST /api/email/test-imap) — distinct from lastTestedAt,
   // which records an outbound SMTP/Graph SEND. An operator debugging dead
   // inbound needs to know the mailbox login works without emitting mail.
@@ -2370,9 +2666,9 @@ model EmailConfig {
   // failures were invisible because nothing durable recorded them.
   lastPollAt       DateTime?
   lastPollOk       Boolean?
-  lastPollError    String?   @db.VarChar(512)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  lastPollError    String?       @db.VarChar(512)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 enum EmailLogStatus {
@@ -2392,28 +2688,28 @@ enum EmailLogStatus {
 }
 
 model EmailLog {
-  id           String         @id @default(cuid())
-  tenantId     String
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  toAddress    String
-  toName       String?
-  subject      String
-  bodyHtml     String
-  bodyText     String?
-  category     String? // "section129", "statement", "notice", etc.
-  referenceId  String? // loan id, policy id, etc.
-  status       EmailLogStatus @default(QUEUED)
-  provider     Provider?
-  messageId    String? // provider message ID for tracking
+  id                        String         @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  toAddress                 String
+  toName                    String?
+  subject                   String
+  bodyHtml                  String
+  bodyText                  String?
+  category                  String? // "section129", "statement", "notice", etc.
+  referenceId               String? // loan id, policy id, etc.
+  status                    EmailLogStatus @default(QUEUED)
+  provider                  Provider?
+  messageId                 String? // provider message ID for tracking
   // Request-scoped provider evidence when no message id exists (for example
   // Graph request-id/client-request-id correlation for a sendMail HTTP 202).
-  providerEvidenceReference String? @db.VarChar(512)
-  sentAt       DateTime?
-  openedAt     DateTime?
-  repliedAt    DateTime?
-  errorMessage String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  providerEvidenceReference String?        @db.VarChar(512)
+  sentAt                    DateTime?
+  openedAt                  DateTime?
+  repliedAt                 DateTime?
+  errorMessage              String?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
 }
 
 model LoanNote {
@@ -2577,22 +2873,22 @@ model Branch {
 // ── Insurer ───────────────────────────────────────────────────────────────────
 
 model Insurer {
-  id           String            @id @default(cuid())
+  id           String               @id @default(cuid())
   tenantId     String
-  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
   name         String
   fspNumber    String?
   contactName  String?
   contactEmail String?
   contactPhone String?
   apiEndpoint  String?
-  active       Boolean           @default(true)
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
   policies     InsurancePolicy[]
   products     InsuranceProduct[]
   rateTables   InsuranceRateTable[]
-  applications LoanApplication[] @relation("ApplicationCreditLifeInsurer")
+  applications LoanApplication[]    @relation("ApplicationCreditLifeInsurer")
 
   @@unique([tenantId, name])
   @@unique([tenantId, id])
@@ -2864,28 +3160,28 @@ model AutomationPause {
 }
 
 model AutomationLog {
-  id         String         @id @default(cuid())
-  ruleId     String
-  rule       AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  tenantId   String
-  tenant     Tenant         @relation(fields: [tenantId], references: [id])
-  entityType String
-  entityId   String
-  result     String
-  error      String?
+  id            String         @id @default(cuid())
+  ruleId        String
+  rule          AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  entityType    String
+  entityId      String
+  result        String
+  error         String?
   // Stable trigger occurrence used by outbound automation idempotency. A
   // manual replay reuses this value so uncertain provider outcomes can never
   // be converted into a second Message reservation. Nullable for historical
   // logs written before occurrence-aware delivery.
-  occurrenceKey String?         @db.VarChar(128)
+  occurrenceKey String?        @db.VarChar(128)
   // Replay evidence for SEND_WA. `dispatchPhase` distinguishes a failure
   // before any Message reservation from a provider rejection that may be
   // explicitly re-armed. `messageId` binds the latter to the exact durable
   // reservation. Both are nullable for pre-deployment logs, which therefore
   // fail closed during replay.
   messageId     String?
-  dispatchPhase String?         @db.VarChar(32)
-  createdAt  DateTime       @default(now())
+  dispatchPhase String?        @db.VarChar(32)
+  createdAt     DateTime       @default(now())
 
   @@index([ruleId])
   @@index([tenantId, entityId])
@@ -3293,9 +3589,9 @@ model Conversation {
   contactId String
   contact   Contact @relation(fields: [contactId], references: [id])
 
-  channel Channel // first channel of the thread; per-Message channel may differ
+  channel            Channel // first channel of the thread; per-Message channel may differ
   websiteChatHandoff WebsiteChatHandoff?
-  subject String?
+  subject            String?
 
   status     ConvStatus   @default(OPEN)
   priority   ConvPriority @default(NORMAL)
@@ -3466,38 +3762,38 @@ model Message {
   // initial/retry provider call. Provider completion and operator reconciliation
   // both CAS on this token/state. The provider's real id is kept separately from
   // the human evidence/case reference used during reconciliation.
-  dispatchToken             String?               @unique @db.VarChar(64)
-  dispatchState             MessageDispatchState?
-  dispatchAttempt           Int                   @default(0)
-  dispatchStartedAt         DateTime?
-  dispatchLeaseExpiresAt    DateTime?
-  dispatchCompletedAt       DateTime?
-  dispatchProviderMessageId String?
-  dispatchProviderAcceptedAt DateTime?
-  dispatchEvidenceReference String?               @db.VarChar(512)
-  reconciliationEvidenceReference String?         @db.VarChar(512)
+  dispatchToken                   String?               @unique @db.VarChar(64)
+  dispatchState                   MessageDispatchState?
+  dispatchAttempt                 Int                   @default(0)
+  dispatchStartedAt               DateTime?
+  dispatchLeaseExpiresAt          DateTime?
+  dispatchCompletedAt             DateTime?
+  dispatchProviderMessageId       String?
+  dispatchProviderAcceptedAt      DateTime?
+  dispatchEvidenceReference       String?               @db.VarChar(512)
+  reconciliationEvidenceReference String?               @db.VarChar(512)
   // A local dry-run receipt is not a provider message id. Keeping it separate
   // prevents simulated rows from masquerading as externally accepted sends.
-  simulationReceiptId       String?               @db.VarChar(512)
+  simulationReceiptId             String?               @db.VarChar(512)
 
   notificationLogs NotificationLog[]
 
-  isInternal  Boolean  @default(false) // operator note; never sent outbound
+  isInternal  Boolean @default(false) // operator note; never sent outbound
   // outbound + internal-note author. Restrict — POPIA s.17 + FAIS GCC s.3(2)
   // operator identity must persist past User deactivation.
   createdById String?
-  createdBy   User?    @relation("MessagesCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy   User?   @relation("MessagesCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   // Note mutability. Only INTERNAL_NOTE rows may carry these — enforced by
   // Message_internal_note_mutability_guard, which also makes every non-note
   // bodyText unrewritable at the database.
   editedAt    DateTime?
   editedById  String?
-  editedBy    User?    @relation("MessagesEditedBy", fields: [editedById], references: [id], onDelete: Restrict)
+  editedBy    User?     @relation("MessagesEditedBy", fields: [editedById], references: [id], onDelete: Restrict)
   deletedAt   DateTime?
   deletedById String?
-  deletedBy   User?    @relation("MessagesDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
-  createdAt   DateTime @default(now())
+  deletedBy   User?     @relation("MessagesDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime  @default(now())
 
   mentions MessageMention[]
 
@@ -3531,20 +3827,20 @@ model MessageMention {
 
 // Referral agents.
 model ReferralAgent {
-  id        String @id @default(cuid())
-  tenantId  String
-  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  displayName String
-  legalName   String?
-  phone       String?
-  email       String?
-  status      String @default("ACTIVE") // ACTIVE | SUSPENDED | CLOSED
-  channel     String @default("FIELD") // FIELD | SOCIAL | STAFF | PARTNER
-  notes       String?
-  commissionBps Int?    // per-agent override of TenantConfig.referralCommissionBps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  displayName   String
+  legalName     String?
+  phone         String?
+  email         String?
+  status        String   @default("ACTIVE") // ACTIVE | SUSPENDED | CLOSED
+  channel       String   @default("FIELD") // FIELD | SOCIAL | STAFF | PARTNER
+  notes         String?
+  commissionBps Int? // per-agent override of TenantConfig.referralCommissionBps
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
 
   referralCodes  ReferralCode[]
   referralEvents ReferralEvent[]
@@ -3553,15 +3849,15 @@ model ReferralAgent {
 }
 
 model ReferralCode {
-  id        String @id @default(cuid())
-  tenantId  String
-  tenant    Tenant @relation(fields: [tenantId], references: [id])
-  agentId   String
-  agent     ReferralAgent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  id       String        @id @default(cuid())
+  tenantId String
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  agentId  String
+  agent    ReferralAgent @relation(fields: [agentId], references: [id], onDelete: Restrict)
 
   code      String
   label     String?
-  status    String @default("ACTIVE") // ACTIVE | PAUSED | RETIRED
+  status    String   @default("ACTIVE") // ACTIVE | PAUSED | RETIRED
   campaign  String?
   qrPath    String?
   createdAt DateTime @default(now())
@@ -3569,7 +3865,7 @@ model ReferralCode {
 
   leads             Lead[]
   referralEvents    ReferralEvent[]
-  attributedClients Client[]               @relation("ClientReferralCode")
+  attributedClients Client[]        @relation("ClientReferralCode")
 
   @@unique([tenantId, code])
   @@index([tenantId, agentId])
@@ -3577,22 +3873,22 @@ model ReferralCode {
 }
 
 model ReferralEvent {
-  id        String @id @default(cuid())
-  tenantId  String
-  tenant    Tenant @relation(fields: [tenantId], references: [id])
-  agentId   String?
-  agent     ReferralAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  codeId    String?
-  code      ReferralCode? @relation(fields: [codeId], references: [id], onDelete: SetNull)
-  leadId    String?
-  lead      Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  id       String         @id @default(cuid())
+  tenantId String
+  tenant   Tenant         @relation(fields: [tenantId], references: [id])
+  agentId  String?
+  agent    ReferralAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  codeId   String?
+  code     ReferralCode?  @relation(fields: [codeId], references: [id], onDelete: SetNull)
+  leadId   String?
+  lead     Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   eventType        String // CLICK | WEBSITE_APPLICATION | HANDOFF | CONVERTED | PAYOUT_ELIGIBLE | BLOCKED
   source           String? // WEBSITE | WHATSAPP | SOCIAL | FIELD
   attributionRaw   String?
   amountCents      Int?
-  commissionCents  Int?    // computed payable figure; distinct from amountCents (loan-principal context)
-  commissionStatus String @default("NOT_ELIGIBLE") // NOT_ELIGIBLE | PENDING | PAYABLE | BLOCKED | REVERSED
+  commissionCents  Int? // computed payable figure; distinct from amountCents (loan-principal context)
+  commissionStatus String   @default("NOT_ELIGIBLE") // NOT_ELIGIBLE | PENDING | PAYABLE | BLOCKED | REVERSED
   qualityFlag      String?
   metadata         Json?
   createdAt        DateTime @default(now())
@@ -3626,13 +3922,13 @@ model WebhookSignatureFailure {
 }
 
 model CommsSettings {
-  id                 String   @id @default(cuid())
-  tenantId           String   @unique
-  tenant             Tenant   @relation(fields: [tenantId], references: [id])
-  whatsappEnabled    Boolean  @default(false)
-  botsEnabled        Boolean  @default(true)
-  chatAlertEmail     String?
-  waProvider         String   @default("WA_UNOFFICIAL") // WA_UNOFFICIAL | WA_CLOUD | WA_BSP_360DIALOG
+  id                String   @id @default(cuid())
+  tenantId          String   @unique
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  whatsappEnabled   Boolean  @default(false)
+  botsEnabled       Boolean  @default(true)
+  chatAlertEmail    String?
+  waProvider        String   @default("WA_UNOFFICIAL") // WA_UNOFFICIAL | WA_CLOUD | WA_BSP_360DIALOG
   // WhatsApp Cloud API (official) per-tenant credentials.
   // NOTE: stored plaintext following the existing TenantConfig.*Key precedent.
   // Access ONLY via lib/whatsapp-cloud-config.getWabaCreds so encryption can
@@ -3647,24 +3943,24 @@ model CommsSettings {
   // wabaVerifyToken columns are RESERVED for a future per-tenant-own-app model
   // and are not consulted for verification today; do not treat them as live
   // inbound config.
-  wabaId              String?
-  wabaPhoneNumberId   String?  @unique
-  wabaAccessToken     String?
-  wabaAppSecret       String?
-  wabaBusinessId      String?
-  wabaVerifyToken     String?
-  businessHours      Json?    // { tz: string, days: { mon: { open: "08:00", close: "17:00" } | null, ... } }
-  autoReplyEnabled   Boolean  @default(false)
-  autoReplyText      String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  wabaId            String?
+  wabaPhoneNumberId String?  @unique
+  wabaAccessToken   String?
+  wabaAppSecret     String?
+  wabaBusinessId    String?
+  wabaVerifyToken   String?
+  businessHours     Json? // { tz: string, days: { mon: { open: "08:00", close: "17:00" } | null, ... } }
+  autoReplyEnabled  Boolean  @default(false)
+  autoReplyText     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model WaBridgeNumber {
   id                   String    @id @default(cuid())
   slotId               String    @unique
   number               String?
-  status               String    // CONNECTING | CONNECTED | DISCONNECTED | LOGGED_OUT | RETIRED
+  status               String // CONNECTING | CONNECTED | DISCONNECTED | LOGGED_OUT | RETIRED
   priority             Int
   connectedAt          DateTime?
   disconnectedAt       DateTime?
@@ -3780,12 +4076,12 @@ enum BureauSubmissionStatus {
 }
 
 model BureauSubmission {
-  id          String                 @id @default(cuid())
+  id          String                   @id @default(cuid())
   tenantId    String
-  tenant      Tenant                 @relation(fields: [tenantId], references: [id])
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id])
   kind        BureauSubmissionKind
   /// Month-end date (MONTHLY) or transaction date (DAILY), a SAST calendar day.
-  periodDate  DateTime               @db.Date
+  periodDate  DateTime                 @db.Date
   mode        BureauSubmissionMode
   sequence    Int
   fileName    String
@@ -3796,9 +4092,9 @@ model BureauSubmission {
   /// Header field values as rendered (MONTHLY only), so a re-render does not
   /// depend on TenantConfig as it is today.
   header      Json?
-  status      BureauSubmissionStatus @default(GENERATED)
+  status      BureauSubmissionStatus   @default(GENERATED)
   pushedAt    DateTime?
-  createdAt   DateTime               @default(now())
+  createdAt   DateTime                 @default(now())
   records     BureauSubmissionRecord[]
 
   @@unique([tenantId, kind, periodDate, mode, sequence])
@@ -3852,4 +4148,661 @@ model BureauAdverseConfirmation {
 
   @@unique([loanId, statusCode])
   @@index([tenantId])
+}
+
+enum ReferenceRateBasis {
+  FIXED
+  PRIME
+  REPO
+  JIBAR
+  ZARONIA
+  LENDER_BASE
+}
+
+enum ReferenceRateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// A dated reference rate per tenant (DESIGN D4). A value applies from its
+// effectiveDate until the next APPROVED one for the same basis. Four-eyes:
+// recorded PENDING by one user, APPROVED or REJECTED by another; only APPROVED
+// values reprice loans. Requester and decider are users of the row's own
+// tenant (composite FKs). One live (non-REJECTED) value per (tenant, basis,
+// date) is the hand-written partial unique index ReferenceRate_live_key;
+// the rate band, born-PENDING, decision completeness, four-eyes and
+// immutability rules are hand-written too (migration
+// 20261013100000_asset_finance_rates_vat).
+model ReferenceRate {
+  id            String              @id @default(cuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id])
+  basis         ReferenceRateBasis
+  effectiveDate DateTime            @db.Date
+  // Annual nominal rate as a decimal: 0.1175 = 11.75%.
+  rate          Decimal             @db.Decimal(9, 6)
+  status        ReferenceRateStatus @default(PENDING)
+  requestedById String
+  requestedBy   User                @relation("ReferenceRatesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedById   String?
+  decidedBy     User?               @relation("ReferenceRatesDecided", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt     DateTime?
+  createdAt     DateTime            @default(now())
+
+  @@index([tenantId, basis, effectiveDate])
+}
+
+// A loan's rate history: the contract rate from each effectiveDate, as
+// reference + margin or fixed. Unique per (loan, effectiveDate), so a repricing
+// run for the same reference change is idempotent.
+model ContractRate {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  loanId             String
+  loan               Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  effectiveDate      DateTime           @db.Date
+  basis              ReferenceRateBasis
+  margin             Decimal?           @db.Decimal(9, 6)
+  fixedRate          Decimal?           @db.Decimal(9, 6)
+  resultingRate      Decimal            @db.Decimal(9, 6)
+  // The base instalment B the schedule was solved with from this date (cents):
+  // booking records the solver's B, each repricing its new B. Repricing reads
+  // the latest one back to derive the period weights exactly
+  // (lib/asset-finance/schedule-records.ts deriveWeights); null only on rows
+  // written before that convention, which fall back to an estimate.
+  newInstalmentCents Int?
+  createdById        String?
+  createdAt          DateTime           @default(now())
+
+  @@unique([loanId, effectiveDate])
+  @@index([tenantId])
+}
+
+// Per-tenant VAT vendor identity for tax invoices (lib/vat/).
+model VatConfig {
+  id             String   @id @default(cuid())
+  tenantId       String   @unique
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  vatNumber      String
+  registeredName String
+  address        String
+  updatedAt      DateTime @updatedAt
+}
+
+// The VAT rate in force from effectiveDate (national, not per tenant). History:
+// never updated or deleted; a new row must take effect after today, and a tax
+// invoice's vatRate must be the rate in force on its supplyDate (hand-written
+// triggers, migration 20261013100000).
+model VatRate {
+  id            String   @id @default(cuid())
+  effectiveDate DateTime @unique @db.Date
+  rate          Decimal  @db.Decimal(6, 4)
+}
+
+// An issued tax invoice. Every amount and party detail is copied in at issue;
+// a DB trigger blocks UPDATE and DELETE. Corrections are CreditNotes. The
+// insert trigger assigns the gap-free per-tenant number (max + 1 under an
+// advisory lock; CreditNote likewise).
+model TaxInvoice {
+  id                 String           @id @default(cuid())
+  tenantId           String
+  tenant             Tenant           @relation(fields: [tenantId], references: [id])
+  number             Int
+  // Display number, e.g. "INV-000123".
+  invoiceNumber      String
+  issueDate          DateTime         @db.Date
+  supplyDate         DateTime         @db.Date
+  loanId             String?
+  loan               Loan?            @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierName       String
+  supplierAddress    String
+  supplierVatNumber  String
+  recipientName      String
+  recipientAddress   String
+  recipientVatNumber String?
+  vatRate            Decimal          @db.Decimal(6, 4)
+  totalExclVatCents  Int
+  vatCents           Int
+  totalInclVatCents  Int
+  createdById        String?
+  createdAt          DateTime         @default(now())
+  lines              TaxInvoiceLine[]
+  creditNotes        CreditNote[]
+
+  @@unique([tenantId, number])
+  @@unique([tenantId, id])
+  @@index([loanId])
+}
+
+model TaxInvoiceLine {
+  id               String     @id @default(cuid())
+  invoiceId        String
+  invoice          TaxInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  lineNo           Int
+  description      String
+  quantity         Int        @default(1)
+  unitExclVatCents Int
+  exclVatCents     Int
+  vatCents         Int
+  inclVatCents     Int
+
+  @@unique([invoiceId, lineNo])
+}
+
+model CreditNote {
+  id               String     @id @default(cuid())
+  tenantId         String
+  tenant           Tenant     @relation(fields: [tenantId], references: [id])
+  number           Int
+  creditNoteNumber String
+  issueDate        DateTime   @db.Date
+  invoiceId        String
+  invoice          TaxInvoice @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason           String
+  exclVatCents     Int
+  vatCents         Int
+  inclVatCents     Int
+  createdById      String?
+  createdAt        DateTime   @default(now())
+
+  @@unique([tenantId, number])
+}
+
+enum EntityDocumentType {
+  CIPC_REGISTRATION
+  TRUST_DEED
+  LETTERS_OF_AUTHORITY
+  RESOLUTION
+  AFS
+  MANAGEMENT_ACCOUNTS
+  BANK_STATEMENT
+  SUPPLIER_INVOICE
+  INSURANCE_NOTING
+  TRACKER_CERTIFICATE
+  DELIVERY_ACCEPTANCE
+  NATIS_DOCUMENT
+  VALUATION
+  SIGNED_AGREEMENT
+  SIGNED_SURETYSHIP
+  SIGNED_RESOLUTION
+  OTHER
+}
+
+// A document about exactly one entity or natural borrower, or one of their
+// asset-finance deals. Every read goes
+// through lib/document-auth.ts and writes a DocumentAccessLog row (POPIA).
+model EntityDocument {
+  id                String                @id @default(cuid())
+  tenantId          String
+  tenant            Tenant                @relation(fields: [tenantId], references: [id])
+  entityId          String?
+  entity            BusinessEntity?       @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId          String?
+  client            Client?               @relation("AssetDocumentClient", fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealId            String?
+  deal              AssetFinanceDeal?     @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  docType           EntityDocumentType
+  fileName          String
+  mimeType          String
+  fileSize          Int
+  storagePath       String
+  contentSha256     String
+  uploadedByType    String // "staff" | "client"
+  uploadedById      String
+  verifiedAt        DateTime?
+  verifiedById      String?
+  deletedAt         DateTime?
+  deletedById       String?
+  createdAt         DateTime              @default(now())
+  signerScans       DealSigner[]          @relation("DealSignerScan")
+  checklistEvidence PayoutChecklistItem[] @relation("PayoutChecklistEvidence")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, entityId])
+  @@index([tenantId, clientId])
+  @@index([dealId])
+}
+
+enum AssetClass {
+  PASSENGER_VEHICLE
+  LIGHT_COMMERCIAL
+  TRUCK
+  TRAILER
+  TRACTOR
+  TLB
+  EXCAVATOR
+  GRADER
+  FRONT_END_LOADER
+  FORKLIFT
+  OTHER_YELLOW
+}
+
+// The financed asset (DESIGN D8, asset register). releasedAt is set when its
+// deal closes, is declined or cancelled; until then its serial and VIN are
+// unique across the tenant's book (partial unique indexes, hand-written).
+model FinancedAsset {
+  id                    String             @id @default(cuid())
+  tenantId              String
+  tenant                Tenant             @relation(fields: [tenantId], references: [id])
+  assetClass            AssetClass
+  make                  String
+  model                 String
+  year                  Int
+  serialNumber          String
+  vin                   String?
+  engineNumber          String?
+  registrationNumber    String?
+  hours                 Int?
+  odometerKm            Int?
+  cashPriceExclVatCents Int
+  vatCents              Int
+  residualCents         Int?
+  natisTitleholder      String?
+  trackerProvider       String?
+  trackerId             String?
+  insurer               String?
+  policyNumber          String?
+  lenderNotedConfirmed  Boolean            @default(false)
+  releasedAt            DateTime?
+  createdById           String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  valuations            AssetValuation[]
+  deals                 AssetFinanceDeal[]
+  loans                 Loan[]
+  surrenderRequests     SurrenderRequest[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+enum ValuationSource {
+  DEALER
+  AUCTIONEER
+  ASSESSOR
+  INTERNAL
+}
+
+model AssetValuation {
+  id               String            @id @default(cuid())
+  tenantId         String
+  assetId          String
+  asset            FinancedAsset     @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  valuedOn         DateTime          @db.Date
+  source           ValuationSource
+  valuerName       String
+  amountCents      Int
+  documentId       String?
+  createdById      String?
+  createdAt        DateTime          @default(now())
+  surrenderRequest SurrenderRequest?
+
+  @@index([tenantId, assetId])
+}
+
+enum SurrenderStatus {
+  REQUESTED
+  VALUED
+  VALUATION_NOTICE_ISSUED
+  PROCEEDS_CREDITED
+  FINAL_NOTICE_ISSUED
+}
+
+/// NCA s127 voluntary surrender record. Physical repossession and remarketing
+/// remain outside this slice; sale proceeds arrive as an ordinary receipt.
+model SurrenderRequest {
+  id                    String          @id @default(cuid())
+  tenantId              String
+  tenant                Tenant          @relation(fields: [tenantId], references: [id])
+  loanId                String
+  loan                  Loan            @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assetId               String
+  asset                 FinancedAsset   @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status                SurrenderStatus @default(REQUESTED)
+  requestedByType       String
+  requestedById         String
+  requestedOn           DateTime        @db.Date
+  assetCondition        String
+  valuationDueOn        DateTime        @db.Date
+  valuationId           String?         @unique
+  valuation             AssetValuation? @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  valuationNoticePath   String?
+  valuationNoticeSha256 String?
+  saleProceedsCents     Int?
+  proceedsPaymentId     String?         @unique
+  proceedsPayment       Payment?        @relation("SurrenderProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  shortfallCents        Int?
+  refundCents           Int?
+  finalNoticePath       String?
+  finalNoticeSha256     String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@unique([tenantId, id])
+  @@index([tenantId, loanId])
+}
+
+// A supplier paid out on asset deals; separate from clients (DESIGN D8).
+model Supplier {
+  id                 String                @id @default(cuid())
+  tenantId           String
+  tenant             Tenant                @relation(fields: [tenantId], references: [id])
+  name               String
+  registrationNumber String?
+  vatNumber          String?
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  address            String?
+  active             Boolean               @default(true)
+  createdById        String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  bankAccounts       SupplierBankAccount[]
+  deals              AssetFinanceDeal[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+enum SupplierBankAccountStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+// A supplier's bank account. A new or changed account is PENDING until a
+// second, different user approves it (AVS runs on approval); only an APPROVED
+// account can be paid. One APPROVED account per supplier at a time.
+model SupplierBankAccount {
+  id            String                    @id @default(cuid())
+  tenantId      String
+  supplierId    String
+  supplier      Supplier                  @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  bankName      String
+  branchCode    String
+  accountNumber String
+  accountHolder String
+  accountType   String?
+  status        SupplierBankAccountStatus @default(PENDING)
+  requestedById String
+  requestedBy   User                      @relation("SupplierAccountRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedById   String?
+  decidedBy     User?                     @relation("SupplierAccountDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt     DateTime?
+  avsResult     Json?
+  avsPassed     Boolean?
+  createdAt     DateTime                  @default(now())
+  payouts       Payout[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierId])
+}
+
+enum AssetDealStatus {
+  DRAFT
+  SUBMITTED
+  REFUSED_NCA
+  APPROVED
+  DECLINED
+  REFERRED
+  CONTRACTED
+  BOOKED
+  CANCELLED
+}
+
+enum CreditDecision {
+  APPROVE
+  DECLINE
+  REFER
+}
+
+// An asset-finance deal: one per LoanApplication. A sole proprietor is a
+// Client borrower; a juristic borrower is a BusinessEntity. Exactly one is
+// present (CHECK AssetFinanceDeal_borrower_xor).
+// (DESIGN D6) and the origination state; booking creates the Loan.
+model AssetFinanceDeal {
+  id                        String                               @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant                               @relation(fields: [tenantId], references: [id])
+  applicationId             String                               @unique
+  application               LoanApplication                      @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId                  String?
+  client                    Client?                              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId                  String?
+  entity                    BusinessEntity?                      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assetId                   String
+  asset                     FinancedAsset                        @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierId                String
+  supplier                  Supplier                             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId                    String?                              @unique
+  loan                      Loan?                                @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  contractType              ContractType                         @default(INSTALMENT_SALE)
+  status                    AssetDealStatus                      @default(DRAFT)
+  // Structure (cents; rates decimal annual). weights: one per period.
+  depositCents              Int                                  @default(0)
+  tradeInCents              Int                                  @default(0)
+  financedFeesCents         Int                                  @default(0)
+  balloonCents              Int                                  @default(0)
+  weights                   Json
+  structurePreset           String
+  firstDueDate              DateTime                             @db.Date
+  vatDeferralPeriodIndex    Int?
+  rateBasis                 ReferenceRateBasis
+  rateMargin                Decimal?                             @db.Decimal(9, 6)
+  fixedRate                 Decimal?                             @db.Decimal(9, 6)
+  baseInstalmentCents       Int?
+  // The contract terms fixed when the documents are prepared
+  // (lib/asset-finance/signing-prepare.ts): the start date and the figures the
+  // agreement prints. Booking must reproduce them exactly. Null until prepared.
+  plannedStartDate          DateTime?                            @db.Date
+  signedBaseInstalmentCents Int?
+  signedResultingRate       Decimal?                             @db.Decimal(9, 6)
+  signedTotalInterestCents  Int?
+  // Null may mean either unprepared or prepared with default interest disabled;
+  // the other signed columns distinguish those states.
+  signedArrearsMarginRate   Decimal?                             @db.Decimal(9, 6)
+  signedCollectionFeeCents  Int?
+  // The required signer set at preparation: [{ clientId, document }], in signing order.
+  preparedSigners           Json?
+  cancelledAt               DateTime?
+  cancelledById             String?
+  cancelledBy               User?                                @relation("AssetDealCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelReason              String?
+  decision                  CreditDecision?
+  decisionReasons           String[]                             @default([])
+  decidedById               String?
+  decidedAt                 DateTime?
+  createdById               String
+  createdAt                 DateTime                             @default(now())
+  updatedAt                 DateTime                             @updatedAt
+  financials                EntityFinancials?
+  affordabilityAssessment   AssetFinanceAffordabilityAssessment?
+  signers                   DealSigner[]
+  checklist                 PayoutChecklistItem[]
+  payout                    Payout?
+  documents                 EntityDocument[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, applicationId])
+  @@unique([tenantId, loanId])
+  @@index([tenantId, status])
+  @@index([clientId])
+}
+
+// The credit memo inputs (decision 2a.3): AFS figures and a bank-statement
+// summary; DSCR and gearing are computed and stored with them.
+model EntityFinancials {
+  id                       String           @id @default(cuid())
+  tenantId                 String
+  dealId                   String           @unique
+  deal                     AssetFinanceDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  periodEnd                DateTime         @db.Date
+  turnoverCents            BigInt
+  ebitdaCents              BigInt
+  totalAssetsCents         BigInt
+  totalLiabilitiesCents    BigInt
+  existingDebtServiceCents BigInt
+  avgMonthlyCreditsCents   BigInt
+  returnedDebitsCount      Int
+  dscr                     Decimal?         @db.Decimal(9, 4)
+  gearing                  Decimal?         @db.Decimal(9, 4)
+  notes                    String?
+  preparedById             String
+  updatedAt                DateTime         @updatedAt
+
+  @@unique([tenantId, dealId])
+}
+
+model AssetFinanceAffordabilityAssessment {
+  id                             String           @id @default(cuid())
+  tenantId                       String
+  dealId                         String           @unique
+  deal                           AssetFinanceDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  verifiedBusinessIncomeCents    BigInt
+  businessNdiBeforeProposedCents BigInt
+  personalNdiCents               BigInt?
+  proposedInstalmentCents        BigInt
+  combinedNdiAfterProposedCents  BigInt
+  affordable                     Boolean
+  recklessLendingNote            String
+  assessedById                   String
+  assessedBy                     User             @relation(fields: [tenantId, assessedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assessedAt                     DateTime         @default(now())
+  updatedAt                      DateTime         @updatedAt
+
+  @@unique([tenantId, dealId])
+}
+
+enum DealSignerRole {
+  AUTHORISED_SIGNATORY
+  SURETY
+}
+
+enum DealDocumentKind {
+  AGREEMENT
+  SURETYSHIP
+  RESOLUTION
+}
+
+enum SignatureMethod {
+  E_SIGN
+  WET_INK
+}
+
+// One required signature on one deal document. The required set is derived
+// from the entity's authorised signatories (agreement, resolution) and the
+// deal's sureties (one suretyship each); lib/asset-finance/signing.ts.
+// The document is rendered once when the deal's documents are prepared and
+// stored (lib/storage) at documentStoragePath; documentSha256 binds those
+// bytes. Signing also re-renders it and refuses if the deal has changed since.
+// Hand-written guards: guardDealSigner, guardAssetDealContract.
+model DealSigner {
+  id                  String           @id @default(cuid())
+  tenantId            String
+  dealId              String
+  deal                AssetFinanceDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId            String
+  client              Client           @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  role                DealSignerRole
+  document            DealDocumentKind
+  documentSha256      String?
+  documentStoragePath String?
+  method              SignatureMethod?
+  signedAt            DateTime?
+  signatureData       String?
+  signatureSha256     String?
+  signedByIp          String?
+  // Wet ink: the scan (an EntityDocument SIGNED_* of this deal), who uploaded
+  // it and when; a different user confirms it (CHECK DealSigner_wet_ink_four_eyes).
+  scanDocumentId      String?
+  scanDocument        EntityDocument?  @relation("DealSignerScan", fields: [tenantId, scanDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scanUploadedById    String?
+  scanUploadedAt      DateTime?
+  confirmedById       String?
+  confirmedAt         DateTime?
+  createdAt           DateTime         @default(now())
+
+  @@unique([dealId, clientId, document])
+  @@index([tenantId, clientId])
+}
+
+enum PayoutChecklistItemKind {
+  SIGNED_AGREEMENT
+  SIGNED_SURETYSHIPS
+  SIGNED_RESOLUTION
+  SUPPLIER_INVOICE_MATCHES_ASSET
+  SUPPLIER_BANK_VERIFIED
+  INSURANCE_NOTES_LENDER
+  TRACKER_CONFIRMED
+  DELIVERY_AND_ACCEPTANCE
+  NATIS_TITLEHOLDER
+}
+
+// One payout-gate item of a CONTRACTED deal (DESIGN D8). The rows are created
+// when the deal is contracted (lib/asset-finance/payout-checklist.ts holds the
+// requirement table; payoutChecklistRequiredKinds is its SQL twin). Staff
+// confirm each one with its evidence; a confirmed item is immutable, and the
+// Payout insert is refused unless every required item is confirmed
+// (hand-written guards: guardPayoutChecklistItem, guardPayout).
+model PayoutChecklistItem {
+  id                 String                  @id @default(cuid())
+  tenantId           String
+  dealId             String
+  deal               AssetFinanceDeal        @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  item               PayoutChecklistItemKind
+  required           Boolean                 @default(true)
+  confirmedById      String?
+  confirmedBy        User?                   @relation("PayoutChecklistConfirmedBy", fields: [tenantId, confirmedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  confirmedAt        DateTime?
+  evidenceDocumentId String?
+  evidenceDocument   EntityDocument?         @relation("PayoutChecklistEvidence", fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // SUPPLIER_INVOICE_MATCHES_ASSET: the serial or VIN typed off the invoice, normalised.
+  attestedIdentifier String?
+  note               String?
+
+  @@unique([dealId, item])
+}
+
+enum PayoutStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RELEASED
+  CANCELLED
+}
+
+// The supplier payout for a deal: the asset's cash price incl. VAT less the
+// deposit and the trade-in, i.e. what the supplier is still owed (financed
+// fees stay with the lender). The DB refuses it unless the deal is
+// CONTRACTED, every required checklist item is confirmed and the account is
+// the supplier's APPROVED one; at or above the tenant threshold
+// (dualApprovalRequired, set by the insert trigger) a second, different
+// user approves it, otherwise the creator's creation is the approval. It is
+// RELEASED by booking and then never changes (guardPayout, CHECKs).
+model Payout {
+  id                    String              @id @default(cuid())
+  tenantId              String
+  dealId                String              @unique
+  deal                  AssetFinanceDeal    @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierBankAccountId String
+  supplierBankAccount   SupplierBankAccount @relation(fields: [tenantId, supplierBankAccountId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents           Int
+  status                PayoutStatus        @default(PENDING_APPROVAL)
+  dualApprovalRequired  Boolean             @default(false)
+  createdById           String
+  createdBy             User                @relation("PayoutsCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedById          String?
+  approvedBy            User?               @relation("PayoutsApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedAt            DateTime?
+  releasedAt            DateTime?
+  releasedById          String?
+  releasedBy            User?               @relation("PayoutsReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelledAt           DateTime?
+  cancelledById         String?
+  cancelledBy           User?               @relation("PayoutsCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt             DateTime            @default(now())
+
+  @@unique([tenantId, dealId])
 }

@@ -1,10 +1,12 @@
 import { LoanProductForm } from "@/components/products/LoanProductForm"
 import { requireMinRole } from "@/lib/auth-guards"
+import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 
 export default async function NewLoanProductPage() {
   // Product create is an ADMIN mutation — gate the form page to match.
-  await requireMinRole("ADMIN")
+  const { tenantId } = await requireMinRole("ADMIN")
+  const assetFinance = resolveFeatureFlags(await getTenantConfig(tenantId)).featureAssetFinance
   return (
     <div className="p-6 lg:p-8">
       <Breadcrumbs
@@ -16,7 +18,7 @@ export default async function NewLoanProductPage() {
           { label: "New loan product" },
         ]}
       />
-      <LoanProductForm />
+      <LoanProductForm nonNcaArrears={assetFinance ? { marginPercent: "", feeRand: "" } : undefined} />
     </div>
   )
 }

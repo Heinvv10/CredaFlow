@@ -9,6 +9,7 @@ import {
   applicationApprovedEmail,
   applicationDeclinedEmail,
 } from "@/lib/email/templates/portal"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 interface RequestBody {
   applicationId: string
@@ -49,6 +50,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (!application) {
     return NextResponse.json({ error: "Application not found" }, { status: 404 })
+  }
+  // The application emails address a consumer; an entity borrower is refused.
+  if (!hasClientBorrower(application)) {
+    return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
   }
 
   // Customer email names the lender: refuse when its identity is unconfigured.

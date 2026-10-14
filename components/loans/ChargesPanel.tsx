@@ -1,11 +1,8 @@
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { ChargesActions } from "@/components/loans/ChargesActions"
-import { CHARGE_TYPE_LABELS, type LoanChargesView } from "@/lib/loan/charges-summary"
-import type { ChargeType } from "@/lib/loan/default-charges"
+import { CHARGE_TYPE_LABELS, chargeBucketRows, type LoanChargesView } from "@/lib/loan/charges-summary"
 import { formatDate, formatZAR } from "@/lib/utils"
-
-const TYPES: ChargeType[] = ["DEFAULT_INTEREST", "SERVICE_FEE", "DEFAULT_ADMIN"]
 
 /**
  * Default charges on one loan (lib/loan/charges-summary.ts): per-type totals,
@@ -62,12 +59,12 @@ export function ChargesPanel({ loanId, charges, waivable, settlementAmount, canM
               </tr>
             </thead>
             <tbody>
-              {TYPES.map((type) => (
+              {chargeBucketRows(charges).map(({ type, bucket }) => (
                 <tr key={type} className="border-t border-[var(--cf-border-subtle)]">
                   <td className="py-1.5 text-[var(--cf-text)]">{CHARGE_TYPE_LABELS[type]}</td>
-                  <td className="py-1.5 text-right tabular-nums">{formatZAR(charges.buckets[type].accrued)}</td>
-                  <td className="py-1.5 text-right tabular-nums">{formatZAR(charges.buckets[type].paid)}</td>
-                  <td className="py-1.5 text-right font-semibold tabular-nums">{formatZAR(charges.buckets[type].outstanding)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{formatZAR(bucket.accrued)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{formatZAR(bucket.paid)}</td>
+                  <td className="py-1.5 text-right font-semibold tabular-nums">{formatZAR(bucket.outstanding)}</td>
                 </tr>
               ))}
               <tr className="border-t border-[var(--cf-border-strong)]">

@@ -29,6 +29,7 @@ import {
   Section129DispatchUncertainError,
   Section129IssuanceConflictError,
 } from "@/lib/collections/section129-artifact"
+import { hasClientBorrower } from "@/lib/borrower"
 
 type BulkSection129Result = {
   loanId: string
@@ -61,7 +62,11 @@ export async function POST(req: NextRequest) {
       include: { client: true, repaymentSchedule: { orderBy: { dueDate: "asc" } } },
     })
 
-    const eligible = loans.filter(isSection129Eligible)
+    // Eligibility refuses a NON_NCA agreement (the regime decides Section 129).
+    // The notice itself is a consumer document addressed to a natural person
+    // (the Client's name, ID number and address), so an NCA loan to an entity
+    // borrower, which has no Client, is skipped too. Both count in `skipped`.
+    const eligible = loans.filter(isSection129Eligible).filter(hasClientBorrower)
     const noticeDateValue = new Date()
     const noticeDate = section129NoticeDateLabel(noticeDateValue)
     let sent = 0

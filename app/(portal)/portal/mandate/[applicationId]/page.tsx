@@ -41,7 +41,8 @@ export default async function PortalDebitMandatePage({
       },
     },
   })
-  if (!application) notFound()
+  // Matched on the session's client id, so the borrower is always that Client.
+  if (!application?.client) notFound()
   if (
     application.status !== "APPROVED"
     || application.repaymentMethod !== "DEBIT_ORDER"

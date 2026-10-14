@@ -48,6 +48,7 @@ import {
   createPasqBillingEvidence,
   type PasqBillingEvidence,
 } from "@/lib/compliance/pasq"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
@@ -144,6 +145,10 @@ export async function POST(
 
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
+      }
+      // Consumer credit decision (affordability, bureau, PASQ); asset finance decides elsewhere.
+      if (!hasClientBorrower(application)) {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
 
       if (action === "return_to_review") {
