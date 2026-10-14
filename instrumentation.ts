@@ -188,6 +188,12 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 14 jobs active")
+    // Lender API retention (lib/lender-api/retention.ts): prunes old API
+    // request logs and finished webhook deliveries. Nightly, off-peak.
+    cron.schedule("15 3 * * *", () => callCron("/api/cron/lender-api-retention"), {
+      timezone: SAST,
+    })
+
+    console.log("[cron] scheduler registered — 15 jobs active")
   }
 }

@@ -4882,6 +4882,12 @@ model WebhookEndpoint {
   disabledAt   DateTime?
   disabledById String?
   disabledBy   User?             @relation("WebhookEndpointsDisabledBy", fields: [tenantId, disabledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Circuit breaker (lib/lender-api/webhooks/dispatch.ts): failed attempts in a
+  // row; at the threshold the endpoint is paused (its deliveries wait, PENDING)
+  // until an admin resumes it in Settings.
+  consecutiveFailures Int       @default(0)
+  pausedAt            DateTime?
+  pausedReason        String?
   deliveries   WebhookDelivery[]
 
   @@unique([tenantId, id])

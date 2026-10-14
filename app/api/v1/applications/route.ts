@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import type { AppStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { apiError, withApiKey } from "@/lib/lender-api/handler"
+import { withApiKey } from "@/lib/lender-api/handler"
+import { hasScope } from "@/lib/lender-api/scopes"
+import { readJsonBody } from "@/lib/lender-api/body"
 import { optionalEnumParam, optionalIdParam, pageOf, pageQuery, pageWhere, parsePageParams } from "@/lib/lender-api/pagination"
 import { applicationSelect, toApiApplication } from "@/lib/lender-api/serializers"
 import { createDraftApplication, parseCreateApplication } from "@/lib/lender-api/create-application"
@@ -26,23 +28,17 @@ export async function GET(req: Request) {
       select: applicationSelect,
       ...pageQuery(page),
     })
-    return NextResponse.json(pageOf(rows, page, toApiApplication))
+    const pii = hasScope(caller.scopes, "pii:read")
+    return NextResponse.json(pageOf(rows, page, (a) => toApiApplication(a, { pii })))
   })
 }
 
 export async function POST(req: Request) {
   return withApiKey(req, "applications:write", async (caller) => {
-    // The create body is a handful of fields: refuse anything large before reading it.
-    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return apiError(413, "body_too_large", "The body is too large.")
-    const raw = await req.text()
-    if (Buffer.byteLength(raw) > MAX_BODY_BYTES) return apiError(413, "body_too_large", "The body is too large.")
-    let body: unknown
-    try {
-      body = JSON.parse(raw)
-    } catch {
-      return apiError(400, "invalid_body", "Send a JSON body.")
-    }
-    const input = parseCreateApplication(body)
+    // The create body is a handful of fields: stop reading at the cap.
+    const body = await readJsonBody(req, MAX_BODY_BYTES)
+    if (body instanceof Response) return body
+    const input = parseCreateApplication(body.value)
     if ("status" in input) return NextResponse.json(input.body, { status: input.status })
     const outcome = await createDraftApplication(caller, input)
     return NextResponse.json(outcome.body, { status: outcome.status })

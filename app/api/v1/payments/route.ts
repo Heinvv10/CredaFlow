@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withApiKey } from "@/lib/lender-api/handler"
+import { hasScope } from "@/lib/lender-api/scopes"
 import { optionalIdParam, pageOf, pageQuery, pageWhere, parsePageParams } from "@/lib/lender-api/pagination"
 import { paymentSelect, toApiPayment } from "@/lib/lender-api/serializers"
 
@@ -16,6 +17,7 @@ export async function GET(req: Request) {
       select: paymentSelect,
       ...pageQuery(page),
     })
-    return NextResponse.json(pageOf(rows, page, toApiPayment))
+    const pii = hasScope(caller.scopes, "pii:read")
+    return NextResponse.json(pageOf(rows, page, (p) => toApiPayment(p, { pii })))
   })
 }

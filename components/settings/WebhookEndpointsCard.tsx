@@ -16,6 +16,9 @@ export interface WebhookEndpointRow {
   secretPrefix: string
   active: boolean
   createdAt: string
+  pausedAt: string | null
+  pausedReason: string | null
+  consecutiveFailures: number
 }
 
 export interface WebhookDeliveryRow {
@@ -28,6 +31,12 @@ export interface WebhookDeliveryRow {
   lastError: string | null
   createdAt: string
   nextAttemptAt: string | null
+}
+
+function deliveryClass(status: string): string {
+  if (status === "SUCCEEDED") return "text-[var(--cf-success)]"
+  if (status === "FAILED") return "text-[var(--cf-danger)]"
+  return "text-[var(--cf-warning)]"
 }
 
 interface Props {
@@ -75,20 +84,26 @@ export function WebhookEndpointsCard({ endpoints, deliveries, canManage }: Props
     }
   }
 
-  async function disable(row: WebhookEndpointRow) {
-    if (!window.confirm(`Stop sending events to ${row.url}? Deliveries still pending for it will fail.`)) return
+  async function change(row: WebhookEndpointRow, kind: "disable" | "resume") {
+    const question = kind === "disable"
+      ? `Stop sending events to ${row.url}? Deliveries still pending for it will fail.`
+      : `Resume deliveries to ${row.url}? Its waiting deliveries are sent again.`
+    if (!window.confirm(question)) return
+    const failed = kind === "disable" ? "The endpoint could not be disabled." : "The endpoint could not be resumed."
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`/api/settings/webhooks/${row.id}`, { method: "DELETE" })
+      const res = await fetch(`/api/settings/webhooks/${row.id}`, kind === "disable"
+        ? { method: "DELETE" }
+        : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resume" }) })
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string }
-        setError(data.error ?? "The endpoint could not be disabled.")
+        setError(data.error ?? failed)
         return
       }
       router.refresh()
     } catch {
-      setError("The endpoint could not be disabled.")
+      setError(failed)
     } finally {
       setBusy(false)
     }
@@ -124,11 +139,21 @@ export function WebhookEndpointsCard({ endpoints, deliveries, canManage }: Props
                 <p className="break-all font-medium">{ep.url}</p>
                 {ep.description && <p className="text-[var(--cf-text-secondary)]">{ep.description}</p>}
                 <p className="text-xs text-[var(--cf-text-muted)]">
-                  {ep.events.join(", ")} · secret {ep.secretPrefix}… · added {ep.createdAt} · {ep.active ? "active" : "disabled"}
+                  {ep.events.join(", ")} · secret {ep.secretPrefix}… · added {ep.createdAt} · {ep.active ? (ep.pausedAt ? "paused" : "active") : "disabled"}
                 </p>
+                {ep.active && ep.pausedAt && (
+                  <p className="text-xs text-[var(--cf-warning)]" role="status">
+                    Paused {ep.pausedAt}: {ep.pausedReason ?? `${ep.consecutiveFailures} failed deliveries in a row`}. Deliveries wait until it is resumed.
+                  </p>
+                )}
               </div>
               {canManage && ep.active && (
-                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void disable(ep)}>Disable</Button>
+                <div className="flex gap-2">
+                  {ep.pausedAt && (
+                    <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void change(ep, "resume")}>Resume</Button>
+                  )}
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void change(ep, "disable")}>Disable</Button>
+                </div>
               )}
             </li>
           ))}
@@ -153,7 +178,9 @@ export function WebhookEndpointsCard({ endpoints, deliveries, canManage }: Props
                 </label>
               ))}
             </fieldset>
-            <Button type="submit" disabled={busy || !url.trim() || events.length === 0}>Add endpoint</Button>
+            {/* Enabled while incomplete: the required-field prompt and the server's
+                message say what is missing; a disabled button looked faded and said nothing. */}
+            <Button type="submit" disabled={busy}>Add endpoint</Button>
           </form>
         ) : (
           <p className="text-sm text-[var(--cf-text-muted)]">Adding and disabling endpoints needs an Admin signed in with two-factor authentication.</p>
@@ -165,7 +192,19 @@ export function WebhookEndpointsCard({ endpoints, deliveries, canManage }: Props
           {deliveries.length === 0 ? (
             <p className="text-sm text-[var(--cf-text-muted)]">None yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            <ul className="space-y-2 md:hidden">
+              {deliveries.map((d) => (
+                <li key={d.id} className="space-y-0.5 rounded-lg border border-[var(--cf-border-subtle)] p-2 text-xs text-[var(--cf-text)]">
+                  <p className="flex justify-between gap-2"><code>{d.eventType}</code><span className={deliveryClass(d.status)}>{d.status}</span></p>
+                  <p className="break-all text-[var(--cf-text-secondary)]">{d.endpointUrl}</p>
+                  <p className="text-[var(--cf-text-muted)]">
+                    {d.attempts} attempt(s) · {d.lastResponseStatus ?? d.lastError ?? "no response yet"} · {d.createdAt}{d.nextAttemptAt ? ` · next ${d.nextAttemptAt}` : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-xs">
                 <thead className="text-left text-[var(--cf-text-muted)]">
                   <tr><th className="py-1 pr-3">Event</th><th className="py-1 pr-3">Endpoint</th><th className="py-1 pr-3">Status</th><th className="py-1 pr-3">Attempts</th><th className="py-1 pr-3">Last response</th><th className="py-1 pr-3">Created</th><th className="py-1">Next attempt</th></tr>
@@ -175,7 +214,7 @@ export function WebhookEndpointsCard({ endpoints, deliveries, canManage }: Props
                     <tr key={d.id} className="border-t border-[var(--cf-border-subtle)]">
                       <td className="py-1 pr-3"><code>{d.eventType}</code></td>
                       <td className="py-1 pr-3 break-all">{d.endpointUrl}</td>
-                      <td className={`py-1 pr-3 ${d.status === "SUCCEEDED" ? "text-[var(--cf-success)]" : d.status === "FAILED" ? "text-[var(--cf-danger)]" : "text-[var(--cf-warning)]"}`}>{d.status}</td>
+                      <td className={`py-1 pr-3 ${deliveryClass(d.status)}`}>{d.status}</td>
                       <td className="py-1 pr-3">{d.attempts}</td>
                       <td className="py-1 pr-3">{d.lastResponseStatus ?? d.lastError ?? "—"}</td>
                       <td className="py-1 pr-3">{d.createdAt}</td>
@@ -185,6 +224,7 @@ export function WebhookEndpointsCard({ endpoints, deliveries, canManage }: Props
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </CardContent>

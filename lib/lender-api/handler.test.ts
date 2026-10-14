@@ -22,7 +22,8 @@ const key = generateApiKey()
 const future = new Date(Date.now() + 86_400_000)
 const row = (extra: Record<string, unknown> = {}) => ({
   id: "key-A", tenantId: "tenant-A", keyHash: key.keyHash, scopes: ["clients:read"], createdById: "user-A",
-  expiresAt: future, revokedAt: null, lastUsedAt: null, tenant: { status: "ACTIVE" }, ...extra,
+  expiresAt: future, revokedAt: null, lastUsedAt: null, tenant: { status: "ACTIVE" },
+  createdBy: { active: true, role: "ADMIN" }, ...extra,
 })
 
 function call(headers: Record<string, string> = { authorization: `Bearer ${key.key}` }, scope: "clients:read" | "pii:read" = "clients:read") {
@@ -146,5 +147,65 @@ describe("withApiKey", () => {
     h.findUnique.mockResolvedValue(row({ lastUsedAt: new Date() }))
     await call().response
     expect(h.updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["deactivated", { active: false, role: "ADMIN" }],
+    ["demoted below ADMIN", { active: true, role: "BRANCH_MANAGER" }],
+  ])("refuses a key whose creator was %s", async (_label, createdBy) => {
+    h.findUnique.mockResolvedValue(row({ createdBy }))
+    const { handler, response } = call()
+    const res = await response
+    expect(res.status).toBe(401)
+    expect((await res.json()).error.code).toBe("api_key_suspended")
+    expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+// Review repro B1: 650 requests with junk keys made a valid key answer 429 and
+// wrote 651 unauthenticated log rows.
+describe("junk-key floods", () => {
+  const junkKey = () => `Bearer ${generateApiKey().key}`
+
+  beforeEach(() => {
+    h.findUnique.mockImplementation(async ({ where }: { where: { prefix: string } }) => (where.prefix === key.prefix ? row() : null))
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  })
+
+  it("never rate-limit a valid key, from an unknown address", async () => {
+    for (let i = 0; i < 650; i++) await call({ authorization: junkKey() }).response
+    const { handler, response } = call()
+    expect((await response).status).toBe(200)
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it("never rate-limit a valid key from another address, and throttle only the address failing", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    const from = (ip: string, authorization: string) => call({ authorization, "x-forwarded-for": ip })
+    const statuses: number[] = []
+    for (let i = 0; i < 650; i++) statuses.push((await from("203.0.113.9", junkKey()).response).status)
+    expect(statuses.slice(0, 30).every((s) => s === 401)).toBe(true)
+    expect(statuses.at(-1)).toBe(429)
+    expect((await from("198.51.100.7", `Bearer ${key.key}`).response).status).toBe(200)
+    // The failure bucket is not consulted for a valid key, even from the failing address.
+    expect((await from("203.0.113.9", `Bearer ${key.key}`).response).status).toBe(200)
+    vi.unstubAllEnvs()
+  })
+
+  it("samples the log rows of requests that name no key", async () => {
+    for (let i = 0; i < 650; i++) await call({ authorization: junkKey() }).response
+    const unattributed = h.logCreate.mock.calls.filter((c) => c[0].data.apiKeyId === null)
+    expect(unattributed.length).toBeLessThanOrEqual(10)
+    await call().response
+    expect(lastLog()).toMatchObject({ apiKeyId: "key-A", status: 200 })
+  })
+
+  it("rate limits per key, counting a refused (revoked) key's requests too, and samples its 429 rows", async () => {
+    h.findUnique.mockResolvedValue(row({ revokedAt: new Date() }))
+    const statuses: number[] = []
+    for (let i = 0; i < 300; i++) statuses.push((await call().response).status)
+    expect(statuses.filter((s) => s === 401)).toHaveLength(API_KEY_RATE_LIMIT.limit)
+    expect(statuses.at(-1)).toBe(429)
+    expect(h.logCreate.mock.calls.length).toBeLessThanOrEqual(API_KEY_RATE_LIMIT.limit + 10)
   })
 })

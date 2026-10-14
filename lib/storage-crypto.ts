@@ -12,8 +12,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
  *
  * keyId is the first 8 bytes of SHA-256(master key), so a file sealed under a
  * different key fails with a clear error instead of a generic tag mismatch.
- * Both GCM operations authenticate the header bytes before them as AAD: any
- * change to the header or the ciphertext fails decryption.
+ * Both GCM operations authenticate the header bytes before them as AAD, and
+ * the data's AAD also carries the file's NAME (its path under the uploads
+ * root): changing any byte, or swapping one stored file for another (a
+ * different client's document under this file's name), fails decryption.
  *
  * lib/crypto/secret-box.ts is not reused: it seals UTF-8 strings into a text
  * format with one key and no envelope.
@@ -48,17 +50,59 @@ export function uploadsMasterKey(env: NodeJS.ProcessEnv = process.env): Buffer |
   return raw ? parseMasterKey(raw) : null
 }
 
+/**
+ * Whether storage must fail closed: refuse to write without a key and refuse
+ * to read a plaintext file. UPLOADS_ENC_REQUIRED=true|false decides; unset, it
+ * is on in production except on a demo stack (DEMO_MODE=true), whose baked
+ * snapshots hold plaintext files.
+ */
+export function uploadsEncryptionRequired(env: NodeJS.ProcessEnv = process.env): boolean {
+  const flag = env.UPLOADS_ENC_REQUIRED?.trim().toLowerCase()
+  if (flag === "true" || flag === "1") return true
+  if (flag === "false" || flag === "0") return false
+  return env.NODE_ENV === "production" && env.DEMO_MODE !== "true"
+}
+
 function keyId(master: Buffer): Buffer {
   return createHash("sha256").update(master).digest().subarray(0, KEY_ID_LEN)
 }
 
-export function isEncryptedFile(bytes: Buffer): boolean {
-  return bytes.length >= ENCRYPTED_HEADER_LEN
-    && bytes.subarray(0, MAGIC.length).equals(MAGIC)
-    && bytes[MAGIC.length] === VERSION
+/** The file begins with the envelope marker (it may still be malformed). */
+export function hasEncryptionMagic(bytes: Buffer): boolean {
+  return bytes.length >= MAGIC.length && bytes.subarray(0, MAGIC.length).equals(MAGIC)
 }
 
-export function encryptFile(plaintext: Buffer, master: Buffer): Buffer {
+/** The marker, the version this code writes and room for a whole header. */
+export function isEncryptedFile(bytes: Buffer): boolean {
+  return hasEncryptionMagic(bytes) && bytes.length >= ENCRYPTED_HEADER_LEN && bytes[MAGIC.length] === VERSION
+}
+
+export type FileClass = "encrypted" | "plaintext" | "other-key" | "tampered"
+
+/**
+ * What a stored file is, for the conversion script (scripts/encrypt-uploads.ts):
+ *  - encrypted: a well-formed envelope under this key, named `name`, intact;
+ *  - other-key: a well-formed envelope under another key (never re-encrypted);
+ *  - tampered:  a well-formed envelope under this key that fails its check;
+ *  - plaintext: no marker, or a marker without a well-formed header (a
+ *    plaintext file that merely starts with those six bytes).
+ */
+export function classifyFile(bytes: Buffer, master: Buffer, name: string): FileClass {
+  if (!isEncryptedFile(bytes)) return "plaintext"
+  if (!bytes.subarray(MAGIC.length + 1, WRAP_AAD_LEN).equals(keyId(master))) return "other-key"
+  try {
+    decryptFile(bytes, master, name)
+    return "encrypted"
+  } catch {
+    return "tampered"
+  }
+}
+
+function dataAad(header: Buffer, name: string): Buffer {
+  return Buffer.concat([header, Buffer.from(name, "utf8")])
+}
+
+export function encryptFile(plaintext: Buffer, master: Buffer, name: string): Buffer {
   const dek = randomBytes(DEK_LEN)
   const prefix = Buffer.concat([MAGIC, Buffer.from([VERSION]), keyId(master)])
 
@@ -69,15 +113,19 @@ export function encryptFile(plaintext: Buffer, master: Buffer): Buffer {
   const wrapTag = wrap.getAuthTag()
 
   const dataIv = randomBytes(IV_LEN)
-  const header = Buffer.concat([prefix, wrapIv, wrapTag, wrappedDek])
+  const header = Buffer.concat([prefix, wrapIv, wrapTag, wrappedDek, dataIv])
   const cipher = createCipheriv("aes-256-gcm", dek, dataIv)
-  cipher.setAAD(Buffer.concat([header, dataIv]))
+  cipher.setAAD(dataAad(header, name))
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  return Buffer.concat([header, dataIv, cipher.getAuthTag(), ciphertext])
+  return Buffer.concat([header, cipher.getAuthTag(), ciphertext])
 }
 
-export function decryptFile(sealed: Buffer, master: Buffer): Buffer {
-  if (!isEncryptedFile(sealed)) throw new StorageCryptoError("not an encrypted file")
+/**
+ * Decrypt a file stored under `name`. Fails closed: anything that carries the
+ * marker but is not a well-formed, intact envelope for this key and name throws.
+ */
+export function decryptFile(sealed: Buffer, master: Buffer, name: string): Buffer {
+  if (!isEncryptedFile(sealed)) throw new StorageCryptoError("file carries the encryption marker but its header is malformed")
   const prefix = sealed.subarray(0, WRAP_AAD_LEN)
   if (!prefix.subarray(MAGIC.length + 1).equals(keyId(master))) {
     throw new StorageCryptoError("file was encrypted with a different UPLOADS_ENC_KEY")
@@ -95,10 +143,10 @@ export function decryptFile(sealed: Buffer, master: Buffer): Buffer {
     const dek = Buffer.concat([unwrap.update(wrappedDek), unwrap.final()])
 
     const decipher = createDecipheriv("aes-256-gcm", dek, dataIv)
-    decipher.setAAD(sealed.subarray(0, WRAPPED_END + IV_LEN))
+    decipher.setAAD(dataAad(sealed.subarray(0, WRAPPED_END + IV_LEN), name))
     decipher.setAuthTag(dataTag)
     return Buffer.concat([decipher.update(sealed.subarray(ENCRYPTED_HEADER_LEN)), decipher.final()])
   } catch {
-    throw new StorageCryptoError("encrypted file failed its integrity check (tampered or corrupt)")
+    throw new StorageCryptoError("encrypted file failed its integrity check (tampered, corrupt, or stored under another name)")
   }
 }

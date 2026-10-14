@@ -20,7 +20,9 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | `UNSUB_TOKEN_SECRET` | required | unsubscribe links; templated emails are refused without it |
 | `WABA_ENC_KEY` | required | 32 bytes base64; seals stored email and WhatsApp credentials. Losing it orphans them |
 | `UPLOADS_ENC_KEY` | required for new lenders (generated) | 32 bytes base64; master key of the uploads' envelope encryption (`lib/storage-crypto.ts`). Unset, new files are written in plaintext and `/api/health` warns `storage_encryption_off`. Losing it loses every encrypted document, backups included: copy it off the host with the backup passphrase. Existing files: `scripts/lender/encrypt-uploads.sh` |
+| `UPLOADS_ENC_REQUIRED` | optional | `true`/`false`. Unset: on when `NODE_ENV=production` and not `DEMO_MODE=true`. When on, storage refuses to write without `UPLOADS_ENC_KEY` and refuses to read a plaintext file (so `/api/health` fails). Set `false` only while `encrypt-uploads.sh` converts an older lender's files |
 | `WEBHOOK_SECRET_KEY` | required for webhooks (generated) | 32 bytes base64; seals the lender API's webhook signing secrets. Unset, endpoints cannot be added and deliveries fail |
+| `API_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` | optional | days kept by the nightly `lender-api-retention` cron: API request logs (default 90), finished webhook deliveries and their events (default 30) |
 | `ADMIN_SECRET` | optional | `x-admin-secret` for `/api/admin/tenants` |
 | `TRUSTED_PROXY` | set behind a proxy | number of proxies in front; default `0` |
 | `APP_MODE` | set by compose | `staff` on the staff container, `client` on the portal (`all` is the app's default when unset) |

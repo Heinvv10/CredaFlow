@@ -37,7 +37,7 @@ async function main(): Promise<number> {
   const r = await encryptUploads(dir, master, dryRun)
   const verb = dryRun ? "would encrypt" : "encrypted"
   process.stdout.write(
-    `${dryRun ? "[dry run] " : ""}${dir}: ${verb} ${r.encrypted.length}, already encrypted ${r.alreadyEncrypted}, failed ${r.failed.length}\n`,
+    `${dryRun ? "[dry run] " : ""}${dir}: ${verb} ${r.encrypted.length}, already encrypted ${r.alreadyEncrypted}, failed ${r.failed.length}, stale temp files removed ${r.staleTempsRemoved}\n`,
   )
   if (r.skippedEntries.length > 0) {
     process.stdout.write(`not entered (directories, dotfiles, special files): ${r.skippedEntries.join(", ")}\n`)

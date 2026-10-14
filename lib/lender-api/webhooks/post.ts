@@ -40,6 +40,7 @@ export async function postWebhook(url: string, body: string, headers: Record<str
   try {
     target = new URL(url)
     if (target.protocol !== "https:") return refused(url, new SsrfError("not https"))
+    if (target.port !== "" && target.port !== "443") return refused(url, new SsrfError("not port 443"))
     const host = target.hostname.replace(/^\[|\]$/g, "")
     if (isIP(host)) await resolvePublic(host, resolve)
   } catch (error) {

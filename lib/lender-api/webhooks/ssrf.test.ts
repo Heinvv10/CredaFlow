@@ -12,6 +12,7 @@ describe("isBlockedAddress", () => {
     "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1", "255.255.255.255", "198.18.0.1",
     "::1", "::", "fe80::1", "fd00::1", "fc00::1", "ff02::1",
     "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:a9fe:a9fe", "64:ff9b::a9fe:a9fe", "2002:7f00:0001::1",
+    "64:ff9b:1::a00:5", "3fff::1", "3fff:fff:ffff::1", "2001:10::1", "2001:2f::1",
     "not-an-ip",
   ])("blocks %s", (ip) => expect(isBlockedAddress(ip)).toBe(true))
 
@@ -72,7 +73,7 @@ describe("postWebhook never dials a blocked address", () => {
   }
 
   it("refuses an IP-literal URL before connecting", async () => {
-    const result = await postWebhook(`https://127.0.0.1:${port}/hook`, "{}", {})
+    const result = await postWebhook(`https://127.0.0.1/hook`, "{}", {})
     expect(result).toMatchObject({ ok: false, status: null })
     isGenericRefusal(result.error)
     expect(connections).toBe(0)
@@ -80,7 +81,7 @@ describe("postWebhook never dials a blocked address", () => {
 
   it("checks the address inside the connection's own lookup", async () => {
     const resolve = vi.fn<Resolver>(async () => answers("127.0.0.1"))
-    const result = await postWebhook(`https://internal.example.test:${port}/hook`, "{}", {}, { resolve })
+    const result = await postWebhook(`https://internal.example.test/hook`, "{}", {}, { resolve })
     expect(resolve).toHaveBeenCalledWith("internal.example.test")
     expect(result.ok).toBe(false)
     isGenericRefusal(result.error)
@@ -90,7 +91,7 @@ describe("postWebhook never dials a blocked address", () => {
   it("DNS rebinding: a name that was public when saved and private when dialled is refused", async () => {
     let calls = 0
     const rebinding: Resolver = async () => (++calls === 1 ? answers(PUBLIC) : answers("127.0.0.1"))
-    const url = `https://rebind.example.test:${port}/hook`
+    const url = `https://rebind.example.test/hook`
     await expect(assertWebhookUrl(url, rebinding)).resolves.toBeInstanceOf(URL)
     const result = await postWebhook(url, "{}", {}, { resolve: rebinding })
     expect(calls).toBe(2)
@@ -102,20 +103,30 @@ describe("postWebhook never dials a blocked address", () => {
   })
 
   it("answers the same for a name that does not resolve and one that resolves privately", async () => {
-    const gone = await postWebhook(`https://gone.example.test:${port}/`, "{}", {}, { resolve: async () => { throw new Error("ENOTFOUND") } })
-    const inside = await postWebhook(`https://inside.example.test:${port}/`, "{}", {}, { resolve: async () => answers("10.1.2.3") })
+    const gone = await postWebhook(`https://gone.example.test/`, "{}", {}, { resolve: async () => { throw new Error("ENOTFOUND") } })
+    const inside = await postWebhook(`https://inside.example.test/`, "{}", {}, { resolve: async () => answers("10.1.2.3") })
     expect(gone.error).toBe(inside.error)
     isGenericRefusal(gone.error)
   })
 
+  it("refuses any port but 443, at save and when posting, without dialling", async () => {
+    await expect(assertWebhookUrl(`https://hooks.example.com:${port}/x`, async () => answers(PUBLIC))).rejects.toThrow(/port 443/)
+    await expect(assertWebhookUrl("https://hooks.example.com:8443/x", async () => answers(PUBLIC))).rejects.toThrow(/port 443/)
+    await expect(assertWebhookUrl("https://hooks.example.com:443/x", async () => answers(PUBLIC))).resolves.toBeInstanceOf(URL)
+    const resolve = vi.fn<Resolver>(async () => answers(PUBLIC))
+    isGenericRefusal((await postWebhook(`https://hooks.example.com:${port}/x`, "{}", {}, { resolve })).error)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(connections).toBe(0)
+  })
+
   it("refuses an http URL outright", async () => {
-    isGenericRefusal((await postWebhook(`http://example.test:${port}/`, "{}", {})).error)
+    isGenericRefusal((await postWebhook(`http://example.test/`, "{}", {})).error)
   })
 
   it("gives up at its deadline, however long the lookup or the receiver takes", async () => {
     const started = Date.now()
     const hanging: Resolver = () => new Promise(() => undefined)
-    const result = await postWebhook(`https://slow.example.test:${port}/`, "{}", {}, { resolve: hanging, timeoutMs: 200 })
+    const result = await postWebhook(`https://slow.example.test/`, "{}", {}, { resolve: hanging, timeoutMs: 200 })
     expect(Date.now() - started).toBeLessThan(2_000)
     expect(result).toMatchObject({ ok: false, status: null })
     expect(connections).toBe(0)

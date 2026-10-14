@@ -10,6 +10,7 @@ import { isUniqueConstraintViolation, OPEN_APPLICATION_STATUSES } from "@/lib/ap
 import { EMPTY_APPLICATION_WIZARD_DATA } from "@/components/applications/wizard/types"
 import type { ApiCaller } from "@/lib/lender-api/handler"
 import { isIdShaped } from "@/lib/lender-api/pagination"
+import { hasScope } from "@/lib/lender-api/scopes"
 import { applicationSelect, toApiApplication } from "@/lib/lender-api/serializers"
 
 /**
@@ -147,7 +148,7 @@ export async function createDraftApplication(caller: ApiCaller, input: CreateApp
           affordabilityFlag: flag,
         },
       }, tx)
-      return { status: 201, body: toApiApplication(created) }
+      return { status: 201, body: toApiApplication(created, { pii: hasScope(caller.scopes, "pii:read") }) }
     })
   } catch (error) {
     if (!isUniqueConstraintViolation(error)) throw error

@@ -32,6 +32,8 @@ for (const [net, prefix] of [
 for (const [net, prefix] of [
   ["::", 128], ["::1", 128], ["::", 96], ["100::", 64], ["2001::", 32], ["2001:db8::", 32],
   ["fc00::", 7], ["fe80::", 10], ["fec0::", 10], ["ff00::", 8],
+  // Local-use NAT64 (RFC 8215), the documentation range (RFC 9637), ORCHIDv2 (RFC 7343).
+  ["64:ff9b:1::", 48], ["3fff::", 20], ["2001:10::", 28], ["2001:20::", 28],
 ] as const) blocked.addSubnet(net, prefix, "ipv6")
 
 /** The IPv4 address embedded in an IPv4-mapped, NAT64 or 6to4 IPv6 address. */
@@ -103,6 +105,8 @@ export async function assertWebhookUrl(raw: string, resolve: Resolver = systemRe
   }
   if (url.protocol !== "https:") throw new SsrfError("the URL must use https")
   if (url.username || url.password) throw new SsrfError("the URL must not contain credentials")
+  // Only the https port: other ports would let the URL probe services on public hosts.
+  if (url.port !== "" && url.port !== "443") throw new SsrfError("the URL must use port 443")
   if (raw.length > 2048) throw new SsrfError("the URL is too long")
   await resolvePublic(url.hostname, resolve)
   return url

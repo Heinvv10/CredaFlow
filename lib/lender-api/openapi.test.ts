@@ -85,10 +85,13 @@ describe("serializers match the documented schemas", () => {
     conforms(toApiClient(client, { pii: true }), "Client")
   })
   it("Application, Loan, ScheduleItem, Payment", () => {
-    conforms(toApiApplication({
-      id: "a1", reference: "APP-1", clientId: "c1", entityId: null, productId: "p1", status: "DRAFT",
+    const application = {
+      id: "a1", reference: "APP-1", clientId: "c1", entityId: null, productId: "p1", status: "DRAFT" as const,
       appliedAmount: 100000, appliedTermDays: 30, purpose: "x", submittedAt: null, approvedAt: null, disbursedAt: null, createdAt: d, updatedAt: d,
-    }), "Application")
+    }
+    conforms(toApiApplication(application, { pii: true }), "Application")
+    conforms(toApiApplication(application, { pii: false }), "Application")
+    expect(toApiApplication(application, { pii: false })).not.toHaveProperty("purpose")
     conforms(toApiLoan({
       id: "l1", reference: "LN-1", applicationId: "a1", clientId: "c1", entityId: null, productId: "p1", contractType: "LOAN",
       status: "ACTIVE", principal: 1, totalInterest: 1, initiationFee: 1, totalRepayable: 3, outstandingPrincipal: 1, totalPaid: 0,
@@ -99,9 +102,12 @@ describe("serializers match the documented schemas", () => {
       id: "s1", installmentNo: 1, dueDate: d, principalDue: 1, interestDue: 1, feesDue: 0, creditLifePremiumDue: 0,
       totalDue: 2, totalPaid: 0, status: "PENDING", paidAt: null,
     }), "ScheduleItem")
-    conforms(toApiPayment({
-      id: "py1", loanId: "l1", amount: 100, paymentMethod: "EFT", reference: null, allocationStatus: "ALLOCATED",
+    const payment = {
+      id: "py1", loanId: "l1", amount: 100, paymentMethod: "EFT" as const, reference: "synthetic ref", allocationStatus: "ALLOCATED" as const,
       receivedAt: d, reversed: false, reversedAt: null, createdAt: d,
-    }), "Payment")
+    }
+    conforms(toApiPayment(payment, { pii: true }), "Payment")
+    conforms(toApiPayment(payment, { pii: false }), "Payment")
+    expect(toApiPayment(payment, { pii: false })).not.toHaveProperty("reference")
   })
 })

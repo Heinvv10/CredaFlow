@@ -225,12 +225,23 @@ messages a borrower.
 
 ### Encryption at rest of existing uploads
 
+Every file `lib/storage.ts` writes is encrypted with a per-file key wrapped by
+`UPLOADS_ENC_KEY`, bound to its path under the uploads volume (a file moved or
+swapped under another name does not open): client documents, NCA artefacts and
+the insurance disclosure PDFs (`disclosures/`). Tenant logos (`tenant-logos/`) are
+public and stay plaintext. In production (unless `DEMO_MODE=true`) encryption is
+required by default (`UPLOADS_ENC_REQUIRED`): no key, no write, and a plaintext
+file is refused on read, which `/api/health` reports as a storage failure.
+
 New lenders get `UPLOADS_ENC_KEY` from `provision-lender.sh`. For a lender provisioned
 before it: rerun `provision-lender.sh` (it adds the missing key, never rotates one),
-redeploy so the app reads and writes with the key, take a backup, then
-`encrypt-uploads.sh <dir> --dry-run`, `encrypt-uploads.sh <dir>`, `encrypt-uploads.sh <dir> --verify`.
-It converts one file at a time (temp file, read-back, rename), skips files already
-encrypted, and refuses while the running app lacks the key.
+set `UPLOADS_ENC_REQUIRED=false` in `.env`, redeploy so the app reads and writes
+with the key, take a backup, then `encrypt-uploads.sh <dir> --dry-run`,
+`encrypt-uploads.sh <dir>`, `encrypt-uploads.sh <dir> --verify`; then remove
+`UPLOADS_ENC_REQUIRED` and redeploy. It converts one file at a time (a temp file with
+a random name, read-back, rename; temp files of an interrupted run are deleted first),
+skips files already encrypted, never re-wraps a file encrypted under another key or one
+that fails its check (it reports them), and refuses while the running app lacks the key.
 
 `restore.sh` creates `<db>_restore_<UTC>`, restores with `--exit-on-error`, checks
 `_prisma_migrations` (rows, none unfinished) and compares the row counts with the
@@ -260,6 +271,19 @@ its next deploy) and per-job `detail`. Probe errors go to the container log only
 freshness comes from `CronHeartbeat`, written after every in-process job
 (`instrumentation.ts`); jobs an external scheduler owns are not tracked. Point an uptime
 monitor at it; nothing here sends alerts.
+
+## Lender API logs and webhooks
+
+`ApiRequestLog` gets a row for every `/api/v1` request that names a real key; requests
+naming no key, and 429s, are sampled (10 a minute per process; the rest are counted in the
+container log). Rate limits: 120 a minute per key, and failed authentications per caller
+address (30 a minute, only when `TRUSTED_PROXY` makes the address known) answer 429 instead
+of 401; a valid key is never throttled by other callers' failures. The nightly
+`lender-api-retention` cron deletes request logs after `API_LOG_RETENTION_DAYS` (90) and
+finished webhook deliveries with their events after `WEBHOOK_LOG_RETENTION_DAYS` (30).
+A webhook endpoint that fails 20 deliveries in a row is paused (audited
+`WEBHOOK_ENDPOINT_PAUSED`); its deliveries wait without spending attempts until an admin
+resumes it in Settings → API & webhooks. Deliveries of a lender that is not ACTIVE wait too.
 
 ## Admin recovery
 

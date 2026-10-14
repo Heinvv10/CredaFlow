@@ -13,7 +13,7 @@ export interface ApiKeyRow {
   name: string
   prefix: string
   scopes: string[]
-  state: "active" | "revoked" | "expired"
+  state: "active" | "revoked" | "expired" | "suspended"
   createdBy: string
   createdAt: string
   expiresAt: string
@@ -26,6 +26,12 @@ interface Props {
 }
 
 const LIFETIMES = [30, 90, 180, 365] as const
+
+function stateClass(state: ApiKeyRow["state"]): string {
+  if (state === "active") return "text-[var(--cf-success)]"
+  if (state === "suspended") return "text-[var(--cf-warning)]"
+  return "text-[var(--cf-text-muted)]"
+}
 
 export function ApiKeysCard({ keys, canManage }: Props) {
   const router = useRouter()
@@ -105,7 +111,28 @@ export function ApiKeysCard({ keys, canManage }: Props) {
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        {/* Small screens: one stacked card per key, state and Revoke always in view. */}
+        <ul className="space-y-2 md:hidden">
+          {keys.length === 0 && <li className="text-sm text-[var(--cf-text-muted)]">No API keys yet.</li>}
+          {keys.map((k) => (
+            <li key={k.id} className="space-y-1 rounded-lg border border-[var(--cf-border-subtle)] p-3 text-sm text-[var(--cf-text)]">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium break-words">{k.name}</p>
+                  <p className={`text-xs ${stateClass(k.state)}`}>{k.state}</p>
+                </div>
+                {canManage && (k.state === "active" || k.state === "suspended") && (
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void revoke(k)}>Revoke</Button>
+                )}
+              </div>
+              <p className="break-all"><code>cfk_{k.prefix}_…</code></p>
+              <p className="text-xs text-[var(--cf-text-secondary)] break-words">{k.scopes.join(", ")}</p>
+              <p className="text-xs text-[var(--cf-text-muted)]">Expires {k.expiresAt} · last used {k.lastUsedAt ?? "never"} · by {k.createdBy}</p>
+            </li>
+          ))}
+        </ul>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead className="text-left text-[var(--cf-text-muted)]">
               <tr>
@@ -129,9 +156,9 @@ export function ApiKeysCard({ keys, canManage }: Props) {
                   <td className="py-2 pr-3 text-xs">{k.scopes.join(", ")}</td>
                   <td className="py-2 pr-3">{k.expiresAt}</td>
                   <td className="py-2 pr-3">{k.lastUsedAt ?? "Never"}</td>
-                  <td className={`py-2 pr-3 ${k.state === "active" ? "text-[var(--cf-success)]" : "text-[var(--cf-text-muted)]"}`}>{k.state}</td>
+                  <td className={`py-2 pr-3 ${stateClass(k.state)}`} title={k.state === "suspended" ? "Its creator is no longer an active admin: the key is refused. Revoke it and create a new one." : undefined}>{k.state}</td>
                   <td className="py-2 text-right">
-                    {canManage && k.state === "active" && (
+                    {canManage && (k.state === "active" || k.state === "suspended") && (
                       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void revoke(k)}>Revoke</Button>
                     )}
                   </td>
@@ -167,7 +194,10 @@ export function ApiKeysCard({ keys, canManage }: Props) {
                 {LIFETIMES.map((d) => <option key={d} value={d}>{d} days</option>)}
               </select>
             </div>
-            <Button type="submit" disabled={busy || !name.trim() || scopes.length === 0}>Create key</Button>
+            {/* Enabled while the form is incomplete: the browser's own required-field
+                prompt and the server's message explain what is missing, where a
+                disabled (faded) button explained nothing. */}
+            <Button type="submit" disabled={busy}>Create key</Button>
           </form>
         ) : (
           <p className="text-sm text-[var(--cf-text-muted)]">Creating and revoking keys needs an Admin signed in with two-factor authentication.</p>

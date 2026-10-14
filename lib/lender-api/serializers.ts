@@ -8,7 +8,9 @@ import type { Prisma } from "@prisma/client"
  *
  * Client personal data: without the `pii:read` scope a client carries its
  * names, reference and a masked ID number only; email, phone, date of birth
- * and the full ID number need `pii:read`.
+ * and the full ID number need `pii:read`. So does free text a borrower or staff
+ * typed that can carry personal detail: an application's purpose and a
+ * payment's reference.
  */
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null)
@@ -46,7 +48,7 @@ export const applicationSelect = {
 } satisfies Prisma.LoanApplicationSelect
 type ApplicationRow = Prisma.LoanApplicationGetPayload<{ select: typeof applicationSelect }>
 
-export function toApiApplication(a: ApplicationRow) {
+export function toApiApplication(a: ApplicationRow, opts: { pii: boolean }) {
   return {
     id: a.id,
     reference: a.reference,
@@ -56,7 +58,7 @@ export function toApiApplication(a: ApplicationRow) {
     status: a.status,
     appliedAmountCents: a.appliedAmount,
     appliedTermDays: a.appliedTermDays,
-    purpose: a.purpose,
+    ...(opts.pii ? { purpose: a.purpose } : {}),
     submittedAt: iso(a.submittedAt),
     approvedAt: iso(a.approvedAt),
     disbursedAt: iso(a.disbursedAt),
@@ -130,13 +132,13 @@ export const paymentSelect = {
 } satisfies Prisma.PaymentSelect
 type PaymentRow = Prisma.PaymentGetPayload<{ select: typeof paymentSelect }>
 
-export function toApiPayment(p: PaymentRow) {
+export function toApiPayment(p: PaymentRow, opts: { pii: boolean }) {
   return {
     id: p.id,
     loanId: p.loanId,
     amountCents: p.amount,
     paymentMethod: p.paymentMethod,
-    reference: p.reference,
+    ...(opts.pii ? { reference: p.reference } : {}),
     allocationStatus: p.allocationStatus,
     receivedAt: p.receivedAt.toISOString(),
     reversed: p.reversed,

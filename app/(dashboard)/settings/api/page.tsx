@@ -2,7 +2,7 @@ import { requireMinRole, hasMinRole } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { prisma } from "@/lib/prisma"
 import { formatDateTime } from "@/lib/utils"
-import { apiKeyState } from "@/lib/lender-api/keys"
+import { apiKeyState, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { Header } from "@/components/layout/Header"
 import { ApiKeysCard } from "@/components/settings/ApiKeysCard"
 import { WebhookEndpointsCard } from "@/components/settings/WebhookEndpointsCard"
@@ -24,13 +24,13 @@ export default async function ApiSettingsPage() {
       orderBy: { createdAt: "desc" },
       select: {
         id: true, name: true, prefix: true, scopes: true, createdAt: true, expiresAt: true,
-        lastUsedAt: true, revokedAt: true, createdBy: { select: { email: true } },
+        lastUsedAt: true, revokedAt: true, createdBy: { select: { email: true, active: true, role: true } },
       },
     }),
     prisma.webhookEndpoint.findMany({
       where: { tenantId },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
-      select: { id: true, url: true, description: true, events: true, secretPrefix: true, active: true, createdAt: true },
+      select: { id: true, url: true, description: true, events: true, secretPrefix: true, active: true, createdAt: true, pausedAt: true, pausedReason: true, consecutiveFailures: true },
     }),
     prisma.webhookDelivery.findMany({
       where: { tenantId },
@@ -61,7 +61,8 @@ export default async function ApiSettingsPage() {
             name: k.name,
             prefix: k.prefix,
             scopes: k.scopes,
-            state: apiKeyState(k),
+            // A key whose creator is no longer an active ADMIN stops working (lib/lender-api/handler.ts).
+            state: apiKeyState(k) === "active" && !keyIssuerStillAuthorised(k.createdBy) ? "suspended" : apiKeyState(k),
             createdBy: k.createdBy.email,
             createdAt: formatDateTime(k.createdAt),
             expiresAt: formatDateTime(k.expiresAt),
@@ -70,7 +71,7 @@ export default async function ApiSettingsPage() {
         />
         <WebhookEndpointsCard
           canManage={canManage}
-          endpoints={endpoints.map((e) => ({ ...e, createdAt: formatDateTime(e.createdAt) }))}
+          endpoints={endpoints.map((e) => ({ ...e, createdAt: formatDateTime(e.createdAt), pausedAt: e.pausedAt ? formatDateTime(e.pausedAt) : null }))}
           deliveries={deliveries.map((d) => ({
             id: d.id,
             eventType: d.event.type,

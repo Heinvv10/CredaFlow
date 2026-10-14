@@ -22,7 +22,7 @@ vi.mock("@/lib/prisma", () => {
       // claimDue: ten due rows per claim, for ever.
       $queryRaw: async () => {
         h.claims++
-        return Array.from({ length: 10 }, (_, i) => ({ id: `d${h.claims}-${i}` }))
+        return Array.from({ length: 10 }, (_, i) => ({ id: `d${h.claims}-${i}`, endpointId: `ep${h.claims}-${i}` }))
       },
       webhookDelivery: {
         findUniqueOrThrow: async ({ where }: { where: { id: string } }) => ({
@@ -36,6 +36,7 @@ vi.mock("@/lib/prisma", () => {
   }
 })
 vi.mock("./endpoints", () => ({ webhookSecretKey: () => "k" }))
+vi.mock("./circuit-breaker", () => ({ recordEndpointOutcome: async () => null }))
 vi.mock("@/lib/crypto/secret-box", () => ({ openSecret: () => "whsec_test" }))
 vi.mock("./post", () => ({
   postWebhook: async () => {

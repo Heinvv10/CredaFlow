@@ -52,6 +52,18 @@ export function apiKeyState(row: { revokedAt: Date | null; expiresAt: Date }, no
   return "active"
 }
 
+/**
+ * Roles that may hold API keys (Settings → API & webhooks needs ADMIN). Mirrors
+ * the top of ROLE_HIERARCHY in lib/auth-guards.ts, kept here so the request
+ * path does not load the session module.
+ */
+const KEY_ISSUER_ROLES = new Set(["ADMIN", "SUPER_ADMIN"])
+
+/** A key stops working once its creator is deactivated or drops below ADMIN. */
+export function keyIssuerStillAuthorised(creator: { active: boolean; role: string }): boolean {
+  return creator.active && KEY_ISSUER_ROLES.has(creator.role)
+}
+
 /** Lifetimes a lender can choose when creating a key. */
 export const API_KEY_LIFETIME_DAYS = [30, 90, 180, 365] as const
 

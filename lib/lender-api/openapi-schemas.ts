@@ -33,10 +33,10 @@ export const schemas = {
   Application: obj({
     id: str, reference: str, clientId: nullableStr, entityId: nullableStr, productId: str,
     status: { type: "string", enum: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "DECLINED", "DISBURSED", "CANCELLED"] },
-    appliedAmountCents: cents, appliedTermDays: int, purpose: nullableStr,
+    appliedAmountCents: cents, appliedTermDays: int, purpose: { ...nullableStr, description: "Only with the pii:read scope (free text)." },
     submittedAt: nullableDateTime, approvedAt: nullableDateTime, disbursedAt: nullableDateTime,
     createdAt: dateTime, updatedAt: dateTime,
-  }),
+  }, ["purpose"]),
   CreateApplication: obj({
     clientId: str, productId: str, appliedAmountCents: cents, appliedTermDays: int,
     purpose: { type: "string", maxLength: 500 },
@@ -62,10 +62,11 @@ export const schemas = {
     paidAt: nullableDateTime,
   }),
   Payment: obj({
-    id: str, loanId: str, amountCents: cents, paymentMethod: str, reference: nullableStr,
+    id: str, loanId: str, amountCents: cents, paymentMethod: str,
+    reference: { ...nullableStr, description: "Only with the pii:read scope (free text)." },
     allocationStatus: str, receivedAt: dateTime, reversed: { type: "boolean" }, reversedAt: nullableDateTime,
     createdAt: dateTime,
-  }),
+  }, ["reference"]),
   WebhookEvent: obj({
     id: { type: "string", description: "Stable per event: dedupe on it (delivery is at-least-once)." },
     type: { type: "string", enum: ["application.created", "application.status_changed", "loan.disbursed", "payment.received"] },

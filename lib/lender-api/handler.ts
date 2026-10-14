@@ -1,21 +1,27 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
-import { callerIp, checkRateLimit, recordedCallerIp } from "@/lib/rate-limit"
-import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken } from "@/lib/lender-api/keys"
+import { checkRateLimit, recordedCallerIp } from "@/lib/rate-limit"
+import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
 
 /**
  * The one entry point for /api/v1 routes. Every call:
- *   1. is rate limited per caller address (bounds unauthenticated floods),
- *   2. must carry `Authorization: Bearer cfk_…` naming an active, unexpired key
- *      of an ACTIVE tenant,
- *   3. must hold the route's scope,
- *   4. is rate limited per key,
- *   5. runs inside runWithTenant(key.tenantId): the tenant comes from the key
+ *   1. must carry `Authorization: Bearer cfk_…` naming an active, unexpired key
+ *      of an ACTIVE tenant, whose creator is still an active ADMIN or above,
+ *   2. must hold the route's scope,
+ *   3. is rate limited per KEY (any request naming a real key counts, refused
+ *      or not), so one key's traffic never spends another's allowance,
+ *   4. runs inside runWithTenant(key.tenantId): the tenant comes from the key
  *      row only, never from a header or the host, and the Prisma tenant-scope
  *      extension confines every query to it,
- *   6. is written to ApiRequestLog with its status, whatever the outcome.
+ *   5. is written to ApiRequestLog, except that rows naming no key and 429s are
+ *      sampled (UNATTRIBUTED_LOG_SAMPLE per process) so a flood of junk keys
+ *      cannot fill the table; what is dropped is counted in the server log.
+ * Failed authentication is also counted per caller address when the address
+ * is known (TRUSTED_PROXY): over the limit, failures answer 429 instead of
+ * 401. That bucket is never consulted for a valid key, so junk traffic from
+ * anywhere can never lock a real integration out.
  */
 
 export interface ApiCaller {
@@ -26,7 +32,8 @@ export interface ApiCaller {
 }
 
 export const API_KEY_RATE_LIMIT = { limit: 120, windowMs: 60_000 }
-export const API_IP_RATE_LIMIT = { limit: 600, windowMs: 60_000 }
+export const API_FAILED_AUTH_IP_LIMIT = { limit: 30, windowMs: 60_000 }
+export const UNATTRIBUTED_LOG_SAMPLE = { limit: 10, windowMs: 60_000 }
 const LAST_USED_RESOLUTION_MS = 60_000
 
 export function apiError(status: number, code: string, message: string, headers?: HeadersInit): NextResponse {
@@ -55,12 +62,18 @@ export async function authenticateApiKey(req: Request, now: Date = new Date()): 
       id: true, tenantId: true, keyHash: true, scopes: true, createdById: true,
       expiresAt: true, revokedAt: true, lastUsedAt: true,
       tenant: { select: { status: true } },
+      createdBy: { select: { active: true, role: true } },
     },
   }))
   if (!row || !apiKeyMatches(token, row.keyHash)) return fail(401, "invalid_api_key", "The API key is not valid.")
 
   const state = apiKeyState(row, now)
   if (state !== "active") return fail(401, `api_key_${state}`, `The API key is ${state}.`, row.tenantId, row.id)
+  // A key is a standing grant by the admin who made it: once they are
+  // deactivated or no longer an ADMIN, it stops working (Settings shows it as suspended).
+  if (!keyIssuerStillAuthorised(row.createdBy)) {
+    return fail(401, "api_key_suspended", "The API key's creator is no longer an active admin. Create a new key.", row.tenantId, row.id)
+  }
   if (row.tenant.status !== "ACTIVE") return fail(403, "tenant_inactive", "This lender is not active.", row.tenantId, row.id)
 
   return {
@@ -78,7 +91,22 @@ async function touchLastUsed(caller: ApiCaller, lastUsedAt: Date | null, now: Da
   })
 }
 
+let suppressedLogRows = 0
+
+/** Whether to write this row: always when it names a key and is not a 429, else sampled. */
+function shouldLog(keyId: string | null, status: number): boolean {
+  if (keyId !== null && status !== 429) return true
+  if (checkRateLimit("lender-api:log-unattributed", UNATTRIBUTED_LOG_SAMPLE).allowed) return true
+  suppressedLogRows++
+  return false
+}
+
 async function logRequest(req: Request, entry: { tenantId: string | null; keyId: string | null; status: number; startedAt: number }) {
+  if (!shouldLog(entry.keyId, entry.status)) return
+  if (suppressedLogRows > 0) {
+    console.warn(`[lender-api] ${suppressedLogRows} unattributed or rate-limited request(s) not written to ApiRequestLog (sampled)`)
+    suppressedLogRows = 0
+  }
   try {
     await prisma.apiRequestLog.create({
       data: {
@@ -97,6 +125,10 @@ async function logRequest(req: Request, entry: { tenantId: string | null; keyId:
   }
 }
 
+function tooMany(retryAfterSeconds: number, message: string): NextResponse {
+  return apiError(429, "rate_limited", message, { "Retry-After": String(retryAfterSeconds) })
+}
+
 export async function withApiKey(
   req: Request,
   scope: ApiScope,
@@ -107,35 +139,27 @@ export async function withApiKey(
   let keyId: string | null = null
   let response: Response
   try {
-    const ipLimit = checkRateLimit(`lender-api:ip:${callerIp(req)}`, API_IP_RATE_LIMIT)
-    if (!ipLimit.allowed) {
-      response = apiError(429, "rate_limited", "Too many requests.", { "Retry-After": String(ipLimit.retryAfterSeconds) })
+    const auth = await authenticateApiKey(req)
+    tenantId = auth.ok ? auth.caller.tenantId : auth.tenantId
+    keyId = auth.ok ? auth.caller.keyId : auth.keyId
+    // Per key, for every request that names a real key (refused ones too).
+    const keyLimit = keyId ? checkRateLimit(`lender-api:key:${keyId}`, API_KEY_RATE_LIMIT) : null
+    if (keyLimit && !keyLimit.allowed) {
+      response = tooMany(keyLimit.retryAfterSeconds, "Too many requests for this API key.")
+    } else if (!auth.ok) {
+      const ip = recordedCallerIp(req)
+      const ipLimit = ip ? checkRateLimit(`lender-api:failed-auth:${ip}`, API_FAILED_AUTH_IP_LIMIT) : null
+      response = ipLimit && !ipLimit.allowed ? tooMany(ipLimit.retryAfterSeconds, "Too many failed requests.") : auth.response
+    } else if (!hasScope(auth.caller.scopes, scope)) {
+      response = apiError(403, "insufficient_scope", `This API key does not have the ${scope} scope.`)
     } else {
-      const auth = await authenticateApiKey(req)
-      if (!auth.ok) {
-        tenantId = auth.tenantId
-        keyId = auth.keyId
-        response = auth.response
-      } else {
-        const { caller } = auth
-        tenantId = caller.tenantId
-        keyId = caller.keyId
-        if (!hasScope(caller.scopes, scope)) {
-          response = apiError(403, "insufficient_scope", `This API key does not have the ${scope} scope.`)
-        } else {
-          const keyLimit = checkRateLimit(`lender-api:key:${caller.keyId}`, API_KEY_RATE_LIMIT)
-          if (!keyLimit.allowed) {
-            response = apiError(429, "rate_limited", "Too many requests for this API key.", { "Retry-After": String(keyLimit.retryAfterSeconds) })
-          } else {
-            response = await runWithTenant(caller.tenantId, async () => {
-              await touchLastUsed(caller, auth.lastUsedAt, new Date())
-              return handler(caller)
-            })
-            response.headers.set("X-RateLimit-Limit", String(API_KEY_RATE_LIMIT.limit))
-            response.headers.set("X-RateLimit-Remaining", String(keyLimit.remaining))
-          }
-        }
-      }
+      const { caller } = auth
+      response = await runWithTenant(caller.tenantId, async () => {
+        await touchLastUsed(caller, auth.lastUsedAt, new Date())
+        return handler(caller)
+      })
+      response.headers.set("X-RateLimit-Limit", String(API_KEY_RATE_LIMIT.limit))
+      response.headers.set("X-RateLimit-Remaining", String(keyLimit?.remaining ?? 0))
     }
   } catch (error) {
     console.error("[lender-api] request failed", { path: new URL(req.url).pathname, keyId }, error)
