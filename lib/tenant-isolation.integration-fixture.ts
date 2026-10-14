@@ -107,7 +107,7 @@ export async function dropIsolationFixture(db: PrismaClient, f: IsolationFixture
   if (!f) return
   const tenants = [f.a.tenantId, f.b.tenantId]
   const byTenant = [
-    "AuditLog", "TenantSupportGrant", "Loan", "LoanApplication", "LoanProduct", "ClientDocument", "Client", "User",
+    "AuditLog", "TenantSupportGrant", "PaymentArrangement", "Loan", "LoanApplication", "LoanProduct", "ClientDocument", "Client", "User",
   ]
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),

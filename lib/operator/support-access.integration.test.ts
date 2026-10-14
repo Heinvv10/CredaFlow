@@ -25,6 +25,7 @@ vi.mock("next/headers", async (importOriginal) => ({
 import { randomUUID } from "node:crypto"
 import { GET, PUT } from "@/app/api/clients/[id]/route"
 import { POST as postMessage } from "@/app/api/clients/[id]/messages/route"
+import { GET as arrangementStatus } from "@/app/api/loans/[id]/arrangement-status/route"
 import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
 import { grantSupportAccess, revokeSupportAccess, SupportGrantRefusal } from "./support-grants"
 import { createIsolationFixture, dropIsolationFixture, type IsolationFixture, type Lender } from "../tenant-isolation.integration-fixture"
@@ -121,6 +122,30 @@ suite("operator support access — grant-gated, read-only, audited", () => {
     expect(await lastRefusal()).toMatchObject({ reason: "write_refused" })
     expect(await db.message.count({ where: { tenantId: fx().a.tenantId } })).toBe(before)
     expect(await auditRows("SUPPORT_ACCESS_USED")).toHaveLength(1)
+  })
+
+  it("a support read changes nothing: GET arrangement-status leaves a lapsed ACTIVE arrangement as it is", async () => {
+    // Every instalment of this arrangement is past due and unpaid, so the
+    // analysis says BROKEN. Rolling that into the row is the nightly cron's
+    // job (audited there); a GET — by an operator least of all — must not write.
+    const arrangement = await db.paymentArrangement.create({
+      data: {
+        tenantId: fx().a.tenantId, loanId: fx().a.loanId, arrangementDate: new Date(Date.now() - 120 * DAY_MS),
+        agreedAmount: 10_000, frequency: "MONTHLY",
+        startDate: new Date(Date.now() - 90 * DAY_MS), endDate: new Date(Date.now() - 30 * DAY_MS),
+      },
+    })
+    const headers = {
+      host: "localhost", "x-tenant-slug": fx().a.slug, [REQUEST_METHOD_HEADER]: "GET", [REQUEST_ID_HEADER]: randomUUID(),
+    }
+    mocks.request.current = headers
+    const res = await arrangementStatus(
+      new NextRequest(`http://localhost/api/loans/${fx().a.loanId}/arrangement-status`, { headers }),
+      { params: Promise.resolve({ id: fx().a.loanId }) },
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).arrangement.status).toBe("BROKEN")
+    expect(await db.paymentArrangement.findUniqueOrThrow({ where: { id: arrangement.id } })).toEqual(arrangement)
   })
 
   it("a grant from lender A opens nothing at lender B", async () => {
