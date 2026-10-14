@@ -119,6 +119,8 @@ describe("tenant-scope — ALS primitives", () => {
       "DealSigner",
       "PayoutChecklistItem",
       "Payout",
+      // Dual-approval KYC override requests — non-null tenantId.
+      "KycOverrideRequest",
     ])
   })
 

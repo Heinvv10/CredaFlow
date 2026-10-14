@@ -59,6 +59,10 @@ Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
 | `npm run dev` / `build` / `start` | Next.js dev server, production build, production server |
 | `npm run lint` | eslint |
 | `npm test` | vitest (unit and mocked suites) |
+| `npm run ci:quick` | local type, lint, agent-doc and date gates; pass test paths after `--` |
+| `npm run ci:quality` | complete local quality gate, including unit, face-model and build checks |
+| `npm run ci:integration` | complete real-DB gate against an automatically removed PostgreSQL 16 container |
+| `npm run ci:full` | `ci:quality` followed by `ci:integration` |
 | `bash scripts/run-integration-tests.sh` | real-database integration suites (see below) |
 | `npm run seed:base` / `seed:staging` | demo seed; `seed:staging` adds the larger demo data set |
 | `npm run claude-md:check` / `agents:check` / `agents:mirror` | agent-doc drift gates and the `AGENTS.md` mirrors |
@@ -85,9 +89,9 @@ Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
   `scripts/integration-baseline.txt` lists the suites known to fail; it may
   only shrink.
 
-CI (`.github/workflows/`) runs the quality gate (typecheck, lint, unit tests,
-build), the integration suites, the agent-doc gates and the date-boundary
-checks.
+CI (`.github/workflows/quality-gate.yml`) runs the quality and integration
+jobs. Draft PR updates use no runner; marking a PR ready runs both jobs. The
+nightly schedule reruns integration against the current trunk.
 
 ## Environment
 

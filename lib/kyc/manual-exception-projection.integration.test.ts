@@ -63,6 +63,7 @@ suite("manual KYC exception database projection", () => {
       approvedAt: args.approvedAt.toISOString(),
       approvedById: reviewerId,
       approvedByEmail: "reviewer@test.invalid",
+      approvedWithTotp: true,
     }
   }
 
@@ -125,6 +126,10 @@ suite("manual KYC exception database projection", () => {
         name: "KYC exception integration",
       },
     })
+    await db.user.create({ data: {
+      id: reviewerId, tenantId, email: `reviewer-${token}@test.invalid`, password: "synthetic",
+      role: "ADMIN", active: true, totpEnabled: true, lastTotpCounter: 1,
+    } })
     await db.client.create({
       data: {
         ...subject,
@@ -343,10 +348,14 @@ suite("manual KYC exception database projection", () => {
     }],
     ["non-breaking spaces in reason", { reason: "\u00a0".repeat(20) }],
     ["Unicode em spaces in reason", { reason: "\u2003".repeat(20) }],
-    ["tabs in reviewer id", { approvedById: "\t".repeat(20) }],
     ["newlines in reviewer email", { approvedByEmail: "\n".repeat(20) }],
   ] as const)("rejects %s at the database projection", async (_label, data) => {
     await expectProjectionRejected(data)
+  })
+
+  it("rejects a malformed reviewer id at the policy write boundary", async () => {
+    await expect(createSupersedingException({ approvedById: "\t".repeat(20) }))
+      .rejects.toThrow("approver is below the lender minimum role")
   })
 
   it("counts astral characters as Unicode code points in the database", async () => {

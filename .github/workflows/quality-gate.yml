@@ -1,43 +1,41 @@
-name: quality-gate
+name: ci
 
-# The checks CLAUDE.md's verification order requires before "done": typecheck,
-# lint, the unit/mocked suites and the production build. Without this job they
-# run only on a developer's machine, and a PR can merge red. The two doc
-# checks are listed too because the same order includes them; agent-docs.yml
-# runs them on its own as well.
-#
-# Integration suites and date boundaries have their own workflows and are not
-# repeated here.
-#
-# No paths: filter, for the same reason agent-docs.yml has none. A filter only
-# guesses which PRs can break a check, and a type or build error can come from
-# a change in any directory.
-
+# One workflow owns every required gate. Keeping the quality and integration
+# jobs separate lets the real-DB suite run in parallel, while folding the
+# agent-doc and date checks into quality avoids two runner startups and two
+# duplicate npm installs on every revision.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   push:
     branches: [main]
+  schedule:
+    # 02:30 UTC = 04:30 SAST. The nightly run executes integration only.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
 
-# Nothing here pushes, comments, or calls the API — matching agent-docs.yml.
+# Nothing here pushes, comments, or calls the API.
 permissions:
   contents: read
 
+# A new revision cancels both jobs from the obsolete revision. Push, PR,
+# schedule and manual runs use separate groups, so a nightly run cannot cancel
+# a main-branch quality gate.
 concurrency:
-  # PR runs share a group per ref, so a new push supersedes the old run. Push runs
-  # get a group per commit, so none is cancelled and each keeps its own result.
-  # `a && b || c` is safe: github.ref is never empty on pull_request.
-  group: quality-gate-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
+    # Draft PR synchronization is deliberately free. Marking the PR ready
+    # emits ready_for_review and runs the complete gate. Scheduled runs need
+    # only the real-DB integration job below.
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     env:
-      # The vitest config pins workers to UTC; the job states it too.
       TZ: UTC
-      # npm ci would otherwise download a browser no step uses (the Dockerfile sets the same).
       PUPPETEER_SKIP_DOWNLOAD: 1
 
     steps:
@@ -47,7 +45,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      # --legacy-peer-deps is required: plain `npm ci` fails on the next-auth
+      # --legacy-peer-deps is required: plain npm ci fails on the next-auth
       # beta peer conflict. See CLAUDE.md "Tool Overrides".
       - name: Install
         run: npm ci --legacy-peer-deps
@@ -56,15 +54,13 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      # The project's type graph exceeds Node's default heap on the runner (~2.5 GB measured).
+      # The project's type graph exceeds Node's default heap on the runner.
       - name: Typecheck
         run: npx tsc --noEmit
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
-      # scripts/demo is excluded from the root tsconfig (a simulator type error
-      # must never fail a lender's build), so it has its own project. Its tests
-      # run in the unit-test step below.
+      # scripts/demo is excluded from the root tsconfig and has its own gate.
       - name: Typecheck demo simulator
         run: npm run demo:typecheck
         env:
@@ -73,17 +69,30 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # The unit suites shell out to pdftoppm/pdfinfo (poppler-utils) and qpdf,
-      # which the production image installs and the runner does not.
+      # These checks take seconds once dependencies are installed. They used
+      # to pay for two separate runners and npm installs.
+      - name: Documented paths resolve
+        run: npm run claude-md:check
+
+      - name: AGENTS.md mirrors match CLAUDE.md
+        run: npm run agents:check
+
+      - name: No local-zone calendar boundaries
+        run: npm run dates:check
+
+      # The base Vitest config pins UTC, so explicitly exercise other zones.
+      - name: Date helpers are timezone-independent
+        run: npm run test:tz
+
+      # The unit suites shell out to pdftoppm/pdfinfo and qpdf.
       - name: Install PDF tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
 
       - name: Unit tests
         run: npx vitest run
 
-      # The face-comparison models (lib/kyc/face-model/). Keyed on models.ts,
-      # which pins every file's SHA-256; the fetch re-checks a cached file and
-      # downloads only what is missing or wrong.
+      # models.ts pins every model file's SHA-256. The fetch re-checks a cached
+      # file and downloads only what is missing or wrong.
       - name: Cache face models
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -93,9 +102,6 @@ jobs:
       - name: Fetch face models
         run: npm run face-models:fetch
 
-      # The real-model suite: synthetic negatives and golden detector/embedding
-      # values. Skipped by the unit step above; with FACE_MODEL_TESTS=1 a
-      # missing model fails it rather than skipping.
       - name: Face model tests (real ONNX models)
         run: npx vitest run lib/kyc/face-model/compare.models.test.ts
         env:
@@ -106,8 +112,93 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Documented paths resolve
-        run: npm run claude-md:check
+  integration:
+    # Main is tested as a candidate merge by the PR event and again nightly.
+    # Avoid paying for the same integration suite immediately after each merge.
+    if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-      - name: AGENTS.md mirrors match CLAUDE.md
-        run: npm run agents:check
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ituser
+          POSTGRES_PASSWORD: itpass
+          POSTGRES_DB: credaflow_it
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ituser -d credaflow_it"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Disposable service container. These suites create and delete real rows.
+      DATABASE_URL: postgresql://ituser:itpass@127.0.0.1:5432/credaflow_it
+      TZ: UTC
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The baseline ratchet needs the merge base with the target branch.
+          fetch-depth: 0
+
+      # The integration baseline is a debt register and may only shrink.
+      - name: Baseline may only shrink
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          BASELINE=scripts/integration-baseline.txt
+
+          git fetch --no-tags --quiet origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          MERGE_BASE=$(git merge-base "origin/${BASE_REF}" HEAD)
+
+          if ! git cat-file -e "${MERGE_BASE}:${BASELINE}" 2>/dev/null; then
+            echo ">> no baseline at the merge base — this PR introduces it; nothing to ratchet"
+            exit 0
+          fi
+
+          if [[ ! -f "$BASELINE" ]]; then
+            echo "!! ${BASELINE} exists at the merge base and is gone at HEAD." >&2
+            echo "!! Moving or deleting the debt register bypasses this check." >&2
+            exit 1
+          fi
+
+          before=$(mktemp); after=$(mktemp)
+          git show "${MERGE_BASE}:${BASELINE}" > "$before"
+          bash scripts/run-integration-tests.sh --print-baseline "$before" > "${before}.n"
+          bash scripts/run-integration-tests.sh --print-baseline "$BASELINE" > "$after"
+
+          added=$(comm -13 "${before}.n" "$after")
+          if [[ -n "$added" ]]; then
+            echo "!! This PR ADDS suites to the integration baseline:" >&2
+            echo "$added" >&2
+            echo "!! The baseline may only shrink. Fix the suite instead." >&2
+            exit 1
+          fi
+          echo ">> baseline did not grow ($(wc -l < "${before}.n") entries at the merge base, $(wc -l < "$after") now)"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      # migrate deploy, not db push: triggers and CHECK constraints live in migrations.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Install pdftotext
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
+      - name: Integration gate
+        run: bash scripts/run-integration-tests.sh
