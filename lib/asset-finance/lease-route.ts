@@ -42,10 +42,22 @@ async function respond(result: LeaseActionResult, ctx: { tenantId: string; loanI
   return NextResponse.json(result, { status: 200 })
 }
 
+/** Thrown to roll the action's transaction back: a refusal never keeps a write made before it. */
+class Refused extends Error {
+  constructor(readonly result: LeaseActionResult) {
+    super("lease action refused")
+  }
+}
+
 async function run(actor: Actor, action: (tx: SigningTx, actor: Actor, today: string) => Promise<LeaseActionResult>): Promise<LeaseActionResult> {
   try {
-    return await prisma.$transaction((tx) => action(tx, actor, sastCalendarDate(new Date())), { timeout: 20_000 })
+    return await prisma.$transaction(async (tx) => {
+      const result = await action(tx, actor, sastCalendarDate(new Date()))
+      if (result.kind === "refused" || result.kind === "not_found") throw new Refused(result)
+      return result
+    }, { timeout: 20_000 })
   } catch (error) {
+    if (error instanceof Refused) return error.result
     const mapped = payoutErrorResponse(error)
     if (mapped) return { kind: "refused", reason: mapped.reason, error: mapped.error }
     throw error
@@ -91,18 +103,30 @@ export async function leasePortalAction(
 }
 
 async function readBody(req: Request): Promise<Record<string, unknown> | null> {
-  const raw: unknown = await req.json().catch(() => ({}))
+  const text = await req.text()
+  if (text.trim() === "") return {}
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return null // not JSON: a 400, never an action on defaulted input
+  }
   return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null
 }
 
 /** Body field readers: a refusal names the field. */
 export const text = (body: Record<string, unknown>, key: string): string | null => (typeof body[key] === "string" ? (body[key] as string) : null)
+const INT32_MAX = 2_147_483_647
+/** A whole, non-negative number that fits the database's 32-bit columns (cents, meter values). */
 export const cents = (body: Record<string, unknown>, key: string): number | null => {
   const value = body[key]
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= INT32_MAX ? value : null
 }
+/** A real calendar date, YYYY-MM-DD. */
 export const isoDate = (body: Record<string, unknown>, key: string): string | null => {
   const value = text(body, key)
-  return value !== null && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+  if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const date = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null
 }
 export const badRequest = (field: string, error: string): LeaseActionResult => ({ kind: "refused", reason: `invalid_${field}`, error })

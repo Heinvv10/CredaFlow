@@ -16,7 +16,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
-import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
+import { dbDate, fromDayNumber, toDayNumber } from "./dates"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import { backdateLease, leaseDocument, leaseRoutes, payAllOwed } from "./lease-servicing.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
@@ -162,10 +162,16 @@ suite.sequential("lease servicing: maintenance fund, claims, readings, return (r
   it("C5 LESSEE_SETTLED deficit: billed to the lessee on the end-of-term invoice; the fund nets to nil", async () => {
     const doc = await leaseDocument(database(), fx, loans.deficit)
     staff(fx.adminA, "LOAN_ADMIN")
-    const claimId = String((await json(await routes().claim(loans.deficit, { supplierId: fx.supplier, providerInvoiceDocumentId: doc, amountExclVatCents: 2_000_000, description: "Synthetic service" }))).body.claimId)
+    const submitted = await json(await routes().claim(loans.deficit, { supplierId: fx.supplier, providerInvoiceDocumentId: doc, amountExclVatCents: 2_000_000, description: "Synthetic service" }))
+    expect(submitted.status, JSON.stringify(submitted.body)).toBe(200)
+    const claimId = String(submitted.body.claimId)
+    const again = await json(await routes().claim(loans.deficit, { supplierId: fx.supplier, providerInvoiceDocumentId: doc, amountExclVatCents: 2_000_000, description: "Synthetic service" }))
+    expect([again.status, again.body.reason]).toEqual([409, "invoice_claimed"]) // one live claim per provider invoice
     staff(fx.adminB, "LOAN_ADMIN")
-    expect((await json(await routes().claimAction(loans.deficit, claimId, "approve"))).body.status).toBe("APPROVED") // below R50 000: one approver
-    await routes().claimAction(loans.deficit, claimId, "paid", { paymentReference: "SYNTH-EFT-78" })
+    const approved = await json(await routes().claimAction(loans.deficit, claimId, "approve"))
+    expect([approved.status, approved.body.status]).toEqual([200, "APPROVED"]) // below R50 000: one approver
+    const paid = await json(await routes().claimAction(loans.deficit, claimId, "paid", { paymentReference: "SYNTH-EFT-78" }))
+    expect([paid.status, paid.body.status]).toEqual([200, "PAID"])
     await payAllOwed(database(), fx, loans.deficit)
     staff(fx.officer, "CREDIT_OFFICER")
     for (const [action, body] of [["elect", { outcome: "RETURN" }], ["inspection", { inspectedOn: today(), condition: "Synthetic: good", finalReading: 700, damage: [] }]] as const) {
@@ -186,16 +192,18 @@ suite.sequential("lease servicing: maintenance fund, claims, readings, return (r
   it("C5 LESSEE_SETTLED surplus: refunded (recorded); nothing to bill, so the lease closes at once", async () => {
     await payAllOwed(database(), fx, loans.surplus)
     staff(fx.officer, "CREDIT_OFFICER")
-    await routes().endOfTerm(loans.surplus, "elect", { outcome: "RETURN" })
-    await routes().endOfTerm(loans.surplus, "inspection", { inspectedOn: today(), condition: "Synthetic: good", finalReading: 500, damage: [] })
+    const elected = await json(await routes().endOfTerm(loans.surplus, "elect", { outcome: "RETURN" }))
+    expect([elected.status, elected.body.status]).toEqual([200, "ELECTED"])
+    const inspected = await json(await routes().endOfTerm(loans.surplus, "inspection", { inspectedOn: today(), condition: "Synthetic: good", finalReading: 500, damage: [] }))
+    expect([inspected.status, inspected.body.status], JSON.stringify(inspected.body)).toEqual([200, "INSPECTED"])
     staff(fx.adminA, "LOAN_ADMIN")
-    await routes().endOfTerm(loans.surplus, "invoice")
+    const invoiced = await json(await routes().endOfTerm(loans.surplus, "invoice"))
+    expect([invoiced.status, invoiced.body.status], JSON.stringify(invoiced.body)).toEqual([200, "INVOICED"])
     const m = await movements(loans.surplus)
     expect(m.at(-1)).toMatchObject({ kind: "SETTLEMENT_REFUND", amountCents: 3 * 450_000 })
     expect(fundBalance(m)).toBe(0)
     const end = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.surplus } })
     expect([end.status, end.taxInvoiceId]).toEqual(["COMPLETED", null])
     expect((await database().loan.findUniqueOrThrow({ where: { id: loans.surplus } })).status).toBe("COMPLETED")
-    expect(isoOfDbDate(new Date())).toBeTruthy()
   }, 120_000)
 })

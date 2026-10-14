@@ -5,12 +5,14 @@
  * not listed below; these checks are the readable refusal).
  *
  *   RETURN    ELECTED → INSPECTED (condition, damage, final reading) → INVOICED → COMPLETED
- *   EXTEND    EXTENDING (month to month; ./lease-extension.ts appends each
- *             rental) → notice by either party ends it one month later →
+ *   EXTEND    EXTENDING (month to month; the daily run, ./lease-daily.ts,
+ *             appends each rental) → notice by either party ends it one month later →
  *             INSPECTED → INVOICED → COMPLETED, as a return
- *   PURCHASE  ELECTED (price ≥ a valuation of the asset dated within the
- *             tenant's days) → INVOICED (sale tax invoice) → COMPLETED
+ *   PURCHASE  ELECTED (price ≥ a market valuation, ./lease-term-end.ts) →
+ *             INVOICED (sale tax invoice, once the term has ended) → COMPLETED
  *             (paid, eNaTIS change confirmed on a registered asset)
+ * A return is inspected only once the term has ended (an early termination's
+ * from its termination date), with the final reading as the latest reading.
  * Invoicing and completion are ./lease-end-invoice.ts. Staff or the lessee
  * (portal) elects; staff inspect. Audited.
  *
@@ -21,8 +23,9 @@
 import type { LeaseEndOutcome } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { addMonthsClamped, dbDate, isoOfDbDate, toDayNumber } from "./dates"
+import { addMonthsClamped, dbDate, isoOfDbDate } from "./dates"
 import { recordMeterReading } from "./meter-readings"
+import { checkPurchaseValuation, leaseTermEnd } from "./lease-term-end"
 import { clientLeaseRefusal } from "./lease-portal-route"
 import type { SigningTx } from "./signing-prepare"
 
@@ -61,6 +64,7 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   if (!loan?.assetId) return { kind: "not_found" }
   if (loan.leaseEndOfTerm) return refused("already_elected", `The end of term is already ${loan.leaseEndOfTerm.outcome}`)
   if (loan.status !== "ACTIVE" && loan.status !== "COMPLETED" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
+  if (input.outcome === "EXTEND" && loan.status === "DEFAULTED") return refused("defaulted", "A lease in default is not extended")
   const lastRental = sastCalendarDate(loan.maturityDate)
   if (input.today < addMonthsClamped(lastRental, -ELECTION_WINDOW_MONTHS)) {
     return refused("too_early", `The end-of-term choice opens ${ELECTION_WINDOW_MONTHS} months before the last rental (${lastRental})`)
@@ -68,11 +72,8 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   let purchase = {}
   if (input.outcome === "PURCHASE") {
     if (!input.purchase) return refused("purchase_terms", "A purchase needs its price and the valuation it rests on")
-    const config = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { leasePurchaseValuationMaxAgeDays: true } })
-    const maxAge = config?.leasePurchaseValuationMaxAgeDays ?? 30
-    const valuation = await tx.assetValuation.findFirst({ where: { id: input.purchase.valuationId, tenantId, assetId: loan.assetId }, select: { valuedOn: true, amountCents: true } })
-    if (!valuation) return refused("valuation", "The valuation is not of this asset")
-    if (toDayNumber(isoOfDbDate(valuation.valuedOn)) < toDayNumber(input.today) - maxAge) return refused("valuation_stale", `The valuation must be dated within ${maxAge} days`)
+    const valuation = await checkPurchaseValuation(tx, { tenantId, assetId: loan.assetId, valuationId: input.purchase.valuationId, today: input.today, electorUserId: actor.userId ?? null })
+    if (!valuation.ok) return refused(valuation.reason, valuation.error)
     if (input.purchase.priceExclVatCents < valuation.amountCents) return refused("below_market", `The price may not be below the market value of ${valuation.amountCents} cents ex VAT`)
     purchase = { purchasePriceExclVatCents: input.purchase.priceExclVatCents, purchaseValuationId: input.purchase.valuationId }
   }
@@ -87,15 +88,20 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   return { kind: "ok", endOfTermId: row.id, status: row.status }
 }
 
-/** Either party ends a month-to-month extension: it ends EXTENSION_NOTICE_MONTHS after the notice date. */
-export async function endExtension(tx: SigningTx, actor: EndActor, input: { loanId: string; noticeOn: string }): Promise<EndResult> {
+/** Either party ends a month-to-month extension: EXTENSION_NOTICE_MONTHS after the notice, or the last appended rental's due date if later. */
+export async function endExtension(tx: SigningTx, actor: EndActor, input: { loanId: string; noticeOn: string; today: string }): Promise<EndResult> {
   const denied = await clientLeaseRefusal(actor, input.loanId)
   if (denied) return denied
-  const row = await tx.leaseEndOfTerm.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId }, select: { id: true, status: true, extensionNoticeOn: true } })
+  const row = await tx.leaseEndOfTerm.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId }, select: { id: true, status: true, extensionNoticeOn: true, electedAt: true } })
   if (!row) return { kind: "not_found" }
   if (row.status !== "EXTENDING") return refused("not_extending", "The lease is not on a month-to-month extension")
   if (row.extensionNoticeOn) return refused("notice_given", `Notice was given on ${isoOfDbDate(row.extensionNoticeOn)}`)
-  const endsOn = addMonthsClamped(input.noticeOn, EXTENSION_NOTICE_MONTHS)
+  const electedOn = sastCalendarDate(row.electedAt)
+  if (input.noticeOn < electedOn || input.noticeOn > input.today) return refused("invalid_notice_date", `Notice is dated between the election (${electedOn}) and today`)
+  // Never before the end of a rental already appended (its period is billed).
+  const lastRental = await tx.leaseRental.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId, cancelledAt: null }, orderBy: { periodNo: "desc" }, select: { dueDate: true } })
+  const noticeEnds = addMonthsClamped(input.noticeOn, EXTENSION_NOTICE_MONTHS)
+  const endsOn = lastRental && isoOfDbDate(lastRental.dueDate) > noticeEnds ? isoOfDbDate(lastRental.dueDate) : noticeEnds
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId: actor.tenantId }, data: { extensionNoticeOn: dbDate(input.noticeOn), extensionEndsOn: dbDate(endsOn) } })
   await audit(tx, actor, AuditAction.LEASE_EXTENSION_ENDED, row.id, { loanId: input.loanId, noticeOn: input.noticeOn, endsOn })
   return { kind: "ok", endOfTermId: row.id, status: "EXTENDING" }
@@ -115,13 +121,23 @@ export async function recordInspection(tx: SigningTx, actor: { tenantId: string;
   const { tenantId } = actor
   const row = await tx.leaseEndOfTerm.findFirst({
     where: { tenantId, loanId: input.loanId },
-    select: { id: true, status: true, outcome: true, extensionEndsOn: true, loan: { select: { assetFinanceDeal: { select: { usageUnit: true } } } } },
+    select: {
+      id: true, status: true, outcome: true, origin: true, electedAt: true, extensionEndsOn: true,
+      loan: { select: { assetFinanceDeal: { select: { usageUnit: true } }, leaseTerminationQuotes: { where: { status: "ACCEPTED" }, select: { terminationDate: true } } } },
+    },
   })
   if (!row) return { kind: "not_found" }
   const extensionOver = row.status === "EXTENDING" && row.extensionEndsOn !== null && isoOfDbDate(row.extensionEndsOn) <= input.today
   if (!(row.status === "ELECTED" && row.outcome === "RETURN") && !extensionOver) {
     return refused("not_returnable", row.status === "EXTENDING" ? "The extension has not ended yet" : `An inspection follows a return, not ${row.outcome} ${row.status}`)
   }
+  // The asset comes back when the term ends: never inspected before that, never in the future, never before the election.
+  const returnsOn = row.origin === "EARLY_TERMINATION"
+    ? (row.loan.leaseTerminationQuotes[0] ? isoOfDbDate(row.loan.leaseTerminationQuotes[0].terminationDate) : null)
+    : row.extensionEndsOn ? isoOfDbDate(row.extensionEndsOn) : await leaseTermEnd(tx, tenantId, input.loanId)
+  if (returnsOn === null) return { kind: "not_found" }
+  if (input.inspectedOn > input.today || input.inspectedOn < sastCalendarDate(row.electedAt)) return refused("invalid_inspectedOn", "The inspection is dated between the election and today")
+  if (input.inspectedOn < returnsOn) return refused("term_running", `The asset is returned on ${returnsOn}: inspect it from then`)
   if (input.condition.trim().length < 3) return refused("condition", "Describe the asset's condition")
   if (input.damage.some((d) => d.description.trim().length < 3 || !Number.isSafeInteger(d.amountExclVatCents) || d.amountExclVatCents <= 0)) {
     return refused("damage", "Each damage item needs a description and a positive amount")
@@ -130,6 +146,9 @@ export async function recordInspection(tx: SigningTx, actor: { tenantId: string;
   let finalReadingId: string | null = null
   if (unit !== null) {
     if (input.finalReading === null) return refused("final_reading", "Record the final meter reading: the lease has contracted usage")
+    // The final reading is the latest: excess is billed from it.
+    const later = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit, readingDate: { gt: dbDate(input.inspectedOn) } }, select: { readingDate: true } })
+    if (later) return refused("invalid_inspectedOn", `A reading dated ${isoOfDbDate(later.readingDate)} is later than the inspection`)
     const reading = await recordMeterReading(tx, { tenantId, userId: actor.userId }, {
       loanId: input.loanId, readingDate: input.inspectedOn, value: input.finalReading, evidenceDocumentId: null, today: input.today,
     })

@@ -70,6 +70,8 @@ const quote = (tx: Tx, data: Record<string, unknown> = {}) => tx.leaseTerminatio
   },
   select: { id: true },
 })
+/** Nothing to invoice (only arrears): an accepted quote needs no invoice or charge row (LeaseTerminationQuote_accepted_billed). */
+const unbilled = { pvCents: 0, penaltyCents: 0, invoiceExclVatCents: 0, invoiceVatCents: 0, arrearsCents: 127 }
 const accept = (tx: Tx, id: string) => tx.leaseTerminationQuote.update({ where: { id }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: fx.adminA } })
 
 const invoiceReturn = (tx: Tx) => issueTaxInvoice(tx as never, {
@@ -133,16 +135,19 @@ suite.sequential("lease servicing rules: end of term, termination, rentals, char
 
   it("LeaseTerminationQuote_guard: a quote is written QUOTED", async () => {
     await refuses({ table: "LeaseTerminationQuote", trigger: "LeaseTerminationQuote_guard" }, /written QUOTED/,
-      (tx) => quote(tx, { status: "ACCEPTED", acceptedAt: new Date() }))
+      (tx) => quote(tx, { ...unbilled, status: "ACCEPTED", acceptedAt: new Date() }))
   })
 
   it("LeaseTerminationQuote_one_accepted: one accepted termination per lease", async () => {
     await refuses({ index: "LeaseTerminationQuote_one_accepted" }, /Unique constraint/,
-      async (tx) => { await accept(tx, (await quote(tx)).id); await accept(tx, (await quote(tx)).id) })
+      async (tx) => { await accept(tx, (await quote(tx, unbilled)).id); await accept(tx, (await quote(tx, unbilled)).id) })
   })
 
-  it("LeaseRental_guard: a rental is cancelled only by an accepted termination", async () => {
+  it("LeaseRental_guard: a rental is cancelled only inside the termination's flag, on a QUOTED quote", async () => {
+    // The quote is accepted in the same transaction, so the deferred LeaseRental_cancelled_by_acceptance is satisfied:
+    // without the flag only the immediate guard refuses.
     await refuses({ table: "LeaseRental", trigger: "LeaseRental_guard" }, /only by an accepted early termination/, async (tx) => {
+      await accept(tx, (await quote(tx, unbilled)).id)
       const rental = await tx.leaseRental.findFirstOrThrow({ where: { loanId: loans.running, periodNo: 10 } })
       await tx.leaseRental.update({ where: { id: rental.id }, data: { cancelledAt: new Date() } })
       await tx.repaymentSchedule.update({ where: { id: rental.scheduleId }, data: { principalDue: 0, totalDue: 0 } })

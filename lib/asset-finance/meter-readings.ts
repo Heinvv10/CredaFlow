@@ -4,13 +4,19 @@
  * Readings are monotonic per asset and unit: a reading may not be below an
  * earlier-dated one nor above a later-dated one, and is immutable
  * (guardAssetMeterReading, migration 20261014100000); the check here is the
- * readable refusal. Audited.
+ * readable refusal. Because a reading caps every later one, a lessee's portal
+ * reading may not run ahead of PORTAL_PACE_LIMIT times the contracted pace
+ * (plus a month's allowance) since the last reading; staff record anything
+ * larger, with evidence. Audited.
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { dbDate, toDayNumber } from "./dates"
+import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import type { SigningTx } from "./signing-prepare"
 import { clientLeaseRefusal } from "./lease-portal-route"
+
+/** A portal reading may run at most this many times the contracted pace since the last reading. */
+export const PORTAL_PACE_LIMIT = 3
 
 export type ReadingActor = { tenantId: string; userId: string; clientId?: undefined } | { tenantId: string; clientId: string; userId?: undefined }
 
@@ -31,7 +37,7 @@ export async function recordMeterReading(tx: SigningTx, actor: ReadingActor, inp
   const { tenantId } = actor
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
-    select: { assetId: true, status: true, startDate: true, assetFinanceDeal: { select: { id: true, usageUnit: true } } },
+    select: { assetId: true, status: true, startDate: true, assetFinanceDeal: { select: { id: true, usageUnit: true, usageAllowancePerYear: true } } },
   })
   const unit = loan?.assetFinanceDeal?.usageUnit
   if (!loan?.assetId || !unit) return { kind: "not_found" }
@@ -52,13 +58,20 @@ export async function recordMeterReading(tx: SigningTx, actor: ReadingActor, inp
   if (input.readingDate < sastCalendarDate(loan.startDate)) return { kind: "refused", reason: "reading_date", error: "A reading cannot predate the lease" }
   if (!Number.isSafeInteger(input.value) || input.value < 0) return { kind: "refused", reason: "value", error: "The reading must be a whole number of hours or km" }
   const [before, after] = await Promise.all([
-    tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, readingDate: { lte: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { value: true } }),
+    tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, readingDate: { lte: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { value: true, readingDate: true } }),
     tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, readingDate: { gt: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true } }),
   ])
   if (before && input.value < before.value) return { kind: "refused", reason: "not_monotonic", error: `The reading may not be below an earlier one (${before.value})` }
   if (after && input.value > after.value) return { kind: "refused", reason: "not_monotonic", error: `The reading may not be above a later one (${after.value})` }
+  const allowance = loan.assetFinanceDeal?.usageAllowancePerYear
+  if (actor.clientId && before && allowance) {
+    const days = toDayNumber(input.readingDate) - toDayNumber(isoOfDbDate(before.readingDate))
+    const ceiling = before.value + Math.ceil((allowance * PORTAL_PACE_LIMIT * (days + 31)) / 365)
+    if (input.value > ceiling) return { kind: "refused", reason: "implausible_reading", error: `That is far above the contracted usage since the last reading (${before.value}); ask the lessor to record it` }
+  }
   if (input.evidenceDocumentId) {
-    const document = await tx.entityDocument.findFirst({ where: { id: input.evidenceDocumentId, tenantId, dealId: loan.assetFinanceDeal?.id ?? "", deletedAt: null }, select: { id: true } })
+    const dealId = loan.assetFinanceDeal?.id
+    const document = dealId ? await tx.entityDocument.findFirst({ where: { id: input.evidenceDocumentId, tenantId, dealId, deletedAt: null }, select: { id: true } }) : null
     if (!document) return { kind: "refused", reason: "evidence", error: "The evidence must be a document filed on this lease" }
   }
   const reading = await tx.assetMeterReading.create({

@@ -53,6 +53,12 @@ describe("earlyTerminationAmount (goal 2a.4)", () => {
     const a = earlyTerminationAmount({ rentals: rentals(1, "2027-02-01", 333), terminationDate: "2027-01-01", annualRate: 0, arrearsCents: 0, penaltyRate: "0.015", vatRateTenThousandths: 1500 })
     expect(a.penaltyCents).toBe(5) // 4.995 → 5
   })
+  it("rounds an exact half-cent penalty up (half-up, not half-even)", () => {
+    const penalty = (pv: number, rate: string) => earlyTerminationAmount({ rentals: rentals(1, "2027-02-01", pv), terminationDate: "2027-01-01", annualRate: 0, arrearsCents: 0, penaltyRate: rate, vatRateTenThousandths: 1500 }).penaltyCents
+    expect(penalty(25, "0.1")).toBe(3) // 2.5 → 3 (half-even would give 2)
+    expect(penalty(35, "0.1")).toBe(4) // 3.5 → 4
+    expect(penalty(5, "0.5")).toBe(3) // 2.5 → 3
+  })
   it("nothing left to fall due: only the arrears", () => {
     const a = earlyTerminationAmount({ rentals: rows, terminationDate: "2030-01-01", annualRate: 0.1, arrearsCents: 10, penaltyRate: "0.1", vatRateTenThousandths: 1500 })
     expect(a).toMatchObject({ remainingRentals: 0, pvCents: 0, penaltyCents: 0, invoiceExclVatCents: 0, totalCents: 10 })

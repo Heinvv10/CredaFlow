@@ -29,16 +29,21 @@ export async function POST(req: NextRequest, { params }: Params) {
         return electEndOfTerm(tx, actor, { loanId, outcome, today, purchase: price !== null && valuationId ? { priceExclVatCents: price, valuationId } : undefined })
       }
       case "extension-notice": {
-        const noticeOn = isoDate(body, "noticeOn") ?? today
-        return endExtension(tx, actor, { loanId, noticeOn })
+        // Absent means today; a malformed date is refused, never replaced (the notice is fixed once given).
+        const noticeOn = body.noticeOn === undefined ? today : isoDate(body, "noticeOn")
+        if (!noticeOn) return Promise.resolve(badRequest("noticeOn", "noticeOn must be a date, YYYY-MM-DD"))
+        return endExtension(tx, actor, { loanId, noticeOn, today })
       }
       case "inspection": {
         const inspectedOn = isoDate(body, "inspectedOn")
         const condition = text(body, "condition")
-        const damage = Array.isArray(body.damage) ? body.damage : []
+        const damage: unknown[] = Array.isArray(body.damage) ? body.damage : []
         const items = damage.map((d) => (typeof d === "object" && d !== null ? d as Record<string, unknown> : {}))
           .map((d) => ({ description: text(d, "description") ?? "", amountExclVatCents: cents(d, "amountExclVatCents") ?? 0 }))
         if (!inspectedOn || !condition) return Promise.resolve(badRequest("inspection", "inspectedOn and condition are required"))
+        if (condition.length > 2_000 || damage.length > 50 || items.some((d) => d.description.length > 300)) {
+          return Promise.resolve(badRequest("inspection", "At most 50 damage items; the condition and each description are kept short"))
+        }
         return recordInspection(tx, actor, { loanId, inspectedOn, condition, finalReading: cents(body, "finalReading"), damage: items, today })
       }
       case "invoice":

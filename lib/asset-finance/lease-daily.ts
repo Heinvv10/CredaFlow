@@ -44,7 +44,7 @@ export function leaseExpiryDate(lastRentalDue: Date, timing: string | null): str
 }
 
 export async function runLeaseExtensions(db: DailyDb, tenantId: string, today: string, run: DailyRun): Promise<void> {
-  const extending = await db.leaseEndOfTerm.findMany({ where: { tenantId, status: "EXTENDING" }, select: { loanId: true, extensionEndsOn: true } })
+  const extending = await db.leaseEndOfTerm.findMany({ where: { tenantId, status: "EXTENDING", loan: { status: "ACTIVE" } }, select: { loanId: true, extensionEndsOn: true } })
   for (const row of extending) {
     try {
       await db.$transaction(async (tx) => {

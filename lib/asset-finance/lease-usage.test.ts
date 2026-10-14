@@ -16,6 +16,15 @@ describe("excessUsage (C6)", () => {
     // 25 months of 1 000 h: 2 083.333 h allowed; 2 084 used → 0.6667 h at 101c = 67.33 → 67c
     expect(excessUsage({ startReading: 0, finalReading: 2_084, allowancePerYear: 1_000, termMonths: 25, excessRateCents: 101 }).excessCents).toBe(67)
   })
+  it("exactly at the allowance: nothing; a half-cent is rounded up", () => {
+    // 12 months of 1 200 h: 1 200 used is exactly the allowance.
+    expect(excessUsage({ startReading: 50, finalReading: 1_250, allowancePerYear: 1_200, termMonths: 12, excessRateCents: 35_000 }))
+      .toEqual({ usedUnits: 1_200, allowedTwelfths: 14_400, excessTwelfths: 0, excessCents: 0 })
+    // 1 month of 11 h a year allows 11/12 h; 1 h used → 1/12 h over at 6c = 0.5c → 1c (half-up, not half-even).
+    expect(excessUsage({ startReading: 0, finalReading: 1, allowancePerYear: 11, termMonths: 1, excessRateCents: 6 }).excessCents).toBe(1)
+    // 3/12 h over at 6c = 1.5c → 2c.
+    expect(excessUsage({ startReading: 0, finalReading: 1, allowancePerYear: 9, termMonths: 1, excessRateCents: 6 }).excessCents).toBe(2)
+  })
   it("refuses a final reading below the start", () => {
     expect(() => excessUsage({ startReading: 10, finalReading: 9, allowancePerYear: 1, termMonths: 12, excessRateCents: 1 })).toThrow(RangeError)
   })

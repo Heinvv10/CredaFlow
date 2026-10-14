@@ -6,9 +6,12 @@
  *   SUBMITTED → APPROVED → PAID (payment reference; a CLAIM movement), or → REJECTED
  *
  * - The provider is a Supplier with an APPROVED bank account; the provider's
- *   invoice is a document on the lease's deal; the amount is ex VAT.
- * - No claim is submitted after the lease ends (the fund's leaseEndDate) or
- *   once the loan is no longer ACTIVE or DEFAULTED.
+ *   invoice is a supplier-invoice (or other) document on the lease's deal,
+ *   backing one live claim only; the amount is ex VAT.
+ * - No claim is submitted after the lease ends (the fund's leaseEndDate,
+ *   unless it runs on month to month) or once the loan is no longer ACTIVE or
+ *   DEFAULTED; nothing is submitted, approved or paid once the fund is settled
+ *   (the end of term settles it on its final balance).
  * - Four-eyes: the approver is never the submitter; at or above the tenant
  *   threshold (TenantConfig.maintenanceClaimDualApprovalCents) a first
  *   approver records a first approval and a second, different approver
@@ -49,23 +52,32 @@ export async function submitMaintenanceClaim(tx: SigningTx, actor: ClaimActor, i
   const { tenantId } = actor
   const fund = await tx.maintenanceFund.findFirst({
     where: { tenantId, loanId: input.loanId },
-    select: { id: true, leaseEndDate: true, loan: { select: { status: true, assetId: true, assetFinanceDeal: { select: { id: true } } } } },
+    select: {
+      id: true, leaseEndDate: true, settledAt: true,
+      loan: { select: { status: true, assetId: true, assetFinanceDeal: { select: { id: true } }, leaseEndOfTerm: { select: { status: true } } } },
+    },
   })
-  if (!fund) return { kind: "not_found" }
+  const dealId = fund?.loan.assetFinanceDeal?.id
+  const assetId = fund?.loan.assetId
+  if (!fund || !dealId || !assetId) return { kind: "not_found" }
+  if (fund.settledAt) return refused("fund_settled", "The maintenance fund is settled: no more claims")
   if (fund.loan.status !== "ACTIVE" && fund.loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${fund.loan.status}: no claims`)
-  if (input.today > isoOfDbDate(fund.leaseEndDate)) return refused("lease_ended", `The lease ended on ${isoOfDbDate(fund.leaseEndDate)}: no claims after it`)
+  const extending = fund.loan.leaseEndOfTerm?.status === "EXTENDING"
+  if (input.today > isoOfDbDate(fund.leaseEndDate) && !extending) return refused("lease_ended", `The lease ended on ${isoOfDbDate(fund.leaseEndDate)}: no claims after it`)
   const supplier = await tx.supplier.findFirst({
     where: { id: input.supplierId, tenantId, active: true, bankAccounts: { some: { status: "APPROVED" } } },
     select: { id: true },
   })
   if (!supplier) return refused("provider", "The provider must be an active supplier with an APPROVED bank account")
   const document = await tx.entityDocument.findFirst({
-    where: { id: input.providerInvoiceDocumentId, tenantId, dealId: fund.loan.assetFinanceDeal?.id ?? "", deletedAt: null },
+    where: { id: input.providerInvoiceDocumentId, tenantId, dealId, deletedAt: null, docType: { in: ["SUPPLIER_INVOICE", "OTHER"] } },
     select: { id: true },
   })
-  if (!document) return refused("invoice_document", "The provider's invoice must be a document filed on this lease")
+  if (!document) return refused("invoice_document", "The provider's invoice must be an invoice document filed on this lease")
+  const claimed = await tx.maintenanceClaim.findFirst({ where: { tenantId, providerInvoiceDocumentId: document.id, status: { not: "REJECTED" } }, select: { id: true } })
+  if (claimed) return refused("invoice_claimed", "That invoice already backs a claim: one claim per provider invoice")
   if (input.meterReadingId) {
-    const reading = await tx.assetMeterReading.findFirst({ where: { id: input.meterReadingId, tenantId, assetId: fund.loan.assetId ?? "" }, select: { id: true } })
+    const reading = await tx.assetMeterReading.findFirst({ where: { id: input.meterReadingId, tenantId, assetId }, select: { id: true } })
     if (!reading) return refused("meter_reading", "The meter reading is not this asset's")
   }
   if (!Number.isSafeInteger(input.amountExclVatCents) || input.amountExclVatCents <= 0) return refused("amount", "The amount must be a positive number of cents")
@@ -93,9 +105,12 @@ async function lockClaim(tx: SigningTx, tenantId: string, claimId: string) {
   if (rows.length === 0) return null
   return tx.maintenanceClaim.findFirst({
     where: { id: claimId, tenantId },
-    select: { id: true, status: true, amountExclVatCents: true, submittedById: true, firstApprovedById: true, fundId: true },
+    select: { id: true, status: true, amountExclVatCents: true, submittedById: true, firstApprovedById: true, fundId: true, fund: { select: { settledAt: true } } },
   })
 }
+
+const settledRefusal = (claim: { fund: { settledAt: Date | null } }): ClaimResult | null =>
+  claim.fund.settledAt ? refused("fund_settled", "The maintenance fund is settled: the claim can only be rejected") : null
 
 export async function approveMaintenanceClaim(tx: SigningTx, actor: ClaimActor, claimId: string): Promise<ClaimResult> {
   const { tenantId } = actor
@@ -103,6 +118,8 @@ export async function approveMaintenanceClaim(tx: SigningTx, actor: ClaimActor, 
   if (!claim) return { kind: "not_found" }
   if (claim.status !== "SUBMITTED") return refused("not_submitted", `The claim is ${claim.status}`)
   if (claim.submittedById === actor.userId) return refused("same_user", "The person who submitted a claim cannot approve it")
+  const settled = settledRefusal(claim)
+  if (settled) return settled
   const config = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { maintenanceClaimDualApprovalCents: true } })
   const dual = config === null || needsSecondApprover(claim.amountExclVatCents, config.maintenanceClaimDualApprovalCents)
   const now = new Date()
@@ -144,6 +161,10 @@ export async function markMaintenanceClaimPaid(tx: SigningTx, actor: ClaimActor,
   const claim = await lockClaim(tx, tenantId, claimId)
   if (!claim) return { kind: "not_found" }
   if (claim.status !== "APPROVED") return refused("not_approved", `Only an APPROVED claim is paid; this one is ${claim.status}`)
+  // Lock the fund (as its settlement does), then read it settled or not.
+  await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "MaintenanceFund" WHERE "id" = ${claim.fundId} AND "tenantId" = ${tenantId} FOR UPDATE`)
+  const fund = await tx.maintenanceFund.findFirst({ where: { id: claim.fundId, tenantId }, select: { settledAt: true } })
+  if (fund?.settledAt) return refused("fund_settled", "The maintenance fund is settled: the claim can only be rejected")
   const reference = paymentReference.trim()
   if (reference.length < 3 || reference.length > 64) return refused("payment_reference", "Record the payment reference (3–64 characters)")
   const paidAt = new Date()
