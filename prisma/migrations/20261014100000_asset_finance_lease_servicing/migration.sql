@@ -380,6 +380,8 @@ ALTER TABLE "LeaseTerminationQuote" ADD CONSTRAINT "LeaseTerminationQuote_tenant
 -- ===========================================================================
 
 -- The charge rows an end-of-term outcome or a termination bills (tenant-safe).
+CREATE UNIQUE INDEX "LeaseEndOfTerm_tenantId_scheduleId_key" ON "LeaseEndOfTerm"("tenantId", "scheduleId");
+CREATE UNIQUE INDEX "LeaseTerminationQuote_tenantId_scheduleId_key" ON "LeaseTerminationQuote"("tenantId", "scheduleId");
 ALTER TABLE "LeaseEndOfTerm" ADD CONSTRAINT "LeaseEndOfTerm_tenantId_scheduleId_fkey"
   FOREIGN KEY ("tenantId", "scheduleId") REFERENCES "RepaymentSchedule"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "LeaseTerminationQuote" ADD CONSTRAINT "LeaseTerminationQuote_tenantId_scheduleId_fkey"
@@ -739,11 +741,14 @@ CREATE TRIGGER "LeaseTerminationQuote_no_truncate" BEFORE TRUNCATE ON "LeaseTerm
   FOR EACH STATEMENT EXECUTE FUNCTION public."guardLeaseTerminationQuote"();
 
 -- ---------------------------------------------------------------------------
--- C8: an accepted early termination cancels the uninvoiced rentals after the
--- termination date. guardLeaseRental (20261014090000) is redefined: as there,
--- plus cancelledAt is set once, on an uninvoiced rental, only inside the
--- credaflow.lease_terminate flag; a cancelled rental is never invoiced; its
--- schedule row's total due is 0 (checkLeaseRentalSchedule).
+-- C7–C8: guardLeaseRental, checkLeaseRentalSchedule and checkLeaseScheduleRow
+-- (20261014090000) redefined, unchanged but for: an accepted early
+-- termination cancels the uninvoiced rentals after its termination date
+-- (cancelledAt set once, uninvoiced, inside the credaflow.lease_terminate flag
+-- and with a QUOTED termination of the loan whose date it is after); a
+-- cancelled rental is never invoiced or repriced and its schedule row is 0;
+-- a lease's schedule may also carry the charge row of its end of term or
+-- termination (LeaseEndOfTerm / LeaseTerminationQuote.scheduleId).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public."guardLeaseRental"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -779,7 +784,9 @@ BEGIN
   END IF;
   IF NEW."cancelledAt" IS DISTINCT FROM OLD."cancelledAt" AND (
     OLD."cancelledAt" IS NOT NULL OR OLD."taxInvoiceId" IS NOT NULL OR NEW."taxInvoiceId" IS NOT NULL
-    OR current_setting('credaflow.lease_terminate', true) IS DISTINCT FROM 'on') THEN
+    OR current_setting('credaflow.lease_terminate', true) IS DISTINCT FROM 'on'
+    OR NOT EXISTS (SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."loanId" = NEW."loanId" AND q."tenantId" = NEW."tenantId"
+      AND q."status" = 'QUOTED' AND NEW."dueDate" > q."terminationDate")) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental is cancelled once, uninvoiced, only by an accepted early termination';
   END IF;
   IF OLD."cancelledAt" IS NOT NULL AND NEW."taxInvoiceId" IS NOT NULL THEN
@@ -791,19 +798,30 @@ BEGIN
     OR NEW."totalCents" IS DISTINCT FROM OLD."totalCents"
     OR NEW."vatRate" IS DISTINCT FROM OLD."vatRate" THEN
     IF OLD."taxInvoiceId" IS NOT NULL OR NEW."taxInvoiceId" IS NOT NULL OR OLD."cancelledAt" IS NOT NULL
-      OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on' THEN
+      OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on'
+      OR NOT EXISTS (SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId" AND c."createdAt" >= date_trunc('milliseconds', now()) - INTERVAL '1 millisecond') THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental''s amounts are fixed at booking; only a repricing changes them, before the rental is invoiced';
+    END IF;
+    IF NEW."vatRate" IS DISTINCT FROM OLD."vatRate"
+      OR NEW."vatCents" <> "vatHalfUpCents"(NEW."rentalExclVatCents", NEW."vatRate") + "vatHalfUpCents"(NEW."maintenanceExclVatCents", NEW."vatRate") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repriced rental keeps its booked VAT rate, its VAT recomputed on it';
     END IF;
     IF NEW."maintenanceExclVatCents" IS DISTINCT FROM OLD."maintenanceExclVatCents" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repricing changes the rental, never the maintenance';
     END IF;
   END IF;
   IF OLD."taxInvoiceId" IS NULL AND NEW."taxInvoiceId" IS NOT NULL THEN
-    SELECT i."loanId", i."totalInclVatCents" INTO invoice_row FROM "TaxInvoice" i
+    SELECT i."loanId", i."totalInclVatCents", i."supplyDate" INTO invoice_row FROM "TaxInvoice" i
       WHERE i."id" = NEW."taxInvoiceId" AND i."tenantId" = NEW."tenantId";
     IF invoice_row."loanId" IS DISTINCT FROM NEW."loanId" OR invoice_row."totalInclVatCents" IS DISTINCT FROM NEW."totalCents" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental''s tax invoice is of its loan, for the rental''s total';
+    END IF;
+    -- Time of supply: the earlier of the due date and a payment towards the rental.
+    IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND NOT EXISTS (
+        SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514',
+        MESSAGE = 'A lease rental is supplied on its due date, or earlier only once a payment has reached it';
     END IF;
   END IF;
   RETURN NEW;
@@ -815,14 +833,36 @@ RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   bad BOOLEAN;
 BEGIN
-  SELECT s."loanId" IS DISTINCT FROM r."loanId" OR s."installmentNo" IS DISTINCT FROM r."periodNo"
-      OR s."totalDue" IS DISTINCT FROM (CASE WHEN r."cancelledAt" IS NULL THEN r."totalCents" ELSE 0 END)
-    INTO bad
-    FROM "LeaseRental" r JOIN "RepaymentSchedule" s ON s."id" = r."scheduleId" AND s."tenantId" = r."tenantId"
-    WHERE (TG_TABLE_NAME = 'LeaseRental' AND r."id" = NEW."id") OR (TG_TABLE_NAME = 'RepaymentSchedule' AND s."id" = NEW."id");
+  IF TG_TABLE_NAME = 'LeaseRental' THEN
+    SELECT s."loanId" IS DISTINCT FROM r."loanId" OR s."installmentNo" IS DISTINCT FROM r."periodNo" OR s."totalDue" IS DISTINCT FROM (CASE WHEN r."cancelledAt" IS NULL THEN r."totalCents" ELSE 0 END)
+      OR (s."dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date IS DISTINCT FROM r."dueDate"
+      INTO bad
+      FROM "LeaseRental" r JOIN "RepaymentSchedule" s ON s."id" = r."scheduleId" AND s."tenantId" = r."tenantId"
+      WHERE r."id" = NEW."id";
+  ELSE
+    SELECT s."loanId" IS DISTINCT FROM r."loanId" OR s."installmentNo" IS DISTINCT FROM r."periodNo" OR s."totalDue" IS DISTINCT FROM (CASE WHEN r."cancelledAt" IS NULL THEN r."totalCents" ELSE 0 END)
+      OR (s."dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date IS DISTINCT FROM r."dueDate"
+      INTO bad
+      FROM "LeaseRental" r JOIN "RepaymentSchedule" s ON s."id" = r."scheduleId" AND s."tenantId" = r."tenantId"
+      WHERE s."id" = NEW."id";
+  END IF;
   IF bad THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = 'A lease rental and its schedule row must agree: same loan, period = instalment number, total = total due (0 once cancelled)';
+      MESSAGE = 'A lease rental and its schedule row must agree: same loan, period = instalment number, total = total due (0 once cancelled), same due date';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public."checkLeaseScheduleRow"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId"
+      AND l."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE'))
+    AND NOT EXISTS (SELECT 1 FROM "LeaseRental" r WHERE r."scheduleId" = NEW."id" AND r."tenantId" = NEW."tenantId")
+    AND NOT EXISTS (SELECT 1 FROM "LeaseEndOfTerm" e WHERE e."scheduleId" = NEW."id" AND e."tenantId" = NEW."tenantId")
+    AND NOT EXISTS (SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."scheduleId" = NEW."id" AND q."tenantId" = NEW."tenantId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease loan''s schedule row is one of its rentals, or the charge of its end of term or termination';
   END IF;
   RETURN NULL;
 END;

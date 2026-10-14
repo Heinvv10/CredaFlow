@@ -9,6 +9,7 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { dbDate, toDayNumber } from "./dates"
 import type { SigningTx } from "./signing-prepare"
+import { clientLeaseRefusal } from "./lease-portal-route"
 
 export type ReadingActor = { tenantId: string; userId: string; clientId?: undefined } | { tenantId: string; clientId: string; userId?: undefined }
 
@@ -33,6 +34,11 @@ export async function recordMeterReading(tx: SigningTx, actor: ReadingActor, inp
   })
   const unit = loan?.assetFinanceDeal?.usageUnit
   if (!loan?.assetId || !unit) return { kind: "not_found" }
+  if (actor.clientId) {
+    // The portal: the lessee (or the entity's authorised people), on a running lease only.
+    if (await clientLeaseRefusal(actor, input.loanId)) return { kind: "not_found" }
+    if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED") return { kind: "refused", reason: "lease_closed", error: `The lease is ${loan.status}` }
+  }
   try {
     toDayNumber(input.readingDate, "readingDate")
   } catch {

@@ -27,6 +27,7 @@ import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { appendLeaseCharge, cancelFutureRentals } from "./lease-charges"
 import { cpaCancellationDate, earlyTerminationAmount } from "./lease-termination"
 import type { SigningTx } from "./signing-prepare"
+import { clientLeaseRefusal } from "./lease-portal-route"
 
 export type TerminationActor = { tenantId: string; userId: string; clientId?: undefined } | { tenantId: string; clientId: string; userId?: undefined }
 export type TerminationResult =
@@ -50,6 +51,8 @@ function basisText(cpa: boolean, penaltyRate: string, terminationDate: string): 
 
 export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationActor, input: { loanId: string; today: string }): Promise<TerminationResult> {
   const { tenantId } = actor
+  const denied = await clientLeaseRefusal(actor, input.loanId)
+  if (denied) return denied
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
     select: {
@@ -105,6 +108,7 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
       leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null }, select: { dueDate: true } },
     } } },
   })
+  if (await clientLeaseRefusal(actor, quote.loanId)) return { kind: "not_found" }
   if (quote.status !== "QUOTED") return refused("not_quoted", "The quote was already accepted")
   if (input.today > isoOfDbDate(quote.validUntil)) return refused("expired", `The quote expired on ${isoOfDbDate(quote.validUntil)}`)
   const { loan } = quote

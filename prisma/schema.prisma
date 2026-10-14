@@ -1689,9 +1689,9 @@ model AvsCheck {
 }
 
 model RepaymentSchedule {
-  id                              String         @id @default(cuid())
+  id                              String                 @id @default(cuid())
   tenantId                        String
-  tenant                          Tenant         @relation(fields: [tenantId], references: [id])
+  tenant                          Tenant                 @relation(fields: [tenantId], references: [id])
   loanId                          String
   installmentNo                   Int
   dueDate                         DateTime
@@ -1700,14 +1700,16 @@ model RepaymentSchedule {
   // Opening capital at the last asset-finance solve. Preserved when a paid
   // row is reopened, so a later reprice can reconstruct its historical accrual.
   assetFinanceOpeningBalanceCents Int?
-  creditLifePremiumDue            Int            @default(0)
+  creditLifePremiumDue            Int                    @default(0)
   feesDue                         Int
   totalDue                        Int
-  totalPaid                       Int            @default(0)
-  status                          ScheduleStatus @default(PENDING)
+  totalPaid                       Int                    @default(0)
+  status                          ScheduleStatus         @default(PENDING)
   paidAt                          DateTime?
-  loan                            Loan           @relation(fields: [loanId], references: [id])
+  loan                            Loan                   @relation(fields: [loanId], references: [id])
   leaseRental                     LeaseRental?
+  leaseEndOfTermCharge            LeaseEndOfTerm?        @relation("LeaseEndOfTermCharge")
+  leaseTerminationCharge          LeaseTerminationQuote? @relation("LeaseTerminationCharge")
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -5099,6 +5101,7 @@ model LeaseEndOfTerm {
   taxInvoiceId               String?            @unique
   taxInvoice                 TaxInvoice?        @relation("LeaseEndOfTermInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   scheduleId                 String?            @unique
+  schedule                   RepaymentSchedule? @relation("LeaseEndOfTermCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   natisTransferConfirmedAt   DateTime?
   natisTransferConfirmedById String?
   completedAt                DateTime?
@@ -5110,6 +5113,7 @@ model LeaseEndOfTerm {
   @@unique([tenantId, loanId])
   @@unique([tenantId, finalReadingId])
   @@unique([tenantId, taxInvoiceId])
+  @@unique([tenantId, scheduleId])
 }
 
 model LeaseDamageItem {
@@ -5167,9 +5171,11 @@ model LeaseTerminationQuote {
   taxInvoiceId        String?                @unique
   taxInvoice          TaxInvoice?            @relation("LeaseTerminationInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   scheduleId          String?                @unique
+  schedule            RepaymentSchedule?     @relation("LeaseTerminationCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt           DateTime               @default(now())
 
   @@unique([tenantId, id])
   @@unique([tenantId, taxInvoiceId])
+  @@unique([tenantId, scheduleId])
   @@index([tenantId, loanId])
 }

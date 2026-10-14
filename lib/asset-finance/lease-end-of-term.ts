@@ -23,6 +23,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped, dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import { recordMeterReading } from "./meter-readings"
+import { clientLeaseRefusal } from "./lease-portal-route"
 import type { SigningTx } from "./signing-prepare"
 
 export type EndActor = { tenantId: string; userId: string; clientId?: undefined } | { tenantId: string; clientId: string; userId?: undefined }
@@ -50,6 +51,9 @@ export interface ElectInput {
 
 export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: ElectInput): Promise<EndResult> {
   const { tenantId } = actor
+  // A portal client acts only on a lease they are the lessee of, or have authority for.
+  const denied = await clientLeaseRefusal(actor, input.loanId)
+  if (denied) return denied
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
     select: { status: true, assetId: true, maturityDate: true, leaseEndOfTerm: { select: { id: true, outcome: true } } },
@@ -85,6 +89,8 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
 
 /** Either party ends a month-to-month extension: it ends EXTENSION_NOTICE_MONTHS after the notice date. */
 export async function endExtension(tx: SigningTx, actor: EndActor, input: { loanId: string; noticeOn: string }): Promise<EndResult> {
+  const denied = await clientLeaseRefusal(actor, input.loanId)
+  if (denied) return denied
   const row = await tx.leaseEndOfTerm.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId }, select: { id: true, status: true, extensionNoticeOn: true } })
   if (!row) return { kind: "not_found" }
   if (row.status !== "EXTENDING") return refused("not_extending", "The lease is not on a month-to-month extension")
