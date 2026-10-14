@@ -4,7 +4,8 @@
  *
  *   REPRO 1 (H1)  a run is bound to the identity it screened
  *   REPRO 2 (H2)  a REJECTED or confirmed-sanctions block survives a later CLEAR run
- *   REPRO 3 (M1)  a decision never carries onto a CONFIRMED_MATCH
+ *   REPRO 3 (M1)  a decision never carries upward, POSSIBLE → CONFIRMED (carry is
+ *                 same-level only, never for sanctions: policy 2026-10-14)
  *   REPRO 4 (M2)  a match with no usable list-entry ids never carries
  *   REPRO 5 (H3)  an entity application is not approvable without entity screening
  *
@@ -135,22 +136,36 @@ suite("round-1 breaker repros", () => {
     expect(await approvalRefusal(await application({ clientId: id }))).toContain("screening blocks approval")
   })
 
-  it("REPRO 3: a decision on a match never carries onto a CONFIRMED_MATCH re-run", async () => {
-    const id = await client("Example")
-    scripted = withMatch({ type: "PEP", result: "CONFIRMED_MATCH", matches: [entry("PEP-2")] })
-    await run(id)
-    expect(await decide((await latestMatch(id)).id, "FALSE_POSITIVE")).toMatchObject({ ok: true })
-    await run(id)
-    expect(await stateOf(id)).toBe("REFER")
-    expect((await latestMatch(id)).carriedFromCheckId).toBeNull()
-  })
-
-  it("REPRO 3b: a decision on a POSSIBLE_MATCH does not carry onto a CONFIRMED_MATCH of the same entry", async () => {
+  it("REPRO 3 (escalation): a decision on a POSSIBLE_MATCH does not carry onto a CONFIRMED_MATCH of the same entry", async () => {
     const id = await client("Example")
     scripted = withMatch({ type: "PEP", result: "POSSIBLE_MATCH", matches: [entry("PEP-3")] })
     await run(id)
     expect(await decide((await latestMatch(id)).id, "FALSE_POSITIVE")).toMatchObject({ ok: true })
     scripted = withMatch({ type: "PEP", result: "CONFIRMED_MATCH", matches: [entry("PEP-3")] })
+    await run(id)
+    expect(await stateOf(id)).toBe("REFER")
+    expect((await latestMatch(id)).carriedFromCheckId).toBeNull()
+  })
+
+  it("policy: an ACCEPTED confirmed PEP is carried onto an identical confirmed re-run, but new list entries refer again", async () => {
+    const id = await client("Example")
+    scripted = withMatch({ type: "PEP", result: "CONFIRMED_MATCH", matches: [entry("PEP-2")] })
+    await run(id)
+    const accepted = await latestMatch(id)
+    expect(await decide(accepted.id, "ACCEPTED")).toMatchObject({ ok: true })
+    await run(id)
+    expect(await stateOf(id)).toBe("CLEAR")
+    expect(await latestMatch(id)).toMatchObject({ decision: "ACCEPTED", carriedFromCheckId: accepted.id })
+    scripted = withMatch({ type: "PEP", result: "CONFIRMED_MATCH", matches: [entry("PEP-2"), entry("PEP-9")] })
+    await run(id)
+    expect(await stateOf(id)).toBe("REFER")
+  })
+
+  it("policy: a cleared sanctions possible match is never carried; it refers every time", async () => {
+    const id = await client("Example")
+    scripted = withMatch({ type: "SANCTIONS", result: "POSSIBLE_MATCH", matches: [entry("SAN-7")] })
+    await run(id)
+    expect(await decide((await latestMatch(id)).id, "FALSE_POSITIVE")).toMatchObject({ ok: true })
     await run(id)
     expect(await stateOf(id)).toBe("REFER")
   })

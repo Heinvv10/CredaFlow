@@ -41,13 +41,14 @@ describe("migration 20261014150000_w4_screening_fic", () => {
     expect(fn).toContain(`(s.decision IS NULL OR s.decision = 'REJECTED')`)
   })
 
-  it("carries a decision only onto a possible match with list-entry ids, from an identical clearance (M1, M2)", () => {
+  it("carries a decision only at the same result level, never for sanctions, only with list-entry ids (M1, M2, policy 2026-10-14)", () => {
     const fn = baselineFunctionSql("guardScreeningCheckRecord")
-    expect(fn).toContain(`NEW.result = 'POSSIBLE_MATCH'`)
+    expect(fn).toContain(`NEW.result IN ('POSSIBLE_MATCH', 'CONFIRMED_MATCH')`)
+    expect(fn).toContain(`NEW.type <> 'SANCTIONS'`)
+    expect(fn).toContain(`p.result = NEW.result`)
     expect(fn).toContain(`NEW.decision IN ('FALSE_POSITIVE', 'ACCEPTED')`)
     expect(fn).toContain(`jsonb_array_length(NEW.matches) > 0`)
     expect(fn).toContain(`coalesce(btrim(m->>'listEntryId'), '') = ''`)
-    expect(fn).toContain(`p.result = 'POSSIBLE_MATCH'`)
     expect(fn).toContain(`CONSTRAINT = 'ScreeningCheck_subject_fingerprint'`)
   })
 

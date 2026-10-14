@@ -65,7 +65,7 @@ suite("screening workflow against Postgres", () => {
     expect(await db.auditLog.count({ where: { tenantId, action: "SCREENING_RUN", entityId: id } })).toBe(1)
   })
 
-  it("refers a PEP: approval blocked until a senior with 2FA (not the run's starter) accepts it; a confirmed match is referred again on re-screen", async () => {
+  it("refers a PEP: approval blocked until a senior with 2FA (not the run's starter) accepts it; the identical confirmed match carries on re-screen", async () => {
     const id = await client("Fixture-Pep")
     expect((await run(id) as { state: { state: string } }).state.state).toBe("REFER")
     expect((await db.client.findUnique({ where: { id } }))?.amlScreeningStatus).toBe("FLAGGED")
@@ -83,19 +83,19 @@ suite("screening workflow against Postgres", () => {
     expect(await review(check.id, "REJECTED")).toMatchObject({ ok: false, code: "already_decided" })
     expect(await db.auditLog.count({ where: { tenantId, action: "SCREENING_MATCH_REVIEWED", entityId: check.id } })).toBe(1)
 
-    // M1: a CONFIRMED_MATCH is never carried; the re-run refers it again.
-    expect(await run(id)).toMatchObject({ state: { state: "REFER" } })
-    expect((await openCheck(id)).carriedFromCheckId).toBeNull()
+    // Same-level carry (policy 2026-10-14): the identical confirmed match is
+    // carried, so the accepted PEP is not re-referred every cycle.
+    expect(await run(id)).toMatchObject({ state: { state: "CLEAR" } })
+    expect(await openCheck(id)).toMatchObject({ decision: "ACCEPTED", carriedFromCheckId: check.id, reviewedById: null })
   })
 
-  it("carries a false-positive possible match forward on re-screen, decided by nobody new", async () => {
+  it("never carries a cleared sanctions possible match: each re-screen refers it to a reviewer again", async () => {
     const id = await client("Fixture-Possible")
     await run(id)
     const check = await openCheck(id)
     expect(await review(check.id, "FALSE_POSITIVE")).toMatchObject({ ok: true, state: { state: "CLEAR" } })
-    expect(await run(id)).toMatchObject({ state: { state: "CLEAR" } })
-    const carried = await openCheck(id)
-    expect(carried).toMatchObject({ decision: "FALSE_POSITIVE", carriedFromCheckId: check.id, reviewedById: null })
+    expect(await run(id)).toMatchObject({ state: { state: "REFER" } })
+    expect((await openCheck(id)).carriedFromCheckId).toBeNull()
   })
 
   it("hard-blocks a confirmed sanctions match: no reviewer clears it and every re-run still blocks", async () => {

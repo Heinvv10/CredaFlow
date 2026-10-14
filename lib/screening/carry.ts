@@ -3,8 +3,11 @@
  * repeats the structural part (guardScreeningCheckRecord); the age and
  * reviewer rules live only here.
  *
- *   - Only onto a POSSIBLE_MATCH, from a POSSIBLE_MATCH: a CONFIRMED_MATCH is
- *     always referred again, whatever was decided before.
+ *   - Only at the SAME result level: POSSIBLE → POSSIBLE, or CONFIRMED →
+ *     CONFIRMED (policy 2026-10-14: an accepted confirmed PEP is not
+ *     re-referred every cycle). Never upward: a decision on a POSSIBLE_MATCH
+ *     never carries onto a CONFIRMED_MATCH of the same entry.
+ *   - Never for SANCTIONS, at any level.
  *   - Only FALSE_POSITIVE or ACCEPTED. REJECTED is never carried: it raised a
  *     sticky ScreeningBlock, which is what keeps the subject blocked.
  *   - Only for the same type, result and list entries (ids and versions),
@@ -58,12 +61,14 @@ export function carriedDecision(
   priors: PriorDecision[],
   opts: { now: Date; reviewerEligible: (userId: string) => boolean },
 ): { prior: PriorDecision; root: PriorDecision } | null {
-  if (candidate.result !== "POSSIBLE_MATCH" || !carryableMatches(candidate.matches)) return null
+  if (candidate.type === "SANCTIONS") return null
+  if (candidate.result !== "POSSIBLE_MATCH" && candidate.result !== "CONFIRMED_MATCH") return null
+  if (!carryableMatches(candidate.matches)) return null
   const byId = new Map(priors.map((p) => [p.id, p]))
   const maxAgeMs = CARRY_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
   const same = priors
     .filter((p) =>
-      p.decision !== null && CARRYABLE.includes(p.decision) && p.result === "POSSIBLE_MATCH"
+      p.decision !== null && CARRYABLE.includes(p.decision) && p.result === candidate.result
       && p.type === candidate.type && p.matchFingerprint === candidate.fingerprint)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   for (const prior of same) {

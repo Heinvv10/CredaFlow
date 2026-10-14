@@ -30,10 +30,31 @@ describe("carriedDecision", () => {
     expect(carriedDecision(candidate(), [prior({})], opts)?.prior.id).toBe("p1")
   })
 
-  it("M1: never carries onto a CONFIRMED_MATCH, nor from one", () => {
-    const fp = matchFingerprint("PEP", "CONFIRMED_MATCH", [m("a")])
-    expect(carriedDecision(candidate({ result: "CONFIRMED_MATCH", fingerprint: fp }), [prior({ result: "CONFIRMED_MATCH", matchFingerprint: fp })], opts)).toBeNull()
+  it("policy: carries a clearance of a confirmed PEP or adverse-media match onto an identical confirmed match", () => {
+    for (const type of ["PEP", "ADVERSE_MEDIA"] as const) {
+      const fp = matchFingerprint(type, "CONFIRMED_MATCH", [m("a")])
+      const confirmed = candidate({ type, result: "CONFIRMED_MATCH", fingerprint: fp })
+      expect(carriedDecision(confirmed, [prior({ type, result: "CONFIRMED_MATCH", matchFingerprint: fp, decision: "ACCEPTED" })], opts)?.prior.id, type).toBe("p1")
+    }
+  })
+
+  it("M1: never carries upward — a POSSIBLE_MATCH decision onto a CONFIRMED_MATCH of the same entry — nor downward", () => {
+    const fpConfirmed = matchFingerprint("PEP", "CONFIRMED_MATCH", [m("a")])
+    const escalated = candidate({ result: "CONFIRMED_MATCH", fingerprint: fpConfirmed })
+    expect(carriedDecision(escalated, [prior({ result: "POSSIBLE_MATCH", matchFingerprint: fpConfirmed })], opts)).toBeNull()
+    expect(carriedDecision(escalated, [prior({})], opts)).toBeNull()
     expect(carriedDecision(candidate(), [prior({ result: "CONFIRMED_MATCH" })], opts)).toBeNull()
+  })
+
+  it("never carries for SANCTIONS, at any level", () => {
+    for (const result of ["POSSIBLE_MATCH", "CONFIRMED_MATCH"] as const) {
+      const fp = matchFingerprint("SANCTIONS", result, [m("a")])
+      expect(carriedDecision(
+        candidate({ type: "SANCTIONS", result, fingerprint: fp }),
+        [prior({ type: "SANCTIONS", result, matchFingerprint: fp })],
+        opts,
+      ), result).toBeNull()
+    }
   })
 
   it("M2: never carries when there are no matches or an entry lacks its id", () => {

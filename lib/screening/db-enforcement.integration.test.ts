@@ -51,12 +51,12 @@ suite("screening enforcement in the database", () => {
     INSERT INTO "LoanApplication" ("id", "tenantId", "reference", "clientId", "productId", "appliedAmount", "appliedTermDays", "status", "updatedAt")
     VALUES ('${id}', '${tenant}', 'APP-${id}', '${clientId}', '${product}', 500000, 30, 'UNDER_REVIEW', now());`
   /** A check row for the client's CURRENT identity (subjectFingerprint from the same SQL the trigger uses). */
-  const checkSql = (id: string, clientId: string, runId: string, type: string, result: string, extra = "", matches = `[{"listEntryId": "E-${type}"}]`) => {
+  const checkSql = (id: string, clientId: string, runId: string, type: string, result: string, extra = "", matches = `[{"listEntryId": "E-${type}"}]`, fingerprint = `fp-${type}-${result}`) => {
     const isMatch = result === "POSSIBLE_MATCH" || result === "CONFIRMED_MATCH"
     return `
     INSERT INTO "ScreeningCheck" ("id", "tenantId", "clientId", "runId", "trigger", "provider", "type", "result", "matchFingerprint", "matches", "subjectFingerprint", "createdAt" ${extra ? ", " + extra.split("|")[0] : ""})
     VALUES ('${id}', '${tenantId}', '${clientId}', '${runId}', 'MANUAL', 'simulated', '${type}', '${result}',
-      ${isMatch ? `'fp-${type}-${result}'` : "NULL"}, '${isMatch ? matches : "[]"}'::jsonb,
+      ${isMatch ? `'${fingerprint}'` : "NULL"}, '${isMatch ? matches : "[]"}'::jsonb,
       "screeningCurrentFingerprint"('${tenantId}', '${clientId}', NULL), now() ${extra ? ", " + extra.split("|")[1] : ""});`
   }
   const cleanRun = (clientId: string, runId: string) =>
@@ -152,7 +152,7 @@ suite("screening enforcement in the database", () => {
     expect(run(`UPDATE "ScreeningCheck" SET decision = 'REJECTED' WHERE id = '${r}_P'`).output).toContain("ScreeningCheck_decided_immutable")
   })
 
-  it("refuses a check inserted already decided unless it carries an identical earlier clearance of a possible match", () => {
+  it("refuses a check inserted already decided unless it carries an identical earlier clearance at the same result level (never sanctions)", () => {
     const c = `c_born_${token}`
     sql(clientSql(c))
     const decided = `"decision", "decisionReason", "reviewedAt", "reviewedById"|'ACCEPTED', 'Pre-cleared before anyone looked.', now(), 'u1'`
@@ -162,8 +162,19 @@ suite("screening enforcement in the database", () => {
     const carried = (decision = "ACCEPTED") => `"decision", "decisionReason", "reviewedAt", "carriedFromCheckId"|'${decision}', 'Senior accepted with enhanced due diligence.', now(), 'src_${token}'`
     expect(run(checkSql(`carry_${token}`, c, `r_carry_${token}`, "PEP", "POSSIBLE_MATCH", carried())).ok).toBe(true)
     expect(run(checkSql(`carry2_${token}`, c, `r_carry2_${token}`, "PEP", "POSSIBLE_MATCH", carried("FALSE_POSITIVE"))).output).toContain("ScreeningCheck_born_undecided")
-    // M1: never onto a CONFIRMED_MATCH.
-    expect(run(checkSql(`carry3_${token}`, c, `r_carry3_${token}`, "PEP", "CONFIRMED_MATCH", carried())).output).toContain("ScreeningCheck_born_undecided")
+    // M1: never upward, from a possible-match clearance onto a CONFIRMED_MATCH —
+    // even with a forged identical fingerprint, so only the level rule can refuse it.
+    expect(run(checkSql(`carry3_${token}`, c, `r_carry3_${token}`, "PEP", "CONFIRMED_MATCH", carried(), undefined, "fp-PEP-POSSIBLE_MATCH")).output).toContain("ScreeningCheck_born_undecided")
+    // Policy 2026-10-14: same level is fine — a confirmed PEP clearance onto the identical confirmed match.
+    sql(checkSql(`csrc_${token}`, c, `r_csrc_${token}`, "PEP", "CONFIRMED_MATCH"))
+    sql(`UPDATE "ScreeningCheck" SET decision = 'ACCEPTED', "decisionReason" = 'Senior accepted with enhanced due diligence.', "reviewedById" = 'u1', "reviewedAt" = now() WHERE id = 'csrc_${token}'`)
+    const fromConfirmed = `"decision", "decisionReason", "reviewedAt", "carriedFromCheckId"|'ACCEPTED', 'Senior accepted with enhanced due diligence.', now(), 'csrc_${token}'`
+    expect(run(checkSql(`ccarry_${token}`, c, `r_ccarry_${token}`, "PEP", "CONFIRMED_MATCH", fromConfirmed)).ok).toBe(true)
+    // Never for SANCTIONS, even an identical cleared possible match.
+    sql(checkSql(`ssrc_${token}`, c, `r_ssrc_${token}`, "SANCTIONS", "POSSIBLE_MATCH"))
+    sql(`UPDATE "ScreeningCheck" SET decision = 'FALSE_POSITIVE', "decisionReason" = 'Different date of birth on the list.', "reviewedById" = 'u1', "reviewedAt" = now() WHERE id = 'ssrc_${token}'`)
+    const fromSanctions = `"decision", "decisionReason", "reviewedAt", "carriedFromCheckId"|'FALSE_POSITIVE', 'Different date of birth on the list.', now(), 'ssrc_${token}'`
+    expect(run(checkSql(`scarry_${token}`, c, `r_scarry_${token}`, "SANCTIONS", "POSSIBLE_MATCH", fromSanctions)).output).toContain("ScreeningCheck_born_undecided")
     // M2: never when there are no matches, or one lacks its list-entry id.
     for (const [n, matches] of [["4", "[]"], ["5", `[{"listEntryId": ""}]`], ["6", `[{"listName": "x"}]`]]) {
       expect(run(checkSql(`carry${n}_${token}`, c, `r_carry${n}_${token}`, "PEP", "POSSIBLE_MATCH", carried(), matches)).output, matches).toContain("ScreeningCheck_born_undecided")
