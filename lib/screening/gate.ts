@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { getScreeningConfig, screeningCutoff } from "./policy"
@@ -18,6 +19,7 @@ export function isScreeningRefusal(error: unknown): boolean {
   const text = String(error)
   return text.includes("LoanApplication_screening_required") || text.includes("LoanApplication_screening_blocks_approval")
     || text.includes("has not been screened") || text.includes("screening blocks approval")
+    || text.includes("LoanApplication_screening_self_decided") || text.includes("decided a screening match")
 }
 
 /** One subject's current screening state, read-only (no provider call). */
@@ -50,6 +52,29 @@ export type BorrowerScreening = {
   message: string
   subjects: Array<{ ref: SubjectRef; state: ScreeningState }>
   providerError: string | null
+  /** Refused because the approver decided a match the screening relies on (segregation of duties). */
+  selfDecided?: true
+}
+
+const SELF_DECIDED_MESSAGE =
+  "You decided a screening match this approval relies on. Another user must approve it."
+
+/**
+ * Segregation of duties (requireSecondReviewer on): did `userId` decide any
+ * match the borrower's current screening relies on, including carried
+ * decisions traced to their original decider? The same SQL function the
+ * approval trigger uses, so the two never disagree.
+ */
+export async function approverDecidedRelied(
+  db: Pick<typeof prisma, "$queryRaw">,
+  tenantId: string,
+  borrower: Borrower,
+  userId: string,
+): Promise<boolean> {
+  const rows = await db.$queryRaw<Array<{ decided: boolean }>>(
+    Prisma.sql`SELECT "screeningApproverDecided"(${tenantId}, ${borrower.clientId}, ${borrower.entityId}, ${userId}) AS decided`,
+  )
+  return rows[0]?.decided === true
 }
 
 const label = (ref: SubjectRef, borrower: Borrower) =>
@@ -127,7 +152,11 @@ export async function borrowerScreeningGate(args: {
     subjects.push({ ref, state })
   }
   const contextBlocks = borrower.entityId ? await loadEntityContextBlocks(prisma, tenantId, borrower.entityId) : []
-  return combine(borrower, subjects, providerError, true, contextBlocks)
+  const result = combine(borrower, subjects, providerError, true, contextBlocks)
+  if (result.allowed && config.requireSecondReviewer && (await approverDecidedRelied(prisma, tenantId, borrower, actor.id))) {
+    return { ...result, allowed: false, selfDecided: true, message: SELF_DECIDED_MESSAGE }
+  }
+  return result
 }
 
 /**
@@ -140,6 +169,8 @@ export async function lockedBorrowerScreeningAllows(
   tx: ReadDb & Pick<typeof prisma, "$executeRaw" | "entityRelationship">,
   tenantId: string,
   borrower: Borrower,
+  /** The approving user: refused if they decided a match relied on (requireSecondReviewer on). */
+  approverId: string,
 ): Promise<boolean> {
   const config = await getScreeningConfig(tenantId, tx)
   if (!config.provider) return true
@@ -150,5 +181,6 @@ export async function lockedBorrowerScreeningAllows(
   for (const ref of refs) {
     if (!screeningAllowsApproval((await readSubjectScreening(tenantId, ref, tx)).state)) return false
   }
+  if (config.requireSecondReviewer && (await approverDecidedRelied(tx, tenantId, borrower, approverId))) return false
   return true
 }

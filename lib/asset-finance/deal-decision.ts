@@ -98,7 +98,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
     // parties, or the natural person), re-read under their screening locks.
     // The route ran the gate first; the trigger LoanApplication_a1_guard_screening
     // is the backstop.
-    if (!(await lockedBorrowerScreeningAllows(tx, tenantId, { clientId: app.clientId, entityId: app.entityId }))) {
+    if (!(await lockedBorrowerScreeningAllows(tx, tenantId, { clientId: app.clientId, entityId: app.entityId }, actor.userId))) {
       return { kind: "screening_blocked" }
     }
   }

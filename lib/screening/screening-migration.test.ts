@@ -72,6 +72,16 @@ describe("migration 20261014150000_w4_screening_fic", () => {
     }
   })
 
+  it("segregation of duties: the decider of a relied-on match (carried decisions traced) does not approve", () => {
+    const decided = baselineFunctionSql("screeningDecidedBy")
+    expect(decided).toContain(`WITH RECURSIVE chain AS`)
+    expect(decided).toContain(`JOIN chain c ON p.id = c."carriedFromCheckId"`)
+    expect(baselineFunctionSql("screeningApproverDecided")).toContain(`r.active AND "screeningDecidedBy"(t, r."clientId", NULL, uid)`)
+    const guard = baselineFunctionSql("guardLoanApplicationScreening")
+    expect(guard).toContain(`"screeningApproverDecided"(NEW."tenantId", NEW."clientId", NEW."entityId", NEW."approvedById")`)
+    expect(guard).toContain(`CONSTRAINT = 'LoanApplication_screening_self_decided'`)
+  })
+
   it("round 2: identity-bound carry, length-prefixed fingerprints, fingerprint-based staleness, entity-context blocks", () => {
     expect(baselineFunctionSql("guardScreeningCheckRecord")).toContain(`p."subjectFingerprint" = NEW."subjectFingerprint"`)
     expect(baselineFunctionSql("screeningFingerprintField")).toContain(`char_length(v)::text || ':' || v`)

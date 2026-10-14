@@ -120,7 +120,7 @@ suite("re-screening against Postgres", () => {
       await new Promise((r) => setTimeout(r, 300))
     })
     await hasLock
-    const allowed = await prisma.$transaction((tx) => lockedBorrowerScreeningAllows(tx, t, borrower))
+    const allowed = await prisma.$transaction((tx) => lockedBorrowerScreeningAllows(tx, t, borrower, "approver-not-a-reviewer"))
     await inFlight
     expect(allowed).toBe(false)
   })

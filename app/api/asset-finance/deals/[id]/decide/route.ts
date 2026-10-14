@@ -63,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           actor: { id: guard.user.id, email: guard.user.email },
         })
         if (!screening.allowed) {
-          return refuse(`screening_${screening.state.state.toLowerCase()}`, 422, `Approval blocked: ${screening.message}`)
+          return refuse(screening.selfDecided ? "screening_self_decided" : `screening_${screening.state.state.toLowerCase()}`, 422, `Approval blocked: ${screening.message}`)
         }
       }
     }

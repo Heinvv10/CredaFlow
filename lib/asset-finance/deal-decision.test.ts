@@ -75,7 +75,7 @@ describe("decideDeal", () => {
     screeningAllows.mockResolvedValueOnce(false)
     fake = fakeTx(deal())
     expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "screening_blocked" })
-    expect(screeningAllows).toHaveBeenCalledWith(fake.asTx, "tenant-1", { clientId: null, entityId: "entity-1" })
+    expect(screeningAllows).toHaveBeenCalledWith(fake.asTx, "tenant-1", { clientId: null, entityId: "entity-1" }, "admin-a")
     expect(fake.tx.loanApplication.update).not.toHaveBeenCalled()
   })
 

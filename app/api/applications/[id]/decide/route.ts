@@ -1122,7 +1122,7 @@ export async function POST(
             tenantId: tenant.id,
             userId: guard.user.id,
             userEmail: guard.user.email,
-            reason: `screening_${screening.state.state.toLowerCase()}`,
+            reason: screening.selfDecided ? "screening_self_decided" : `screening_${screening.state.state.toLowerCase()}`,
             status: 422,
           })
           return NextResponse.json(
@@ -1198,7 +1198,7 @@ export async function POST(
             if (openFlags > 0) {
               return { ok: false as const, reason: "checks_open" as const }
             }
-            if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }))) {
+            if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, guard.user.id))) {
               return { ok: false as const, reason: "screening_changed" as const }
             }
             // Evidence that arrived after the recompute read it has not been
