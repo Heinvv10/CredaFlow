@@ -30,9 +30,9 @@ import { describeAsset, issueTaxInvoice, type TaxInvoiceDb } from "@/lib/vat/tax
 import { loadRateOn, rateTenThousandthsOf } from "@/lib/vat/vat-rate"
 import type { VatTransaction } from "@/lib/vat/db"
 import { recipientAddress } from "./booking-load"
-import { isoOfDbDate } from "./dates"
+import { dbDate, isoOfDbDate } from "./dates"
 
-export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog">
+export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement">
 
 export type IssueRentalResult =
   | { kind: "issued"; invoiceId: string; invoiceNumber: string }
@@ -42,7 +42,7 @@ export type IssueRentalResult =
 
 const RENTAL_SELECT = {
   id: true, periodNo: true, dueDate: true, rentalExclVatCents: true, maintenanceExclVatCents: true,
-  vatRate: true, totalCents: true, taxInvoiceId: true, loanId: true,
+  vatRate: true, totalCents: true, taxInvoiceId: true, loanId: true, cancelledAt: true,
   loan: {
     select: {
       reference: true, contractType: true, _count: { select: { leaseRentals: true } },
@@ -65,6 +65,7 @@ export async function issueLeaseRentalInvoice(
   const rental = await tx.leaseRental.findFirst({ where: { id: input.rentalId, tenantId }, select: RENTAL_SELECT })
   if (!rental) return { kind: "not_found" }
   if (rental.taxInvoiceId) return { kind: "already_invoiced", invoiceId: rental.taxInvoiceId }
+  if (rental.cancelledAt) return { kind: "refused", reason: "cancelled", error: "The rental was cancelled by an early termination" }
   const dueDate = isoOfDbDate(rental.dueDate)
   if (input.supplyDate > dueDate || input.supplyDate > input.today) {
     return { kind: "refused", reason: "supply_date", error: `A rental's supply date is the earlier of its due date ${dueDate} and the receipt, and not after today` }
@@ -94,6 +95,15 @@ export async function issueLeaseRentalInvoice(
   }
   const bound = await tx.leaseRental.updateMany({ where: { id: rental.id, tenantId, taxInvoiceId: null }, data: { taxInvoiceId: invoice.id } })
   if (bound.count !== 1) throw new Error(`lease rental ${rental.id} was invoiced concurrently`)
+  // A full-maintenance rental funds the maintenance fund as it is invoiced (./maintenance-fund.ts).
+  if (rental.maintenanceExclVatCents > 0) {
+    const fund = await tx.maintenanceFund.findFirst({ where: { tenantId, loanId: rental.loanId }, select: { id: true } })
+    if (!fund) throw new Error(`lease ${rental.loanId} has maintenance but no maintenance fund`)
+    await tx.maintenanceFundMovement.create({
+      data: { tenantId, fundId: fund.id, kind: "CONTRIBUTION", amountCents: rental.maintenanceExclVatCents, leaseRentalId: rental.id,
+        occurredOn: dbDate(input.supplyDate), createdById: input.createdById },
+    })
+  }
   await logAuditStrict({
     tenantId, userId: input.createdById ?? undefined, action: AuditAction.LEASE_RENTAL_INVOICED, entity: "LeaseRental", entityId: rental.id,
     newValue: {
@@ -116,7 +126,7 @@ export async function issueLeaseInvoicesOnReceipt(
 ): Promise<void> {
   if (input.contractType !== "OPERATING_LEASE" && input.contractType !== "FULL_MAINTENANCE_LEASE") return
   const rentals = await tx.leaseRental.findMany({
-    where: { tenantId: input.tenantId, loanId: input.loanId, taxInvoiceId: null, schedule: { totalPaid: { gt: 0 } } },
+    where: { tenantId: input.tenantId, loanId: input.loanId, taxInvoiceId: null, cancelledAt: null, schedule: { totalPaid: { gt: 0 } } },
     orderBy: { periodNo: "asc" },
     select: { id: true, dueDate: true },
   })
