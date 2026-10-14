@@ -34,6 +34,8 @@ export type TenantConfigData = {
   ncrNumber: string | null
   fscaNumber: string | null
   companyRegNumber: string | null
+  /** Raw column; read through lib/i18n/locales.ts normaliseEnabledLocales. */
+  enabledLanguages: string[]
 }
 
 export async function getTenantFromRequest(
@@ -148,6 +150,7 @@ export function getTenantConfig(tenantId: string) {
           ncrNumber: true,
           fscaNumber: true,
           companyRegNumber: true,
+          enabledLanguages: true,
         },
       })
     },

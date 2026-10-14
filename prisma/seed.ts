@@ -120,6 +120,9 @@ async function main() {
     featurePortal: true,
     featureReports: true,
     featureAssetFinance: true,
+    // The demo shows every borrower language. A real lender starts on English
+    // only (the column default) until its translations are reviewed.
+    enabledLanguages: ["en", "af", "zu", "xh"],
   }
   await prisma.tenantConfig.upsert({
     where: { tenantId: tenant.id },

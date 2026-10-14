@@ -1,41 +1,51 @@
 import { PortalSidebar } from "./PortalSidebar"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { WhatsAppLauncher } from "@/components/support/WhatsAppLauncher"
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
 import { PORTAL_INTENTS } from "@/lib/support/whatsapp-intents"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { getPortalTenantId } from "@/lib/session-tenant"
+import { getLocale, getT } from "@/lib/i18n/server"
+import type { Locale } from "@/lib/i18n/locales"
 
 type PortalShellProps = {
   userName: string
   userEmail: string
   showBusiness?: boolean
+  /** The tenant's enabled languages; fewer than two hides the switcher. */
+  enabledLocales?: readonly Locale[]
   children: React.ReactNode
 }
 
-export async function PortalShell({ userName, userEmail, showBusiness = false, children }: PortalShellProps) {
-  const firstName = userName.split(" ")[0] || "there"
+export async function PortalShell({ userName, userEmail, showBusiness = false, enabledLocales = [], children }: PortalShellProps) {
+  const firstName = userName.split(" ")[0]
   // Throws LenderIdentityError when the lender is unconfigured: the portal
   // refuses to render rather than show another lender's contact line.
   const identity = await getLenderIdentity(await getPortalTenantId())
+  const [locale, t] = await Promise.all([getLocale(), getT("portalShell")])
 
   return (
-    <div className="min-h-screen cf-app-surface">
+    <div lang={locale} className="min-h-screen cf-app-surface">
       <PortalSidebar
         userName={userName}
         userEmail={userEmail}
         brandName={identity.tradingName}
         whatsappE164={identity.publicWhatsappE164}
         showBusiness={showBusiness}
+        enabledLocales={enabledLocales}
       />
 
       <header className="sticky top-[var(--cf-demo-banner-h)] z-30 flex items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 py-3 backdrop-blur md:hidden">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">
-            Client Portal
+            {t("clientPortal")}
           </p>
-          <p className="mt-1 text-sm font-medium text-[var(--cf-text)]">Hi {firstName}</p>
+          <p className="mt-1 text-sm font-medium text-[var(--cf-text)]">{firstName ? t("hi", { name: firstName }) : t("hiThere")}</p>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2 text-[var(--cf-text-secondary)]">
+          <LanguageSwitcher enabled={enabledLocales} />
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className="min-h-screen pb-20 md:ml-60 md:pb-0">
