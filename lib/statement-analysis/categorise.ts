@@ -18,7 +18,7 @@ import {
 } from "./merchants"
 import type { StatementTransaction } from "./types"
 
-export { EXPENSE_FIELD, isLiving, LIVING_CATEGORIES, type Category, type LivingCategory } from "./categories"
+export { isLiving, LIVING_CATEGORIES, type Category, type LivingCategory } from "./categories"
 
 /** Bump when a rule or a word list changes what a transaction is categorised as. */
 export const CATEGORISER_VERSION = "categoriser-v1"

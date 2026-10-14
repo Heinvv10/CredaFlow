@@ -40,6 +40,16 @@ describe("GET /api/applications/[id]/statement-insights", () => {
     expect(insightsMock).not.toHaveBeenCalled()
   })
 
+  it("is CREDIT_OFFICER and up: the role just below is refused, the one above allowed, no session is 401", async () => {
+    authMock.mockResolvedValue(session("INSURANCE_OFFICER"))
+    expect((await get()).status).toBe(403)
+    authMock.mockResolvedValue(null)
+    expect((await get()).status).toBe(401)
+    expect(insightsMock).not.toHaveBeenCalled()
+    authMock.mockResolvedValue(session("LOAN_ADMIN"))
+    expect((await get()).status).toBe(200)
+  })
+
   it("refuses a cross-site request", async () => {
     expect((await get({ "sec-fetch-site": "cross-site" })).status).toBe(403)
     expect(authMock).not.toHaveBeenCalled()

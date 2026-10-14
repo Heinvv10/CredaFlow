@@ -38,8 +38,9 @@ export function expenseUnderstated(f: ApplicationFacts): FlagCandidate[] {
   return [{
     check: "EXPENSE_UNDERSTATED",
     code: "LIVING_SPEND_ABOVE_DECLARED",
-    // The rules that categorised the spend are part of the evidence: new rules are a new finding.
-    key: `${CATEGORISER_VERSION}|${used.map(statementKey).sort().join(",")}`,
+    // The rules that categorised the spend and the figure declared are part of
+    // the evidence: new rules, or a declaration edited after a clearance, are a new finding.
+    key: `${CATEGORISER_VERSION}|${declared}|${used.map(statementKey).sort().join(",")}`,
     summary: `The statements show living spend of about ${formatCents(insights.living.monthlyCents)} a month; ` +
       `the client declared ${formatCents(declared)}, ${formatCents(gap)} less.`,
     evidence: {

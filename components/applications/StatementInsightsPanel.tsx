@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-import { LIVING_CATEGORIES, type Category } from "@/lib/statement-analysis/categories"
-import { MONTH_DAYS, type Insights } from "@/lib/statement-analysis/insights"
+import { EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
+import { isLiving, LIVING_CATEGORIES, MONTH_DAYS, type Category } from "@/lib/statement-analysis/categories"
+import type { Insights } from "@/lib/statement-analysis/insights"
 import { formatCents } from "@/lib/statement-analysis/money"
 
 type Payload = Insights & { unreadStatements: number }
@@ -57,7 +58,9 @@ function Living({ data }: { data: Payload }) {
         <Figure label="Statement above declared" value={gapCents === null ? "—" : formatCents(gapCents)} />
       </div>
       {!data.enoughCoverage && (
-        <p className="text-xs text-[var(--cf-text-muted)]">Under 28 days of reconciling statements: living spend is not compared with the declaration.</p>
+        <p className="text-xs text-[var(--cf-text-muted)]">
+          Under {EXPENSE_MIN_COVERAGE_DAYS} days of reconciling statements: living spend is not compared with the declaration.
+        </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Amounts title="Living spend by category, a month" rows={byCategory} />
@@ -68,7 +71,6 @@ function Living({ data }: { data: Payload }) {
 }
 
 function Months({ data }: { data: Payload }) {
-  const isLiving = (c: string) => (LIVING_CATEGORIES as readonly string[]).includes(c)
   return (
     <div className="mt-4 overflow-x-auto">
       <table className="w-full text-xs">
@@ -89,7 +91,7 @@ function Months({ data }: { data: Payload }) {
               <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(m.inCents)}</td>
               <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(m.outCents)}</td>
               <td className="py-1 pr-3 text-right whitespace-nowrap">
-                {formatCents(Object.entries(m.byCategory).reduce((s, [c, v]) => s + (isLiving(c) ? v ?? 0 : 0), 0))}
+                {formatCents(Object.entries(m.byCategory).reduce((s, [c, v]) => s + (isLiving(c as Category) ? v ?? 0 : 0), 0))}
               </td>
               <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(m.byCategory.UNCATEGORISED ?? 0)}</td>
               <td className="py-1 text-right">{m.salaryCredits}</td>
@@ -121,7 +123,8 @@ export function StatementInsightsPanel({ applicationId }: { applicationId: strin
   const used = data?.statements.filter((s) => s.used) ?? []
   const lowest = used.map((s) => s.lowestBalanceCents).filter((v): v is number => v !== null)
   const months = data ? data.coverageDays / MONTH_DAYS : 0
-  const total = (key: "inCents" | "outCents") => (data ? data.months.reduce((s, m) => s + m[key], 0) : 0)
+  // Per month of coverage, as the server averages living spend.
+  const perMonth = (key: "inCents" | "outCents") => (data && months > 0 ? Math.round(data.months.reduce((s, m) => s + m[key], 0) / months) : 0)
 
   return (
     <section data-testid="statement-insights-panel" className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-4">
@@ -148,9 +151,9 @@ export function StatementInsightsPanel({ applicationId }: { applicationId: strin
         <>
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <Figure label="Months covered" value={months.toFixed(1)} note={`${data.coverageDays} days, ${used.length} statement${used.length === 1 ? "" : "s"}`} />
-            <Figure label="Money in a month" value={formatCents(Math.round(total("inCents") / Math.max(months, 1)))} />
-            <Figure label="Money out a month" value={formatCents(Math.round(total("outCents") / Math.max(months, 1)))} />
-            <Figure label="Lowest balance" value={lowest.length ? formatCents(Math.min(...lowest)) : "—"} />
+            <Figure label="Money in a month" value={formatCents(perMonth("inCents"))} />
+            <Figure label="Money out a month" value={formatCents(perMonth("outCents"))} />
+            <Figure label="Lowest end-of-day balance" value={lowest.length ? formatCents(Math.min(...lowest)) : "—"} />
             <Figure
               label="Salary credits"
               value={`${data.salary.payDays.length} month${data.salary.payDays.length === 1 ? "" : "s"}`}

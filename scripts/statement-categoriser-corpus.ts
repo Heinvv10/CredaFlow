@@ -74,10 +74,17 @@ async function labelWithModel(descriptions: string[]): Promise<string[]> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: process.env.VLM_MODEL, temperature: 0, messages: [{ role: "user", content: prompt }] }),
   })
+  const invalid = descriptions.map(() => "INVALID")
+  if (!res.ok) return invalid
   const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
   const text = body.choices?.[0]?.message?.content ?? "[]"
-  const parsed: unknown = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1))
-  return Array.isArray(parsed) && parsed.length === descriptions.length ? parsed.map(String) : descriptions.map(() => "INVALID")
+  // Never let a parse error's message (which quotes the reply, and so corpus text) reach the output.
+  try {
+    const parsed: unknown = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1))
+    return Array.isArray(parsed) && parsed.length === descriptions.length ? parsed.map(String) : invalid
+  } catch {
+    return invalid
+  }
 }
 
 async function longtail(reads: Array<{ id: string; read: StatementRead }>, outDir: string) {
@@ -119,6 +126,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : "failed")
+  console.error(`failed: ${err instanceof Error ? err.name : "unknown"}`)
   process.exit(1)
 })

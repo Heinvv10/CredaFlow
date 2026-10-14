@@ -233,7 +233,8 @@ export async function loadApplicationFacts(
       applicationDate,
       clientName: `${app.client.firstName} ${app.client.lastName}`,
       monthlyIncomeCents: income,
-      declaredExpensesCents: app.client.monthlyExpenses ?? null,
+      // 0 is the column's default: nothing captured, not a declared R0 (as for income).
+      declaredExpensesCents: app.client.monthlyExpenses > 0 ? app.client.monthlyExpenses : null,
       statements,
       deletedStatementIds: deleted.map((d) => d.id),
       mismatchedPayslipIds: slipFacts.filter((s) => !s.matchesClient).map((s) => s.documentId),

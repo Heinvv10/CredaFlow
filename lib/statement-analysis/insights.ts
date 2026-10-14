@@ -10,11 +10,10 @@
  * statements of one account that overlap count each day once.
  */
 import { EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
+import { MONTH_DAYS } from "./categories"
 import { categorise, CATEGORISER_VERSION, isLiving, type Category, type LivingCategory } from "./categorise"
 import type { StatementRead, StatementTransaction } from "./types"
 
-/** Average days in a month: spend over a period is reported per month of this length. */
-export const MONTH_DAYS = 30.44
 
 export interface InsightStatement {
   documentId: string
@@ -112,7 +111,8 @@ function distinctRows(used: InsightStatement[]): StatementTransaction[] {
   const coveredTo = new Map<string, string>()
   const rows: StatementTransaction[] = []
   for (const s of [...used].sort((a, b) => (period(a.read)?.[0] ?? "").localeCompare(period(b.read)?.[0] ?? ""))) {
-    const account = `${s.bank}|${s.read.accountNumberLast4 ?? s.documentId}`
+    // Without the account number, a bank's statements are taken as one account: overlaps count once.
+    const account = `${s.bank}|${s.read.accountNumberLast4 ?? ""}`
     const after = coveredTo.get(account)
     rows.push(...s.read.transactions.filter((t) => !t.nonPosting && (!after || t.date > after)))
     const end = period(s.read)?.[1]
@@ -157,7 +157,7 @@ export function computeInsights(
   living.monthlyCents = monthly(Object.entries(spend).reduce((sum, [c, v]) => sum + (isLiving(c as Category) ? v : 0), 0))
   const payDays = distinctRows(used)
     .filter((t) => t.amountCents > 0 && categorise(t, { clientName: ctx.clientName }).category === "SALARY_INCOME")
-    .reduce((firsts, t) => firsts.set(t.date.slice(0, 7), firsts.get(t.date.slice(0, 7)) ?? Number(t.date.slice(8, 10))), new Map<string, number>())
+    .reduce((firsts, t) => firsts.set(t.date.slice(0, 7), Math.min(firsts.get(t.date.slice(0, 7)) ?? 31, Number(t.date.slice(8, 10)))), new Map<string, number>())
   const salaryDays = [...payDays.values()]
   const declared = ctx.declaredExpensesCents
   return {
@@ -173,6 +173,7 @@ export function computeInsights(
     uncategorisedShare: debitTotal > 0 ? (spend.UNCATEGORISED ?? 0) / debitTotal : null,
     living,
     declaredCents: declared,
-    gapCents: declared === null ? null : living.monthlyCents - declared,
+    // Under four weeks there is no month to compare: no gap.
+    gapCents: declared === null || coverageDays < EXPENSE_MIN_COVERAGE_DAYS ? null : living.monthlyCents - declared,
   }
 }

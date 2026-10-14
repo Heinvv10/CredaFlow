@@ -123,8 +123,10 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
 /**
  * Off: the categoriser missed the accuracy gate the flag depends on (goal §6.4:
  * ≥ 95% agreement with blind labels on held-out corpus merchants; measured
- * 90.5%, 2026-10-14). The check, its tests and the panel figures ship; the flag
- * is not raised until the categoriser passes and this is turned on.
+ * 90.0–90.5% over three runs, 2026-10-14). The check, its tests and the panel
+ * figures ship. Before turning this on: pass the gate; supersede an older OPEN
+ * LIVING_SPEND_ABOVE_DECLARED when its successor is raised (recompute.ts keeps
+ * both today); and have the decide route's stale check compare monthlyExpenses.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 

@@ -13,7 +13,8 @@ import type { ApplicationInsights } from "./statement-insights"
 
 const rand = (cents: number | null) => (cents === null ? null : cents / 100)
 const MONEY = "#,##0.00"
-const CATEGORIES: Category[] = [...LIVING_CATEGORIES, ...OTHER_CATEGORIES]
+/** Money-out categories: the Monthly sheet splits money out, and income categories never hold a debit. */
+const CATEGORIES: Category[] = [...LIVING_CATEGORIES, ...OTHER_CATEGORIES].filter((c) => c !== "SALARY_INCOME" && c !== "OTHER_INCOME")
 
 export function statementWorkbook(a: ApplicationInsights, reference: string, exportedOn: string): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook()

@@ -13,6 +13,8 @@
  */
 import { readFileSync } from "node:fs"
 import { categorise, isLiving, type Category } from "@/lib/statement-analysis/categorise"
+import { LIVING_CATEGORIES, OTHER_CATEGORIES } from "@/lib/statement-analysis/categories"
+import { isDevKey } from "./statement-merchant-keys"
 
 export const GATE = 0.95
 const GATED = ["CREDIT_INSTALMENT", "GAMBLING", "SALARY_INCOME"]
@@ -30,7 +32,7 @@ export function score(rows: Scored[]) {
   const agreeing = inScope.filter((r) => gateClass(r.label) === gateClass(r.predicted))
   const exact = rows.filter((r) => r.label === r.predicted)
   return {
-    gate: weight(inScope) === 0 ? 1 : weight(agreeing) / weight(inScope),
+    gate: weight(inScope) === 0 ? 0 : weight(agreeing) / weight(inScope),
     inScopeKeys: inScope.length,
     inScopeRows: weight(inScope),
     agreeingRows: weight(agreeing),
@@ -44,7 +46,13 @@ function main() {
   const [keysPath, labelsPath] = process.argv.slice(2)
   if (!keysPath || !labelsPath) throw new Error("usage: statement-categoriser-accuracy.ts <keys.tsv> <labels.tsv> [--show]")
   const counts = new Map(readFileSync(keysPath, "utf8").trim().split("\n").map((l) => l.split("\t")).map(([k, n]) => [k, Number(n)]))
-  const rows: Scored[] = readFileSync(labelsPath, "utf8").trim().split("\n").map((l) => l.split("\t")).map(([key, label]) => ({
+  const known: readonly string[] = [...LIVING_CATEGORIES, ...OTHER_CATEGORIES]
+  const labelled = readFileSync(labelsPath, "utf8").trim().split("\n").map((l) => l.split("\t"))
+  const unknown = labelled.filter(([, label]) => !known.includes(label)).length
+  if (unknown > 0) throw new Error(`${unknown} label(s) are not categories`)
+  // Rules are written from the dev set only: never print a held-out key.
+  if (process.argv.includes("--show") && !labelled.every(([key]) => isDevKey(key))) throw new Error("--show is for the dev set only")
+  const rows: Scored[] = labelled.map(([key, label]) => ({
     key,
     rows: counts.get(key) ?? 0,
     label: label as Category,
@@ -56,7 +64,7 @@ function main() {
   process.stdout.write(`keys labelled: ${rows.length} (${s.allRows} rows)\n`)
   process.stdout.write(`gate (credit, gambling, salary, living combined; row-weighted): ${s.agreeingRows}/${s.inScopeRows} = ${pct(s.gate)} — ${s.gate >= GATE ? "PASS" : "FAIL"} (≥ ${pct(GATE)})\n`)
   process.stdout.write(`in-scope keys: ${s.inScopeKeys}; disagreeing keys: ${s.disagreements.length}\n`)
-  process.stdout.write(`exact category agreement, all keys (informative): ${s.exactRows}/${s.allRows} = ${pct(s.exactRows / s.allRows)}\n`)
+  process.stdout.write(`exact category agreement, all keys (informative): ${s.exactRows}/${s.allRows} = ${pct(s.allRows ? s.exactRows / s.allRows : 0)}\n`)
   const confusions = new Map<string, number>()
   for (const r of s.disagreements) confusions.set(`${gateClass(r.label)} → ${gateClass(r.predicted)}`, (confusions.get(`${gateClass(r.label)} → ${gateClass(r.predicted)}`) ?? 0) + r.rows)
   for (const [k, n] of [...confusions].sort((a, b) => b[1] - a[1])) process.stdout.write(`  label → categoriser ${k}: ${n} rows\n`)

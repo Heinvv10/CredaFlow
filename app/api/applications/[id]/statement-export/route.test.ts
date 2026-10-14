@@ -56,6 +56,13 @@ describe("GET /api/applications/[id]/statement-export", () => {
     expect(wb.getWorksheet("Summary")!.getRow(7).getCell(7).value).toBe("PASS")
   })
 
+  it("strips the reference to safe filename characters and is never cached", async () => {
+    findApplication.mockResolvedValue({ reference: 'APP/1"; x=y' })
+    const res = await get()
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="statements-APP1xy-\d{4}-\d{2}-\d{2}\.xlsx"$/)
+    expect(res.headers.get("cache-control")).toBe("no-store")
+  })
+
   it("writes an access-log row for every statement and an audit row, before serving the file", async () => {
     await get()
     expect(logAccessMock).toHaveBeenCalledWith(expect.objectContaining({ documentIds: ["doc-1"], staffUserId: "u1", action: "statement_export" }))
@@ -74,6 +81,16 @@ describe("GET /api/applications/[id]/statement-export", () => {
     expect((await get()).status).toBe(403)
     expect(insightsMock).not.toHaveBeenCalled()
     expect(logAccessMock).not.toHaveBeenCalled()
+  })
+
+  it("is CREDIT_OFFICER and up: the role just below is refused, the one above allowed, no session is 401", async () => {
+    authMock.mockResolvedValue(session("INSURANCE_OFFICER"))
+    expect((await get()).status).toBe(403)
+    authMock.mockResolvedValue(null)
+    expect((await get()).status).toBe(401)
+    expect(insightsMock).not.toHaveBeenCalled()
+    authMock.mockResolvedValue(session("LOAN_ADMIN"))
+    expect((await get()).status).toBe(200)
   })
 
   it("refuses a cross-site request before anything else", async () => {

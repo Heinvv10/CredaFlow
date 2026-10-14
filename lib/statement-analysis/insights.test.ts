@@ -56,7 +56,8 @@ describe("computeInsights", () => {
 
   it("counts an account's overlapping statements' days once", () => {
     const a = statement([row("2026-07-02", "Card Purchase: SHOPRITE", -100_000), row("2026-07-20", "Card Purchase: SHOPRITE", -100_000)])
-    const b = statement([row("2026-07-20", "Card Purchase: SHOPRITE", -100_000), row("2026-08-05", "Card Purchase: SHOPRITE", -100_000)],
+    // 2026-07-30 is the first statement's last day: the second's row on it is the same day, counted once.
+    const b = statement([row("2026-07-20", "Card Purchase: SHOPRITE", -100_000), row("2026-07-30", "Card Purchase: SHOPRITE", -100_000), row("2026-08-05", "Card Purchase: SHOPRITE", -100_000)],
       { periodStart: "2026-07-15", periodEnd: "2026-08-14" }, { documentId: "doc-2" })
     const ins = computeInsights([a, b], ctx)
     expect(ins.coverageDays).toBe(45)

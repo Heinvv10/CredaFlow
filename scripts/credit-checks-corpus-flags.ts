@@ -42,6 +42,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : "failed")
+  console.error(`failed: ${err instanceof Error ? err.name : "unknown"}`)
   process.exit(1)
 })

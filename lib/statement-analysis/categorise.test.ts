@@ -1,4 +1,9 @@
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import * as policy from "@/lib/credit-checks/policy"
+import * as merchants from "./merchants"
 import { categorise, CATEGORISER_VERSION, isLiving, LIVING_CATEGORIES, type Category } from "./categorise"
 import type { StatementTransaction } from "./types"
 
@@ -80,5 +85,33 @@ describe("categorise", () => {
 
   it("maps every living category to a declared-expense field", () => {
     expect(LIVING_CATEGORIES).toEqual(["HOUSING", "TRANSPORT", "FOOD", "EDUCATION", "INSURANCE", "CLOTHING", "ENTERTAINMENT", "MEDICAL", "UTILITIES_TELECOM"])
+  })
+})
+
+describe("words that used to misfile common descriptions (review of #73)", () => {
+  it.each<[string, Category]>([
+    ["Card Purchase: LIFE HEALTHCARE SYNTH", "MEDICAL"],
+    ["DEBIT ORDER EKURHULENI METROPOLITAN MUNICIPALITY", "UTILITIES_TELECOM"],
+    ["Card Purchase: TOTAL SPORTS SYNTH", "CLOTHING"],
+    ["POS PURCHASE TOTAL GARAGE", "TRANSPORT"],
+    ["TV LICENCE SYNTH", "UNCATEGORISED"],
+    ["CHILD MAINTENANCE SYNTH", "UNCATEGORISED"],
+    ["Payment To: J SOAP REPAYMENT", "UNCATEGORISED"],
+    ["SYNTH PRIMARY SCHOOL INSTALMENT", "EDUCATION"],
+  ])("%s → %s", (description, expected) => {
+    expect(cat(description)).toBe(expected)
+  })
+})
+
+describe("CATEGORISER_VERSION names the rules", () => {
+  // A changed word list, rule or policy list changes figures and flag keys: bump
+  // the version, then re-pin. Categories are never stored, so a bump re-reads nothing.
+  it("is bumped whenever the rules change", () => {
+    const rules = JSON.stringify({
+      merchants, categorise: readFileSync(join(__dirname, "categorise.ts"), "utf8"), living: LIVING_CATEGORIES,
+      policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
+    })
+    const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v1", hash: "395615efaaab4412" })
   })
 })

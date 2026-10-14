@@ -55,6 +55,14 @@ describe("expenseUnderstated", () => {
     expect(Object.keys(e.excludedMonthlyCents as object).sort()).toEqual(["CASH_WITHDRAWAL", "CREDIT_INSTALMENT", "GAMBLING", "UNCATEGORISED"])
   })
 
+  it("cites only the statements that reconcile", () => {
+    const pass = statement(rows())
+    const fail = { ...statement(rows()), documentId: "doc-2", contentSha256: "sha-2", balanceCheck: "FAIL" as const }
+    const [flag] = expenseUnderstated(facts({ declaredExpensesCents: 300_000, statements: [pass, fail] }))
+    expect(flag.evidence.documentIds).toEqual(["doc-1"])
+    expect(flag.key).not.toContain("doc-2")
+  })
+
   it("does not flag a declaration that covers the living spend", () => {
     expect(expenseUnderstated(withDeclared(600_000))).toEqual([])
   })
@@ -79,6 +87,12 @@ describe("expenseUnderstated", () => {
     const [flag] = expenseUnderstated(withDeclared(300_000))
     expect(flag.key.startsWith(`${CATEGORISER_VERSION}|`)).toBe(true)
     expect(fingerprint(flag)).not.toBe(fingerprint({ ...flag, key: flag.key.replace(CATEGORISER_VERSION, "categoriser-v0") }))
+  })
+
+  it("keys the finding on the declared figure, so a lower declaration after a clearance is a new finding", () => {
+    const [before] = expenseUnderstated(withDeclared(300_000))
+    const [after] = expenseUnderstated(withDeclared(200_000))
+    expect(fingerprint(after)).not.toBe(fingerprint(before))
   })
 
   it("is off in runChecks until the categoriser passes its accuracy gate", () => {

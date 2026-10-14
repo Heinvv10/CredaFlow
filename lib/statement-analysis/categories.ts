@@ -1,8 +1,8 @@
 /**
  * The transaction categories (goal 2026-10-14 §4). Living categories are the
- * client's own spending, each mapped to the declared-expense field it is
- * compared with (ClientExpenseBreakdown); everything else is shown but never
- * counted as living spend.
+ * client's own spending, the ones ClientExpenseBreakdown declares (utilities
+ * and telecom under "other"); everything else is shown but never counted as
+ * living spend.
  */
 export const LIVING_CATEGORIES = [
   "HOUSING", "TRANSPORT", "FOOD", "EDUCATION", "INSURANCE", "CLOTHING", "ENTERTAINMENT", "MEDICAL", "UTILITIES_TELECOM",
@@ -20,8 +20,5 @@ export function isLiving(c: Category): c is LivingCategory {
   return (LIVING_CATEGORIES as readonly string[]).includes(c)
 }
 
-/** The ClientExpenseBreakdown field each living category is declared under. */
-export const EXPENSE_FIELD: Record<LivingCategory, string> = {
-  HOUSING: "housing", TRANSPORT: "transport", FOOD: "food", EDUCATION: "education", INSURANCE: "insurance",
-  CLOTHING: "clothing", ENTERTAINMENT: "entertainment", MEDICAL: "medical", UTILITIES_TELECOM: "other",
-}
+/** Average days in a month: spend over a period is reported per month of this length. */
+export const MONTH_DAYS = 30.44
