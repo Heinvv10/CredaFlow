@@ -92,15 +92,23 @@ suite.sequential("bureau framework (real Postgres)", () => {
     const fresh = await approvalRead()
     expect(fresh?.provider).toBe("simulated")
 
-    // 31 days old against the default 30-day window.
-    await runWithTenant(tenantId, () => prisma.creditBureauCheck.update({ where: { id: fresh!.id, tenantId }, data: { createdAt: new Date(Date.now() - 31 * DAY) } }))
+    const age = (days: number) => runWithTenant(tenantId, () => prisma.creditBureauCheck.update({
+      where: { id: fresh!.id, tenantId }, data: { createdAt: new Date(Date.now() - days * DAY) },
+    }))
+
+    // The default window is the 60-day ceiling: 59 days old still counts, 61 never does.
+    expect((await prisma.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).bureauMaxAgeDays).toBe(60)
+    await age(59)
+    await expect(approvalRead()).resolves.toMatchObject({ id: fresh!.id })
+    await age(61)
     await expect(approvalRead()).resolves.toBeNull()
 
-    // A tenant that allows 45 days still accepts it; one that allows 14 never did.
+    // A tenant that tightens to 30 days refuses a 31-day-old report; 45 days accepts it.
+    await age(31)
+    await prisma.tenantConfig.update({ where: { tenantId }, data: { bureauMaxAgeDays: 30 } })
+    await expect(approvalRead()).resolves.toBeNull()
     await prisma.tenantConfig.update({ where: { tenantId }, data: { bureauMaxAgeDays: 45 } })
     await expect(approvalRead()).resolves.toMatchObject({ id: fresh!.id })
-    await prisma.tenantConfig.update({ where: { tenantId }, data: { bureauMaxAgeDays: 14 } })
-    await expect(approvalRead()).resolves.toBeNull()
   })
 
   it("the database refuses a window above the 60-day ceiling", async () => {

@@ -3,13 +3,14 @@
 // guidance for short-term unsecured lending treats 30-60 days as "current";
 // 90 days is on the edge. 60 days is the CEILING no tenant may exceed (also a
 // CHECK on TenantConfig.bureauMaxAgeDays); each tenant chooses its own window
-// at or below it, 30 days by default.
+// at or below it. The default is the ceiling, so a tenant that sets nothing
+// keeps the window it had before the setting existed.
 //
 // Single source so /decide, /agreement, /sign and /disburse stay in lockstep —
 // drift between them would let a stale check pass approval and then a fresh
 // window refuse disburse, or vice versa.
 export const BUREAU_STALENESS_DAYS = 60
-export const DEFAULT_BUREAU_MAX_AGE_DAYS = 30
+export const DEFAULT_BUREAU_MAX_AGE_DAYS = BUREAU_STALENESS_DAYS
 
 /** The tenant's freshness window in days: its setting, clamped to 1..ceiling;
  *  the default when the tenant has no config row (or no value). */

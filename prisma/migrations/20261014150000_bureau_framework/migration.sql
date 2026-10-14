@@ -8,7 +8,7 @@ ADD COLUMN     "status" TEXT;
 
 -- AlterTable
 ALTER TABLE "TenantConfig" ADD COLUMN     "bureauCredentials" TEXT,
-ADD COLUMN     "bureauMaxAgeDays" INTEGER NOT NULL DEFAULT 30,
+ADD COLUMN     "bureauMaxAgeDays" INTEGER NOT NULL DEFAULT 60,
 ADD COLUMN     "bureauProviderOrder" TEXT[] DEFAULT ARRAY['experian']::TEXT[];
 
 -- Hand-written: prisma migrate dev never diffs a CHECK.

@@ -28,7 +28,7 @@ enquiry across a tenant's bureaus. Bureau DATA SUBMISSION is
 - **Only `APPROVAL_BUREAU_PROVIDERS` (`lib/compliance/bureau.ts`) can approve.**
   The score floor is calibrated on the Sigma band and the gate needs the
   hard-stop flags. Adding a bureau there needs per-bureau calibration first.
-- **Freshness is per tenant:** `TenantConfig.bureauMaxAgeDays` (default 30,
+- **Freshness is per tenant:** `TenantConfig.bureauMaxAgeDays` (default 60,
   CHECK 1..60). Every approval-path read goes through `approvalBureauCheckWhere`.
 - **Simulated reports carry their guard key** (`obligations.simulationSource`);
   `simulatedBureauBlock` applies that provider's policy. The simulator's key is

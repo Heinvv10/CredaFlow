@@ -279,7 +279,7 @@ model TenantConfig {
   // How old a bureau report may be and still support approval, agreement and
   // payout. CHECK 1..60 in the migration (60 = BUREAU_STALENESS_DAYS, the
   // ceiling in lib/compliance/bureau.ts).
-  bureauMaxAgeDays    Int      @default(30)
+  bureauMaxAgeDays    Int      @default(60)
 
   // Staff two-factor policy (lib/security/staff-totp-policy.ts). On: a staff
   // user with no TOTP enrolled can reach only the enrolment page. Off: a code

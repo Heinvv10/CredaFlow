@@ -16,10 +16,10 @@ const usable = (ageDays: number, maxAgeDays: number) =>
   new Date(now.getTime() - ageDays * DAY) >= bureauStalenessCutoff(maxAgeDays, now)
 
 describe("bureau report freshness", () => {
-  it("defaults to 30 days, the tenant may tighten it, and 60 is the ceiling", () => {
-    expect(DEFAULT_BUREAU_MAX_AGE_DAYS).toBe(30)
-    expect(bureauMaxAgeDays(null)).toBe(30)
-    expect(bureauMaxAgeDays({})).toBe(30)
+  it("defaults to the 60-day ceiling (unchanged for existing tenants); a tenant may only tighten it", () => {
+    expect(DEFAULT_BUREAU_MAX_AGE_DAYS).toBe(60)
+    expect(bureauMaxAgeDays(null)).toBe(60)
+    expect(bureauMaxAgeDays({})).toBe(60)
     expect(bureauMaxAgeDays({ bureauMaxAgeDays: 14 })).toBe(14)
     expect(bureauMaxAgeDays({ bureauMaxAgeDays: 365 })).toBe(BUREAU_STALENESS_DAYS)
     expect(bureauMaxAgeDays({ bureauMaxAgeDays: 0 })).toBe(1)
