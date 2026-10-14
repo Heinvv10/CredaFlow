@@ -618,7 +618,6 @@ export async function readCompositeKycState(
           blockingBiometricAttempt: blocksAttestationOnFile,
           biometricAssessment,
           portraitRefusals,
-          latestSelfie,
           selfieAttempts: failedAttempts,
         },
       )

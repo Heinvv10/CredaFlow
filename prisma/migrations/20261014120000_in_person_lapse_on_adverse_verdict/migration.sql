@@ -2,12 +2,21 @@
 --
 -- ENFORCEMENT-ADDING: ship together with the code that stamps
 -- biometricResult.verdictRecordedAt (lib/kyc/selfie-biometric.server.ts) and
--- derives the same rule in TypeScript (lib/kyc/in-person-verification.ts).
--- Applied ahead of that code it changes nothing: no row carries the stamp, and
--- an unknown-outcome attempt only exists once the sweeper
--- (lib/kyc/selfie-sweeper.server.ts) writes one. Nothing the code on main
--- writes is rejected: the change only NARROWS when an attestation counts, and
--- main's writers never produce either lapse condition.
+-- derives the same rules in TypeScript (lib/kyc/in-person-verification.ts).
+--
+-- This migration REJECTS writes that main still makes. Applied ahead of this
+-- code, or to a database holding the state below, it is not backward
+-- compatible:
+--  * main already records biometric_outcome_not_recorded when a judge answered
+--    but recording the outcome failed (runBiometricVerification's catch path).
+--    A client VERIFIED in person with such an attempt created after the
+--    attestation fails the new predicate, and Client_enforce_composite_kyc
+--    then raises on EVERY unrelated write to that client, not only on KYC
+--    writes. Step 3 below demotes those clients (with an audit row each) so
+--    none is left unwritable.
+--  * Code from before this change does not stamp verdictRecordedAt, so a
+--    verdict it records after an attestation does not lapse it. The stamp is
+--    what the lapse rule reads; the old writer is merely not covered.
 --
 -- 1. face_verdict_is_adverse: a stored result carries an adverse same-person
 --    answer from either judge. Mirrors adverseFaceVerdict in
@@ -18,10 +27,11 @@
 --    for an adverse verdict recorded after the attestation, one for an
 --    unknown-outcome attempt submitted after it. Every v2 condition is kept
 --    (lib/kyc/in-person-lapse-migration.test.ts compares them).
---
--- No data step: no stored row has the stamp, so no client is demoted here.
--- The revoke trigger on ClientDocument demotes a client when a later write
--- makes this function false.
+-- 3. Data step: every client still VERIFIED that no longer satisfies
+--    client_has_composite_kyc is demoted by revoke_client_composite_kyc, which
+--    writes the KYC_STATUS_CHANGED audit row. After step 2 only the state
+--    above can cause it: the predicate otherwise only narrows on rows that
+--    carry the new stamp, and none does yet.
 
 CREATE OR REPLACE FUNCTION public.face_verdict_is_adverse(p_result jsonb)
  RETURNS boolean
@@ -164,40 +174,40 @@ AS $function$
       -- face verdict recorded AFTER the attestation was completed lapses it.
       -- Staff attested without seeing that verdict, so the client must be
       -- re-verified (a new attestation completed after the verdict, or a
-      -- selfie that passes). Only the client's LATEST attempt counts, and only
-      -- when it names the ID copy the attestation is bound to: a stale answer
-      -- about a superseded ID copy has no effect. A verdict recorded BEFORE
-      -- the attestation (staff could see it) leaves the attestation standing,
-      -- as before. The recorded-at stamp is written by
-      -- persistBiometricOutcome (biometricResult.verdictRecordedAt); rows
-      -- without one are never "after". Compared as fixed-format ISO text under
-      -- the C collation so no locale can reorder it. Mirrors
-      -- adverseVerdictRecordedAfter in lib/kyc/in-person-verification.ts.
+      -- selfie that passes). ANY attempt counts (deleted or not, latest or
+      -- not), so a benign-failing retake cannot bury the verdict; it counts
+      -- only when it names the ID copy the attestation is bound to: a stale
+      -- answer about a superseded ID copy has no effect (a verdict naming no
+      -- ID copy at all counts: fail closed, as the portrait refusal above
+      -- does). A verdict recorded strictly BEFORE the attestation (staff could
+      -- see it) leaves the attestation standing, as before; one in the SAME
+      -- millisecond cannot be ordered and counts as after. Attempts are those of
+      -- PRIOR_FAILED_ATTEMPT_CONDITIONS (lib/kyc/biometric-evidence.ts).
+      -- The recorded-at stamp is written by persistBiometricOutcome
+      -- (biometricResult.verdictRecordedAt); rows without one are never
+      -- "after". Compared as fixed-format ISO text under the C collation so
+      -- no locale can reorder it. Mirrors adverseVerdictRecordedAfter in
+      -- lib/kyc/in-person-verification.ts.
       AND NOT EXISTS (
         SELECT 1
         FROM "ClientDocument" AS verdict
         WHERE verdict."tenantId" = p_tenant_id
           AND verdict."clientId" = p_client_id
           AND verdict."docType" = 'SELFIE'
-          AND verdict."id" = (
-          SELECT latest."id"
-          FROM "ClientDocument" AS latest
-          WHERE latest."tenantId" = p_tenant_id
-            AND latest."clientId" = p_client_id
-            AND latest."docType" = 'SELFIE'
-          ORDER BY
-            latest."biometricAttemptSequence" DESC,
-            latest."createdAt" DESC,
-            latest."id" DESC
-          LIMIT 1
-        )
+          AND (
+            verdict."extractionStatus" IN ('failed', 'skipped', 'pending', 'processing')
+            OR verdict."verificationRejectedAt" IS NOT NULL
+            OR verdict."verificationRejectedById" IS NOT NULL
+          )
           AND jsonb_typeof(verdict."biometricResult" -> 'verdictRecordedAt') = 'string'
           AND verdict."biometricResult" ->> 'verdictRecordedAt'
             ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$'
-          AND (verdict."biometricResult" ->> 'verdictRecordedAt') COLLATE "C" >
+          AND (verdict."biometricResult" ->> 'verdictRecordedAt') COLLATE "C" >=
             to_char(attestation."completedAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') COLLATE "C"
-          AND jsonb_typeof(verdict."biometricResult" -> 'idDocumentId') = 'string'
-          AND verdict."biometricResult" ->> 'idDocumentId' = id_document."id"
+          AND (
+            jsonb_typeof(verdict."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
+            OR verdict."biometricResult" ->> 'idDocumentId' = id_document."id"
+          )
           AND "face_verdict_is_adverse"(verdict."biometricResult")
       )
       -- Added by 20261014120000_in_person_lapse_on_adverse_verdict: a selfie
@@ -205,17 +215,24 @@ AS $function$
       -- worker died and the sweeper failed it, or its verdict could not be
       -- recorded) lapses it too. The lost verdict could have been a mismatch,
       -- so this fails closed. ANY such attempt counts, deleted or not, latest
-      -- or not. Mirrors unknownOutcomeAfterAttestation in
-      -- lib/kyc/in-person-verification.ts.
+      -- or not, over the same attempts as above; one created in the same
+      -- millisecond as the attestation counts as after, as the v2 release
+      -- rule above does (completedAt <= createdAt). Mirrors
+      -- unknownOutcomeAfterAttestation in lib/kyc/in-person-verification.ts.
       AND NOT EXISTS (
         SELECT 1
         FROM "ClientDocument" AS unknown_outcome
         WHERE unknown_outcome."tenantId" = p_tenant_id
           AND unknown_outcome."clientId" = p_client_id
           AND unknown_outcome."docType" = 'SELFIE'
+          AND (
+            unknown_outcome."extractionStatus" IN ('failed', 'skipped', 'pending', 'processing')
+            OR unknown_outcome."verificationRejectedAt" IS NOT NULL
+            OR unknown_outcome."verificationRejectedById" IS NOT NULL
+          )
           AND unknown_outcome."biometricResult" ->> 'biometricFailureReason' =
             'biometric_outcome_not_recorded'
-          AND unknown_outcome."createdAt" > attestation."completedAt"
+          AND unknown_outcome."createdAt" >= attestation."completedAt"
       )
       AND id_document."contentSha256" ~ '^[a-f0-9]{64}$'
       AND jsonb_typeof(attestation."data") = 'object'
@@ -272,3 +289,15 @@ AS $function$
       )
   );
 $function$;
+
+-- 3. Demote every client VERIFIED on an attestation the new predicate refuses.
+SELECT "revoke_client_composite_kyc"(
+  client."tenantId",
+  client."id",
+  '20261014120000_in_person_lapse_on_adverse_verdict',
+  'SELFIE',
+  'MIGRATION'
+)
+FROM "Client" AS client
+WHERE client."kycStatus" = 'VERIFIED'
+  AND NOT "client_has_composite_kyc"(client."tenantId", client."id");

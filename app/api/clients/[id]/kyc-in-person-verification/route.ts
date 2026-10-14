@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
 import { AuditAction } from "@/lib/audit"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import {
@@ -187,7 +188,7 @@ export async function POST(
         // evidence.
         // Judged against the attestation this writes: completed now, after
         // every attempt on file, by staff who can see them.
-        const approvedAt = new Date()
+        const approvedAt = await databaseNow(tx)
         const idDocumentCopies = coreDocuments.filter((d) => d.docType === "ID_COPY")
         if (blockingCandidates.some((selfie) =>
           selfieBlocksInPersonVerification(selfie, idDocumentCopies, approvedAt))) {

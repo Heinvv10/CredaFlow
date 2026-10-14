@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { databaseNow } from "@/lib/db-clock"
 import { readFile } from "@/lib/storage"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
@@ -383,7 +384,9 @@ async function persistBiometricOutcome(args: {
       : biometricFailureReason === "superseded_biometric_evidence"
           ? "Biometric attempt was superseded by a newer selfie"
           : args.extractionError
-    const completedAt = new Date()
+    // The database clock, read under the client evidence lock: this stamp is compared
+    // with an in-person attestation written by another app host.
+    const completedAt = await databaseNow(tx)
     const extractionResultJson = args.extractionResult === null || args.extractionResult === undefined
       ? Prisma.JsonNull
       : JSON.parse(JSON.stringify(args.extractionResult)) as Prisma.InputJsonValue

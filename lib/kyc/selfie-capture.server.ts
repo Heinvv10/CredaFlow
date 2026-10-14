@@ -7,6 +7,7 @@ import { AuditAction } from "@/lib/audit"
 import { clientKycAuditValue } from "@/lib/kyc/document-state"
 import { isSha256Digest, sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
 import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
 import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
 
@@ -209,6 +210,12 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
           extractionStatus: "processing",
           extractionGeneration,
           extractionStartedAt,
+          // The database clock, read under the client evidence lock. The column
+          // default is stamped by the app host, whose clock can run behind the
+          // one that stamped an in-person attestation; the attempt would then
+          // read as submitted BEFORE an attestation it followed, and an
+          // unknown outcome would not lapse it.
+          createdAt: await databaseNow(tx),
         },
       } as never) as unknown as { id: string } & Record<string, unknown>
 

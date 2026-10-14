@@ -132,6 +132,16 @@ suite("stuck selfie sweeper", () => {
     expect((await inPerson(f.clientId)).status).toBe(200)
   })
 
+  it("audits an older attempt swept behind a newer selfie as a document-level fact, not a client rejection", async () => {
+    const f = await seed()
+    const older = await attempt(f, STALE_MS + 60_000)
+    await attempt(f, 60_000)
+    await sweep(f)
+    const log = (await audits(older.selfieId)).find((a) => a.userEmail === "system@selfie-sweeper")
+    expect(log?.action).toBe("BIOMETRIC_ATTEMPT_SWEPT")
+    expect(log?.newValue).toMatchObject({ document: { latestSelfie: false } })
+  })
+
   it("keeps sweeping the newer rows when the oldest one throws, and reports the failure", async () => {
     const f = await seed()
     const poisoned = await attempt(f, STALE_MS + 120_000)
@@ -166,6 +176,18 @@ suite("stuck selfie sweeper", () => {
       const late = (await audits(a.selfieId)).find(isLateAudit)
       expect(late).toMatchObject({ action: "KYC_REJECTED" })
       expect(await kycStatus(f.clientId)).toBe("FAILED")
+    })
+
+    it("refuses a late answer on a row that carried a staff note before the sweep (a manual decision supersedes it)", async () => {
+      const f = await seed()
+      const a = await attempt(f, STALE_MS, { data: { verificationNote: "Flagged by staff: possible spoof" } })
+      expect(await sweep(f)).toEqual({ swept: 1, failed: 0 })
+      expect((await row(a.selfieId)).verificationNote).toBe("Flagged by staff: possible spoof")
+      stubVlm(different())
+      const after = await lateAnswer(f, a)
+      expect(reasonOf(after)).toBe("biometric_outcome_not_recorded")
+      expect(after.verificationNote).toBe("Flagged by staff: possible spoof")
+      expect((await audits(a.selfieId)).some(isLateAudit)).toBe(false)
     })
 
     it("ignores a late pass: a swept attempt never verifies", async () => {

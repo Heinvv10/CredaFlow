@@ -317,28 +317,36 @@ export function idDocumentPortraitRefused(
 const VERDICT_RECORDED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 /**
- * Whether the client's LATEST selfie attempt carries an adverse face verdict
- * recorded after the attestation was completed, against the ID copy the
- * attestation is bound to. Staff attested without seeing that verdict, so it
- * lapses the attestation. A verdict recorded before it (staff could see it), a
- * stale answer about another ID copy, and a row without the stamp (written
- * before the stamp existed) never count.
+ * Whether ANY selfie attempt (deleted or not, latest or not) carries an adverse
+ * face verdict recorded after the attestation was completed, against the ID
+ * copy the attestation is bound to. Staff attested without seeing that
+ * verdict, so it lapses the attestation, and a later benign-failing retake
+ * must not bury it. Three things do not count: a verdict recorded strictly
+ * before it (staff could see it; the same millisecond cannot be ordered and
+ * counts as after), a stale answer naming another ID copy (one naming no copy
+ * at all counts: fail closed), and a row without the stamp (written before the
+ * stamp existed).
  *
- * Mirrors the `verdict` NOT EXISTS in subject_has_in_person_kyc_verification
- * (migration 20261014120000_in_person_lapse_on_adverse_verdict).
+ * `attempts` are the rows of PRIOR_FAILED_ATTEMPT_CONDITIONS: the SQL repeats
+ * that status filter. Mirrors the `verdict` NOT EXISTS in
+ * subject_has_in_person_kyc_verification (migration
+ * 20261014120000_in_person_lapse_on_adverse_verdict).
  */
 export function adverseVerdictRecordedAfter(
-  latestSelfie: { biometricResult: unknown } | null,
+  attempts: readonly { biometricResult: unknown }[],
   attestationCompletedAt: Date,
   idDocument: { id: string },
 ): boolean {
-  const result = jsonRecord(latestSelfie?.biometricResult)
-  if (!result) return false
-  const recordedAt = result.verdictRecordedAt
-  if (typeof recordedAt !== "string" || !VERDICT_RECORDED_AT.test(recordedAt)) return false
-  if (!(recordedAt > attestationCompletedAt.toISOString())) return false
-  if (typeof result.idDocumentId !== "string" || result.idDocumentId !== idDocument.id) return false
-  return adverseFaceVerdict(result)
+  const completedAt = attestationCompletedAt.toISOString()
+  return attempts.some((attempt) => {
+    const result = jsonRecord(attempt.biometricResult)
+    if (!result) return false
+    const recordedAt = result.verdictRecordedAt
+    if (typeof recordedAt !== "string" || !VERDICT_RECORDED_AT.test(recordedAt)) return false
+    if (recordedAt < completedAt) return false
+    if (typeof result.idDocumentId === "string" && result.idDocumentId !== idDocument.id) return false
+    return adverseFaceVerdict(result)
+  })
 }
 
 /** The failure reason of an attempt whose outcome was never recorded (swept, or unrecorded). */
@@ -352,13 +360,12 @@ const UNKNOWN_OUTCOME_REASON = "biometric_outcome_not_recorded"
  * Mirrors the `unknown_outcome` NOT EXISTS in the same SQL function.
  */
 export function unknownOutcomeAfterAttestation(
-  attempts: readonly { biometricResult: unknown; createdAt?: Date | null }[],
+  attempts: readonly { biometricResult: unknown; createdAt: Date }[],
   attestationCompletedAt: Date,
 ): boolean {
   return attempts.some((attempt) =>
     jsonRecord(attempt.biometricResult)?.biometricFailureReason === UNKNOWN_OUTCOME_REASON &&
-    attempt.createdAt instanceof Date &&
-    attempt.createdAt.getTime() > attestationCompletedAt.getTime())
+    attempt.createdAt.getTime() >= attestationCompletedAt.getTime())
 }
 
 /**
@@ -382,10 +389,12 @@ export function currentInPersonKycVerification(
     biometricAssessment: BiometricEvidenceAssessment
     /** Selfie attempts matching ID_PORTRAIT_REFUSAL_CONDITIONS. */
     portraitRefusals: readonly { biometricResult: unknown }[]
-    /** The client's newest selfie attempt of any outcome, deleted or not. */
-    latestSelfie: { biometricResult: unknown } | null
-    /** Selfie attempts matching PRIOR_FAILED_ATTEMPT_CONDITIONS, with their creation time. */
-    selfieAttempts: readonly { biometricResult: unknown; createdAt?: Date | null }[]
+    /**
+     * Every selfie attempt matching PRIOR_FAILED_ATTEMPT_CONDITIONS, deleted
+     * or not, with its creation time. Required, not optional: omitting it
+     * would silently disable both lapse rules.
+     */
+    selfieAttempts: readonly { biometricResult: unknown; createdAt: Date }[]
   },
 ): InPersonKycVerificationEvidence | null {
   if (
@@ -414,7 +423,7 @@ export function currentInPersonKycVerification(
     return null
   }
   if (
-    adverseVerdictRecordedAfter(args.latestSelfie, record.completedAt, args.idDocument) ||
+    adverseVerdictRecordedAfter(args.selfieAttempts, record.completedAt, args.idDocument) ||
     unknownOutcomeAfterAttestation(args.selfieAttempts, record.completedAt)
   ) {
     return null

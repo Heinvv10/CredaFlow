@@ -56,14 +56,19 @@ async function appAccepts(): Promise<boolean> {
 }
 
 /** One failed selfie attempt with the given stored result. */
-async function selfie(biometricResult: unknown, over: { createdAt?: Date; deletedAt?: Date } = {}) {
+async function selfie(
+  biometricResult: unknown,
+  over: { createdAt?: Date; deletedAt?: Date; extractionStatus?: string; rejected?: boolean } = {},
+) {
+  const { rejected, ...columns } = over
   selfieCount += 1
   const id = `d_selfie_lapse_${selfieCount}_${token}`
   await db.clientDocument.create({
     data: {
       id, clientId, tenantId, docType: "SELFIE", fileUrl: "/f", fileName: "s.jpg", verified: false,
       contentSha256: "e".repeat(64), extractionStatus: "failed", validationMismatch: true,
-      biometricResult: biometricResult as Prisma.InputJsonValue, ...over,
+      biometricResult: biometricResult as Prisma.InputJsonValue, ...columns,
+      ...(rejected ? { verificationRejectedAt: new Date(), verificationRejectedById: reviewerId } : {}),
     },
   })
   created.push(id)
@@ -142,19 +147,32 @@ suite("in-person lapse rule across the app and database layers", () => {
     ["an adverse top-level answer", () => selfie({ ...stamped(1_000, {}), faceMatch: false }), false],
     ["an adverse nested face model answer", () => selfie({ ...stamped(1_000, {}), faceModel: { samePerson: false } }), false],
     ["the same adverse verdict on a DELETED latest attempt", () => selfie(stamped(1_000, DIFFERENT), { deletedAt: new Date() }), false],
-    ["recorded exactly at the attestation (staff saw it)", () => selfie(stamped(0, DIFFERENT)), true],
+    ["recorded in the same millisecond as the attestation (cannot be ordered)", () => selfie(stamped(0, DIFFERENT)), false],
     ["recorded before the attestation (staff saw it)", () => selfie(stamped(-1_000, DIFFERENT)), true],
     ["recorded after but about a superseded ID copy", () => selfie(stamped(1_000, DIFFERENT, "d_old_id")), true],
-    ["recorded after but naming no ID copy", () => selfie(stamped(1_000, DIFFERENT, null)), true],
+    ["recorded after and naming no ID copy (fail closed)", () => selfie(stamped(1_000, DIFFERENT, null)), false],
     ["recorded after but a passing answer", () => selfie(stamped(1_000, { samePerson: "same", faceMatch: true })), true],
     ["recorded after with JSON null answers", () => selfie(stamped(1_000, { samePerson: null, faceMatch: null })), true],
     ["a stamp that is not the fixed ISO format", () => selfie({ ...stamped(1_000, DIFFERENT), verdictRecordedAt: "2099-01-01 00:00:00" }), true],
     ["a numeric stamp", () => selfie({ ...stamped(1_000, DIFFERENT), verdictRecordedAt: 4102444800000 }), true],
     ["an adverse verdict without a stamp (written before the stamp existed)", () => selfie({ idDocumentId, faceVerdict: DIFFERENT }), true],
+    // A benign-failing retake must not bury the verdict: any attempt counts.
     ["an adverse-after verdict on an OLDER attempt behind a newer benign one", async () => {
       await selfie(stamped(1_000, DIFFERENT))
       await selfie({ biometricFailureReason: "extraction_incomplete" })
-    }, true],
+    }, false],
+    ["an adverse-after verdict on an OLDER DELETED attempt behind a newer benign one", async () => {
+      await selfie(stamped(1_000, DIFFERENT), { deletedAt: new Date() })
+      await selfie({ biometricFailureReason: "image_unusable" })
+    }, false],
+    ["an adverse-after verdict on an older attempt that staff REJECTED while it was 'done'", () =>
+      selfie(stamped(1_000, DIFFERENT), { extractionStatus: "done", rejected: true }), false],
+    // Both layers read the same attempts: a 'done', unrejected row is none of them.
+    ["an adverse-after verdict on a 'done' attempt", () => selfie(stamped(1_000, DIFFERENT), { extractionStatus: "done" }), true],
+    ["an unknown outcome on a 'done' attempt", () =>
+      selfie({ biometricFailureReason: "biometric_outcome_not_recorded" }, { extractionStatus: "done" }), true],
+    ["an unknown outcome on a 'skipped' attempt", () =>
+      selfie({ biometricFailureReason: "biometric_outcome_not_recorded" }, { extractionStatus: "skipped" }), false],
     ["an unknown outcome submitted after the attestation", () => selfie({ biometricFailureReason: "biometric_outcome_not_recorded" }), false],
     ["an unknown outcome on an older attempt behind a newer benign one", async () => {
       await selfie({ biometricFailureReason: "biometric_outcome_not_recorded" })
@@ -162,6 +180,8 @@ suite("in-person lapse rule across the app and database layers", () => {
     }, false],
     ["an unknown outcome submitted BEFORE the attestation", () => selfie(
       { biometricFailureReason: "biometric_outcome_not_recorded" }, { createdAt: new Date(completedAt.getTime() - 3_600_000) }), true],
+    ["an unknown outcome created in the same millisecond as the attestation", () => selfie(
+      { biometricFailureReason: "biometric_outcome_not_recorded" }, { createdAt: new Date(completedAt.getTime()) }), false],
     ["a benign failure submitted after the attestation", () => selfie({ biometricFailureReason: "face_not_detected" }), true],
   ]
 

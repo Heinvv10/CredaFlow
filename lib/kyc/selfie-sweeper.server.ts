@@ -40,14 +40,20 @@ const SWEEP_TRANSACTION = { maxWait: 15_000, timeout: 30_000 } as const
 export const SWEPT_BIOMETRIC_FAILURE_REASON: BiometricEvidenceFailureReason =
   "biometric_outcome_not_recorded"
 
+/** The note the sweeper writes; a swept row carrying any other note had a staff decision. */
+export const SWEEP_EXTRACTION_ERROR = "Biometric verification did not complete and was timed out"
+
 /**
  * A swept attempt, as persistBiometricOutcome recognises it: the only
  * non-`processing` row from which a worker's late answer is still accepted,
- * and only when that answer is adverse.
+ * and only when that answer is adverse. A row that carried a staff note or
+ * rejection before the sweep is NOT one: a manual decision supersedes the
+ * worker's late answer, exactly as it does for a `processing` row.
  */
 export const SWEPT_ATTEMPT_CONDITIONS = {
   extractionStatus: "failed",
   verified: false,
+  verificationNote: SWEEP_EXTRACTION_ERROR,
   verificationRejectedAt: null,
   verificationRejectedById: null,
   biometricResult: { path: ["swept"], equals: true },
@@ -124,7 +130,7 @@ export async function sweepStuckSelfie(
     })
     if (!clientBefore) return false
 
-    const extractionError = "Biometric verification did not complete and was timed out"
+    const extractionError = SWEEP_EXTRACTION_ERROR
     const swept = await tx.clientDocument.updateMany({
       where: { ...where, extractionGeneration: attempt.extractionGeneration },
       data: {
@@ -150,13 +156,22 @@ export async function sweepStuckSelfie(
     } as never)
     if (swept.count !== 1) return false
 
+    // Re-read: the document update fires the composite-KYC revoke trigger,
+    // which may already have demoted the client, so the pre-update read is
+    // stale for the projection and for the audit's "after".
+    const clientNow = await tx.client.findUnique({
+      where: { id: candidate.clientId, tenantId },
+      select: CLIENT_KYC_SELECT,
+    })
+    if (!clientNow) throw new Error("Client vanished while its selfie attempt was being swept")
+
     const composite = await readCompositeKycState(
       tx as unknown as CompositeKycReader,
       {
         tenantId,
         clientId: candidate.clientId,
-        subject: clientBefore,
-        existing: clientBefore,
+        subject: clientNow,
+        existing: clientNow,
         completion: { verifiedAt: now, verifiedById: null, method: "BIOMETRIC" },
       },
     )
@@ -169,17 +184,20 @@ export async function sweepStuckSelfie(
           data: composite.state,
           select: CLIENT_KYC_SELECT,
         })
-      : clientBefore
+      : clientNow
 
     await logAuditStrict({
       tenantId,
       userEmail: "system@selfie-sweeper",
-      // Names what happened to the client: a status change if the latest
-      // selfie was swept and the re-projection did not end FAILED, otherwise
-      // the attempt (and the client) were rejected.
-      action: latestSelfie && clientAfter.kycStatus !== "FAILED"
-        ? AuditAction.KYC_STATUS_CHANGED
-        : AuditAction.KYC_REJECTED,
+      // Names what happened. An older attempt swept behind a newer selfie did
+      // not touch the client, so it is a document-level fact. The latest one
+      // re-projected the client: rejected if that ended FAILED, otherwise a
+      // status change.
+      action: !latestSelfie
+        ? AuditAction.BIOMETRIC_ATTEMPT_SWEPT
+        : clientAfter.kycStatus !== "FAILED"
+          ? AuditAction.KYC_STATUS_CHANGED
+          : AuditAction.KYC_REJECTED,
       entity: "ClientDocument",
       entityId: candidate.id,
       oldValue: {

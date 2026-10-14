@@ -43,7 +43,7 @@ vi.mock("@/lib/tenant", async () => {
 import { POST as inPersonPOST } from "@/app/api/clients/[id]/kyc-in-person-verification/route"
 import {
   STALE_MS, addVerifiedIdCopy, attempt, audits, db, different, isLateAudit, kycStatus, lateAnswer, layers,
-  reasonOf, row, seedClient, stubVlm, sweep, type Fixture,
+  reasonOf, reply, row, seedClient, stubVlm, sweep, type Fixture,
 } from "@/lib/kyc/selfie-sweeper.test-helpers"
 
 const RUN = process.env.RUN_SELFIE_SWEEPER_IT === "1"
@@ -74,6 +74,43 @@ suite("in-person attestation against a later face verdict", () => {
     await db.$disconnect()
   })
 
+  // The two stamps come from different app hosts in production. Both are read
+  // from the database clock, so a host clock that is an hour off cannot order
+  // them wrongly.
+  it("orders the stamps by the database clock when the verdict's host clock runs an hour behind", async () => {
+    const f = await seed()
+    const a = await attempt(f, STALE_MS)
+    await sweep(f)
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    await pause(10)
+    stubVlm(different())
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() - 3_600_000 })
+    try {
+      await lateAnswer(f, a)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+    expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
+  })
+
+  it("orders the stamps by the database clock when the attestation's host clock runs an hour ahead", async () => {
+    const f = await seed()
+    const a = await attempt(f, STALE_MS)
+    await sweep(f)
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3_600_000 })
+    try {
+      expect((await inPerson(f.clientId)).status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+    await pause(10)
+    stubVlm(different())
+    await lateAnswer(f, a)
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+    expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
+  })
+
   it("lapses when an adverse verdict is recorded after the attestation, and can be re-attested", async () => {
     const f = await seed()
     const a = await attempt(f, STALE_MS)
@@ -93,6 +130,30 @@ suite("in-person attestation against a later face verdict", () => {
     expect(late?.action).toBe("KYC_REJECTED")
 
     // Staff can now see the verdict: a fresh attestation completed after it stands.
+    await pause(10)
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
+  })
+
+  it("is not rescued by a deliberately benign-failing retake after the adverse verdict", async () => {
+    const f = await seed()
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    await pause(10)
+    const first = await attempt(f, 1_000)
+    stubVlm(different())
+    expect(reasonOf(await lateAnswer(f, first))).not.toBeNull()
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+
+    // The retake fails for a benign reason: neither photo is judged.
+    const retake = await attempt(f, 500)
+    const unjudged: Record<string, unknown> = reply({ faceDetected: false })
+    for (const key of ["idPhotoKind", "idPhotoIsRealPhotograph", "idPhotoFaceDetected", "selfieIsRealPhotograph"]) delete unjudged[key]
+    stubVlm(unjudged)
+    expect(reasonOf(await lateAnswer(f, retake))).toBe("extraction_incomplete")
+
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+    expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
+    // Only a fresh attestation completed after the verdict restores it.
     await pause(10)
     expect((await inPerson(f.clientId)).status).toBe(200)
     expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)

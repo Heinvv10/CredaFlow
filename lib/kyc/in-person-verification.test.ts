@@ -72,7 +72,6 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
     portraitRefusals: [],
-    latestSelfie: null,
     selfieAttempts: [],
     ...over,
   })
@@ -191,7 +190,6 @@ describe("currentInPersonKycVerification", () => {
       blockingBiometricAttempt: false,
       biometricAssessment: MISSING,
       portraitRefusals: [],
-      latestSelfie: null,
       selfieAttempts: [],
     })).toBeNull()
   })
@@ -401,9 +399,11 @@ describe("matchesBlockingSelfie", () => {
   })
 })
 
+
 describe("lapse on a later face verdict or an unknown outcome", () => {
   const at = (offsetMs: number) => new Date(APPROVED_AT.getTime() + offsetMs)
-  const verdict = (offsetMs: number, over: Record<string, unknown> = {}) => ({
+  const attempt = (offsetMs: number, over: Record<string, unknown> = {}, createdAt = at(offsetMs)) => ({
+    createdAt,
     biometricResult: {
       verdictRecordedAt: at(offsetMs).toISOString(),
       idDocumentId: "doc-id-copy",
@@ -411,28 +411,42 @@ describe("lapse on a later face verdict or an unknown outcome", () => {
       ...over,
     },
   })
+  const benign = (offsetMs: number) => ({
+    createdAt: at(offsetMs),
+    biometricResult: { biometricFailureReason: "extraction_incomplete", verdictRecordedAt: at(offsetMs).toISOString() },
+  })
 
   it("lapses when an adverse verdict was recorded after the attestation", () => {
-    expect(current({ latestSelfie: verdict(1_000) })).toBeNull()
+    expect(current({ selfieAttempts: [attempt(1_000)] })).toBeNull()
+  })
+
+  it("is not rescued by a later benign-failing retake: the verdict is read on ANY attempt", () => {
+    expect(current({ selfieAttempts: [attempt(1_000), benign(2_000)] })).toBeNull()
+    expect(current({ selfieAttempts: [benign(2_000), attempt(1_000)] })).toBeNull()
   })
 
   it.each([
-    ["recorded at the attestation", verdict(0)],
-    ["recorded before the attestation", verdict(-1_000)],
-    ["about another ID copy", verdict(1_000, { idDocumentId: "doc-old" })],
-    ["a passing answer", verdict(1_000, { faceVerdict: { samePerson: "same", faceMatch: true } })],
-    ["no stamp", { biometricResult: { idDocumentId: "doc-id-copy", faceVerdict: { samePerson: "different" } } }],
-    ["a malformed stamp", verdict(1_000, { verdictRecordedAt: "2099-01-01 00:00:00" })],
-  ])("stands for a verdict %s", (_name, latestSelfie) => {
-    expect(current({ latestSelfie })).not.toBeNull()
+    ["recorded before the attestation", attempt(-1_000)],
+    ["about another ID copy", attempt(1_000, { idDocumentId: "doc-old" })],
+    ["a passing answer", attempt(1_000, { faceVerdict: { samePerson: "same", faceMatch: true } })],
+    ["no stamp", { createdAt: at(1_000), biometricResult: { idDocumentId: "doc-id-copy", faceVerdict: { samePerson: "different" } } }],
+    ["a malformed stamp", attempt(1_000, { verdictRecordedAt: "2099-01-01 00:00:00" })],
+  ])("stands for a verdict %s", (_name, selfieAttempt) => {
+    expect(current({ selfieAttempts: [selfieAttempt] })).not.toBeNull()
+  })
+
+  it.each([
+    ["recorded in the same millisecond as the attestation (cannot be ordered)", attempt(0)],
+    ["naming no ID copy at all (fail closed)", { createdAt: at(1_000), biometricResult: { verdictRecordedAt: at(1_000).toISOString(), faceVerdict: { samePerson: "different" } } }],
+  ])("lapses for a verdict %s", (_name, selfieAttempt) => {
+    expect(current({ selfieAttempts: [selfieAttempt] })).toBeNull()
   })
 
   it("lapses for ANY attempt with an unknown outcome created after the attestation", () => {
     const unknown = { biometricResult: { biometricFailureReason: "biometric_outcome_not_recorded" } }
     expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(1_000) }] })).toBeNull()
     expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(-1_000) }] })).not.toBeNull()
-    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(0) }] })).not.toBeNull()
-    expect(current({ selfieAttempts: [{ ...unknown, createdAt: null }] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(0) }] })).toBeNull()
     expect(current({
       selfieAttempts: [{ biometricResult: { biometricFailureReason: "face_not_detected" }, createdAt: at(1_000) }],
     })).not.toBeNull()
