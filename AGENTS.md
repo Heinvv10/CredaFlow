@@ -249,6 +249,8 @@ Domain-specific rules live next to the code:
 - `lib/bank-sync/AGENTS.md` — the one money-import path (statement CSV)
 - `lib/bureau/AGENTS.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/AGENTS.md` — bureau files; statuses are sent once
+- `lib/accounting/AGENTS.md` — GL journals; closed months are final; Xero unproven
+- `lib/payouts/AGENTS.md` — disbursement payouts; claim before send, never pay twice
 - `lib/kyc/AGENTS.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it
