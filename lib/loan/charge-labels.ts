@@ -9,6 +9,8 @@ export const CHARGE_TYPE_LABELS: Record<ChargeType, string> = {
   DEFAULT_INTEREST: "Default interest",
   SERVICE_FEE: "Service fee after due date",
   DEFAULT_ADMIN: "Collection letter fee",
+  // NON_NCA (asset finance) only; wording to be approved with the lender.
+  COLLECTION_FEE: "Collection fee",
 }
 
 /**

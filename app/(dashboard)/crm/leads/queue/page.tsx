@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { calculateLeadScore, leadQueuePriority } from "@/lib/lead-scoring"
 import { LeadWorkQueue, INSURANCE_ENQUIRY_TAG } from "@/components/crm/LeadWorkQueue"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -16,7 +16,7 @@ export default async function LeadQueuePage({
   const { filter } = await searchParams
   const insuranceOnly = filter === "insurance"
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const leads = await prisma.lead.findMany({
     where: {
       tenantId,

@@ -89,12 +89,19 @@ const FEE_CAP_EXEMPT_TYPES: ReadonlySet<string> = new Set(["PO_FUNDING"])
  * `productType` selects the regime. Absent OR unrecognised => capped, because
  * under-charging a business facility is a commercial error while over-charging
  * a consumer is a statutory breach.
+ *
+ * `ncaRegime` is the agreement's Loan/LoanApplication.ncaRegime. Reg 42 binds
+ * NCA credit agreements only, so a NON_NCA (asset finance) agreement keeps its
+ * configured fee. Absent => NCA => capped, the same fail-closed default. Today
+ * only calculateLoan calls this, and it prices consumer (NCA) credit only.
  */
 export function capInitiationFee(
   configuredFeeCents: number,
   principalCents: number,
   productType?: string | null,
+  ncaRegime: "NCA" | "NON_NCA" = "NCA",
 ): number {
+  if (ncaRegime === "NON_NCA") return configuredFeeCents
   if (productType && FEE_CAP_EXEMPT_TYPES.has(productType)) return configuredFeeCents
   return Math.min(configuredFeeCents, ncaInitiationFeeCap(principalCents))
 }

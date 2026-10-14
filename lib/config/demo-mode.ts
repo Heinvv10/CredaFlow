@@ -6,6 +6,17 @@ export function isDemoMode(env: Record<string, string | undefined> = process.env
   return env.DEMO_MODE === "true"
 }
 
+/**
+ * A demo stack whose staff sign in without TOTP (restore.sh clears it when the
+ * app runs with DEMO_CLEAR_STAFF_TOTP=true). Only there may clearing a credit
+ * check (app/api/applications/[id]/checks/[flagId]/clear) accept a
+ * password-only session; both switches must be exactly "true". Never on a
+ * real lender.
+ */
+export function demoStaffWithoutTotp(env: Record<string, string | undefined> = process.env): boolean {
+  return isDemoMode(env) && env.DEMO_CLEAR_STAFF_TOTP === "true"
+}
+
 export const DEMO_ROBOTS_HEADER = "noindex, nofollow"
 
 /** Stamps the demo-only no-index header on a response; a no-op when demo mode is off. */

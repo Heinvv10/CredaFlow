@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatZAR } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table"
 
 async function getLoanProducts() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   return prisma.loanProduct.findMany({
     where: { tenantId },
     orderBy: { name: "asc" },
@@ -22,7 +22,9 @@ async function getLoanProducts() {
 }
 
 async function getUsers() {
+  const tenantId = await getStaffTenantId()
   return prisma.user.findMany({
+    where: { tenantId },
     orderBy: { name: "asc" },
     select: {
       id: true,
@@ -116,6 +118,14 @@ export default async function SettingsPage() {
             </div>
             <span className="text-[#4F46E5] text-xl">→</span>
           </Link>
+          <Link href="/settings/security-policy"
+            className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">
+            <div>
+              <p className="font-semibold text-[#1b1d24] group-hover:text-[#4F46E5]">🛡 Security & KYC policy</p>
+              <p className="text-xs text-gray-500 mt-0.5">Whether staff must use two-factor authentication (Super Admin changes it)</p>
+            </div>
+            <span className="text-[#4F46E5] text-xl">→</span>
+          </Link>
           <Link href="/settings/bank-sync"
             className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">
             <div>
@@ -147,6 +157,14 @@ export default async function SettingsPage() {
               <p className="text-xs text-gray-500 mt-0.5">Switch the Insurance and Compliance sections on or off, and check product readiness (ADMIN)</p>
             </div>
             <span className="text-[#4F46E5] text-xl">→</span>
+          </Link>
+          <Link href="/settings/asset-finance"
+            className="flex items-center justify-between p-5 rounded-xl shadow-sm border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] hover:border-[var(--cf-brand)] hover:bg-[var(--cf-surface-hover)] transition-colors group col-span-1">
+            <div>
+              <p className="font-semibold text-[var(--cf-text)] group-hover:text-[var(--cf-brand)]">🚜 Asset Finance</p>
+              <p className="text-xs text-[var(--cf-text-muted)] mt-0.5">Switch the module on or off, payout approval threshold and VAT details (ADMIN)</p>
+            </div>
+            <span className="text-[var(--cf-brand)] text-xl">→</span>
           </Link>
           <Link href="/settings/insurers"
             className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">

@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: { client: { findUnique: mocks.clientFindUnique } },
 }))
-vi.mock("@/lib/tenant", () => ({
-  getDefaultTenantId: vi.fn().mockResolvedValue("tenant-1"),
+vi.mock("@/lib/session-tenant", () => ({
+  getStaffTenantId: vi.fn().mockResolvedValue("tenant-1"),
 }))
 vi.mock("@/lib/auth", () => ({
   auth: vi.fn().mockResolvedValue({ user: { role: "SUPER_ADMIN" } }),

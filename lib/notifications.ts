@@ -40,6 +40,7 @@ import {
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
 import type { Channel, MessageTemplate } from "@prisma/client"
+import { notifyEntityBorrower } from "@/lib/asset-finance/entity-notifications"
 
 export type NotificationEvent =
   | "application_submitted"
@@ -866,6 +867,9 @@ const NEW_SEND_FLAGS: Partial<Record<NotificationEvent, () => boolean>> = {
 
 export async function triggerNotification(opts: NotificationOptions): Promise<void> {
   const client = await resolveClient(opts)
+  // An entity borrower (asset finance) has no Client: its loan events go to the
+  // people who act for it, in copy that names the entity.
+  if (!client && await notifyEntityBorrower(opts, (row) => logNotification(opts.tenantId, row))) return
   if (!client) {
     await logNotification(opts.tenantId, {
       loanId: opts.loanId,

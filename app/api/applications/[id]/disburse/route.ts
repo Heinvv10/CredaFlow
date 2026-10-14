@@ -53,6 +53,7 @@ import {
   assertDisbursementPreconditions,
   DisbursementPreconditionError,
 } from "@/lib/disbursement/preconditions"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -305,6 +306,10 @@ export async function POST(
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
       }
+      // Consumer payout path (PASQ, mandate, credit life); asset finance has its own.
+      if (!hasClientBorrower(application)) {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+      }
 
       if (application.status !== "APPROVED") {
         return NextResponse.json(
@@ -438,6 +443,13 @@ export async function POST(
       if (!initialApprovalEvidence.ok && initialApprovalEvidence.reason === "override_incomplete") {
         return NextResponse.json({
           error: "Cannot disburse: the recorded bureau override is incomplete. Return the application to review and record a reasoned override before funds can move.",
+          disbursementPrecondition: "unchanged_affordability",
+        }, { status: 422 })
+      }
+      if (!initialApprovalEvidence.ok && initialApprovalEvidence.reason === "bureau_simulated") {
+        return NextResponse.json({
+          error: "Cannot disburse: the bureau check on this application is a simulated result, not valid evidence in this environment. Return the application to review and run a real bureau check before funds can move.",
+          affordabilitySnapshot: initialApprovalEvidence.reason,
           disbursementPrecondition: "unchanged_affordability",
         }, { status: 422 })
       }
@@ -831,6 +843,7 @@ export async function POST(
         })
         if (
           !txApplication ||
+          !hasClientBorrower(txApplication) ||
           txApplication.status !== "APPROVED" ||
           (txApplication.repaymentMethod ?? "DEBIT_ORDER") !== repaymentMethod ||
           !txApplication.agreementSignedAt ||
@@ -1346,7 +1359,7 @@ export async function POST(
         await recordDisbursementCommission(tx, {
           tenantId: tenant.id,
           loanId: newLoan.id,
-          clientId: newLoan.clientId,
+          clientId: txApplication.clientId,
           principalCents: newLoan.principal,
         })
 
@@ -1543,7 +1556,7 @@ export async function POST(
               data: {
                 tenantId: tenant.id,
                 policyNumber: generateReference("CL"),
-                clientId: newLoan.clientId,
+                clientId: txApplication.clientId,
                 type: "CREDIT_LIFE",
                 status: "ACTIVE",
                 premiumAmount,

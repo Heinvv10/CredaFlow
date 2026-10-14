@@ -48,7 +48,7 @@ export async function loadStatementData(
     loanIds.length
       ? prisma.loan.findMany({
           where: { id: { in: loanIds }, tenantId },
-          select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } }, product: { select: { name: true } } },
+          select: { id: true, reference: true, client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } }, product: { select: { name: true } } },
         })
       : Promise.resolve([]),
     prisma.referralAgent.findMany({ where: { tenantId }, select: { id: true, displayName: true } }),

@@ -5,7 +5,7 @@ import { Header } from "@/components/layout/Header"
 import Link from "next/link"
 import { PaymentsClient } from "@/components/payments/PaymentsClient"
 import { PeriodPills } from "@/components/payments/PeriodPills"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   type Period,
   periodFilter,
@@ -13,12 +13,13 @@ import {
   precedingPeriod,
   resolvePeriod,
 } from "@/lib/date/sast-period"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 /** Rows fetched per tab. The KPI figures are aggregates and ignore this cap. */
 const ROW_CAP = 200
 
 async function getData(period: Period, now: Date) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const receivedAt = periodFilter(period)
   const preceding = precedingPeriod(period, now)
 
@@ -29,6 +30,7 @@ async function getData(period: Period, now: Date) {
         reference: true,
         outstandingPrincipal: true,
         client: { select: { firstName: true, lastName: true } },
+        entity: { select: { legalName: true } },
       },
     },
   } as const
@@ -125,6 +127,7 @@ async function getData(period: Period, now: Date) {
             reference: true,
             daysInArrears: true,
             client: { select: { firstName: true, lastName: true } },
+            entity: { select: { legalName: true } },
           },
         },
       },
@@ -242,12 +245,12 @@ export default async function PaymentsPage({
                   totalDue: number
                   totalPaid: number
                   status: string
-                  loan: { id: string; reference: string; daysInArrears: number; client: { firstName: string; lastName: string } }
+                  loan: { id: string; reference: string; daysInArrears: number; client: { firstName: string; lastName: string } | null; entity: { legalName: string } | null }
                 }) => (
                   <tr key={item.id} className="border-b border-amber-50/50 hover:bg-amber-50/30">
                     <td className="px-4 py-2">
                       <Link href={`/collections/${item.loan.id}`} className="font-medium text-gray-700 hover:text-amber-700">
-                        {item.loan.client.firstName} {item.loan.client.lastName}
+                        {borrowerDisplayName(item.loan)}
                       </Link>
                     </td>
                     <td className="px-4 py-2 text-gray-500">{item.loan.reference}</td>

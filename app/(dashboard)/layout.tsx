@@ -3,6 +3,7 @@ import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { getSession } from "@/lib/auth-session"
 import { redirectStaleSession } from "@/lib/auth-guards"
 import { AppShell } from "@/components/app-shell/AppShell"
+import { EnrolmentShell } from "@/components/app-shell/EnrolmentShell"
 import { TenantThemeProvider } from "@/components/TenantThemeProvider"
 import { prisma } from "@/lib/prisma"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
@@ -67,6 +68,16 @@ export default async function DashboardLayout({
     redirectStaleSession()
   }
 
+  // Held at TOTP enrolment (proxy.ts): a bare shell, with none of the sidebar's
+  // counts or navigation.
+  if (session.user.totpEnrolmentRequired === true) {
+    return (
+      <TenantThemeProvider config={await getTenantConfig(tenantId)}>
+        <EnrolmentShell>{children}</EnrolmentShell>
+      </TenantThemeProvider>
+    )
+  }
+
   const user = {
     name: session.user.name,
     email: session.user.email,
@@ -78,7 +89,7 @@ export default async function DashboardLayout({
     getTenantConfig(tenantId),
   ])
   const features = resolveFeatureFlags(tenantConfig)
-  const { featureCrm, featureIms, featureBureauSubmission } = features
+  const { featureCrm, featureIms, featureBureauSubmission, featureAssetFinance } = features
 
   return (
     <TenantThemeProvider config={tenantConfig}>
@@ -94,6 +105,7 @@ export default async function DashboardLayout({
         featureCrm={featureCrm}
         featureIms={featureIms}
         featureBureauSubmission={featureBureauSubmission}
+        featureAssetFinance={featureAssetFinance}
       >
         {children}
       </AppShell>

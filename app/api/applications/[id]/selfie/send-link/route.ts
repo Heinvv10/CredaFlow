@@ -14,6 +14,7 @@ import {
   mintSelfieLinkToken,
   type SelfieLinkChannel,
 } from "@/lib/kyc/selfie-link-token.server"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -93,6 +94,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // Selfie KYC is for a natural person; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (!CAPTURABLE_STATUSES.has(application.status)) {
       return NextResponse.json({

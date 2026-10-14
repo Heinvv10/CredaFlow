@@ -7,6 +7,7 @@ import {
 
 const baseLoan = {
   status: "DEFAULTED",
+  ncaRegime: "NCA" as const,
   arrearsAmount: 25_000,
   outstandingPrincipal: 100_000,
   daysInArrears: 90,

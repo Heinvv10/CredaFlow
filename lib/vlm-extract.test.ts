@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   RENDER_DPI,
   MAX_RENDER_PIXELS,
@@ -165,8 +168,11 @@ describe("extractDocumentData face-match request shape", () => {
 describe("PDF conversion temp-file hygiene", () => {
   const originalFetch = globalThis.fetch
   const fetchMock = vi.fn()
+  let scratchRoot = ""
 
   beforeEach(() => {
+    scratchRoot = mkdtempSync(join(tmpdir(), "vlm-test-root-"))
+    vi.stubEnv("TMPDIR", scratchRoot)
     vi.stubEnv("VLM_API_URL", "http://vlm.test:8100")
     vi.stubEnv("VLM_MODEL", "test-model")
     fetchMock.mockResolvedValue(vlmResponse({}))
@@ -177,14 +183,14 @@ describe("PDF conversion temp-file hygiene", () => {
     vi.unstubAllEnvs()
     globalThis.fetch = originalFetch
     fetchMock.mockReset()
+    rmSync(scratchRoot, { recursive: true, force: true })
   })
 
   async function strandedTempFiles(): Promise<string[]> {
-    const { readdirSync } = await import("node:fs")
     // Prefix must track the real scratch names in vlm-extract.ts (now private
     // vlm-* DIRECTORIES, formerly vlm-in-* files). A stale prefix here matches
     // nothing and the test passes without observing anything.
-    return readdirSync("/tmp").filter((f) => f.startsWith("vlm-")).sort()
+    return readdirSync(scratchRoot).filter((f) => f.startsWith("vlm-")).sort()
   }
 
   // The document written to /tmp is the client's bank statement or payslip in

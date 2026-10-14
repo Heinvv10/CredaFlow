@@ -18,6 +18,7 @@ import {
 } from "@/lib/applications/pipeline-view"
 import { READY_CAVEAT, readinessSummary } from "@/lib/applications/readiness-view"
 import { formatZAR } from "@/lib/utils"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 function activityText(app: PipelineApplication, now: Date): string {
   const verb = app.status === "DRAFT" ? "Saved" : "Waiting"
@@ -124,7 +125,7 @@ export function ApplicationKanban({
                   const cardBody = (
                     <>
                       <p className="mb-1 text-sm font-semibold text-[var(--cf-text)]">
-                        {app.client.firstName} {app.client.lastName}
+                        {borrowerDisplayName(app)}
                       </p>
 
                       <p className="mb-3 text-[12px] text-[var(--cf-text-muted)]">

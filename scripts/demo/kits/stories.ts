@@ -94,8 +94,13 @@ function complianceChecks(): Step {
   return { who: 'ADMIN', where: 'Applications > the application > NCA Compliance Checks', action: 'Tick "Reckless lending assessment completed". "Client affordability declaration captured" is already ticked from the application: leave it. Confirm Assessment Checks.', expect: 'The panel shows "Complete" (no toast).' }
 }
 
+function clearCreditChecks(): Step {
+  return { who: 'ADMIN', where: 'Applications > the application > Credit checks', action: 'Each open check says what was flagged (the specimen bank statement is not a bank original, so Document authenticity flags it). For every open check: Clear, type a reason of at least 15 characters (for example "Demo specimen statement; figures checked against the payslips."), Confirm clear.', expect: 'The panel shows "0 open" and each check "Cleared by" you. Approval is refused while a check is open.' }
+}
+
 function approveToPayout(p: Persona): Step[] {
   return [
+    clearCreditChecks(),
     { who: 'ADMIN', where: 'Same page > Decision rail', action: 'Repayment method Debit order, then Approve. Leave the Initiation Fee Election panel at its default.', expect: 'Status APPROVED; a "Credit Agreement" panel appears.' },
     { who: 'CREDIT OFFICER', where: 'Refresh the application > Credit Agreement panel', action: 'Prepare PASQ + Credit Agreement: one button issues the quotation (PASQ) and generates the agreement. View PASQ + Agreement opens the packet. From here to payout, finish on the SAME day: a debit-order agreement is only current on the day it was generated.', expect: 'Toast "Agreement generated"; "Agreement generated and awaiting signature".' },
     { who: 'CLIENT', where: 'Portal > Applications > Sign Now', action: 'Tick the five declarations (the first acknowledges the PASQ), draw the signature with the mouse (or Type it), then I Accept and Sign Digitally. The PASQ + agreement packet shows in the frame on this page; Open PDF in a new tab and Download agreement open the same packet.', expect: '"Agreement signed", with a Set up repayment button.' },
@@ -136,6 +141,7 @@ export function stepsFor(p: Persona, latestPayslip: string): Step[] {
         ...newClientCapture(p, true),
         ...documentsAndSelfie(p, latestPayslip),
         ...reviewAndAffordability(p, false),
+        clearCreditChecks(),
         { who: 'ADMIN', where: 'Applications > the application > Decision rail', action: 'NCA Compliance Checks already shows "Complete" (recorded with the reckless-lending acknowledgement in the wizard): nothing to tick. Repayment method Debit order, then Approve.', expect: `Refused by the product, not by the presenter. Red toast and a line in the rail: "${RECORDED_DECLINE_REASON}" (figures in cents: NDI ${R(180913)} against ${R(283861)} required). The status stays UNDER REVIEW.` },
         { who: 'ADMIN', where: 'Same page > Decision rail', action: `Decline, Decline category "Affordability", reason "${DECLINE_TEXT}", Confirm Decline.`, expect: 'Status DECLINED, "Application Declined". The borrower sees Declined and the reason under Portal > Applications. Story ends here.' },
       ]

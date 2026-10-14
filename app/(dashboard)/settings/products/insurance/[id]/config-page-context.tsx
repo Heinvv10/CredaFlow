@@ -3,7 +3,8 @@ import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
 import { hasMinRole } from "@/lib/permissions"
-import { getResolvedTenantId, resolveFeatureFlags } from "@/lib/tenant"
+import { resolveFeatureFlags } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 
 /**
@@ -21,7 +22,7 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
  */
 export async function loadInsuranceConfigContext(id: string) {
   const user = await requireMinRole("READONLY")
-  const tenantId = await getResolvedTenantId()
+  const tenantId = await getStaffTenantId()
 
   const [product, config] = await Promise.all([
     prisma.insuranceProduct.findFirst({

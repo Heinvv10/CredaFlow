@@ -99,7 +99,7 @@ export async function loadCommissionData(opts: {
   const loans = loanIds.length
     ? await prisma.loan.findMany({
         where: { id: { in: loanIds }, tenantId },
-        select: { id: true, reference: true, client: { select: { id: true, firstName: true, lastName: true, phone: true } }, product: { select: { name: true } } },
+        select: { id: true, reference: true, client: { select: { id: true, firstName: true, lastName: true, phone: true } }, entity: { select: { legalName: true } }, product: { select: { name: true } } },
       })
     : []
   const loansById = new Map(loans.map((l) => [l.id, l]))

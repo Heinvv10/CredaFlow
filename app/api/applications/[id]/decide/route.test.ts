@@ -26,8 +26,17 @@ const verifyPasqDocumentArtifactMock = vi.fn()
 const runBureauReviewCheckMock = vi.fn()
 const readCompositeKycStateMock = vi.fn()
 const nonOverridableBlockMock = vi.fn()
+const evaluateBureauGateMock = vi.fn()
+const recomputeApplicationFlagsMock = vi.fn()
+const txCheckFlagCountMock = vi.fn()
+const txDocumentCountMock = vi.fn()
+const txAnalysisCountMock = vi.fn()
+const txPayslipFindManyMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/credit-checks/recompute", () => ({
+  recomputeApplicationFlags: (...a: unknown[]) => recomputeApplicationFlagsMock(...a),
+}))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (req: unknown, cb: (t: { id: string; name: string }) => Promise<unknown>) =>
     cb({ id: "t1", name: "Acme Lending" }),
@@ -52,7 +61,7 @@ vi.mock("@/lib/notifications", () => ({ triggerNotification: (a: unknown) => tri
 vi.mock("@/lib/kyc", () => ({ CORE_DOC_TYPES: ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] }))
 vi.mock("@/lib/compliance/bureau", () => ({ bureauStalenessCutoff: () => new Date("2020-01-01") }))
 vi.mock("@/lib/decision/bureau-gate", () => ({
-  evaluateBureauGate: () => ({ blocked: false }),
+  evaluateBureauGate: (...args: unknown[]) => evaluateBureauGateMock(...args),
   nonOverridableBlock: (...args: unknown[]) => nonOverridableBlockMock(...args),
 }))
 vi.mock("@/lib/decision/affordability-gate", () => ({
@@ -349,6 +358,7 @@ beforeEach(() => {
   triggerNotificationMock.mockResolvedValue(undefined)
   runBureauReviewCheckMock.mockResolvedValue("stored")
   nonOverridableBlockMock.mockReturnValue({ blocked: false })
+  evaluateBureauGateMock.mockReturnValue({ blocked: false })
   readCompositeKycStateMock.mockResolvedValue({
     ok: true,
     okForOrigination: true,
@@ -397,15 +407,55 @@ beforeEach(() => {
   txDocumentUpdateManyMock.mockResolvedValue({ count: 0 })
   txCreditLifeOfferFindFirstMock.mockResolvedValue(null)
   txExecuteRawUnsafeMock.mockResolvedValue(0)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [] })
+  txCheckFlagCountMock.mockResolvedValue(0)
+  txDocumentCountMock.mockResolvedValue(0)
+  txAnalysisCountMock.mockResolvedValue(0)
+  txPayslipFindManyMock.mockResolvedValue([])
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({
     loanApplication: { updateMany: txUpdateManyMock },
-    clientDocument: { updateMany: (a: unknown) => txDocumentUpdateManyMock(a) },
+    applicationCheckFlag: { count: (a: unknown) => txCheckFlagCountMock(a) },
+    clientDocument: { updateMany: (a: unknown) => txDocumentUpdateManyMock(a), count: (a: unknown) => txDocumentCountMock(a), findMany: (a: unknown) => txPayslipFindManyMock(a) },
+    statementAnalysis: { count: (a: unknown) => txAnalysisCountMock(a) },
     auditLog: { create: txAuditLogCreateMock },
     $executeRawUnsafe: (sql: string) => txExecuteRawUnsafeMock(sql),
     // return_to_review re-resolves the current credit-life offer to decide
     // whether the stored election has actually gone stale.
     insuranceProduct: { findFirst: (a: unknown) => txCreditLifeOfferFindFirstMock(a) },
   }))
+})
+
+it("hands the stored bureau obligations (simulated marker) to the bureau gate", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  const obligations = { simulated: true }
+  creditBureauCheckFindFirstMock.mockResolvedValue({ ...passingBureauCheck, obligations })
+
+  await POST(makeReq({ action: "approve", reason: "Reviewed" }), ctx)
+
+  expect(evaluateBureauGateMock).toHaveBeenCalledWith(
+    expect.objectContaining({ obligations }),
+    expect.anything(),
+  )
+})
+
+it("refuses to approve on a simulated bureau check even with an override reason", async () => {
+  vi.stubEnv("NODE_ENV", "production")
+  try {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    creditBureauCheckFindFirstMock.mockResolvedValue({ ...passingBureauCheck, obligations: { simulated: true } })
+
+    const res = await POST(makeReq({
+      action: "approve",
+      reason: "Reviewed",
+      bureauOverrideReason: "Verified bureau exception with supporting evidence",
+    }), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ simulatedBureauBlock: true, requiresOverride: false })
+    expect(updateManyMock).not.toHaveBeenCalled()
+  } finally {
+    vi.unstubAllEnvs()
+  }
 })
 
 it("requires EFT or debit order before approving an application", async () => {
@@ -503,6 +553,147 @@ it("409s an approval of an application that already has a loan, and does not not
   expect(await res.json()).toEqual({
     error: "This application already has a loan booked against it, so it cannot be approved.",
   })
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("refuses approval while a credit check is open, naming it, before the approve transaction", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({
+    recomputed: true,
+    flags: [
+      { id: "f1", status: "OPEN", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT", summary: "No salary credit near 2026-09-25." },
+      { id: "f2", status: "CLEARED", check: "RISK_BEHAVIOUR", code: "GAMBLING", summary: "Betting." },
+    ],
+  })
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect(await res.json()).toEqual({
+    error: "Approval blocked: 1 credit check is open. Clear it in Credit checks first.",
+    openChecks: [{ id: "f1", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT" }],
+  })
+  expect(recomputeApplicationFlagsMock).toHaveBeenCalledWith("t1", expect.any(String), expect.objectContaining({ userId: expect.any(String) }))
+  expect(transactionMock).not.toHaveBeenCalled()
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("re-counts open checks under the row lock and refuses before writing the approval", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txCheckFlagCountMock.mockResolvedValue(1)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toContain("credit check was raised while approving")
+  expect(txCheckFlagCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", applicationId: expect.any(String), status: "OPEN" } })
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("refuses an approval when a statement or payslip arrived after the checks ran", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txDocumentCountMock.mockResolvedValue(1)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toContain("changed while approving")
+  expect(txDocumentCountMock).toHaveBeenCalledWith({
+    where: expect.objectContaining({ tenantId: "t1", docType: { in: ["BANK_STATEMENT", "PAYSLIP"] } }),
+  })
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("compares new evidence with the time and payslips the recompute actually read", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  const evidenceAsOf = new Date("2026-10-13T10:00:00Z")
+  const evidenceSince = new Date("2026-07-15T00:00:00Z")
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf, evidenceSince, payslipSnapshot: ["slip-1:done:gen-1"] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "gen-1" }]).mockResolvedValueOnce([])
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txDocumentCountMock).toHaveBeenCalledWith({ where: {
+    tenantId: "t1", clientId: expect.any(String), docType: { in: ["BANK_STATEMENT", "PAYSLIP"] },
+    OR: [{ createdAt: { gt: evidenceAsOf } }, { deletedAt: { gt: evidenceAsOf } }],
+  } })
+  expect(txAnalysisCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", createdAt: { gt: evidenceAsOf }, clientDocument: { clientId: expect.any(String) } } })
+  expect(txPayslipFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+    where: { tenantId: "t1", clientId: expect.any(String), docType: "PAYSLIP", deletedAt: null, createdAt: { gte: evidenceSince } },
+  }))
+})
+
+it("refuses an approval when a payslip's extraction changed after the checks read it", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: ["slip-1:done:gen-1"] })
+  for (const now of [
+    [{ id: "slip-1", extractionStatus: "processing", extractionGeneration: "gen-2" }],
+    [{ id: "slip-1", extractionStatus: "done", extractionGeneration: "gen-2" }],
+    [{ id: "slip-1", extractionStatus: "done", extractionGeneration: "gen-1" }, { id: "slip-2", extractionStatus: "processing", extractionGeneration: "g" }],
+  ]) {
+    txPayslipFindManyMock.mockResolvedValueOnce(now)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(409)
+  }
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("refuses when a payslip the checks saw is gone, or when the checks returned no snapshot at all", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValueOnce({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: ["slip-1:done:g", "slip-2:done:g"] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "g" }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(409)
+
+  recomputeApplicationFlagsMock.mockResolvedValueOnce({ recomputed: false, flags: [] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: "g" }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(409)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("treats a payslip with no extraction generation (legacy row) as unchanged when it is", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: ["slip-1:done:"] })
+  txPayslipFindManyMock.mockResolvedValueOnce([{ id: "slip-1", extractionStatus: "done", extractionGeneration: null }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
+})
+
+it("refuses when a statement or its read changed since the checks, compared as a set", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [], evidenceAsOf: new Date(), evidenceSince: new Date(0), payslipSnapshot: [], statementSnapshot: ["stmt-1:an-1"] })
+  for (const statements of [
+    [{ id: "stmt-1", statementAnalyses: [{ id: "an-2" }] }],
+    [{ id: "stmt-1", statementAnalyses: [{ id: "an-1" }] }, { id: "stmt-2", statementAnalyses: [] }],
+    [],
+  ]) {
+    txPayslipFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce(statements)
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status, JSON.stringify(statements)).toBe(409)
+  }
+  txPayslipFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "stmt-1", statementAnalyses: [{ id: "an-1" }] }])
+  expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
+})
+
+it("refuses an approval when a statement was read after the checks ran", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txAnalysisCountMock.mockResolvedValue(1)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("409s when the open-check-flags trigger refuses the approval write", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txUpdateManyMock.mockRejectedValueOnce(new Error(
+    "Raw query failed. Code: `23514`. Message: `Application app_1 has open credit-check flags; clear them before approval`",
+  ))
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toContain("credit check was raised while approving")
   expect(triggerNotificationMock).not.toHaveBeenCalled()
 })
 

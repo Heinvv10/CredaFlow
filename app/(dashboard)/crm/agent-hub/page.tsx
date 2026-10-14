@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import { hasMinRole } from "@/lib/permissions"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -30,7 +30,7 @@ export default async function AgentHubPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams
   const defaultTab = ["overview", "agents", "commission", "statements"].includes(sp.tab ?? "") ? sp.tab! : "overview"
   const user = await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   // The tenant default prices every agent without an override, so editing it sits
   // a rung above the per-agent editors on this page. The API route enforces the
   // same floor independently — this only decides whether to render the control.

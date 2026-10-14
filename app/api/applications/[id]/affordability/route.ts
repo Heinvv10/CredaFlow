@@ -25,6 +25,7 @@ import {
   calculateCreditLifePremiumPeriodsForSchedule,
   creditLifePremiumPaymentLoadCents,
 } from "@/lib/insurance/credit-life-billing"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 export async function PATCH(
   req: NextRequest,
@@ -144,6 +145,8 @@ export async function PATCH(
           },
         })
         if (!app) return { kind: "not_found" as const }
+        // Consumer NDI affordability; an entity borrower is refused.
+        if (!hasClientBorrower(app)) return { kind: "entity_borrower" as const }
         if (!["DRAFT", "SUBMITTED", "UNDER_REVIEW"].includes(app.status)) {
           return { kind: "locked" as const }
         }
@@ -330,6 +333,9 @@ export async function PATCH(
 
       if (outcome.kind === "not_found") {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
+      }
+      if (outcome.kind === "entity_borrower") {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
       if (outcome.kind === "locked") {
         return NextResponse.json(

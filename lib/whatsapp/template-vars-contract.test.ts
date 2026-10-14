@@ -43,6 +43,9 @@ describe("the seeded rows and the module cannot drift", () => {
     payment_reminder_overdue_3d: "payment_reminder_overdue_3d_whatsapp",
     loan_overdue_1d: "loan_overdue_1d_whatsapp",
     loan_overdue_7d: "loan_overdue_7d_whatsapp",
+    entity_payment_due: "entity_payment_due_whatsapp",
+    entity_payment_overdue: "entity_payment_overdue_whatsapp",
+    entity_payment_received: "entity_payment_received_whatsapp",
   }
 
   it("seeds one row per registered body", () => {
@@ -120,6 +123,7 @@ describe("WABA body templates vs the vars the code supplies", () => {
         dueDate: "2026-09-01",
         supportPhone: "+27 11 555 0100",
         daysOverdue: "60",
+        entityName: "TEST Earthmoving (Pty) Ltd",
       }),
     )
     const missing = placeholders.filter((p) => !supplied.includes(p))
@@ -169,6 +173,7 @@ describe("WABA body templates vs the vars the code supplies", () => {
         dueDate: "2026-09-01",
         supportPhone: "+27 11 555 0100",
         daysOverdue: "60",
+        entityName: "TEST Earthmoving (Pty) Ltd",
       })
       const blank = Object.entries(vars).filter(([, v]) => v.trim() === "").map(([k]) => k)
       expect(blank, `${event} supplies blank var(s)`).toEqual([])

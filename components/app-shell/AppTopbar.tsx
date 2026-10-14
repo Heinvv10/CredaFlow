@@ -3,7 +3,7 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { createHash } from "node:crypto"
 import { getLenderBrandName } from "@/lib/config/identity"
 import { getLenderLogo } from "@/lib/config/lender-logo"
-import { getResolvedTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 
 type AppTopbarProps = {
   user: {
@@ -27,7 +27,7 @@ function formatRole(role: string) {
 }
 
 export async function AppTopbar({ user }: AppTopbarProps) {
-  const tenantId = await getResolvedTenantId()
+  const tenantId = await getStaffTenantId()
   const brandName = await getLenderBrandName(tenantId)
   // The uploaded letterhead logo when its file is present and intact
   // (lib/config/lender-logo.ts), else the tenant's name as text. The hash in

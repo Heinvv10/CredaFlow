@@ -22,6 +22,7 @@ import { AffordabilityCapture } from "@/components/applications/AffordabilityCap
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
+import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
 import { ApplicationStartReviewButton } from "@/components/applications/ApplicationStartReviewButton"
@@ -29,8 +30,8 @@ import { ApplicationReturnToDraftButton } from "@/components/applications/Applic
 import { ApplicationSubmitButton } from "@/components/applications/ApplicationSubmitButton"
 import { ApplicationReturnToReviewButton } from "@/components/applications/ApplicationReturnToReviewButton"
 import { auth } from "@/lib/auth"
-import { canDo } from "@/lib/auth-guards"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { canDo, hasMinRole } from "@/lib/auth-guards"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   readCompositeKycState,
   type CoreDocumentGapState,
@@ -52,9 +53,11 @@ import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
 import { annualisedInterestRate, termInterestPercent } from "@/lib/loan/annualised-rate"
 import { avsCheckMatchesSubject } from "@/lib/compliance/avs-subject"
 import { resolveBureauDisplay } from "@/lib/compliance/bureau-display"
+import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { resolveAffordabilityDisplayInputs } from "@/lib/affordability/display"
+import { demoStaffWithoutTotp } from "@/lib/config/demo-mode"
 import {
   affordabilityContractEvidenceIsIntact,
   affordabilityDecisionSnapshotIsIntact,
@@ -66,6 +69,8 @@ import {
   readAffordabilitySnapshotStore,
   totalAffordabilityDebt,
 } from "@/lib/affordability/snapshot"
+import { hasClientBorrower } from "@/lib/borrower"
+import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -82,6 +87,7 @@ async function getApplication(id: string, tenantId: string) {
     where: { id, tenantId },
     include: {
       client: { include: { debtObligations: true } },
+      entity: { select: { legalName: true } },
       product: true,
       assignedTo: { select: { name: true, email: true } },
       approvedBy: { select: { name: true, email: true } },
@@ -119,7 +125,10 @@ async function getBureauObligations(
     select: { obligations: true },
   })
   const obligs = check?.obligations as { totalMonthly?: number } | null
-  return obligs?.totalMonthly ?? null
+  return {
+    totalMonthly: obligs?.totalMonthly ?? null,
+    simulated: isSimulatedBureauCheck(check?.obligations),
+  }
 }
 
 async function getDocumentMismatches(clientId: string, tenantId: string) {
@@ -192,16 +201,31 @@ interface PageProps { params: Promise<{ id: string }> }
 
 export default async function ApplicationDetailPage({ params }: PageProps) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [application, session, collectionsEngineEnabled] = await Promise.all([
     getApplication(id, tenantId),
     auth(),
     getCollectionsEngineEnabled(tenantId),
   ])
   if (!application) notFound()
+  if (!hasClientBorrower(application)) {
+    return (
+      <EntityBorrowerNotice
+        crumbs={[{ label: "Applications", href: "/applications" }]}
+        reference={application.reference}
+        legalName={application.entity?.legalName ?? null}
+      />
+    )
+  }
   const userRole = session?.user?.role ?? "READONLY"
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
+  // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
+  const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")
+  const checksUndecided = application.status === "DRAFT" || application.status === "SUBMITTED" || application.status === "UNDER_REVIEW"
+  const openChecks = await prisma.applicationCheckFlag.count({
+    where: { tenantId, applicationId: application.id, status: "OPEN" },
+  })
   const agreementSignedDisplayMethod =
     application.agreementSignedMethod === "branch"
     && application.agreementSignatureData?.startsWith("signed-packet-v1:")
@@ -385,11 +409,12 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     : application.totalExistingDebt || 0
   const bureauDebt = affordabilityLocked && affordabilitySnapshot
     ? affordabilitySnapshot.inputs.bureauObligationsCents
-    : bureauObligationsRaw ?? null
+    : bureauObligationsRaw?.totalMonthly ?? null
   const bureauDisplay = resolveBureauDisplay({
     applicationStatus: application.status,
     approvalSnapshot: affordabilitySnapshot,
     complianceRecord: bureauCheck,
+    simulated: bureauObligationsRaw?.simulated ?? false,
   })
   // Model-aware and NOMINAL for every product (lib/loan/annualised-rate).
   // Both operands come from the approval snapshot once locked, so an approved
@@ -487,7 +512,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       )}
       {application.status === "UNDER_REVIEW" && (
         <>
-          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} />
+          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
           <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
           <ApplicationReturnToDraftButton applicationId={application.id} />
         </>
@@ -801,6 +826,15 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           recklessNote={application.recklessLendingNote}
           affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
         />
+
+        {canReadChecks && (
+          <CreditChecksPanel
+            applicationId={application.id}
+            canClear={canApprove && (session?.user?.totpVerified === true || demoStaffWithoutTotp()) && checksUndecided}
+            needsTotp={canApprove && session?.user?.totpVerified !== true && !demoStaffWithoutTotp() && checksUndecided}
+            initialOpenCount={openChecks}
+          />
+        )}
 
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (

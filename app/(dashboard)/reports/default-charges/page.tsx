@@ -8,7 +8,7 @@ import { MetricCard } from "@/components/app-shell/MetricCard"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { sastMonthKey } from "@/lib/reports/default-charges"
 import { loadDefaultChargesReport, loadInDuplumSnapshot } from "@/lib/reports/default-charges-loader"
@@ -20,7 +20,7 @@ const DAY_MS = 86_400_000
 export default async function DefaultChargesReportPage() {
   // Book-level money figures and client names: the same gate as the reports overview.
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const now = new Date()
   const report = await loadDefaultChargesReport(prisma, tenantId, now)
   // A replay per loan in default: only worth running while charges accrue.

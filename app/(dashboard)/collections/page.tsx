@@ -1,16 +1,17 @@
 import { prisma } from "@/lib/prisma"
 import { arrearsWithCharges } from "@/lib/loan/charge-labels"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
-import { COLLECTIONS_ELIGIBLE_STATUSES } from "@/lib/collections/section129-eligibility"
+import { COLLECTIONS_ELIGIBLE_STATUSES, isSection129Eligible } from "@/lib/collections/section129-eligibility"
 import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { formatZAR } from "@/lib/utils"
 import { AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { BulkSection129Button } from "@/components/collections/BulkSection129Button"
 import { CollectionsTabs } from "@/components/collections/CollectionsTabs"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
+import { borrowerDisplayName, hasClientBorrower, hasClientBorrowerId } from "@/lib/borrower"
 
 
 async function getCollectionsData(tenantId: string, chargesLive: boolean) {
@@ -26,7 +27,13 @@ async function getCollectionsData(tenantId: string, chargesLive: boolean) {
   })
   // Arrears as shown to staff include default charges owed (the synced
   // summary column), only while charges are live.
-  return loans.map((loan) => ({ ...loan, arrearsAmount: arrearsWithCharges(loan, chargesLive) }))
+  // Each queue row is a natural person: it links to the Client, shows their
+  // name and messages them (WhatsApp, contact log, Section 129 notice). An
+  // entity borrower (asset finance) has no Client, so it is left out of this
+  // list; its regime is not the reason.
+  return loans
+    .filter(hasClientBorrower)
+    .map((loan) => ({ ...loan, arrearsAmount: arrearsWithCharges(loan, chargesLive) }))
 }
 
 async function getPendingWriteOffs(tenantId: string) {
@@ -38,6 +45,7 @@ async function getPendingWriteOffs(tenantId: string) {
     orderBy: { writeOffRequestedAt: "desc" },
     include: {
       client: { select: { firstName: true, lastName: true } },
+      entity: { select: { legalName: true } },
     },
   })
   const requesterIds = [...new Set(loans.map((l) => l.writeOffRequestedById).filter((v): v is string => !!v))]
@@ -48,7 +56,7 @@ async function getPendingWriteOffs(tenantId: string) {
   return loans.map((l) => ({
     id: l.id,
     reference: l.reference,
-    clientName: `${l.client.firstName} ${l.client.lastName}`,
+    clientName: borrowerDisplayName(l),
     outstandingPrincipal: l.outstandingPrincipal,
     writeOffReason: l.writeOffReason,
     requestedBy: l.writeOffRequestedById ? requesterName.get(l.writeOffRequestedById) ?? "Unknown" : "Unknown",
@@ -69,11 +77,15 @@ async function getSection129DueCount(tenantId: string) {
       // not sit in the collections queue or count toward S129 (audit N-03/N-05).
       outstandingPrincipal: { gt: 0 },
     },
-    select: { id: true },
+    select: {
+      id: true, clientId: true, status: true, ncaRegime: true, arrearsAmount: true, outstandingPrincipal: true, daysInArrears: true,
+    },
   })
 
   let count = 0
-  for (const loan of loans) {
+  // The bulk send's own rules: a NON_NCA agreement is never S129-due, and the
+  // notice is addressed to a Client (an entity borrower has none).
+  for (const loan of loans.filter(isSection129Eligible).filter(hasClientBorrowerId)) {
     const availability = await getSection129ReservationAvailability(tenantId, loan.id)
     if (availability.canReserve) count++
   }
@@ -98,7 +110,7 @@ async function getStageBreakdown(tenantId: string, chargesLive: boolean) {
 }
 
 export default async function CollectionsPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const chargesLive = await chargesLiveForTenant(prisma, tenantId)
   const [loans, s129DueCount, par, stageBreakdown, pendingWriteOffs] = await Promise.all([
     getCollectionsData(tenantId, chargesLive),

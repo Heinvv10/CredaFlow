@@ -4,9 +4,11 @@ import {
   AlertTriangle,
   Banknote,
   BarChart3,
+  Percent,
   Bell,
   BriefcaseBusiness,
   Building2,
+  Factory,
   Contact,
   CreditCard,
   FileCheck,
@@ -23,7 +25,9 @@ import {
   MessageSquare,
   Scale,
   Shield,
+  ShieldCheck,
   Target,
+  Truck,
   Upload,
   Users,
   Wallet,
@@ -99,7 +103,7 @@ export type NavItem = {
 export type NavGroup = {
   label: string
   items: NavItem[]
-  feature?: "crm" | "ims" | "bureauSubmission"
+  feature?: "crm" | "ims" | "bureauSubmission" | "assetFinance"
 }
 
 export const staffNavigation: NavGroup[] = [
@@ -133,6 +137,20 @@ export const staffNavigation: NavGroup[] = [
       { href: "/payments", label: "Payments", icon: CreditCard },
       { href: "/payments/bank-reconciliation", label: "Bank Reconciliation", icon: Landmark, minRole: "CREDIT_OFFICER" },
       { href: "/collections", label: "Collections", icon: AlertTriangle, badgeKey: "collections" },
+    ],
+  },
+  {
+    // Asset finance (docs/asset-finance/DESIGN.md D9): instalment sale and
+    // leasing for business entities. Every page under /asset-finance also
+    // redirects when the flag is off (app/(dashboard)/asset-finance/layout.tsx).
+    label: "Asset Finance",
+    feature: "assetFinance",
+    items: [
+      { href: "/asset-finance/entities", label: "Entities", icon: Building2 },
+      { href: "/asset-finance/deals", label: "Deals", icon: FileText },
+      { href: "/asset-finance/assets", label: "Assets", icon: Truck },
+      { href: "/asset-finance/suppliers", label: "Suppliers", icon: Factory },
+      { href: "/asset-finance/reference-rates", label: "Reference rates", icon: Percent },
     ],
   },
   {
@@ -181,9 +199,10 @@ export const staffNavigation: NavGroup[] = [
     label: "Administration",
     items: [
       { href: "/settings", label: "Settings", icon: Building2 },
-      // No minRole: TOTP 2FA is mandatory for every staff member (see CLAUDE.md),
-      // so the enrolment page must be reachable by all roles (ADM-02).
+      // No minRole: TOTP 2FA is on by default per lender (see CLAUDE.md), so the
+      // enrolment page must be reachable by all roles (ADM-02).
       { href: "/settings/security", label: "Security & 2FA", icon: KeyRound },
+      { href: "/settings/security-policy", label: "Security & KYC policy", icon: ShieldCheck, minRole: "ADMIN" },
       { href: "/settings/users", label: "Users", icon: Users, minRole: "BRANCH_MANAGER" },
       { href: "/settings/audit-log", label: "Audit Trail", icon: History, minRole: "LOAN_ADMIN" },
       { href: "/settings/login-log", label: "Login Activity", icon: Activity, minRole: "LOAN_ADMIN" },
@@ -191,10 +210,15 @@ export const staffNavigation: NavGroup[] = [
   },
 ]
 
-/** `whatsappE164` is the lender's `identity.publicWhatsappE164`; without one the Support item is omitted. */
-export function buildPortalNavigation(whatsappE164: string | null): NavItem[] {
+/**
+ * `whatsappE164` is the lender's `identity.publicWhatsappE164`; without one the
+ * Support item is omitted. `business` adds the asset-finance business page for
+ * a client who may act for an entity (lib/asset-finance/portal-access.ts).
+ */
+export function buildPortalNavigation(whatsappE164: string | null, opts: { business?: boolean } = {}): NavItem[] {
   return [
     { href: "/portal", label: "Overview", icon: Home },
+    ...(opts.business ? [{ href: "/portal/business", label: "Business", icon: Building2 }] : []),
     { href: "/portal/applications", label: "Applications", icon: FileText },
     { href: "/portal/apply", label: "Apply", icon: Upload },
     { href: "/portal/loans", label: "Loans", icon: Wallet },

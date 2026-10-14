@@ -3,10 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest"
 
 const { loanFindMany, formProps } = vi.hoisted(() => ({ loanFindMany: vi.fn(), formProps: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "t@example.test" } })) }))
-vi.mock("@/lib/tenant", () => ({
-  getDefaultTenantId: vi.fn(async () => "t1"),
-  getResolvedTenantId: vi.fn(async () => "t1"),
-}))
+vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/config/identity", () => ({
   getLenderIdentity: vi.fn(async () => ({
     tradingName: "Acme Lending",

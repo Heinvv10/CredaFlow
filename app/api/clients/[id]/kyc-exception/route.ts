@@ -29,6 +29,26 @@ import {
   normalizeManualKycExceptionText,
 } from "@/lib/kyc/manual-exception-policy"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+import {
+  getLockedKycOverridePolicy,
+  overrideEligibility,
+  readFaceModelSimilarity,
+  readFaceVerdict,
+  type KycOverrideRefusalCode,
+} from "@/lib/kyc/override-policy"
+
+function policyRefusal(code: KycOverrideRefusalCode) {
+  const messages: Record<KycOverrideRefusalCode, string> = {
+    clear_mismatch: "Faces clearly don't match — this can't be overridden. Ask the client for a new selfie, or verify them in person.",
+    never_exceptionable: "This biometric failure cannot be overridden. Capture a new selfie against the current identity.",
+    overrides_disabled: "KYC overrides are disabled for this lender.",
+    role_below_policy: "Your role is below this lender's minimum role for KYC overrides.",
+    totp_required: "Sign in with two-factor authentication before performing a KYC override.",
+    second_approver_required: "This lender requires a different senior to approve the override request.",
+  }
+  const status = code === "second_approver_required" ? 409 : code === "clear_mismatch" || code === "never_exceptionable" ? 422 : 403
+  return NextResponse.json({ error: messages[code], code }, { status })
+}
 
 export async function POST(
   req: NextRequest,
@@ -38,7 +58,7 @@ export async function POST(
     // This is deliberately above ordinary origination authority. A credit
     // officer or loan admin may not turn a failed liveness result into a
     // payout-eligible KYC state.
-    const guard = await requireApiRole("ADMIN")
+    const guard = await requireApiRole("BRANCH_MANAGER")
     if (guard.error) return guard.error
 
     const body = (await req.json().catch(() => null)) as
@@ -81,6 +101,7 @@ export async function POST(
     return await withTenantContext(req, async (tenant) => {
       const { id: clientId } = await params
       const outcome = await prisma.$transaction(async (tx) => {
+        const policy = await getLockedKycOverridePolicy(tx, tenant.id)
         await lockAffordabilityClientEvidence(tx, {
           tenantId: tenant.id,
           clientId,
@@ -224,6 +245,19 @@ export async function POST(
             biometricEvidence: biometricAssessment.reason,
           }
         }
+        const eligibility = overrideEligibility({
+          kind: "EXCEPTION",
+          mode: "direct",
+          attempt: {
+            extractionStatus: latestSelfie.extractionStatus,
+            biometricFailureReason: biometricAssessment.reason,
+            similarity: readFaceModelSimilarity(latestSelfie.biometricResult),
+            faceVerdict: readFaceVerdict(latestSelfie.biometricResult),
+          },
+          policy,
+          caller: { role: guard.user.role, totpVerified: guard.user.totpVerified === true },
+        })
+        if (!eligibility.allowed) return { kind: "policy_refused" as const, code: eligibility.code }
         const previousException = currentManualKycException(previousRecord, {
           clientId,
           subject: client,
@@ -251,6 +285,7 @@ export async function POST(
           approvedAt: approvedAt.toISOString(),
           approvedById: guard.user.id,
           approvedByEmail: guard.user.email,
+          approvedWithTotp: guard.user.totpVerified === true,
         }
         const exceptionRecord = await tx.complianceRecord.create({
           data: {
@@ -309,6 +344,7 @@ export async function POST(
             },
           },
         })
+        await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
         return {
           kind: "granted" as const,
           exceptionRecordId: exceptionRecord.id,
@@ -377,6 +413,7 @@ export async function POST(
           { status: 409 },
         )
       }
+      if (outcome.kind === "policy_refused") return policyRefusal(outcome.code)
 
       return NextResponse.json({
         ok: true,
@@ -397,6 +434,9 @@ export async function POST(
         },
         { status: 409 },
       )
+    }
+    if (error instanceof Prisma.PrismaClientUnknownRequestError && error.message.includes("KYC override")) {
+      return NextResponse.json({ error: "The lender policy or KYC evidence changed. Refresh and review the current attempt." }, { status: 409 })
     }
     console.error("Failed to grant KYC exception:", error)
     return NextResponse.json(

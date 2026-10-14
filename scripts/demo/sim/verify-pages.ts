@@ -56,12 +56,18 @@ async function staffDetailPages(): Promise<string[]> {
   ]
 }
 
-/** A borrower with a loan and an insurance policy, and the ids their portal pages need. */
+/**
+ * A consumer borrower with a loan and an insurance policy, and the ids their
+ * portal pages need. Asset-finance people have separate seeded passwords that
+ * are intentionally not part of the consumer simulator credentials.
+ */
 async function portalBorrower(): Promise<{ email: string; pages: string[] } | null> {
   const rows = await readDb().$queryRawUnsafe<Array<{ email: string; loan: string; app: string; policy: string }>>(`
     SELECT c.email, l.id AS loan, l."applicationId" AS app, p.id AS policy
     FROM "InsurancePolicy" p JOIN "Client" c ON c.id = p."clientId" JOIN "Loan" l ON l."clientId" = c.id
-    WHERE c."portalPassword" IS NOT NULL ORDER BY p."createdAt" LIMIT 1`)
+    WHERE c."portalPassword" IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM "AssetFinanceDeal" d WHERE d."loanId" = l.id)
+    ORDER BY p."createdAt" LIMIT 1`)
   const r = rows[0]
   if (!r) return null
   return { email: r.email, pages: [`/portal/loans/${r.loan}`, `/portal/applications/${r.app}`, `/portal/insurance/${r.policy}`] }

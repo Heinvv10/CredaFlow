@@ -46,6 +46,7 @@ export async function POST(
           select: {
             id: true,
             status: true,
+            ncaRegime: true,
             arrearsAmount: true,
             outstandingPrincipal: true,
             daysInArrears: true,

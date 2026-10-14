@@ -10,6 +10,7 @@ import { getLenderIdentity } from "@/lib/config/identity"
 import { escapeHtml } from "@/lib/utils"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -68,6 +69,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The signing link goes to a consumer; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (!application.agreementGeneratedAt) {
       return NextResponse.json({

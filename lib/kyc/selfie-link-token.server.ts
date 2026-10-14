@@ -161,7 +161,8 @@ export async function resolveSelfieLinkToken(
     },
     select: { client: { select: { firstName: true } } },
   })
-  if (!application) return { ok: false, reason: "application_changed" }
+  // A link is only issued to a Client borrower; no client means the row changed.
+  if (!application?.client) return { ok: false, reason: "application_changed" }
 
   return {
     ok: true,

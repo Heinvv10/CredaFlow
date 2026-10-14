@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { Bell } from "lucide-react"
 import { NotificationTabs } from "./NotificationTabs"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import { SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 
 const EVENT_LABELS: Record<string, string> = {
@@ -41,7 +41,7 @@ export default async function NotificationsPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
 
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },

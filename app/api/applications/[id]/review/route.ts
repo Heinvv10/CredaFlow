@@ -15,6 +15,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
+import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 
 export async function POST(
   req: NextRequest,
@@ -46,6 +47,8 @@ export async function POST(
           where: { id, tenantId: tenant.id },
         })
         if (!application) return { kind: "application_missing" as const }
+        // Consumer KYC + bureau review; an entity borrower is refused.
+        if (!hasClientBorrowerId(application)) return { kind: "entity_borrower" as const }
         if (application.status !== "SUBMITTED" && application.status !== "UNDER_REVIEW") {
           return { kind: "invalid_application_status" as const }
         }
@@ -273,6 +276,9 @@ export async function POST(
       })
       if (claim.kind === "application_missing") {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
+      }
+      if (claim.kind === "entity_borrower") {
+        return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
       if (claim.kind === "invalid_application_status") {
         return NextResponse.json(

@@ -342,14 +342,15 @@ describe("GET /api/loans/[id]/debit-mandate", () => {
     expect(documentAccessCreateMock).not.toHaveBeenCalled()
   })
 
-  it("binds legacy tenantless staff to the configured default tenant", async () => {
+  it("refuses tenantless staff instead of binding them to the default tenant", async () => {
     userFindUniqueMock.mockResolvedValueOnce({ active: true, tenantId: null })
-    getDefaultTenantIdMock.mockResolvedValueOnce("tenant-other")
+    // Even when the default tenant equals the request tenant, no fallback.
+    getDefaultTenantIdMock.mockResolvedValue("tenant-1")
 
     const response = await GET(request, context)
 
     expect(response.status).toBe(403)
-    expect(getDefaultTenantIdMock).toHaveBeenCalledOnce()
+    expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
     expect(loanFindUniqueMock).not.toHaveBeenCalled()
   })
 

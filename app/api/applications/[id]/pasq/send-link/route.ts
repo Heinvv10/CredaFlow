@@ -19,6 +19,7 @@ import {
 import { isPasqLinkNewSendEnabled } from "@/lib/messaging/flags"
 import { normaliseEmail, normalisePhone } from "@/lib/contact/identity"
 import { deliverViaMessaging, resolveMessagingTarget } from "@/lib/messaging/route-delivery"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -81,6 +82,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The PASQ is a consumer document (NCA s.92); an entity borrower has none.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (application.status !== "APPROVED" || application.agreementGeneratedAt) {
       return NextResponse.json({

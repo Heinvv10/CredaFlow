@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import type { UserRole } from "@prisma/client"
 
 const STAFF_ROLES: UserRole[] = [
@@ -38,7 +38,10 @@ export async function getDocumentCaller(): Promise<CallerInfo | null> {
   // Check if this is a portal client. Document routes call this before the
   // request tenant wrapper is established, so include an explicit tenantId to
   // satisfy the tenant-scope guard instead of throwing before the upload starts.
-  const tenantId = await getDefaultTenantId()
+  // The tenant is the one the portal session was issued for (the client's own
+  // row), never the deployment default. No tenant on the session: no caller.
+  const tenantId = session.user.tenantId
+  if (!tenantId) return null
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },
     select: { id: true, email: true },
@@ -104,4 +107,60 @@ export function matchesMagic(head: Uint8Array, mime: string): boolean {
   const sig = FILE_SIGNATURES[mime]
   if (!sig) return false
   return sig.every((seg) => seg.bytes.every((b, i) => head[seg.offset + i] === b))
+}
+
+// ── Access logging (POPIA) ───────────────────────────────────────────────────
+//
+// One writer for a DocumentAccessLog row, shaped exactly like the row
+// app/api/documents/[id]/view writes for a ClientDocument. Write it BEFORE the
+// bytes are read, so an access that fails half-way is still on the register.
+// The IP is recordedCallerIp (lib/rate-limit.ts): the address the trusted proxy saw,
+// not the raw X-Forwarded-For, whose leading entries the caller writes.
+
+export type DocumentAccessAction = "view" | "download"
+
+export async function logDocumentAccess(
+  db: Pick<typeof prisma, "documentAccessLog">,
+  params: {
+    documentId: string
+    accessorType: "staff" | "client"
+    accessorId: string
+    action: DocumentAccessAction
+    req: Request
+  },
+): Promise<void> {
+  await db.documentAccessLog.create({
+    data: {
+      documentId: params.documentId,
+      accessorType: params.accessorType,
+      accessorId: params.accessorId,
+      action: params.action,
+      ipAddress: recordedCallerIp(params.req),
+      userAgent: params.req.headers.get("user-agent") ?? null,
+    },
+  })
+}
+
+/**
+ * Records that staff were shown content read out of client documents without
+ * opening the file itself, e.g. statement transactions quoted as credit-check
+ * evidence. One DocumentAccessLog row per document (POPIA).
+ */
+export async function logDocumentContentAccess(opts: {
+  documentIds: string[]
+  staffUserId: string
+  action: string
+  req: Request
+}): Promise<void> {
+  if (opts.documentIds.length === 0) return
+  await prisma.documentAccessLog.createMany({
+    data: [...new Set(opts.documentIds)].map((documentId) => ({
+      documentId,
+      accessorType: "staff",
+      accessorId: opts.staffUserId,
+      action: opts.action,
+      ipAddress: opts.req.headers.get("x-forwarded-for") ?? null,
+      userAgent: opts.req.headers.get("user-agent") ?? null,
+    })),
+  })
 }

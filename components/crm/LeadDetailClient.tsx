@@ -100,6 +100,8 @@ export function LeadDetailClient({
   tasks,
   canCreateTasks,
   canManageTasks,
+  canWriteActivity,
+  canConvert,
   currentUserId,
   duplicateCount,
   duplicatesTruncated,
@@ -116,6 +118,11 @@ export function LeadDetailClient({
   canCreateTasks: boolean
   /** May act on ANY task — mirrors PATCH's `canManage`, not the POST bar. */
   canManageTasks: boolean
+  /** May change stage / log activity — CREDIT_OFFICER and above, like the actions. */
+  canWriteActivity: boolean
+  /** May convert a lead or reset a stranded conversion — mirrors the convert
+   *  route and resetStrandedConvertedLead (CREDIT_OFFICER). */
+  canConvert: boolean
   /** Session user id — the Tasks panel decides completion per row from it. */
   currentUserId: string
   /** Leads sharing this one's phone or email. 0 renders no banner. */
@@ -291,7 +298,7 @@ export function LeadDetailClient({
           </div>
 
           {/* Status pipeline */}
-          <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5">
+          {canWriteActivity && <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Move Stage</p>
             <div className="flex flex-wrap gap-2">
               {STATUSES.map((s) => {
@@ -311,7 +318,7 @@ export function LeadDetailClient({
               })}
             </div>
             {statusError && <p className="mt-3 text-xs text-red-600">{statusError}</p>}
-          </div>
+          </div>}
 
           <LeadTasksPanel
             leadId={lead.id}
@@ -326,13 +333,13 @@ export function LeadDetailClient({
           <div className="bg-white rounded-lg border border-gray-100 shadow-sm">
             <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
               <h2 className="font-semibold text-gray-900 text-sm">Activity Timeline</h2>
-              <button
+              {canWriteActivity && <button
                 onClick={() => setShowActivityForm(!showActivityForm)}
                 className="text-xs font-medium px-3 py-1.5 rounded-md text-white"
                 style={{ backgroundColor: "#4338CA" }}
               >
                 + Add Activity
-              </button>
+              </button>}
             </div>
 
             {showActivityForm && (
@@ -400,7 +407,7 @@ export function LeadDetailClient({
                   fullWidth
                 />
               )}
-              {!conversionLocked && lead.status !== "LOST" && (
+              {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (
                 <button
                   onClick={() => setShowCallbackModal(true)}
                   className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors"
@@ -409,7 +416,7 @@ export function LeadDetailClient({
                   Schedule Callback
                 </button>
               )}
-              {canConvertLead(
+              {canConvert && canConvertLead(
                 lead.status,
                 lead.convertedToClientId,
                 lead.convertedToApplicationId,
@@ -420,7 +427,7 @@ export function LeadDetailClient({
                   Convert to Client
                 </Link>
               )}
-              {strandedConversion && (
+              {canConvert && strandedConversion && (
                 <button
                   onClick={handleResetConversion}
                   disabled={resettingConversion}
@@ -433,12 +440,12 @@ export function LeadDetailClient({
               {incompleteConversion && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Conversion evidence is incomplete. The exact client/application link must be repaired before this lead can progress.{" "}
-                  <Link href={`/crm/leads/${lead.id}/convert`} className="font-semibold underline">
+                  {canConvert && <Link href={`/crm/leads/${lead.id}/convert`} className="font-semibold underline">
                     Open repair view
-                  </Link>
+                  </Link>}
                 </div>
               )}
-              {!conversionLocked && lead.status !== "LOST" && (
+              {canWriteActivity && !conversionLocked && lead.status !== "LOST" && (
                 <button
                   onClick={() => setShowLostModal(true)}
                   className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors"

@@ -1456,6 +1456,102 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     expect(loanCreate).not.toHaveBeenCalled()
   })
 
+  it("maps a simulated bureau check to a payout refusal", async () => {
+    const quoteStart = new Date("2026-05-04T00:00:00.000Z")
+    const agreementStart = new Date("2026-05-10T00:00:00.000Z")
+    const quoteFingerprint = "quote-contract-schedule"
+    const quotedCalculator = {
+      ...passingContract.calculator,
+      startDate: quoteStart.toISOString(),
+      schedule: passingContract.calculator.schedule.map((item) => ({
+        ...item,
+        dueDate: "2026-06-04T00:00:00.000Z",
+      })),
+      contractFingerprint: quoteFingerprint,
+    }
+    const rebasedContract = {
+      ...passingContract,
+      version: "affordability-contract-v2",
+      establishedAt: agreementStart.toISOString(),
+      acceptedPasqContractFingerprint: quoteFingerprint,
+      quotePresentedAt: quoteStart.toISOString(),
+      quoteValidUntilDate: "2026-05-11",
+      calculator: {
+        ...quotedCalculator,
+        startDate: agreementStart.toISOString(),
+        schedule: quotedCalculator.schedule.map((item) => ({
+          ...item,
+          dueDate: "2026-06-10T00:00:00.000Z",
+        })),
+        contractFingerprint: "rebased-contract-schedule",
+      },
+    }
+    readAffordabilitySnapshotStore.mockReturnValue({
+      submission: {
+        stage: "SUBMISSION",
+        capturedAt: "2026-05-01T00:00:00.000Z",
+      },
+      contract: rebasedContract,
+    })
+    verifyStoredPasqBinding.mockReturnValue({
+      ok: true,
+      documentId: "pasq-doc-1",
+      documentSha256: "d".repeat(64),
+      evidence: {
+        version: "pasq-v3",
+        evidenceSha256: "e".repeat(64),
+        calculator: quotedCalculator,
+        creditLife: {
+          election: "ACCEPTED",
+          monthlyPremiumCents: 2_250,
+          totalPremiumCents: 2_250,
+        },
+        billing: {
+          version: "credit-life-billing-v1",
+          collectionMethod: "INCLUDED_IN_LOAN_REPAYMENT",
+          recurringPaymentCents: 557_250,
+          totalRepayableCents: 557_250,
+          schedule: [{
+            installmentNo: 1,
+            dueDate: "2026-06-04T00:00:00.000Z",
+            principalDueCents: 500_000,
+            interestDueCents: 50_000,
+            baseFeesDueCents: 5_000,
+            creditLifePremiumDueCents: 2_250,
+            feesDueCents: 7_250,
+            totalDueCents: 557_250,
+            openingBalanceCents: 500_000,
+            closingBalanceCents: 0,
+          }],
+        },
+      },
+    })
+    approvalSnapshotMatches.mockReturnValue(passingApprovalSnapshotMatch)
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1",
+      tenantId: "tenant-1",
+      status: "APPROVED",
+      agreementGeneratedAt: agreementStart,
+      agreementSignedAt: new Date("2026-05-10T01:00:00.000Z"),
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      clientId: "client-1",
+      productId: "prod-1",
+      client: { bankName: "FNB", bankAccountNumber: "12345", bankBranchCode: "250655", accountType: "SAVINGS" },
+      product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+    productType: "MICRO",
+    })
+    buildTxMock({})
+
+    verifyCurrentAffordabilityApproval.mockReturnValueOnce({ ok: false, reason: "bureau_simulated" })
+    const response = await POST(makeRequest(), ctx)
+
+    const body = await response.json()
+    expect(response.status).toBe(422)
+    expect(body.affordabilitySnapshot).toBe("bureau_simulated")
+    expect(body.error).toMatch(/simulated result/)
+  })
+
   it("books the final agreement dates instead of rebasing again at payout", async () => {
     const quoteStart = new Date("2026-05-04T00:00:00.000Z")
     const agreementStart = new Date("2026-05-10T00:00:00.000Z")

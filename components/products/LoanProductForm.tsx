@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { annualisedInterestRate } from "@/lib/loan/annualised-rate"
 import { ncaInitiationFeeCap } from "@/lib/loan/nca-fee-cap"
+import { NonNcaArrearsFields } from "./NonNcaArrearsFields"
+import { nonNcaArrearsBody, type NonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
 
 type InterestModel = "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL"
 type ProductType = "MICRO" | "PERSONAL" | "PO_FUNDING"
@@ -130,9 +132,11 @@ function formatR(n: number) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
+/** `nonNcaArrears` is passed only when the tenant has asset finance on; otherwise the terms are neither shown nor sent. */
+export function LoanProductForm({ initial, nonNcaArrears }: { initial?: LoanProduct; nonNcaArrears?: NonNcaArrearsValues }) {
   const router = useRouter()
   const [form, setForm] = useState<LoanProduct>(initial ?? EMPTY)
+  const [arrears, setArrears] = useState<NonNcaArrearsValues | undefined>(nonNcaArrears)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   // Preview state
@@ -198,6 +202,11 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
+    const arrearsBody = arrears ? nonNcaArrearsBody(arrears) : { body: {} }
+    if ("error" in arrearsBody) {
+      setError(arrearsBody.error)
+      return
+    }
     setSaving(true)
     setError("")
     try {
@@ -206,7 +215,7 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, ...arrearsBody.body }),
       })
       if (!res.ok) {
         const text = await res.text()
@@ -489,6 +498,8 @@ export function LoanProductForm({ initial }: { initial?: LoanProduct }) {
             </div>
           </div>
         </div>
+
+        {arrears && <NonNcaArrearsFields values={arrears} onChange={setArrears} />}
 
         {/* ── Status ── */}
         <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3">

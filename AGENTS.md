@@ -53,10 +53,21 @@ obligations, not style:
   re-pin only with a proof of what changed.
 - **Audit trail.** Every state-changing user action runs through
   `lib/audit.ts`. Don't bypass it for "just this one path".
-- **TOTP 2FA is mandatory for staff.** Don't add staff-write paths that skip
-  2FA. See `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic
-  demo stacks: `scripts/demo/restore.sh` turns staff TOTP off when the demo
-  app runs with `DEMO_CLEAR_STAFF_TOTP=true`. Never set it on a real lender.
+- **Staff TOTP 2FA is a per-lender setting, on by default**
+  (`TenantConfig.requireStaffTotp`, `lib/security/staff-totp-policy.ts`).
+  While on, a staff user with no TOTP can sign in but reach only the enrolment
+  page (`proxy.ts`, `lib/auth-guards.ts`), and nobody can turn their own 2FA
+  off. Off, a code is demanded only of users who enrolled. Only a SUPER_ADMIN
+  in a TOTP-verified session changes it, audited. Turning your own 2FA off
+  always needs a current code. A SUPER_ADMIN cannot be reset by another
+  SUPER_ADMIN: recovery of a locked-out SUPER_ADMIN is the operator
+  break-glass CLI. Don't add staff-write paths that skip 2FA. See
+  `lib/totp.ts`, `lib/auth.ts`. The one exception is the synthetic demo
+  stacks: `scripts/demo/restore.sh` turns staff TOTP off, and the lender's 2FA
+  setting off, when the demo app runs with `DEMO_CLEAR_STAFF_TOTP=true` (and
+  again after a restore); with it plus `DEMO_MODE=true` a password-only
+  session may clear a credit check (`demoStaffWithoutTotp`,
+  `lib/config/demo-mode.ts`; audited as waived). Never set it on a real lender.
 - **Document access is logged.** `ClientDocument` access goes through
   `lib/document-auth.ts`, which writes a `DocumentAccessLog` row — POPIA
   compliance depends on it.
@@ -113,6 +124,10 @@ npm run dev                  # Next.js dev server (port 3000)
 npm run build                # next build
 npm run lint                 # eslint
 npm test                     # vitest run (unit + mocked suites)
+npm run ci:quick             # type/lint/docs/date gates before pushing
+npm run ci:quality           # complete local quality job
+npm run ci:integration       # disposable PostgreSQL + all real-DB suites
+npm run ci:full              # quality then integration
 npx prisma migrate dev       # create + apply a migration locally
 npx prisma migrate reset     # rebuild a local DB: migrations + seed
 npx prisma generate          # regenerate the client after schema changes
@@ -120,7 +135,10 @@ npx prisma generate          # regenerate the client after schema changes
 
 ## Verification Before "Done"
 
-Run these in order. Don't write "should work" or "Done!" without evidence.
+Run these in order. `npm run ci:quality` covers steps 1–4 plus the production
+build; `npm run ci:full` then adds the complete integration gate using a
+disposable PostgreSQL 16 container. Don't write "should work" or "Done!"
+without evidence.
 
 1. `npx tsc --noEmit` — TypeScript passes (`rm -rf .next` first if stale)
 2. `npm run lint` — eslint
@@ -217,7 +235,8 @@ app/
 - `lib/config/identity.ts` — the lender identity (`getLenderIdentity`)
 - `lib/loan-calculator.ts` — amortisation + NDI affordability
 - `lib/qualify.ts` — pre-qualification rules
-- `prisma/seed.ts` — neutral demo tenant ("Acme"), TOTP staff
+- `prisma/seed.ts` — neutral demo tenant ("Acme"; `DEMO_LENDER` picks another
+  from `prisma/demo-lender.ts`), TOTP staff
 
 ## Path-Scoped Rules
 
@@ -229,6 +248,7 @@ Domain-specific rules live next to the code:
 - `lib/integrations/AGENTS.md` — third-party API contracts
 - `lib/bank-sync/AGENTS.md` — the one money-import path (statement CSV)
 - `lib/bureau-submission/AGENTS.md` — bureau files; statuses are sent once
+- `lib/kyc/AGENTS.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it
 there — don't pile it into root.

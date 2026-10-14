@@ -16,6 +16,7 @@ import {
   resolveMessagingTarget,
   type RouteDeliveryOutcome,
 } from "@/lib/messaging/route-delivery"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -58,6 +59,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     })
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+    // The credit agreement is a consumer NCA document; an entity borrower is refused.
+    if (!hasClientBorrower(application)) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
     if (
       !application.agreementCountersignedAt

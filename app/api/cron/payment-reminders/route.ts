@@ -16,6 +16,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
+import { recordEntityReminder, sendEntityReminder } from "@/lib/asset-finance/entity-reminders"
 
 /**
  * Payment reminder cron — one courtesy reminder per loan, REMINDER_LEAD_DAYS
@@ -128,6 +129,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         select: {
           id: true,
           reference: true,
+          entityId: true,
+          entity: { select: { legalName: true } },
           client: {
             select: {
               firstName: true,
@@ -202,9 +205,46 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // before the instalment falls due.
     const daysUntilDue = daysBetween(now, schedule.dueDate)
     if (daysUntilDue < 0 || daysUntilDue > REMINDER_LEAD_DAYS) continue
+    const { loan } = schedule
+    // An entity borrower (asset finance) has no Client to message: the
+    // reminder goes to the people who act for it, by email and WhatsApp, in
+    // copy that names the entity (lib/asset-finance/entity-reminders.ts). Same
+    // marker and retry rule as below.
+    if (!loan.client) {
+      // A skip period's R0.00 row (lib/asset-finance/schedule-records.ts) is not a payment due.
+      if (!loan.entityId || !loan.entity || schedule.totalDue === 0) continue
+      due++
+      if (await alreadyReminded(loan.id, tenantId)) {
+        skipped++
+        continue
+      }
+      const entityLoan = { id: loan.id, reference: loan.reference, entityId: loan.entityId, entityName: loan.entity.legalName }
+      const charges = await chargesOutstandingAt(prisma, { tenantId, loanId: loan.id }, now)
+      const reminded = await sendEntityReminder({
+        tenantId,
+        loan: entityLoan,
+        kind: "due",
+        amountCents: schedule.totalDue - schedule.totalPaid + charges,
+        dueDate: schedule.dueDate,
+        lender: { tradingName: identity.tradingName, collectionsPhone: identity.collectionsPhone },
+        channels: ["EMAIL", "WHATSAPP"],
+        // Per instalment per day, like the consumer WhatsApp key below.
+        occurrence: `${NOTE_TYPE}:${schedule.id}:${localDayKey(now)}`,
+        category: NOTE_TYPE,
+      })
+      if (reminded.delivered) sent++
+      else if (reminded.uncertain) needsReconciliation++
+      else if (reminded.failed) failed++
+      else suppressed++
+      // Nothing delivered, nothing uncertain, something definitely failed:
+      // left unmarked so the next run retries it.
+      if (reminded.delivered || reminded.uncertain || !reminded.failed) {
+        await recordEntityReminder(tenantId, entityLoan, NOTE_TYPE, reminded)
+      }
+      continue
+    }
     due++
 
-    const { loan } = schedule
     const clientName = `${loan.client.firstName} ${loan.client.lastName}`
 
     if (await alreadyReminded(loan.id, tenantId)) {

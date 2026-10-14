@@ -22,7 +22,7 @@ case "$*" in
   "inspect credaflow-demo-"*) exit 0 ;;
   *"com.docker.compose.project.working_dir"*) echo "$STUB_LIVE_DIR" ;;
   *"com.docker.compose.project"*) echo credaflow-demo ;;
-  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE" ;;
+  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE"; [ -z "$STUB_CLEAR_TOTP" ] || echo "DEMO_CLEAR_STAFF_TOTP=true" ;;
   "inspect -f {{.Config.Image}} "*) echo "$STUB_IMAGE" ;;
   *"range .Mounts"*) echo uploads-vol ;;
   *"HostPort"*) echo 3300 ;;
@@ -56,6 +56,7 @@ function run(env: Record<string, string> = {}) {
 }
 
 const clearCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "User"'))
+const policyCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "TenantConfig" SET "requireStaffTotp" = false'))
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'demo-restore-'))
@@ -73,9 +74,10 @@ beforeEach(() => {
   mkdirSync(join(root, 'live'))
   writeFileSync(join(root, 'live', 'docker-compose.demo.yml'), '')
   writeFileSync(join(root, 'live', '.env.production'), 'DEBIT_MANDATE_CREDITOR_TENANT_ID=old\n')
+  writeFileSync(join(root, 'live', '.env'), 'NEXT_PUBLIC_TENANT_SLUG=acme\n')
   const snap = join(root, 'data', 'snapshots', 'latest')
   mkdirSync(snap, { recursive: true })
-  writeFileSync(join(snap, 'meta.json'), JSON.stringify({ image: IMAGE, tenantId: TENANT, counts: { ...COUNTS, uploadFiles: 9 } }))
+  writeFileSync(join(snap, 'meta.json'), JSON.stringify({ image: IMAGE, tenantSlug: 'acme', tenantId: TENANT, counts: { ...COUNTS, uploadFiles: 9 } }))
   writeFileSync(join(snap, 'db.dump'), 'x')
   writeFileSync(join(snap, 'uploads.tar.gz'), 'x')
 })
@@ -102,6 +104,31 @@ describe('restore.sh demo staff TOTP', () => {
     expect(idx('UPDATE "User"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
   })
 
+  // With the policy on (the default), staff whose TOTP was just cleared would
+  // be held at the enrolment page and the demo could not be presented.
+  it('switches the staff 2FA policy off on the restored live db, right after clearing TOTP', () => {
+    const r = run()
+    const policy = policyCalls(r.calls)
+    expect(policy).toHaveLength(1)
+    expect(policy[0]).toContain('DB=demo ')
+    const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
+    expect(idx('UPDATE "TenantConfig"')).toBeGreaterThan(idx('UPDATE "User"'))
+    expect(idx('UPDATE "TenantConfig"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
+    expect(r.out).toMatch(/staff 2FA policy switched off/)
+  })
+
+  it('with DEMO_CLEAR_STAFF_TOTP=true also clears TOTP and the policy in the staged db, before the swap', () => {
+    const r = run({ STUB_CLEAR_TOTP: '1' })
+    expect(r.status).toBe(0)
+    const policy = policyCalls(r.calls)
+    expect(policy).toHaveLength(2)
+    expect(policy[0]).toMatch(/DB=demo_restore_/)
+    expect(clearCalls(r.calls)).toHaveLength(2)
+    const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
+    expect(idx('UPDATE "TenantConfig"')).toBeLessThan(idx('RENAME TO "demo"'))
+    expect(policy[1]).toContain('DB=demo ')
+  })
+
   it('spares SUPER_ADMIN', () => {
     const [clear] = clearCalls(run().calls)
     expect(clear).toContain("WHERE role <> 'SUPER_ADMIN'")
@@ -111,6 +138,7 @@ describe('restore.sh demo staff TOTP', () => {
     const r = run({ STUB_COUNTS: '{}' })
     expect(r.status).not.toBe(0)
     expect(clearCalls(r.calls)).toHaveLength(0)
+    expect(policyCalls(r.calls)).toHaveLength(0)
   })
 
   it('does not clear TOTP when the health check fails and the restore rolls back', () => {
@@ -118,6 +146,7 @@ describe('restore.sh demo staff TOTP', () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/rolling back/)
     expect(clearCalls(r.calls)).toHaveLength(0)
+    expect(policyCalls(r.calls)).toHaveLength(0)
   })
 
   it('does not clear TOTP on a target started from another working_dir', () => {
@@ -131,5 +160,28 @@ describe('restore.sh demo staff TOTP', () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/DEMO_MODE=true/)
     expect(clearCalls(r.calls)).toHaveLength(0)
+  })
+})
+
+describe('restore.sh lender guard', () => {
+  const meta = join('data', 'snapshots', 'latest', 'meta.json')
+  const setSlug = (slug: string | undefined) => {
+    const m = JSON.parse(readFileSync(join(root, meta), 'utf8'))
+    writeFileSync(join(root, meta), JSON.stringify({ ...m, tenantSlug: slug }))
+  }
+
+  it.each([['another lender', 'fairscore'], ['no slug', undefined]])('refuses a snapshot with %s before touching the stack', (_what, slug) => {
+    setSlug(slug)
+    const r = run()
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/the live stack serves 'acme'/)
+    expect(r.calls.some((c) => c.includes('RENAME') || c.startsWith('docker-compose'))).toBe(false)
+  })
+
+  it('refuses a live dir whose .env names no tenant slug', () => {
+    writeFileSync(join(root, 'live', '.env'), '')
+    const r = run()
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/no NEXT_PUBLIC_TENANT_SLUG/)
   })
 })

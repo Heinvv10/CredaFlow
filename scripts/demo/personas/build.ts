@@ -5,6 +5,7 @@
  * persona id, so the same spec yields byte-identical output on every run.
  */
 import { minimumLivingExpense } from '@/lib/affordability/mle'
+import { demoLender, type DemoLender } from '@/prisma/demo-lender'
 import { BANKS, CREDITORS, EMPLOYERS, FEMALE_FIRST_NAMES, MALE_FIRST_NAMES, STREETS, SURNAMES, TOWNS, bankDef } from './catalog'
 import { buildPayroll } from './payroll'
 import { createRng, roundRand, type Rng } from './prng'
@@ -121,7 +122,7 @@ function defaultLoanRequest(rng: Rng, ndiCents: number, profile: AffordabilityPr
   return { productCode: 'PERSONAL', amountCents, termDays: months * 30 }
 }
 
-export function buildPersona(spec: PersonaSpec): Persona {
+export function buildPersona(spec: PersonaSpec, lender: DemoLender = demoLender()): Persona {
   const rng = createRng(`credaflow-demo-persona:${spec.id}`)
   const f = spec.fixed ?? {}
 
@@ -189,7 +190,7 @@ export function buildPersona(spec: PersonaSpec): Persona {
     idNumber,
     dateOfBirth,
     gender,
-    email: `${emailLocal}@acme-lending.invalid`,
+    email: `${emailLocal}@${lender.clientDomain}`,
     phone: `+2760000${pad(spec.index, 4)}`,
     address: {
       addressLine1: `${rng.int(2, 199)} ${rng.pick(STREETS)}`,

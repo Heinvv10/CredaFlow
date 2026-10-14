@@ -24,14 +24,16 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { generateTotpCode } from "../../../lib/totp"
+import { demoLender } from "../../../prisma/demo-lender"
 import { ensureStaffSessions, type OriginationContext } from "../scenarios/context"
 import { SimClient } from "../sim/api"
-import { appNow } from "../sim/clock"
+import { appNow, waitForNextTotpStep } from "../sim/clock"
 import type { StaffCredentials } from "../sim/credentials"
 import { SIM_CREDENTIALS_FILE, log } from "../sim/env"
 
 const STAFF_FILE = path.join(path.dirname(SIM_CREDENTIALS_FILE), ".sim-staff.json")
-const LOAN_ADMIN_EMAIL = "collections.manager@acme-lending.example"
+const LENDER = demoLender()
+const LOAN_ADMIN_EMAIL = `collections.manager@${LENDER.staffDomain}`
 export const SMTP_SINK_HOST = "credaflow-demo-sim-smtp"
 export const ATTORNEY_FIRM = "Kroonstad Vale & Mokgosi Attorneys"
 
@@ -78,6 +80,7 @@ async function ensureLoanAdmin(ctx: OriginationContext): Promise<StaffCredential
   if (!enrol?.secret) throw new Error("GET /api/settings/totp returned no secret")
   const code = generateTotpCode(enrol.secret, (await appNow()).getTime())
   await first.post("/api/settings/totp", { secret: enrol.secret, code })
+  await waitForNextTotpStep() // the enrolment code is spent; the next sign-in needs the next step's
 
   const stored: StoredStaff = { userId, email: LOAN_ADMIN_EMAIL, password, totpSecret: enrol.secret }
   writeFileSync(STAFF_FILE, JSON.stringify(stored, null, 2), { mode: 0o600 })
@@ -90,12 +93,12 @@ async function ensureEmailConfig(ctx: OriginationContext): Promise<void> {
   if (current?.smtpHost === SMTP_SINK_HOST && current.active) return
   await ctx.admin.post("/api/email/config", {
     provider: "IMAP_SMTP",
-    fromName: "Acme Lending",
-    fromAddress: "accounts@acme-lending.example",
-    replyToAddress: "support@acme-lending.example",
+    fromName: LENDER.identity.brandName,
+    fromAddress: `accounts@${LENDER.staffDomain}`,
+    replyToAddress: `support@${LENDER.staffDomain}`,
     smtpHost: SMTP_SINK_HOST,
     smtpPort: 2525,
-    smtpUser: "acme-sim",
+    smtpUser: `${LENDER.slug}-sim`,
     smtpPass: randomBytes(12).toString("base64url"),
     useTls: false,
     active: true,

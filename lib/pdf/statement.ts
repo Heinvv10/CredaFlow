@@ -35,18 +35,34 @@ export function activePaymentTotalCents(
   return cashReceivedCents(payments)
 }
 
-interface StatementOpts {
+interface StatementClient {
+  firstName: string
+  lastName: string
+  idNumber: string
+  email: string
+  addressLine1?: string
+  city?: string
+}
+
+/** A juristic borrower (asset finance): printed in place of the client block. */
+export interface StatementEntity {
+  legalName: string
+  registrationNumber: string
+  /** one line, already joined; absent when the entity has no address on file */
+  address?: string
+}
+
+/** Exactly one borrower: a consumer `client`, or an `entity`. */
+type StatementBorrower =
+  | { client: StatementClient; entity?: undefined }
+  | { entity: StatementEntity; client?: undefined }
+
+type StatementOpts = StatementBase & StatementBorrower
+
+interface StatementBase {
   lender: Pick<LenderIdentity, "legalName" | "ncrNumber">
   /** Letterhead logo, PNG bytes. Absent → text header. */
   logo?: Uint8Array
-  client: {
-    firstName: string
-    lastName: string
-    idNumber: string
-    email: string
-    addressLine1?: string
-    city?: string
-  }
   loan: {
     id: string
     reference: string
@@ -113,7 +129,7 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
 }
 
 async function renderStatement(opts: StatementOpts & { statementDate: Date }, totalPages: number): Promise<PDFDocument> {
-  const { client, loan, product, schedule, payments, statementDate } = opts
+  const { loan, product, schedule, payments, statementDate } = opts
   const lender = requireLenderIdentityFields(opts.lender, ["legalName", "ncrNumber"])
   const doc = await PDFDocument.create()
   const regular = await doc.embedFont(StandardFonts.Helvetica)
@@ -166,17 +182,31 @@ async function renderStatement(opts: StatementOpts & { statementDate: Date }, to
   drawText(p1, dateStr, A4_WIDTH - MARGIN - dateWidth, y, regular, 9, GRAY)
   y -= 24
 
-  y = drawSectionTitle(p1, y, "CLIENT DETAILS", bold)
-  const clientRows: [string, string][] = [
-    ["Name", `${client.firstName} ${client.lastName}`],
-    ["ID Number", client.idNumber],
-    ["Email", client.email],
-  ]
-  if (client.addressLine1) {
-    clientRows.push(["Address", `${client.addressLine1}${client.city ? `, ${client.city}` : ""}`])
+  if (opts.entity) {
+    // An entity borrower: who owes the debt is the company or trust. The
+    // consumer branch below is untouched, so its bytes are too.
+    y = drawSectionTitle(p1, y, "BORROWER DETAILS", bold)
+    const entityRows: [string, string][] = [
+      ["Name", opts.entity.legalName],
+      ["Registration Number", opts.entity.registrationNumber],
+    ]
+    if (opts.entity.address) entityRows.push(["Address", opts.entity.address])
+    y = drawLabelValueTable(p1, y, entityRows, regular, bold)
+    y -= 12
+  } else {
+    const { client } = opts
+    y = drawSectionTitle(p1, y, "CLIENT DETAILS", bold)
+    const clientRows: [string, string][] = [
+      ["Name", `${client.firstName} ${client.lastName}`],
+      ["ID Number", client.idNumber],
+      ["Email", client.email],
+    ]
+    if (client.addressLine1) {
+      clientRows.push(["Address", `${client.addressLine1}${client.city ? `, ${client.city}` : ""}`])
+    }
+    y = drawLabelValueTable(p1, y, clientRows, regular, bold)
+    y -= 12
   }
-  y = drawLabelValueTable(p1, y, clientRows, regular, bold)
-  y -= 12
 
   y = drawSectionTitle(p1, y, "ACCOUNT DETAILS", bold)
   const acctRows: [string, string][] = [
@@ -192,12 +222,17 @@ async function renderStatement(opts: StatementOpts & { statementDate: Date }, to
   // Summary table
   y = drawSectionTitle(p1, y, "ACCOUNT SUMMARY", bold)
   const summaryRows: [string, string][] = [
-    ["Principal Debt", formatZarPdf(loan.principal)],
+    ["Principal Debt", opts.entity ? `${formatZarPdf(loan.principal)} (incl. capitalised interest)` : formatZarPdf(loan.principal)],
     ["Total Repayable", formatZarPdf(loan.totalRepayable)],
     // Cash received. With default charges Loan.totalPaid is only the share
     // applied to the instalments, shown on its own line below.
     ["Total Paid to Date", formatZarPdf(activePaymentTotalCents(payments))],
-    ["Outstanding Balance", formatZarPdf(loan.outstandingPrincipal)],
+    // An entity (asset-finance) loan names the figure exactly: its principal
+    // includes capitalised interest, and "balance" there means principal plus
+    // scheduled interest. The consumer rows are unchanged.
+    opts.entity
+      ? ["Outstanding Principal", `${formatZarPdf(loan.outstandingPrincipal)} (incl. capitalised interest)`]
+      : ["Outstanding Balance", formatZarPdf(loan.outstandingPrincipal)],
     ...(opts.charges
       ? [
           ["Applied to Instalments", formatZarPdf(loan.totalPaid)],
@@ -205,7 +240,10 @@ async function renderStatement(opts: StatementOpts & { statementDate: Date }, to
           ["Amount to Settle Today", formatZarPdf(opts.charges.settlement)],
         ] as [string, string][]
       : []),
-    ["Interest Rate", `${(loan.interestRatePm * 100).toFixed(2)}% per month (${annual.percent.toFixed(1)}% ${annual.basisLabel})`],
+    // An entity's contract rate is annual: stated as agreed, to 2 decimals (11.75%).
+    ["Interest Rate", opts.entity
+      ? `${annual.percent.toFixed(2)}% ${annual.basisLabel}`
+      : `${(loan.interestRatePm * 100).toFixed(2)}% per month (${annual.percent.toFixed(1)}% ${annual.basisLabel})`],
     ["Loan Status", loan.status.replace(/_/g, " ")],
     ["Days in Arrears", `${loan.daysInArrears} days`],
     ["Arrears Amount", formatZarPdf(loan.arrearsAmount)],
@@ -405,7 +443,7 @@ async function renderStatement(opts: StatementOpts & { statementDate: Date }, to
     { label: "Amount Due", x: MARGIN + 130, width: 90 },
     { label: "Paid", x: MARGIN + 225, width: 90 },
     { label: "Status", x: MARGIN + 320, width: 70 },
-    { label: "Balance", x: MARGIN + 395, width: 110 },
+    { label: opts.entity ? "Balance Remaining" : "Balance", x: MARGIN + 395, width: 110 },
   ]
 
   const scheduleHead = (page: PDFPage): number => {

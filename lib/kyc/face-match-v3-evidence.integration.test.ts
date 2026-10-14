@@ -64,6 +64,10 @@ async function clientWithSelfie(selfie: Record<string, unknown>) {
   await db.tenant.create({
     data: { id: tenantId, slug: `fm-v3-${sequence}-${token}`, name: "Face match v3 integration" },
   })
+  await db.user.create({ data: {
+    id: `reviewer_${clientId}`, tenantId, email: `reviewer-${clientId}@test.invalid`, password: "synthetic",
+    role: "ADMIN", active: true, totpEnabled: true, lastTotpCounter: 1,
+  } })
   await db.client.create({
     data: {
       ...subject,
@@ -169,8 +173,9 @@ async function recordException(
         reason: "Synthetic integration exception after a controlled failed biometric attempt.",
         supportingEvidence: "Four verified synthetic core documents and the exact failed selfie were reviewed.",
         approvedAt: approvedAt.toISOString(),
-        approvedById: `reviewer_fm_v3_${token}`,
-        approvedByEmail: "reviewer@test.invalid",
+        approvedById: `reviewer_${fixture.clientId}`,
+        approvedByEmail: `reviewer-${fixture.clientId}@test.invalid`,
+        approvedWithTotp: true,
       },
     },
   })
@@ -182,7 +187,7 @@ function verify(clientId: string, method: "PHYSICAL" | "BIOMETRIC") {
     data: {
       kycStatus: "VERIFIED",
       kycVerifiedAt: approvedAt,
-      kycVerifiedById: method === "PHYSICAL" ? `reviewer_fm_v3_${token}` : null,
+      kycVerifiedById: method === "PHYSICAL" ? `reviewer_${clientId}` : null,
       kycVerificationMethod: method,
     },
     select: { kycStatus: true },

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { DEMO_LENDERS } from "../../prisma/demo-lender"
 import { AA_TEXT, check, contrast, resolve, surfaces } from "../palette-contrast"
 
 const css = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8")
@@ -22,14 +23,12 @@ describe("CredaFlow palette", () => {
 
   // Light-mode brand and the dark page background are the tenant's own
   // colours; lib/theme/tenant-colours.ts refuses a saved set that fails.
-  // The seeded demo tenant must pass everywhere too.
-  it("the seeded demo tenant's colours clear WCAG AA on every surface", () => {
-    const seed = readFileSync(join(process.cwd(), "prisma", "seed.ts"), "utf8")
-    const colour = (k: string) => new RegExp(`${k}: "(#[0-9A-Fa-f]{6})"`).exec(seed)![1]
+  // Every demo lender the seed can brand as (prisma/demo-lender.ts) must pass everywhere too.
+  it.each(Object.entries(DEMO_LENDERS))("the seeded demo tenant's colours clear WCAG AA on every surface (%s)", (_name, { colours }) => {
     const rows = check(css, {
-      "--cf-tenant-primary": colour("primaryColor"),
-      "--cf-tenant-secondary": colour("secondaryColor"),
-      "--cf-tenant-dark": colour("darkColor"),
+      "--cf-tenant-primary": colours.primaryColor,
+      "--cf-tenant-secondary": colours.secondaryColor,
+      "--cf-tenant-dark": colours.darkColor,
     })
     expect(rows.filter((r) => !r.pass).map((r) => `${r.surface} ${r.fg} on ${r.bg} ${r.ratio.toFixed(2)}`)).toEqual([])
   })
@@ -63,7 +62,7 @@ describe("CredaFlow palette", () => {
     const pattern = `#(${OLD_BRAND.join("|")})([0-9a-f]{2})?\\b|\\b(${OLD_RGB.join("|")})\\b`
     let hits: string[] = []
     try {
-      hits = execFileSync("git", ["grep", "--untracked", "-liP", pattern, "--", "app", "components", "lib", "prisma/schema.prisma", "prisma/seed*.ts", "scripts", ":!scripts/__tests__/palette-contrast.test.ts"], { encoding: "utf8" })
+      hits = execFileSync("git", ["grep", "--untracked", "-liP", pattern, "--", "app", "components", "lib", "prisma/schema.prisma", "prisma/seed*.ts", "prisma/demo-lender.ts", "scripts", ":!scripts/__tests__/palette-contrast.test.ts"], { encoding: "utf8" })
         .split("\n").filter(Boolean)
     } catch (e) {
       if ((e as { status?: number }).status !== 1) throw e

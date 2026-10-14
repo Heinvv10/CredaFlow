@@ -3,7 +3,7 @@ import { default as CollectionDetailPage } from "./page"
 import { describe, it, expect, vi } from "vitest"
 import { formatZAR } from "@/lib/utils"
 
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn(async () => "t1") }))
+vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("next/navigation", () => ({ notFound: vi.fn() }))
 vi.mock("@/lib/loan/charges-replay", () => ({ chargesLiveForTenant: vi.fn(async () => true) }))

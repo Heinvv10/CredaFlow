@@ -3,9 +3,14 @@ import Credentials from "next-auth/providers/credentials"
 import { prisma } from "./prisma"
 import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "./rate-limit"
-import { authBaseConfig, type AppRole } from "./auth-config"
+import { authBaseConfig, roleRefusedOnThisHost, type AppRole } from "./auth-config"
 import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
+import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
+import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
+import { claimTotpCounter } from "./totp-claim"
+
+export { claimTotpCounter }
 
 class TotpRequiredError extends CredentialsSignin {
   code = "totp_required"
@@ -75,22 +80,6 @@ export async function revalidatePrincipal(
   return { role: fresh.role, tenantId: fresh.tenantId }
 }
 
-/**
- * Atomically claim a TOTP counter for replay protection.
- * Returns true if the counter was claimed (first use or later-counter login).
- * Returns false if the counter was already used (replay) or DB write failed.
- */
-export async function claimTotpCounter(userId: string, matchedCounter: number): Promise<boolean> {
-  const claimed = await prisma.user.updateMany({
-    where: {
-      id: userId,
-      OR: [{ lastTotpCounter: null }, { lastTotpCounter: { lt: matchedCounter } }],
-    },
-    data: { lastTotpCounter: matchedCounter },
-  })
-  return claimed.count > 0
-}
-
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authBaseConfig,
   providers: [
@@ -136,6 +125,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           throw new RateLimitedError()
         }
 
+        // The host serves one audience (APP_MODE, as proxy.ts reads it): a
+        // staff sign-in is refused on the client host and a portal sign-in on
+        // the staff host, so a session never exists on a host that 404s its
+        // pages. Same response as an unknown email.
+        const hostMode = process.env.APP_MODE
+        if (
+          (hostMode === "client" && loginType === "staff") ||
+          (hostMode === "staff" && loginType === "client")
+        ) {
+          await equalizeAuthTiming(String(credentials.password))
+          await recordFailure("wrong_audience")
+          throw new WrongAudienceError()
+        }
+
         // Staff audience — look up in User table only. Client emails get a
         // generic "wrong audience" rejection routed to the same UX as a wrong
         // password (the form already maps this to "Invalid email or password"
@@ -178,6 +181,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // totpVerified records that THIS sign-in checked a code: enrolling TOTP
           // later in the same session does not set it (identity writes need it).
           let totpVerified = false
+          // The lender requires 2FA and this user has none: the session may
+          // reach only the enrolment page (proxy.ts, lib/auth-guards.ts).
+          let totpEnrolmentRequired = false
           if (user.totpEnabled || user.totpSecret) {
             if (!user.totpSecret) {
               // totpEnabled but no secret — inconsistent DB state, deny login
@@ -204,6 +210,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               throw new TotpInvalidError()
             }
             totpVerified = true
+          } else {
+            totpEnrolmentRequired = await isStaffTotpRequired(loginTenantId)
           }
 
           // Update last login + log the sign-in
@@ -220,6 +228,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             tenantId: user.tenantId,
             tokenVersion: user.tokenVersion,
             totpVerified,
+            totpEnrolmentRequired,
           }
         }
 
@@ -265,12 +274,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: `${client.firstName} ${client.lastName}`,
           role: "CLIENT" as const,
           tenantId: client.tenantId,
+          credentialStamp: clientCredentialStamp(client.id, client.tenantId, client.portalPassword),
         }
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
+      if (roleRefusedOnThisHost(user ? user.role : token.role)) return null
       // Sign-in: copy claims from the User shape returned by authorize() into the JWT.
       if (user) {
         if (!user.id) return null  // should not happen with credentials auth
@@ -282,13 +293,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.tokenVersion = user.tokenVersion ?? 0
         token.tenantId = user.tenantId
         token.totpVerified = user.totpVerified === true
+        if (user.credentialStamp) token.credentialStamp = user.credentialStamp
+        token.totpEnrolmentRequired = user.totpEnrolmentRequired === true
         return token
       }
 
-      // CLIENT sessions use the Client table (no tokenVersion concept yet);
-      // skip revalidation for them. Staff (any other role) hit the User table.
+      // CLIENT sessions are revalidated against the Client table by credential
+      // stamp (lib/client-session.ts); staff (any other role) against the User
+      // table by tokenVersion.
       const tokenId = token.id
+      if (typeof tokenId === "string" && token.role === "CLIENT") {
+        if (typeof token.tenantId !== "string") return null
+        const fresh = await revalidateClientPrincipal(tokenId, token.tenantId, token.credentialStamp)
+        // Same as staff: a transient failure retains the (tenant-bound) token.
+        if (fresh === null) return null   // client gone, portal access off, or credential changed
+      }
       if (typeof tokenId === "string" && token.role && token.role !== "CLIENT") {
+        // Minted before the enrolment claim existed: unknown, so not trusted.
+        if (typeof token.totpEnrolmentRequired !== "boolean") return null
         const tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : 0
         const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion)
         if (freshPrincipal === "error") {
@@ -311,6 +333,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.tenantId =
           typeof token.tenantId === "string" ? token.tenantId : null
         session.user.totpVerified = token.totpVerified === true
+        session.user.totpEnrolmentRequired = token.totpEnrolmentRequired === true
         // Staff-user writes re-check it on the caller's locked row
         // (refuseLockedStaffUserWrite in lib/auth-guards.ts).
         session.user.tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : undefined

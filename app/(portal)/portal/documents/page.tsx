@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { PortalDocumentsClient } from "./PortalDocumentsClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getPortalTenantId } from "@/lib/session-tenant"
 import type { DocumentRecord } from "@/lib/document-types"
 import { EmptyState } from "@/components/app-shell/EmptyState"
 import { FileText } from "lucide-react"
@@ -12,7 +12,7 @@ import {
 } from "@/lib/kyc/portal-document-state"
 
 async function getClientData(email: string) {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getPortalTenantId()
   return prisma.$transaction(
     (tx) => readPortalKycDocumentState(tx, {
       tenantId,

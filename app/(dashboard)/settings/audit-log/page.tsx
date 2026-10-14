@@ -1,6 +1,6 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Header } from "@/components/layout/Header"
 import { AuditLogClient } from "./AuditLogClient"
 import {
@@ -13,7 +13,7 @@ import {
 
 export default async function AuditLogPage() {
   await requireMinRole("LOAN_ADMIN")
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
 
   const [logs, documentAccess, users] = await Promise.all([
     prisma.auditLog.findMany({

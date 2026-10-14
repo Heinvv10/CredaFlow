@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { ConvertLeadForm } from "@/components/crm/ConvertLeadForm"
 import { RecoverLeadApplicationForm } from "@/components/crm/RecoverLeadApplicationForm"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { resetStrandedConvertedLead } from "@/app/actions/crm"
 import { leadConversionState } from "@/lib/crm/lead-conversion"
 import { Prisma } from "@prisma/client"
@@ -78,7 +78,7 @@ export default async function ConvertLeadPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [lead, products] = await Promise.all([getLead(id, tenantId), getProducts(tenantId)])
 
   if (!lead) notFound()

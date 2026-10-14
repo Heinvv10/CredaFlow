@@ -65,6 +65,44 @@ export const TENANT_SCOPED_MODELS = [
   // page pass it explicitly, so the rewriter is the backstop for a query that
   // forgets to.
   "BreachLog",
+  // Insurance book + cross-sell opportunities. Non-null tenantId. Routes run
+  // inside withTenantContext's frame; callers outside a request frame pass
+  // tenantId explicitly.
+  "InsurancePolicy",
+  "InsuranceClaim",
+  "PremiumPayment",
+  "CrossSellOpportunity",
+  // Credit checks v1. Non-null tenantId; the statement read also runs after
+  // its upload request has returned, so every query passes it explicitly.
+  "StatementAnalysis",
+  "ApplicationCheckFlag",
+  // Asset finance (docs/asset-finance/DESIGN.md). Non-null tenantId; the
+  // routes run inside withTenantContext and also pass it explicitly.
+  "BusinessEntity",
+  "EntityRelationship",
+  "NcaRegimeOverride",
+  // Asset-finance rates and VAT documents — non-null tenantId, passed
+  // explicitly on every query (the repricing cron has no frame). VatRate is
+  // national and TaxInvoiceLine is scoped through its invoice: neither is listed.
+  "ReferenceRate",
+  "ContractRate",
+  "TaxInvoice",
+  "CreditNote",
+  "VatConfig",
+  "EntityDocument",
+  "FinancedAsset",
+  "AssetValuation",
+  "Supplier",
+  "SupplierBankAccount",
+  "AssetFinanceDeal",
+  "EntityFinancials",
+  // Deal signing and payout (lib/asset-finance/signing-*.ts, payout*.ts).
+  // Non-null tenantId, passed explicitly on every query; the seed runs
+  // inside runWithTenant (prisma/seed/asset-finance.ts).
+  "DealSigner",
+  "PayoutChecklistItem",
+  "Payout",
+  "KycOverrideRequest",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

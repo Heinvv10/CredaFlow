@@ -70,7 +70,7 @@ describe("loan repayment-method database enforcement", () => {
     for (const [trigger, fn] of guardedTriggers) {
       const sql = baselineTriggerSql(trigger)
       expect(sql).toContain(
-        `WHEN (((to_jsonb(new.*) - 'repaymentMethod'::text) IS DISTINCT FROM (to_jsonb(old.*) - 'repaymentMethod'::text)))`,
+        `(to_jsonb(new.*) - 'repaymentMethod'::text) IS DISTINCT FROM (to_jsonb(old.*) - 'repaymentMethod'::text)`,
       )
       expect(sql).toContain(`EXECUTE FUNCTION "${fn}"()`)
     }

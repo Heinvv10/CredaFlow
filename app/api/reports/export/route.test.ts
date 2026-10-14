@@ -14,6 +14,8 @@ const loanFindManyMock = vi.fn()
 const applicationFindManyMock = vi.fn()
 const getNcrReturnDataMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
+const policyFindManyMock = vi.fn()
+const complaintFindManyMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: (role: string) => requireApiRoleMock(role),
@@ -35,6 +37,12 @@ vi.mock("@/lib/prisma", () => ({
     },
     tenantConfig: {
       findUnique: (args: unknown) => tenantConfigFindUniqueMock(args),
+    },
+    insurancePolicy: {
+      findMany: (args: unknown) => policyFindManyMock(args),
+    },
+    complaint: {
+      findMany: (args: unknown) => complaintFindManyMock(args),
     },
     auditLog: {
       findMany: (args: unknown) => auditFindManyMock(args),
@@ -87,8 +95,8 @@ describe("GET reports export — compliance evidence", () => {
     vi.clearAllMocks()
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     complianceFindManyMock.mockResolvedValue([record])
@@ -121,7 +129,7 @@ describe("GET reports export — compliance evidence", () => {
   it("denies a READONLY viewer before querying or generating the register", async () => {
     requireApiRoleMock.mockImplementation(async (role: string) => role === "LOAN_ADMIN"
       ? { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
-      : { user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+      : { user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
 
     const response = await GET(request())
 
@@ -271,8 +279,8 @@ describe("GET reports export — ncr-quarterly workbook", () => {
     vi.clearAllMocks()
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     loanFindManyMock.mockResolvedValue([loanRow])
@@ -354,6 +362,14 @@ describe("GET reports export — ncr-quarterly workbook", () => {
     })
   })
 
+  it("leaves NON_NCA agreements off the disbursement and arrears sheets", async () => {
+    await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
+    const wheres = loanFindManyMock.mock.calls.map(([a]) => (a as { where: Record<string, unknown> }).where)
+    expect(wheres).toHaveLength(2)
+    for (const where of wheres) expect(where).toMatchObject({ tenantId: "tenant-1", ncaRegime: "NCA" })
+  })
+
+
   it("strictly audits the export, which carries client ID numbers", async () => {
     // Two sheets carry ID numbers and full names. Every other bulk identity
     // export in this handler writes an audit row; this branch did not.
@@ -396,8 +412,8 @@ describe("ncr-quarterly export — role gate", () => {
     // same way.
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
     expect(requireApiRoleMock.mock.calls.map(([role]) => role)).toEqual(["READONLY", "LOAN_ADMIN"])
@@ -407,7 +423,7 @@ describe("ncr-quarterly export — role gate", () => {
     requireApiRoleMock.mockImplementation(async (role: string) =>
       role === "LOAN_ADMIN"
         ? { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
-        : { user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } },
+        : { user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } },
     )
     const res = await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
     expect(res.status).toBe(403)
@@ -418,8 +434,8 @@ describe("ncr-quarterly export — role gate", () => {
   it("names the upgraded principal in the audit row, not the READONLY guard", async () => {
     requireApiRoleMock.mockImplementation(async (role: string) => ({
       user: role === "LOAN_ADMIN"
-        ? { id: "admin-1", email: "admin@example.test", role: "LOAN_ADMIN" }
-        : { id: "readonly-1", email: "readonly@example.test", role: "READONLY" },
+        ? { id: "admin-1", tenantId: "tenant-1", email: "admin@example.test", role: "LOAN_ADMIN" }
+        : { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" },
     }))
     await GET(request("type=ncr-quarterly&quarter=2026-Q1"))
     expect(logAuditStrictMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -432,7 +448,7 @@ describe("ncr-quarterly export — role gate", () => {
 describe("GET reports export — loans", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
   })
 
@@ -486,7 +502,7 @@ describe("GET reports export — default charges owing beside instalment arrears
 
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
     loanFindManyMock.mockResolvedValue([loan])
   })
@@ -524,7 +540,7 @@ describe("GET reports export — affordability register", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", email: "readonly@example.test", role: "READONLY" } })
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
     getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
   })
 
@@ -541,5 +557,111 @@ describe("GET reports export — affordability register", () => {
     expect(cell(2)).toBeTruthy()
     expect(cell(3)).toBeTruthy()
     expect(cell(4) ?? "").toBe("")
+  })
+})
+
+describe("GET reports export — fsca-annual", () => {
+  // The route opens no tenant frame, so the query's own filter is the
+  // boundary. The mock behaves like the database: it applies the filters it
+  // is given and nothing else.
+  const policy = (policyNumber: string, tenantId: string) => ({
+    policyNumber, tenantId, type: "CREDIT_LIFE", insurer: null, insurer_rel: { name: "Synthetic Insurer" },
+    premiumAmount: 100, status: "ACTIVE", startDate: new Date("2026-03-01T08:00:00Z"), pprIssuedAt: null,
+    client: { firstName: "Synthetic", lastName: tenantId },
+  })
+  const POLICIES = [policy("POL-A-1", "tenant-1"), policy("POL-B-1", "tenant-2")]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    policyFindManyMock.mockImplementation(async (args: { where?: Record<string, unknown> }) =>
+      POLICIES.filter((p) => Object.entries(args.where ?? {}).every(([k, v]) => p[k as keyof typeof p] === v)))
+    complaintFindManyMock.mockResolvedValue([])
+  })
+
+  it("lists only the requesting lender's policies", async () => {
+    const res = await GET(request("type=fsca-annual"))
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer() as unknown as Parameters<typeof wb.xlsx.load>[0])
+    const sheet = wb.getWorksheet("Insurance Policies")!
+    const col = (sheet.getRow(1).values as unknown[]).indexOf("Policy ID")
+    const ids: unknown[] = []
+    sheet.eachRow((row, n) => { if (n > 1) ids.push(row.getCell(col).value) })
+    expect(ids).toEqual(["POL-A-1"])
+  })
+})
+
+describe("GET reports export — the caller must belong to the host's tenant", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    policyFindManyMock.mockResolvedValue([])
+    complaintFindManyMock.mockResolvedValue([])
+  })
+
+  const asStaffOf = (tenantId: string | null) =>
+    requireApiRoleMock.mockResolvedValue({ user: { id: "staff-1", tenantId, email: "staff@example.test", role: "LOAN_ADMIN" } })
+
+  it("refuses staff of another lender on this lender's host: 403, no export", async () => {
+    asStaffOf("tenant-2")
+    const res = await GET(request("type=fsca-annual"))
+    expect(res.status).toBe(403)
+    expect(res.headers.get("content-type")).not.toMatch(/spreadsheetml/)
+    expect(policyFindManyMock).not.toHaveBeenCalled()
+    expect(complaintFindManyMock).not.toHaveBeenCalled()
+  })
+
+  it("serves staff of the host's lender: 200 workbook", async () => {
+    asStaffOf("tenant-1")
+    const res = await GET(request("type=fsca-annual"))
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toMatch(/spreadsheetml/)
+    expect(policyFindManyMock).toHaveBeenCalledOnce()
+  })
+})
+
+describe("GET reports export — NCA regime", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    tenantConfigFindUniqueMock.mockResolvedValue(null)
+    loanFindManyMock.mockResolvedValue([])
+    applicationFindManyMock.mockResolvedValue([])
+  })
+
+  for (const type of ["affordability", "reckless-lending"]) {
+    it(`${type}: the NCA consumer register leaves entity (asset finance) applications out`, async () => {
+      const res = await GET(request(`type=${type}`))
+      expect(res.status).toBe(200)
+      expect(applicationFindManyMock).toHaveBeenCalledTimes(1)
+      expect(applicationFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ tenantId: "tenant-1", entityId: null }),
+      }))
+    })
+  }
+
+  it("credit-agreements: the register of NCA credit agreements leaves NON_NCA agreements out", async () => {
+    await GET(request("type=credit-agreements"))
+    expect(loanFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "tenant-1", ncaRegime: "NCA" }),
+    }))
+  })
+
+  it("par: the arrears aging keeps NON_NCA agreements and labels every row with its regime", async () => {
+    loanFindManyMock.mockResolvedValue([{
+      reference: "LN-AF-1", principal: 30_000_000, outstandingPrincipal: 25_000_000, arrearsAmount: 900_000,
+      chargesOutstanding: 0, daysInArrears: 45, status: "ACTIVE", ncaRegime: "NON_NCA",
+      client: null, entity: { legalName: "TEST Plant Hire (Pty) Ltd" }, product: { name: "Plant finance" },
+    }])
+    const res = await GET(request("type=par"))
+    expect((loanFindManyMock.mock.calls[0][0] as { where: Record<string, unknown> }).where).not.toHaveProperty("ncaRegime")
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer() as unknown as Parameters<typeof wb.xlsx.load>[0])
+    const sheet = wb.getWorksheet("PAR Report")
+    const header = (sheet?.getRow(1).values ?? []) as unknown[]
+    expect(sheet?.getRow(2).getCell(header.indexOf("Regime")).value).toBe("NON_NCA")
+    expect(sheet?.getRow(2).getCell(header.indexOf("Client")).value).toBe("TEST Plant Hire (Pty) Ltd")
   })
 })

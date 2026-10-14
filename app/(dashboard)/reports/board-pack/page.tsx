@@ -4,16 +4,17 @@ import { COLLECTIBLE_STATUSES, SETTLED_STATUSES } from "@/lib/loan/collectible-b
 import { sastMonthBounds } from "@/lib/compliance/quarters"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { BoardPackClient } from "@/components/reports/BoardPackClient"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { findLenderIdentity, getLenderBrandName } from "@/lib/config/identity"
 import { getPortfolioPar } from "@/lib/reports/par"
 import { computeCollectionsRate, computeArrearsRate } from "@/lib/reports/collections-rate"
 import { chargesOwing, loadChargesOwingByBand } from "@/lib/reports/charges-owing"
 import { boardPackChargesSummary, loadDefaultChargesReport } from "@/lib/reports/default-charges-loader"
 import { BoardPackDefaultCharges } from "@/components/reports/BoardPackDefaultCharges"
+import { borrowerDisplayName } from "@/lib/borrower"
 
 export default async function BoardPackPage() {
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [lenderName, lender] = await Promise.all([getLenderBrandName(tenantId), findLenderIdentity(tenantId)])
   const now = new Date()
   // End-EXCLUSIVE SAST month bounds — see lib/compliance/quarters.ts. The
@@ -38,7 +39,7 @@ export default async function BoardPackPage() {
     // numerator, not just one or the other.
     prisma.loan.findMany({
       where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 } },
-      select: { daysInArrears: true, arrearsAmount: true, outstandingPrincipal: true },
+      select: { daysInArrears: true, arrearsAmount: true, outstandingPrincipal: true, ncaRegime: true },
     }),
     prisma.insurancePolicy.aggregate({ where: { tenantId, status: "ACTIVE" }, _count: true, _sum: { premiumAmount: true } }),
     // Loans still owed only (the collectible book) — a settled loan owes nothing.
@@ -48,6 +49,7 @@ export default async function BoardPackPage() {
       orderBy: [{ principal: "desc" }, { reference: "asc" }], take: 10,
       include: {
         client: { select: { firstName: true, lastName: true } },
+        entity: { select: { legalName: true } },
         product: { select: { name: true, productType: true } },
       },
     }),
@@ -70,7 +72,7 @@ export default async function BoardPackPage() {
       where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gte: 30 } },
       orderBy: { daysInArrears: "desc" },
       take: 5,
-      include: { client: { select: { firstName: true, lastName: true } } },
+      include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
     }),
     getPortfolioPar(tenantId),
     // Default charges owing: beside the instalment arrears, never inside them.
@@ -126,6 +128,11 @@ export default async function BoardPackPage() {
     { label: "90+ DPD", count: arrears.filter(l => l.daysInArrears >= 90).length, value: arrears.filter(l => l.daysInArrears >= 90).reduce((s, l) => s + l.arrearsAmount, 0) },
   ].map((b) => (charges.chargesLive ? { ...b, charges: charges.byBand[b.label as keyof typeof charges.byBand] } : b))
 
+  // The aging covers the whole book; the NON_NCA (asset finance) share is
+  // stated separately, because those agreements are not NCA-regulated.
+  const nonNcaInArrears = arrears.filter(l => l.ncaRegime === "NON_NCA")
+  const nonNcaArrears = { count: nonNcaInArrears.length, value: nonNcaInArrears.reduce((s, l) => s + l.arrearsAmount, 0) }
+
   const productMix = byProduct.map(b => ({
     name: products.find(p => p.id === b.productId)?.name || "Unknown",
     type: products.find(p => p.id === b.productId)?.productType || "MICRO",
@@ -134,7 +141,7 @@ export default async function BoardPackPage() {
   }))
 
   const delinquentAccounts = topDelinquent.map(l => ({
-    clientName: `${l.client.firstName} ${l.client.lastName}`,
+    clientName: borrowerDisplayName(l),
     daysInArrears: l.daysInArrears,
     arrearsAmount: l.arrearsAmount,
     ...(charges.chargesLive ? { chargesOwing: chargesOwing(l, charges.chargesLive) } : {}),
@@ -155,7 +162,7 @@ export default async function BoardPackPage() {
         lenderName={lenderName} ncrNumber={lender?.ncrNumber ?? null}
         book={book} activeLoans={loans._count} clients={clients}
         collectionsRate={collectionsRate} arrearsRate={arrearsRate}
-        totalArrears={totalArrears} buckets={buckets}
+        totalArrears={totalArrears} buckets={buckets} nonNcaArrears={nonNcaArrears}
         topLoans={topLoans} productMix={productMix}
         insurancePolicies={insurance._count} monthlyPremiums={Number(insurance._sum.premiumAmount ?? 0)}
         totalDisbursed={Number(disbursements._sum.principal || 0)}

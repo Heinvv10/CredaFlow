@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
+import { borrowerDisplayName } from "@/lib/borrower"
 import { chargesEnabled, loadChargesReplay } from "@/lib/loan/charges-replay"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { OVERPAYMENT_REASON } from "@/lib/loan/receipt-rules"
@@ -80,7 +81,7 @@ export function parseExemptionAudit(row: { oldValue: Prisma.JsonValue | null; ne
 export function refundDueRows(
   payments: Array<{
     id: string; amount: number; receivedAt: Date; loanId: string
-    loan: { reference: string; client: { firstName: string; lastName: string } }
+    loan: { reference: string } & Parameters<typeof borrowerDisplayName>[0]
   }>,
   splits: RefundSplitAudit[],
 ): RefundDueRow[] {
@@ -91,7 +92,7 @@ export function refundDueRows(
       paymentId: p.id,
       loanId: p.loanId,
       loanReference: p.loan.reference,
-      clientName: `${p.loan.client.firstName} ${p.loan.client.lastName}`,
+      clientName: borrowerDisplayName(p.loan),
       amount: p.amount,
       receivedAt: p.receivedAt,
       dueSince: at ?? p.receivedAt,
@@ -132,7 +133,13 @@ export async function loadDefaultChargesReport(db: Db, tenantId: string, now: Da
       orderBy: { receivedAt: "asc" },
       select: {
         id: true, amount: true, receivedAt: true, loanId: true,
-        loan: { select: { reference: true, client: { select: { firstName: true, lastName: true } } } },
+        loan: {
+          select: {
+            reference: true,
+            client: { select: { firstName: true, lastName: true } },
+            entity: { select: { legalName: true } },
+          },
+        },
       },
     }),
   ])
@@ -240,6 +247,7 @@ export async function loadInDuplumSnapshot(db: Db, tenantId: string, now: Date):
     select: {
       id: true, reference: true,
       client: { select: { firstName: true, lastName: true } },
+      entity: { select: { legalName: true } },
       product: { select: { name: true } },
     },
     orderBy: { reference: "asc" },
@@ -252,7 +260,7 @@ export async function loadInDuplumSnapshot(db: Db, tenantId: string, now: Date):
     rows.push({
       loanId: loan.id,
       loanReference: loan.reference,
-      clientName: `${loan.client.firstName} ${loan.client.lastName}`,
+      clientName: borrowerDisplayName(loan),
       productName: loan.product.name,
       capBase: inDuplum.capBase,
       accrued: inDuplum.accrued,

@@ -4,7 +4,7 @@
 // No policy upper cap: the int4 ceiling is the Postgres Int column's storage
 // limit, not a product limit. Any policy cap is the owner's decision.
 
-const INT4_MAX = 2_147_483_647
+export const INT4_MAX = 2_147_483_647
 
 function cents(v: unknown): number | null {
   if (typeof v !== "number" || !Number.isFinite(v)) return null

@@ -1,12 +1,24 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // document-auth.ts pulls in auth/prisma/tenant at module load; stub them so the
 // pure magic-byte helper can be imported in isolation.
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: vi.fn() }))
+const authMock = vi.fn()
+const getDefaultTenantIdMock = vi.fn()
+const userFindUniqueMock = vi.fn()
+const clientFindFirstMock = vi.fn()
+const createManyMock = vi.fn()
 
-import { matchesMagic, MAGIC_BYTE_PREFIX } from "./document-auth"
+vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    user: { findUnique: (a: unknown) => userFindUniqueMock(a) },
+    client: { findFirst: (a: unknown) => clientFindFirstMock(a) },
+    documentAccessLog: { createMany: (a: unknown) => createManyMock(a) },
+  },
+}))
+vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
+
+import { logDocumentAccess, matchesMagic, MAGIC_BYTE_PREFIX, getDocumentCaller, logDocumentContentAccess } from "./document-auth"
 
 // Pad an arbitrary byte prefix out to the number of bytes callers actually read.
 function head(bytes: number[]): Uint8Array {
@@ -54,5 +66,90 @@ describe("matchesMagic", () => {
     // reads past the end (undefined !== 0x57), so it fails to match rather than
     // throwing — the real risk for a tiny uploaded file.
     expect(matchesMagic(new Uint8Array([0x52, 0x49, 0x46, 0x46]), "image/webp")).toBe(false)
+  })
+})
+
+describe("getDocumentCaller — tenant", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getDefaultTenantIdMock.mockResolvedValue("default-tenant")
+  })
+
+  it("looks a portal client up in the session's own tenant, not the default", async () => {
+    authMock.mockResolvedValue({ user: { id: "c1", email: "client@example.test", role: "CLIENT", tenantId: "tenant-b" } })
+    clientFindFirstMock.mockResolvedValue({ id: "c1", email: "client@example.test" })
+
+    const caller = await getDocumentCaller()
+
+    expect(caller).toEqual({ type: "client", clientId: "c1", email: "client@example.test" })
+    expect(clientFindFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: "client@example.test", tenantId: "tenant-b" } }),
+    )
+    expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve a portal caller whose session carries no tenant", async () => {
+    authMock.mockResolvedValue({ user: { id: "c1", email: "client@example.test", role: "CLIENT" } })
+
+    expect(await getDocumentCaller()).toBeNull()
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve a same-email client that only exists in the default tenant", async () => {
+    authMock.mockResolvedValue({ user: { id: "c1", email: "client@example.test", role: "CLIENT", tenantId: "tenant-b" } })
+    clientFindFirstMock.mockResolvedValue(null)
+
+    expect(await getDocumentCaller()).toBeNull()
+  })
+
+  it("returns staff with their own persisted tenant and never consults the default", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1", email: "s@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue({ id: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b" })
+
+    expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b" })
+    expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("logDocumentContentAccess", () => {
+  it("writes one staff access row per distinct document, and nothing for none", async () => {
+    const createMany = createManyMock
+    const req = new Request("https://acme.example/x", { headers: { "user-agent": "test-agent" } })
+    await logDocumentContentAccess({ documentIds: [], staffUserId: "u1", action: "credit_check_evidence", req })
+    expect(createMany).not.toHaveBeenCalled()
+    await logDocumentContentAccess({ documentIds: ["d1", "d2", "d1"], staffUserId: "u1", action: "credit_check_evidence", req })
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        { documentId: "d1", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+        { documentId: "d2", accessorType: "staff", accessorId: "u1", action: "credit_check_evidence", ipAddress: null, userAgent: "test-agent" },
+      ],
+    })
+  })
+})
+
+describe("logDocumentAccess", () => {
+  const write = async (headers: Record<string, string>) => {
+    const create = vi.fn()
+    await logDocumentAccess({ documentAccessLog: { create } } as unknown as Parameters<typeof logDocumentAccess>[0], {
+      documentId: "doc-1",
+      accessorType: "client",
+      accessorId: "client-1",
+      action: "view",
+      req: new Request("http://localhost/x", { headers }),
+    })
+    return create.mock.calls[0][0].data as { ipAddress: string | null; userAgent: string | null }
+  }
+
+  it("records the address the trusted proxy saw, not the caller-written left of X-Forwarded-For", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    const data = await write({ "x-forwarded-for": "198.51.100.7, 203.0.113.9", "user-agent": "vitest" })
+    expect(data).toMatchObject({ ipAddress: "203.0.113.9", userAgent: "vitest" })
+    vi.unstubAllEnvs()
+  })
+
+  it("records no IP when no proxy is trusted: the header is the caller's own claim", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "0")
+    expect((await write({ "x-forwarded-for": "198.51.100.7" })).ipAddress).toBeNull()
+    vi.unstubAllEnvs()
   })
 })

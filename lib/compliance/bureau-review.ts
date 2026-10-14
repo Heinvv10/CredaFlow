@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { lockAffordabilityApplicationEvidence } from "@/lib/affordability/evidence-locks"
 import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
+import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { getCreditReport } from "@/lib/integrations/experian"
 import { buildExperianEnquiryInput } from "@/lib/integrations/experian-input"
 
@@ -128,7 +129,9 @@ export async function runBureauReviewCheck(
     const SCORE_DROP_THRESHOLD = 50
     let scoreDropAlert: { previous: number; current: number; drop: number } | undefined
     if (result.score != null) {
-      const previous = await prisma.creditBureauCheck.findFirst({
+      // A simulated earlier row is not a real score; filtered here, not in SQL,
+      // because a JSON-path NOT drops rows whose key is absent.
+      const priorChecks = await prisma.creditBureauCheck.findMany({
         where: {
           tenantId: opts.tenantId,
           clientId: opts.clientId,
@@ -138,8 +141,10 @@ export async function runBureauReviewCheck(
           score: { not: null },
         },
         orderBy: { createdAt: "desc" },
-        select: { score: true },
+        take: 20,
+        select: { score: true, obligations: true },
       })
+      const previous = priorChecks.find((check) => !isSimulatedBureauCheck(check.obligations))
       if (previous?.score != null) {
         const drop = previous.score - result.score
         if (drop >= SCORE_DROP_THRESHOLD) {
@@ -148,12 +153,16 @@ export async function runBureauReviewCheck(
       }
     }
 
-    const obligations = result.totalMonthlyObligations != null || scoreDropAlert
+    const accounts = result.accounts?.length ? result.accounts : undefined
+    const obligations = result.totalMonthlyObligations != null || scoreDropAlert || accounts || result.simulated
       ? {
+          ...(result.simulated ? { simulated: true } : {}),
           ...(result.totalMonthlyObligations != null
             ? { totalMonthly: result.totalMonthlyObligations }
             : {}),
           ...(scoreDropAlert ? { scoreDropAlert } : {}),
+          // The account list for the credit checks (lib/credit-checks/load-facts.ts).
+          ...(accounts ? { accounts: accounts as unknown as Prisma.InputJsonValue } : {}),
         }
       : undefined
     const bureauCheckData = {

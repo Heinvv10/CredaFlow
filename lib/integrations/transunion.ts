@@ -4,6 +4,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { bureauAccounts, type BureauAccount } from "@/lib/integrations/bureau-accounts"
 
 interface CreditReportOptions {
   tenantId: string
@@ -20,6 +21,8 @@ interface CreditReportResult {
   riskGrade?: string
   adverseInfo?: string[]
   totalMonthlyObligations?: number  // in cents — sum of all active credit account instalments
+  /** Every account on the report, for the credit checks; not part of any total. */
+  accounts?: BureauAccount[]
   raw?: unknown
   error?: string
 }
@@ -118,6 +121,11 @@ export async function getCreditReport(opts: CreditReportOptions): Promise<Credit
     const data = await res.json()
     const score = data.creditScore ?? data.score
     const riskGrade = data.riskGrade ?? data.risk_grade
+    // UNTESTED: needs a TransUnion response spec/sample. The field names below are
+    // guesses, so a body with no numeric score is refused rather than passed on as ok.
+    if (typeof score !== "number") {
+      return { ok: false, error: "TransUnion unrecognised response: no numeric score" }
+    }
     const adverseInfo: string[] = []
 
     if (Array.isArray(data.adverseRecords)) {
@@ -139,12 +147,24 @@ export async function getCreditReport(opts: CreditReportOptions): Promise<Credit
       if (sum > 0) totalMonthlyObligations = Math.round(sum * 100)
     }
 
+    // UNTESTED against a live report: field names are the ones the totals
+    // above already read, plus the usual names for the creditor and status.
+    const accounts = Array.isArray(data.creditAccounts)
+      ? bureauAccounts(data.creditAccounts as Array<Record<string, unknown>>, (a) => ({
+          subscriber: a.subscriberName ?? a.creditorName ?? a.subscriber,
+          accountType: a.accountType,
+          instalmentRands: a.monthlyInstalment ?? a.installment,
+          status: a.accountStatus ?? a.status,
+        }))
+      : []
+
     return {
       ok: true,
-      score: typeof score === "number" ? score : undefined,
+      score,
       riskGrade: typeof riskGrade === "string" ? riskGrade : undefined,
       adverseInfo,
       totalMonthlyObligations,
+      accounts,
       raw: data,
     }
   } catch (e) {

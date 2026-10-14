@@ -33,6 +33,13 @@ describe("authenticated navigation", () => {
     expect(usersItem?.minRole).toBe("BRANCH_MANAGER")
   })
 
+  // The page requires ADMIN (app/(dashboard)/settings/security-policy/page.tsx).
+  it("lists Security & KYC policy at ADMIN, matching its page", () => {
+    const item = staffNavigation.flatMap(group => group.items).find(i => i.href === "/settings/security-policy")
+    expect(item?.label).toBe("Security & KYC policy")
+    expect(item?.minRole).toBe("ADMIN")
+  })
+
   // /settings/audit-log (all state-changing actions) and /settings/login-log
   // (sign-in events only) are distinct datasets that were previously
   // collapsed into one "Activity Log" item pointing only at login-log,
@@ -52,7 +59,8 @@ describe("authenticated navigation", () => {
     expect(loginActivity?.minRole).toBe("LOAN_ADMIN")
   })
 
-  // TOTP 2FA enrolment is mandatory for EVERY staff member (CLAUDE.md), and the
+  // TOTP 2FA enrolment is on by default for every staff member (a per-lender
+  // setting, CLAUDE.md), and the
   // backing page app/(dashboard)/settings/security/page.tsx only requires an
   // authenticated session (no requireMinRole) — so the nav item must be reachable
   // by all roles. Previously the page was orphaned (no link anywhere). (ADM-02)
@@ -97,5 +105,31 @@ describe("compliance navigation is not gated on the insurance module", () => {
 
   it("does not put compliance and insurance in the same group", () => {
     expect(groupFor("/compliance")).not.toBe(groupFor("/insurance"))
+  })
+})
+
+describe("asset finance navigation", () => {
+  const assetFinanceHrefs = [
+    "/asset-finance/entities",
+    "/asset-finance/deals",
+    "/asset-finance/assets",
+    "/asset-finance/suppliers",
+    "/asset-finance/reference-rates",
+  ]
+
+  it("puts every asset finance page in one group behind the assetFinance flag", () => {
+    const groups = new Set(assetFinanceHrefs.map((href) => staffNavigation.find(g => g.items.some(i => i.href === href))))
+    expect(groups.size).toBe(1)
+    const [group] = [...groups]
+    expect(group?.label).toBe("Asset Finance")
+    expect(group?.feature).toBe("assetFinance")
+    expect(group?.items.map(i => i.href)).toEqual(assetFinanceHrefs)
+  })
+})
+
+describe("portal business navigation", () => {
+  it("offers the Business page only to a client who may act for an entity", () => {
+    expect(buildPortalNavigation(null).some(item => item.href === "/portal/business")).toBe(false)
+    expect(buildPortalNavigation(null, { business: true }).some(item => item.href === "/portal/business")).toBe(true)
   })
 })

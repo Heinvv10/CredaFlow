@@ -19,8 +19,10 @@
 #     string, read from the same container env as the DEMO_MODE guard), TOTP
 #     is turned off for every staff user except SUPER_ADMIN in the staged db
 #     (STAFF_TOTP_OFF_SQL in lib.sh), so presenters sign in with a password
-#     only. The bake enrols TOTP, so without this every restore turns it back
-#     on. This is the CLAUDE.md TOTP exception for demo stacks;
+#     only, and TenantConfig.requireStaffTotp is switched off (TENANT_TOTP_
+#     POLICY_OFF_SQL) so they are not held at enrolment. The bake enrols TOTP,
+#     so without this every restore turns it back on. This is the CLAUDE.md TOTP
+#     exception for demo stacks;
 #   - uploads unpacked into <volume>/.restore-<ts>, file count checked.
 # Then the swap (the only downtime): stop app + portal → rename <db> to
 # <db>_old_<ts> and the staged db to <db> (one transaction) → move the old
@@ -80,6 +82,12 @@ tenant_id="$(jq -r .tenantId "$snap/meta.json")"
 [ -n "$tenant_id" ] && [ "$tenant_id" != null ] || die "no tenantId in $snap/meta.json"
 # It is written into .env.production: only the id shape (cuid) may get there.
 [[ "$tenant_id" =~ ^[a-z0-9]{20,40}$ ]] || die "refusing: tenantId in $snap/meta.json is not a valid id"
+# One lender's snapshot never goes into another lender's stack: the live
+# image and host map resolve only the slug in $LIVE_DIR/.env (DEMO_LENDER).
+live_slug="$(env_get "$live_dir/.env" NEXT_PUBLIC_TENANT_SLUG 2>/dev/null)" || live_slug=""
+snap_slug="$(jq -r '.tenantSlug // empty' "$snap/meta.json")"
+[ -n "$live_slug" ] || die "refusing: no NEXT_PUBLIC_TENANT_SLUG in $live_dir/.env"
+[ "$snap_slug" = "$live_slug" ] || die "refusing: snapshot is tenant '${snap_slug:-unknown}', the live stack serves '$live_slug'"
 if [ "$snap_image" != "$image" ]; then
   $force_image || die "snapshot was baked on $snap_image but the live demo runs $image (--force-image to restore anyway)"
   note "WARNING: snapshot image $snap_image != live $image (--force-image)"
@@ -218,6 +226,8 @@ step="staff TOTP off"
 if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | grep -qx 'DEMO_CLEAR_STAFF_TOTP=true'; then
   cleared="$(live_sql "$tmp_db" "$STAFF_TOTP_OFF_SQL")"
   note "staff TOTP off for $cleared users (DEMO_CLEAR_STAFF_TOTP=true)"
+  live_sql "$tmp_db" "$TENANT_TOTP_POLICY_OFF_SQL" >/dev/null
+  note "staff 2FA policy off in the staged db (DEMO_CLEAR_STAFF_TOTP=true)"
 fi
 
 step="uploads staging"
@@ -278,11 +288,14 @@ warn() { note "WARNING: $1"; warnings="$warnings; $1"; }
 # synthetic, so the demo's staff have no TOTP (product owner, 2026-10-13). The
 # bake's seed enrols it; clear it again here. Only the platform operator
 # (SUPER_ADMIN) keeps it. This sits behind the DEMO_MODE=true target guard above
-# and must never be carried into a real lender deployment: TOTP is mandatory
-# for staff there (CLAUDE.md).
+# and must never be carried into a real lender deployment: staff 2FA is on by
+# default there (CLAUDE.md).
 cleared="$(live_sql "$db" 'WITH c AS (UPDATE "User" SET "totpEnabled" = false, "totpSecret" = NULL, "lastTotpCounter" = NULL WHERE role <> '"'SUPER_ADMIN'"' RETURNING 1) SELECT count(*) FROM c')" \
   && note "demo staff TOTP cleared for $cleared non-SUPER_ADMIN users" \
   || warn "could not clear demo staff TOTP; staff still need an authenticator code"
+live_sql "$db" "$TENANT_TOTP_POLICY_OFF_SQL" >/dev/null \
+  && note "demo staff 2FA policy switched off (TenantConfig.requireStaffTotp)" \
+  || warn "could not switch off the demo staff 2FA policy; staff without TOTP are held at enrolment"
 if $had_live_db; then
   live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi

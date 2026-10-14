@@ -6,7 +6,7 @@ import { cashReceivedCents } from "@/lib/payments/waiver"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/lib/auth"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { Section129Button } from "@/components/collections/Section129Button"
 import { LogContactButton } from "@/components/collections/LogContactButton"
@@ -21,12 +21,15 @@ import { WriteOffCard } from "@/components/collections/WriteOffCard"
 import { WriteOffApprovalCard } from "@/components/collections/WriteOffApprovalCard"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { getSection129IssuanceAvailability } from "@/lib/collections/section129-artifact"
+import { hasClientBorrower } from "@/lib/borrower"
+import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 
 async function getLoanDetail(loanId: string, tenantId: string) {
   const loan = await prisma.loan.findUnique({
     where: { id: loanId, tenantId },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, idNumber: true } },
+      entity: { select: { legalName: true } },
       product: { select: { name: true, productType: true } },
       notes: { orderBy: { createdAt: "desc" } },
       repaymentSchedule: { orderBy: { installmentNo: "asc" } },
@@ -43,10 +46,19 @@ async function getLoanDetail(loanId: string, tenantId: string) {
 
 export default async function CollectionDetailPage({ params }: { params: Promise<{ loanId: string }> }) {
   const { loanId } = await params
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const loan = await getLoanDetail(loanId, tenantId)
   const chargesLive = await chargesLiveForTenant(prisma, tenantId)
   if (!loan) notFound()
+  if (!hasClientBorrower(loan)) {
+    return (
+      <EntityBorrowerNotice
+        crumbs={[{ label: "Collections", href: "/collections" }]}
+        reference={loan.reference}
+        legalName={loan.entity?.legalName ?? null}
+      />
+    )
+  }
 
   const clientName = `${loan.client.firstName} ${loan.client.lastName}`
   const writeOffPending = loan.status === "PENDING_WRITE_OFF"

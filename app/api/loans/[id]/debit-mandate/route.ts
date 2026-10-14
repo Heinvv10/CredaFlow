@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateDebitMandatePdf } from "@/lib/pdf/debitMandate"
 import { requireApiRole } from "@/lib/auth-guards"
-import { getDefaultTenantId, withTenantContext } from "@/lib/tenant"
+import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import {
   assertDebitMandateCreditorTenant,
@@ -20,6 +20,7 @@ import {
 } from "@/lib/compliance/pasq"
 import { readAffordabilitySnapshotStore } from "@/lib/affordability/snapshot"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -37,8 +38,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!staff?.active) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const staffTenantId = staff.tenantId ?? await getDefaultTenantId()
-    if (staffTenantId !== tenant.id) {
+    // A staff row with no tenant is refused, never bound to the default tenant.
+    if (!staff.tenantId || staff.tenantId !== tenant.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -93,6 +94,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     })
 
     if (!loan) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    // A debit mandate is a consumer document; an entity borrower is refused.
+    if (!hasClientBorrower(loan) || loan.application.clientId === null) {
+      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
 
     let bankDetails
     let paymentTerms

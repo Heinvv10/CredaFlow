@@ -25,7 +25,7 @@ import sharp from "sharp"
 
 const ctx = vi.hoisted(() => ({
   tenantId: "", adminId: "", readPaths: [] as string[],
-  session: null as null | { user: { email: string } },
+  session: null as null | { user: { email: string; tenantId: string } },
   comparison: null as unknown,
   compared: [] as Array<{ id: { fileBuffer: Buffer; mimeType: string }; selfie: { fileBuffer: Buffer; mimeType: string } }>,
 }))
@@ -56,7 +56,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ctx.session) }))
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: vi.fn(async () => ({
     error: null,
-    user: { id: ctx.adminId, email: `${ctx.adminId}@test.invalid`, role: "ADMIN" },
+    user: { id: ctx.adminId, email: `${ctx.adminId}@test.invalid`, role: "ADMIN", totpVerified: true },
   })),
 }))
 vi.mock("@/lib/tenant", async () => {
@@ -129,7 +129,10 @@ async function seedClient() {
   })
   // The routes audit as this user, and AuditLog.userId is a foreign key.
   const admin = await db.user.create({
-    data: { email: `fm-pipe-admin-${sequence}-${token}@test.invalid`, password: "x", role: "ADMIN", tenantId },
+    data: {
+      email: `fm-pipe-admin-${sequence}-${token}@test.invalid`, password: "x", role: "ADMIN", tenantId,
+      active: true, totpEnabled: true, lastTotpCounter: 1,
+    },
   })
   ctx.tenantId = tenantId
   ctx.adminId = admin.id
@@ -240,6 +243,7 @@ const recordInPerson = (clientId: string) => inPersonPOST(new Request("http://lo
 /** Write an in-person attestation over the seeded ID copy directly, then try VERIFIED. */
 async function verifyOnAttestationWrittenToDatabase(fixture: { tenantId: string; clientId: string; idCopyId: string }) {
   const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId } })
+  const reviewer = await db.user.findFirstOrThrow({ where: { tenantId: fixture.tenantId, role: "ADMIN" } })
   const [{ fingerprint }] = await db.$queryRawUnsafe<Array<{ fingerprint: string }>>(
     `SELECT "biometric_subject_fingerprint"($1,$2,$3,$4,NULL) AS fingerprint`,
     client.id, client.idNumber, client.firstName, client.lastName,
@@ -254,13 +258,14 @@ async function verifyOnAttestationWrittenToDatabase(fixture: { tenantId: string;
         clientId: fixture.clientId, idDocumentId: fixture.idCopyId, idDocumentSha256: ID_SHA,
         subjectFingerprint: fingerprint, method: "IN_PERSON_BRANCH",
         note: "Synthetic attestation written straight to the database.",
-        approvedAt: completedAt.toISOString(), approvedById: "admin-synthetic", approvedByEmail: "admin@test.invalid",
+        approvedAt: completedAt.toISOString(), approvedById: reviewer.id, approvedByEmail: reviewer.email,
+        approvedWithTotp: true,
       },
     },
   })
   return db.client.update({
     where: { id: fixture.clientId },
-    data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerifiedById: "admin-synthetic", kycVerificationMethod: "PHYSICAL" },
+    data: { kycStatus: "VERIFIED", kycVerifiedAt: new Date(), kycVerifiedById: reviewer.id, kycVerificationMethod: "PHYSICAL" },
   })
 }
 
@@ -676,8 +681,8 @@ suite("face match v3 through the real pipeline", () => {
       const fixture = await seedClient()
       await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
       const attempt = await inFlightAttempt(fixture)
-      const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId }, select: { email: true } })
-      ctx.session = { user: { email: client.email! } }
+      const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId }, select: { email: true, tenantId: true } })
+      ctx.session = { user: { email: client.email!, tenantId: client.tenantId } }
       try {
         const deleted = await documentDELETE(new Request("http://localhost/", { method: "DELETE" }), {
           params: Promise.resolve({ id: attempt.selfieId }),

@@ -65,6 +65,21 @@ export const AuditAction = {
   LOAN_CANCELLED: "LOAN_CANCELLED",
   LOAN_STATUS_CHANGED: "LOAN_STATUS_CHANGED",
   LOAN_BUREAU_OVERRIDE: "LOAN_BUREAU_OVERRIDE",
+  // Asset finance rates (lib/asset-finance/reprice-loan.ts,
+  // app/api/asset-finance/reference-rates): a reference value recorded
+  // (PENDING), approved or rejected by a second person, a recording or decision
+  // refused (no authority, or the four-eyes rule), and a linked loan's pending
+  // schedule re-solved on an approved value.
+  REFERENCE_RATE_RECORDED: "REFERENCE_RATE_RECORDED",
+  REFERENCE_RATE_DECIDED: "REFERENCE_RATE_DECIDED",
+  REFERENCE_RATE_REFUSED: "REFERENCE_RATE_REFUSED",
+  LOAN_REPRICED: "LOAN_REPRICED",
+  LOAN_REPRICE_REFUSED: "LOAN_REPRICE_REFUSED",
+  // Credit checks (lib/credit-checks): flags raised/superseded by a recompute,
+  // and an officer clearing one with a reason.
+  CREDIT_CHECKS_RECOMPUTED: "CREDIT_CHECKS_RECOMPUTED",
+  CREDIT_CHECK_FLAG_CLEARED: "CREDIT_CHECK_FLAG_CLEARED",
+  STATEMENT_READ_RETRIED: "STATEMENT_READ_RETRIED",
   PRODUCT_PRICING_UPDATED: "PRODUCT_PRICING_UPDATED",
 
   // Agreement
@@ -163,6 +178,11 @@ export const AuditAction = {
   KYC_VERIFICATION_BLOCKED: "KYC_VERIFICATION_BLOCKED",
   DOCUMENT_ACCESS_REFUSED: "DOCUMENT_ACCESS_REFUSED",
   KYC_EXCEPTION_GRANTED: "KYC_EXCEPTION_GRANTED",
+  KYC_OVERRIDE_POLICY_UPDATED: "KYC_OVERRIDE_POLICY_UPDATED",
+  KYC_OVERRIDE_REQUESTED: "KYC_OVERRIDE_REQUESTED",
+  KYC_OVERRIDE_APPROVED: "KYC_OVERRIDE_APPROVED",
+  KYC_OVERRIDE_DECLINED: "KYC_OVERRIDE_DECLINED",
+  KYC_OVERRIDE_EXPIRED: "KYC_OVERRIDE_EXPIRED",
   KYC_IN_PERSON_VERIFICATION_GRANTED: "KYC_IN_PERSON_VERIFICATION_GRANTED",
 
   // Documents
@@ -409,6 +429,10 @@ export const AuditAction = {
   // Letterhead logo (lib/config/lender-logo.ts): the file's sha256, never the bytes.
   LENDER_LOGO_UPDATED: "LENDER_LOGO_UPDATED",
   LENDER_LOGO_REMOVED: "LENDER_LOGO_REMOVED",
+  // First SUPER_ADMIN of a lender and the break-glass reset of a locked-out
+  // one (scripts/lender/bootstrap-admin.ts). Never carry a credential.
+  SUPER_ADMIN_BOOTSTRAPPED: "SUPER_ADMIN_BOOTSTRAPPED",
+  SUPER_ADMIN_BREAK_GLASS_RESET: "SUPER_ADMIN_BREAK_GLASS_RESET",
 
   // Complaints and POPIA data subject requests (app/api/complaints,
   // app/api/dsar). Identifiers, statuses and dates only: the description,
@@ -419,4 +443,105 @@ export const AuditAction = {
   DSAR_UPDATED: "DSAR_UPDATED",
   // Branches (app/api/branches).
   BRANCH_CREATED: "BRANCH_CREATED",
+  // Asset finance NCA regime (lib/asset-finance/classification.ts,
+  // app/api/asset-finance). NON_NCA switches off the consumer rules, so who
+  // classified, who asked to change it and who agreed are audit questions.
+  NCA_CLASSIFIED: "NCA_CLASSIFIED",
+  NCA_OVERRIDE_REQUESTED: "NCA_OVERRIDE_REQUESTED",
+  NCA_OVERRIDE_DECIDED: "NCA_OVERRIDE_DECIDED",
+  // A decision refused for lack of authority or by the four-eyes rule.
+  NCA_OVERRIDE_DECISION_REFUSED: "NCA_OVERRIDE_DECISION_REFUSED",
+  // A classification refused (not an entity borrower, or already decided).
+  NCA_CLASSIFY_REFUSED: "NCA_CLASSIFY_REFUSED",
+  // Asset register and suppliers (app/api/asset-finance/assets, /suppliers).
+  ASSET_CREATED: "ASSET_CREATED",
+  ASSET_UPDATED: "ASSET_UPDATED",
+  // A serial/VIN already financed: a possible double-financing attempt.
+  ASSET_DUPLICATE_REFUSED: "ASSET_DUPLICATE_REFUSED",
+  ASSET_VALUATION_RECORDED: "ASSET_VALUATION_RECORDED",
+  SUPPLIER_CREATED: "SUPPLIER_CREATED",
+  SUPPLIER_UPDATED: "SUPPLIER_UPDATED",
+  SUPPLIER_BANK_ACCOUNT_REQUESTED: "SUPPLIER_BANK_ACCOUNT_REQUESTED",
+  SUPPLIER_BANK_ACCOUNT_DECIDED: "SUPPLIER_BANK_ACCOUNT_DECIDED",
+  // A decision refused for lack of authority or by the four-eyes rule.
+  SUPPLIER_BANK_ACCOUNT_DECISION_REFUSED: "SUPPLIER_BANK_ACCOUNT_DECISION_REFUSED",
+  // Asset finance entity onboarding (app/api/asset-finance/entities,
+  // app/api/portal/asset-finance). Entity documents are POPIA records; their
+  // reads go to DocumentAccessLog, these rows record the changes.
+  BUSINESS_ENTITY_CREATED: "BUSINESS_ENTITY_CREATED",
+  BUSINESS_ENTITY_UPDATED: "BUSINESS_ENTITY_UPDATED",
+  BUSINESS_ENTITY_UPDATE_REFUSED: "BUSINESS_ENTITY_UPDATE_REFUSED",
+  ENTITY_RELATIONSHIP_ADDED: "ENTITY_RELATIONSHIP_ADDED",
+  ENTITY_RELATIONSHIP_DEACTIVATED: "ENTITY_RELATIONSHIP_DEACTIVATED",
+  ENTITY_DOCUMENT_UPLOADED: "ENTITY_DOCUMENT_UPLOADED",
+  ENTITY_DOCUMENT_VERIFIED: "ENTITY_DOCUMENT_VERIFIED",
+  ENTITY_DOCUMENT_DELETED: "ENTITY_DOCUMENT_DELETED",
+  ENTITY_FINANCIALS_EVIDENCE_SET: "ENTITY_FINANCIALS_EVIDENCE_SET",
+  // Asset finance deals (app/api/asset-finance/deals): origination, credit
+  // memo, director/trustee bureau checks, submission and the credit decision.
+  ASSET_DEAL_CREATED: "ASSET_DEAL_CREATED",
+  ASSET_DEAL_SUBMITTED: "ASSET_DEAL_SUBMITTED",
+  // Slice 1 finances non-NCA deals only: a deal that stays NCA is refused.
+  ASSET_DEAL_REFUSED_NCA: "ASSET_DEAL_REFUSED_NCA",
+  ASSET_DEAL_DECIDED: "ASSET_DEAL_DECIDED",
+  // A decision refused for lack of authority.
+  ASSET_DEAL_DECISION_REFUSED: "ASSET_DEAL_DECISION_REFUSED",
+  ENTITY_FINANCIALS_RECORDED: "ENTITY_FINANCIALS_RECORDED",
+  ASSET_AFFORDABILITY_ASSESSED: "ASSET_AFFORDABILITY_ASSESSED",
+  ASSET_CREDIT_LIFE_ELECTED: "ASSET_CREDIT_LIFE_ELECTED",
+  ASSET_NCA_QUOTE_ISSUED: "ASSET_NCA_QUOTE_ISSUED",
+  ASSET_NCA_QUOTE_ACKNOWLEDGED: "ASSET_NCA_QUOTE_ACKNOWLEDGED",
+  ASSET_SURRENDER_REQUESTED: "ASSET_SURRENDER_REQUESTED",
+  ASSET_SURRENDER_VALUED: "ASSET_SURRENDER_VALUED",
+  ASSET_SURRENDER_VALUATION_NOTICE_ISSUED: "ASSET_SURRENDER_VALUATION_NOTICE_ISSUED",
+  ASSET_SURRENDER_PROCEEDS_CREDITED: "ASSET_SURRENDER_PROCEEDS_CREDITED",
+  ASSET_SURRENDER_FINAL_NOTICE_ISSUED: "ASSET_SURRENDER_FINAL_NOTICE_ISSUED",
+  ASSET_DEAL_BUREAU_CHECKED: "ASSET_DEAL_BUREAU_CHECKED",
+  // A run with `force: true` (decide_asset_finance): people checked within the
+  // last 30 days are checked again. A force asked for without that permission
+  // is refused and recorded as ASSET_DEAL_BUREAU_FORCE_REFUSED.
+  ASSET_DEAL_BUREAU_FORCED_RERUN: "ASSET_DEAL_BUREAU_FORCED_RERUN",
+  ASSET_DEAL_BUREAU_FORCE_REFUSED: "ASSET_DEAL_BUREAU_FORCE_REFUSED",
+  // Asset finance set-up (app/api/settings/asset-finance, app/api/asset-finance/vat-config):
+  // the module switch, the payout dual-approval threshold and the VAT vendor details.
+  ASSET_FINANCE_MODULE_ENABLED: "ASSET_FINANCE_MODULE_ENABLED",
+  ASSET_FINANCE_MODULE_DISABLED: "ASSET_FINANCE_MODULE_DISABLED",
+  ASSET_PAYOUT_DUAL_APPROVAL_CHANGED: "ASSET_PAYOUT_DUAL_APPROVAL_CHANGED",
+  VAT_CONFIG_UPDATED: "VAT_CONFIG_UPDATED",
+  // Deal documents and signing (lib/asset-finance/signing-*.ts): who prepared
+  // the documents, each e-signature, each wet-ink scan and its confirmation by
+  // a second user, and the move to CONTRACTED. Refusals (four eyes, signers
+  // outstanding) are audited too. Document reads go to DocumentAccessLog.
+  ASSET_DEAL_DOCUMENTS_PREPARED: "ASSET_DEAL_DOCUMENTS_PREPARED",
+  ASSET_DEAL_DOCUMENT_SIGNED: "ASSET_DEAL_DOCUMENT_SIGNED",
+  ASSET_DEAL_WET_INK_UPLOADED: "ASSET_DEAL_WET_INK_UPLOADED",
+  ASSET_DEAL_WET_INK_CONFIRMED: "ASSET_DEAL_WET_INK_CONFIRMED",
+  ASSET_DEAL_CONTRACTED: "ASSET_DEAL_CONTRACTED",
+  ASSET_DEAL_SIGNING_REFUSED: "ASSET_DEAL_SIGNING_REFUSED",
+  // Payout gate and booking (lib/asset-finance/payout*.ts, booking.ts): each
+  // checklist confirmation with its evidence, the payout's creation and its
+  // (second-user) approval, and the booking that creates the Loan and
+  // releases the payout. Refusals of any of these are audited too.
+  ASSET_PAYOUT_CHECKLIST_CONFIRMED: "ASSET_PAYOUT_CHECKLIST_CONFIRMED",
+  ASSET_PAYOUT_CREATED: "ASSET_PAYOUT_CREATED",
+  ASSET_PAYOUT_APPROVED: "ASSET_PAYOUT_APPROVED",
+  ASSET_PAYOUT_REFUSED: "ASSET_PAYOUT_REFUSED",
+  ASSET_DEAL_BOOKED: "ASSET_DEAL_BOOKED",
+  // A deal cancelled before booking (lib/asset-finance/deal-cancel.ts): its
+  // payout, application and asset with it. Refusals are audited too.
+  ASSET_DEAL_CANCELLED: "ASSET_DEAL_CANCELLED",
+  ASSET_DEAL_CANCEL_REFUSED: "ASSET_DEAL_CANCEL_REFUSED",
+  // A surety or signatory deactivation refused while the entity has an
+  // approved deal (its signer set is fixed).
+  ENTITY_RELATIONSHIP_CHANGE_REFUSED: "ENTITY_RELATIONSHIP_CHANGE_REFUSED",
+  // Staff two-factor (lib/security/staff-totp-policy.ts, app/api/settings/totp,
+  // app/api/settings/users/[id]/totp). Identifiers and the policy flag only,
+  // never a secret or a code.
+  STAFF_TOTP_POLICY_UPDATED: "STAFF_TOTP_POLICY_UPDATED",
+  TOTP_ENROLLED: "TOTP_ENROLLED",
+  TOTP_DISABLED: "TOTP_DISABLED",
+  TOTP_REPLACED: "TOTP_REPLACED",
+  // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
+  TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
+  TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
 } as const

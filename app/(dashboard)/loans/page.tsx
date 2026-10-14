@@ -2,7 +2,7 @@ import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { LoanTable } from "@/components/loans/LoanTable"
 import { prisma } from "@/lib/prisma"
-import { getDefaultTenantId } from "@/lib/tenant"
+import { getStaffTenantId } from "@/lib/session-tenant"
 
 interface PageProps { searchParams: Promise<{ branch?: string }> }
 
@@ -14,6 +14,7 @@ async function getLoans(tenantId: string, branchId?: string) {
     orderBy: { createdAt: "desc" },
     include: {
       client: { select: { firstName: true, lastName: true } },
+      entity: { select: { legalName: true } },
       product: { select: { name: true } },
     },
   })
@@ -25,7 +26,7 @@ async function getBranches(tenantId: string) {
 
 export default async function LoansPage({ searchParams }: PageProps) {
   const { branch } = await searchParams
-  const tenantId = await getDefaultTenantId()
+  const tenantId = await getStaffTenantId()
   const [loans, branches] = await Promise.all([getLoans(tenantId, branch), getBranches(tenantId)])
 
   return (
