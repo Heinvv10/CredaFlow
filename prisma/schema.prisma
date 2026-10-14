@@ -269,6 +269,18 @@ model TenantConfig {
   bureauMinScore     Int     @default(450)
   bureauBlockAdverse Boolean @default(false)
 
+  // Credit bureau ENQUIRY (lib/bureau). The ordered list is the whole policy:
+  // the first entry is the primary, the rest the fallback order, and a bureau
+  // not listed is not enabled. The default reproduces the Experian-only path.
+  bureauProviderOrder String[] @default(["experian"])
+  // Credentials for the bureaus that keep them per tenant: ONE secret-box
+  // sealed JSON object keyed by provider id (lib/bureau/credentials.ts).
+  bureauCredentials   String?
+  // How old a bureau report may be and still support approval, agreement and
+  // payout. CHECK 1..60 in the migration (60 = BUREAU_STALENESS_DAYS, the
+  // ceiling in lib/compliance/bureau.ts).
+  bureauMaxAgeDays    Int      @default(60)
+
   // Staff two-factor policy (lib/security/staff-totp-policy.ts). On: a staff
   // user with no TOTP enrolled can reach only the enrolment page. Off: a code
   // is demanded at sign-in only from a user who enrolled. Default on, for
@@ -1630,6 +1642,12 @@ model CreditBureauCheck {
   obligations        Json?
   ok                 Boolean  @default(false)
   errorMessage       String?
+  // One row per provider ATTEMPT (lib/bureau/enquiry.ts): its 1-based place
+  // in the run and how it ended (lib/bureau/types.ts BureauAttemptStatus).
+  // Null on rows written before the bureau framework and on the asset-finance
+  // path, which records a single Experian call.
+  attempt            Int?
+  status             String?
   createdAt          DateTime @default(now())
 
   @@index([clientId])
