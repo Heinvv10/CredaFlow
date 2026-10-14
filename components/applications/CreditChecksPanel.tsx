@@ -25,6 +25,7 @@ const GROUPS: Array<{ check: CheckKind; heading: string }> = [
   { check: "UNDISCLOSED_DEBT", heading: "Undisclosed debt" },
   { check: "RISK_BEHAVIOUR", heading: "Risk behaviour" },
   { check: "MANUAL_REVIEW", heading: "Manual review" },
+  { check: "EXPENSE_UNDERSTATED", heading: "Declared expenses" },
 ]
 
 function formatCents(cents: number): string {

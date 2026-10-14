@@ -1,0 +1,57 @@
+/**
+ * EXPENSE_UNDERSTATED: the client's statements show more living spend than
+ * the monthly expenses they declared (goal 2026-10-14 §2a.4). Understated
+ * expenses overstate what the client can afford, which the NCA affordability
+ * assessment rests on. A REFER flag only: categories never change the
+ * affordability figure (lib/affordability/ is not involved).
+ *
+ * Living spend is the categorised spend in living categories
+ * (lib/statement-analysis/categories.ts), averaged per month over the
+ * reconciling statements' coverage. Own transfers, savings, cash, credit
+ * instalments (UNDISCLOSED_DEBT's concern), gambling, fees and anything
+ * uncategorised are left out, so a cash-heavy client is never flagged on a guess.
+ */
+import { CATEGORISER_VERSION } from "@/lib/statement-analysis/categorise"
+import { computeInsights } from "@/lib/statement-analysis/insights"
+import { formatCents } from "@/lib/statement-analysis/money"
+import { EXPENSE_GAP_MIN_CENTS, EXPENSE_GAP_MIN_SHARE } from "./policy"
+import { statementKey, type ApplicationFacts, type FlagCandidate } from "./types"
+
+/** Both must hold: more than R1,500 a month above declared, and more than 25% of declared. */
+export function understated(livingMonthlyCents: number, declaredCents: number): boolean {
+  const gap = livingMonthlyCents - declaredCents
+  return gap > EXPENSE_GAP_MIN_CENTS && gap > declaredCents * EXPENSE_GAP_MIN_SHARE
+}
+
+export function expenseUnderstated(f: ApplicationFacts): FlagCandidate[] {
+  const declared = f.declaredExpensesCents
+  if (declared === undefined || declared === null) return []
+  const read = f.statements.filter((s) => s.state === "READ" && s.read)
+  const insights = computeInsights(
+    read.map((s) => ({ documentId: s.documentId, bank: s.bank, balanceCheck: s.balanceCheck, read: s.read! })),
+    { clientName: f.clientName, declaredExpensesCents: declared },
+  )
+  if (!insights.enoughCoverage) return []
+  if (!understated(insights.living.monthlyCents, declared)) return []
+  const gap = insights.living.monthlyCents - declared
+  const used = read.filter((s) => s.balanceCheck === "PASS")
+  return [{
+    check: "EXPENSE_UNDERSTATED",
+    code: "LIVING_SPEND_ABOVE_DECLARED",
+    // The rules that categorised the spend are part of the evidence: new rules are a new finding.
+    key: `${CATEGORISER_VERSION}|${used.map(statementKey).sort().join(",")}`,
+    summary: `The statements show living spend of about ${formatCents(insights.living.monthlyCents)} a month; ` +
+      `the client declared ${formatCents(declared)}, ${formatCents(gap)} less.`,
+    evidence: {
+      documentIds: used.map((s) => s.documentId),
+      categoriserVersion: CATEGORISER_VERSION,
+      months: insights.months.map((m) => m.month),
+      coverageDays: insights.coverageDays,
+      livingMonthlyCents: insights.living.monthlyCents,
+      livingByCategoryMonthlyCents: insights.living.byCategoryMonthlyCents,
+      excludedMonthlyCents: insights.living.excludedMonthlyCents,
+      declaredCents: declared,
+      gapCents: gap,
+    },
+  }]
+}
