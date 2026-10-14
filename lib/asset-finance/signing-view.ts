@@ -111,14 +111,14 @@ export async function loadPortalSigners(tenantId: string, clientId: string, enti
     select: {
       id: true, document: true, method: true, signedAt: true, signatureSha256: true,
       scanDocumentId: true, confirmedById: true, confirmedAt: true,
-      deal: { select: { status: true, application: { select: { reference: true } }, entity: { select: { legalName: true } } } },
+      deal: { select: { status: true, contractType: true, application: { select: { reference: true } }, entity: { select: { legalName: true } } } },
     },
   })
   return rows.map((r) => ({
     id: r.id,
     document: r.document,
     dealReference: r.deal.application.reference,
-    entityName: r.deal.entity?.legalName ?? "Consumer agreement",
+    entityName: r.deal.entity?.legalName ?? (r.deal.contractType === "OPERATING_LEASE" || r.deal.contractType === "FULL_MAINTENANCE_LEASE" ? "Your lease" : "Consumer agreement"),
     state: signerState(r),
     canSign: r.deal.status === "APPROVED" && r.method === null,
   }))

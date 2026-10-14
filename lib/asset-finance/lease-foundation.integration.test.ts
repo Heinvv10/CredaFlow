@@ -80,10 +80,20 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
       [`"rentalTiming" = NULL`, "AssetFinanceDeal_lease_terms_shape"],
       [`"maintenanceMonthlyExclVatCents" = NULL`, "AssetFinanceDeal_lease_terms_shape"],
       [`"depositCents" = 100`, "AssetFinanceDeal_lease_terms_shape"],
+      [`"tradeInCents" = 100`, "AssetFinanceDeal_lease_terms_shape"],
+      [`"financedFeesCents" = 100`, "AssetFinanceDeal_lease_terms_shape"],
+      [`"vatDeferralPeriodIndex" = 1`, "AssetFinanceDeal_lease_terms_shape"],
+      [`"maintenanceRiskModel" = NULL`, "AssetFinanceDeal_lease_terms_shape"],
+      [`"earlyTerminationPenaltyRate" = NULL`, "AssetFinanceDeal_lease_terms_shape"],
+      [`"usageAllowancePerYear" = NULL, "usageUnit" = NULL, "excessRateCents" = NULL`, "AssetFinanceDeal_lease_terms_shape"], // an FML has contracted usage
       [`"usageUnit" = NULL`, "AssetFinanceDeal_lease_terms_shape"],
       [`"contractType" = 'OPERATING_LEASE'`, "AssetFinanceDeal_lease_terms_shape"], // an operating lease carries no maintenance
       [`"escalationRate" = 1`, "AssetFinanceDeal_lease_terms_range"],
       [`"excessRateCents" = 0`, "AssetFinanceDeal_lease_terms_range"],
+      [`"maintenanceEscalationRate" = 1`, "AssetFinanceDeal_lease_terms_range"],
+      [`"earlyTerminationPenaltyRate" = 1`, "AssetFinanceDeal_lease_terms_range"],
+      [`"maintenanceMonthlyExclVatCents" = 0`, "AssetFinanceDeal_lease_terms_range"],
+      [`"usageAllowancePerYear" = 0`, "AssetFinanceDeal_lease_terms_range"],
       [`"cpaRule" = 'CPA_MADE_UP'`, "AssetFinanceDeal_cpa_scope_shape"],
       [`"cpaApplies" = NOT "cpaApplies"`, "AssetFinanceDeal_cpa_scope_shape"],
       [`"cpaApplies" = NULL, "cpaRule" = NULL`, "AssetFinanceDeal_cpa_scope_shape"],
@@ -103,9 +113,11 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
       sql(replica(`UPDATE "AssetFinanceDeal" SET "rentalTiming" = 'ARREARS' WHERE "id" = '${ids.approved}'`))
     })
 
-    it("an approved lease's lessee, lease terms and CPA scope are frozen", () => {
-      expectRejected(`UPDATE "AssetFinanceDeal" SET "earlyTerminationPenaltyRate" = 0.2 WHERE "id" = '${ids.approved}'`, "lease terms and CPA scope are what was approved")
-      expectRejected(`UPDATE "AssetFinanceDeal" SET "cpaEvidenceIds" = ARRAY['x'] WHERE "id" = '${ids.approved}'`, "lease terms and CPA scope are what was approved")
+    it.each([
+      [`"earlyTerminationPenaltyRate" = 0.2`], [`"cpaEvidenceIds" = ARRAY['x']`], [`"rentalTiming" = 'ADVANCE'`], [`"escalationRate" = 0.05`],
+      [`"usageAllowancePerYear" = 1000, "usageUnit" = 'KM', "excessRateCents" = 10`], [`"cpaApplies" = true, "cpaRule" = 'CPA_FINANCIALS_UNPROVEN'`],
+    ])("an approved lease's lessee, lease terms and CPA scope are frozen: %s", (set) => {
+      expectRejected(`UPDATE "AssetFinanceDeal" SET ${set} WHERE "id" = '${ids.approved}'`, "lease terms and CPA scope are what was approved")
     })
 
     it("a loan's CPA scope: present exactly on a lease, fixed at booking", () => {
@@ -195,11 +207,21 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
       expectRejected(without("LeaseRental", "LeaseRental_matches_schedule", insert(ids.olLoan, olSchedule, 5).replace(`'${olSchedule}'`, olSchedule)), "carries no maintenance")
     })
 
-    it("a repricing flag is needed to change amounts; never the maintenance; never once invoiced", () => {
-      const flagged = (set: string) => `BEGIN; SELECT set_config('credaflow.lease_reprice', 'on', true);
+    it("inside a recorded repricing a rental's maintenance still never changes; once invoiced its amounts never do", () => {
+      // A ContractRate of the loan written in the same transaction: the repricing record guardLeaseRental requires.
+      const recorded = `INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "margin", "resultingRate", "newInstalmentCents")
+        SELECT 'cr_m_${t}', "tenantId", "loanId", CURRENT_DATE + 7, "basis", "margin", "resultingRate", "newInstalmentCents" FROM "ContractRate"
+        WHERE "loanId" = '${ids.fmlLoan}' ORDER BY "effectiveDate" DESC LIMIT 1;`
+      const flagged = (set: string, setup = "") => `BEGIN; SELECT set_config('credaflow.lease_reprice', 'on', true); ${recorded} ${setup}
         UPDATE "LeaseRental" SET ${set} WHERE "id" = '${ids.rental}'; ROLLBACK;`
       expectRejected(flagged(`"maintenanceExclVatCents" = "maintenanceExclVatCents" + 1, "totalCents" = "totalCents" + 1`), "never the maintenance")
-      sql(flagged(`"rentalExclVatCents" = "rentalExclVatCents" + 1, "totalCents" = "totalCents" + 1`).replace("ROLLBACK;", "ROLLBACK;")) // allowed (rolled back)
+      const invoiced = `ALTER TABLE "TaxInvoice" DISABLE TRIGGER "TaxInvoice_totals_match_lines";
+        INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "loanId", "supplierName", "supplierAddress",
+          "supplierVatNumber", "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents")
+          VALUES ('inv_m_${t}', '${fx.tenantId}', 0, '', CURRENT_DATE, CURRENT_DATE, '${ids.fmlLoan}', 'L', 'A', '4000000001', 'R', 'A', 0.15, 1, 0, 1);
+        SET LOCAL session_replication_role = replica; UPDATE "LeaseRental" SET "taxInvoiceId" = 'inv_m_${t}' WHERE "id" = '${ids.rental}';
+        SET LOCAL session_replication_role = origin;`
+      expectRejected(flagged(`"rentalExclVatCents" = "rentalExclVatCents" + 1, "totalCents" = "totalCents" + 1`, invoiced), "only a repricing changes them")
     })
 
     it("at commit, a rental equals its schedule row", () => {

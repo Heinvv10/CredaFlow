@@ -376,9 +376,12 @@ ALTER TABLE "LeaseRental" ADD CONSTRAINT "LeaseRental_amounts" CHECK (
 -- Written once per rental of a lease loan (an operating lease has no
 -- maintenance), never deleted. The period, its loan, schedule row and due date
 -- never change. The amounts change only before the rental is invoiced and
--- only inside a repricing (lib/asset-finance/lease-reprice.ts sets the
--- transaction-local flag credaflow.lease_reprice). The tax invoice is set
--- once, to an invoice of the same loan for the rental's total.
+-- only inside a repricing: the transaction-local flag credaflow.lease_reprice
+-- (lib/asset-finance/lease-reprice.ts) AND a ContractRate of the loan written
+-- in this same transaction; the VAT rate stays the booked one and the VAT is
+-- recomputed on it (vatHalfUpCents per line). The tax invoice is set once, to
+-- an invoice of the same loan for the rental's total, supplied no later than
+-- the due date, and before it only if money has reached the rental.
 CREATE OR REPLACE FUNCTION public."guardLeaseRental"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -417,19 +420,30 @@ BEGIN
     OR NEW."totalCents" IS DISTINCT FROM OLD."totalCents"
     OR NEW."vatRate" IS DISTINCT FROM OLD."vatRate" THEN
     IF OLD."taxInvoiceId" IS NOT NULL OR NEW."taxInvoiceId" IS NOT NULL
-      OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on' THEN
+      OR current_setting('credaflow.lease_reprice', true) IS DISTINCT FROM 'on'
+      OR NOT EXISTS (SELECT 1 FROM "ContractRate" c WHERE c."loanId" = NEW."loanId" AND c."tenantId" = NEW."tenantId" AND c."createdAt" >= date_trunc('milliseconds', now()) - INTERVAL '1 millisecond') THEN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'A lease rental''s amounts are fixed at booking; only a repricing changes them, before the rental is invoiced';
+    END IF;
+    IF NEW."vatRate" IS DISTINCT FROM OLD."vatRate"
+      OR NEW."vatCents" <> "vatHalfUpCents"(NEW."rentalExclVatCents", NEW."vatRate") + "vatHalfUpCents"(NEW."maintenanceExclVatCents", NEW."vatRate") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repriced rental keeps its booked VAT rate, its VAT recomputed on it';
     END IF;
     IF NEW."maintenanceExclVatCents" IS DISTINCT FROM OLD."maintenanceExclVatCents" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repricing changes the rental, never the maintenance';
     END IF;
   END IF;
   IF OLD."taxInvoiceId" IS NULL AND NEW."taxInvoiceId" IS NOT NULL THEN
-    SELECT i."loanId", i."totalInclVatCents" INTO invoice_row FROM "TaxInvoice" i
+    SELECT i."loanId", i."totalInclVatCents", i."supplyDate" INTO invoice_row FROM "TaxInvoice" i
       WHERE i."id" = NEW."taxInvoiceId" AND i."tenantId" = NEW."tenantId";
     IF invoice_row."loanId" IS DISTINCT FROM NEW."loanId" OR invoice_row."totalInclVatCents" IS DISTINCT FROM NEW."totalCents" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease rental''s tax invoice is of its loan, for the rental''s total';
+    END IF;
+    -- Time of supply: the earlier of the due date and a payment towards the rental.
+    IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND NOT EXISTS (
+        SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514',
+        MESSAGE = 'A lease rental is supplied on its due date, or earlier only once a payment has reached it';
     END IF;
   END IF;
   RETURN NEW;
@@ -451,25 +465,27 @@ DECLARE
 BEGIN
   IF TG_TABLE_NAME = 'LeaseRental' THEN
     SELECT s."loanId" IS DISTINCT FROM r."loanId" OR s."installmentNo" IS DISTINCT FROM r."periodNo" OR s."totalDue" IS DISTINCT FROM r."totalCents"
+      OR (s."dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date IS DISTINCT FROM r."dueDate"
       INTO bad
       FROM "LeaseRental" r JOIN "RepaymentSchedule" s ON s."id" = r."scheduleId" AND s."tenantId" = r."tenantId"
       WHERE r."id" = NEW."id";
   ELSE
     SELECT s."loanId" IS DISTINCT FROM r."loanId" OR s."installmentNo" IS DISTINCT FROM r."periodNo" OR s."totalDue" IS DISTINCT FROM r."totalCents"
+      OR (s."dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date IS DISTINCT FROM r."dueDate"
       INTO bad
       FROM "LeaseRental" r JOIN "RepaymentSchedule" s ON s."id" = r."scheduleId" AND s."tenantId" = r."tenantId"
       WHERE s."id" = NEW."id";
   END IF;
   IF bad THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = 'A lease rental and its schedule row must agree: same loan, period = instalment number, total = total due';
+      MESSAGE = 'A lease rental and its schedule row must agree: same loan, period = instalment number, total = total due, same due date';
   END IF;
   RETURN NULL;
 END;
 $function$;
 CREATE CONSTRAINT TRIGGER "LeaseRental_matches_schedule" AFTER INSERT OR UPDATE ON "LeaseRental"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseRentalSchedule"();
-CREATE CONSTRAINT TRIGGER "RepaymentSchedule_matches_lease_rental" AFTER UPDATE OF "totalDue", "installmentNo", "loanId" ON "RepaymentSchedule"
+CREATE CONSTRAINT TRIGGER "RepaymentSchedule_matches_lease_rental" AFTER UPDATE OF "totalDue", "installmentNo", "loanId", "dueDate" ON "RepaymentSchedule"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseRentalSchedule"();
 
 -- Booking a lease writes a rental for every schedule row, with the deal's CPA
@@ -511,3 +527,48 @@ END;
 $function$;
 CREATE TRIGGER "FinancedAsset_natis_owner_frozen" BEFORE UPDATE OF "natisOwner" ON "FinancedAsset"
   FOR EACH ROW EXECUTE FUNCTION public."guardFinancedAssetNatisOwner"();
+
+-- At commit, every schedule row of a lease loan is a rental (has its
+-- LeaseRental): nothing else is billed on a lease outside the lease code.
+CREATE OR REPLACE FUNCTION public."checkLeaseScheduleRow"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId"
+      AND l."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE'))
+    AND NOT EXISTS (SELECT 1 FROM "LeaseRental" r WHERE r."scheduleId" = NEW."id" AND r."tenantId" = NEW."tenantId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease loan''s schedule row is one of its rentals';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "RepaymentSchedule_lease_row_is_rental" AFTER INSERT ON "RepaymentSchedule"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseScheduleRow"();
+
+-- At commit, a lease loan is the one its BOOKED lease deal booked: same
+-- contract type, same asset. A loan cannot be written onto a lease
+-- application any other way (an unbooked or deleted deal, no asset).
+CREATE OR REPLACE FUNCTION public."checkLeaseLoanBooked"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NEW."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') AND NOT EXISTS (
+    SELECT 1 FROM "AssetFinanceDeal" d WHERE d."loanId" = NEW."id" AND d."tenantId" = NEW."tenantId" AND d."status" = 'BOOKED'
+      AND d."contractType" = NEW."contractType" AND d."applicationId" = NEW."applicationId" AND NEW."assetId" IS NOT NULL AND d."assetId" = NEW."assetId"
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease loan is booked by its lease deal: BOOKED, same contract type, application and asset';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "Loan_lease_booked_by_deal" AFTER INSERT OR UPDATE OF "assetId", "applicationId" ON "Loan"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseLoanBooked"();
+
+-- A lease deal is never deleted (it is cancelled): its application's lease
+-- rule rests on it (checkLeaseApplicationBinding).
+CREATE OR REPLACE FUNCTION public."refuseLeaseDealDelete"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease deal is never deleted; cancel it';
+END;
+$function$;
+CREATE TRIGGER "AssetFinanceDeal_refuse_lease_delete" BEFORE DELETE ON "AssetFinanceDeal"
+  FOR EACH ROW WHEN (OLD."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE')) EXECUTE FUNCTION public."refuseLeaseDealDelete"();

@@ -9,7 +9,7 @@ import { Prisma } from "@prisma/client"
 import type { RegimeTx } from "./classification"
 import { classifyCpaScope, type CpaScope } from "./cpa-scope"
 import { nullableFigureFromDb } from "./big-cents"
-import type { LeaseTerms } from "./lease-input"
+import type { LeaseContractType, LeaseTerms } from "./lease-input"
 
 /**
  * The NON_NCA classification a lease application is written with. An
@@ -17,7 +17,7 @@ import type { LeaseTerms } from "./lease-input"
  * never passes, so the NCA definition of a lease is not met.
  * // UNTESTED: legal — the lender's legal team to confirm.
  */
-export function leaseApplicationRegime(userId: string, contractType: string) {
+export function leaseApplicationRegime(userId: string, contractType: LeaseContractType) {
   return {
     ncaRegime: "NON_NCA" as const,
     ncaClassificationRule: "LEASE_NOT_CREDIT_AGREEMENT",

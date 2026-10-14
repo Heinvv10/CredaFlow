@@ -1,8 +1,8 @@
 # Asset Finance — Design
 
 Status: **design approved 2026-10-13 (grill-me).** Slices 1 and 2 built and
-merged; slice 3 (operating and full-maintenance leases) built, see "Slice 3"
-below. Slice 1 goal: `.claude/handoffs/2026-10-13-asset-finance-slice1-goal.md`.
+merged; slice 3 (operating and full-maintenance leases) in progress: C1–C4
+built, C5–C12 pending, see "Slice 3" below. Slice 1 goal: `.claude/handoffs/2026-10-13-asset-finance-slice1-goal.md`.
 
 WesBank-type instalment sale and leasing of vehicles, tractors, TLBs and
 yellow machinery. Borrowers are mostly companies and trusts, some sole
@@ -153,7 +153,7 @@ movements, `LeaseRental`, `Repossession`, `RemarketingSale`, `JournalExport`,
 5. **Dealer/broker portal, tracker/telematics integration, valuation
    feeds.**
 
-## Slice 3: operating and full-maintenance leases (built; legal and tax to confirm)
+## Slice 3: operating and full-maintenance leases (C1–C4 built; legal and tax to confirm)
 
 Code: `lib/asset-finance/lease-*.ts`, `cpa-scope.ts`, `documents/lease/`;
 migration `20261014090000_asset_finance_lease_foundation`.
@@ -186,8 +186,12 @@ migration `20261014090000_asset_finance_lease_foundation`.
   reminders and NON_NCA default interest work unchanged. The capital pricing
   survives in `assetFinanceOpeningBalanceCents` (repricing re-solves it) and
   each row's `LeaseRental` holds the rental / maintenance / VAT split.
-  "Rentals outstanding" is not a settlement figure: a lease ends early only
-  by quotation (C8). Leases have their own statement
+  For a lease the ledger's "settlement" figure is the rentals outstanding
+  (incl. charges): what the lessee would pay to prepay every rental, which
+  invoices each rental at receipt. It is not an early termination: ending a
+  lease early is by quotation only (C8), and the asset still comes back.
+  Screens label it as rentals outstanding; the NCA certificate of balance is
+  refused for a lease. Leases have their own statement
   (`documents/lease/statement-pdf.ts`), not the credit statement.
 - **Tax invoices** (`lease-invoices.ts`): one per rental, supply date = the
   earlier of the due date (daily cron) and a receipt that reaches it (all

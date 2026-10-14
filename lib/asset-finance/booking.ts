@@ -55,24 +55,20 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { generateReference } from "@/lib/utils"
 import { issueInstalmentSaleInvoice } from "@/lib/vat/tax-invoice"
 import { planBooking } from "./booking-plan"
-import { loadBookingDeal, recipientAddress, type BookingDeal, type BookingRefusal } from "./booking-load"
+import { loadBookingDeal, recipientAddress, type BookingRefusal } from "./booking-load"
 import { identifierMatchesAsset } from "./asset-identifier"
-import { dbDate, isoOfDbDate } from "./dates"
+import { dbDate } from "./dates"
 import { resolveRate, solveDealStructure } from "./deal-structure"
 import { solveNcaDealStructure } from "./nca-structure"
 import { pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { termsFromDeal } from "./deal-terms"
 import { payoutAmountCents } from "./payout-checklist"
 import type { SigningActor } from "./signing-prepare"
+import { BookingRaceError, signedTerms } from "./booking-terms"
+
+export { BookingRaceError } from "./booking-terms"
 import { isLeaseContract } from "./lease-input"
 import { bookLease } from "./lease-booking"
-
-export class BookingRaceError extends Error {
-  constructor(what: string) {
-    super(`${what} changed while the deal was being booked; nothing was booked`)
-    this.name = "BookingRaceError"
-  }
-}
 
 export type BookingResult =
   | { kind: "not_found" }
@@ -81,30 +77,6 @@ export type BookingResult =
   | { kind: "booked"; loanId: string; loanReference: string; taxInvoiceId: string | null; invoiceNumber: string | null }
 
 const refuse = (reason: string, error: string): BookingRefusal => ({ kind: "refused", reason, error })
-
-export interface SignedTerms {
-  startDate: string
-  baseInstalmentCents: number
-  resultingRate: Prisma.Decimal
-  totalInterestCents: number
-  arrearsMarginRate: Prisma.Decimal | null
-  collectionFeeCents: number
-}
-
-/** The terms fixed at preparation; null if the deal was never prepared (CHECK: all or none). */
-export function signedTerms(deal: BookingDeal): SignedTerms | null {
-  const { plannedStartDate, signedBaseInstalmentCents, signedResultingRate, signedTotalInterestCents, signedArrearsMarginRate, signedCollectionFeeCents } = deal
-  if (plannedStartDate === null || signedBaseInstalmentCents === null || signedResultingRate === null
-    || signedTotalInterestCents === null || signedCollectionFeeCents === null) return null
-  return {
-    startDate: isoOfDbDate(plannedStartDate),
-    baseInstalmentCents: signedBaseInstalmentCents,
-    resultingRate: signedResultingRate,
-    totalInterestCents: signedTotalInterestCents,
-    arrearsMarginRate: signedArrearsMarginRate,
-    collectionFeeCents: signedCollectionFeeCents,
-  }
-}
 
 export async function bookDeal(actor: SigningActor, dealId: string, today: string): Promise<BookingResult> {
   const { tenantId } = actor

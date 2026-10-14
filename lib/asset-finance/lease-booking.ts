@@ -21,7 +21,8 @@ import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { generateReference } from "@/lib/utils"
 import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
-import { BookingRaceError, signedTerms, type BookingResult } from "./booking"
+import type { BookingResult } from "./booking"
+import { BookingRaceError, signedTerms } from "./booking-terms"
 import { recipientAddress, type BookingDeal, type BookingRefusal } from "./booking-load"
 import { identifierMatchesAsset } from "./asset-identifier"
 import { dbDate } from "./dates"
@@ -64,6 +65,10 @@ export async function bookLease(tx: SigningTx, actor: SigningActor, deal: Bookin
   if ("error" in rate) return refuse("rate_unavailable", rate.error)
   if (!new Prisma.Decimal(rate.annualRate).equals(signed.resultingRate)) {
     return refuse("terms_changed", `The rate in force on the start date ${start} is ${rate.annualRate}, not the signed ${signed.resultingRate.toString()}`)
+  }
+  // Every rental is tax-invoiced: the lessor must be a configured VAT vendor.
+  if (!(await tx.vatConfig.findUnique({ where: { tenantId }, select: { tenantId: true } }))) {
+    return refuse("vat_not_configured", "Configure the lender's VAT vendor details first: every rental is tax-invoiced")
   }
   const vat = await loadRateOn(tx, start).catch((error: unknown) => {
     if (error instanceof NoVatRateError) return null

@@ -9,9 +9,20 @@ import { getLenderLogo } from "@/lib/config/lender-logo"
 import { hasClientBorrower } from "@/lib/borrower"
 import { renderEntityStatementPdf } from "@/lib/asset-finance/documents/statement-pdf"
 import { renderLeaseStatementPdf } from "@/lib/asset-finance/documents/lease/statement-pdf"
+import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { recordedCallerIp } from "@/lib/rate-limit"
 
 type RouteCtx = { params: Promise<{ id: string }> }
+
+type Guarded = { error: NextResponse } | { error?: undefined; type?: string; clientId?: string; user?: { id: string } }
+
+/** Who reads a lease statement, for its DocumentAccessLog row: the lessee client or a staff user, never a guess. */
+async function leaseStatementAccessor(access: Guarded): Promise<{ error: NextResponse } | { type: "client" | "staff"; id: string }> {
+  if (access.error) return { error: access.error }
+  if (access.type === "client" && access.clientId) return { type: "client", id: access.clientId }
+  if (access.user) return { type: "staff", id: access.user.id }
+  return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+}
 
 // Callable by both staff (any role) and the portal CLIENT for their own loan.
 export async function GET(req: NextRequest, { params }: RouteCtx) {
@@ -37,13 +48,13 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     // own lease; an entity lessee's people use the portal lease routes. The
     // read is logged before rendering.
     if (loan.contractType === "OPERATING_LEASE" || loan.contractType === "FULL_MAINTENANCE_LEASE") {
-      const access = loan.clientId ? await requireOwnerOrStaff(loan.clientId) : await requireApiRole("READONLY")
-      if (access.error) return access.error
-      const client = "type" in access && access.type === "client"
+      const disabled = await requireAssetFinanceEnabled(tenant.id)
+      if (disabled) return disabled
+      const accessor = loan.clientId ? await leaseStatementAccessor(await requireOwnerOrStaff(loan.clientId)) : await leaseStatementAccessor(await requireApiRole("READONLY"))
+      if ("error" in accessor) return accessor.error
       await prisma.documentAccessLog.create({
         data: {
-          documentId: loan.id, accessorType: client ? "client" : "staff",
-          accessorId: "clientId" in access && access.clientId ? access.clientId : "user" in access && access.user ? access.user.id : "unknown",
+          documentId: loan.id, accessorType: accessor.type, accessorId: accessor.id,
           action: "download", ipAddress: recordedCallerIp(req), userAgent: req.headers.get("user-agent") ?? null,
         },
       })
@@ -51,7 +62,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       if (rendered.kind === "not_found") return NextResponse.json({ error: "Loan not found" }, { status: 404 })
       if (rendered.kind === "refused") return rendered.response
       return new Response(new Uint8Array(rendered.bytes), {
-        headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${rendered.filename}"` },
+        headers: {
+          "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${rendered.filename}"`,
+          "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        },
       })
     }
     // An entity borrower (asset finance): staff only on this route (the
