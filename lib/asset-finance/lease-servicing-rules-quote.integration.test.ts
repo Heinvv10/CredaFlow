@@ -245,6 +245,9 @@ suite.sequential("lease servicing rules: termination quotes, rental cancellation
       } })
     }
     await ruleAdmits(database(), (tx) => rebase(tx)) // staff, the old valuation aged out, the highest current one by someone else
+    // A higher valuation that is not current, or not a market valuation, does not stand in the way.
+    await ruleAdmits(database(), async (tx) => { await valuation(tx, { amountCents: 90_000_000, valuedOn: day(-60) }); await rebase(tx) })
+    await ruleAdmits(database(), async (tx) => { await valuation(tx, { amountCents: 90_000_000, source: "INTERNAL" }); await rebase(tx) })
     await refuses(without(G, ` AND o."valuedOn" < today - max_age`), REBASE, (tx) => rebase(tx, { aged: false }))
     await refuses(without(G, `
            AND NEW."purchasePriceExclVatCents" = n."amountCents"`), REBASE, (tx) => rebase(tx, { price: 60_000_000 })) // no discretion on the price

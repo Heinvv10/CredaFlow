@@ -58,7 +58,7 @@ export async function bestMarketValuation(tx: SigningTx, tenantId: string, asset
   const maxAge = await purchaseMaxAgeDays(tx, tenantId)
   return tx.assetValuation.findFirst({
     where: { tenantId, assetId, source: { in: [...MARKET_VALUATION_SOURCES] }, valuedOn: { gte: dbDate(fromDayNumber(toDayNumber(today) - maxAge)) } },
-    orderBy: [{ amountCents: "desc" }, { valuedOn: "desc" }],
+    orderBy: [{ amountCents: "desc" }, { valuedOn: "desc" }, { id: "asc" }], // deterministic on a tie
     select: { id: true, amountCents: true },
   })
 }

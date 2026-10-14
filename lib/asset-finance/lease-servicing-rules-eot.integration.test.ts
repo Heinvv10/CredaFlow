@@ -205,6 +205,12 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
     await refuses(STEP, NOTICE, give(today(), (first) => fromDayNumber(toDayNumber(first) + 1))) // off the rental dates
     // Before the billed period ends (a running lease: its term runs years on).
     await refuses(STEP, NOTICE, give(today(), () => addMonthsClamped(today(), 2), loans.running))
+    // In advance the billed period runs a month past the last rental: an early notice may not end it on that rental's date.
+    await refuses(without(G, `GREATEST((NEW."extensionNoticeOn" + INTERVAL '1 month')::date, public."leaseTermEnd"(NEW."loanId", NEW."tenantId"))`,
+      `GREATEST((NEW."extensionNoticeOn" + INTERVAL '1 month')::date)`), NOTICE, async (tx) => {
+      const { id } = await extending(tx, loans.advance, electedDaysAgo(60))
+      await notice(tx, id, day(-40), await lastDue(tx, loans.advance))
+    })
   })
 
   it("the extension's end, and the billed figures once invoiced, are fixed", async () => {
