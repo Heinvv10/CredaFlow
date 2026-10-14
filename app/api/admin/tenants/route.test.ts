@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { authMock, findUnique, create, transaction, logAuditStrict } = vi.hoisted(() => ({
+const { authMock, findUnique, findMany, create, transaction, logAuditStrict } = vi.hoisted(() => ({
+  findMany: vi.fn(),
   authMock: vi.fn(),
   findUnique: vi.fn(),
   create: vi.fn(),
@@ -9,10 +10,10 @@ const { authMock, findUnique, create, transaction, logAuditStrict } = vi.hoisted
   logAuditStrict: vi.fn(),
 }))
 vi.mock("@/lib/auth", () => ({ auth: authMock }))
-vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique }, $transaction: transaction } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, findMany }, $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({ logAuditStrict, AuditAction: { TENANT_CREATED: "TENANT_CREATED" } }))
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const post = (body: unknown) => POST(
   new NextRequest("http://localhost/api/admin/tenants", {
@@ -68,5 +69,25 @@ describe("POST /api/admin/tenants", () => {
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await post(BASE)).status).toBe(403)
     expect(transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe("GET /api/admin/tenants", () => {
+  it("never returns a tenant's sealed bureau credentials, only whether they exist", async () => {
+    process.env.ADMIN_SECRET = "s3cret"
+    authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
+    findMany.mockReset().mockResolvedValue([
+      { id: "t1", slug: "a", config: { tenantId: "t1", bureauCredentials: "enc:v1:aaa:bbb:ccc", bureauMaxAgeDays: 60 } },
+      { id: "t2", slug: "b", config: { tenantId: "t2", bureauCredentials: null, bureauMaxAgeDays: 60 } },
+      { id: "t3", slug: "c", config: null },
+    ])
+    const response = await GET(new NextRequest("http://localhost/api/admin/tenants", { headers: { "x-admin-secret": "s3cret" } }))
+    const body = await response.json()
+    expect(JSON.stringify(body)).not.toContain("enc:v1:")
+    expect(body.map((t: { config: unknown }) => t.config)).toEqual([
+      { tenantId: "t1", bureauMaxAgeDays: 60, bureauCredentialsConfigured: true },
+      { tenantId: "t2", bureauMaxAgeDays: 60, bureauCredentialsConfigured: false },
+      null,
+    ])
   })
 })
