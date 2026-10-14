@@ -40,16 +40,6 @@ export function normaliseEnabledLocales(stored: readonly string[] | null | undef
 }
 
 /**
- * A tenant-admin write of `enabledLanguages`: an array of known codes that
- * includes English. Returns the normalised list, or null when the input is
- * not acceptable (the caller refuses it rather than guessing).
- */
-export function parseEnabledLanguagesInput(value: unknown): Locale[] | null {
-  if (!Array.isArray(value) || !value.every(isLocale) || !value.includes(DEFAULT_LOCALE)) return null
-  return normaliseEnabledLocales(value)
-}
-
-/**
  * Accept-Language → locale codes in the browser's order of preference.
  * Region subtags are ignored ("af-ZA" → "af"); q=0 means "not this one".
  */

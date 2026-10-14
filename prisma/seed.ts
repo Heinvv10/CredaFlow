@@ -123,6 +123,14 @@ async function main() {
     // The demo shows every borrower language. A real lender starts on English
     // only (the column default) until its translations are reviewed.
     enabledLanguages: ["en", "af", "zu", "xh"],
+    // A language is served only with a review record (lib/i18n/language-reviews.ts).
+    // These say plainly that nobody reviewed the drafts: demo data only.
+    languageReviews: Object.fromEntries(["af", "zu", "xh"].map((locale) => [locale, {
+      reviewer: "Not reviewed: synthetic demo tenant showing machine drafts",
+      acknowledgedAt: "2026-10-14T00:00:00.000Z",
+      acknowledgedById: null,
+      acknowledgedByEmail: null,
+    }])),
   }
   await prisma.tenantConfig.upsert({
     where: { tenantId: tenant.id },

@@ -10,7 +10,9 @@ import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
 import type { Session } from "next-auth"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
 import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
-import { parseEnabledLanguagesInput } from "@/lib/i18n/locales"
+import { applyTenantLanguages } from "@/lib/i18n/language-settings"
+
+class LanguagesInvalid extends Error {}
 
 class TenantColoursInvalid extends Error {
   constructor(readonly fields: Partial<Record<TenantColourField, string>>) {
@@ -109,13 +111,11 @@ export async function PATCH(
   // old set and commit a combination that fails.
   const colourKeys = (Object.keys(TENANT_COLOUR_VARS) as TenantColourField[]).filter((key) => body[key] !== undefined)
 
-  // Borrower-facing languages (lib/i18n). Turning one on shows borrowers its
-  // catalogue, which is a machine draft until reviewed, so the change is
-  // validated and audited. English is always on.
-  const enabledLanguages = body.enabledLanguages === undefined ? undefined : parseEnabledLanguagesInput(body.enabledLanguages)
-  if (enabledLanguages === null) {
-    return NextResponse.json({ error: "enabledLanguages must be a list of en, af, zu, xh that includes en" }, { status: 400 })
-  }
+  // Borrower-facing languages (lib/i18n). Turning af/zu/xh on shows borrowers
+  // a machine-drafted catalogue, so each needs a native-speaker review
+  // acknowledgement (languageReviewAcknowledgements), validated and audited by
+  // applyTenantLanguages in this route's transaction. English is always on.
+  const languagesRequested = body.enabledLanguages !== undefined || body.languageReviewAcknowledgements !== undefined
 
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
@@ -136,7 +136,6 @@ export async function PATCH(
   if (netcashKey !== undefined) configUpdate.netcashKey = netcashKey
   if (bulkSmsKey !== undefined) configUpdate.bulkSmsKey = bulkSmsKey
   if (transunionKey !== undefined) configUpdate.transunionKey = transunionKey
-  if (enabledLanguages !== undefined) configUpdate.enabledLanguages = enabledLanguages
 
   // Bureau data submission (lib/bureau-submission). These decide whether real
   // people's loans are reported to a credit bureau and under whose name, so
@@ -184,7 +183,7 @@ export async function PATCH(
       },
     }),
   }
-  if (bureauKeys.length === 0 && colourKeys.length === 0 && enabledLanguages === undefined) {
+  if (bureauKeys.length === 0 && colourKeys.length === 0 && !languagesRequested) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
     return NextResponse.json(redactTenantBureauCredentials(updated))
   }
@@ -192,13 +191,21 @@ export async function PATCH(
   // The change and its audit rows commit together, or neither does.
   const day = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : value)
   const updated = await prisma.$transaction(async (tx) => {
-    if (colourKeys.length > 0) {
+    if (colourKeys.length > 0 || languagesRequested) {
       // Locks the Tenant row, not TenantConfig: the config row may not exist
       // yet. The read below is a new statement, so under READ COMMITTED it
       // sees whatever the previous lock holder committed. NO KEY UPDATE
       // serialises colour changes without blocking the FOR KEY SHARE lock that
       // every insert referencing this tenant takes.
       await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR NO KEY UPDATE`
+    }
+    if (languagesRequested) {
+      const languages = await applyTenantLanguages(tx, {
+        tenantId,
+        actor: { id: session?.user?.id ?? null, email: session?.user?.email ?? null },
+        input: { enabledLanguages: body.enabledLanguages, acknowledgements: body.languageReviewAcknowledgements },
+      })
+      if (!languages.ok) throw new LanguagesInvalid(languages.error)
     }
     const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
     if (colourKeys.length > 0) {
@@ -219,18 +226,6 @@ export async function PATCH(
         newValue: Object.fromEntries(colourKeys.map((key) => [key, configUpdate[key]])),
       }, tx)
     }
-    if (enabledLanguages !== undefined) {
-      await logAuditStrict({
-        tenantId,
-        userId: session?.user?.id,
-        userEmail: session?.user?.email ?? undefined,
-        action: AuditAction.TENANT_LANGUAGES_UPDATED,
-        entity: "TenantConfig",
-        entityId: tenantId,
-        oldValue: { enabledLanguages: before?.enabledLanguages ?? null },
-        newValue: { enabledLanguages },
-      }, tx)
-    }
     if (bureauKeys.length === 0) return result
     await logAuditStrict({
       tenantId,
@@ -245,14 +240,17 @@ export async function PATCH(
     return result
   }).catch((e: unknown) => {
     // Thrown before anything is written, so the transaction rolls back clean.
-    if (e instanceof TenantColoursInvalid) return e
+    if (e instanceof TenantColoursInvalid || e instanceof LanguagesInvalid) return e
     throw e
   })
+  if (updated instanceof LanguagesInvalid) {
+    return NextResponse.json({ error: updated.message }, { status: 400 })
+  }
   if (updated instanceof TenantColoursInvalid) {
     return NextResponse.json({ error: "Tenant colours fail validation", fields: updated.fields }, { status: 422 })
   }
 
-  if (colourKeys.length > 0 || enabledLanguages !== undefined) {
+  if (colourKeys.length > 0 || languagesRequested) {
     // The colours (or languages) are committed; a failed invalidation only
     // leaves the old values cached for getTenantConfig's 300 s, so it must not
     // fail the write.

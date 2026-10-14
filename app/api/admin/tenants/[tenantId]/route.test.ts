@@ -132,35 +132,61 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
 })
 
 describe("PATCH /api/admin/tenants/[tenantId] — borrower languages", () => {
+  const upsert = vi.fn()
+  const executeRaw = vi.fn()
+  const STORED_AF = { reviewer: "A. Reviewer", acknowledgedAt: "2026-10-01T08:00:00.000Z", acknowledgedById: "u0", acknowledgedByEmail: "old@test.invalid" }
+
   beforeEach(() => {
     process.env.ADMIN_SECRET = "s3cret"
     authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
     findUnique.mockReset().mockResolvedValue({ id: "t1" })
     update.mockReset().mockResolvedValue({ id: "t1", config: {} })
-    configBefore.mockReset().mockResolvedValue({ enabledLanguages: ["en"] })
-    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { update }, tenantConfig: { findUnique: configBefore }, $queryRaw: queryRaw, isTx: true }))
+    upsert.mockReset().mockResolvedValue({})
+    executeRaw.mockReset().mockResolvedValue(0)
+    configBefore.mockReset().mockResolvedValue({ enabledLanguages: ["en", "af"], languageReviews: { af: STORED_AF } })
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({
+      tenant: { update }, tenantConfig: { findUnique: configBefore, upsert }, $queryRaw: queryRaw, $executeRaw: executeRaw, isTx: true,
+    }))
     logAuditStrict.mockReset().mockResolvedValue(undefined)
     revalidateTag.mockReset()
   })
 
-  it("stores the normalised list, audits it in the transaction and refreshes the cached config", async () => {
-    expect((await patch({ enabledLanguages: ["zu", "en", "af", "zu"] })).status).toBe(200)
-    expect(configWritten()).toEqual({ enabledLanguages: ["en", "af", "zu"] })
+  it("enables a language with a named, confirmed review acknowledgement, records who and when, audits it", async () => {
+    const response = await patch({
+      enabledLanguages: ["zu", "en", "af", "zu"],
+      languageReviewAcknowledgements: { zu: { reviewer: "T. Mkhize", confirmed: true } },
+    })
+    expect(response.status).toBe(200)
+    const written = upsert.mock.calls[0][0].update
+    expect(written.enabledLanguages).toEqual(["en", "af", "zu"])
+    expect(written.languageReviews.af).toEqual(STORED_AF)
+    expect(written.languageReviews.zu).toMatchObject({ reviewer: "T. Mkhize", acknowledgedById: "u1", acknowledgedByEmail: "root@test.invalid" })
+    expect(typeof written.languageReviews.zu.acknowledgedAt).toBe("string")
     expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "TENANT_LANGUAGES_UPDATED", entity: "TenantConfig",
-      oldValue: { enabledLanguages: ["en"] }, newValue: { enabledLanguages: ["en", "af", "zu"] },
+      oldValue: { enabledLanguages: ["en", "af"] },
+      newValue: { enabledLanguages: ["en", "af", "zu"], reviewAcknowledgements: { zu: "T. Mkhize" } },
     }), expect.objectContaining({ isTx: true }))
     expect(revalidateTag).toHaveBeenCalledWith("tenant-config-t1", { expire: 0 })
   })
 
-  it.each([
-    [["af", "zu"]],
-    [["en", "fr"]],
-    ["en,af"],
-    [[]],
-  ])("refuses %j and writes nothing", async (enabledLanguages) => {
-    expect((await patch({ enabledLanguages })).status).toBe(400)
+  it("refuses to enable a language nobody acknowledged as reviewed, and writes nothing", async () => {
+    const response = await patch({ enabledLanguages: ["en", "af", "xh"] })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "Acknowledge a native-speaker review before enabling: xh" })
+    expect(upsert).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
+    expect(logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ enabledLanguages: ["af", "zu"] }],
+    [{ enabledLanguages: ["en", "fr"] }],
+    [{ enabledLanguages: "en,af" }],
+    [{ enabledLanguages: ["en", "zu"], languageReviewAcknowledgements: { zu: { reviewer: "X", confirmed: false } } }],
+  ])("refuses %j and writes nothing", async (body) => {
+    expect((await patch(body)).status).toBe(400)
+    expect(upsert).not.toHaveBeenCalled()
     expect(logAuditStrict).not.toHaveBeenCalled()
   })
 })

@@ -16,6 +16,9 @@ vi.mock("@/lib/prisma", () => ({ prisma: { client: { findFirst: m.clientFindFirs
 
 import { getLocale } from "./server"
 
+const REVIEW = { reviewer: "Test reviewer", acknowledgedAt: "2026-10-14T08:00:00.000Z", acknowledgedById: null, acknowledgedByEmail: null }
+const REVIEWED = { af: REVIEW, zu: REVIEW, xh: REVIEW }
+
 function request({ cookie, acceptLanguage }: { cookie?: string; acceptLanguage?: string }) {
   m.cookies.mockResolvedValue({ get: (name: string) => (name === "cf-locale" && cookie ? { value: cookie } : undefined) })
   m.headers.mockResolvedValue(new Headers(acceptLanguage ? { "accept-language": acceptLanguage } : {}))
@@ -25,7 +28,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.session.mockResolvedValue(null)
   m.resolvedTenant.mockResolvedValue("t-host")
-  m.config.mockResolvedValue({ enabledLanguages: ["en", "af", "zu", "xh"] })
+  m.config.mockResolvedValue({ enabledLanguages: ["en", "af", "zu", "xh"], languageReviews: REVIEWED })
 })
 
 describe("getLocale", () => {
@@ -46,10 +49,16 @@ describe("getLocale", () => {
   })
 
   it("never shows a language the tenant has not enabled", async () => {
-    m.config.mockResolvedValue({ enabledLanguages: ["en"] })
+    m.config.mockResolvedValue({ enabledLanguages: ["en"], languageReviews: REVIEWED })
     request({ cookie: "af", acceptLanguage: "af" })
     expect(await getLocale()).toBe("en")
-    m.config.mockResolvedValue({ enabledLanguages: ["en", "zu"] })
+    m.config.mockResolvedValue({ enabledLanguages: ["en", "zu"], languageReviews: REVIEWED })
+    expect(await getLocale()).toBe("en")
+  })
+
+  it("never shows an enabled language that has no native-speaker review record", async () => {
+    m.config.mockResolvedValue({ enabledLanguages: ["en", "af"], languageReviews: {} })
+    request({ cookie: "af", acceptLanguage: "af" })
     expect(await getLocale()).toBe("en")
   })
 

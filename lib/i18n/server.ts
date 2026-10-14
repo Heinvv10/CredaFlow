@@ -2,7 +2,8 @@ import { cache } from "react"
 import { cookies, headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
 import { getResolvedTenantId, getTenantConfig } from "@/lib/tenant"
-import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, negotiateLocale, normaliseEnabledLocales, type Locale } from "./locales"
+import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, negotiateLocale, type Locale } from "./locales"
+import { servableLocales } from "./language-reviews"
 import { CATALOGS, type Catalog, type Namespace } from "./catalog"
 import { createTranslator, type Translator } from "./translate"
 
@@ -16,9 +17,10 @@ import { createTranslator, type Translator } from "./translate"
  * Accept-Language, each only if the tenant has that language enabled.
  */
 
+/** The tenant's languages that are both enabled and acknowledged as reviewed. */
 export async function getTenantEnabledLocales(tenantId: string): Promise<Locale[]> {
   const config = await getTenantConfig(tenantId)
-  return normaliseEnabledLocales(config?.enabledLanguages)
+  return servableLocales(config?.enabledLanguages, config?.languageReviews)
 }
 
 async function readRequestSignals(): Promise<{ cookie: string | null; acceptLanguage: string | null } | null> {
