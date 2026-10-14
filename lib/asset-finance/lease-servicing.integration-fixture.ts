@@ -77,3 +77,44 @@ export async function payAllOwed(db: PrismaClient, fx: LeaseFixture, loanId: str
   if (owed > 0) await applyManualReceipt(db as unknown as PaymentDb, { loanId, tenantId: fx.tenantId, amount: owed, capturedById: fx.officer, reference: `SYNTHETIC-${randomUUID().slice(0, 8)}` })
   return owed
 }
+
+/** A database rule: a trigger (disabled), or a CHECK constraint or unique index (dropped), only inside a rolled-back transaction. */
+export type DbRule = { table: string; trigger: string } | { table: string; constraint: string } | { index: string }
+type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]
+class RolledBack extends Error {}
+
+function ruleOff(rule: DbRule): string {
+  if ("trigger" in rule) return `ALTER TABLE "${rule.table}" DISABLE TRIGGER "${rule.trigger}"`
+  if ("constraint" in rule) return `ALTER TABLE "${rule.table}" DROP CONSTRAINT "${rule.constraint}"`
+  return `DROP INDEX "${rule.index}"`
+}
+
+/**
+ * Runs `attack` in a transaction that is always rolled back, deferred checks
+ * fired first; with `without`, that rule is removed inside it. Returns "ok"
+ * or the refusal's message.
+ */
+export async function attempt(db: PrismaClient, attack: (tx: Tx) => Promise<unknown>, without?: DbRule): Promise<string> {
+  try {
+    await db.$transaction(async (tx) => {
+      if (without) await tx.$executeRawUnsafe(ruleOff(without))
+      await attack(tx)
+      await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+      throw new RolledBack()
+    }, { timeout: 30_000 })
+  } catch (error) {
+    if (error instanceof RolledBack) return "ok"
+    if (!(error instanceof Error)) return String(error)
+    const meta = JSON.stringify(error, Object.getOwnPropertyNames(error).filter((k) => k !== "stack"))
+    return `${error.name}: ${error.message} ${meta}`
+  }
+  return "ok"
+}
+
+/** The rule refuses the attack, and is what refuses it: without it, the attack goes through. */
+export async function ruleRefuses(db: PrismaClient, rule: DbRule, message: RegExp, attack: (tx: Tx) => Promise<unknown>): Promise<void> {
+  const refused = await attempt(db, attack)
+  if (!message.test(refused)) throw new Error(`expected a refusal matching ${message}, got: ${refused}`)
+  const without = await attempt(db, attack, rule)
+  if (without !== "ok") throw new Error(`without ${JSON.stringify(rule)} the attack should go through, got: ${without}`)
+}

@@ -582,7 +582,8 @@ CREATE TRIGGER "AssetMeterReading_no_truncate" BEFORE TRUNCATE ON "AssetMeterRea
 -- C7 End of term
 -- ---------------------------------------------------------------------------
 ALTER TABLE "LeaseEndOfTerm" ADD CONSTRAINT "LeaseEndOfTerm_shape" CHECK (
-  ("outcome" = 'PURCHASE') = ("purchasePriceExclVatCents" IS NOT NULL AND "purchaseValuationId" IS NOT NULL)
+  ("outcome" = 'PURCHASE') = ("purchasePriceExclVatCents" IS NOT NULL)
+  AND ("outcome" = 'PURCHASE') = ("purchaseValuationId" IS NOT NULL)
   AND ("purchasePriceExclVatCents" IS NULL OR "purchasePriceExclVatCents" > 0)
   AND ("outcome" = 'EXTEND' OR ("extensionNoticeOn" IS NULL AND "extensionEndsOn" IS NULL))
   AND ("status" = 'EXTENDING') <= ("outcome" = 'EXTEND')
@@ -894,3 +895,49 @@ BEGIN
   RETURN NULL;
 END;
 $function$;
+
+-- A lease's charge row (its end of term's or termination's) is a fresh row
+-- of the same loan, its total due the total of the tax invoice it bills:
+-- never a rental's row or invoice, never adjusted later.
+CREATE OR REPLACE FUNCTION public."leaseChargeRowMismatch"(schedule_id TEXT, tenant_id TEXT)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM (
+      SELECT e."loanId", e."taxInvoiceId" FROM "LeaseEndOfTerm" e WHERE e."scheduleId" = schedule_id AND e."tenantId" = tenant_id
+      UNION ALL
+      SELECT q."loanId", q."taxInvoiceId" FROM "LeaseTerminationQuote" q WHERE q."scheduleId" = schedule_id AND q."tenantId" = tenant_id
+    ) c
+    LEFT JOIN "RepaymentSchedule" s ON s."id" = schedule_id AND s."tenantId" = tenant_id
+    LEFT JOIN "TaxInvoice" i ON i."id" = c."taxInvoiceId" AND i."tenantId" = tenant_id
+    WHERE s."id" IS NULL OR i."id" IS NULL OR s."loanId" IS DISTINCT FROM c."loanId" OR i."loanId" IS DISTINCT FROM c."loanId"
+      OR s."totalDue" IS DISTINCT FROM i."totalInclVatCents"
+      OR EXISTS (SELECT 1 FROM "LeaseRental" r WHERE r."tenantId" = tenant_id AND (r."scheduleId" = schedule_id OR r."taxInvoiceId" = c."taxInvoiceId"))
+  );
+$function$;
+
+CREATE OR REPLACE FUNCTION public."checkLeaseChargeLink"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NEW."scheduleId" IS NOT NULL AND "leaseChargeRowMismatch"(NEW."scheduleId", NEW."tenantId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'A lease charge row is a schedule row of its own loan, not a rental''s, its total due its tax invoice''s total';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "LeaseEndOfTerm_charge_row" AFTER INSERT OR UPDATE OF "scheduleId", "taxInvoiceId" ON "LeaseEndOfTerm"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseChargeLink"();
+CREATE CONSTRAINT TRIGGER "LeaseTerminationQuote_charge_row" AFTER INSERT OR UPDATE OF "scheduleId", "taxInvoiceId" ON "LeaseTerminationQuote"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseChargeLink"();
+
+CREATE OR REPLACE FUNCTION public."checkLeaseChargeRowTotal"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF "leaseChargeRowMismatch"(NEW."id", NEW."tenantId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lease charge row''s total due is its tax invoice''s total';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "RepaymentSchedule_lease_charge_total" AFTER UPDATE OF "totalDue", "loanId" ON "RepaymentSchedule"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public."checkLeaseChargeRowTotal"();
