@@ -6,6 +6,9 @@ import { callerIp } from "@/lib/rate-limit"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { SIMULATED_PROVIDER_ID } from "@/lib/integrations/collections/simulated"
+import { providerSwitchBlockers } from "@/lib/collections-engine/provider-switch"
+import { auditRefusal } from "@/lib/audit-refusals"
+import { AuditAction } from "@/lib/audit"
 
 // Registry keys from lib/integrations/collections/registry.ts, plus null (= off).
 const VALID_COLLECTION_PROVIDERS = [null, "netcash", SIMULATED_PROVIDER_ID]
@@ -117,6 +120,29 @@ export async function PATCH(req: NextRequest) {
           { error: "The simulated provider is not permitted on this deployment (SIMULATED_INTEGRATIONS)" },
           { status: 422 },
         )
+      }
+
+      // Live mandates and in-flight debits are worked against the current
+      // provider: switching away would strand them (provider-switch.ts).
+      if ("collectionProvider" in body) {
+        const requested = body.collectionProvider ?? null
+        const blocked = await providerSwitchBlockers(tenant.id, requested)
+        if (blocked) {
+          await auditRefusal({
+            action: AuditAction.COLLECTION_PROVIDER_CHANGE_REFUSED,
+            entity: "TenantConfig",
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: "live_collections_on_current_provider",
+            status: 409,
+            detail: { current: blocked.current, requested, mandates: blocked.mandates, instructions: blocked.instructions },
+          })
+          return NextResponse.json({
+            error: `The collection provider cannot change while ${blocked.current} still holds ${blocked.mandates} live mandate(s) and ${blocked.instructions} open debit(s). Cancel or finish them first.`,
+          }, { status: 409 })
+        }
       }
 
       if ("collectionsEngineEnabled" in body) {
