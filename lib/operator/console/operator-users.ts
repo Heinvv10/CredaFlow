@@ -7,10 +7,11 @@ import { Prisma } from "@prisma/client"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { OPERATOR_ROLES } from "../roles"
+import { isOperatorRole, OPERATOR_ROLES, type OperatorRole } from "../roles"
 import type { OperatorPrincipal } from "../console-auth"
 import {
-  INVITE_LINK_HOURS, issueAccountToken, operatorPasswordUrl, RESET_LINK_HOURS, sendAccountLink, unusablePasswordHash,
+  emailInUse, INVITE_LINK_HOURS, issueAccountToken, operatorPasswordUrl, RESET_LINK_HOURS, sendAccountLink, UNUSABLE_EMAIL,
+  unusablePasswordHash,
 } from "./account-links"
 
 export type OperatorUserResult<T = object> = ({ ok: true } & T) | { ok: false; status: 400 | 404 | 409 | 422; error: string }
@@ -40,6 +41,15 @@ export async function inviteOperatorUser(principal: OperatorPrincipal, body: unk
   if (!parsed.success) return { ok: false, status: 422, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") }
   const { email, name, role } = parsed.data
 
+  // Case-insensitive: User.email is unique only as typed (B2).
+  const existing = await emailInUse(email)
+  if (existing) {
+    const ours = existing.operatorId === principal.operatorId && isOperatorRole(existing.role)
+    if (!ours) return { ok: false, status: 409, error: UNUSABLE_EMAIL }
+    if (existing.active) return { ok: false, status: 409, error: "This person is already an active user of your operator" }
+    return reinvite(principal, existing.id, { email, name, role }, ipAddress)
+  }
+
   let created: { userId: string; token: string }
   try {
     created = await prisma.$transaction(async (tx) => {
@@ -56,7 +66,7 @@ export async function inviteOperatorUser(principal: OperatorPrincipal, body: unk
     })
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return { ok: false, status: 409, error: "A user with this email already exists" }
+      return { ok: false, status: 409, error: UNUSABLE_EMAIL }
     }
     throw err
   }
@@ -65,6 +75,60 @@ export async function inviteOperatorUser(principal: OperatorPrincipal, body: unk
     url: () => operatorPasswordUrl(created.token), hours: INVITE_LINK_HOURS,
   })
   return { ok: true, userId: created.userId, emailSent }
+}
+
+/**
+ * A deactivated user of this operator, invited again: switched back on with a
+ * password nobody knows and no 2FA (they enrol afresh), every old session
+ * ended, and a new invite link (S-L3).
+ */
+async function reinvite(
+  principal: OperatorPrincipal, userId: string, input: { email: string; name: string; role: OperatorRole }, ipAddress?: string,
+): Promise<OperatorUserResult<{ userId: string; emailSent: boolean }>> {
+  const password = await unusablePasswordHash()
+  const token = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.user.updateMany({
+      where: { id: userId, operatorId: principal.operatorId, active: false },
+      data: {
+        active: true, name: input.name, role: input.role, password,
+        totpSecret: null, totpEnabled: false, lastTotpCounter: null, tokenVersion: { increment: 1 },
+      },
+    })
+    if (count !== 1) return null
+    await logAuditStrict({
+      userId: principal.id, userEmail: principal.email, action: AuditAction.OPERATOR_USER_REACTIVATED,
+      entity: "User", entityId: userId, oldValue: { active: false },
+      newValue: { active: true, role: input.role, totpReset: true, operatorId: principal.operatorId, expiresInHours: INVITE_LINK_HOURS }, ipAddress,
+    }, tx)
+    return issueAccountToken(tx, userId, INVITE_LINK_HOURS)
+  })
+  if (!token) return { ok: false, status: 409, error: "This person is already an active user of your operator" }
+  const emailSent = await sendAccountLink({
+    to: input.email, name: input.name, kind: "invite", organisation: await operatorName(principal.operatorId),
+    url: () => operatorPasswordUrl(token), hours: INVITE_LINK_HOURS,
+  })
+  return { ok: true, userId, emailSent }
+}
+
+/**
+ * Lost authenticator: clears another operator user's 2FA and ends their
+ * sessions; their next sign-in is held at enrolment. Never one's own, never
+ * another operator's user (S-L3).
+ */
+export async function resetOperatorUserTotp(principal: OperatorPrincipal, userId: string, ipAddress?: string): Promise<OperatorUserResult> {
+  if (userId === principal.id) return { ok: false, status: 409, error: "You cannot reset your own two-factor authentication" }
+  return prisma.$transaction(async (tx) => {
+    const { count } = await tx.user.updateMany({
+      where: { id: userId, operatorId: principal.operatorId, active: true },
+      data: { totpSecret: null, totpEnabled: false, lastTotpCounter: null, tokenVersion: { increment: 1 } },
+    })
+    if (count !== 1) return { ok: false as const, status: 404 as const, error: "No active user of this operator with that id" }
+    await logAuditStrict({
+      userId: principal.id, userEmail: principal.email, action: AuditAction.OPERATOR_USER_TOTP_RESET,
+      entity: "User", entityId: userId, newValue: { totpEnabled: false, sessionsEnded: true, operatorId: principal.operatorId }, ipAddress,
+    }, tx)
+    return { ok: true as const }
+  })
 }
 
 /** Deactivates and signs out (tokenVersion) one of the operator's users. Never oneself. */

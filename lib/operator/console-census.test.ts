@@ -53,6 +53,7 @@ import * as adminResetApi from "@/app/api/operator/lenders/[id]/admin-reset/rout
 import * as usersApi from "@/app/api/operator/users/route"
 import * as deactivateApi from "@/app/api/operator/users/[id]/deactivate/route"
 import * as userResetApi from "@/app/api/operator/users/[id]/reset/route"
+import * as totpResetApi from "@/app/api/operator/users/[id]/totp-reset/route"
 import * as totpApi from "@/app/api/operator/totp/route"
 import { validFile } from "@/scripts/lender/tenant-config.test-helpers"
 import { SEALED_CREDENTIAL_FIELDS } from "@/lib/integrations/tenant-credentials"
@@ -91,6 +92,7 @@ const CENSUS: Record<string, Entry> = {
   "app/api/operator/users/route.ts": { kind: "admin", run: () => call(usersApi.POST, "POST", { email: "new@operator.invalid", name: "New", role: "OPERATOR_SUPPORT" }) },
   "app/api/operator/users/[id]/deactivate/route.ts": { kind: "admin", run: () => call(deactivateApi.POST, "POST") },
   "app/api/operator/users/[id]/reset/route.ts": { kind: "admin", run: () => call(userResetApi.POST, "POST") },
+  "app/api/operator/users/[id]/totp-reset/route.ts": { kind: "admin", run: () => call(totpResetApi.POST, "POST") },
   "app/api/operator/totp/route.ts": {
     kind: "self",
     run: async () => `${await call(() => totpApi.GET(), "GET")} ${await call(totpApi.POST, "POST", { secret: "JBSWY3DPEHPK3PXP", code: "000000" })}`,

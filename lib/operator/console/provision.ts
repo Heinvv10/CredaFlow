@@ -15,7 +15,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { parseTenantConfig } from "@/scripts/lender/tenant-config"
 import { bootstrapTenant, TenantBootstrapRefusal } from "@/scripts/lender/bootstrap-tenant"
 import type { OperatorPrincipal } from "../console-auth"
-import { INVITE_LINK_HOURS, issueAccountToken, lenderPasswordUrl, sendAccountLink, unusablePasswordHash } from "./account-links"
+import { emailInUse, INVITE_LINK_HOURS, issueAccountToken, lenderPasswordUrl, sendAccountLink, UNUSABLE_EMAIL, unusablePasswordHash } from "./account-links"
+import { normaliseTenantDomain, tenantDomainRefusal } from "@/lib/config/tenant-domain"
 
 export type ProvisionResult =
   | { ok: true; tenantId: string; adminUserId: string; inviteSent: boolean }
@@ -29,25 +30,34 @@ const adminSchema = z.strictObject({
 export async function provisionLender(principal: OperatorPrincipal, body: unknown): Promise<ProvisionResult> {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, status: 400, error: "Invalid JSON body" }
   const { admin, ...file } = body as Record<string, unknown>
+  // Tenant.domain is stored normalised (lib/config/tenant-domain.ts).
+  const domain = normaliseTenantDomain(file.domain)
+  if (domain.ok) file.domain = domain.domain
   const parsed = parseTenantConfig(file)
   const adminParsed = adminSchema.safeParse(
     admin && typeof admin === "object" ? { ...admin, email: String((admin as { email?: unknown }).email ?? "").trim().toLowerCase() } : admin,
   )
   const errors = [
+    ...(domain.ok ? [] : [`domain: ${domain.error}`]),
     ...(parsed.ok ? [] : parsed.errors),
     ...(adminParsed.success ? [] : adminParsed.error.issues.map((i) => `admin.${i.path.join(".")}: ${i.message}`)),
   ]
-  if (!parsed.ok || !adminParsed.success) return { ok: false, status: 422, error: "The lender details are not valid", errors }
+  if (!domain.ok || !parsed.ok || !adminParsed.success) return { ok: false, status: 422, error: "The lender details are not valid", errors }
   const config = parsed.config
   const adminInput = adminParsed.data
+
+  // Never a host the deployment or another lender already serves (B1).
+  const domainRefusal = config.domain ? await tenantDomainRefusal(config.domain, null) : null
+  if (domainRefusal) return { ok: false, status: 422, error: "The lender details are not valid", errors: [`domain: ${domainRefusal}`] }
 
   // Create-only: the CLI treats an identical file as a no-op, the console never does.
   const [slugTaken, emailTaken] = await Promise.all([
     prisma.tenant.findUnique({ where: { slug: config.slug }, select: { id: true } }),
-    prisma.user.findUnique({ where: { email: adminInput.email }, select: { id: true } }),
+    emailInUse(adminInput.email),
   ])
   if (slugTaken) return { ok: false, status: 409, error: `A lender with slug "${config.slug}" already exists` }
-  if (emailTaken) return { ok: false, status: 409, error: "A user with the admin's email already exists" }
+  // Whose account it is (another lender's, another operator's) is not said.
+  if (emailTaken) return { ok: false, status: 409, error: UNUSABLE_EMAIL }
 
   // The app client is the extended one; bootstrapTenant and the template seed
   // take a plain PrismaClient (the CLI's). Tenant, TenantConfig and the

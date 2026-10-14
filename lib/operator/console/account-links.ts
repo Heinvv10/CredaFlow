@@ -21,6 +21,21 @@ import { escapeHtml } from "@/lib/utils"
 export const INVITE_LINK_HOURS = 72
 export const RESET_LINK_HOURS = 1
 
+/**
+ * The one answer for an email that already has an account somewhere: it does
+ * not say whose (another lender's staff, another operator's), so the console
+ * is no oracle for who has accounts on the platform.
+ */
+export const UNUSABLE_EMAIL = "This email address cannot be used for a new account. Use another."
+
+/** An account with this email in any case (User.email is unique only case-sensitively). */
+export function emailInUse(email: string) {
+  return prisma.user.findFirst({
+    where: { email: { equals: email.trim(), mode: "insensitive" } },
+    select: { id: true, operatorId: true, active: true, role: true },
+  })
+}
+
 /** A password nobody knows: the account is usable only once its owner sets one through the link. */
 export async function unusablePasswordHash(): Promise<string> {
   return bcrypt.hash(randomBytes(32).toString("base64url"), 12)

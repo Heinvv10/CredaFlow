@@ -42,11 +42,21 @@ export function OperatorUsersPanel({ users, selfId }: { users: OperatorUser[]; s
     }
   }
 
-  async function act(id: string, action: "deactivate" | "reset") {
-    if (action === "deactivate" && !window.confirm("Deactivate this user and end their sessions?")) return
+  const DONE = { reset: "", deactivate: "Deactivated", "totp-reset": "2FA reset: they set it up again at their next sign-in" } as const
+  const CONFIRM = { deactivate: "Deactivate this user and end their sessions?", "totp-reset": "Reset this user's two-factor authentication and end their sessions?" }
+
+  async function act(id: string, action: "deactivate" | "reset" | "totp-reset") {
+    if (action !== "reset" && !window.confirm(CONFIRM[action])) return
     const { ok, data } = await post(`/api/operator/users/${id}/${action}`)
-    setRowStatus((s) => ({ ...s, [id]: ok ? (action === "reset" ? sentText(data) : "Deactivated") : String(data?.error ?? "Failed") }))
-    if (ok && action === "deactivate") router.refresh()
+    setRowStatus((s) => ({ ...s, [id]: ok ? (action === "reset" ? sentText(data) : DONE[action]) : String(data?.error ?? "Failed") }))
+    if (ok && action !== "reset") router.refresh()
+  }
+
+  // A deactivated user is invited again: reactivated, 2FA cleared, a new link.
+  async function reinvite(u: OperatorUser) {
+    const { ok, data } = await post("/api/operator/users", { email: u.email, name: u.name ?? u.email, role: u.role })
+    setRowStatus((s) => ({ ...s, [u.id]: ok ? `Re-invited. ${sentText(data)}` : String(data?.error ?? "Failed") }))
+    if (ok) router.refresh()
   }
 
   return (
@@ -88,7 +98,13 @@ export function OperatorUsersPanel({ users, selfId }: { users: OperatorUser[]; s
                     <div className="flex items-center justify-end gap-2">
                       {rowStatus[u.id] ? <span className="text-xs text-[var(--cf-text-muted)]">{rowStatus[u.id]}</span> : null}
                       <Button size="sm" variant="outline" onClick={() => act(u.id, "reset")}>Send password link</Button>
+                      {u.totpEnabled ? <Button size="sm" variant="outline" onClick={() => act(u.id, "totp-reset")}>Reset 2FA</Button> : null}
                       <Button size="sm" variant="destructive" onClick={() => act(u.id, "deactivate")}>Deactivate</Button>
+                    </div>
+                  ) : !u.active ? (
+                    <div className="flex items-center justify-end gap-2">
+                      {rowStatus[u.id] ? <span className="text-xs text-[var(--cf-text-muted)]">{rowStatus[u.id]}</span> : null}
+                      <Button size="sm" variant="outline" onClick={() => reinvite(u)}>Re-invite</Button>
                     </div>
                   ) : null}
                 </TableCell>
