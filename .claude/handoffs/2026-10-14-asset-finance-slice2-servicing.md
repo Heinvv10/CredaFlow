@@ -47,6 +47,11 @@ Passed on this branch:
   passed, 2 skipped; `integration gate OK`
 - Targeted deal integration suite after the final surrender-payment FK: 15/15
 - `git diff --check`
+- GitHub Actions are green across the complete open stack: PRs #48, #50, #59,
+  #65 and #66 each passed `docs`, `boundaries`, `integration` and `quality`.
+- The intermediate-branch repairs are `1071fab` on #59 and `5c6ea2b` on #65;
+  #66 merged the repaired parent at `e9600e8` without changing its verified
+  source tree.
 
 The statement-accuracy integration suite remains intentionally skipped by its
 existing gate. No shared database migration was run.
@@ -100,13 +105,10 @@ These are implementation defaults, not approved legal positions:
 - Do not merge PR #65 or this stacked branch without owner approval.
 - Do not apply migrations to a shared database, enable non-draft legal output,
   or deploy without a separate confirmation gate.
-- GitHub Actions on PRs #65 and #66 fail before job execution because recent
-  account payments failed or the spending limit must be increased. All four
-  #66 jobs (`docs`, `boundaries`, `integration`, `quality`) stopped in 1–2
-  seconds without running repository steps. Local gates above are green, but
-  CI is not green proof.
+- GitHub billing was restored and every PR in the asset-finance stack now has
+  four green hosted checks. The earlier pre-execution billing failures are
+  superseded by successful reruns.
 - A blind independent review was not performed in this run because delegation
   was unavailable. It remains required before merge.
-- Once GitHub billing is restored: rerun PR #65, rebase this branch if needed,
-  run the stacked PR's checks, obtain independent SHIP/CLEAN review, and then
-  stop for the merge/legal/migration gates.
+- Obtain independent SHIP/CLEAN review, then stop for the owner-controlled
+  merge, legal-output, shared-migration and deployment gates.
