@@ -123,7 +123,8 @@ export function afSqlFixture(label: string) {
   const disburse = (applicationId: string) =>
     `UPDATE "LoanApplication" SET "status" = 'DISBURSED', "disbursedAt" = CURRENT_TIMESTAMP WHERE "id" = '${applicationId}'`
 
-  function loan(applicationId: string, borrower: Borrower, regime: Regime, principal = 150_000_000): string {
+  /** INSERT a loan; `start` is a SQL timestamp expression for its startDate. */
+  function loan(applicationId: string, borrower: Borrower, regime: Regime, principal = 150_000_000, start = "CURRENT_TIMESTAMP"): string {
     const n = next()
     return `
       INSERT INTO "Loan" ("id", "tenantId", "reference", "applicationId", "clientId", "entityId", "productId",
@@ -131,8 +132,8 @@ export function afSqlFixture(label: string) {
         "startDate", "maturityDate", "interestRatePm", "interestModel", "ncaRegime", "contractType", "updatedAt")
       VALUES ('loan_${label}_${token}_${n}', '${tenantId}', '${label}L-${token}-${n}', '${applicationId}',
         ${quoted(borrower.clientId)}, ${quoted(borrower.entityId)},
-        '${ids.productId}', ${principal}, 1, 0, ${principal + 1}, ${principal}, CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP + INTERVAL '5 years', 1.0, 'DAILY_ACCRUAL', '${regime}',
+        '${ids.productId}', ${principal}, 1, 0, ${principal + 1}, ${principal}, ${start},
+        ${start} + INTERVAL '5 years', 1.0, 'DAILY_ACCRUAL', '${regime}',
         '${regime === "NON_NCA" ? "INSTALMENT_SALE" : "LOAN"}', CURRENT_TIMESTAMP)`
   }
 

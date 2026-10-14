@@ -77,6 +77,8 @@ model User {
   mentionedIn                  MessageMention[]
   ncaOverridesRequested        NcaRegimeOverride[] @relation("NcaOverridesRequested")
   ncaOverridesDecided          NcaRegimeOverride[] @relation("NcaOverridesDecided")
+  referenceRatesRequested      ReferenceRate[]     @relation("ReferenceRatesRequested")
+  referenceRatesDecided        ReferenceRate[]     @relation("ReferenceRatesDecided")
   kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
 
@@ -165,6 +167,10 @@ model Tenant {
   bureauSubmissionRecords  BureauSubmissionRecord[]
   bureauAdverseConfirmations BureauAdverseConfirmation[]
   businessEntities         BusinessEntity[]
+  referenceRates           ReferenceRate[]
+  vatConfig                VatConfig?
+  taxInvoices              TaxInvoice[]
+  creditNotes              CreditNote[]
   kycOverrideRequests        KycOverrideRequest[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
@@ -1368,6 +1374,10 @@ model Loan {
   contractType              ContractType           @default(LOAN)
   // Cents; the final scheduled payment on top of the last instalment.
   balloonAmount             Int?
+  // Original payment-shape weights for a booked asset-finance contract.
+  // Repricing reads these instead of inferring the final weight from a row
+  // whose payment includes the solver's rounding residue.
+  assetFinanceWeights       Json?
   // The financed asset (FinancedAsset, asset finance). FK added with that table.
   assetId                   String?
   productId                 String
@@ -1442,7 +1452,10 @@ model Loan {
   charges                   LoanCharge[]
   bureauSubmissionRecords   BureauSubmissionRecord[]
   bureauAdverseConfirmations BureauAdverseConfirmation[]
+  contractRates             ContractRate[]
+  taxInvoices               TaxInvoice[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([agreementDocId])
@@ -1619,6 +1632,9 @@ model RepaymentSchedule {
   dueDate       DateTime
   principalDue  Int
   interestDue   Int
+  // Opening capital at the last asset-finance solve. Preserved when a paid
+  // row is reopened, so a later reprice can reconstruct its historical accrual.
+  assetFinanceOpeningBalanceCents Int?
   creditLifePremiumDue Int      @default(0)
   feesDue       Int
   totalDue      Int
@@ -4091,4 +4107,163 @@ model BureauAdverseConfirmation {
 
   @@unique([loanId, statusCode])
   @@index([tenantId])
+}
+
+enum ReferenceRateBasis {
+  FIXED
+  PRIME
+  REPO
+  JIBAR
+  ZARONIA
+  LENDER_BASE
+}
+
+enum ReferenceRateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// A dated reference rate per tenant (DESIGN D4). A value applies from its
+// effectiveDate until the next APPROVED one for the same basis. Four-eyes:
+// recorded PENDING by one user, APPROVED or REJECTED by another; only APPROVED
+// values reprice loans. Requester and decider are users of the row's own
+// tenant (composite FKs). One live (non-REJECTED) value per (tenant, basis,
+// date) is the hand-written partial unique index ReferenceRate_live_key;
+// the rate band, born-PENDING, decision completeness, four-eyes and
+// immutability rules are hand-written too (migration
+// 20261013100000_asset_finance_rates_vat).
+model ReferenceRate {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  basis         ReferenceRateBasis
+  effectiveDate DateTime  @db.Date
+  // Annual nominal rate as a decimal: 0.1175 = 11.75%.
+  rate          Decimal   @db.Decimal(9, 6)
+  status        ReferenceRateStatus @default(PENDING)
+  requestedById String
+  requestedBy   User      @relation("ReferenceRatesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedById   String?
+  decidedBy     User?     @relation("ReferenceRatesDecided", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, basis, effectiveDate])
+}
+
+// A loan's rate history: the contract rate from each effectiveDate, as
+// reference + margin or fixed. Unique per (loan, effectiveDate), so a repricing
+// run for the same reference change is idempotent.
+model ContractRate {
+  id            String    @id @default(cuid())
+  tenantId      String
+  loanId        String
+  loan          Loan      @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  effectiveDate DateTime  @db.Date
+  basis         ReferenceRateBasis
+  margin        Decimal?  @db.Decimal(9, 6)
+  fixedRate     Decimal?  @db.Decimal(9, 6)
+  resultingRate Decimal   @db.Decimal(9, 6)
+  // The base instalment B the schedule was solved with from this date (cents):
+  // booking records the solver's B, each repricing its new B. Repricing reads
+  // the latest one back to derive the period weights exactly
+  // (lib/asset-finance/schedule-records.ts deriveWeights); null only on rows
+  // written before that convention, which fall back to an estimate.
+  newInstalmentCents Int?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([loanId, effectiveDate])
+  @@index([tenantId])
+}
+
+// Per-tenant VAT vendor identity for tax invoices (lib/vat/).
+model VatConfig {
+  id             String   @id @default(cuid())
+  tenantId       String   @unique
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  vatNumber      String
+  registeredName String
+  address        String
+  updatedAt      DateTime @updatedAt
+}
+
+// The VAT rate in force from effectiveDate (national, not per tenant). History:
+// never updated or deleted; a new row must take effect after today, and a tax
+// invoice's vatRate must be the rate in force on its supplyDate (hand-written
+// triggers, migration 20261013100000).
+model VatRate {
+  id            String   @id @default(cuid())
+  effectiveDate DateTime @unique @db.Date
+  rate          Decimal  @db.Decimal(6, 4)
+}
+
+// An issued tax invoice. Every amount and party detail is copied in at issue;
+// a DB trigger blocks UPDATE and DELETE. Corrections are CreditNotes. The
+// insert trigger assigns the gap-free per-tenant number (max + 1 under an
+// advisory lock; CreditNote likewise).
+model TaxInvoice {
+  id                 String          @id @default(cuid())
+  tenantId           String
+  tenant             Tenant          @relation(fields: [tenantId], references: [id])
+  number             Int
+  // Display number, e.g. "INV-000123".
+  invoiceNumber      String
+  issueDate          DateTime        @db.Date
+  supplyDate         DateTime        @db.Date
+  loanId             String?
+  loan               Loan?           @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierName       String
+  supplierAddress    String
+  supplierVatNumber  String
+  recipientName      String
+  recipientAddress   String
+  recipientVatNumber String?
+  vatRate            Decimal         @db.Decimal(6, 4)
+  totalExclVatCents  Int
+  vatCents           Int
+  totalInclVatCents  Int
+  createdById        String?
+  createdAt          DateTime        @default(now())
+  lines              TaxInvoiceLine[]
+  creditNotes        CreditNote[]
+
+  @@unique([tenantId, number])
+  @@unique([tenantId, id])
+  @@index([loanId])
+}
+
+model TaxInvoiceLine {
+  id              String     @id @default(cuid())
+  invoiceId       String
+  invoice         TaxInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  lineNo          Int
+  description     String
+  quantity        Int        @default(1)
+  unitExclVatCents Int
+  exclVatCents    Int
+  vatCents        Int
+  inclVatCents    Int
+
+  @@unique([invoiceId, lineNo])
+}
+
+model CreditNote {
+  id                String     @id @default(cuid())
+  tenantId          String
+  tenant            Tenant     @relation(fields: [tenantId], references: [id])
+  number            Int
+  creditNoteNumber  String
+  issueDate         DateTime   @db.Date
+  invoiceId         String
+  invoice           TaxInvoice @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason            String
+  exclVatCents      Int
+  vatCents          Int
+  inclVatCents      Int
+  createdById       String?
+  createdAt         DateTime   @default(now())
+
+  @@unique([tenantId, number])
 }

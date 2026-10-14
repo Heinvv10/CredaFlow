@@ -65,6 +65,15 @@ export const AuditAction = {
   LOAN_CANCELLED: "LOAN_CANCELLED",
   LOAN_STATUS_CHANGED: "LOAN_STATUS_CHANGED",
   LOAN_BUREAU_OVERRIDE: "LOAN_BUREAU_OVERRIDE",
+  // Asset finance rates (lib/asset-finance/reprice-loan.ts,
+  // app/api/asset-finance/reference-rates): a reference value recorded
+  // (PENDING), approved or rejected by a second person, a recording or decision
+  // refused (no authority, or the four-eyes rule), and a linked loan's pending
+  // schedule re-solved on an approved value.
+  REFERENCE_RATE_RECORDED: "REFERENCE_RATE_RECORDED",
+  REFERENCE_RATE_DECIDED: "REFERENCE_RATE_DECIDED",
+  REFERENCE_RATE_REFUSED: "REFERENCE_RATE_REFUSED",
+  LOAN_REPRICED: "LOAN_REPRICED",
   // Credit checks (lib/credit-checks): flags raised/superseded by a recompute,
   // and an officer clearing one with a reason.
   CREDIT_CHECKS_RECOMPUTED: "CREDIT_CHECKS_RECOMPUTED",

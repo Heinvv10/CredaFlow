@@ -162,6 +162,13 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 12 jobs active")
+    // Asset finance: re-solves reference-linked contracts for reference-rate
+    // changes that took effect (lib/asset-finance/reprice-batch.ts). Idempotent
+    // per (loan, effective date); idle for tenants without featureAssetFinance.
+    cron.schedule("45 1 * * *", () => callCron("/api/cron/asset-finance-reprice"), {
+      timezone: SAST,
+    })
+
+    console.log("[cron] scheduler registered — 13 jobs active")
   }
 }
