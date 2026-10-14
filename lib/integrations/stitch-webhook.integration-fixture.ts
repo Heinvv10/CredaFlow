@@ -3,8 +3,8 @@
  * way a lender's admin saves it (sealed, lib/integrations/tenant-credentials.ts).
  *
  * The STITCH_WEBHOOK_SECRET environment variable applies only on a
- * single-tenant deployment, and the shared integration database holds many
- * tenants, so suites that post signed webhooks store the secret per tenant.
+ * tenant ENV_CREDENTIALS_TENANT_SLUG names, so suites that post signed
+ * webhooks store the secret per tenant.
  */
 import type { PrismaClient } from "@prisma/client"
 import { sealCredential } from "./tenant-credentials"

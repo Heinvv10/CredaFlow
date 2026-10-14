@@ -69,7 +69,7 @@ export interface ExperianResult {
 /**
  * The lender's own Experian account: TenantConfig.experianKey, sealed
  * "username:password". EXPERIAN_USERNAME / EXPERIAN_PASSWORD apply only on a
- * single-tenant deployment (lib/integrations/tenant-credentials.ts). The
+ * tenant ENV_CREDENTIALS_TENANT_SLUG names (lib/integrations/tenant-credentials.ts). The
  * endpoint settings stay deployment-wide.
  */
 async function getExperianConfig(tenantId: string) {

@@ -28,7 +28,7 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 
 **Per integration** (all optional until the feature is used)
 
-Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_KEY` (`lib/integrations/tenant-credentials.ts`). The Stitch, SmileIdentity and Experian credential variables below are a fallback for a dedicated deployment: they serve only the one ACTIVE tenant, and none while more than one is ACTIVE; a shared platform sets each lender's credentials on its TenantConfig instead.
+Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_KEY` (`lib/integrations/tenant-credentials.ts`). The Stitch, SmileIdentity and Experian credential variables below are a fallback for a dedicated deployment: they serve only the tenant `ENV_CREDENTIALS_TENANT_SLUG` names, and no one while it is unset; a shared platform leaves it unset and sets each lender's credentials on its TenantConfig instead.
 
 | Feature | Variables |
 |---|---|
@@ -36,8 +36,9 @@ Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_
 | Debit mandates | `DEBIT_MANDATE_CREDITOR_BANK_NAME`, `_ACCOUNT_NUMBER`, `_BRANCH_CODE` (real, printed on every mandate; placeholders are refused), `DEBIT_MANDATE_CREDITOR_TENANT_ID` (must equal the tenant id; provision sets it) |
 | KYC (SmileIdentity) | `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY`, `SMILE_IDENTITY_ENV` (`production` or `test`), `SMILE_DRY_RUN` |
 | Face match | `FACE_MODEL_DIR`, `FACE_SIMILARITY_THRESHOLD`, `FACE_MODEL_LOAD_TIMEOUT_MS`, `FACE_COMPARISON_TIMEOUT_MS` (models are in the image) |
-| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD` (single-tenant fallback for `TenantConfig.experianKey`), `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings |
+| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD` (fallback for `TenantConfig.experianKey`, owner tenant only), `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings |
 | Bureau submission | `BUREAU_SUBMISSION_MODE` |
+| Env credential owner | `ENV_CREDENTIALS_TENANT_SLUG` (slug of the one tenant the Stitch/SmileIdentity/Experian variables belong to; `provision-lender.sh` sets it to the stack's lender; unset = no env fallback) |
 | Row-level security | `TENANT_RLS` (`on` turns on the tenant query hook, `lib/tenant-rls.ts`; leave it off while the app connects as a superuser, see the activation checklist in `docs/ARCHITECTURE.md`) |
 | Dry-run switches | `EXPERIAN_DRY_RUN`, `TRANSUNION_DRY_RUN`, `NETCASH_DRY_RUN`, `NETCASH_COLLECTIONS_DRY_RUN`, `BULKSMS_DRY_RUN` (SMS is off by policy), `WA_DRY_RUN`, `SIMULATED_INTEGRATIONS`. On `NODE_ENV=production` a dry-run for a financial or credit provider throws unless declared a sandbox (`lib/integrations/simulation-guard.ts`) |
 | Email | primary: Settings > Email, stored sealed with `WABA_ENC_KEY`. Fallback: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`. Delivery guard: `EMAIL_DELIVERY_MODE` (default restricted to an allowlist; `unrestricted` on production only), `EMAIL_RECIPIENT_ALLOWLIST`, `EMAIL_INTERNAL_DOMAINS`, `EMAIL_INBOUND_ALLOWED_HOSTS` |

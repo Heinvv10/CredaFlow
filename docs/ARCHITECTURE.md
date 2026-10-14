@@ -81,8 +81,9 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   and `(tenantId, email)`; one person may be a client of two lenders.
 - **Provider credentials** are per tenant, sealed in `TenantConfig`
   (`lib/integrations/tenant-credentials.ts`). The Experian, SmileIdentity and
-  Stitch environment variables serve only the one ACTIVE tenant of a
-  single-tenant deployment.
+  Stitch environment variables serve only the tenant
+  `ENV_CREDENTIALS_TENANT_SLUG` names (set by `provision-lender.sh` on a
+  dedicated stack); unset, they serve no one.
 - **Lender identity.** Legal name, trading name, NCR, FSP and company
   registration numbers, office address, contacts and logo are columns of
   `TenantConfig`. `lib/config/identity.ts` reads them:

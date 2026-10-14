@@ -11,9 +11,9 @@
  *
  * Environment fallback: Experian, SmileIdentity and Stitch were configured by
  * environment variables before they were per tenant. Those variables are
- * still honoured, but only for the one ACTIVE tenant of a single-tenant
- * (dedicated) deployment — never for another tenant, PROVISIONING or not. The
- * moment a second lender is ACTIVE they stop applying, so one lender's
+ * still honoured, but only for the tenant ENV_CREDENTIALS_TENANT_SLUG names
+ * (provision-lender sets it on a dedicated stack) — never for another tenant,
+ * whatever the statuses. Unset, there is no fallback at all, so one lender's
  * accounts can never serve another's borrowers.
  */
 import { prisma } from "@/lib/prisma"
@@ -100,16 +100,20 @@ export async function loadTenantCredential(tenantId: string, field: SealedCreden
 }
 
 /**
- * True when `tenantId` is the one ACTIVE lender of a single-tenant deployment.
- * Counting is not enough: with one ACTIVE and one PROVISIONING tenant the
- * count is 1, but the environment's accounts belong to the ACTIVE one only.
+ * True when `tenantId` owns the deployment's environment credentials: it is
+ * the tenant ENV_CREDENTIALS_TENANT_SLUG names. A rule over the tenants'
+ * statuses ("the one ACTIVE tenant") is not ownership: with the owner
+ * SUSPENDED and another lender ACTIVE, that lender would get the owner's
+ * accounts. Unset or naming no tenant, nobody owns them.
  */
-export async function isTheSingleActiveTenant(tenantId: string): Promise<boolean> {
-  const active = await prisma.tenant.findMany({ where: { status: "ACTIVE" }, select: { id: true }, take: 2 })
-  return active.length === 1 && active[0].id === tenantId
+export async function isEnvCredentialsTenant(tenantId: string): Promise<boolean> {
+  const slug = process.env.ENV_CREDENTIALS_TENANT_SLUG?.trim()
+  if (!slug) return false
+  const owner = await prisma.tenant.findUnique({ where: { slug }, select: { id: true } })
+  return owner?.id === tenantId
 }
 
-/** The tenant's "id:secret" credential, or the env pair on a single-tenant deployment. */
+/** The tenant's "id:secret" credential, or the env pair when the tenant owns the env credentials. */
 export async function loadCredentialPair(
   tenantId: string,
   field: SealedCredentialField,
@@ -118,5 +122,5 @@ export async function loadCredentialPair(
   const own = splitCredentialPair(await loadTenantCredential(tenantId, field))
   if (own) return own
   if (!envFallback.id || !envFallback.secret) return null
-  return (await isTheSingleActiveTenant(tenantId)) ? { id: envFallback.id, secret: envFallback.secret } : null
+  return (await isEnvCredentialsTenant(tenantId)) ? { id: envFallback.id, secret: envFallback.secret } : null
 }

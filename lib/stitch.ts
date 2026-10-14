@@ -5,7 +5,7 @@
 
 import { prisma } from "@/lib/prisma"
 import {
-  isTheSingleActiveTenant,
+  isEnvCredentialsTenant,
   loadTenantCredential,
   openCredential,
   splitCredentialPair,
@@ -31,8 +31,8 @@ export interface StitchAccount {
  * The lender's own Stitch account (TenantConfig.stitchKey, sealed
  * "clientId:clientSecret", and the stitchBeneficiary* columns), taken whole.
  * The STITCH_* environment variables are used, also whole, only when the
- * lender has no stitchKey and it is the one ACTIVE tenant of a single-tenant
- * deployment (lib/integrations/tenant-credentials.ts): a payment must never be routed to
+ * lender has no stitchKey and owns the environment credentials
+ * (ENV_CREDENTIALS_TENANT_SLUG, lib/integrations/tenant-credentials.ts): a payment must never be routed to
  * another lender's account. Throws when neither is complete.
  */
 export async function loadStitchAccount(tenantId: string): Promise<StitchAccount> {
@@ -46,7 +46,7 @@ export async function loadStitchAccount(tenantId: string): Promise<StitchAccount
         clientId: own.id, clientSecret: own.secret, name: config?.stitchBeneficiaryName, bankId: config?.stitchBankId,
         accountNumber: config?.stitchAccountNumber, branchCode: config?.stitchBranchCode,
       }
-    : (await isTheSingleActiveTenant(tenantId))
+    : (await isEnvCredentialsTenant(tenantId))
       ? {
           clientId: process.env.STITCH_CLIENT_ID, clientSecret: process.env.STITCH_CLIENT_SECRET,
           name: process.env.STITCH_BENEFICIARY_NAME, bankId: process.env.STITCH_BANK_ID,
@@ -67,14 +67,14 @@ export async function loadStitchAccount(tenantId: string): Promise<StitchAccount
 
 /**
  * The secret that signs this lender's Stitch webhooks; the deployment's
- * STITCH_WEBHOOK_SECRET only when the lender is the one ACTIVE tenant of a
- * single-tenant deployment.
+ * STITCH_WEBHOOK_SECRET only when the lender owns the environment
+ * credentials (ENV_CREDENTIALS_TENANT_SLUG).
  */
 export async function loadStitchWebhookSecret(tenantId: string): Promise<string | null> {
   const own = await loadTenantCredential(tenantId, "stitchWebhookSecret")
   if (own) return own
   const env = process.env.STITCH_WEBHOOK_SECRET
-  return env && (await isTheSingleActiveTenant(tenantId)) ? env : null
+  return env && (await isEnvCredentialsTenant(tenantId)) ? env : null
 }
 
 export async function getStitchAccessToken(account: Pick<StitchAccount, "clientId" | "clientSecret">): Promise<string> {

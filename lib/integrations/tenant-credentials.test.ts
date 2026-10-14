@@ -1,17 +1,17 @@
 import { randomBytes } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { tenantConfigFindUnique, tenantFindMany } = vi.hoisted(() => ({
+const { tenantConfigFindUnique, tenantFindUnique } = vi.hoisted(() => ({
   tenantConfigFindUnique: vi.fn(),
-  tenantFindMany: vi.fn(),
+  tenantFindUnique: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({
-  prisma: { tenantConfig: { findUnique: tenantConfigFindUnique }, tenant: { findMany: tenantFindMany } },
+  prisma: { tenantConfig: { findUnique: tenantConfigFindUnique }, tenant: { findUnique: tenantFindUnique } },
 }))
 
 import {
   CredentialInputError,
-  isTheSingleActiveTenant,
+  isEnvCredentialsTenant,
   loadCredentialPair,
   loadTenantCredential,
   maskCredential,
@@ -25,7 +25,7 @@ const KEY = randomBytes(32).toString("base64")
 beforeEach(() => {
   vi.stubEnv("WABA_ENC_KEY", KEY)
   tenantConfigFindUnique.mockReset()
-  tenantFindMany.mockReset()
+  tenantFindUnique.mockReset()
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -80,31 +80,37 @@ describe("loading", () => {
     tenantConfigFindUnique.mockResolvedValue({ experianKey: sealCredential("own-user:own-pass") })
     const pair = await loadCredentialPair("t1", "experianKey", { id: "env-user", secret: "env-pass" })
     expect(pair).toEqual({ id: "own-user", secret: "own-pass" })
-    expect(tenantFindMany).not.toHaveBeenCalled()
+    expect(tenantFindUnique).not.toHaveBeenCalled()
   })
 
   const env = { id: "env-user", secret: "env-pass" }
 
-  it("falls back to the environment pair for the deployment's one ACTIVE tenant", async () => {
+  it("lends the environment pair only to the tenant ENV_CREDENTIALS_TENANT_SLUG names", async () => {
+    vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "lender-a")
     tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
-    tenantFindMany.mockResolvedValue([{ id: "t1" }])
-    expect(await loadCredentialPair("t1", "experianKey", env)).toEqual(env)
-    expect(tenantFindMany).toHaveBeenCalledWith({ where: { status: "ACTIVE" }, select: { id: true }, take: 2 })
+    tenantFindUnique.mockResolvedValue({ id: "tA" })
+    expect(await loadCredentialPair("tA", "experianKey", env)).toEqual(env)
+    expect(tenantFindUnique).toHaveBeenCalledWith({ where: { slug: "lender-a" }, select: { id: true } })
+    expect(await isEnvCredentialsTenant("tA")).toBe(true)
   })
 
-  it("never lends the environment pair to a tenant that is not that ACTIVE tenant", async () => {
+  it("never lends it to another tenant, whatever the others' statuses (A suspended, B active)", async () => {
+    // The breaker's repro: the named owner A is SUSPENDED and B is the only
+    // ACTIVE tenant. Under a "single ACTIVE tenant" rule B got A's accounts.
+    vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "lender-a")
     tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
-    // One ACTIVE lender (t1) and one still PROVISIONING (t2): the count of
-    // ACTIVE tenants is 1, but the environment accounts are t1's alone.
-    tenantFindMany.mockResolvedValue([{ id: "t1" }])
-    expect(await loadCredentialPair("t2", "experianKey", env)).toBeNull()
-    expect(await isTheSingleActiveTenant("t2")).toBe(false)
-    expect(await isTheSingleActiveTenant("t1")).toBe(true)
+    tenantFindUnique.mockResolvedValue({ id: "tA" })
+    expect(await loadCredentialPair("tB", "experianKey", env)).toBeNull()
+    expect(await isEnvCredentialsTenant("tB")).toBe(false)
   })
 
-  it("lends it to no one once a second lender is ACTIVE", async () => {
+  it("lends it to no one when no owner is named, or the named slug is no tenant", async () => {
+    vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "")
     tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
-    tenantFindMany.mockResolvedValue([{ id: "t1" }, { id: "t3" }])
-    expect(await loadCredentialPair("t1", "experianKey", env)).toBeNull()
+    expect(await loadCredentialPair("tA", "experianKey", env)).toBeNull()
+    expect(tenantFindUnique).not.toHaveBeenCalled()
+    vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "nobody")
+    tenantFindUnique.mockResolvedValue(null)
+    expect(await loadCredentialPair("tA", "experianKey", env)).toBeNull()
   })
 })

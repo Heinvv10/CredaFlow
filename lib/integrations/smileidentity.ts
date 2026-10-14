@@ -59,7 +59,7 @@ function smileSimulationEnabled(): boolean {
 /**
  * The lender's own Smile ID account: TenantConfig.smileIdentityKey, sealed
  * "partnerId:apiKey". SMILE_IDENTITY_PARTNER_ID / SMILE_IDENTITY_API_KEY apply
- * only on a single-tenant deployment (lib/integrations/tenant-credentials.ts).
+ * only for the tenant ENV_CREDENTIALS_TENANT_SLUG names (lib/integrations/tenant-credentials.ts).
  */
 async function getConfig(tenantId: string): Promise<{ apiKey: string; partnerId: string; baseUrl: string } | null> {
   const creds = await loadCredentialPair(tenantId, "smileIdentityKey", {
