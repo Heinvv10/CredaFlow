@@ -19,8 +19,12 @@ const VALID_COLLECTION_PROVIDERS = [null, "netcash"]
 
 // The lender's Stitch collection account: not secret, stored as typed.
 const STITCH_BENEFICIARY_FIELDS = ["stitchBeneficiaryName", "stitchBankId", "stitchAccountNumber", "stitchBranchCode"] as const
-// Every field that decides where Stitch payments land.
-const STITCH_SENSITIVE_FIELDS = ["stitchKey", "stitchWebhookSecret", ...STITCH_BENEFICIARY_FIELDS] as const
+// Every field that decides where money is paid out or collected from:
+// Stitch (receipts), Netcash (payouts, debit orders) and the collection rail.
+const TOTP_GATED_FIELDS = [
+  "stitchKey", "stitchWebhookSecret", ...STITCH_BENEFICIARY_FIELDS,
+  "netcashKey", "netcashDebitOrderKey", "collectionProvider",
+] as const
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("ADMIN")
@@ -102,13 +106,30 @@ export async function PATCH(req: NextRequest) {
         if (value) updates[key] = value
       }
 
-      // Where Stitch pays borrowers' money is as sensitive as the lender's
-      // identity (PUT /api/settings/identity): changing it takes a sign-in
-      // that verified a TOTP code, wherever the lender requires staff 2FA.
-      const stitchTouched = STITCH_SENSITIVE_FIELDS.some((key) => key in credentialWrites || key in updates)
-      if (stitchTouched && guard.user.totpVerified !== true && await isStaffTotpRequired(tenant.id)) {
+      if (!VALID_COLLECTION_PROVIDERS.includes(body.collectionProvider ?? null)) {
+        return NextResponse.json({ error: "Unknown collection provider" }, { status: 400 })
+      }
+      if (!VALID_COLLECTION_PROVIDERS.includes(body.avsProvider ?? null)) {
+        return NextResponse.json({ error: "Unknown AVS provider" }, { status: 400 })
+      }
+
+      if ("collectionsEngineEnabled" in body) {
+        updates.collectionsEngineEnabled = body.collectionsEngineEnabled === true
+      }
+      if ("collectionProvider" in body) {
+        updates.collectionProvider = body.collectionProvider ?? null
+      }
+      if ("avsProvider" in body) {
+        updates.avsProvider = body.avsProvider ?? null
+      }
+
+      // Where borrowers' money is paid or collected is as sensitive as the
+      // lender's identity (PUT /api/settings/identity): changing it takes a
+      // sign-in that verified a TOTP code, wherever the lender requires 2FA.
+      const moneyRouteTouched = TOTP_GATED_FIELDS.some((key) => key in credentialWrites || key in updates)
+      if (moneyRouteTouched && guard.user.totpVerified !== true && await isStaffTotpRequired(tenant.id)) {
         return NextResponse.json(
-          { error: "Sign in with two-factor authentication to change the Stitch account or payee. Enable it under Settings → Security, then sign out and back in." },
+          { error: "Sign in with two-factor authentication to change where payments are made or collected. Enable it under Settings → Security, then sign out and back in." },
           { status: 403 },
         )
       }
@@ -125,23 +146,6 @@ export async function PATCH(req: NextRequest) {
           console.error("Refusing to store a provider credential:", e)
           return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
         }
-      }
-
-      if (!VALID_COLLECTION_PROVIDERS.includes(body.collectionProvider ?? null)) {
-        return NextResponse.json({ error: "Unknown collection provider" }, { status: 400 })
-      }
-      if (!VALID_COLLECTION_PROVIDERS.includes(body.avsProvider ?? null)) {
-        return NextResponse.json({ error: "Unknown AVS provider" }, { status: 400 })
-      }
-
-      if ("collectionsEngineEnabled" in body) {
-        updates.collectionsEngineEnabled = body.collectionsEngineEnabled === true
-      }
-      if ("collectionProvider" in body) {
-        updates.collectionProvider = body.collectionProvider ?? null
-      }
-      if ("avsProvider" in body) {
-        updates.avsProvider = body.avsProvider ?? null
       }
 
       if (Object.keys(updates).length === 0) {

@@ -152,6 +152,11 @@ describe("PATCH /api/settings/integrations", () => {
     ["the payee account", { stitchAccountNumber: "1234567890" }],
     ["the Stitch credentials", { stitchKey: "synthetic-client:synthetic-secret" }],
     ["the webhook secret", { stitchWebhookSecret: "synthetic-whsec" }],
+    // Netcash pays out loans and collects debit orders: the same exposure.
+    ["the Netcash payout key", { netcashKey: "synthetic-service-key" }],
+    ["the Netcash debit-order key", { netcashDebitOrderKey: "synthetic-debit-key" }],
+    ["the collection provider", { collectionProvider: "netcash" }],
+    ["turning the collection provider off", { collectionProvider: null }],
   ])("refuses a change to %s without a TOTP-verified sign-in when the lender requires 2FA", async (_label, body) => {
     staffTotpRequiredMock.mockResolvedValue(true)
     const response = await patch(body)
