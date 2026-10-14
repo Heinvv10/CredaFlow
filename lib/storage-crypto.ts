@@ -52,15 +52,14 @@ export function uploadsMasterKey(env: NodeJS.ProcessEnv = process.env): Buffer |
 
 /**
  * Whether storage must fail closed: refuse to write without a key and refuse
- * to read a plaintext file. UPLOADS_ENC_REQUIRED=true|false decides; unset, it
- * is on in production except on a demo stack (DEMO_MODE=true), whose baked
- * snapshots hold plaintext files.
+ * to read a plaintext file. Only UPLOADS_ENC_REQUIRED=true (or 1) switches it
+ * on: an existing stack, its files still plaintext, must keep working on the
+ * first deploy of this code. provision-lender.sh sets it for a new lender;
+ * an older one sets it after scripts/lender/encrypt-uploads.sh has run.
  */
 export function uploadsEncryptionRequired(env: NodeJS.ProcessEnv = process.env): boolean {
   const flag = env.UPLOADS_ENC_REQUIRED?.trim().toLowerCase()
-  if (flag === "true" || flag === "1") return true
-  if (flag === "false" || flag === "0") return false
-  return env.NODE_ENV === "production" && env.DEMO_MODE !== "true"
+  return flag === "true" || flag === "1"
 }
 
 function keyId(master: Buffer): Buffer {

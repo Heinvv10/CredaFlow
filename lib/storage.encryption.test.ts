@@ -101,11 +101,13 @@ describe("lib/storage encryption at rest", () => {
     expect(disk.size).toBe(before)
   })
 
-  it("requires encryption by default in production, not on a demo stack", async () => {
+  it("does not require encryption by default, even in production: an existing stack's first deploy keeps working", async () => {
     vi.stubEnv("UPLOADS_ENC_KEY", "")
     vi.stubEnv("NODE_ENV", "production")
-    await expect(saveFile(plain, "application/pdf")).rejects.toThrow(StorageCryptoError)
-    vi.stubEnv("DEMO_MODE", "true")
+    disk.set("/legacy/old.pdf", plain)
     await expect(saveFile(plain, "application/pdf")).resolves.toMatchObject({ fileSize: plain.length })
+    expect((await readFile("/legacy/old.pdf")).equals(plain)).toBe(true)
+    vi.stubEnv("UPLOADS_ENC_REQUIRED", "true")
+    await expect(saveFile(plain, "application/pdf")).rejects.toThrow(StorageCryptoError)
   })
 })

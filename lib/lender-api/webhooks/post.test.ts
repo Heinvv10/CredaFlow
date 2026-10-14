@@ -32,7 +32,7 @@ describe("postWebhook deadline", () => {
     const took = Date.now() - started
     expect(took).toBeGreaterThanOrEqual(290)
     expect(took).toBeLessThan(2_000)
-    expect(result).toEqual({ ok: false, status: null, error: "timed out after 300 ms" })
+    expect(result).toEqual({ ok: false, status: null, error: "timed out after 300 ms", attempted: true })
     expect(fake.destroyed).toBe(true)
   })
 })

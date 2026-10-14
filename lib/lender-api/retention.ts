@@ -7,7 +7,8 @@ import { prisma } from "@/lib/prisma"
  *   - ApiRequestLog rows older than API_LOG_RETENTION_DAYS (default 90);
  *   - finished WebhookDelivery rows (SUCCEEDED, FAILED) older than
  *     WEBHOOK_LOG_RETENTION_DAYS (default 30), then dispatched WebhookEvent
- *     rows older than that with no delivery left.
+ *     rows older than that with no delivery left, and WebhookOutboxFailure
+ *     rows (lost events) older than that.
  * PENDING deliveries and their events are never pruned. Deleted in batches so
  * one run never holds a long lock. Raw SQL: these are cross-tenant sweeps.
  */
@@ -37,6 +38,7 @@ export interface RetentionResult {
   apiRequestLogs: number
   webhookDeliveries: number
   webhookEvents: number
+  webhookOutboxFailures: number
   apiLogDays: number
   webhookDays: number
 }
@@ -60,5 +62,8 @@ export async function pruneLenderApiLogs(now: Date = new Date(), env: NodeJS.Pro
       WHERE ev."dispatchedAt" IS NOT NULL AND ev."createdAt" < ${hookCutoff}
         AND NOT EXISTS (SELECT 1 FROM "WebhookDelivery" d WHERE d."eventId" = ev."id")
       LIMIT ${BATCH})`))
-  return { apiRequestLogs, webhookDeliveries, webhookEvents, apiLogDays, webhookDays }
+  const webhookOutboxFailures = await inBatches(() => prisma.$executeRaw(Prisma.sql`
+    DELETE FROM "WebhookOutboxFailure" WHERE "id" IN (
+      SELECT "id" FROM "WebhookOutboxFailure" WHERE "createdAt" < ${hookCutoff} LIMIT ${BATCH})`))
+  return { apiRequestLogs, webhookDeliveries, webhookEvents, webhookOutboxFailures, apiLogDays, webhookDays }
 }

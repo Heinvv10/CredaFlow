@@ -229,16 +229,18 @@ Every file `lib/storage.ts` writes is encrypted with a per-file key wrapped by
 `UPLOADS_ENC_KEY`, bound to its path under the uploads volume (a file moved or
 swapped under another name does not open): client documents, NCA artefacts and
 the insurance disclosure PDFs (`disclosures/`). Tenant logos (`tenant-logos/`) are
-public and stay plaintext. In production (unless `DEMO_MODE=true`) encryption is
-required by default (`UPLOADS_ENC_REQUIRED`): no key, no write, and a plaintext
-file is refused on read, which `/api/health` reports as a storage failure.
+public and stay plaintext. With `UPLOADS_ENC_REQUIRED=true` storage fails closed: no
+key, no write, and a plaintext file is refused on read, which `/api/health` reports as
+a storage failure. It is off unless set, so the first deploy of this code never breaks
+an existing stack whose files are still plaintext.
 
-New lenders get `UPLOADS_ENC_KEY` from `provision-lender.sh`. For a lender provisioned
-before it: rerun `provision-lender.sh` (it adds the missing key, never rotates one),
-set `UPLOADS_ENC_REQUIRED=false` in `.env`, redeploy so the app reads and writes
-with the key, take a backup, then `encrypt-uploads.sh <dir> --dry-run`,
-`encrypt-uploads.sh <dir>`, `encrypt-uploads.sh <dir> --verify`; then remove
-`UPLOADS_ENC_REQUIRED` and redeploy. It converts one file at a time (a temp file with
+New lenders get `UPLOADS_ENC_KEY` and `UPLOADS_ENC_REQUIRED=true` from
+`provision-lender.sh`. For a lender provisioned before it: rerun `provision-lender.sh`
+(it adds the missing key, never rotates one, and does not switch the requirement on for
+an existing directory), redeploy so the app reads and writes with the key, take a
+backup, then `encrypt-uploads.sh <dir> --dry-run`, `encrypt-uploads.sh <dir>`,
+`encrypt-uploads.sh <dir> --verify`; then set `UPLOADS_ENC_REQUIRED=true` in `.env`
+and redeploy. It converts one file at a time (a temp file with
 a random name, read-back, rename; temp files of an interrupted run are deleted first),
 skips files already encrypted, never re-wraps a file encrypted under another key or one
 that fails its check (it reports them), and refuses while the running app lacks the key.
@@ -266,8 +268,11 @@ credentials the body is `status` plus the deploy marker `deploy.sh` compares (`m
 `commit`, `builtAt`, `checkedAt`) and never says which check failed or why. With the
 `x-cron-secret` header it adds `checks` (`database`, `storage`, `storageEncryption`
 `on`/`off`, `cron` `ok`/`stale`/`not_scheduled`), `warnings` (degraded but not failing:
-`cron_stale`, `storage_encryption_off`, so a stack that was down overnight still passes
-its next deploy) and per-job `detail`. Probe errors go to the container log only. Cron
+`cron_stale`, `storage_encryption_off`, `webhook_outbox_failures`, so a stack that was
+down overnight still passes its next deploy) and `detail` (per-job freshness, and
+`webhookOutboxFailures24h`: webhook events a database trigger could not write in the last
+24 hours; the payment, loan or application was saved, its event was lost; the rows are in
+`WebhookOutboxFailure`). Probe errors go to the container log only. Cron
 freshness comes from `CronHeartbeat`, written after every in-process job
 (`instrumentation.ts`); jobs an external scheduler owns are not tracked. Point an uptime
 monitor at it; nothing here sends alerts.
@@ -276,14 +281,19 @@ monitor at it; nothing here sends alerts.
 
 `ApiRequestLog` gets a row for every `/api/v1` request that names a real key; requests
 naming no key, and 429s, are sampled (10 a minute per process; the rest are counted in the
-container log). Rate limits: 120 a minute per key, and failed authentications per caller
-address (30 a minute, only when `TRUSTED_PROXY` makes the address known) answer 429 instead
-of 401; a valid key is never throttled by other callers' failures. The nightly
-`lender-api-retention` cron deletes request logs after `API_LOG_RETENTION_DAYS` (90) and
-finished webhook deliveries with their events after `WEBHOOK_LOG_RETENTION_DAYS` (30).
-A webhook endpoint that fails 20 deliveries in a row is paused (audited
+container log). Rate limits: 120 a minute per key; failed authentications per caller
+address (30 a minute, when `TRUSTED_PROXY` makes the address known), else in one global
+bucket (300 a minute), answer 429 instead of 401. A valid key is never throttled by other
+callers' failures, and key buckets live in their own store, so no flood of addresses can
+evict one. The nightly `lender-api-retention` cron deletes request logs after
+`API_LOG_RETENTION_DAYS` (90), and finished webhook deliveries with their events and
+outbox failures after `WEBHOOK_LOG_RETENTION_DAYS` (30).
+Deliveries are claimed fairly: per run at most 25 per endpoint and 50 per lender.
+A webhook endpoint whose receiver fails 20 POSTs in a row is paused (audited
 `WEBHOOK_ENDPOINT_PAUSED`); its deliveries wait without spending attempts until an admin
 resumes it in Settings → API & webhooks. Deliveries of a lender that is not ACTIVE wait too.
+A local fault (no `WEBHOOK_SECRET_KEY`, a secret that will not open) sends nothing: the
+delivery is retried every 5 minutes without spending an attempt or counting toward the pause.
 
 ## Admin recovery
 

@@ -22,7 +22,7 @@ vi.mock("@/lib/prisma", () => {
       // claimDue: ten due rows per claim, for ever.
       $queryRaw: async () => {
         h.claims++
-        return Array.from({ length: 10 }, (_, i) => ({ id: `d${h.claims}-${i}`, endpointId: `ep${h.claims}-${i}` }))
+        return Array.from({ length: 10 }, (_, i) => ({ id: `d${h.claims}-${i}`, endpointId: `ep${h.claims}-${i}`, tenantId: `t${i}` }))
       },
       webhookDelivery: {
         findUniqueOrThrow: async ({ where }: { where: { id: string } }) => ({
@@ -44,7 +44,7 @@ vi.mock("./post", () => ({
     h.maxInFlight = Math.max(h.maxInFlight, h.inFlight)
     await new Promise((r) => setTimeout(r, 20))
     h.inFlight--
-    return { ok: false, status: 503, error: "HTTP 503" }
+    return { ok: false, status: 503, error: "HTTP 503", attempted: true }
   },
 }))
 

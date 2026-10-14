@@ -29,7 +29,7 @@ vi.mock("./webhooks/post", () => ({
   postWebhook: async (url: string, body: string, headers: Record<string, string>) => {
     post.calls.push({ url, body, headers })
     const ok = post.status >= 200 && post.status < 300
-    return { ok, status: post.status, error: ok ? null : `HTTP ${post.status}` }
+    return { ok, status: post.status, error: ok ? null : `HTTP ${post.status}`, attempted: true }
   },
 }))
 import { createWebhookEndpoint, disableWebhookEndpoint } from "./webhooks/endpoints"

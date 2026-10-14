@@ -91,10 +91,6 @@ services:
       PORT: 3300
       HOSTNAME: 0.0.0.0
       APP_MODE: all
-      # Synthetic data only, baked into the public demo's snapshot with its
-      # uploads in plaintext: encryption at rest (on by default in production,
-      # lib/storage-crypto.ts) is switched off explicitly here.
-      UPLOADS_ENC_REQUIRED: "false"
     entrypoint: ["sh", "/sim/faketime-entrypoint.sh", "docker-entrypoint.sh"]
     command: ["node", "server.js"]
     healthcheck:

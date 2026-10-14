@@ -23,10 +23,10 @@ vi.mock("./webhooks/post", () => ({
   postWebhook: async (url: string) => {
     post.byUrl.set(url, (post.byUrl.get(url) ?? 0) + 1)
     const ok = !post.failUrls.has(url)
-    return { ok, status: ok ? 200 : 503, error: ok ? null : "HTTP 503" }
+    return { ok, status: ok ? 200 : 503, error: ok ? null : "HTTP 503", attempted: true }
   },
 }))
-import { runWebhookDeliveries, PER_ENDPOINT_PER_RUN } from "./webhooks/dispatch"
+import { runWebhookDeliveries, PER_ENDPOINT_PER_RUN, PER_TENANT_PER_RUN } from "./webhooks/dispatch"
 import { CIRCUIT_BREAKER_FAILURES, resumeWebhookEndpoint } from "./webhooks/circuit-breaker"
 import { pruneLenderApiLogs } from "./retention"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
@@ -60,7 +60,8 @@ suite("lender API hardening (real database)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const valid = await issueKey(db, A, ["clients:read"])
     const since = new Date()
-    for (let i = 0; i < 650; i++) expect(await call(generateApiKey().key)).toBe(401)
+    // Refused throughout: 401, then 429 once the global failed-auth bucket (no known address) is full.
+    for (let i = 0; i < 650; i++) expect([401, 429]).toContain(await call(generateApiKey().key))
     expect(await call(valid.key)).toBe(200)
     const unattributed = await db.apiRequestLog.count({ where: { apiKeyId: null, createdAt: { gte: since } } })
     expect(unattributed).toBeLessThanOrEqual(10)
@@ -138,6 +139,49 @@ suite("lender API hardening (real database)", () => {
       expect(await db.auditLog.count({ where: { tenantId: A.tenantId, action: "WEBHOOK_ENDPOINT_RESUMED" } })).toBe(1)
     })
 
+    // Review round 2 (A): with WEBHOOK_SECRET_KEY missing, 30 pending
+    // deliveries paused the endpoint without the receiver ever being contacted.
+    it("a local fault (no sealing key) neither counts toward the breaker nor spends attempts", async () => {
+      const ep = await endpoint(A, "https://localfault.example.com/hook")
+      await backlog(A, ep.id, 30)
+      vi.stubEnv("WEBHOOK_SECRET_KEY", "")
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      post.byUrl.clear()
+      try {
+        for (let i = 0; i < 3; i++) {
+          await db.webhookDelivery.updateMany({ where: { endpointId: ep.id, status: "PENDING" }, data: { nextAttemptAt: new Date(Date.now() - 1000) } })
+          await runWebhookDeliveries({ budgetMs: 10_000 })
+        }
+      } finally {
+        vi.stubEnv("WEBHOOK_SECRET_KEY", sealKey)
+        warn.mockRestore()
+      }
+      expect(post.byUrl.get("https://localfault.example.com/hook")).toBeUndefined()
+      const after = await db.webhookEndpoint.findUniqueOrThrow({ where: { id: ep.id } })
+      expect(after.pausedAt).toBeNull()
+      expect(after.consecutiveFailures).toBe(0)
+      const rows = await db.webhookDelivery.findMany({ where: { endpointId: ep.id } })
+      expect(rows.every((r) => r.status === "PENDING" && r.attempts === 0)).toBe(true)
+      expect(rows.some((r) => r.lastError?.includes("WEBHOOK_SECRET_KEY"))).toBe(true)
+      await db.webhookEndpoint.update({ where: { id: ep.id }, data: { active: false, disabledAt: new Date(), disabledById: A.userId } })
+    })
+
+    // Review round 2 (C): fairness was per endpoint only; one lender with many
+    // endpoints could still take a whole run.
+    it("one lender's backlog across many endpoints cannot starve another lender", async () => {
+      const eps = await Promise.all([1, 2, 3, 4, 5].map((i) => endpoint(A, `https://many${i}.example.com/hook`)))
+      for (const ep of eps) await backlog(A, ep.id, 20)
+      const other = await endpoint(B, "https://other-lender.example.com/hook")
+      await backlog(B, other.id, 1)
+      post.byUrl.clear()
+      await runWebhookDeliveries({ budgetMs: 20_000 })
+      expect(post.byUrl.get("https://other-lender.example.com/hook")).toBe(1)
+      const forA = eps.reduce((n, _ep, i) => n + (post.byUrl.get(`https://many${i + 1}.example.com/hook`) ?? 0), 0)
+      expect(forA).toBeLessThanOrEqual(PER_TENANT_PER_RUN + 10)
+      await db.webhookEndpoint.updateMany({ where: { id: { in: eps.map((e) => e.id) } }, data: { active: false, disabledAt: new Date(), disabledById: A.userId } })
+      await db.webhookEndpoint.update({ where: { id: other.id }, data: { active: false, disabledAt: new Date(), disabledById: B.userId } })
+    })
+
     it("does not deliver for a lender that is not ACTIVE", async () => {
       const ep = await endpoint(B, "https://b.example.com/hook")
       await backlog(B, ep.id, 2)
@@ -190,6 +234,10 @@ suite("lender API hardening (real database)", () => {
         expect(await db.loanApplication.count({ where: { id: app.id } })).toBe(1)
         expect(await events("payment.received", direct.id)).toBe(0)
         expect(await events("application.created", app.id)).toBe(0)
+        // Review round 2: a swallowed failure is counted, so the loss is visible.
+        const lost = await db.webhookOutboxFailure.findMany({ where: { tenantId: A.tenantId, entityId: { in: [direct.id, viaCode.payment.id, app.id] } } })
+        expect(lost.map((f) => f.type).sort()).toEqual(["application.created", "payment.received", "payment.received"])
+        expect(lost[0].error).toMatch(/forced outbox failure/)
       } finally {
         await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.webhook_enqueue(text, text, text, jsonb)`)
         await db.$executeRawUnsafe(`ALTER FUNCTION public.webhook_enqueue_saved_it(text, text, text, jsonb) RENAME TO webhook_enqueue`)
@@ -202,6 +250,7 @@ suite("lender API hardening (real database)", () => {
   it("prunes request logs and finished deliveries past retention, keeping pending ones", async () => {
     const old = new Date(Date.now() - 400 * 86_400_000)
     await db.apiRequestLog.create({ data: { tenantId: A.tenantId, method: "GET", path: "/api/v1/old", status: 200, durationMs: 1, createdAt: old } })
+    await db.webhookOutboxFailure.create({ data: { tenantId: A.tenantId, type: "payment.received", entityId: "old-lost", error: "synthetic", createdAt: old } })
     const ep = await db.webhookEndpoint.findFirstOrThrow({ where: { tenantId: B.tenantId } })
     const evDone = await db.webhookEvent.create({ data: { tenantId: B.tenantId, type: "payment.received", entityId: "old1", data: {}, dispatchedAt: old, createdAt: old } })
     const evWaiting = await db.webhookEvent.create({ data: { tenantId: B.tenantId, type: "payment.received", entityId: "old2", data: {}, dispatchedAt: old, createdAt: old } })
@@ -211,6 +260,7 @@ suite("lender API hardening (real database)", () => {
     const r = await pruneLenderApiLogs()
     expect(r.apiRequestLogs).toBeGreaterThanOrEqual(1)
     expect(await db.apiRequestLog.count({ where: { path: "/api/v1/old" } })).toBe(0)
+    expect(await db.webhookOutboxFailure.count({ where: { entityId: "old-lost" } })).toBe(0)
     expect(await db.webhookEvent.count({ where: { id: evDone.id } })).toBe(0)
     expect(await db.webhookEvent.count({ where: { id: evWaiting.id } })).toBe(1)
     expect(await db.webhookDelivery.count({ where: { eventId: evWaiting.id } })).toBe(1)

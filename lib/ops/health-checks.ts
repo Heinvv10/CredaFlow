@@ -61,6 +61,20 @@ export async function probeCron(): Promise<{ state: CronState; jobs: CronJobFres
   }
 }
 
+/**
+ * Webhook events the outbox triggers could not write in the last 24 hours
+ * (WebhookOutboxFailure): the payment, loan or application was saved, the
+ * event was lost. Null when it could not be counted.
+ */
+export async function recentOutboxFailures(now: Date = new Date()): Promise<number | null> {
+  try {
+    return await prisma.webhookOutboxFailure.count({ where: { createdAt: { gte: new Date(now.getTime() - 24 * 3600_000) } } })
+  } catch (error) {
+    console.error("[health] webhook outbox failure count failed", error)
+    return null
+  }
+}
+
 export function encryptionState(): "on" | "off" {
   return storageEncryptionEnabled() ? "on" : "off"
 }

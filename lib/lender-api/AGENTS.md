@@ -17,7 +17,12 @@
   ID number, email, phone and date of birth need the `pii:read` scope, and so
   does any free text (application purpose, payment reference).
 - Rate limits are per key. Never add a limit that a caller without a valid key
-  can fill for everyone (an IP bucket on all requests did: review B1).
+  can fill for everyone (an IP bucket on all requests did: review B1). Each
+  kind of bucket has its own `createRateLimiter` store, so address floods
+  cannot evict key buckets.
+- Only a real POST counts toward the circuit breaker or spends an attempt; a
+  local fault defers the delivery. Outbox trigger failures are logged in
+  `WebhookOutboxFailure` (health warning `webhook_outbox_failures`).
 - A key is refused once its creator is inactive or below ADMIN
   (`keyIssuerStillAuthorised`). Paging is keyset on (createdAt, id): never a
   Prisma `cursor: { id }`, which reads the named row without the tenant filter.
@@ -27,8 +32,9 @@
   OpenAPI security scheme.
 - No money writes (recording payments, disbursing) through the API: they need
   their own design (idempotency, allocation, audit, 2FA-equivalent).
-- Webhook events are written by database triggers (same migration) into
-  `WebhookEvent`, only while the tenant has an active endpoint for the type.
+- Webhook events are written by database triggers (same migration; their
+  functions' latest definitions are in `20261014170000_webhook_breaker_outbox_guard`)
+  into `WebhookEvent`, only while the tenant has an active endpoint for the type.
   Adding an event type changes the trigger SQL, `WebhookEndpoint_events_check`
   and `webhooks/events.ts` together.
 - The dispatcher's `running` flag only stops overlapping runs in ONE process.

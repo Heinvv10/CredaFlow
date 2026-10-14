@@ -80,12 +80,15 @@ describe("storage envelope encryption", () => {
     expect(uploadsMasterKey(env({ UPLOADS_ENC_KEY: " " }))).toBeNull()
   })
 
-  it("requires encryption in production unless a demo stack, and the flag decides when set", () => {
-    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production" }))).toBe(true)
-    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production", DEMO_MODE: "true" }))).toBe(false)
-    expect(uploadsEncryptionRequired(env({ NODE_ENV: "development" }))).toBe(false)
+  // Review round 2: a default-on requirement broke the first deploy of every
+  // existing stack. Off unless switched on explicitly (provision-lender.sh
+  // does for new lenders).
+  it("requires encryption only when UPLOADS_ENC_REQUIRED says so, in any environment", () => {
+    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production" }))).toBe(false)
+    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production", UPLOADS_ENC_REQUIRED: "" }))).toBe(false)
     expect(uploadsEncryptionRequired(env({ NODE_ENV: "production", UPLOADS_ENC_REQUIRED: "false" }))).toBe(false)
-    expect(uploadsEncryptionRequired(env({ NODE_ENV: "test", UPLOADS_ENC_REQUIRED: "true" }))).toBe(true)
-    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production", DEMO_MODE: "true", UPLOADS_ENC_REQUIRED: "1" }))).toBe(true)
+    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production", UPLOADS_ENC_REQUIRED: "true" }))).toBe(true)
+    expect(uploadsEncryptionRequired(env({ NODE_ENV: "test", UPLOADS_ENC_REQUIRED: "1" }))).toBe(true)
+    expect(uploadsEncryptionRequired(env({ NODE_ENV: "production", DEMO_MODE: "true", UPLOADS_ENC_REQUIRED: "true" }))).toBe(true)
   })
 })

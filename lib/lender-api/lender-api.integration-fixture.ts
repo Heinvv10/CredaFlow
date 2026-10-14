@@ -82,6 +82,7 @@ export async function issueKey(db: PrismaClient, tenant: ApiTenant, scopes: ApiS
 export async function deleteApiTenant(db: PrismaClient, t: ApiTenant): Promise<void> {
   const where = { tenantId: t.tenantId }
   await db.webhookDelivery.deleteMany({ where })
+  await db.webhookOutboxFailure.deleteMany({ where })
   await db.webhookEvent.deleteMany({ where })
   await db.webhookEndpoint.deleteMany({ where })
   await db.apiRequestLog.deleteMany({ where })

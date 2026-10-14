@@ -24,8 +24,8 @@ export function storageName(storagePath: string): string {
 /**
  * The bytes written to disk: envelope-encrypted when UPLOADS_ENC_KEY is set
  * (lib/storage-crypto.ts). Without a key: plaintext, unless encryption is
- * required (UPLOADS_ENC_REQUIRED, on by default in production outside demo
- * stacks), when the write is refused. Callers always see the plaintext and
+ * required (UPLOADS_ENC_REQUIRED=true, set explicitly: provision-lender.sh does for
+ * new lenders), when the write is refused. Callers always see the plaintext and
  * its length; encryption is invisible above this module.
  */
 function atRest(buffer: Buffer, storagePath: string): Buffer {

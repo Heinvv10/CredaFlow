@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto"
 import { NextResponse } from "next/server"
-import { encryptionState, probeCron, probeDatabase, probeStorage } from "@/lib/ops/health-checks"
+import { encryptionState, probeCron, probeDatabase, probeStorage, recentOutboxFailures } from "@/lib/ops/health-checks"
 
 const noStoreHeaders = { "Cache-Control": "no-store" }
 
@@ -42,16 +42,18 @@ export async function GET(req?: Request) {
 
   const cron = database.state === "ok" ? await probeCron() : { state: "error" as const, jobs: [] }
   const encryption = encryptionState()
+  const lostEvents = database.state === "ok" ? await recentOutboxFailures() : null
   const warnings = [
     ...(cron.state === "stale" ? ["cron_stale"] : []),
     ...(cron.state === "error" ? ["cron_unknown"] : []),
     ...(encryption === "off" ? ["storage_encryption_off"] : []),
+    ...(lostEvents !== null && lostEvents > 0 ? ["webhook_outbox_failures"] : []),
   ]
   const body = {
     ...publicBody,
     checks: { database: database.state, storage, storageEncryption: encryption, cron: cron.state },
     warnings,
-    detail: { databaseLatencyMs: database.latencyMs, cronJobs: cron.jobs },
+    detail: { databaseLatencyMs: database.latencyMs, cronJobs: cron.jobs, webhookOutboxFailures24h: lostEvents },
   }
   return NextResponse.json(body, { status: ok ? 200 : 503, headers: noStoreHeaders })
 }

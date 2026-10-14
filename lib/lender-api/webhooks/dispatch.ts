@@ -4,7 +4,7 @@ import { withoutTenantScope } from "@/lib/tenant-scope"
 import { openSecret } from "@/lib/crypto/secret-box"
 import { nextAttemptAfter } from "@/lib/lender-api/webhooks/events"
 import { SIGNATURE_HEADER, signWebhookBody } from "@/lib/lender-api/webhooks/signing"
-import { postWebhook, type PostDeps } from "@/lib/lender-api/webhooks/post"
+import { postWebhook, type PostDeps, type PostResult } from "@/lib/lender-api/webhooks/post"
 import { webhookSecretKey } from "@/lib/lender-api/webhooks/endpoints"
 import { recordEndpointOutcome } from "@/lib/lender-api/webhooks/circuit-breaker"
 
@@ -23,10 +23,17 @@ import { recordEndpointOutcome } from "@/lib/lender-api/webhooks/circuit-breaker
  * Delivery is at-least-once; receivers dedupe on the event id.
  *
  * Fairness: a batch takes at most PER_ENDPOINT_PER_BATCH deliveries of one
- * endpoint and a run at most PER_ENDPOINT_PER_RUN, so one slow or failing
- * receiver cannot starve the others; deliveries of a paused endpoint (circuit
- * breaker, circuit-breaker.ts) or of a lender that is not ACTIVE are not
- * claimed at all and wait, PENDING, without spending attempts.
+ * endpoint and PER_TENANT_PER_BATCH of one lender, and a run at most
+ * PER_ENDPOINT_PER_RUN and PER_TENANT_PER_RUN, so neither one slow receiver
+ * nor one lender with many endpoints can starve the rest. Deliveries of a
+ * paused endpoint (circuit breaker, circuit-breaker.ts) or of a lender that
+ * is not ACTIVE are not claimed and wait, PENDING, without spending attempts.
+ *
+ * Only the result of a real POST counts: an attempt, and a step toward the
+ * circuit breaker. A local fault (no WEBHOOK_SECRET_KEY, a secret that will
+ * not open) is recorded on the delivery and retried after LOCAL_FAULT_RETRY_MS
+ * without spending an attempt or touching the breaker, and a destination
+ * refused here (SSRF guard) spends an attempt but does not trip the breaker.
  *
  * Both steps run across tenants, so outside the tenant scope; each write names
  * the row's own tenantId.
@@ -36,7 +43,10 @@ const FAN_OUT_BATCH = 200
 const DELIVERY_BATCH = 10
 export const PER_ENDPOINT_PER_BATCH = 2
 export const PER_ENDPOINT_PER_RUN = 25
+export const PER_TENANT_PER_BATCH = 5
+export const PER_TENANT_PER_RUN = 50
 const LEASE_MS = 5 * 60_000
+const LOCAL_FAULT_RETRY_MS = 5 * 60_000
 const ERROR_CHARS = 500
 
 export async function fanOutEvents(): Promise<number> {
@@ -63,32 +73,36 @@ export async function fanOutEvents(): Promise<number> {
   }))
 }
 
+type Claimed = { id: string; endpointId: string; tenantId: string }
+
 /**
- * Pick candidates without locks (the window function needs none), then take
+ * Pick candidates without locks (the window functions need none), then take
  * them with an UPDATE that re-checks they are still due: of two runs choosing
  * the same row, the second finds it leased and skips it.
  */
-async function claimDue(now: Date, exhausted: string[]): Promise<Array<{ id: string; endpointId: string }>> {
-  return prisma.$queryRaw<Array<{ id: string; endpointId: string }>>(Prisma.sql`
+async function claimDue(now: Date, exhaustedEndpoints: string[], exhaustedTenants: string[]): Promise<Claimed[]> {
+  return prisma.$queryRaw<Claimed[]>(Prisma.sql`
     WITH candidates AS (
       SELECT "id", "nextAttemptAt" FROM (
         SELECT d."id", d."nextAttemptAt",
-               row_number() OVER (PARTITION BY d."endpointId" ORDER BY d."nextAttemptAt", d."id") AS rn
+               row_number() OVER (PARTITION BY d."endpointId" ORDER BY d."nextAttemptAt", d."id") AS per_endpoint,
+               row_number() OVER (PARTITION BY d."tenantId" ORDER BY d."nextAttemptAt", d."id") AS per_tenant
         FROM "WebhookDelivery" d
         JOIN "WebhookEndpoint" e ON e."id" = d."endpointId"
         JOIN "Tenant" t ON t."id" = d."tenantId"
         WHERE d."status" = 'PENDING' AND d."nextAttemptAt" <= ${now}
           AND e."pausedAt" IS NULL AND t."status" = 'ACTIVE'
-          AND NOT (d."endpointId" = ANY (${exhausted}::text[]))
+          AND NOT (d."endpointId" = ANY (${exhaustedEndpoints}::text[]))
+          AND NOT (d."tenantId" = ANY (${exhaustedTenants}::text[]))
       ) ranked
-      WHERE rn <= ${PER_ENDPOINT_PER_BATCH}
+      WHERE per_endpoint <= ${PER_ENDPOINT_PER_BATCH} AND per_tenant <= ${PER_TENANT_PER_BATCH}
       ORDER BY "nextAttemptAt"
       LIMIT ${DELIVERY_BATCH}
     )
     UPDATE "WebhookDelivery" w SET "nextAttemptAt" = ${new Date(now.getTime() + LEASE_MS)}
     FROM candidates c
     WHERE w."id" = c."id" AND w."status" = 'PENDING' AND w."nextAttemptAt" <= ${now}
-    RETURNING w."id", w."endpointId"
+    RETURNING w."id", w."endpointId", w."tenantId"
   `)
 }
 
@@ -96,7 +110,9 @@ export function webhookBody(event: { id: string; type: string; createdAt: Date; 
   return JSON.stringify({ id: event.id, type: event.type, createdAt: event.createdAt.toISOString(), data: event.data })
 }
 
-async function deliverOne(id: string, deps: PostDeps): Promise<"succeeded" | "retry" | "failed"> {
+type Outcome = "succeeded" | "retry" | "failed" | "deferred"
+
+async function deliverOne(id: string, deps: PostDeps): Promise<Outcome> {
   const d = await prisma.webhookDelivery.findUniqueOrThrow({
     where: { id },
     include: {
@@ -105,28 +121,36 @@ async function deliverOne(id: string, deps: PostDeps): Promise<"succeeded" | "re
     },
   })
   const now = new Date()
-  const attempts = d.attempts + 1
-  let outcome: { ok: boolean; status: number | null; error: string | null }
+  let outcome: PostResult
   if (!d.endpoint.active) {
-    outcome = { ok: false, status: null, error: "endpoint disabled" }
+    outcome = { ok: false, status: null, error: "endpoint disabled", attempted: false }
   } else {
+    let headers: Record<string, string>
+    const body = webhookBody(d.event)
     try {
       const key = webhookSecretKey()
       if (!key) throw new Error("WEBHOOK_SECRET_KEY is not set")
-      const body = webhookBody(d.event)
-      outcome = await postWebhook(d.endpoint.url, body, {
+      headers = {
         [SIGNATURE_HEADER]: signWebhookBody(openSecret(d.endpoint.secretSealed, key), body),
         "CredaFlow-Event-Id": d.event.id,
         "CredaFlow-Event-Type": d.event.type,
         "CredaFlow-Delivery-Id": d.id,
-      }, deps)
+      }
     } catch (error) {
-      // A local fault (no key, a secret that will not open) is recorded on the
-      // delivery and retried like a failed POST, so it shows in the log.
-      outcome = { ok: false, status: null, error: error instanceof Error ? error.message : String(error) }
+      // A local fault: nothing was sent, so no attempt is spent and the
+      // endpoint's breaker is not touched. Recorded on the delivery, retried later.
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn("[webhooks] delivery deferred by a local fault", { deliveryId: d.id, error: message })
+      await prisma.webhookDelivery.update({
+        where: { id, tenantId: d.tenantId },
+        data: { lastError: `not sent: ${message}`.slice(0, ERROR_CHARS), nextAttemptAt: new Date(now.getTime() + LOCAL_FAULT_RETRY_MS) },
+      })
+      return "deferred"
     }
-    await recordEndpointOutcome({ id: d.endpointId, tenantId: d.tenantId }, outcome.ok, outcome.error)
+    outcome = await postWebhook(d.endpoint.url, body, headers, deps)
+    if (outcome.attempted) await recordEndpointOutcome({ id: d.endpointId, tenantId: d.tenantId }, outcome.ok, outcome.error)
   }
+  const attempts = d.attempts + 1
   const next = outcome.ok || !d.endpoint.active ? null : nextAttemptAfter(attempts, now)
   const status = outcome.ok ? "SUCCEEDED" : next ? "PENDING" : "FAILED"
   await prisma.webhookDelivery.update({
@@ -149,16 +173,18 @@ export interface DeliveryRunResult {
   succeeded: number
   retrying: number
   failed: number
+  deferred: number
 }
 
 // One run at a time per process: the scheduler fires every minute whether or
 // not the last run finished, and overlapping runs would multiply the outbound
 // concurrency. Each run is itself bounded: DELIVERY_BATCH requests at a time,
 // each under postWebhook's deadline, claimed only until the time budget ends.
+// Across replicas, safety comes from the database (SKIP LOCKED and the lease).
 let running = false
 
 export async function runWebhookDeliveries(opts: { budgetMs?: number; deps?: PostDeps } = {}): Promise<DeliveryRunResult & { skipped?: true }> {
-  if (running) return { fannedOut: 0, succeeded: 0, retrying: 0, failed: 0, skipped: true }
+  if (running) return { fannedOut: 0, succeeded: 0, retrying: 0, failed: 0, deferred: 0, skipped: true }
   running = true
   try {
     return await runOnce(opts)
@@ -167,22 +193,23 @@ export async function runWebhookDeliveries(opts: { budgetMs?: number; deps?: Pos
   }
 }
 
+const over = (counts: Map<string, number>, cap: number) => [...counts].filter(([, n]) => n >= cap).map(([id]) => id)
+
 async function runOnce(opts: { budgetMs?: number; deps?: PostDeps }): Promise<DeliveryRunResult> {
   const deadline = Date.now() + (opts.budgetMs ?? 45_000)
-  const result: DeliveryRunResult = { fannedOut: await fanOutEvents(), succeeded: 0, retrying: 0, failed: 0 }
+  const result: DeliveryRunResult = { fannedOut: await fanOutEvents(), succeeded: 0, retrying: 0, failed: 0, deferred: 0 }
   const perEndpoint = new Map<string, number>()
+  const perTenant = new Map<string, number>()
   await withoutTenantScope(async () => {
     while (Date.now() < deadline) {
-      const exhausted = [...perEndpoint].filter(([, n]) => n >= PER_ENDPOINT_PER_RUN).map(([id]) => id)
-      const claimed = await claimDue(new Date(), exhausted)
+      const claimed = await claimDue(new Date(), over(perEndpoint, PER_ENDPOINT_PER_RUN), over(perTenant, PER_TENANT_PER_RUN))
       if (claimed.length === 0) break
-      for (const c of claimed) perEndpoint.set(c.endpointId, (perEndpoint.get(c.endpointId) ?? 0) + 1)
-      const outcomes = await Promise.all(claimed.map((c) => deliverOne(c.id, opts.deps ?? {})))
-      for (const o of outcomes) {
-        if (o === "succeeded") result.succeeded++
-        else if (o === "retry") result.retrying++
-        else result.failed++
+      for (const c of claimed) {
+        perEndpoint.set(c.endpointId, (perEndpoint.get(c.endpointId) ?? 0) + 1)
+        perTenant.set(c.tenantId, (perTenant.get(c.tenantId) ?? 0) + 1)
       }
+      const outcomes = await Promise.all(claimed.map((c) => deliverOne(c.id, opts.deps ?? {})))
+      for (const o of outcomes) result[o === "succeeded" ? "succeeded" : o === "retry" ? "retrying" : o]++
     }
   })
   return result

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { queryRaw, heartbeats, disk } = vi.hoisted(() => ({
+const { queryRaw, heartbeats, outboxFailures, disk } = vi.hoisted(() => ({
   queryRaw: vi.fn(),
   heartbeats: vi.fn(),
+  outboxFailures: vi.fn(),
   disk: { failWrite: false, corrupt: false, files: new Map<string, Buffer>() },
 }))
 
@@ -10,6 +11,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     $queryRaw: queryRaw,
     cronHeartbeat: { findMany: heartbeats },
+    webhookOutboxFailure: { count: outboxFailures },
   },
 }))
 
@@ -35,6 +37,7 @@ beforeEach(() => {
   disk.files.clear()
   queryRaw.mockResolvedValue([{ "?column?": 1 }])
   heartbeats.mockResolvedValue([])
+  outboxFailures.mockResolvedValue(0)
   vi.stubEnv("CRON_SECRET", SECRET)
   vi.stubEnv("APP_MODE", "staff")
   vi.stubEnv("UPLOADS_ENC_KEY", "set")
@@ -91,6 +94,18 @@ describe("/api/health, public", () => {
 })
 
 describe("/api/health, operator (x-cron-secret)", () => {
+  // Review round 2: an outbox event a trigger could not write is a lost
+  // webhook; recent ones are a warning (not a failure of the check).
+  it("warns while webhook events were lost in the last 24 hours, with the count", async () => {
+    outboxFailures.mockResolvedValue(3)
+    const { response, body } = await operator()
+    expect(response.status).toBe(200)
+    expect(body.warnings).toContain("webhook_outbox_failures")
+    expect(body.detail.webhookOutboxFailures24h).toBe(3)
+    const since = outboxFailures.mock.calls[0][0].where.createdAt.gte as Date
+    expect(Date.now() - since.getTime()).toBeGreaterThanOrEqual(24 * 3600_000 - 1000)
+  })
+
   it("names each check", async () => {
     const { body } = await operator()
     expect(body).toMatchObject({ status: "ok", checks: { database: "ok", storage: "ok", storageEncryption: "on", cron: "ok" }, warnings: [] })

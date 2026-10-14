@@ -13,7 +13,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { API_KEY_RATE_LIMIT, withApiKey } from "./handler"
+import { API_FAILED_AUTH_GLOBAL_LIMIT, API_KEY_RATE_LIMIT, withApiKey } from "./handler"
 import { generateApiKey } from "./keys"
 import { getCurrentTenantId } from "@/lib/tenant-scope"
 import { _resetRateLimitStore } from "@/lib/rate-limit"
@@ -191,6 +191,30 @@ describe("junk-key floods", () => {
     expect((await from("203.0.113.9", `Bearer ${key.key}`).response).status).toBe(200)
     vi.unstubAllEnvs()
   })
+
+  // Review round 2 (B): with no known caller address there was no failure
+  // throttle at all. A coarse global failed-auth bucket now applies; a valid
+  // key never consults it.
+  it("throttles failures from unknown addresses with a global bucket that valid keys never touch", async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < API_FAILED_AUTH_GLOBAL_LIMIT.limit + 5; i++) statuses.push((await call({ authorization: junkKey() }).response).status)
+    expect(statuses.slice(0, API_FAILED_AUTH_GLOBAL_LIMIT.limit).every((s) => s === 401)).toBe(true)
+    expect(statuses.at(-1)).toBe(429)
+    expect((await call().response).status).toBe(200)
+  })
+
+  // Review round 2 (C): 10,100 distinct addresses evicted a limited key's
+  // bucket from the shared store, lifting its limit.
+  it("keeps a key's rate-limit bucket however many distinct addresses fail", async () => {
+    vi.stubEnv("TRUSTED_PROXY", "1")
+    for (let i = 0; i <= API_KEY_RATE_LIMIT.limit; i++) await call().response
+    expect((await call().response).status).toBe(429)
+    for (let i = 0; i < 10_100; i++) {
+      await call({ authorization: "Bearer not-a-key", "x-forwarded-for": `2001:db8:${(i >> 16).toString(16)}:${(i & 0xffff).toString(16)}::1` }).response
+    }
+    expect((await call().response).status).toBe(429)
+    vi.unstubAllEnvs()
+  }, 60_000)
 
   it("samples the log rows of requests that name no key", async () => {
     for (let i = 0; i < 650; i++) await call({ authorization: junkKey() }).response

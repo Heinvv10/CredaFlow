@@ -6,6 +6,8 @@ export interface PostResult {
   ok: boolean
   status: number | null
   error: string | null
+  /** A request went out to the receiver. False when refused here before any connection: only results of a real POST count toward the circuit breaker. */
+  attempted: boolean
 }
 
 export interface PostDeps {
@@ -31,7 +33,7 @@ export const REFUSED_DESTINATION = "destination refused: not a public https addr
 
 function refused(url: string, error: unknown): PostResult {
   console.warn("[webhooks] destination refused", { url, reason: error instanceof Error ? error.message : String(error) })
-  return { ok: false, status: null, error: REFUSED_DESTINATION }
+  return { ok: false, status: null, error: REFUSED_DESTINATION, attempted: false }
 }
 
 export async function postWebhook(url: string, body: string, headers: Record<string, string>, deps: PostDeps = {}): Promise<PostResult> {
@@ -55,7 +57,7 @@ export async function postWebhook(url: string, body: string, headers: Record<str
     // trickling its answer could hold a cron slot indefinitely.
     const deadline = setTimeout(() => {
       req.destroy(new Error(`timed out after ${timeoutMs} ms`))
-      done({ ok: false, status: null, error: `timed out after ${timeoutMs} ms` })
+      done({ ok: false, status: null, error: `timed out after ${timeoutMs} ms`, attempted: true })
     }, timeoutMs)
     function done(result: PostResult) {
       if (settled) return
@@ -79,11 +81,11 @@ export async function postWebhook(url: string, body: string, headers: Record<str
       res.on("close", () => {
         const status = res.statusCode ?? null
         const ok = status !== null && status >= 200 && status < 300
-        done({ ok, status, error: ok ? null : `HTTP ${status}` })
+        done({ ok, status, error: ok ? null : `HTTP ${status}`, attempted: true })
       })
     })
     req.on("timeout", () => req.destroy(new Error("timed out")))
-    req.on("error", (error) => done(error instanceof SsrfError ? refused(url, error) : { ok: false, status: null, error: error.message }))
+    req.on("error", (error) => done(error instanceof SsrfError ? refused(url, error) : { ok: false, status: null, error: error.message, attempted: true }))
     req.end(body)
   })
 }

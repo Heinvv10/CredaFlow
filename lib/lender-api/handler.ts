@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
-import { checkRateLimit, recordedCallerIp } from "@/lib/rate-limit"
+import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
 
@@ -18,10 +18,12 @@ import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
  *   5. is written to ApiRequestLog, except that rows naming no key and 429s are
  *      sampled (UNATTRIBUTED_LOG_SAMPLE per process) so a flood of junk keys
  *      cannot fill the table; what is dropped is counted in the server log.
- * Failed authentication is also counted per caller address when the address
- * is known (TRUSTED_PROXY): over the limit, failures answer 429 instead of
- * 401. That bucket is never consulted for a valid key, so junk traffic from
- * anywhere can never lock a real integration out.
+ * Failed authentication is also counted, per caller address when it is known
+ * (TRUSTED_PROXY), else in one coarse global bucket: over the limit, failures
+ * answer 429 instead of 401. Neither is consulted for a valid key, so junk
+ * traffic from anywhere can never lock a real integration out. Each kind of
+ * bucket has its own store (createRateLimiter), so a flood of distinct
+ * addresses can never evict a key's bucket and lift its limit.
  */
 
 export interface ApiCaller {
@@ -33,7 +35,15 @@ export interface ApiCaller {
 
 export const API_KEY_RATE_LIMIT = { limit: 120, windowMs: 60_000 }
 export const API_FAILED_AUTH_IP_LIMIT = { limit: 30, windowMs: 60_000 }
+export const API_FAILED_AUTH_GLOBAL_LIMIT = { limit: 300, windowMs: 60_000 }
 export const UNATTRIBUTED_LOG_SAMPLE = { limit: 10, windowMs: 60_000 }
+
+// Key buckets are bounded by the ApiKey rows that exist (a bucket is made only
+// for a real key), so their store is sized well past that and never shared.
+const keyLimiter = createRateLimiter(200_000)
+const failedAuthByAddress = createRateLimiter(10_000)
+const failedAuthGlobal = createRateLimiter(1)
+const logSampler = createRateLimiter(1)
 const LAST_USED_RESOLUTION_MS = 60_000
 
 export function apiError(status: number, code: string, message: string, headers?: HeadersInit): NextResponse {
@@ -96,7 +106,7 @@ let suppressedLogRows = 0
 /** Whether to write this row: always when it names a key and is not a 429, else sampled. */
 function shouldLog(keyId: string | null, status: number): boolean {
   if (keyId !== null && status !== 429) return true
-  if (checkRateLimit("lender-api:log-unattributed", UNATTRIBUTED_LOG_SAMPLE).allowed) return true
+  if (logSampler("unattributed", UNATTRIBUTED_LOG_SAMPLE).allowed) return true
   suppressedLogRows++
   return false
 }
@@ -143,13 +153,13 @@ export async function withApiKey(
     tenantId = auth.ok ? auth.caller.tenantId : auth.tenantId
     keyId = auth.ok ? auth.caller.keyId : auth.keyId
     // Per key, for every request that names a real key (refused ones too).
-    const keyLimit = keyId ? checkRateLimit(`lender-api:key:${keyId}`, API_KEY_RATE_LIMIT) : null
+    const keyLimit = keyId ? keyLimiter(keyId, API_KEY_RATE_LIMIT) : null
     if (keyLimit && !keyLimit.allowed) {
       response = tooMany(keyLimit.retryAfterSeconds, "Too many requests for this API key.")
     } else if (!auth.ok) {
       const ip = recordedCallerIp(req)
-      const ipLimit = ip ? checkRateLimit(`lender-api:failed-auth:${ip}`, API_FAILED_AUTH_IP_LIMIT) : null
-      response = ipLimit && !ipLimit.allowed ? tooMany(ipLimit.retryAfterSeconds, "Too many failed requests.") : auth.response
+      const failLimit = ip ? failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
+      response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
     } else if (!hasScope(auth.caller.scopes, scope)) {
       response = apiError(403, "insufficient_scope", `This API key does not have the ${scope} scope.`)
     } else {
