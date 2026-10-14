@@ -22,7 +22,7 @@ export interface BalanceCheckResult {
  */
 export function checkBalance(read: StatementRead): BalanceCheckResult {
   const { openingBalanceCents: opening, closingBalanceCents: closing, transactions } = read
-  if (opening === null || closing === null) {
+  if (opening === null) {
     return { result: "NOT_APPLICABLE", diffCents: null, breaks: [] }
   }
   const breaks: number[] = []
@@ -36,6 +36,9 @@ export function checkBalance(read: StatementRead): BalanceCheckResult {
     // carried into every row after it.
     running = t.balanceCents
   })
+  // Without a closing the totals cannot be checked, but every printed balance still is:
+  // deleting the closing line must not switch off the row-by-row check.
+  if (closing === null) return { result: breaks.length ? "FAIL" : "NOT_APPLICABLE", diffCents: null, breaks }
   const total = opening + transactions.reduce((sum, t) => sum + (t.nonPosting ? 0 : t.amountCents), 0)
   const diffCents = total - closing
   const ok = Math.abs(diffCents) <= BALANCE_TOLERANCE_CENTS && breaks.length === 0

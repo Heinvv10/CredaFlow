@@ -103,7 +103,9 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     if (figures[col]) return null
     figures[col] = `${w.text}${suffix}`
   }
-  if (!figures.amount) return null
+  // FNB prints a balance on every row (corpus: no row without one): one without is
+  // a misread or an edit, and a blank balance lets a +X/−X pair of edits cancel out.
+  if (!figures.amount || !figures.balance) return null
   const amountCents = fnbCents(figures.amount)
   const date = rowDate(line[0].text, line[1].text, periodStart)
   if (amountCents === null || !date) return null
@@ -112,7 +114,7 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     date,
     description: text,
     amountCents,
-    balanceCents: figures.balance ? fnbCents(figures.balance) : null,
+    balanceCents: fnbCents(figures.balance),
     page,
   }
 }

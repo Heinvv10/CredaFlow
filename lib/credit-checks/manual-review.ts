@@ -60,12 +60,29 @@ function review(s: StatementFacts): FlagCandidate[] {
   }
   // The bank prints no opening balance, so the first row is checked by nothing:
   // a salary edited there reconciles. A person compares it with the original.
+  const rowEvidence = (t: { date: string; amountCents: number } | undefined) => (t ? { date: t.date, amountCents: t.amountCents } : null)
   if (s.authenticity?.signals.includes("OPENING_DERIVED")) {
     out.push({
       ...base,
       code: "FIRST_ROW_UNVERIFIED",
       summary: "This bank prints no opening balance, so the statement's first transaction cannot be checked by arithmetic. Compare it with the bank's original or the previous statement.",
-      evidence: { ...evidence, firstRow: s.read?.transactions[0] ? { date: s.read.transactions[0].date, amountCents: s.read.transactions[0].amountCents } : null },
+      evidence: { ...evidence, firstRow: rowEvidence(s.read?.transactions[0]) },
+    })
+  }
+  if (s.authenticity?.signals.includes("ROWS_WITHOUT_BALANCE")) {
+    out.push({
+      ...base,
+      code: "ROWS_UNCHECKED",
+      summary: "Some transactions on this statement print no running balance, so they are only checked together with the rows around them. Compare them with the bank's original.",
+      evidence: { ...evidence, rows: (s.read?.transactions ?? []).flatMap((t, i) => (t.balanceCents === null && !t.nonPosting ? [i] : [])).slice(0, 20) },
+    })
+  }
+  if (s.authenticity?.signals.includes("CLOSING_DERIVED")) {
+    out.push({
+      ...base,
+      code: "LAST_ROW_UNVERIFIED",
+      summary: "This bank prints no closing balance, so the statement's last transaction cannot be checked by arithmetic. Compare it with the bank's original or the next statement.",
+      evidence: { ...evidence, lastRow: rowEvidence(s.read?.transactions[s.read.transactions.length - 1]) },
     })
   }
   // A photo, a scan, an unrecognised layout or an unprofiled bank's PDF has

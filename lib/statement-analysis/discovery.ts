@@ -9,7 +9,7 @@
  * or closing balance is printed: the opening is derived from the first row
  * (its balance less its amount), so that one row cannot be checked by
  * arithmetic (OPENING_DERIVED sends the statement to a person); the closing is
- * the last row's balance.
+ * the last row's balance, so neither can the last row (CLOSING_DERIVED).
  *
  * Rows are read from word boxes: the table is set in a proportional font.
  */
@@ -54,12 +54,13 @@ function readRows(words: PdfWord[][]): StatementTransaction[] {
         const v = cents(f.text)
         if (col && v !== null && got[col] === undefined) got[col] = v
       }
-      if (!date || (got.debit === undefined && got.credit === undefined)) continue
+      // Discovery prints a balance on every row: one without is a misread or an edit.
+      if (!date || got.balance === undefined || (got.debit === undefined && got.credit === undefined)) continue
       rows.push({
         date,
         description: text.map((w) => w.text).join(" "),
         amountCents: Math.abs(got.credit ?? 0) - Math.abs(got.debit ?? 0),
-        balanceCents: got.balance ?? null,
+        balanceCents: got.balance,
         page: p + 1,
       })
     }
@@ -86,5 +87,6 @@ export function readDiscovery(pages: string[], words: PdfWord[][]): StatementRea
     closingBalanceCents: last?.balanceCents ?? null,
     transactions,
     openingDerived: true,
+    closingDerived: true,
   }
 }

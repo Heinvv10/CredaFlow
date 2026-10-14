@@ -21,7 +21,8 @@ import type { StatementRead, StatementTransaction } from "./types"
 const FIGURE = /-?\d{1,3}(?:,\d{3})*\.\d{2}(?=\s|$)/g
 const ROW = /^\s{0,6}(\d{2} [A-Za-z]{3} \d{2})\s+(.*)$/
 const HEADER = /^\s*Date\s+Description\s+Payments\s+Deposits\s+Balance/
-const TABLE_END = /Standard Bank of South Africa Limited|Pg \d+ of/
+/** The page footer opens its line; a payee named "Standard Bank" inside a description is not one. */
+const TABLE_END = /^The Standard Bank of South Africa Limited/
 
 /** "05 Jul 26" → 2026-07-05 (statements are this century). */
 function isoFromShort(text: string): string | null {

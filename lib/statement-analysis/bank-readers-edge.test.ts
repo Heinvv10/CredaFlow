@@ -10,8 +10,8 @@ import { facts } from "@/lib/credit-checks/facts.test-helpers"
 import { readAbsa } from "./absa"
 import { analyseStatement, type StatementAnalysisResult } from "./analyse"
 import { syntheticStatement, type SynthBank } from "./fixtures/dataset"
-import { absaLines, buildStatement, discoveryLines, NEW_BANK_PRODUCERS, standardBankLines } from "./fixtures/synthetic-banks"
-import { render, type BuildOptions, type SynthStatement } from "./fixtures/synthetic"
+import { absaEstatementLines, absaLines, buildStatement, discoveryLines, nedbankLines, NEW_BANK_PRODUCERS, standardBankLines } from "./fixtures/synthetic-banks"
+import { fnbLines, GENUINE_PRODUCERS, render, type BuildOptions, type SynthStatement } from "./fixtures/synthetic"
 import { readStandardBank } from "./standard-bank"
 import { nearestColumn, splitFigures } from "./word-table"
 
@@ -166,5 +166,118 @@ describe("the no-metadata rule", () => {
     expect(reviewCodes({ ...r, authenticity: bare })).not.toContain("AUTHENTICITY_UNCHECKED")
     const d = await read("DISCOVERY", syntheticStatement({ bank: "DISCOVERY", start: "2026-07-01" }))
     expect(reviewCodes({ ...d, authenticity: { ...bare, signals: d.authenticity.signals } })).toContain("AUTHENTICITY_UNCHECKED")
+  })
+})
+
+describe("guards the second review found untested", () => {
+  it("Discovery's last row is flagged too: its closing is that row's balance", async () => {
+    const r = await read("DISCOVERY", syntheticStatement({ bank: "DISCOVERY", start: "2026-07-01" }))
+    expect(r.authenticity.signals).toEqual(expect.arrayContaining(["OPENING_DERIVED", "CLOSING_DERIVED"]))
+    expect(reviewCodes(r)).toEqual(expect.arrayContaining(["FIRST_ROW_UNVERIFIED", "LAST_ROW_UNVERIFIED"]))
+    const absa = await read("ABSA", syntheticStatement({ bank: "ABSA", start: "2026-07-01" }))
+    expect(reviewCodes(absa)).not.toContain("LAST_ROW_UNVERIFIED")
+  })
+
+  it("Standard Bank's closing is opening + deposits + payments, payments negative", () => {
+    const page = (payments: string) => [[
+      "From: 01 Jul 26", "To: 31 Jul 26",
+      "  Date          Description                                           Payments        Deposits         Balance",
+      "                STATEMENT OPENING BALANCE                                                                1,000.00",
+      "  02 Jul 26     SYNTH STORE                                             -100.00                           900.00",
+      "  03 Jul 26     SYNTH PAYER                                                             50.00             950.00",
+      "Statement Summary", `   Payments                           ${payments}`, "   Deposits                            R50.00",
+    ].join("\n")]
+    expect(readStandardBank(page("-R100.00"))!.closingBalanceCents).toBe(95_000)
+  })
+
+  it("Standard Bank: a reference carrying the opening label cannot stand in for a missing opening", () => {
+    const r = readStandardBank([[
+      "From: 01 Jul 26", "To: 31 Jul 26",
+      "  Date          Description                                           Payments        Deposits         Balance",
+      "  02 Jul 26     STATEMENT OPENING BALANCE                               -100.00                           900.00",
+    ].join("\n")])!
+    expect(r.openingBalanceCents).toBeNull()
+  })
+
+  it("Discovery: a debit printed with a trailing minus is still a debit", async () => {
+    const s = syntheticStatement({ bank: "DISCOVERY", start: "2026-07-01" })
+    const lines = discoveryLines(s).map((page) => page.map((l) => l.replace("R 845.50 ", "R 845.50-")))
+    const r = await analyse(await render(lines, {}, NEW_BANK_PRODUCERS.DISCOVERY))
+    expect(r.read!.transactions[0].amountCents).toBe(-84_550)
+  })
+
+  it("Nedbank: a description that reads like the header does not move the columns", async () => {
+    const r = await read("NEDBANK", withRow("NEDBANK", "Date Description Debits Credits Balance"))
+    expect(r.balanceCheck).toBe("PASS")
+  })
+
+  it("splitFigures joins at most five words into one figure", () => {
+    const w = (text: string, i: number) => ({ text, xMin: i * 10, xMax: i * 10 + 8, yMin: 0 })
+    const words = ["1", "2", "3", "4", "5", "6", "000.00"].map(w)
+    expect(splitFigures(words, (t) => /^[\d ]+\.\d{2}$/.test(t)).figures.map((f) => f.text)).toEqual(["3 4 5 6 000.00"])
+  })
+})
+
+describe("the second breaker's attacks", () => {
+  // Salary +6,550 and the next debit +6,550, every balance left as printed, the salary's balance blanked.
+  const compensated = (lines: string[][], blank: (l: string) => string, rent: [string, string] = [" 6,500.00", "13,050.00"]) => lines.map((page) => {
+    let salary = false
+    let rentDone = false
+    return page.map((l) => {
+      if (!salary && /SALARY/.test(l) && l.includes("18,450.00")) {
+        salary = true
+        return blank(l.replace("18,450.00", "25,000.00"))
+      }
+      if (salary && !rentDone && /RENTALS/.test(l) && l.includes(rent[0])) {
+        rentDone = true
+        return l.replace(rent[0], rent[1])
+      }
+      return l
+    })
+  })
+  const dropBalance = (l: string) => l.slice(0, l.length - 16).trimEnd()
+
+  it.each<["NEDBANK" | "DISCOVERY", (s: SynthStatement) => string[][], [string, string]]>([
+    ["NEDBANK", (s) => nedbankLines(s), [" 6,500.00", "13,050.00"]],
+    // Discovery prints "R 6,500.00": keep the "R " so the edited figure still reads.
+    ["DISCOVERY", (s) => discoveryLines(s), ["  R 6,500.00", "R 13,050.00"]],
+  ])("%s: a row with its balance blanked is not read, so the edit breaks the arithmetic", async (bank, lines, rent) => {
+    const r = await analyse(await render(compensated(lines(syntheticStatement({ bank, start: "2026-07-01" })), dropBalance, rent), {}, NEW_BANK_PRODUCERS[bank]))
+    expect(r.balanceCheck).toBe("FAIL")
+  })
+
+  it("FNB: the same edit fails too", async () => {
+    const s = syntheticStatement({ bank: "FNB", start: "2026-07-01" })
+    const r = await analyse(await render(compensated(fnbLines(s), (l) => l.slice(0, l.length - 18).trimEnd()), {}, GENUINE_PRODUCERS.FNB))
+    expect(r.balanceCheck).toBe("FAIL")
+  })
+
+  it("ABSA eStatement: rows without a balance send the statement to a person", async () => {
+    const s = syntheticStatement({ bank: "ABSA_ESTATEMENT", start: "2026-07-01" })
+    // eStatement figures print as "18 450,00": blank the first salary line's balance.
+    let done = false
+    const lines = absaEstatementLines(s).map((page) => page.map((l) => (!done && /SALARY/.test(l) && /,\d{2}\s*$/.test(l) && (done = true) ? dropBalance(l) : l)))
+    const r = await analyse(await render(lines, {}, NEW_BANK_PRODUCERS.ABSA_ESTATEMENT))
+    expect(r.authenticity.signals).toContain("ROWS_WITHOUT_BALANCE")
+    expect(reviewCodes(r)).toContain("ROWS_UNCHECKED")
+  })
+
+  it("a deleted closing line still leaves every printed balance checked", async () => {
+    const s = syntheticStatement({ bank: "NEDBANK", start: "2026-07-01" })
+    const lines = nedbankLines(s, { misprint: { index: 3, amountCents: -1_000 } }).map((page) => page.filter((l) => !l.includes("Closing balance")))
+    const r = await analyse(await render(lines, {}, NEW_BANK_PRODUCERS.NEDBANK))
+    expect(r.read!.closingBalanceCents).toBeNull()
+    expect(r.balanceCheck).toBe("FAIL")
+  })
+
+  it.each<[SynthBank, string]>([
+    ["ABSA", "REF Page 1 of 2 SYNTH"],
+    ["ABSA", "Balance Carried Forward SYNTH"],
+    ["STANDARD_BANK", "The Standard Bank of South Africa Limited"],
+  ])("%s: a description saying %s does not end the table", async (bank, description) => {
+    const s = withRow(bank, description)
+    const r = await read(bank, s)
+    expect(r.balanceCheck).toBe("PASS")
+    expect(r.read!.transactions).toHaveLength(s.transactions.length)
   })
 })

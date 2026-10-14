@@ -31,7 +31,8 @@ import type { StatementRead, StatementTransaction } from "./types"
 const FIGURE = /-?R-?\d{1,3}(?: \d{3})*\.\d{2}/g
 const ROW = /^\s{0,4}(\d{4}-\d{2}-\d{2})\s+(.*)$/
 const HEADER = /^\s*Date\s+Transaction Description\s+Amount\s+Balance/
-const TABLE_END = /Balance Carried Forward|Page\s+\d+\s+of\s+\d+/
+/** Where the bank prints them: at the start of a line, never inside a description. */
+const TABLE_END = /^\s*Balance Carried Forward|^\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+Page\s+\d+\s+of\s+\d+/
 const PERIOD = /Statement for the Period[ \t]+(\d{4}-\d{2}-\d{2})[ \t]+-[ \t]+(\d{4}-\d{2}-\d{2})/
 
 const validDate = (iso: string) => validIso(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), Number(iso.slice(8, 10)))
@@ -79,7 +80,7 @@ function readRows(pages: string[]): StatementTransaction[] {
 function carriedForward(text: string): number | null {
   let last: number | null = null
   for (const line of text.split("\n")) {
-    if (line.length > MAX_LINE_CHARS || !/Balance Carried Forward/.test(line)) continue
+    if (line.length > MAX_LINE_CHARS || !/^\s*Balance Carried Forward/.test(line)) continue
     const f = tokens(line, FIGURE)
     if (f.length) last = parseRandToCents(f[f.length - 1].text)
   }

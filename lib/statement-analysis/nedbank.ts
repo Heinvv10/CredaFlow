@@ -57,13 +57,15 @@ function readRow(line: PdfWord[], cols: Record<Column, number>, page: number): S
     if (cents === null || got[col] !== undefined) return null
     got[col] = cents
   }
-  if (!date || (got.debits === undefined && got.credits === undefined)) return null
+  // Nedbank prints a balance on every row: one without is a misread or an edit
+  // (a blank balance lets a +X/−X pair of edits cancel out before the next one).
+  if (!date || got.balance === undefined || (got.debits === undefined && got.credits === undefined)) return null
   return {
     date,
     // "*" marks a charge; it is not part of the description.
     description: [...words.filter((w) => w.text !== "*").map((w) => w.text), ...inDescription].join(" "),
     amountCents: (got.credits ?? 0) - Math.abs(got.debits ?? 0),
-    balanceCents: got.balance ?? null,
+    balanceCents: got.balance,
     page,
   }
 }

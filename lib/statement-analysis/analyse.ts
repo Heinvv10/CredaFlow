@@ -107,6 +107,10 @@ export async function analyseStatement(
     const read = TEXT_READERS[candidate]?.(pdf)
     if (read && read.transactions.length > 0) {
       if (read.openingDerived) authenticity.signals.push("OPENING_DERIVED")
+      if (read.closingDerived) authenticity.signals.push("CLOSING_DERIVED")
+      // Rows printed without a balance (ABSA eStatement) are checked only together, at the next
+      // printed balance: an equal and opposite pair of edits among them cancels out.
+      if (read.transactions.some((t) => t.balanceCents === null && !t.nonPosting)) authenticity.signals.push("ROWS_WITHOUT_BALANCE")
       return result("TEXT", candidate, read, authenticity)
     }
   }

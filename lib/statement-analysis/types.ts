@@ -46,6 +46,8 @@ export interface StatementRead {
    * the OPENING_DERIVED signal, which is what persists.
    */
   openingDerived?: true
+  /** Likewise for the closing (Discovery): the last row cannot be checked (CLOSING_DERIVED). */
+  closingDerived?: true
 }
 
 /** Facts about the file itself, independent of what it says. */
