@@ -176,20 +176,26 @@ it("verifies with the paying lender's own secret, and refuses another lender's",
   expect(paymentCreateMock).toHaveBeenCalledTimes(1)
 })
 
-it("answers 500 and writes nothing when the paying lender has no webhook secret", async () => {
+// An unknown payment and a lender without a secret answer alike, so the
+// response tells a prober nothing about which payment ids exist.
+it("answers 401, logs, and writes nothing when the paying lender has no webhook secret", async () => {
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
   findUniqueStitchMock.mockResolvedValue(stitchPayment())
   loadWebhookSecretMock.mockResolvedValue(null)
   const res = await POST(makeReq({ type: "payment.completed", data: { id: "stitch-123" } }))
-  expect(res.status).toBe(500)
+  expect(res.status).toBe(401)
+  expect(await res.json()).toEqual({ error: "Invalid signature" })
   expect(paymentCreateMock).not.toHaveBeenCalled()
+  expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("no Stitch webhook secret"), "t1")
+  errorSpy.mockRestore()
 })
 
-it("answers 401 to an event that names no payment of ours when no deployment secret applies", async () => {
+it("answers 401 to an event that names no payment of ours, without looking for any secret", async () => {
   findUniqueStitchMock.mockResolvedValue(null)
-  loadWebhookSecretMock.mockResolvedValue(null)
   const res = await POST(makeReq({ type: "payment.completed", data: { id: "unknown" } }))
   expect(res.status).toBe(401)
-  expect(loadWebhookSecretMock).toHaveBeenCalledWith(null)
+  expect(await res.json()).toEqual({ error: "Invalid signature" })
+  expect(loadWebhookSecretMock).not.toHaveBeenCalled()
 })
 
 it("allocates the receipt earliest-first and updates loan balances on an ACTIVE loan", async () => {

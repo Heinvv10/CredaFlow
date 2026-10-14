@@ -5,13 +5,13 @@
 
 import { prisma } from "@/lib/prisma"
 import {
-  isSingleTenantDeployment,
+  isTheSingleActiveTenant,
   loadTenantCredential,
   openCredential,
   splitCredentialPair,
 } from "@/lib/integrations/tenant-credentials"
 
-const STITCH_TOKEN_URL ="https://secure.stitch.money/connect/token"
+const STITCH_TOKEN_URL = "https://secure.stitch.money/connect/token"
 const STITCH_GRAPHQL_URL = "https://api.stitch.money/graphql"
 
 interface StitchTokenResponse {
@@ -31,8 +31,8 @@ export interface StitchAccount {
  * The lender's own Stitch account (TenantConfig.stitchKey, sealed
  * "clientId:clientSecret", and the stitchBeneficiary* columns), taken whole.
  * The STITCH_* environment variables are used, also whole, only when the
- * lender has no stitchKey and this is a single-tenant deployment
- * (lib/integrations/tenant-credentials.ts): a payment must never be routed to
+ * lender has no stitchKey and it is the one ACTIVE tenant of a single-tenant
+ * deployment (lib/integrations/tenant-credentials.ts): a payment must never be routed to
  * another lender's account. Throws when neither is complete.
  */
 export async function loadStitchAccount(tenantId: string): Promise<StitchAccount> {
@@ -46,7 +46,7 @@ export async function loadStitchAccount(tenantId: string): Promise<StitchAccount
         clientId: own.id, clientSecret: own.secret, name: config?.stitchBeneficiaryName, bankId: config?.stitchBankId,
         accountNumber: config?.stitchAccountNumber, branchCode: config?.stitchBranchCode,
       }
-    : (await isSingleTenantDeployment())
+    : (await isTheSingleActiveTenant(tenantId))
       ? {
           clientId: process.env.STITCH_CLIENT_ID, clientSecret: process.env.STITCH_CLIENT_SECRET,
           name: process.env.STITCH_BENEFICIARY_NAME, bankId: process.env.STITCH_BANK_ID,
@@ -67,14 +67,14 @@ export async function loadStitchAccount(tenantId: string): Promise<StitchAccount
 
 /**
  * The secret that signs this lender's Stitch webhooks; the deployment's
- * STITCH_WEBHOOK_SECRET only on a single-tenant deployment. `tenantId` null
- * (a webhook naming no payment of ours) gets only the deployment secret.
+ * STITCH_WEBHOOK_SECRET only when the lender is the one ACTIVE tenant of a
+ * single-tenant deployment.
  */
-export async function loadStitchWebhookSecret(tenantId: string | null): Promise<string | null> {
-  const own = tenantId ? await loadTenantCredential(tenantId, "stitchWebhookSecret") : null
+export async function loadStitchWebhookSecret(tenantId: string): Promise<string | null> {
+  const own = await loadTenantCredential(tenantId, "stitchWebhookSecret")
   if (own) return own
   const env = process.env.STITCH_WEBHOOK_SECRET
-  return env && (await isSingleTenantDeployment()) ? env : null
+  return env && (await isTheSingleActiveTenant(tenantId)) ? env : null
 }
 
 export async function getStitchAccessToken(account: Pick<StitchAccount, "clientId" | "clientSecret">): Promise<string> {

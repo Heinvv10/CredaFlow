@@ -5,7 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
 import {
-  isSingleTenantDeployment,
+  isTheSingleActiveTenant,
   maskCredential,
   sealCredential,
   SEALED_CREDENTIAL_FIELDS,
@@ -40,9 +40,9 @@ export async function GET(req: NextRequest) {
       }) | null
 
       // Per-tenant first; the EXPERIAN_* environment pair only counts on a
-      // single-tenant deployment (lib/integrations/tenant-credentials.ts).
+      // single-tenant deployment, for its one ACTIVE tenant (lib/integrations/tenant-credentials.ts).
       const experianConfigured = !!config?.experianKey ||
-        (!!(process.env.EXPERIAN_USERNAME && process.env.EXPERIAN_PASSWORD) && await isSingleTenantDeployment())
+        (!!(process.env.EXPERIAN_USERNAME && process.env.EXPERIAN_PASSWORD) && await isTheSingleActiveTenant(tenant.id))
       const experianEnv = (process.env.EXPERIAN_ENV ?? "UAT").toUpperCase()
 
       // Credentials are masked whole: whether one is set, never any of it.

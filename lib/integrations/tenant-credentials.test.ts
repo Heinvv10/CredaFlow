@@ -1,15 +1,16 @@
 import { randomBytes } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { tenantConfigFindUnique, tenantCount } = vi.hoisted(() => ({
+const { tenantConfigFindUnique, tenantFindMany } = vi.hoisted(() => ({
   tenantConfigFindUnique: vi.fn(),
-  tenantCount: vi.fn(),
+  tenantFindMany: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({
-  prisma: { tenantConfig: { findUnique: tenantConfigFindUnique }, tenant: { count: tenantCount } },
+  prisma: { tenantConfig: { findUnique: tenantConfigFindUnique }, tenant: { findMany: tenantFindMany } },
 }))
 
 import {
+  isTheSingleActiveTenant,
   loadCredentialPair,
   loadTenantCredential,
   maskCredential,
@@ -23,7 +24,7 @@ const KEY = randomBytes(32).toString("base64")
 beforeEach(() => {
   vi.stubEnv("WABA_ENC_KEY", KEY)
   tenantConfigFindUnique.mockReset()
-  tenantCount.mockReset()
+  tenantFindMany.mockReset()
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -72,17 +73,31 @@ describe("loading", () => {
     tenantConfigFindUnique.mockResolvedValue({ experianKey: sealCredential("own-user:own-pass") })
     const pair = await loadCredentialPair("t1", "experianKey", { id: "env-user", secret: "env-pass" })
     expect(pair).toEqual({ id: "own-user", secret: "own-pass" })
-    expect(tenantCount).not.toHaveBeenCalled()
+    expect(tenantFindMany).not.toHaveBeenCalled()
   })
 
-  it("falls back to the environment pair only on a single-tenant deployment", async () => {
-    tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
-    tenantCount.mockResolvedValue(1)
-    expect(await loadCredentialPair("t1", "experianKey", { id: "env-user", secret: "env-pass" }))
-      .toEqual({ id: "env-user", secret: "env-pass" })
+  const env = { id: "env-user", secret: "env-pass" }
 
-    // A second ACTIVE lender: one lender's environment accounts must serve no one.
-    tenantCount.mockResolvedValue(2)
-    expect(await loadCredentialPair("t1", "experianKey", { id: "env-user", secret: "env-pass" })).toBeNull()
+  it("falls back to the environment pair for the deployment's one ACTIVE tenant", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
+    tenantFindMany.mockResolvedValue([{ id: "t1" }])
+    expect(await loadCredentialPair("t1", "experianKey", env)).toEqual(env)
+    expect(tenantFindMany).toHaveBeenCalledWith({ where: { status: "ACTIVE" }, select: { id: true }, take: 2 })
+  })
+
+  it("never lends the environment pair to a tenant that is not that ACTIVE tenant", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
+    // One ACTIVE lender (t1) and one still PROVISIONING (t2): the count of
+    // ACTIVE tenants is 1, but the environment accounts are t1's alone.
+    tenantFindMany.mockResolvedValue([{ id: "t1" }])
+    expect(await loadCredentialPair("t2", "experianKey", env)).toBeNull()
+    expect(await isTheSingleActiveTenant("t2")).toBe(false)
+    expect(await isTheSingleActiveTenant("t1")).toBe(true)
+  })
+
+  it("lends it to no one once a second lender is ACTIVE", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ experianKey: null })
+    tenantFindMany.mockResolvedValue([{ id: "t1" }, { id: "t3" }])
+    expect(await loadCredentialPair("t1", "experianKey", env)).toBeNull()
   })
 })

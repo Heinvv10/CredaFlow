@@ -35,33 +35,24 @@ export async function POST(req: Request) {
   const data = payload?.data as Record<string, unknown> | undefined
   const stitchId = payload?.type === "payment.completed" ? String(data?.id ?? "") : ""
   const stitchPayment = stitchId ? await findStitchPayment(stitchId) : null
-  const owner = stitchPayment?.loan.tenantId ?? null
 
+  // No payment of ours, no secret, or a bad signature all answer the same 401,
+  // so a caller learns nothing about which payment ids exist. Only a lender
+  // missing its secret is a fault of ours, and it is logged.
+  const refused = NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+  if (!stitchPayment) return refused
+  const owner = stitchPayment.loan.tenantId
   const secret = await loadStitchWebhookSecret(owner)
   if (!secret) {
-    if (owner) {
-      console.error("[webhook] no Stitch webhook secret is configured for the paying lender — rejecting webhook")
-      return NextResponse.json({ error: "Webhook not configured" }, { status: 500 })
-    }
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+    console.error("[webhook] no Stitch webhook secret is configured for the paying lender — rejecting webhook:", owner)
+    return refused
   }
 
   if (!verifyStitchSignature({ body: rawBody, signature: signature ?? "", secret })) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+    return refused
   }
-
-  if (!payload) {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
-  }
-
-  if (payload.type !== "payment.completed") {
-    return NextResponse.json({ ok: true })
-  }
-
-  if (!stitchId || !stitchPayment) return NextResponse.json({ ok: true })
 
   // Every Loan/Payment/AuditLog access below is tenant-scoped, and a webhook
   // has no session or host to resolve a tenant from.
-  const tenantId = stitchPayment.loan.tenantId
-  return runWithTenant(tenantId, () => settleReceipt(stitchPayment, stitchId, tenantId))
+  return runWithTenant(owner, () => settleReceipt(stitchPayment, stitchId, owner))
 }

@@ -11,10 +11,10 @@
  *
  * Environment fallback: Experian, SmileIdentity and Stitch were configured by
  * environment variables before they were per tenant. Those variables are
- * still honoured, but only on a single-tenant (dedicated) deployment — exactly
- * one ACTIVE tenant, the same rule as getTenantFromRequest's fallback. The
- * moment a second lender exists they stop applying, so one lender's accounts
- * can never serve another's borrowers.
+ * still honoured, but only for the one ACTIVE tenant of a single-tenant
+ * (dedicated) deployment — never for another tenant, PROVISIONING or not. The
+ * moment a second lender is ACTIVE they stop applying, so one lender's
+ * accounts can never serve another's borrowers.
  */
 import { prisma } from "@/lib/prisma"
 import { isSealed, openSecret, sealSecret } from "@/lib/crypto/secret-box"
@@ -82,9 +82,14 @@ export async function loadTenantCredential(tenantId: string, field: SealedCreden
   return openCredential((config as Record<string, string | null> | null)?.[field])
 }
 
-/** True when this deployment serves exactly one ACTIVE lender. */
-export async function isSingleTenantDeployment(): Promise<boolean> {
-  return (await prisma.tenant.count({ where: { status: "ACTIVE" }, take: 2 })) === 1
+/**
+ * True when `tenantId` is the one ACTIVE lender of a single-tenant deployment.
+ * Counting is not enough: with one ACTIVE and one PROVISIONING tenant the
+ * count is 1, but the environment's accounts belong to the ACTIVE one only.
+ */
+export async function isTheSingleActiveTenant(tenantId: string): Promise<boolean> {
+  const active = await prisma.tenant.findMany({ where: { status: "ACTIVE" }, select: { id: true }, take: 2 })
+  return active.length === 1 && active[0].id === tenantId
 }
 
 /** The tenant's "id:secret" credential, or the env pair on a single-tenant deployment. */
@@ -96,5 +101,5 @@ export async function loadCredentialPair(
   const own = splitCredentialPair(await loadTenantCredential(tenantId, field))
   if (own) return own
   if (!envFallback.id || !envFallback.secret) return null
-  return (await isSingleTenantDeployment()) ? { id: envFallback.id, secret: envFallback.secret } : null
+  return (await isTheSingleActiveTenant(tenantId)) ? { id: envFallback.id, secret: envFallback.secret } : null
 }
