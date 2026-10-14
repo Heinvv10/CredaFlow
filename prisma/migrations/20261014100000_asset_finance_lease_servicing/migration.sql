@@ -986,13 +986,13 @@ BEGIN
     -- Time of supply: the earlier of the due date and a payment towards the
     -- rental. Receipts settle the oldest rows first, so a payment has reached
     -- this rental only once the cash received by the supply date (allocated,
-    -- unreversed, not a waiver or a refund-due half, net of default charges)
+    -- unreversed, not a waiver, net of default charges)
     -- exceeds everything due on the earlier rows.
     IF invoice_row."supplyDate" > NEW."dueDate" OR (invoice_row."supplyDate" < NEW."dueDate" AND (NOT EXISTS (
         SELECT 1 FROM "RepaymentSchedule" s WHERE s."id" = NEW."scheduleId" AND s."tenantId" = NEW."tenantId" AND s."totalPaid" > 0)
       OR (SELECT COALESCE(SUM(p."amount" - p."defaultInterestAllocated" - p."chargeFeesAllocated"), 0) FROM "Payment" p
           WHERE p."loanId" = NEW."loanId" AND p."tenantId" = NEW."tenantId" AND p."reversed" = false
-            AND p."allocationStatus" = 'ALLOCATED' AND p."paymentMethod"::TEXT <> 'WAIVER' AND p."parentPaymentId" IS NULL
+            AND p."allocationStatus" = 'ALLOCATED' AND p."paymentMethod"::TEXT <> 'WAIVER'
             AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= invoice_row."supplyDate")
         <= (SELECT COALESCE(SUM(s."totalDue"), 0) FROM "RepaymentSchedule" s
           WHERE s."loanId" = NEW."loanId" AND s."tenantId" = NEW."tenantId" AND s."installmentNo" < NEW."periodNo"))) THEN

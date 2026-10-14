@@ -140,6 +140,9 @@ suite.sequential("lease ledger SQL rules (real Postgres)", () => {
     it("refuses the flag alone, set by any writer, with no repricing recorded in the transaction (breaker)", () => {
       expectRejected(flagged("", repriced(`"rentalExclVatCents" - 1000`)), "only a repricing changes them")
     })
+    it("refuses a repricing whose rate takes effect after the rental falls due (review round 3)", () => {
+      expectRejected(flagged(contractRate("0.1250", 200), repriced(`"rentalExclVatCents" - 1000`)), "only a repricing changes them")
+    })
     it("refuses a dummy contract rate at the same rate (breaker round 2)", () => {
       expectRejected(flagged(sameRate(), repriced(`"rentalExclVatCents" - 1000`)), "only a repricing changes them")
     })
@@ -193,6 +196,22 @@ suite.sequential("lease ledger SQL rules (real Postgres)", () => {
         SET LOCAL session_replication_role = origin;
         ${invoice(`inv_r3_${t}`, ids.loan, rental.totalCents, "CURRENT_DATE")};
         UPDATE "LeaseRental" SET "taxInvoiceId" = 'inv_r3_${t}' WHERE "id" = '${ids.rental2}'`), "earlier only once a payment has reached it")
+    })
+
+    it("counts only real cash by the supply date towards an early supply: one cent past the earlier rental binds; a fee share, a reversal, a waiver or a later receipt does not (review round 3)", async () => {
+      const [first, rental] = await Promise.all([ids.rental, ids.rental2].map((id) => database().leaseRental.findUniqueOrThrow({ where: { id } })))
+      const early = (n: number, columns: string, values: string) => withoutTotals(`SET LOCAL session_replication_role = replica;
+        INSERT INTO "Payment" ("id", "tenantId", "loanId", "amount", "allocationStatus", "receivedAt"${columns})
+          VALUES ('pay_x${n}_${t}', '${fx.tenantId}', '${ids.loan}', ${first.totalCents + 1}, 'ALLOCATED', now()${values});
+        UPDATE "RepaymentSchedule" SET "totalPaid" = 1 WHERE "id" = '${rental.scheduleId}';
+        SET LOCAL session_replication_role = origin;
+        ${invoice(`inv_x${n}_${t}`, ids.loan, rental.totalCents, "(now() AT TIME ZONE 'Africa/Johannesburg')::date")};
+        UPDATE "LeaseRental" SET "taxInvoiceId" = 'inv_x${n}_${t}' WHERE "id" = '${ids.rental2}'`)
+      sql(early(0, "", "")) // the control: one cent past rental 1 reaches rental 2
+      expectRejected(early(1, `, "chargeFeesAllocated"`, ", 1"), "earlier only once a payment has reached it")
+      expectRejected(early(2, `, "reversed"`, ", true"), "earlier only once a payment has reached it")
+      expectRejected(early(3, `, "paymentMethod"`, ", 'WAIVER'"), "earlier only once a payment has reached it")
+      expectRejected(early(4, "", "").replace("now())", "now() + INTERVAL '2 days')"), "earlier only once a payment has reached it")
     })
 
     it("the invoice is set once", () => {
