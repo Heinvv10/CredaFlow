@@ -213,7 +213,7 @@ export async function settleReceipt(
         // A lease rental this payment reached before its due date is invoiced now.
         await issueLeaseInvoicesOnReceipt(tx, {
           tenantId: loan.tenantId, loanId: loan.id, contractType: loan.contractType,
-          receivedOn: sastCalendarDate(asOf), today: sastCalendarDate(new Date()), createdById: null,
+          today: sastCalendarDate(new Date()), createdById: null,
         })
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
         return newPayment
