@@ -17,8 +17,8 @@
  *                             payout (each the second pair of eyes)
  *
  * (a) TEST Family Farming Trust: two natural trustees, verified Letters of
- *     Authority, R800 000 turnover → classifier NCA → deal REFUSED_NCA,
- *     application DECLINED with the slice-1 reason.
+ *     Authority, R800 000 turnover → classifier NCA → deal SUBMITTED into the
+ *     entity-NCA path.
  * (b) TEST Earthmoving (Pty) Ltd: verified AFS (R25m turnover), a director
  *     who is also authorised signatory and surety, a separate surety; an
  *     excavator at R1 725 000 incl. VAT on ANNUAL_SEASONAL (Apr–Jun ×3,
@@ -56,7 +56,7 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
     const supplierId = await ensureSupplier(tenantId, officer, adminOne)
     const people = await ensurePeople(tenantId)
 
-    // (a) The trust: refused as NCA.
+    // (a) The trust: submitted into the entity-NCA path.
     const trust = await ensureEntity(tenantId, officer, { ...TRUST })
     await linkPerson(tenantId, officer, trust, people.trusteeOne, ["TRUSTEE"], "NATURAL")
     await linkPerson(tenantId, officer, trust, people.trusteeTwo, ["TRUSTEE"], "NATURAL")

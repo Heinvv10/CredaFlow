@@ -74,6 +74,7 @@ export const AuditAction = {
   REFERENCE_RATE_DECIDED: "REFERENCE_RATE_DECIDED",
   REFERENCE_RATE_REFUSED: "REFERENCE_RATE_REFUSED",
   LOAN_REPRICED: "LOAN_REPRICED",
+  LOAN_REPRICE_REFUSED: "LOAN_REPRICE_REFUSED",
   // Credit checks (lib/credit-checks): flags raised/superseded by a recompute,
   // and an officer clearing one with a reason.
   CREDIT_CHECKS_RECOMPUTED: "CREDIT_CHECKS_RECOMPUTED",
@@ -486,6 +487,10 @@ export const AuditAction = {
   // A decision refused for lack of authority.
   ASSET_DEAL_DECISION_REFUSED: "ASSET_DEAL_DECISION_REFUSED",
   ENTITY_FINANCIALS_RECORDED: "ENTITY_FINANCIALS_RECORDED",
+  ASSET_AFFORDABILITY_ASSESSED: "ASSET_AFFORDABILITY_ASSESSED",
+  ASSET_CREDIT_LIFE_ELECTED: "ASSET_CREDIT_LIFE_ELECTED",
+  ASSET_NCA_QUOTE_ISSUED: "ASSET_NCA_QUOTE_ISSUED",
+  ASSET_NCA_QUOTE_ACKNOWLEDGED: "ASSET_NCA_QUOTE_ACKNOWLEDGED",
   ASSET_DEAL_BUREAU_CHECKED: "ASSET_DEAL_BUREAU_CHECKED",
   // A run with `force: true` (decide_asset_finance): people checked within the
   // last 30 days are checked again. A force asked for without that permission

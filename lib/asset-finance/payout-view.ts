@@ -18,7 +18,7 @@ export interface ChecklistItemView {
 
 export interface PayoutPanel {
   dealStatus: AssetDealStatus
-  entityId: string
+  entityId: string | null
   checklist: ChecklistItemView[]
   documents: { id: string; fileName: string; docType: EntityDocumentType }[]
   payoutAmountCents: number

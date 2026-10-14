@@ -2,8 +2,8 @@
  * Real-Postgres proof of repricing beyond a monthly schedule: the notice
  * window (a row due tomorrow keeps its instalment), skip and seasonal
  * schedules stored with capitalised interest (repriced twice, the Loan totals,
- * contractual ones included, staying the schedule's sums), the regime and
- * contract-type guards, and the cron sweep's selection (flag off, a
+ * contractual ones included, staying the schedule's sums), NCA cap-aware
+ * repricing, the contract-type guard, and the cron sweep's selection (flag off, a
  * non-ACTIVE loan, a PENDING reference).
  *
  *   RUN_ASSET_FINANCE_REPRICE_IT=1 DATABASE_URL=postgresql://... \
@@ -110,23 +110,25 @@ suite("repricing schedules against a migrated database", () => {
     await expectLoanTotalsAreScheduleSums(loanId)
   })
 
-  it("refuses an NCA asset-finance loan (nca_regime) and a NON_NCA loan of contract type LOAN (not_asset_finance)", async () => {
+  it("reprices an NCA asset-finance loan within its cap and refuses a contract of type LOAN", async () => {
     const plain = await createRepriceLoan(db, tenant, { contractType: "LOAN", rate: null })
     expect(await reprice(tenant, plain, effectiveDate)).toEqual({ kind: "not_eligible", reason: "not_asset_finance" })
-    const n = plain.slice(-8)
-    const app = await db.loanApplication.create({
-      data: { tenantId: tenant.tenantId, reference: `APP-NCA-${n}`, entityId: tenant.entityId, productId: tenant.productId, appliedAmount: 1_000_000, appliedTermDays: 365 },
+    const nca = await createRepriceLoan(db, tenant)
+    await db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+      const loan = await tx.loan.update({ where: { id: nca }, data: { ncaRegime: "NCA" }, select: { applicationId: true } })
+      await tx.loanApplication.update({ where: { id: loan.applicationId }, data: {
+        status: "SUBMITTED", ncaRegime: "NCA", repaymentMethod: null,
+        approvedAt: null, approvedById: null, disbursedAt: null,
+      } })
     })
-    const nca = await db.loan.create({
-      data: {
-        tenantId: tenant.tenantId, reference: `LN-NCA-${n}`, applicationId: app.id, entityId: tenant.entityId, productId: tenant.productId,
-        ncaRegime: "NCA", contractType: "INSTALMENT_SALE", principal: 1_000_000, totalInterest: 1, initiationFee: 0, totalRepayable: 1_000_001,
-        outstandingPrincipal: 1_000_000, startDate: new Date(), maturityDate: new Date(Date.now() + 365 * 86_400_000),
-        interestRatePm: 0.01, interestModel: "REDUCING_BALANCE", status: "ACTIVE",
-      },
+    const repo = await db.referenceRate.create({
+      data: { tenantId: tenant.tenantId, basis: "REPO", effectiveDate: new Date(`${DEAL.startDate}T00:00:00Z`), rate: "0.08", requestedById: tenant.adminId },
     })
-    expect(await reprice(tenant, nca.id, effectiveDate)).toEqual({ kind: "not_eligible", reason: "nca_regime" })
-    expect(await db.contractRate.count({ where: { loanId: { in: [plain, nca.id] } } })).toBe(0)
+    await db.referenceRate.update({ where: { id: repo.id }, data: { status: "APPROVED", decidedById: tenant.approverId, decidedAt: new Date() } })
+    expect(await reprice(tenant, nca, effectiveDate)).toMatchObject({ kind: "repriced", resultingRate: "0.13" })
+    expect(await db.contractRate.count({ where: { loanId: plain } })).toBe(0)
+    expect(await db.contractRate.count({ where: { loanId: nca } })).toBe(2)
   })
 
   it("the sweep skips a tenant with the flag off, a loan that is not ACTIVE, and a PENDING reference", async () => {

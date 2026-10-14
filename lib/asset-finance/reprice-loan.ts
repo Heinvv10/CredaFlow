@@ -3,7 +3,7 @@
  * moves (DESIGN.md D4: term and balloon unchanged). Runs inside the caller's
  * transaction; every write below commits or rolls back together.
  *
- * ELIGIBLE: an ACTIVE, NON_NCA loan whose contractType is not LOAN, and whose
+ * ELIGIBLE: an ACTIVE NCA or NON_NCA loan whose contractType is not LOAN, and whose
  * latest ContractRate before `effectiveDate` is `basis` + a margin; the
  * reference value is the tenant's APPROVED rate in effect on effectiveDate.
  *
@@ -48,8 +48,8 @@
  * booking persists the structure, do not book a VAT-deferral deal on a
  * reference-linked rate.
  *
- * // PARTIAL: NCA asset-finance contracts are refused (D4 re-checks the NCA
- * rate cap on every repricing; slice 1 books NON_NCA deals only).
+ * NCA asset-finance contracts are re-checked against the current prescribed
+ * rate cap before any schedule or ledger write.
  */
 import { Prisma, type ReferenceRateBasis } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
@@ -62,6 +62,7 @@ import { noticeKeptThroughIndex, repriceTail } from "./reprice"
 import { queueRepriceNotice } from "./reprice-notice"
 import { toScheduleRecord } from "./schedule-records"
 import { storedScheduleForReprice, type StoredScheduleError } from "./stored-schedule"
+import { maxAssetFinanceAnnualRate } from "./nca-caps"
 
 export type RepriceTx = Pick<
   typeof prisma,
@@ -82,6 +83,7 @@ export type NotEligibleReason =
   | "not_active"
   | "not_asset_finance"
   | "nca_regime"
+  | "nca_rate_cap"
   | "no_reference_rate"
   | "not_linked_to_basis"
   | "superseded" // the loan already has a contract rate from a later date
@@ -131,7 +133,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
 
   if (loan.status !== "ACTIVE") return notEligible("not_active")
   if (loan.contractType === "LOAN") return notEligible("not_asset_finance")
-  if (loan.ncaRegime !== "NON_NCA") return notEligible("nca_regime")
+  if (loan.ncaRegime !== "NON_NCA" && loan.ncaRegime !== "NCA") return notEligible("nca_regime")
 
   const later = await tx.contractRate.findFirst({ where: { tenantId, loanId, effectiveDate: { gt: dbDate(effectiveDate) } }, select: { id: true } })
   if (later) return notEligible("superseded")
@@ -147,6 +149,24 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const reference = await referenceRateOn(tx, tenantId, basis, effectiveDate)
   if (!reference) return notEligible("no_reference_rate")
   const resultingRate = reference.rate.add(prior.margin)
+  if (loan.ncaRegime === "NCA") {
+    const repo = await referenceRateOn(tx, tenantId, "REPO", effectiveDate)
+    const cap = repo && (loan.contractType === "INSTALMENT_SALE" || loan.contractType === "FINANCE_LEASE")
+      ? maxAssetFinanceAnnualRate(loan.contractType, repo.rate.toNumber())
+      : null
+    if (cap === null || resultingRate.gt(cap)) {
+      await logAuditStrict({
+        tenantId,
+        userId: request.actorUserId,
+        action: AuditAction.LOAN_REPRICE_REFUSED,
+        entity: "Loan",
+        entityId: loanId,
+        oldValue: { resultingRate: prior.resultingRate.toString() },
+        newValue: { effectiveDate, resultingRate: resultingRate.toString(), cap, reason: "nca_rate_cap" },
+      }, tx)
+      return notEligible("nca_rate_cap")
+    }
+  }
 
   const recordedBase = await tx.contractRate.findFirst({
     where: { tenantId, loanId, effectiveDate: { lt: dbDate(effectiveDate) }, newInstalmentCents: { not: null } },

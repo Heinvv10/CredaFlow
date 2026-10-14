@@ -75,8 +75,8 @@ const present = (value: string | null): boolean => value !== null && value.trim(
 
 /** The checklist a contract needs; the order is the display order. */
 export function requiredChecklistKinds(contractType: ContractType, asset: Pick<ChecklistAsset, "registrationNumber">): PayoutChecklistItemKind[] {
-  if (contractType !== "INSTALMENT_SALE") {
-    throw new RangeError(`No payout checklist is defined for ${contractType} in slice 1`)
+  if (contractType !== "INSTALMENT_SALE" && contractType !== "FINANCE_LEASE") {
+    throw new RangeError(`No payout checklist is defined for ${contractType}`)
   }
   return CHECKLIST_KINDS.filter((kind) => kind !== "NATIS_TITLEHOLDER" || present(asset.registrationNumber))
 }

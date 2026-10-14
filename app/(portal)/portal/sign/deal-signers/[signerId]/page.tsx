@@ -38,7 +38,7 @@ export default async function DealSignerPage({ params }: { params: Promise<{ sig
     <div className="mx-auto max-w-4xl space-y-5 px-4 py-8 md:px-6">
       <DataPanel
         title={label}
-        description={`${signer.deal.entity.legalName} · agreement ${signer.deal.application.reference}`}
+        description={`${signer.deal.entity?.legalName ?? "Consumer"} · agreement ${signer.deal.application.reference}`}
         actions={<StatusPill tone={canSign ? "warning" : "success"}>{SIGNER_STATE_LABELS[state]}</StatusPill>}
       >
         <div className="flex items-center justify-between gap-3 text-sm">

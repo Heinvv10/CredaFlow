@@ -12,10 +12,12 @@ import { submitDeal } from "./deal-submit"
 const actor = { tenantId: "tenant-1", userId: "officer-a", userEmail: "o@lender.test" }
 
 function fakeTx(dealStatus = "DRAFT", appStatus = "DRAFT", pendingOverride = false) {
+  const clientId = null as string | null
+  const entityId = "entity-1" as string | null
   const tx = {
     $queryRaw: vi.fn(async () => [{ id: "app-1" }]),
     assetFinanceDeal: {
-      findFirst: vi.fn(async () => ({ id: "deal-1", applicationId: "app-1", status: dealStatus, application: { status: appStatus } })),
+      findFirst: vi.fn(async () => ({ id: "deal-1", applicationId: "app-1", status: dealStatus, application: { status: appStatus, clientId, entityId, ncaRegime: "NCA", ncaClassificationRule: "FINANCIALS_UNPROVEN" } })),
       update: vi.fn(async () => ({})),
     },
     ncaRegimeOverride: { findFirst: vi.fn(async () => (pendingOverride ? { id: "ovr-1" } : null)) },
@@ -39,19 +41,18 @@ const actions = (tx: ReturnType<typeof fakeTx>["tx"]) =>
 describe("submitDeal", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("classifies as the submitting user; an NCA result with no pending override refuses the deal and audits it", async () => {
+  it("classifies as the submitting user; an NCA result now proceeds down the NCA path", async () => {
     m.classify.mockResolvedValue(classified("NCA", "FINANCIALS_UNPROVEN", null))
     const { tx, asTx } = fakeTx()
     const result = await submitDeal(asTx, actor, "deal-1")
-    const reason = "NCA applies (Turnover and asset value not proven by verified financial statements)"
-    expect(result).toEqual({ kind: "refused_nca", reason, rule: "FINANCIALS_UNPROVEN" })
+    expect(result).toEqual({ kind: "submitted", awaitingRegimeApproval: false, regime: "NCA", rule: "FINANCIALS_UNPROVEN" })
     expect(m.classify).toHaveBeenCalledWith(asTx, expect.objectContaining({ applicationId: "app-1", userId: "officer-a" }))
     expect(tx.loanApplication.update).toHaveBeenCalledWith({
       where: { id: "app-1", tenantId: "tenant-1" },
-      data: { status: "DECLINED", decisionReason: reason, submittedAt: expect.any(Date) },
+      data: { status: "SUBMITTED", submittedAt: expect.any(Date) },
     })
-    expect(tx.assetFinanceDeal.update).toHaveBeenCalledWith({ where: { id: "deal-1", tenantId: "tenant-1" }, data: { status: "REFUSED_NCA" } })
-    expect(actions(tx)).toEqual(["ASSET_DEAL_SUBMITTED", "ASSET_DEAL_REFUSED_NCA"])
+    expect(tx.assetFinanceDeal.update).toHaveBeenCalledWith({ where: { id: "deal-1", tenantId: "tenant-1" }, data: { status: "SUBMITTED" } })
+    expect(actions(tx)).toEqual(["ASSET_DEAL_SUBMITTED"])
   })
 
   it("a NON_NCA classifier result leaves a pending override: SUBMITTED, awaiting the second approver", async () => {
@@ -78,5 +79,17 @@ describe("submitDeal", () => {
     expect(await submitDeal(asTx, actor, "deal-1")).toEqual({ kind: "not_draft", status: "SUBMITTED" })
     expect(m.classify).not.toHaveBeenCalled()
     expect(tx.loanApplication.update).not.toHaveBeenCalled()
+  })
+
+  it("does not run the juristic classifier for a natural-person borrower", async () => {
+    const { tx, asTx } = fakeTx()
+    tx.assetFinanceDeal.findFirst.mockResolvedValue({
+      id: "deal-1", applicationId: "app-1", status: "DRAFT",
+      application: { status: "DRAFT", clientId: "client-1", entityId: null, ncaRegime: "NCA", ncaClassificationRule: "NATURAL_PERSON_NCA" },
+    })
+    expect(await submitDeal(asTx, actor, "deal-1")).toEqual({
+      kind: "submitted", awaitingRegimeApproval: false, regime: "NCA", rule: "NATURAL_PERSON_NCA",
+    })
+    expect(m.classify).not.toHaveBeenCalled()
   })
 })

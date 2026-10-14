@@ -4,6 +4,7 @@ import { parseDealCreate, parseDealPreview } from "./deal-input"
 const TODAY = "2026-10-13"
 const base = {
   assetId: "asset-1",
+  contractType: "INSTALMENT_SALE",
   depositCents: 1_000_000,
   firstDueDate: "2026-11-30",
   preset: { kind: "MONTHLY", periods: 12 },
@@ -21,6 +22,8 @@ describe("parseDealPreview", () => {
     expect(result).toEqual({
       data: {
         assetId: "asset-1",
+        contractType: "INSTALMENT_SALE",
+        nca: false,
         terms: {
           depositCents: 1_000_000, tradeInCents: 0, financedFeesCents: 0, balloonCents: 0,
           preset: "MONTHLY", weights: new Array(12).fill(1), firstDueDate: "2026-11-30", vatDeferralPeriodIndex: null,
@@ -71,10 +74,14 @@ describe("parseDealPreview", () => {
 })
 
 describe("parseDealCreate", () => {
-  it("needs the entity, supplier and product as well", () => {
+  it("needs exactly one borrower, plus supplier and product", () => {
     const result = parseDealCreate(base, TODAY)
-    expect("errors" in result && Object.keys(result.errors).sort()).toEqual(["entityId", "productId", "supplierId"])
+    expect("errors" in result && Object.keys(result.errors).sort()).toEqual(["borrower", "productId", "supplierId"])
     const ok = parseDealCreate({ ...base, entityId: "e", supplierId: "s", productId: "p" }, TODAY)
     expect("data" in ok && ok.data).toMatchObject({ entityId: "e", supplierId: "s", productId: "p", assetId: "asset-1" })
+    const soleProprietor = parseDealCreate({ ...base, clientId: "c", supplierId: "s", productId: "p", contractType: "FINANCE_LEASE" }, TODAY)
+    expect("data" in soleProprietor && soleProprietor.data).toMatchObject({ clientId: "c", entityId: null, contractType: "FINANCE_LEASE" })
+    const both = parseDealCreate({ ...base, clientId: "c", entityId: "e", supplierId: "s", productId: "p" }, TODAY)
+    expect("errors" in both && both.errors).toHaveProperty("borrower")
   })
 })

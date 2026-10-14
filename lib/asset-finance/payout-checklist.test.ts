@@ -39,8 +39,9 @@ describe("requirement table", () => {
     expect(kinds).toEqual([...CHECKLIST_KINDS])
   })
 
-  it("defines no checklist for a contract type slice 1 does not book", () => {
-    expect(() => requiredChecklistKinds("FINANCE_LEASE", { registrationNumber: null })).toThrow(RangeError)
+  it("uses the instalment-sale checklist for a finance lease", () => {
+    expect(requiredChecklistKinds("FINANCE_LEASE", { registrationNumber: null }))
+      .toEqual(requiredChecklistKinds("INSTALMENT_SALE", { registrationNumber: null }))
   })
 
   it("names evidence for every item except the three signing items", () => {

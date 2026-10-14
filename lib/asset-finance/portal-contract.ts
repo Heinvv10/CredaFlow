@@ -108,8 +108,10 @@ export async function loadPortalContract(
       assetFinanceDeal: { select: { id: true, entity: { select: { id: true, legalName: true } } } },
     },
   })
-  if (!loan?.assetFinanceDeal) return null
+  if (!loan?.assetFinanceDeal?.entity) return null
   const deal = loan.assetFinanceDeal
+  const entity = deal.entity
+  if (!entity) return null
 
   const [rate, taxInvoice, signers, charges] = await Promise.all([
     prisma.contractRate.findFirst({
@@ -145,7 +147,7 @@ export async function loadPortalContract(
 
   return {
     loan: { id: loan.id, reference: loan.reference, status: loan.status, contractType: loan.contractType },
-    entity: deal.entity,
+    entity,
     asset: loan.asset,
     rate: rate && {
       basis: rate.basis,

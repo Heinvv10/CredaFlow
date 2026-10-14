@@ -62,6 +62,7 @@ const LARGE_AGREEMENT = `R${NCA_LARGE_AGREEMENT_THRESHOLD_CENTS / 100_000}k`
 
 /** The classifier's rule ids (./nca-classifier.ts) in plain English. */
 export const NCA_RULE_LABELS: Record<NcaRuleId, string> = {
+  NATURAL_PERSON_NCA: "Natural-person borrower; the NCA applies",
   TRUST_FEW_NATURAL_TRUSTEES: `Trust with fewer than ${NCA_TRUST_MIN_TRUSTEES_FOR_JURISTIC} trustees, all natural persons`,
   TRUST_UNEVIDENCED: "Trust without Letters of Authority or recorded trustees",
   FINANCIALS_UNPROVEN: "Turnover and asset value not proven by verified financial statements",

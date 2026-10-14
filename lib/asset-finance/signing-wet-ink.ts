@@ -37,6 +37,8 @@ function findSigner(tenantId: string, dealId: string, signerId: string) {
 export async function uploadWetInkScan(actor: SigningActor, dealId: string, signerId: string, upload: ParsedEntityUpload): Promise<UploadResult> {
   const signer = await findSigner(actor.tenantId, dealId, signerId)
   if (!signer) return { kind: "not_found" }
+  if (!signer.deal.entityId) return { kind: "not_open", reason: "Natural-person NCA deals use the prescribed NCA signing flow" }
+  const entityId = signer.deal.entityId
   if (signer.deal.status !== "APPROVED") return { kind: "not_open", reason: "Scans are recorded only while the deal is APPROVED" }
   const state = signerState(signer)
   if (state !== "PENDING" && state !== "AWAITING_CONFIRMATION") return { kind: "not_open", reason: "This signer has already signed" }
@@ -46,7 +48,7 @@ export async function uploadWetInkScan(actor: SigningActor, dealId: string, sign
   const previousScan = signer.scanDocumentId
   const stored = await storeEntityDocument({
     tenantId: actor.tenantId,
-    entityId: signer.deal.entityId,
+    entityId,
     upload: { ...upload, dealId },
     uploader: { type: "staff", id: actor.userId, email: actor.userEmail ?? undefined },
     withinTransaction: async (tx, document) => {

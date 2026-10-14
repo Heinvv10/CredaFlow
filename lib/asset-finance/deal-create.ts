@@ -23,7 +23,9 @@ import { generateReference } from "@/lib/utils"
 import type { RegimeTx } from "./classification"
 import type { DealCreateInput } from "./deal-input"
 import { solveWithRate } from "./deal-structure"
+import { solveNcaDealStructure } from "./nca-structure"
 import { dbDate } from "./dates"
+import { NCA_ASSET_CAPS, resolvedAssetFinanceNcaCapProblems } from "./nca-caps"
 
 export const CLOSED_DEAL_STATUSES = ["REFUSED_NCA", "DECLINED", "CANCELLED"] as const
 
@@ -39,8 +41,11 @@ export async function createDeal(
 ): Promise<CreateDealResult> {
   const { tenantId, input } = params
 
-  const entity = await tx.businessEntity.findFirst({ where: { id: input.entityId, tenantId }, select: { id: true, legalName: true } })
-  if (!entity) return refused(422, "The entity is not on this lender's book")
+  const entity = input.entityId === null ? null : await tx.businessEntity.findFirst({ where: { id: input.entityId, tenantId }, select: { id: true, legalName: true } })
+  const client = input.clientId === null ? null : await tx.client.findFirst({ where: { id: input.clientId, tenantId }, select: { id: true, firstName: true, lastName: true } })
+  if (input.entityId !== null && !entity) return refused(422, "The entity is not on this lender's book")
+  if (input.clientId !== null && !client) return refused(422, "The sole proprietor is not on this lender's client book")
+  if ((entity === null) === (client === null)) return refused(422, "Choose exactly one borrower")
   const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId }, select: { active: true } })
   if (!supplier) return refused(422, "The supplier is not on this lender's book")
   if (!supplier.active) return refused(422, "The supplier is inactive")
@@ -66,9 +71,23 @@ export async function createDeal(
   })
   if (other) return refused(409, `The asset is already on an open deal (${other.status})`)
 
-  const solved = await solveWithRate(tx, tenantId, asset, input.terms)
+  const genericSolved = await solveWithRate(tx, tenantId, asset, input.terms)
+  const solved = client && genericSolved.ok
+    ? solveNcaDealStructure(asset, input.terms, genericSolved.rate, genericSolved.startDate)
+    : genericSolved
   if (!solved.ok) return refused(422, solved.error)
   const amount = solved.result.financedAmountCents
+  if (client) {
+    const problems = await resolvedAssetFinanceNcaCapProblems(tx, tenantId, solved.startDate, {
+      contractType: input.contractType,
+      annualRate: Number(solved.rate.annualRate),
+      principalCents: amount,
+      initiationFeeCents: input.terms.financedFeesCents,
+      monthlyServiceFeeCents: NCA_ASSET_CAPS.monthlyServiceFeeCents,
+    })
+    if (problems === null) return refused(422, "No approved REPO rate exists for the NCA cap on the deal start date")
+    if (problems.length > 0) return refused(422, problems[0].message)
+  }
   if (amount < product.minAmount || amount > product.maxAmount) {
     return refused(422, `The financed amount ${amount} cents is outside the product's ${product.minAmount}–${product.maxAmount}`)
   }
@@ -81,7 +100,15 @@ export async function createDeal(
     data: {
       tenantId,
       reference: generateReference("AF"),
-      entityId: entity.id,
+      clientId: client?.id ?? null,
+      entityId: entity?.id ?? null,
+      ...(client ? {
+        ncaRegime: "NCA" as const,
+        ncaClassificationRule: "NATURAL_PERSON_NCA",
+        ncaClassificationInputs: { naturalPerson: true },
+        ncaClassifiedAt: new Date(),
+        ncaClassifiedById: params.userId,
+      } : {}),
       productId: product.id,
       appliedAmount: amount,
       appliedTermDays: solved.termDays,
@@ -94,10 +121,11 @@ export async function createDeal(
     data: {
       tenantId,
       applicationId: application.id,
-      entityId: entity.id,
+      clientId: client?.id ?? null,
+      entityId: entity?.id ?? null,
       assetId: input.assetId,
       supplierId: input.supplierId,
-      contractType: "INSTALMENT_SALE",
+      contractType: input.contractType,
       status: "DRAFT",
       depositCents: terms.depositCents,
       tradeInCents: terms.tradeInCents,
@@ -126,7 +154,8 @@ export async function createDeal(
       newValue: {
         applicationId: application.id,
         applicationReference: application.reference,
-        entityId: entity.id,
+        clientId: client?.id ?? null,
+        entityId: entity?.id ?? null,
         assetId: input.assetId,
         supplierId: input.supplierId,
         productId: product.id,

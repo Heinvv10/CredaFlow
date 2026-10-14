@@ -68,7 +68,7 @@ const req = (body: unknown, method = "POST") => new NextRequest("http://localhos
 })
 const ctx = { params: Promise.resolve({ id: "deal-1" }) }
 const structure = {
-  assetId: "asset-1", firstDueDate: "2099-01-31", preset: { kind: "MONTHLY", periods: 12 }, rateBasis: "FIXED", fixedRate: "0.12",
+  assetId: "asset-1", contractType: "INSTALMENT_SALE", firstDueDate: "2099-01-31", preset: { kind: "MONTHLY", periods: 12 }, rateBasis: "FIXED", fixedRate: "0.12",
 }
 const memo = {
   periodEnd: "2026-02-28", turnoverCents: 1, ebitdaCents: 1, totalAssetsCents: 1, totalLiabilitiesCents: 1,

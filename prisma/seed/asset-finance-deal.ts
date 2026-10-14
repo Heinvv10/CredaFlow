@@ -53,8 +53,7 @@ const findDeal = (tenantId: string, p: DealParties) =>
 
 /**
  * The trust's deal: two natural trustees, so the classifier rules NCA
- * (TRUST_FEW_NATURAL_TRUSTEES) and submit refuses it — REFUSED_NCA, the
- * application DECLINED with the slice-1 reason, audited.
+ * (TRUST_FEW_NATURAL_TRUSTEES) and submits it into the entity-NCA path.
  */
 export async function seedTrustDeal(tenantId: string, staff: SeedStaff, parties: DealParties): Promise<void> {
   const today = sastCalendarDate(new Date())
@@ -66,7 +65,7 @@ export async function seedTrustDeal(tenantId: string, staff: SeedStaff, parties:
   }, today)
   if (found && found.status !== "DRAFT") return
   const result = await prisma.$transaction((tx) => submitDeal(tx, dealActor(tenantId, staff.officer), dealId))
-  if (result.kind !== "refused_nca") throw new Error(`Seed: the trust deal should be refused as NCA, got ${result.kind}`)
+  if (result.kind !== "submitted") throw new Error(`Seed: the trust deal should proceed as NCA, got ${result.kind}`)
 }
 
 /** Approve the PENDING NCA → NON_NCA override as POST /api/asset-finance/nca-overrides/[id]/decide does. */

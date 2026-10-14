@@ -15,11 +15,9 @@ import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
  * `{ decision: "APPROVE" | "DECLINE" | "REFER", reasons: string[] }` — at
  * least one reason, each at least 5 characters, for every decision.
  *
- * APPROVE needs the application NON_NCA and a credit memo: 409 while the
- * NON_NCA override awaits a second approver, or without a memo. An NCA
- * application with no pending override is refused as at submit (deal
- * REFUSED_NCA, application DECLINED, audited) and answered 409. Refusals for
- * lack of authority or while awaiting the override are audited.
+ * APPROVE needs a credit memo. NCA deals additionally need a recorded,
+ * affordable s81 assessment and reckless-lending note; the database repeats
+ * that gate. A pending NON_NCA override is decided before approval.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -68,6 +66,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("awaiting_regime_approval", 409, "The NON_NCA override awaits a second approver")
       case "memo_required":
         return refuse("credit_memo_required", 409, "Record the credit memo before approving")
+      case "assessment_required":
+        return refuse("s81_assessment_required", 409, "Record the NCA s81 affordability assessment before approving")
+      case "unaffordable":
+        return refuse("s81_unaffordable", 409, "The recorded NCA s81 assessment is not affordable")
+      case "credit_life_required":
+        return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
       case "refused_nca":
         return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
       case "decided":

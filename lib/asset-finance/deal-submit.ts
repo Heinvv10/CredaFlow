@@ -9,11 +9,9 @@
  *      leaves the application NCA with a PENDING override for a second
  *      approver.
  *   2. The application moves DRAFT → SUBMITTED and the deal → SUBMITTED.
- *   3. If the application is still NCA and NO pending NCA → NON_NCA override
- *      exists (classifier's or a manual request), slice 1 cannot finance it:
- *      the deal becomes REFUSED_NCA and the application DECLINED with
- *      decisionReason "NCA applies (<the rule in plain English>)"
- *      (ncaRefusalReason). The refusal is audited with the rule id.
+ *   3. NCA applications proceed down the regulated asset-finance path. A
+ *      natural person is already stamped NATURAL_PERSON_NCA at creation and
+ *      deliberately skips the juristic-person classifier.
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { classifyApplication, lockApplicationForRegime, type RegimeTx } from "./classification"
@@ -88,20 +86,26 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
   if (!applicationId) return { kind: "not_found" }
   const deal = await tx.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId },
-    select: { id: true, status: true, applicationId: true, application: { select: { status: true } } },
+    select: {
+      id: true, status: true, applicationId: true,
+      application: { select: { status: true, clientId: true, entityId: true, ncaRegime: true, ncaClassificationRule: true } },
+    },
   })
   if (!deal) return { kind: "not_found" }
   if (deal.status !== "DRAFT" || deal.application.status !== "DRAFT") {
     return { kind: "not_draft", status: deal.status === "DRAFT" ? deal.application.status : deal.status }
   }
 
-  const classified = await classifyApplication(tx, { tenantId, applicationId, userId: actor.userId, userEmail: actor.userEmail })
-  if (classified.kind === "not_found" || classified.kind === "not_entity_borrower") return { kind: "not_found" }
-  if (classified.kind === "regime_frozen") return { kind: "regime_frozen", status: classified.status }
-  const { rule } = classified.classification
+  const classified = deal.application.clientId
+    ? null
+    : await classifyApplication(tx, { tenantId, applicationId, userId: actor.userId, userEmail: actor.userEmail })
+  if (classified?.kind === "not_found" || classified?.kind === "not_entity_borrower") return { kind: "not_found" }
+  if (classified?.kind === "regime_frozen") return { kind: "regime_frozen", status: classified.status }
+  const rule = classified?.classification.rule ?? deal.application.ncaClassificationRule ?? "NATURAL_PERSON_NCA"
+  const regime = classified?.regime ?? "NCA"
   const submittedAt = new Date()
   const awaitingRegimeApproval =
-    classified.regime === "NCA" && (await hasPendingNonNcaOverride(tx, tenantId, applicationId))
+    regime === "NCA" && !deal.application.clientId && (await hasPendingNonNcaOverride(tx, tenantId, applicationId))
 
   await logAuditStrict(
     {
@@ -114,25 +118,20 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
       oldValue: { status: "DRAFT" },
       newValue: {
         applicationId,
-        ncaRegime: classified.regime,
-        classifierRegime: classified.classification.regime,
+        ncaRegime: regime,
+        classifierRegime: classified?.classification.regime ?? null,
         rule,
-        pendingOverrideId: classified.pendingOverrideId,
+        pendingOverrideId: classified?.pendingOverrideId ?? null,
         awaitingRegimeApproval,
       },
     },
     tx,
   )
 
-  if (classified.regime === "NCA" && !awaitingRegimeApproval) {
-    const reason = await refuseNcaDeal(tx, actor, deal, rule, { submittedAt })
-    return { kind: "refused_nca", reason, rule }
-  }
-
   await tx.loanApplication.update({
     where: { id: applicationId, tenantId },
     data: { status: "SUBMITTED", submittedAt },
   })
   await tx.assetFinanceDeal.update({ where: { id: deal.id, tenantId }, data: { status: "SUBMITTED" } })
-  return { kind: "submitted", awaitingRegimeApproval, regime: classified.regime, rule }
+  return { kind: "submitted", awaitingRegimeApproval, regime, rule }
 }

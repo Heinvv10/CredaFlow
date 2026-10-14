@@ -142,6 +142,7 @@ export async function loadDealDocumentData(
     },
   })
   if (!deal) return null
+  if (!deal.entity || !deal.entityId) throw new DealDocumentError("Natural-person NCA deals use the prescribed NCA document pack")
   if (!deal.decidedAt) throw new DealDocumentError("The deal has no credit decision; its documents cannot be rendered")
 
   const [lender, config, relationships] = await Promise.all([
