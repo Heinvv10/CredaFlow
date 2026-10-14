@@ -1,0 +1,104 @@
+/**
+ * Postgres row-level security as a backstop to lib/tenant-scope.ts.
+ *
+ * The tenant-scope extension rewrites Prisma model queries; it cannot see raw
+ * SQL, nested relation reads or trigger bodies. The RLS policies (migration
+ * 20261014130000_tenant_rls) filter every row of the tables they cover by the
+ * transaction-local settings this module writes:
+ *
+ *   app.tenant_id   the tenant the query runs as (a runWithTenant frame)
+ *   app.rls_bypass  'on' for an explicit system context (withoutTenantScope)
+ *
+ * Prisma pools connections, so a setting must never outlive its query: it is
+ * written with set_config(…, true) (= SET LOCAL) inside the same transaction
+ * as the statement it guards.
+ *
+ *   - A query outside a transaction, in a frame, runs as a two-statement batch
+ *     transaction: [set_config, query].
+ *   - An interactive or batch $transaction opened in a frame starts with the
+ *     set_config; its queries then run unwrapped (Prisma reports them as part
+ *     of a transaction).
+ *   - A query with no frame runs as before and sets nothing. The policies let
+ *     an unset context through unless the database sets app.rls_strict = 'on'
+ *     (ALTER DATABASE … SET), so code that has no frame yet keeps working; see
+ *     the migration for what strict mode requires first.
+ *
+ * Inside a transaction the setting is the one in force when the transaction
+ * opened: a frame entered later inside the callback does not change it.
+ *
+ * RLS binds only a role that is neither a superuser nor BYPASSRLS. The
+ * migration FORCEs it, so the table owner is bound too.
+ */
+import type { PrismaClient } from "@prisma/client"
+import { tenantContext } from "./tenant-scope"
+
+export type RlsSetting = { kind: "tenant"; tenantId: string } | { kind: "bypass" }
+
+/** The RLS setting the current ALS frame asks for, or null when there is no frame. */
+export function currentRlsSetting(): RlsSetting | null {
+  const frame = tenantContext.getStore()
+  if (!frame) return null
+  return frame.kind === "admin" ? { kind: "bypass" } : { kind: "tenant", tenantId: frame.tenantId }
+}
+
+type RawCapable = Pick<PrismaClient, "$executeRaw">
+
+/** The statement that applies `setting` to the current transaction only. */
+export function applyRlsSetting(db: RawCapable, setting: RlsSetting) {
+  return setting.kind === "tenant"
+    ? db.$executeRaw`SELECT set_config('app.tenant_id', ${setting.tenantId}, true), set_config('app.rls_bypass', 'off', true)`
+    : db.$executeRaw`SELECT set_config('app.tenant_id', '', true), set_config('app.rls_bypass', 'on', true)`
+}
+
+// Prisma's query-extension and $transaction signatures are generic per model
+// and per overload; this seam forwards them unchanged, so `any` is confined
+// here as in lib/tenant-scope.ts.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type QueryParams = {
+  args: any
+  query: (args: any) => Promise<any>
+  /** Prisma passes the transaction a query belongs to; not part of its public type. */
+  __internalParams?: { transaction?: unknown }
+}
+
+type BaseClient = RawCapable & { $transaction: (...a: any[]) => Promise<any> }
+
+/**
+ * The innermost query hook: wraps a query that runs in a frame but outside any
+ * transaction in [set_config, query]. `base` must be the client being extended
+ * (not the result), so the set_config statement does not re-enter this hook.
+ */
+export function rlsQueryHook(base: BaseClient) {
+  return async function rlsQuery(params: QueryParams) {
+    const setting = currentRlsSetting()
+    if (!setting || params.__internalParams?.transaction) return params.query(params.args)
+    const [, result] = await base.$transaction([applyRlsSetting(base, setting), params.query(params.args)])
+    return result
+  }
+}
+
+/**
+ * Returns `client` with $transaction opening every transaction started in a
+ * frame with that frame's RLS setting. Everything else passes through.
+ */
+export function withRlsTransactions<C extends BaseClient>(client: C): C {
+  const transaction = (arg: any, options?: any) => {
+    const setting = currentRlsSetting()
+    if (!setting) return client.$transaction(arg, options)
+    if (typeof arg === "function") {
+      return client.$transaction(async (tx: RawCapable) => {
+        await applyRlsSetting(tx, setting)
+        return arg(tx)
+      }, options)
+    }
+    return client.$transaction([applyRlsSetting(client, setting), ...arg], options)
+      .then((results: unknown[]) => results.slice(1))
+  }
+  return new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === "$transaction") return transaction
+      return Reflect.get(target, prop, receiver)
+    },
+  })
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */

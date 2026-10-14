@@ -103,6 +103,10 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // Lender-granted operator support access (lib/operator/). Non-null
+  // tenantId; the operator's access check runs before any tenant frame and
+  // passes it explicitly.
+  "TenantSupportGrant",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

@@ -59,6 +59,25 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   the current tenant (from `AsyncLocalStorage`, set by `runWithTenant`) to
   queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
   must pass `where: { tenantId }` by hand.
+- **Row-level security.** Underneath the extension, Postgres RLS
+  (`prisma/migrations/20261014130000_tenant_rls`) filters the scoped tables and
+  the borrower core's children by `app.tenant_id`, which `lib/tenant-rls.ts`
+  sets transaction-locally for every query and transaction run inside a frame
+  (`withoutTenantScope` sets `app.rls_bypass` instead). It catches what the
+  extension cannot see: raw SQL, nested relation reads, trigger bodies. With no
+  frame the policies let rows through unless the database sets
+  `app.rls_strict = 'on'`. RLS binds only a role that is neither superuser nor
+  `BYPASSRLS`; the application must connect as such a role for it to hold.
+- **Operators.** An `Operator` (CredaFlow is the root one) runs tenants.
+  Operator staff (`OPERATOR_ADMIN`, `OPERATOR_SUPPORT`) hold no tenant and
+  clear no tenant role gate; a lender's ADMIN may grant one of them read-only
+  access for up to 7 days (`TenantSupportGrant`, `lib/operator/`), and every
+  grant and use is audited.
+- **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
+  and `(tenantId, email)`; one person may be a client of two lenders.
+- **Provider credentials** are per tenant, sealed in `TenantConfig`
+  (`lib/integrations/tenant-credentials.ts`). The Experian, SmileIdentity and
+  Stitch environment variables apply only while exactly one tenant is ACTIVE.
 - **Lender identity.** Legal name, trading name, NCR, FSP and company
   registration numbers, office address, contacts and logo are columns of
   `TenantConfig`. `lib/config/identity.ts` reads them:

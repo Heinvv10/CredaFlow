@@ -121,6 +121,8 @@ describe("tenant-scope — ALS primitives", () => {
       "Payout",
       // Dual-approval KYC override requests — non-null tenantId.
       "KycOverrideRequest",
+      // Lender-granted operator support access (lib/operator/) — non-null tenantId.
+      "TenantSupportGrant",
     ])
   })
 
