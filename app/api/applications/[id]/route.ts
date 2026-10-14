@@ -466,6 +466,13 @@ export async function DELETE(
       )
     }
 
+    if (application.status === "DECLINED") {
+      return NextResponse.json(
+        { error: "Declined applications are final and cannot be cancelled." },
+        { status: 409 }
+      )
+    }
+
     if (application.status === "CANCELLED") {
       return NextResponse.json({ ok: true, id, status: "CANCELLED" })
     }
@@ -480,7 +487,7 @@ export async function DELETE(
         where: {
           id,
           tenantId: tenant.id,
-          status: { notIn: ["APPROVED", "DISBURSED", "CANCELLED"] },
+          status: { notIn: ["APPROVED", "DISBURSED", "DECLINED", "CANCELLED"] },
         },
         data: {
           status: "CANCELLED",
