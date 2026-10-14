@@ -160,6 +160,44 @@ describe("PATCH /api/settings/integrations", () => {
     expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
   })
 
+  // The 2FA decision must be made on exactly what would be written: a value
+  // the gate does not count must not be written either.
+  it.each([
+    ["a whitespace-only credential", { stitchKey: "   " }],
+    ["a whitespace-padded webhook secret", { stitchWebhookSecret: " synthetic-whsec " }],
+    ["a credential next to an unrelated change", { stitchKey: "synthetic-client:synthetic-secret", collectionsEngineEnabled: true }],
+  ])("refuses %s without a TOTP-verified sign-in", async (_label, body) => {
+    staffTotpRequiredMock.mockResolvedValue(true)
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      expect((await patch(body)).status).toBe(403)
+      expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    ["a differently cased key", { StitchKey: "synthetic-client:synthetic-secret" }],
+    ["a nested key", { stitch: { stitchKey: "synthetic-client:synthetic-secret" } }],
+    ["a non-string value", { stitchAccountNumber: 1234567890 }],
+    ["a null value", { stitchKey: null }],
+    ["an empty string", { stitchWebhookSecret: "" }],
+    ["a whitespace-only payee field", { stitchBankId: "   " }],
+  ])("writes nothing for %s (the gate and the write agree it is no change)", async (_label, body) => {
+    staffTotpRequiredMock.mockResolvedValue(true)
+    const response = await patch(body)
+    expect(response.status).toBe(400)
+    expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
+  })
+
+  it("does not read a credential from the prototype chain", async () => {
+    staffTotpRequiredMock.mockResolvedValue(true)
+    const response = await patch(JSON.parse('{"__proto__": {"stitchKey": "synthetic-client:synthetic-secret"}}'))
+    expect(response.status).toBe(400)
+    expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
+  })
+
   it("audits the payee account old -> new, and no secret", async () => {
     staffTotpRequiredMock.mockResolvedValue(true)
     requireApiRoleMock.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test", totpVerified: true } })
@@ -172,7 +210,7 @@ describe("PATCH /api/settings/integrations", () => {
       expect(response.status).toBe(200)
       const { data } = auditLogCreateMock.mock.calls[0][0] as { data: { oldValue: unknown; newValue: Record<string, unknown> } }
       expect(data.oldValue).toEqual({ stitchAccountNumber: "1111111111" })
-      expect(data.newValue).toMatchObject({ stitchAccountNumber: "2222222222", updatedKeys: ["stitchKey", "stitchAccountNumber"] })
+      expect(data.newValue).toMatchObject({ stitchAccountNumber: "2222222222", updatedKeys: ["stitchAccountNumber", "stitchKey"] })
       expect(JSON.stringify(data)).not.toContain("synthetic-secret")
     } finally {
       vi.unstubAllEnvs()

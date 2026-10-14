@@ -84,10 +84,28 @@ export async function PATCH(req: NextRequest) {
         avsProvider?: string | null
       } = {}
 
+      // What this request writes, decided once: the 2FA gate below and the
+      // write read the same object, so nothing the gate does not see is
+      // written. Own properties only; credentials are stored exactly as given
+      // (any non-empty string), payee fields trimmed (blank is no change).
+      const given = (key: string): string | null =>
+        body !== null && typeof body === "object" && Object.hasOwn(body, key) && typeof body[key] === "string"
+          ? body[key]
+          : null
+      const credentialWrites: Partial<Record<SealedCredentialField, string>> = {}
+      for (const key of SEALED_CREDENTIAL_FIELDS) {
+        const value = given(key)
+        if (value !== null && value.length > 0) credentialWrites[key] = value
+      }
+      for (const key of STITCH_BENEFICIARY_FIELDS) {
+        const value = given(key)?.trim()
+        if (value) updates[key] = value
+      }
+
       // Where Stitch pays borrowers' money is as sensitive as the lender's
       // identity (PUT /api/settings/identity): changing it takes a sign-in
       // that verified a TOTP code, wherever the lender requires staff 2FA.
-      const stitchTouched = STITCH_SENSITIVE_FIELDS.some((key) => typeof body[key] === "string" && body[key].trim().length > 0)
+      const stitchTouched = STITCH_SENSITIVE_FIELDS.some((key) => key in credentialWrites || key in updates)
       if (stitchTouched && guard.user.totpVerified !== true && await isStaffTotpRequired(tenant.id)) {
         return NextResponse.json(
           { error: "Sign in with two-factor authentication to change the Stitch account or payee. Enable it under Settings → Security, then sign out and back in." },
@@ -97,22 +115,15 @@ export async function PATCH(req: NextRequest) {
 
       // Sealed on the way in (lib/integrations/tenant-credentials.ts); a
       // deployment without the key refuses rather than store plaintext.
-      for (const key of SEALED_CREDENTIAL_FIELDS) {
-        if (typeof body[key] === "string" && body[key].length > 0) {
-          try {
-            updates[key] = sealCredential(body[key])
-          } catch (e) {
-            if (e instanceof CredentialInputError) {
-              return NextResponse.json({ error: `${key}: enter the credential itself, not a sealed value` }, { status: 400 })
-            }
-            console.error("Refusing to store a provider credential:", e)
-            return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
+      for (const [key, value] of Object.entries(credentialWrites) as Array<[SealedCredentialField, string]>) {
+        try {
+          updates[key] = sealCredential(value)
+        } catch (e) {
+          if (e instanceof CredentialInputError) {
+            return NextResponse.json({ error: `${key}: enter the credential itself, not a sealed value` }, { status: 400 })
           }
-        }
-      }
-      for (const key of STITCH_BENEFICIARY_FIELDS) {
-        if (typeof body[key] === "string" && body[key].trim().length > 0) {
-          updates[key] = body[key].trim()
+          console.error("Refusing to store a provider credential:", e)
+          return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
         }
       }
 

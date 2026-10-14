@@ -30,7 +30,8 @@ function fakeClient() {
       return Promise.all(arg as Promise<unknown>[])
     }),
   }
-  return { client, calls, transactions }
+  // Only $executeRaw and $transaction are used; the full Prisma types are not needed.
+  return { client: client as unknown as Parameters<typeof rlsQueryHook>[0], calls, transactions }
 }
 
 const queryParams = (internal?: { transaction?: unknown }) => {
