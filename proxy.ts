@@ -5,10 +5,11 @@ import { isPublicOperationalRoute } from "@/lib/public-routes"
 import { isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
 import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
-import { staffAppHost } from "@/lib/config/deployment-urls"
+import { operatorAppHost, staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
 import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
+import { operatorHostGate, operatorOffHostRefusal } from "@/lib/proxy/operator-host"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -42,6 +43,17 @@ function route(req: NextAuthRequest): Response {
   const hostname = req.headers.get("host") ?? ""
   const baseHostname = hostname.split(":")[0].toLowerCase().replace(/\.$/, "")
   const isLoggedIn = !!req.auth?.user
+
+  // The operator console host serves the console and nothing else; off it, the
+  // console does not exist and an operator session is refused
+  // (lib/proxy/operator-host.ts).
+  const consoleHost = operatorAppHost()
+  if (consoleHost !== null && baseHostname === consoleHost) {
+    return operatorHostGate(req, req.auth, stampRequest(buildTenantHeaders(req, null), req.method), APP_MODE)
+  }
+  const offHostRefusal = operatorOffHostRefusal(path, req.auth?.user?.role)
+  if (offHostRefusal) return offHostRefusal
+
   const isLoginPage = req.nextUrl.pathname === "/login"
   const isPortalLoginPage = req.nextUrl.pathname === "/portal/login"
   const isPortalPath = path === "/portal" || path.startsWith("/portal/")

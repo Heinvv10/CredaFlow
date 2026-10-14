@@ -15,6 +15,8 @@ declare module "next-auth" {
     credentialStamp?: string
     /** Set at sign-in when the lender requires 2FA and this user has none (lib/auth.ts). */
     totpEnrolmentRequired?: boolean
+    /** Operator staff only (OPERATOR_ADMIN / OPERATOR_SUPPORT): the operator they work for. */
+    operatorId?: string | null
   }
   interface Session {
     user: {
@@ -28,6 +30,8 @@ declare module "next-auth" {
       totpEnrolmentRequired?: boolean
       /** The User row's tokenVersion this session was issued at (staff only). */
       tokenVersion?: number
+      /** Operator staff only: the operator they work for (lib/operator/). */
+      operatorId?: string | null
     }
   }
 }
