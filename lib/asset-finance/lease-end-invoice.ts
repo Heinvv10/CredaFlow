@@ -65,6 +65,8 @@ async function markFundSettled(tx: SigningTx, tenantId: string, loanId: string, 
 
 export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string; userId: string }, input: { loanId: string; today: string }): Promise<EndResult> {
   const { tenantId } = actor
+  // Lock the end of term: a concurrent re-base waits, so the sale is invoiced at the price the row keeps.
+  await tx.$queryRaw`SELECT "id" FROM "LeaseEndOfTerm" WHERE "loanId" = ${input.loanId} AND "tenantId" = ${tenantId} FOR UPDATE`
   const row = await tx.leaseEndOfTerm.findFirst({
     where: { tenantId, loanId: input.loanId },
     include: {

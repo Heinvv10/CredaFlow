@@ -145,13 +145,18 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     const aged = await json(await routes().endOfTerm(loans.purchase, "invoice"))
     expect([aged.status, aged.body.reason]).toEqual([422, "valuation_stale"])
     const current = await valuation(71_000_000, today())
+    const lower = await valuation(69_000_000, today())
     staff(fx.officer, "CREDIT_OFFICER")
+    const notBest = await json(await elect(69_000_000, lower.id)) // a current valuation, but not the highest
+    expect([notBest.status, notBest.body.reason]).toEqual([422, "valuation"])
     const rebased = await json(await elect(72_000_000, current.id))
     expect([rebased.status, rebased.body.status]).toEqual([200, "ELECTED"])
+    const rebaseAudit = await database().auditLog.findFirstOrThrow({ where: { tenantId: fx.tenantId, action: "LEASE_END_OF_TERM_ELECTED", newValue: { path: ["rebased"], equals: true } } })
+    expect(rebaseAudit.newValue).toMatchObject({ purchasePriceExclVatCents: 71_000_000, previous: { purchaseValuationId: fresh.id, purchasePriceExclVatCents: 72_000_000, electedById: fx.officer } })
     staff(fx.adminA, "LOAN_ADMIN")
     expect((await json(await routes().endOfTerm(loans.purchase, "invoice"))).status).toBe(200)
     const end = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.purchase }, include: { taxInvoice: { include: { lines: true } } } })
-    expect(end.taxInvoice?.lines.map((l) => [l.description.startsWith("Sale of"), l.exclVatCents, l.vatCents])).toEqual([[true, 72_000_000, 10_800_000]])
+    expect(end.taxInvoice?.lines.map((l) => [l.description.startsWith("Sale of"), l.exclVatCents, l.vatCents])).toEqual([[true, 71_000_000, 10_650_000]]) // re-based at the current valuation
     await payAllOwed(database(), fx, loans.purchase)
     expect((await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.purchase } })).status).toBe("INVOICED") // the eNaTIS change is outstanding
     expect((await json(await routes().endOfTerm(loans.purchase, "natis-confirmed"))).status).toBe(200)
@@ -166,6 +171,9 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     const quoted = await json(await routes().portalQuote(loans.terminate))
     expect(quoted.status, JSON.stringify(quoted.body)).toBe(200)
     const quote = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { id: String(quoted.body.quoteId) } })
+    // Asking again the same day, nothing changed: the same quote (no new quote rows on demand).
+    expect((await json(await routes().portalQuote(loans.terminate))).body.quoteId).toBe(quote.id)
+    expect(await database().leaseTerminationQuote.count({ where: { loanId: loans.terminate } })).toBe(1)
     expect(isoOfDbDate(quote.terminationDate)).toBe(cpaCancellationDate(today()))
     expect(quote.basis).toMatch(/Regulation 5\(2\)/)
     expect(quote.totalCents).toBe(quote.pvCents + quote.penaltyCents + quote.invoiceVatCents + quote.arrearsCents)

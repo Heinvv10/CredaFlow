@@ -7,7 +7,7 @@
  * EXTENDING) whose last rental has fallen due gets its next rental, one month
  * later, at the last rental and maintenance (./lease-charges.ts
  * appendExtensionRental) — one period at a time — unless the extension was
- * ended and the next rental would fall after its end. The invoice step then
+ * ended and the next rental would fall after its end (in advance: on or after it). The invoice step then
  * invoices it once due.
  *
  * EXPIRY NOTICES (C7, CPA s14). A CPA lessee's lease whose term expires in
@@ -44,7 +44,7 @@ export function leaseExpiryDate(lastRentalDue: Date, timing: string | null): str
 }
 
 export async function runLeaseExtensions(db: DailyDb, tenantId: string, today: string, run: DailyRun): Promise<void> {
-  const extending = await db.leaseEndOfTerm.findMany({ where: { tenantId, status: "EXTENDING", loan: { status: { in: ["ACTIVE", "COMPLETED", "DEFAULTED"] } } }, select: { loanId: true, extensionEndsOn: true } })
+  const extending = await db.leaseEndOfTerm.findMany({ where: { tenantId, status: "EXTENDING", loan: { status: { in: ["ACTIVE", "COMPLETED", "DEFAULTED"] } } }, select: { loanId: true, extensionEndsOn: true, loan: { select: { assetFinanceDeal: { select: { rentalTiming: true } } } } } })
   for (const row of extending) {
     try {
       await db.$transaction(async (tx) => {
@@ -52,7 +52,9 @@ export async function runLeaseExtensions(db: DailyDb, tenantId: string, today: s
         const lastDue = isoOfDbDate(last.dueDate)
         if (lastDue > today) return
         const next = addMonthsClamped(lastDue, 1)
-        if (row.extensionEndsOn && next > isoOfDbDate(row.extensionEndsOn)) return
+        // In advance a rental due on the end date would pay for the month after it: only rentals due before the end.
+        const endsOn = row.extensionEndsOn ? isoOfDbDate(row.extensionEndsOn) : null
+        if (endsOn && (row.loan.assetFinanceDeal?.rentalTiming === "ADVANCE" ? next >= endsOn : next > endsOn)) return
         const appended = await appendExtensionRental(tx, { tenantId, loanId: row.loanId, vat: await loadRateOn(tx, next > today ? today : next), actorUserId: null })
         await logAuditStrict({ tenantId, action: AuditAction.LEASE_EXTENDED, entity: "Loan", entityId: row.loanId, newValue: { ...appended, source: "cron" } }, tx)
         run.extensionRentals++

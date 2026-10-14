@@ -17,7 +17,7 @@ import { addMonthsClamped, dbDate, isoOfDbDate } from "./dates"
 import { dueDateInstant } from "./schedule-records"
 import { appendLeaseCharge } from "./lease-charges"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
-import { attempt, backdateLease, ruleRefuses } from "./lease-servicing.integration-fixture"
+import { attempt, backdateLease, ruleAdmits, ruleRefuses } from "./lease-servicing.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { runLeaseInvoiceBatch } from "./lease-invoice-batch"
 
@@ -29,7 +29,7 @@ const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
-const loans = { expired: "", running: "" }
+const loans = { expired: "", running: "", advance: "" }
 type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]
 const today = () => sastCalendarDate(new Date())
 
@@ -43,11 +43,12 @@ const setSession = (user: SessionUser | null) => {
 const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession({ id, email: `${id}@lease-it.test`, role, tenantId: fx.tenantId })
 const refuses = (rule: Parameters<typeof ruleRefuses>[1], message: RegExp, attack: (tx: Tx) => Promise<unknown>) => ruleRefuses(database(), rule, message, attack)
 
-async function book(assetId: string, periods: number): Promise<string> {
+async function book(assetId: string, periods: number, rentalTiming: "ARREARS" | "ADVANCE" = "ARREARS"): Promise<string> {
+  const firstDue = addMonthsClamped(today(), 1)
   const dealId = await approveLease(fx, staff, leaseBody(fx, {
-    assetId, contractType: "OPERATING_LEASE", rentalTiming: "ARREARS", entityId: fx.evidenced, preset: { kind: "MONTHLY", periods }, balloonCents: 100_000_000,
+    assetId, contractType: "OPERATING_LEASE", rentalTiming, entityId: fx.evidenced, preset: { kind: "MONTHLY", periods }, balloonCents: 100_000_000, firstDueDate: firstDue,
   }))
-  await signLease(fx, database(), setSession, dealId)
+  await signLease(fx, database(), setSession, dealId, rentalTiming === "ADVANCE" ? firstDue : undefined)
   const loanId = await payoutAndBook(fx, database(), staff, dealId)
   await backdateLease(database(), loanId, 2)
   return loanId
@@ -95,6 +96,7 @@ suite.sequential("lease servicing rules: end of term, termination, rentals, char
     fx = await createLeaseFixture(database(), t)
     loans.expired = await book(fx.assets[1], 2)
     loans.running = await book(fx.assets[2], 36)
+    loans.advance = await book(fx.assets[3], 2, "ADVANCE")
     expect((await runLeaseInvoiceBatch(database() as never, today())).ok).toBe(true)
   }, 600_000)
 
@@ -171,6 +173,35 @@ suite.sequential("lease servicing rules: end of term, termination, rentals, char
         },
       })
     })
+  })
+
+  it("LeaseRental_guard: an extension's rental due on its end date is billed in arrears, not in advance (it would pay for the month after)", async () => {
+    // An extension elected 40 days ago, notice on the last rental's day: it ends a month after that rental; then that rental.
+    const lastMonthsRental = async (tx: Tx, loanId: string) => {
+      const last = await tx.leaseRental.findFirstOrThrow({ where: { loanId }, orderBy: { periodNo: "desc" } })
+      const dueDate = addMonthsClamped(isoOfDbDate(last.dueDate), 1)
+      const { id } = await tx.leaseEndOfTerm.create({
+        data: { tenantId: fx.tenantId, loanId, origin: "EXPIRY", outcome: "EXTEND", status: "EXTENDING", electedAt: new Date(Date.now() - 40 * 86_400_000) }, select: { id: true },
+      })
+      const noticeOn = isoOfDbDate(last.dueDate) < today() ? isoOfDbDate(last.dueDate) : today()
+      await tx.leaseEndOfTerm.update({ where: { id }, data: { extensionNoticeOn: dbDate(noticeOn), extensionEndsOn: dbDate(dueDate) } })
+      const row = await tx.repaymentSchedule.create({
+        data: {
+          tenantId: fx.tenantId, loanId, installmentNo: last.periodNo + 1, dueDate: dueDateInstant(dueDate),
+          principalDue: last.totalCents, interestDue: 0, feesDue: 0, creditLifePremiumDue: 0, totalDue: last.totalCents, status: "PENDING",
+        },
+      })
+      await tx.leaseRental.create({
+        data: {
+          tenantId: fx.tenantId, loanId, scheduleId: row.id, periodNo: last.periodNo + 1, dueDate: dbDate(dueDate),
+          rentalExclVatCents: last.rentalExclVatCents, maintenanceExclVatCents: 0, vatCents: last.vatCents, totalCents: last.totalCents, vatRate: last.vatRate,
+        },
+      })
+    }
+    await ruleAdmits(database(), (tx) => lastMonthsRental(tx, loans.expired))
+    await refuses({ fn: "guardLeaseRental", replace: [` AND NOT EXISTS (SELECT 1 FROM "AssetFinanceDeal" d
+              WHERE d."loanId" = NEW."loanId" AND d."tenantId" = NEW."tenantId" AND d."rentalTiming" = 'ADVANCE')`, ""] },
+      /one at a time on a month-to-month extension/, (tx) => lastMonthsRental(tx, loans.advance))
   })
 
   it("the real end-of-term billing path links its own charge row", async () => {
