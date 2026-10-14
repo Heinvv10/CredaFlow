@@ -34,6 +34,27 @@ describe("getCreditReport live path", () => {
     await expect(getCreditReport(opts)).resolves.toMatchObject({ ok: true, score: 612, riskGrade: "B" })
   })
 
+  it("never spends one tenant's access token on another tenant's enquiry", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/auth/token")) {
+        const clientId = new URLSearchParams(String(init?.body)).get("client_id")
+        return new Response(JSON.stringify({ access_token: `token-for-${clientId}`, expires_in: 3600 }))
+      }
+      return new Response(JSON.stringify({ creditScore: 600 }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    findUniqueMock.mockImplementation(async ({ where }: { where: { tenantId: string } }) =>
+      ({ transunionKey: `client-${where.tenantId}:synthetic-secret` }))
+
+    await getCreditReport({ ...opts, tenantId: "tenant-a" })
+    await getCreditReport({ ...opts, tenantId: "tenant-b" })
+
+    const bearers = fetchMock.mock.calls
+      .filter(([url]) => !String(url).endsWith("/auth/token"))
+      .map(([, init]) => (init?.headers as Record<string, string>).Authorization)
+    expect(bearers).toEqual(["Bearer token-for-client-tenant-a", "Bearer token-for-client-tenant-b"])
+  })
+
   it("fails closed on a response with no recognisable score", async () => {
     respondWith({ somethingElse: true })
     const r = await getCreditReport(opts)

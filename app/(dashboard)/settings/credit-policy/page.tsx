@@ -1,5 +1,6 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { CreditPolicyForm } from "@/components/settings/CreditPolicyForm"
+import { BureauSettingsForm } from "@/components/settings/BureauSettingsForm"
 import { Header } from "@/components/layout/Header"
 
 export const metadata = {
@@ -13,7 +14,7 @@ export default async function CreditPolicySettingsPage() {
     <>
       <Header
         title="Credit Policy"
-        subtitle="Configure the Experian bureau score gate and affordability buffer applied when deciding applications."
+        subtitle="Configure the bureau score gate, affordability buffer, credit bureaus and report freshness applied when deciding applications."
         breadcrumbs={[
           { label: "Settings", href: "/settings" },
           { label: "Credit Policy" },
@@ -21,6 +22,7 @@ export default async function CreditPolicySettingsPage() {
       />
       <div className="p-4 lg:p-8 max-w-4xl space-y-6">
         <CreditPolicyForm />
+        <BureauSettingsForm />
       </div>
     </>
   )
