@@ -65,7 +65,12 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
   it("keeps every v2 condition of the in-person predicate", () => {
     const kept = new Set(codeLines(baselineFunctionSql("subject_has_in_person_kyc_verification")))
     const v2 = functionIn(read("20261011060000_face_match_v2_evidence"), "subject_has_in_person_kyc_verification")
-    expect(codeLines(v2).filter((line) => !kept.has(line))).toEqual([])
+    // Only the portrait-refusal reason test is reworded: it now reads the
+    // worker's own reason too (the next test pins the new form).
+    expect(codeLines(v2).filter((line) => !kept.has(line))).toEqual([
+      `AND refused."biometricResult" ->> 'biometricFailureReason' =`,
+      `'id_document_portrait_invalid'`,
+    ])
   })
 
   it("keeps the manual exception predicate provider-agnostic while adding the clear-mismatch guard", () => {

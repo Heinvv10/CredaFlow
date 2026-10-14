@@ -6,6 +6,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { databaseNow } from "@/lib/db-clock"
+import { findStandingInPersonAttestation } from "@/lib/kyc/in-person-standing.server"
 import { AuditAction } from "@/lib/audit"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import {
@@ -234,6 +235,14 @@ export async function POST(
         })
         if (existing) {
           return { kind: "verification_exists" as const, recordId: existing.id }
+        }
+        // The key moves when a late answer is stamped on the latest attempt, so
+        // it alone would accept a second identical attestation while one stands.
+        if (await findStandingInPersonAttestation(tx, {
+          tenantId: tenant.id, clientId, subject: client, idDocument, portraitRefusals,
+          blockingCandidates, idDocumentCopies,
+        })) {
+          return { kind: "verification_exists" as const, recordId: null }
         }
 
         const record = await tx.complianceRecord.create({

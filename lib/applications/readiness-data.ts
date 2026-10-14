@@ -209,10 +209,12 @@ export function inMemoryKycReader(
       // ID-portrait refusal read (SELFIE, filtered on biometricResult), the
       // blocking-selfie read (SELFIE, non-deleted, the blocking conditions)
       // and the prior-failed-attempt read (SELFIE, deleted or not).
-      findMany: (async (args: { where: { docType?: unknown; biometricResult?: unknown; deletedAt?: unknown } }) => {
+      findMany: (async (args: { where: { docType?: unknown; OR?: unknown; deletedAt?: unknown } }) => {
         if (args.where.docType !== "SELFIE") return forClient(data.coreDocuments)
         const selfies = forClient(data.selfies)
-        if (args.where.biometricResult) return selfies.filter(matchesIdPortraitRefusal)
+        // Both selfie reads carry an OR; the portrait one is the OR over biometricResult.
+        const alternatives = Array.isArray(args.where.OR) ? args.where.OR as Array<Record<string, unknown>> : []
+        if (alternatives.some((alternative) => "biometricResult" in alternative)) return selfies.filter(matchesIdPortraitRefusal)
         return args.where.deletedAt === null
           ? selfies.filter(matchesBlockingSelfie)
           : selfies.filter(isAdversePriorAttempt)

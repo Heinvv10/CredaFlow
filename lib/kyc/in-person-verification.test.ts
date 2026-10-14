@@ -6,6 +6,7 @@ import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
   idDocumentPortraitRefused,
+  matchesIdPortraitRefusal,
   inPersonAttestationIdempotencyKey,
   selfieBlocksInPersonVerification,
   matchesBlockingSelfie,
@@ -441,6 +442,24 @@ describe("lapse on a later face verdict or an unknown outcome", () => {
     ["naming no ID copy at all (fail closed)", { createdAt: at(1_000), biometricResult: { verdictRecordedAt: at(1_000).toISOString(), faceVerdict: { samePerson: "different" } } }],
   ])("lapses for a verdict %s", (_name, selfieAttempt) => {
     expect(current({ selfieAttempts: [selfieAttempt] })).toBeNull()
+  })
+
+  it("lapses for a swept attempt whose reason a late answer replaced (the sweptAt marker)", () => {
+    const swept = { biometricResult: { biometricFailureReason: "subject_identity_changed", sweptAt: at(500).toISOString() } }
+    expect(current({ selfieAttempts: [{ ...swept, createdAt: at(1_000) }] })).toBeNull()
+    expect(current({ selfieAttempts: [{ ...swept, createdAt: at(-1_000) }] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ biometricResult: { sweptAt: 5 }, createdAt: at(1_000) }] })).not.toBeNull()
+  })
+
+  it("keeps an ID-portrait refusal the worker gave behind a replaced reason", () => {
+    const refusal = (over: Record<string, unknown>) => ({
+      biometricResult: { biometricFailureReason: "subject_identity_changed", workerFailureReason: "id_document_portrait_invalid", ...over },
+    })
+    expect(current({ portraitRefusals: [refusal({ idDocumentId: "doc-id-copy" })] })).toBeNull()
+    expect(current({ portraitRefusals: [refusal({ idDocumentId: "doc-other", idDocumentSha256: "9".repeat(64) })] })).not.toBeNull()
+    expect(idDocumentPortraitRefused([refusal({})], { id: "doc-id-copy", contentSha256: ID_SHA })).toBe(true)
+    expect(matchesIdPortraitRefusal(refusal({}))).toBe(true)
+    expect(matchesIdPortraitRefusal({ biometricResult: { workerFailureReason: "face_not_detected" } })).toBe(false)
   })
 
   it("lapses for ANY attempt with an unknown outcome created after the attestation", () => {

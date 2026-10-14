@@ -263,6 +263,7 @@ async function persistBiometricOutcome(args: {
         verificationNote: true,
         extractionStatus: true,
         extractionGeneration: true,
+        biometricResult: true,
       },
     } as never) as unknown as {
       id: string
@@ -272,6 +273,7 @@ async function persistBiometricOutcome(args: {
       verificationNote: string | null
       extractionStatus: string
       extractionGeneration: string | null
+      biometricResult: unknown
     } | null
     if (!currentDocument) return false
 
@@ -390,6 +392,7 @@ async function persistBiometricOutcome(args: {
     const extractionResultJson = args.extractionResult === null || args.extractionResult === undefined
       ? Prisma.JsonNull
       : JSON.parse(JSON.stringify(args.extractionResult)) as Prisma.InputJsonValue
+    const sweptAt = (currentDocument.biometricResult as { sweptAt?: unknown } | null)?.sweptAt
     const biometricResultJson = {
       ...(args.biometricResult === null
         ? {}
@@ -412,6 +415,19 @@ async function persistBiometricOutcome(args: {
       // after an in-person attestation lapses it (adverseVerdictRecordedAfter,
       // mirrored in SQL): staff could not have seen it.
       verdictRecordedAt: completedAt.toISOString(),
+      // The sweeper's lasting marker. A late answer replaces the swept reason
+      // with the real one, but the attempt WAS lost once: it stays a swept
+      // attempt for the in-person lapse rule (unknownOutcomeAfterAttestation,
+      // mirrored in SQL) whatever answer arrives later, because a late answer
+      // about another ID copy says nothing about the attested copy.
+      ...(typeof sweptAt === "string" ? { sweptAt } : {}),
+      // The reason the worker itself gave, kept when the ID or subject binding
+      // above replaced it with subject_identity_changed. An ID-portrait refusal
+      // is a fact about the ID copy it was judged on and must survive that
+      // (ID_PORTRAIT_REFUSAL_CONDITIONS reads both fields).
+      ...(args.biometricFailureReason !== null && args.biometricFailureReason !== biometricFailureReason
+        ? { workerFailureReason: args.biometricFailureReason }
+        : {}),
     } as Prisma.InputJsonValue
     // A worker answering after the sweeper failed its attempt. Only an answer
     // that is ADVERSE as the worker gave it, for the client's current attempt
@@ -424,10 +440,13 @@ async function persistBiometricOutcome(args: {
     // verdict.
     //
     // An answer about an ID copy since superseded IS recorded (as
-    // subject_identity_changed, with the real idDocumentId and its verdict).
-    // It only tightens state: the in-person lapse rule ignores a verdict naming
-    // another copy, but dropping it would let it fail to count if staff later
-    // reject the newer copy and the older one becomes the attested ID again.
+    // subject_identity_changed, with the real idDocumentId and its verdict),
+    // so it still counts if staff later reject the newer copy and the older one
+    // becomes the attested ID again. Recording it is NOT free: it replaces
+    // biometric_outcome_not_recorded, which the in-person unknown-outcome rule
+    // reads. That is why `sweptAt` is carried over above and the rule matches it
+    // as well: otherwise this write would re-validate an attestation the sweep
+    // had lapsed, for a selfie never compared with the attested copy.
     const workerAdverse = !args.biometricPassed && isAdversePriorAttempt({
       extractionStatus: "failed",
       biometricResult: {

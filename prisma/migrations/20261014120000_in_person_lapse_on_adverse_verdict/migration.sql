@@ -159,8 +159,10 @@ AS $function$
         WHERE refused."tenantId" = p_tenant_id
           AND refused."clientId" = p_client_id
           AND refused."docType" = 'SELFIE'
-          AND refused."biometricResult" ->> 'biometricFailureReason' =
-            'id_document_portrait_invalid'
+          AND 'id_document_portrait_invalid' IN (
+            refused."biometricResult" ->> 'biometricFailureReason',
+            refused."biometricResult" ->> 'workerFailureReason'
+          )
           AND (
             (
               jsonb_typeof(refused."biometricResult" -> 'idDocumentId') IS DISTINCT FROM 'string'
@@ -219,7 +221,8 @@ AS $function$
       -- Added by 20261014120000_in_person_lapse_on_adverse_verdict: a selfie
       -- attempt submitted AFTER the attestation whose outcome is unknown (the
       -- worker died and the sweeper failed it, or its verdict could not be
-      -- recorded) lapses it too. The lost verdict could have been a mismatch,
+      -- recorded), or that the sweeper failed (biometricResult.sweptAt, which
+      -- stays when a late worker answer replaces the reason), lapses it too. The lost verdict could have been a mismatch,
       -- so this fails closed. ANY such attempt counts, deleted or not, latest
       -- or not, over the same attempts as above; one created in the same
       -- millisecond as the attestation counts as after, as the v2 release
@@ -236,8 +239,11 @@ AS $function$
             OR unknown_outcome."verificationRejectedAt" IS NOT NULL
             OR unknown_outcome."verificationRejectedById" IS NOT NULL
           )
-          AND unknown_outcome."biometricResult" ->> 'biometricFailureReason' =
-            'biometric_outcome_not_recorded'
+          AND (
+            unknown_outcome."biometricResult" ->> 'biometricFailureReason' =
+              'biometric_outcome_not_recorded'
+            OR jsonb_typeof(unknown_outcome."biometricResult" -> 'sweptAt') = 'string'
+          )
           AND unknown_outcome."createdAt" >= attestation."completedAt"
       )
       AND id_document."contentSha256" ~ '^[a-f0-9]{64}$'

@@ -264,16 +264,33 @@ export function matchesBlockingSelfie(row: {
  */
 export const ID_PORTRAIT_REFUSAL_CONDITIONS: {
   docType: "SELFIE"
-  biometricResult: { path: ["biometricFailureReason"]; equals: "id_document_portrait_invalid" }
+  OR: [
+    { biometricResult: { path: ["biometricFailureReason"]; equals: "id_document_portrait_invalid" } },
+    { biometricResult: { path: ["workerFailureReason"]; equals: "id_document_portrait_invalid" } },
+  ]
 } = {
   docType: "SELFIE",
-  biometricResult: { path: ["biometricFailureReason"], equals: "id_document_portrait_invalid" },
+  // workerFailureReason: the reason the worker gave, kept when the ID/subject
+  // binding replaced the recorded one with subject_identity_changed. A refusal
+  // of an ID's portrait is a fact about that ID copy and must survive it.
+  OR: [
+    { biometricResult: { path: ["biometricFailureReason"], equals: "id_document_portrait_invalid" } },
+    { biometricResult: { path: ["workerFailureReason"], equals: "id_document_portrait_invalid" } },
+  ],
+}
+
+const PORTRAIT_INVALID = "id_document_portrait_invalid"
+
+/** Whether a stored result refused the ID portrait, by the recorded or the worker's own reason. */
+function refusedIdPortrait(result: Record<string, unknown> | null): result is Record<string, unknown> {
+  return result !== null &&
+    (result.biometricFailureReason === PORTRAIT_INVALID || result.workerFailureReason === PORTRAIT_INVALID)
 }
 
 /** The same predicate, against a row already in memory (the readiness board). */
 export function matchesIdPortraitRefusal(row: { docType?: string; biometricResult: unknown }): boolean {
   if (row.docType !== undefined && row.docType !== ID_PORTRAIT_REFUSAL_CONDITIONS.docType) return false
-  return jsonRecord(row.biometricResult)?.biometricFailureReason === "id_document_portrait_invalid"
+  return refusedIdPortrait(jsonRecord(row.biometricResult))
 }
 
 /**
@@ -304,7 +321,7 @@ export function idDocumentPortraitRefused(
 ): boolean {
   return attempts.some((attempt) => {
     const result = jsonRecord(attempt.biometricResult)
-    if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
+    if (!refusedIdPortrait(result)) return false
     const namedId = typeof result.idDocumentId === "string" ? result.idDocumentId : null
     const namedSha = typeof result.idDocumentSha256 === "string" ? result.idDocumentSha256 : null
     return (namedId === null && namedSha === null)
@@ -354,7 +371,8 @@ const UNKNOWN_OUTCOME_REASON = "biometric_outcome_not_recorded"
 
 /**
  * Whether ANY selfie attempt (deleted or not, latest or not) submitted after
- * the attestation has an unknown outcome. The lost verdict could have been a
+ * the attestation has an unknown outcome: it ended biometric_outcome_not_recorded,
+ * or the sweeper failed it (`sweptAt`, kept when a late answer replaced the reason). The lost verdict could have been a
  * mismatch, so it fails closed and lapses the attestation.
  *
  * Mirrors the `unknown_outcome` NOT EXISTS in the same SQL function.
@@ -363,9 +381,15 @@ export function unknownOutcomeAfterAttestation(
   attempts: readonly { biometricResult: unknown; createdAt: Date }[],
   attestationCompletedAt: Date,
 ): boolean {
-  return attempts.some((attempt) =>
-    jsonRecord(attempt.biometricResult)?.biometricFailureReason === UNKNOWN_OUTCOME_REASON &&
-    attempt.createdAt.getTime() >= attestationCompletedAt.getTime())
+  return attempts.some((attempt) => {
+    const result = jsonRecord(attempt.biometricResult)
+    // The reason, or the sweeper's lasting marker: a late answer replaces the
+    // reason with the real one, but a selfie that was lost and swept stays
+    // lost for this rule, whatever arrives later.
+    const unknown = result?.biometricFailureReason === UNKNOWN_OUTCOME_REASON ||
+      typeof result?.sweptAt === "string"
+    return unknown && attempt.createdAt.getTime() >= attestationCompletedAt.getTime()
+  })
 }
 
 /**

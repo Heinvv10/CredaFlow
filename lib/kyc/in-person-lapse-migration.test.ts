@@ -33,7 +33,12 @@ describe(`migration ${NEW_MIGRATION}`, () => {
 
   it("keeps every v2 condition and only adds", () => {
     const kept = new Set(codeLines(latest))
-    expect(codeLines(v2).filter((line) => !kept.has(line))).toEqual([])
+    // Only the portrait-refusal reason test is reworded: it now reads the
+    // worker's own reason too (the next test pins the new form).
+    expect(codeLines(v2).filter((line) => !kept.has(line))).toEqual([
+      `AND refused."biometricResult" ->> 'biometricFailureReason' =`,
+      `'id_document_portrait_invalid'`,
+    ])
   })
 
   it("adds the adverse-verdict-after rule over ANY attempt on the attested ID, with the C collation", () => {
@@ -51,6 +56,11 @@ describe(`migration ${NEW_MIGRATION}`, () => {
     // Not bound to the latest attempt: a benign-failing retake must not bury it.
     expect(latest).not.toContain(`latest."biometricAttemptSequence"`)
     expect(latest).not.toContain(`verdict."id" =`)
+  })
+
+  it("reads the worker's own ID-portrait refusal as well as the recorded reason", () => {
+    expect(latest).toContain(`refused."biometricResult" ->> 'workerFailureReason'`)
+    expect(latest).toContain(`AND 'id_document_portrait_invalid' IN (`)
   })
 
   it("filters both rules to the attempts of PRIOR_FAILED_ATTEMPT_CONDITIONS, as the TypeScript query does", () => {
@@ -76,9 +86,11 @@ describe(`migration ${NEW_MIGRATION}`, () => {
   it("adds the unknown-outcome rule for ANY attempt created after the attestation", () => {
     const lines = codeLines(latest)
     expect(lines).toEqual(expect.arrayContaining([
-      `AND unknown_outcome."biometricResult" ->> 'biometricFailureReason' =`,
+      `unknown_outcome."biometricResult" ->> 'biometricFailureReason' =`,
       `'biometric_outcome_not_recorded'`,
       `AND unknown_outcome."createdAt" >= attestation."completedAt"`,
+      // The sweeper's marker survives a late answer that replaces the reason.
+      `OR jsonb_typeof(unknown_outcome."biometricResult" -> 'sweptAt') = 'string'`,
     ]))
   })
 

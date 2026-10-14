@@ -129,13 +129,13 @@ export async function layers(clientId: string) {
 }
 
 /** A newer ID copy for the client. */
-export async function addVerifiedIdCopy(f: Fixture, label: string, sha: string) {
+export async function addVerifiedIdCopy(f: Fixture, label: string, sha: string, verified = true) {
   const id = `sweep_ID_${label}_${sequence}_${token}`
   await db.clientDocument.create({
     data: {
       id, tenantId: f.tenantId, clientId: f.clientId, docType: "ID_COPY", fileUrl: "", fileName: `${label}.jpg`,
       mimeType: "image/jpeg", storagePath: `stub/${label}`, contentSha256: sha, uploadedByType: "client",
-      verified: true, verifiedAt: new Date(),
+      verified, verifiedAt: verified ? new Date() : null,
     },
   })
   return id

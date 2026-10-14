@@ -44,7 +44,7 @@ import { NextRequest } from "next/server"
 import { POST as inPersonPOST } from "@/app/api/clients/[id]/kyc-in-person-verification/route"
 import { PUT as decidePUT } from "@/app/api/clients/[id]/kyc-override-requests/[requestId]/route"
 import {
-  STALE_MS, attempt, db, different, kycStatus, lateAnswer, layers, seedClient, stubVlm, sweep, type Fixture,
+  STALE_MS, addVerifiedIdCopy, attempt, db, different, kycStatus, lateAnswer, layers, seedClient, stubVlm, sweep, type Fixture,
 } from "@/lib/kyc/selfie-sweeper.test-helpers"
 
 const RUN = process.env.RUN_SELFIE_SWEEPER_IT === "1"
@@ -180,6 +180,21 @@ suite("dual-approval in-person grant", () => {
     // The refused request stays PENDING and nothing was granted twice.
     expect(await db.kycOverrideRequest.count({ where: { clientId: f.clientId, status: "PENDING" } })).toBe(1)
     expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
+  })
+
+  it("refuses a second dual grant while the first stands, even after a late answer moved the key", async () => {
+    const f = await seed()
+    const a = await sweptBefore(f)
+    await addVerifiedIdCopy(f, "newer", "b".repeat(64))
+    expect((await dual(f)).status).toBe(200)
+    await pause(10)
+    stubVlm(different())
+    // About the superseded copy: recorded on the latest attempt (the key moves) without lapsing the grant.
+    await lateAnswer(f, a, f.idCopyId)
+    expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
+    const again = await dual(f)
+    expect(again.status).toBe(409)
+    expect(await db.complianceRecord.count({ where: { referenceId: f.clientId, type: "KYC_EXCEPTION" } })).toBe(1)
   })
 
   // The attestation and the verdict are stamped by different app hosts in

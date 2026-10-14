@@ -182,6 +182,21 @@ suite("in-person lapse rule across the app and database layers", () => {
       { biometricFailureReason: "biometric_outcome_not_recorded" }, { createdAt: new Date(completedAt.getTime() - 3_600_000) }), true],
     ["an unknown outcome created in the same millisecond as the attestation", () => selfie(
       { biometricFailureReason: "biometric_outcome_not_recorded" }, { createdAt: new Date(completedAt.getTime()) }), false],
+    // The sweeper's marker outlives the late answer that replaced the reason.
+    ["a swept attempt after the attestation whose late answer replaced the reason", () => selfie(
+      { biometricFailureReason: "subject_identity_changed", sweptAt: iso(500), idDocumentId: "d_other_id", faceVerdict: DIFFERENT }), false],
+    ["a swept attempt BEFORE the attestation whose late answer replaced the reason", () => selfie(
+      { biometricFailureReason: "subject_identity_changed", sweptAt: iso(-500) }, { createdAt: new Date(completedAt.getTime() - 3_600_000) }), true],
+    ["a non-string sweptAt marker", () => selfie({ biometricFailureReason: "face_not_detected", sweptAt: 5 }), true],
+    // An ID-portrait refusal is a fact about the copy; the worker's own reason survives an override.
+    ["the worker's own ID-portrait refusal behind a replaced reason, naming the attested copy", () => selfie(
+      { biometricFailureReason: "subject_identity_changed", workerFailureReason: "id_document_portrait_invalid", idDocumentId }), false],
+    ["the worker's own ID-portrait refusal naming no copy (fail closed)", () => selfie(
+      { biometricFailureReason: "subject_identity_changed", workerFailureReason: "id_document_portrait_invalid" }), false],
+    ["the worker's own ID-portrait refusal about another copy", () => selfie(
+      { biometricFailureReason: "subject_identity_changed", workerFailureReason: "id_document_portrait_invalid", idDocumentId: "d_other_id", idDocumentSha256: "9".repeat(64) }), true],
+    ["a worker reason that is not a portrait refusal", () => selfie(
+      { biometricFailureReason: "subject_identity_changed", workerFailureReason: "face_not_detected", idDocumentId }), true],
     ["a benign failure submitted after the attestation", () => selfie({ biometricFailureReason: "face_not_detected" }), true],
   ]
 
