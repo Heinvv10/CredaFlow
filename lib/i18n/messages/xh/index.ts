@@ -12,6 +12,7 @@ import { portalPayment } from "./portal-payment"
 import { portalProfile } from "./portal-profile"
 import { portalShell } from "./portal-shell"
 import { portalStatement } from "./portal-statement"
+import { websiteApply } from "./website-apply"
 import { websiteCalculators } from "./website-calculators"
 import { websiteContact } from "./website-contact"
 import { websiteHome } from "./website-home"
@@ -32,6 +33,7 @@ export const xh: Catalog = {
   portalProfile,
   portalShell,
   portalStatement,
+  websiteApply,
   websiteCalculators,
   websiteContact,
   websiteHome,

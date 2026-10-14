@@ -25,4 +25,5 @@ export const WEBSITE_CLIENT_NAMESPACES = [
   "websiteCalculators",
   "websiteProducts",
   "websiteQualify",
+  "websiteApply",
 ] as const satisfies readonly Namespace[]
