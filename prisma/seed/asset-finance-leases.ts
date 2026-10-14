@@ -11,8 +11,7 @@
  *      CPA applies; an early-termination quote, QUOTED and not accepted.
  *   3. TEST Family Farming Trust: full-maintenance lease of a forklift, fund
  *      settled by the lessee; a 5-rental term, so the end-of-term choice is
- *      open at booking: RETURN elected and inspected (a damage line, excess
- *      usage), not yet invoiced.
+ *      open at booking: RETURN elected; the inspection waits for the term's end.
  *
  * Idempotent: every step runs only from the state before it.
  */

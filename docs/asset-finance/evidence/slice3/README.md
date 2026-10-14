@@ -6,6 +6,12 @@ Captured 2026-10-14 from a local `next dev` (port 3476) on branch
 `prisma/seed/asset-finance-leases*.ts`). Every name, number and document is
 synthetic. Mobile shots are the page at 390 px wide (same-origin frame).
 
+Shots 03–04 were taken before the #85 review round, when the seed inspected
+the trust's return on its booking day and the end-of-term invoice could be
+issued at once. Since that round a return is inspected only once the term has
+ended (the seed now stops at RETURN elected) and the invoice waits for every
+rental to be invoiced; the screens themselves are unchanged.
+
 | # | Screen | What it shows |
 |---|---|---|
 | 01 | Staff, trust FML, dark | Lease terms (CPA applies, escalation, last rental 14 Mar 2027), rentals with the rental / maintenance / VAT split and the tax invoice of the paid rental |

@@ -2,7 +2,8 @@
  * Servicing history of the lease demo deals (./asset-finance-leases.ts), through
  * the lib functions the lease routes call: maintenance claims (submit, approve
  * with four-eyes, paid), meter readings (staff and portal), an early-termination
- * quote, and a lease's end of term (election and return inspection). The first
+ * quote, and a lease's end of term (a return elected; it is inspected once the
+ * term ends, which a seed run on the booking day cannot reach). The first
  * actions of a lease happen on its booking day: a reading is dated no earlier
  * than the lease and a claim needs an ACTIVE lease, so nothing here is backdated.
  * Each step runs only from the state before it, so a rerun writes nothing.
@@ -14,7 +15,7 @@ import { STAFF_UPLOAD_DOC_TYPES } from "@/lib/asset-finance/entity-documents"
 import { recordMeterReading } from "@/lib/asset-finance/meter-readings"
 import { approveMaintenanceClaim, markMaintenanceClaimPaid, submitMaintenanceClaim } from "@/lib/asset-finance/maintenance-claims"
 import { quoteEarlyTermination } from "@/lib/asset-finance/lease-termination-store"
-import { electEndOfTerm, recordInspection } from "@/lib/asset-finance/lease-end-of-term"
+import { electEndOfTerm } from "@/lib/asset-finance/lease-end-of-term"
 import { syntheticUpload, type SeedActor } from "./asset-finance-documents"
 import type { SeedStaff } from "./asset-finance-deal"
 
@@ -93,18 +94,14 @@ export async function seedSoleQuote(tenantId: string, officer: SeedActor, loanId
   if (quoted.kind !== "quoted") throw new Error(`Seed: early-termination quote refused (${JSON.stringify(quoted)})`)
 }
 
-/** Lease 3: RETURN elected and inspected with a damage line and the final reading; not invoiced. */
+/**
+ * Lease 3: RETURN elected, in the six months before its last rental. The
+ * inspection waits for the term to end (the asset comes back then), so the
+ * seed stops at ELECTED.
+ */
 export async function seedTrustEndOfTerm(tenantId: string, officer: SeedActor, loanId: string): Promise<void> {
   const actor = { tenantId, userId: officer.id }
-  const row = await prisma.leaseEndOfTerm.findFirst({ where: { tenantId, loanId }, select: { status: true } })
-  if (!row) {
-    const elected = await prisma.$transaction((tx) => electEndOfTerm(tx, actor, { loanId, outcome: "RETURN", today: today() }))
-    if (elected.kind !== "ok") throw new Error(`Seed: end-of-term election refused (${JSON.stringify(elected)})`)
-  }
-  if (row && row.status !== "ELECTED") return
-  const inspected = await prisma.$transaction((tx) => recordInspection(tx, actor, {
-    loanId, inspectedOn: today(), condition: "Fair: normal wear, one damaged mast guard (synthetic inspection)", finalReading: 980,
-    damage: [{ description: "Mast guard bent, replace (TEST)", amountExclVatCents: 185_000 }], today: today(),
-  }))
-  if (inspected.kind !== "ok") throw new Error(`Seed: return inspection refused (${JSON.stringify(inspected)})`)
+  if (await prisma.leaseEndOfTerm.findFirst({ where: { tenantId, loanId }, select: { id: true } })) return
+  const elected = await prisma.$transaction((tx) => electEndOfTerm(tx, actor, { loanId, outcome: "RETURN", today: today() }))
+  if (elected.kind !== "ok") throw new Error(`Seed: end-of-term election refused (${JSON.stringify(elected)})`)
 }

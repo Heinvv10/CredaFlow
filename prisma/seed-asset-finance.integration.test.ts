@@ -6,7 +6,7 @@
  * deals part-paid by early receipts and every four-eyes step taken by two different
  * staff users and the known synthetic portal logins working, and (d) the three
  * lease deals of prisma/seed/asset-finance-leases.ts with their servicing
- * (claims, readings, a termination quote, an inspected end of term). Rerun
+ * (claims, readings, a termination quote, an elected end of term). Rerun
  * idempotency is proved, for the whole seed, by prisma/seed.integration.test.ts,
  * and for the leases here (a second seed leaves every lease count unchanged).
  *
@@ -249,17 +249,16 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(lessee.email.endsWith(".invalid")).toBe(true)
   })
 
-  it("(d3) the trust's full-maintenance lease at end of term: RETURN elected and inspected with a damage line, not yet invoiced", async () => {
+  it("(d3) the trust's full-maintenance lease at end of term: RETURN elected, the inspection waiting for the term's end", async () => {
     const loan = await leaseLoan("FULL_MAINTENANCE_LEASE", { entityType: "TRUST" })
     expect(loan).toMatchObject({ status: "ACTIVE", clientId: null })
     expect(loan.assetFinanceDeal).toMatchObject({ status: "BOOKED", maintenanceRiskModel: "LESSEE_SETTLED" })
     expect(loan.leaseRentals).toHaveLength(5)
     expect(loan.leaseRentals.filter((r) => r.taxInvoiceId !== null)).toHaveLength(1)
     const end = loan.leaseEndOfTerm
-    expect(end).toMatchObject({ origin: "EXPIRY", outcome: "RETURN", status: "INSPECTED", taxInvoiceId: null, scheduleId: null, excessUsageCents: null })
-    expect(end?.inspectedById).toBe(await userId("credit.officer"))
-    expect(end?.finalReading?.value).toBe(980)
-    expect(end?.damageItems.map((d) => d.amountExclVatCents)).toEqual([185_000])
+    expect(end).toMatchObject({ origin: "EXPIRY", outcome: "RETURN", status: "ELECTED", inspectedOn: null, finalReadingId: null, taxInvoiceId: null })
+    expect(end?.electedById).toBe(await userId("credit.officer"))
+    expect(end?.damageItems).toEqual([])
     expect(loan.maintenanceFund).toMatchObject({ riskModel: "LESSEE_SETTLED", settledAt: null })
     expect(loan.assetFinanceDeal?.asset.lessorStatus).not.toBe("RETURNED_TO_STOCK")
   })
@@ -286,7 +285,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       audit: await fresh().auditLog.count(),
     })
     const before = await snapshot()
-    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 6, quotes: 1, endsOfTerm: 1, damageItems: 1, funds: 2 })
+    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 1, damageItems: 0, funds: 2 })
     execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env: seedEnv, stdio: ["ignore", "pipe", "pipe"] })
     expect(await snapshot()).toEqual(before)
   }, 240_000)
