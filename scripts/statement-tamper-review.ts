@@ -8,7 +8,7 @@
  * FNB's collection attempts). Never prints a name, account number, amount
  * other than the difference, or any transaction text.
  *
- *   STATEMENT_CORPUS_DIR=/home/hein/secure/ndzinga-corpus \
+ *   STATEMENT_CORPUS_DIR=/secure/path/to/corpus \
  *     npx tsx scripts/statement-tamper-review.ts <id> [<id> …]
  */
 import { readFileSync } from "node:fs"

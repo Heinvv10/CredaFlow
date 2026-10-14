@@ -1,7 +1,7 @@
 /**
  * Why a corpus statement fails the balance check, without showing its content.
  *
- *   STATEMENT_CORPUS_DIR=/home/hein/secure/ndzinga-corpus \
+ *   STATEMENT_CORPUS_DIR=/secure/path/to/corpus \
  *     npx tsx scripts/statement-read-diagnostics.ts NEDBANK [--failing]
  *
  * Per file of that bank: method, rows read, whether opening/closing were

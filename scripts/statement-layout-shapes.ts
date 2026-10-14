@@ -2,7 +2,7 @@
  * Prints the layout of one bank's corpus statements as masked shapes, so a
  * text reader can be written without anyone reading a client's statement.
  *
- *   STATEMENT_CORPUS_DIR=/home/hein/secure/ndzinga-corpus \
+ *   STATEMENT_CORPUS_DIR=/secure/path/to/corpus \
  *     npx tsx scripts/statement-layout-shapes.ts NEDBANK [--lines 60] [--files 3] [--pages 2] [--bbox-page 1] [--producer PREFIX]
  *       [--id DOCUMENT_ID --page N]
  *
