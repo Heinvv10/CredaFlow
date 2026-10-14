@@ -164,6 +164,21 @@ suite("operator support access — grant-gated, read-only, audited", () => {
     expect(await lastRefusal()).toMatchObject({ reason: "no_active_grant" })
   })
 
+  it("refuses, and audits, a window the database's clock puts past 7 days", async () => {
+    // The application clock a day ahead of the database: 6.9 days by the app
+    // is 7.9 days by the database, which the CHECK refuses. That must come back
+    // as the same audited bad_window refusal, not an unaudited 500.
+    const appNow = new Date(Date.now() + DAY_MS)
+    await expect(grantSupportAccess({
+      tenantId: fx().a.tenantId, actor: adminOf(fx().a), operatorUserId: fx().operatorUserId,
+      expiresAt: new Date(appNow.getTime() + 6.9 * DAY_MS), reason: "Ticket 3", now: appNow,
+    })).rejects.toMatchObject({ reason: "bad_window" })
+    const refusals = await db.auditLog.findMany({
+      where: { tenantId: fx().a.tenantId, action: "SUPPORT_ACCESS_GRANT_REFUSED" }, orderBy: { createdAt: "desc" }, take: 1,
+    })
+    expect(refusals[0]?.newValue).toMatchObject({ reason: "bad_window", by: "database" })
+  })
+
   it("puts a tenant created without an operator under the root operator (seed, bootstrap, provisioning)", async () => {
     const slug = `iso-it-root-${fx().token}`
     const created = await db.tenant.create({ data: { slug, name: "Root default IT" } })

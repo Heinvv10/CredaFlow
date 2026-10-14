@@ -100,16 +100,32 @@ export async function grantSupportAccess(input: {
     return refuse(R, actor, tenantId, "operator_user_invalid", detail, ipAddress)
   }
 
-  return runWithTenant(tenantId, () => prisma.$transaction(async (tx) => {
-    const grant = await tx.tenantSupportGrant.create({
-      data: { tenantId, operatorUserId, grantedById: actor.id, reason, expiresAt },
-    })
-    await logAuditStrict({
-      tenantId, userId: actor.id, userEmail: actor.email, action: AuditAction.SUPPORT_ACCESS_GRANTED,
-      entity: "TenantSupportGrant", entityId: grant.id, newValue: { ...detail, reason }, ipAddress,
-    }, tx)
-    return grant
-  }))
+  try {
+    return await runWithTenant(tenantId, () => prisma.$transaction(async (tx) => {
+      const grant = await tx.tenantSupportGrant.create({
+        data: { tenantId, operatorUserId, grantedById: actor.id, reason, expiresAt },
+      })
+      await logAuditStrict({
+        tenantId, userId: actor.id, userEmail: actor.email, action: AuditAction.SUPPORT_ACCESS_GRANTED,
+        entity: "TenantSupportGrant", entityId: grant.id, newValue: { ...detail, reason }, ipAddress,
+      }, tx)
+      return grant
+    }))
+  } catch (error) {
+    // The window above was checked on this server's clock; the database
+    // checks it again on its own (TenantSupportGrant_window_check and the
+    // guard trigger). When the clocks disagree, the database's refusal is the
+    // same bad_window refusal, audited like the others.
+    if (isDatabaseWindowRefusal(error)) {
+      return refuse(R, actor, tenantId, "bad_window", { ...detail, by: "database" }, ipAddress)
+    }
+    throw error
+  }
+}
+
+function isDatabaseWindowRefusal(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ""
+  return message.includes("TenantSupportGrant_window_check") || message.includes("Support grant must start now and expire in the future")
 }
 
 export async function revokeSupportAccess(input: {

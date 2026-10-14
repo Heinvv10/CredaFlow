@@ -283,6 +283,8 @@ export async function POST(req: NextRequest) {
               break
             }
           }
+          // Not a clash the operator can act on: surface it as the fault it is.
+          if (!existing) throw error
         }
 
         return NextResponse.json(
