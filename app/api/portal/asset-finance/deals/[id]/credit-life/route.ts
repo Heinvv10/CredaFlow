@@ -17,6 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       case "not_found": return NextResponse.json({ error: "Not found" }, { status: 404 })
       case "not_open": return NextResponse.json({ error: "The credit-life election is no longer open" }, { status: 409 })
       case "offer_required": return NextResponse.json({ error: "Credit life cannot be accepted because no eligible offer is configured" }, { status: 422 })
+      case "entity_decline_required": return NextResponse.json({ error: "Credit life is offered to the entity representative but bundled natural-person cover cannot be accepted for an entity borrower" }, { status: 422 })
       case "recorded": return NextResponse.json(result)
     }
   })

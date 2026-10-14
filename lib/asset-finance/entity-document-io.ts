@@ -151,6 +151,49 @@ export async function storeEntityDocument(params: {
   }
 }
 
+/** Store payout evidence on either kind of asset-finance borrower. */
+export async function storeDealEvidenceDocument(params: {
+  tenantId: string
+  dealId: string
+  entityId: string | null
+  clientId: string | null
+  upload: ParsedEntityUpload
+  uploader: EntityDocumentUploader
+}): Promise<EntityDocumentView> {
+  const { tenantId, dealId, entityId, clientId, upload, uploader } = params
+  if ((entityId === null) === (clientId === null)) throw new Error("A deal evidence document needs exactly one borrower")
+  const buffer = Buffer.from(await upload.file.arrayBuffer())
+  const { storagePath, fileSize } = await saveFile(buffer, upload.file.type)
+  const contentSha256 = sha256DocumentBytes(buffer)
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      const created = await tx.entityDocument.create({
+        data: {
+          tenantId, entityId, clientId, dealId, docType: upload.docType,
+          fileName: safeFileName(upload.file.name), mimeType: upload.file.type,
+          fileSize, storagePath, contentSha256,
+          uploadedByType: uploader.type, uploadedById: uploader.id,
+        },
+        select: ENTITY_DOCUMENT_VIEW_SELECT,
+      })
+      await logAuditStrict({
+        tenantId,
+        userId: uploader.type === "staff" ? uploader.id : undefined,
+        userEmail: uploader.email,
+        action: AuditAction.ENTITY_DOCUMENT_UPLOADED,
+        entity: "AssetFinanceDeal",
+        entityId: dealId,
+        newValue: { documentId: created.id, entityId, clientId, docType: upload.docType, contentSha256 },
+      }, tx)
+      return created
+    })
+    return toEntityDocumentView(row)
+  } catch (error) {
+    await deleteFile(storagePath)
+    throw error
+  }
+}
+
 export interface ServableEntityDocument {
   id: string
   fileName: string

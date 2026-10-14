@@ -123,6 +123,11 @@ export async function prepareDealDocuments(
   plannedStartDate?: string,
 ): Promise<PrepareResult> {
   const { tenantId } = actor
+  const borrower = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { entityId: true, application: { select: { ncaRegime: true } } } })
+  if (borrower?.entityId && borrower.application.ncaRegime === "NCA") {
+    const { prepareEntityNcaDocuments } = await import("./nca-entity-signing")
+    return prepareEntityNcaDocuments(actor, dealId)
+  }
   const today = sastCalendarDate(new Date())
   const status = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, firstDueDate: true } })
   if (!status) return { kind: "not_found" }

@@ -108,7 +108,7 @@ suite.sequential("review gates: payout, booking, checklist and contract rate (re
 
     it.each([
       ["from CONTRACTED", () => deal(B(), `"status" = 'APPROVED'`), "An asset deal is booked only from CONTRACTED"],
-      ["its own loan", () => loan(`"assetId" = '${fx.assetA}'`), "A booked deal names a NON_NCA loan on its own application, entity and asset"],
+      ["its own loan", () => loan(`"assetId" = '${fx.assetA}'`), "A booked deal names a classified loan on its own application, borrower and asset"],
       ["the payout APPROVED", () => payout(B(), `"status" = 'PENDING_APPROVAL', "approvedById" = NULL, "approvedAt" = NULL`), "A deal is booked only with its payout APPROVED"],
       ["the planned start", () => loan(`"startDate" = "startDate" + INTERVAL '1 day'`), "A booked loan starts on the deal's planned start date"],
       ["the signed margin", () => loan(`"nonNcaDefaultInterestMargin" = 0.03`), "carries the signed arrears terms"],

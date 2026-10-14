@@ -71,7 +71,9 @@ export async function recordESignature(params: {
     where: { id: signerId, tenantId, clientId, AND: [portalSignerAuthorityWhere(tenantId, clientId)] },
     select: {
       id: true, dealId: true, clientId: true, document: true, method: true,
-      documentSha256: true, documentStoragePath: true, deal: { select: { status: true } },
+      documentSha256: true, documentStoragePath: true, deal: { select: {
+        status: true, entityId: true, application: { select: { ncaRegime: true } },
+      } },
     },
   })
   if (!signer || !signer.documentSha256 || !signer.documentStoragePath) return { kind: "not_found" }
@@ -81,12 +83,15 @@ export async function recordESignature(params: {
 
   const stored = await readFile(signer.documentStoragePath).catch(() => null)
   if (!stored || !documentBytesMatchSha256(stored, signer.documentSha256)) return { kind: "document_changed" }
-  const data = await loadDealDocumentData(prisma, tenantId, signer.dealId)
-  if (!data) return { kind: "not_found" }
-  const stillRequired = data.requiredSigners.some((s) => s.clientId === clientId && s.document === signer.document)
-  if (!stillRequired) return { kind: "not_signable", reason: "You are no longer required to sign this document; the lender will prepare the documents again" }
-  const fresh = await renderDealDocument(data, signer.document, clientId)
-  if (fresh.sha256 !== signer.documentSha256) return { kind: "document_changed" }
+  const entityNca = signer.deal.entityId !== null && signer.deal.application.ncaRegime === "NCA"
+  if (!entityNca) {
+    const data = await loadDealDocumentData(prisma, tenantId, signer.dealId)
+    if (!data) return { kind: "not_found" }
+    const stillRequired = data.requiredSigners.some((s) => s.clientId === clientId && s.document === signer.document)
+    if (!stillRequired) return { kind: "not_signable", reason: "You are no longer required to sign this document; the lender will prepare the documents again" }
+    const fresh = await renderDealDocument(data, signer.document, clientId)
+    if (fresh.sha256 !== signer.documentSha256) return { kind: "document_changed" }
+  }
 
   const signedAt = new Date()
   // The database recomputes this digest (CHECK DealSigner_method_evidence).

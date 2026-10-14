@@ -17,7 +17,7 @@ import { CHARGES_FLAG_INCLUDE, chargesEnabled } from "@/lib/loan/charges-replay"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { SAST_TIME_ZONE } from "@/lib/utils"
-import { requireClientBorrowerId } from "@/lib/borrower"
+import { SECTION129_BORROWER_INCLUDE, section129Addressee } from "./section129-addressee"
 
 const NOTICE_TYPE = "SECTION_129_NOTICE" as const
 export const SECTION129_STALE_RESERVATION_MS = 60 * 60 * 1000
@@ -751,12 +751,14 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         where: { id: args.loanId, tenantId: args.tenantId },
         select: {
           clientId: true,
+          entityId: true,
           reference: true,
           status: true,
           ncaRegime: true,
           arrearsAmount: true,
           outstandingPrincipal: true,
           daysInArrears: true,
+          ...SECTION129_BORROWER_INCLUDE,
         },
       })
       if (!loan) {
@@ -815,29 +817,19 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         }
       }
 
-      // Eligibility (the NCA regime first) decides Section 129. The notice is a
-      // consumer document addressed to a natural person (the Client's name, ID
-      // number and address), so an entity borrower, which has no Client, is
-      // refused after it.
-      const clientId = requireClientBorrowerId(loan)
+      const addressee = section129Addressee(loan)
+      if (!addressee) throw new Section129EligibilityChangedError("borrower has no active authorised contact")
       await tx.$queryRawUnsafe(
         `SELECT id FROM "Client" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
-        clientId,
+        addressee.lockClientId,
         args.tenantId,
       )
-      const client = await tx.client.findUnique({
-        where: { id: clientId, tenantId: args.tenantId },
-        select: {
-          firstName: true,
-          lastName: true,
-          idNumber: true,
-          addressLine1: true,
-          city: true,
-          email: true,
-        },
-      })
-      if (!client) {
-        throw new Section129EligibilityChangedError("client no longer exists in this tenant")
+      if (addressee.lockEntityId) {
+        await tx.$queryRawUnsafe(
+          `SELECT id FROM "BusinessEntity" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
+          addressee.lockEntityId,
+          args.tenantId,
+        )
       }
       const operativeSnapshot = args.reservation.recordData
       const changedFields = [
@@ -848,12 +840,12 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         ["loan.outstandingPrincipal", operativeSnapshot.outstandingPrincipal, loan.outstandingPrincipal],
         ["loan.daysInArrears", operativeSnapshot.daysInArrears, loan.daysInArrears],
         ["notice.date", operativeSnapshot.noticeDate, section129NoticeDateLabel(new Date())],
-        ["client.firstName", operativeSnapshot.clientFirstName, client.firstName],
-        ["client.lastName", operativeSnapshot.clientLastName, client.lastName],
-        ["client.idNumber", operativeSnapshot.clientIdNumber, client.idNumber],
-        ["client.addressLine1", operativeSnapshot.clientAddressLine1, client.addressLine1],
-        ["client.city", operativeSnapshot.clientCity, client.city],
-        ["client.email", operativeSnapshot.clientEmail, client.email],
+        ["borrower.firstName", operativeSnapshot.clientFirstName, addressee.firstName],
+        ["borrower.lastName", operativeSnapshot.clientLastName, addressee.lastName],
+        ["borrower.identityNumber", operativeSnapshot.clientIdNumber, addressee.identityNumber],
+        ["borrower.addressLine1", operativeSnapshot.clientAddressLine1, addressee.addressLine1],
+        ["borrower.city", operativeSnapshot.clientCity, addressee.city],
+        ["delivery.email", operativeSnapshot.clientEmail, addressee.email],
       ].filter(([, reserved, current]) => !Object.is(reserved, current)).map(([field]) => field as string)
 
       if (changedFields.length > 0) {

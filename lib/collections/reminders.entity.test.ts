@@ -48,11 +48,10 @@ vi.mock("@/lib/loan/charges-replay", () => ({ chargesOutstandingAt: m.chargesOut
 
 import { processPaymentReminders } from "./reminders"
 import { WABA_BODY_TEMPLATES } from "@/lib/whatsapp/template-vars"
+import { sastStartOfDay } from "@/lib/date/sast"
 
 function entityLoanDueIn(days: number) {
-  const due = new Date()
-  due.setHours(0, 0, 0, 0)
-  due.setDate(due.getDate() + days)
+  const due = new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
   return {
     id: "loan_af", reference: "LN-AF-1", nextPaymentDate: due, arrearsAmount: 250_000, status: "ACTIVE" as const,
     client: null, entityId: "ent_1", entity: { legalName: "TEST Earthmoving (Pty) Ltd" },

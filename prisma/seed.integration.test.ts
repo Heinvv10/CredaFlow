@@ -133,7 +133,7 @@ suite("base demo seed on a fresh migrated database", () => {
     }
   })
 
-  it("completes without inventing verified KYC, biometric or compliance evidence", async () => {
+  it("keeps KYC pending while recording the synthetic NCA lifecycle evidence", async () => {
     const prisma = freshDb()
 
     const [
@@ -155,9 +155,8 @@ suite("base demo seed on a fresh migrated database", () => {
       prisma.client.count({ where: { kycStatus: "PENDING" } }),
       prisma.clientDocument.count(),
       prisma.complianceRecord.count(),
-      // Consumer applications only: the asset-finance company deal is approved
-      // and disbursed through its own lib functions and four-eyes approvals
-      // (prisma/seed-asset-finance.integration.test.ts asserts how).
+      // Consumer borrowers only: the natural-person asset-finance deal is
+      // deliberately taken through its NCA lifecycle by the seed.
       prisma.loanApplication.count({ where: { status: { in: ["APPROVED", "DISBURSED"] }, clientId: { not: null } } }),
       prisma.insurancePolicy.count(),
       prisma.client.count({ where: { NOT: { email: { endsWith: ".invalid" } } } }),
@@ -175,16 +174,17 @@ suite("base demo seed on a fresh migrated database", () => {
       insurancePolicyCount,
       nonInvalidEmailCount,
     }).toEqual({
-      // 5 consumer clients + 4 asset-finance people; 4 consumer + 2 asset-finance applications and 1 + 1 loans.
+      // 5 consumer clients + 4 asset-finance people; four consumer applications
+      // plus three asset-finance applications, and one plus three loans.
       clientCount: 9,
-      applicationCount: 6,
-      loanCount: 2,
+      applicationCount: 7,
+      loanCount: 4,
       verifiedCount: 0,
       pendingCount: 9,
-      clientDocumentCount: 0,
-      complianceRecordCount: 0,
-      protectedLifecycleCount: 0,
-      insurancePolicyCount: 0,
+      clientDocumentCount: 2,
+      complianceRecordCount: 4,
+      protectedLifecycleCount: 1,
+      insurancePolicyCount: 1,
       nonInvalidEmailCount: 0,
     })
   })

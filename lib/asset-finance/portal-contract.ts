@@ -36,7 +36,7 @@ export interface PortalContractDocument {
 }
 
 export interface PortalContractView {
-  loan: { id: string; reference: string; status: LoanStatus; contractType: ContractType }
+  loan: { id: string; reference: string; status: LoanStatus; contractType: ContractType; ncaRegime: "NCA" | "NON_NCA" }
   entity: { id: string; legalName: string }
   asset: { assetClass: AssetClass; make: string; model: string; year: number; serialNumber: string; registrationNumber: string | null } | null
   rate: { basis: ReferenceRateBasis; margin: string | null; currentRate: string; effectiveDate: string } | null
@@ -57,6 +57,7 @@ export interface PortalContractView {
   schedule: PortalScheduleRow[]
   taxInvoice: { id: string; invoiceNumber: string; issueDate: string; totalInclVatCents: number } | null
   documents: PortalContractDocument[]
+  surrender: { id: string; status: string } | null
 }
 
 /**
@@ -98,7 +99,7 @@ export async function loadPortalContract(
   const loan = await prisma.loan.findFirst({
     where: { id: loanId, tenantId, entityId },
     select: {
-      id: true, reference: true, status: true, contractType: true, principal: true, balloonAmount: true,
+      id: true, reference: true, status: true, contractType: true, ncaRegime: true, principal: true, balloonAmount: true,
       startDate: true, maturityDate: true,
       asset: { select: { assetClass: true, make: true, model: true, year: true, serialNumber: true, registrationNumber: true } },
       repaymentSchedule: {
@@ -106,6 +107,7 @@ export async function loadPortalContract(
         select: { installmentNo: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, totalDue: true, totalPaid: true },
       },
       assetFinanceDeal: { select: { id: true, entity: { select: { id: true, legalName: true } } } },
+      surrenderRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true } },
     },
   })
   if (!loan?.assetFinanceDeal?.entity) return null
@@ -146,7 +148,7 @@ export async function loadPortalContract(
   const upcoming = rows.find((r) => r.totalPaid < r.totalDue && sastStartOfDay(r.dueDate).getTime() >= today)
 
   return {
-    loan: { id: loan.id, reference: loan.reference, status: loan.status, contractType: loan.contractType },
+    loan: { id: loan.id, reference: loan.reference, status: loan.status, contractType: loan.contractType, ncaRegime: loan.ncaRegime },
     entity,
     asset: loan.asset,
     rate: rate && {
@@ -184,5 +186,6 @@ export async function loadPortalContract(
       state: signerState(s),
       scanDocumentId: s.scanDocumentId,
     })),
+    surrender: loan.surrenderRequests?.[0] ?? null,
   }
 }

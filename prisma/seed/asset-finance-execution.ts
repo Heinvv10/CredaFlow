@@ -24,6 +24,7 @@ import { approvePayout, createPayout } from "@/lib/asset-finance/payout"
 import { bookDeal } from "@/lib/asset-finance/booking"
 import { ensureDocument, syntheticUpload, type SeedActor } from "./asset-finance-documents"
 import { dealActor, type SeedStaff } from "./asset-finance-deal"
+import { storeDealEvidenceDocument } from "@/lib/asset-finance/entity-document-io"
 
 /** APPROVED → CONTRACTED: prepare (the loan starts on `bookingDate`), sign every required signer row, contract. */
 async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
@@ -62,19 +63,28 @@ async function signAndContract(tenantId: string, staff: SeedStaff, dealId: strin
       if (confirmed.kind !== "done") throw new Error(`Seed: wet-ink confirmation refused (${JSON.stringify(confirmed)})`)
     }
   }
-  const contracted = await contractDeal(officer, dealId)
+  const ncaRegime = (await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { application: { select: { ncaRegime: true } }, entityId: true } }))
+  const entityNca = ncaRegime.entityId && ncaRegime.application.ncaRegime === "NCA"
+  const contracted = await contractDeal(entityNca ? dealActor(tenantId, staff.adminOne) : officer, dealId, entityNca ? "TEST Provider" : undefined)
   if (contracted.kind !== "contracted") throw new Error(`Seed: contract refused (${JSON.stringify(contracted)})`)
 }
 
 /** Confirm every open required checklist item, each with a staff-uploaded evidence document of the deal. */
-async function confirmChecklist(tenantId: string, officer: SeedActor, dealId: string, entityId: string): Promise<void> {
+export async function confirmChecklist(tenantId: string, officer: SeedActor, dealId: string, borrower: { entityId: string | null; clientId: string | null }): Promise<void> {
   const deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { asset: { select: { serialNumber: true } } } })
   const open = await prisma.payoutChecklistItem.findMany({ where: { tenantId, dealId, required: true, confirmedAt: null }, select: { item: true } })
   for (const { item } of open) {
     const types = CHECKLIST_EVIDENCE_TYPES[item as PayoutChecklistItemKind]
-    const evidenceDocumentId = types.length === 0
-      ? null
-      : await ensureDocument(tenantId, officer, entityId, types[0], `${CHECKLIST_LABELS[item]} (TEST evidence)`, dealId)
+    let evidenceDocumentId: string | null = null
+    if (types.length > 0 && borrower.entityId) {
+      evidenceDocumentId = await ensureDocument(tenantId, officer, borrower.entityId, types[0], `${CHECKLIST_LABELS[item]} (TEST evidence)`, dealId)
+    } else if (types.length > 0 && borrower.clientId) {
+      const upload = await syntheticUpload(types[0], `${CHECKLIST_LABELS[item]} (TEST evidence)`, types, dealId)
+      evidenceDocumentId = (await storeDealEvidenceDocument({
+        tenantId, dealId, entityId: null, clientId: borrower.clientId, upload,
+        uploader: { type: "staff", id: officer.id, email: officer.email },
+      })).id
+    }
     const result = await confirmChecklistItem(dealActor(tenantId, officer), dealId, item, {
       evidenceDocumentId,
       attestedSerial: item === "SUPPLIER_INVOICE_MATCHES_ASSET" ? deal.asset.serialNumber : null,
@@ -85,7 +95,7 @@ async function confirmChecklist(tenantId: string, officer: SeedActor, dealId: st
 }
 
 /** CONTRACTED → BOOKED on `bookingDate` (the booking function's start-date parameter). */
-async function payOutAndBook(tenantId: string, staff: SeedStaff, dealId: string, bookingDate: string): Promise<void> {
+export async function payOutAndBook(tenantId: string, staff: SeedStaff, dealId: string, bookingDate: string): Promise<void> {
   if (!(await prisma.payout.findFirst({ where: { tenantId, dealId }, select: { id: true } }))) {
     const created = await createPayout(dealActor(tenantId, staff.adminOne), dealId)
     if (created.kind !== "created") throw new Error(`Seed: payout refused (${JSON.stringify(created)})`)
@@ -132,7 +142,7 @@ export async function executeCompanyDeal(
   const status = async () => (await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { status: true } })).status
   if ((await status()) === "APPROVED") await signAndContract(tenantId, staff, dealId, people.directorId, bookingDate)
   if ((await status()) === "CONTRACTED") {
-    await confirmChecklist(tenantId, staff.officer, dealId, people.entityId)
+    await confirmChecklist(tenantId, staff.officer, dealId, { entityId: people.entityId, clientId: null })
     await payOutAndBook(tenantId, staff, dealId, bookingDate)
   }
   const deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { status: true, loanId: true } })

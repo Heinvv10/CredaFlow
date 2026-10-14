@@ -106,7 +106,8 @@ export async function invalidFinancialsEvidenceIds(
 /** The public shape of a document: never the storage path. */
 export interface EntityDocumentView {
   id: string
-  entityId: string
+  entityId: string | null
+  clientId: string | null
   dealId: string | null
   docType: EntityDocumentType
   fileName: string
@@ -121,6 +122,7 @@ export interface EntityDocumentView {
 export const ENTITY_DOCUMENT_VIEW_SELECT = {
   id: true,
   entityId: true,
+  clientId: true,
   dealId: true,
   docType: true,
   fileName: true,
@@ -134,7 +136,8 @@ export const ENTITY_DOCUMENT_VIEW_SELECT = {
 
 export function toEntityDocumentView(row: {
   id: string
-  entityId: string
+  entityId: string | null
+  clientId: string | null
   dealId: string | null
   docType: EntityDocumentType
   fileName: string

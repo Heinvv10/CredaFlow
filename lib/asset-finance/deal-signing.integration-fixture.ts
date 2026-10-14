@@ -81,6 +81,10 @@ export async function createSigningFixture(
   })).status).toBe(200)
   signIn(fx.adminA, "LOAN_ADMIN")
   expect((await routes.decide(dealId, { decision: "APPROVE", reasons: ["Synthetic DSCR comfortably above policy"] })).status).toBe(200)
+  // The signing suite first proves that preparation fails closed without a
+  // complete lender identity; callers that need a configured lender apply
+  // SYNTHETIC_IDENTITY after this fixture returns.
+  await db.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { legalName: null } })
   return { ...fx, dealId, suretyA, suretyB }
 }
 
@@ -124,7 +128,8 @@ export function signingRoutes(host: string) {
       form.set("file", new File([new Uint8Array(Buffer.from("%PDF-1.4 synthetic signed scan"))], "scan.pdf", { type: "application/pdf" }))
       return wetInkRoute(request(`${base(id)}/signers/${signerId}/wet-ink`, "POST", { body: form }), signer(id, signerId))
     },
-    confirm: (id: string, signerId: string) => confirmRoute(request(`${base(id)}/signers/${signerId}/confirm`, "POST"), signer(id, signerId)),
+    confirm: (id: string, signerId: string, scanDocumentId: string) =>
+      confirmRoute(request(`${base(id)}/signers/${signerId}/confirm`, "POST", { json: { scanDocumentId } }), signer(id, signerId)),
     portalDocument: (signerId: string) =>
       portalDocumentRoute(request(`/api/portal/asset-finance/deal-signers/${signerId}/document`, "GET"), { params: Promise.resolve({ signerId }) }),
     portalSign: (signerId: string, body: unknown) =>

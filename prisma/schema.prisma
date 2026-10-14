@@ -8,55 +8,55 @@ datasource db {
 }
 
 model User {
-  id                           String                     @id @default(cuid())
-  email                        String                     @unique
+  id                           String                                @id @default(cuid())
+  email                        String                                @unique
   name                         String?
   password                     String
-  role                         UserRole                   @default(CREDIT_OFFICER)
-  isCommsAgent                 Boolean                    @default(false)
-  active                       Boolean                    @default(true)
+  role                         UserRole                              @default(CREDIT_OFFICER)
+  isCommsAgent                 Boolean                               @default(false)
+  active                       Boolean                               @default(true)
   tenantId                     String?
-  tenant                       Tenant?                    @relation(fields: [tenantId], references: [id])
+  tenant                       Tenant?                               @relation(fields: [tenantId], references: [id])
   branchId                     String?
-  branch                       Branch?                    @relation(fields: [branchId], references: [id])
+  branch                       Branch?                               @relation(fields: [branchId], references: [id])
   totpSecret                   String?
-  totpEnabled                  Boolean                    @default(false)
+  totpEnabled                  Boolean                               @default(false)
   lastTotpCounter              Int?
   phone                        String?
   lastLoginAt                  DateTime?
-  resetToken                   String?                    @unique
+  resetToken                   String?                               @unique
   resetTokenExp                DateTime?
   qualificationCategory        String?
   // Bumped whenever an existing session must be invalidated (deactivate,
   // role change, password reset). Compared on every JWT decode — see
   // lib/auth.ts jwt callback.
-  tokenVersion                 Int                        @default(0)
+  tokenVersion                 Int                                   @default(0)
   // FAIS Cat I representative tag (Phase 9). Maintained by compliance via
   // Settings → Users; the FSP keeps the authoritative Rep Register
   // separately. Gates insurance / credit-advisory templates in the compose
   // box (see spec §FAIS boundary).
-  faisRepresentative           Boolean                    @default(false)
+  faisRepresentative           Boolean                               @default(false)
   faisRepresentativeNumber     String?
   faisRepresentativeFrom       DateTime?
-  createdAt                    DateTime                   @default(now())
-  updatedAt                    DateTime                   @updatedAt
+  createdAt                    DateTime                              @default(now())
+  updatedAt                    DateTime                              @updatedAt
   loginLogs                    LoginLog[]
   sessions                     Session[]
   accounts                     Account[]
-  approvedLoans                LoanApplication[]          @relation("ApprovedBy")
-  clearedCheckFlags            ApplicationCheckFlag[]     @relation("CheckFlagClearedBy")
-  branchSignedApplications     LoanApplication[]          @relation("AgreementSignedBy")
-  countersignedApplications    LoanApplication[]          @relation("AgreementCountersignedBy")
-  bureauOverriddenApplications LoanApplication[]          @relation("BureauOverrideBy")
-  assignedLoans                LoanApplication[]          @relation("AssignedTo")
+  approvedLoans                LoanApplication[]                     @relation("ApprovedBy")
+  clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
+  branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
+  countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
+  bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
+  assignedLoans                LoanApplication[]                     @relation("AssignedTo")
   auditLogs                    AuditLog[]
   fitAndProper                 FitAndProper?
   coiDeclarations              CoiDeclaration[]
-  advisorPolicies              InsurancePolicy[]          @relation("AdvisorPolicies")
-  advisorQuotes                InsuranceQuote[]           @relation("AdvisorQuotes")
-  adviceRecordsRecorded        InsuranceAdviceRecord[]    @relation("AdviceRecordedBy")
+  advisorPolicies              InsurancePolicy[]                     @relation("AdvisorPolicies")
+  advisorQuotes                InsuranceQuote[]                      @relation("AdvisorQuotes")
+  adviceRecordsRecorded        InsuranceAdviceRecord[]               @relation("AdviceRecordedBy")
   advisorCommissions           AdvisorCommission[]
-  assessedClaims               InsuranceClaim[]           @relation("ClaimAssessor")
+  assessedClaims               InsuranceClaim[]                      @relation("ClaimAssessor")
   agentTasks                   AgentTask[]
   assignedConversations        Conversation[]
   // Phase 9 audit-pointer relations. Restrict on each (declared on the
@@ -64,29 +64,30 @@ model User {
   // deactivate via active=false); blocking it on outstanding audit
   // references is the auditor-safe default for POPIA s.17 operator-identity
   // records and FAIS GCC s.3(2) record-of-advice retention.
-  contactMergesPerformed       ContactMerge[]             @relation("ContactMergesPerformedBy")
-  contactConsentsCaptured      ContactConsent[]           @relation("ContactConsentsCapturedBy")
-  messagesAuthored             Message[]                  @relation("MessagesCreatedBy")
-  messagesEdited               Message[]                  @relation("MessagesEditedBy")
-  messagesDeleted              Message[]                  @relation("MessagesDeletedBy")
-  messagesDisclosureDelivered  Message[]                  @relation("MessagesDisclosureDeliveredBy")
+  contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
+  contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
+  messagesAuthored             Message[]                             @relation("MessagesCreatedBy")
+  messagesEdited               Message[]                             @relation("MessagesEditedBy")
+  messagesDeleted              Message[]                             @relation("MessagesDeletedBy")
+  messagesDisclosureDelivered  Message[]                             @relation("MessagesDisclosureDeliveredBy")
   manualProgress               ManualProgress[]
   notifications                Notification[]
-  pasqAckTokensIssued          PasqAcknowledgementToken[] @relation("PasqAckTokensIssuedBy")
-  selfieCaptureTokensIssued    SelfieCaptureToken[]       @relation("SelfieCaptureTokensIssuedBy")
+  pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
+  selfieCaptureTokensIssued    SelfieCaptureToken[]                  @relation("SelfieCaptureTokensIssuedBy")
   mentionedIn                  MessageMention[]
-  ncaOverridesRequested        NcaRegimeOverride[]        @relation("NcaOverridesRequested")
-  ncaOverridesDecided          NcaRegimeOverride[]        @relation("NcaOverridesDecided")
-  payoutChecklistConfirmed     PayoutChecklistItem[]      @relation("PayoutChecklistConfirmedBy")
-  payoutsCreated               Payout[]                   @relation("PayoutsCreatedBy")
-  payoutsApproved              Payout[]                   @relation("PayoutsApprovedBy")
-  payoutsReleased              Payout[]                   @relation("PayoutsReleasedBy")
-  payoutsCancelled             Payout[]                   @relation("PayoutsCancelledBy")
-  supplierAccountsRequested    SupplierBankAccount[]      @relation("SupplierAccountRequestedBy")
-  supplierAccountsDecided      SupplierBankAccount[]      @relation("SupplierAccountDecidedBy")
-  assetDealsCancelled          AssetFinanceDeal[]         @relation("AssetDealCancelledBy")
-  referenceRatesRequested      ReferenceRate[]            @relation("ReferenceRatesRequested")
-  referenceRatesDecided        ReferenceRate[]            @relation("ReferenceRatesDecided")
+  ncaOverridesRequested        NcaRegimeOverride[]                   @relation("NcaOverridesRequested")
+  ncaOverridesDecided          NcaRegimeOverride[]                   @relation("NcaOverridesDecided")
+  payoutChecklistConfirmed     PayoutChecklistItem[]                 @relation("PayoutChecklistConfirmedBy")
+  payoutsCreated               Payout[]                              @relation("PayoutsCreatedBy")
+  payoutsApproved              Payout[]                              @relation("PayoutsApprovedBy")
+  payoutsReleased              Payout[]                              @relation("PayoutsReleasedBy")
+  payoutsCancelled             Payout[]                              @relation("PayoutsCancelledBy")
+  supplierAccountsRequested    SupplierBankAccount[]                 @relation("SupplierAccountRequestedBy")
+  supplierAccountsDecided      SupplierBankAccount[]                 @relation("SupplierAccountDecidedBy")
+  assetDealsCancelled          AssetFinanceDeal[]                    @relation("AssetDealCancelledBy")
+  referenceRatesRequested      ReferenceRate[]                       @relation("ReferenceRatesRequested")
+  referenceRatesDecided        ReferenceRate[]                       @relation("ReferenceRatesDecided")
+  assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
 
   @@unique([tenantId, id])
 }
@@ -167,6 +168,7 @@ model Tenant {
   bankStatementImports       BankStatementImport[]
   bankTransactions           BankTransaction[]
   notifications              Notification[]
+  surrenderRequests          SurrenderRequest[]
   messageMentions            MessageMention[]
   loanCharges                LoanCharge[]
   bureauSubmissions          BureauSubmission[]
@@ -452,10 +454,12 @@ model Client {
   createdAt                          DateTime                 @default(now())
   updatedAt                          DateTime                 @updatedAt
   applications                       LoanApplication[]
+  ncaRepresentativeApplications      LoanApplication[]        @relation("NcaRepresentative")
   loans                              Loan[]
   entityRelationships                EntityRelationship[]
   dealSigners                        DealSigner[]
   assetFinanceDeals                  AssetFinanceDeal[]
+  assetFinanceDocuments              EntityDocument[]         @relation("AssetDocumentClient")
   documents                          ClientDocument[]
   crossSellOpportunities             CrossSellOpportunity[]
   insurancePolicies                  InsurancePolicy[]
@@ -1091,6 +1095,9 @@ model LoanApplication {
   clientId                                String?
   // Exactly one of clientId / entityId (CHECK LoanApplication_borrower_xor).
   entityId                                String?
+  // Authorised director/member/trustee/signatory who performs the NCA document
+  // ceremony for an entity borrower. Null for natural-person applications.
+  ncaRepresentativeClientId               String?
   // NCA classification snapshot (DESIGN D5), written by
   // lib/asset-finance/classification.ts; an override goes through
   // NcaRegimeOverride. Null until classified.
@@ -1222,6 +1229,7 @@ model LoanApplication {
   updatedAt                               DateTime                   @updatedAt
   client                                  Client?                    @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   entity                                  BusinessEntity?            @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  ncaRepresentative                       Client?                    @relation("NcaRepresentative", fields: [tenantId, ncaRepresentativeClientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict, map: "LoanApplication_ncaRepresentativeClientId_fkey")
   ncaRegimeOverrides                      NcaRegimeOverride[]
   assetFinanceDeal                        AssetFinanceDeal?
   product                                 LoanProduct                @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -1431,6 +1439,7 @@ model Loan {
   bureauAdverseConfirmations  BureauAdverseConfirmation[]
   contractRates               ContractRate[]
   taxInvoices                 TaxInvoice[]
+  surrenderRequests           SurrenderRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1675,8 +1684,10 @@ model Payment {
   loan                     Loan                    @relation(fields: [loanId], references: [id])
   parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
   excessPayments           Payment[]               @relation("PaymentOverpayment")
+  surrenderProceeds        SurrenderRequest[]      @relation("SurrenderProceedsPayment")
 
   @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, allocationStatus])
   @@index([parentPaymentId])
@@ -4265,14 +4276,17 @@ enum EntityDocumentType {
   OTHER
 }
 
-// A document about a BusinessEntity or one of its deals. Every read goes
+// A document about exactly one entity or natural borrower, or one of their
+// asset-finance deals. Every read goes
 // through lib/document-auth.ts and writes a DocumentAccessLog row (POPIA).
 model EntityDocument {
   id                String                @id @default(cuid())
   tenantId          String
   tenant            Tenant                @relation(fields: [tenantId], references: [id])
-  entityId          String
-  entity            BusinessEntity        @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId          String?
+  entity            BusinessEntity?       @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId          String?
+  client            Client?               @relation("AssetDocumentClient", fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   dealId            String?
   deal              AssetFinanceDeal?     @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   docType           EntityDocumentType
@@ -4293,6 +4307,7 @@ model EntityDocument {
 
   @@unique([tenantId, id])
   @@index([tenantId, entityId])
+  @@index([tenantId, clientId])
   @@index([dealId])
 }
 
@@ -4343,6 +4358,7 @@ model FinancedAsset {
   valuations            AssetValuation[]
   deals                 AssetFinanceDeal[]
   loans                 Loan[]
+  surrenderRequests     SurrenderRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -4356,19 +4372,62 @@ enum ValuationSource {
 }
 
 model AssetValuation {
-  id          String          @id @default(cuid())
-  tenantId    String
-  assetId     String
-  asset       FinancedAsset   @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  valuedOn    DateTime        @db.Date
-  source      ValuationSource
-  valuerName  String
-  amountCents Int
-  documentId  String?
-  createdById String?
-  createdAt   DateTime        @default(now())
+  id               String            @id @default(cuid())
+  tenantId         String
+  assetId          String
+  asset            FinancedAsset     @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  valuedOn         DateTime          @db.Date
+  source           ValuationSource
+  valuerName       String
+  amountCents      Int
+  documentId       String?
+  createdById      String?
+  createdAt        DateTime          @default(now())
+  surrenderRequest SurrenderRequest?
 
   @@index([tenantId, assetId])
+}
+
+enum SurrenderStatus {
+  REQUESTED
+  VALUED
+  VALUATION_NOTICE_ISSUED
+  PROCEEDS_CREDITED
+  FINAL_NOTICE_ISSUED
+}
+
+/// NCA s127 voluntary surrender record. Physical repossession and remarketing
+/// remain outside this slice; sale proceeds arrive as an ordinary receipt.
+model SurrenderRequest {
+  id                    String          @id @default(cuid())
+  tenantId              String
+  tenant                Tenant          @relation(fields: [tenantId], references: [id])
+  loanId                String
+  loan                  Loan            @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assetId               String
+  asset                 FinancedAsset   @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status                SurrenderStatus @default(REQUESTED)
+  requestedByType       String
+  requestedById         String
+  requestedOn           DateTime        @db.Date
+  assetCondition        String
+  valuationDueOn        DateTime        @db.Date
+  valuationId           String?         @unique
+  valuation             AssetValuation? @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  valuationNoticePath   String?
+  valuationNoticeSha256 String?
+  saleProceedsCents     Int?
+  proceedsPaymentId     String?         @unique
+  proceedsPayment       Payment?        @relation("SurrenderProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  shortfallCents        Int?
+  refundCents           Int?
+  finalNoticePath       String?
+  finalNoticeSha256     String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@unique([tenantId, id])
+  @@index([tenantId, loanId])
 }
 
 // A supplier paid out on asset deals; separate from clients (DESIGN D8).
@@ -4517,6 +4576,7 @@ model AssetFinanceDeal {
   @@unique([tenantId, applicationId])
   @@unique([tenantId, loanId])
   @@index([tenantId, status])
+  @@index([clientId])
 }
 
 // The credit memo inputs (decision 2a.3): AFS figures and a bank-statement
@@ -4556,6 +4616,7 @@ model AssetFinanceAffordabilityAssessment {
   affordable                     Boolean
   recklessLendingNote            String
   assessedById                   String
+  assessedBy                     User             @relation(fields: [tenantId, assessedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   assessedAt                     DateTime         @default(now())
   updatedAt                      DateTime         @updatedAt
 

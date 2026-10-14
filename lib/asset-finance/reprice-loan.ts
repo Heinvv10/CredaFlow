@@ -3,7 +3,7 @@
  * moves (DESIGN.md D4: term and balloon unchanged). Runs inside the caller's
  * transaction; every write below commits or rolls back together.
  *
- * ELIGIBLE: an ACTIVE, NON_NCA loan whose contractType is not LOAN, and whose
+ * ELIGIBLE: an ACTIVE NCA or NON_NCA loan whose contractType is not LOAN, and whose
  * latest ContractRate before `effectiveDate` is `basis` + a margin; the
  * reference value is the tenant's APPROVED rate in effect on effectiveDate.
  *
@@ -48,8 +48,8 @@
  * booking persists the structure, do not book a VAT-deferral deal on a
  * reference-linked rate.
  *
- * // PARTIAL: NCA asset-finance contracts are refused (D4 re-checks the NCA
- * rate cap on every repricing; slice 1 books NON_NCA deals only).
+ * NCA asset-finance contracts are re-checked against the current prescribed
+ * rate cap before any schedule or ledger write.
  */
 import { Prisma, type ReferenceRateBasis } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"

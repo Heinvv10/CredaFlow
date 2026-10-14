@@ -1,8 +1,9 @@
 /**
  * Fresh-database proof of the asset-finance demo seed (prisma/seed/
  * asset-finance.ts): on a database migrated from scratch, `npm run seed:base`
- * leaves (a) the trust's deal refused as NCA and (b) the company's deal
- * booked today and part-paid by an early receipt, with every four-eyes step taken by two different
+ * leaves (a) the trust's NCA finance lease, (b) the natural-person NCA
+ * instalment sale and (c) the company's NON_NCA deal booked, with the entity
+ * deals part-paid by early receipts and every four-eyes step taken by two different
  * staff users and the known synthetic portal logins working. Rerun
  * idempotency is proved, for the whole seed, by prisma/seed.integration.test.ts.
  *
@@ -17,7 +18,6 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { ncaRefusalReason } from "@/lib/asset-finance/deal-submit"
 import { PORTAL_AUTHORITY_ROLES } from "@/lib/asset-finance/portal-access"
 import { sastCalendarDate } from "@/lib/date/sast"
 
@@ -27,6 +27,7 @@ const STAFF = (local: string) => `${local}@acme-lending.example`
 
 // Chosen for this run through the env, as an operator would; never in source.
 const PORTAL_PASSWORDS = {
+  SEED_AF_TRUSTEE_PASSWORD: `it-trustee-${randomUUID()}`,
   SEED_AF_DIRECTOR_PASSWORD: `it-director-${randomUUID()}`,
   SEED_AF_SURETY_PASSWORD: `it-surety-${randomUUID()}`,
 }
@@ -73,20 +74,21 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(account.avsResult).toMatchObject({ status: "NOT_RUN" })
   })
 
-  it("(a) refuses the two-natural-trustee trust's deal as NCA, with the slice-1 reason, audited", async () => {
+  it("(a) books the two-natural-trustee trust through the entity-NCA finance-lease path", async () => {
     const trust = await fresh().businessEntity.findFirstOrThrow({
       where: { type: "TRUST" },
       include: { relationships: true, documents: true },
     })
     expect(trust.relationships.map((r) => [r.role, r.trusteeKind])).toEqual([["TRUSTEE", "NATURAL"], ["TRUSTEE", "NATURAL"]])
     expect(trust.documents.find((d) => d.docType === "LETTERS_OF_AUTHORITY")?.verifiedAt).not.toBeNull()
-    const deal = await fresh().assetFinanceDeal.findFirstOrThrow({ where: { entityId: trust.id }, include: { application: true } })
-    expect(deal.status).toBe("REFUSED_NCA")
+    const deal = await fresh().assetFinanceDeal.findFirstOrThrow({ where: { entityId: trust.id }, include: { application: true, loan: true } })
+    expect(deal.status).toBe("BOOKED")
     expect(deal.application).toMatchObject({
-      status: "DECLINED", ncaRegime: "NCA", ncaClassificationRule: "TRUST_FEW_NATURAL_TRUSTEES",
-      decisionReason: ncaRefusalReason("TRUST_FEW_NATURAL_TRUSTEES"),
+      status: "DISBURSED", ncaRegime: "NCA", ncaClassificationRule: "TRUST_FEW_NATURAL_TRUSTEES",
+      creditLifeElection: "DECLINED",
     })
-    expect(await fresh().auditLog.count({ where: { entityId: deal.id, action: "ASSET_DEAL_REFUSED_NCA" } })).toBe(1)
+    expect(deal.loan).toMatchObject({ ncaRegime: "NCA", contractType: "FINANCE_LEASE", balloonAmount: 6_900_000, clientId: null, entityId: trust.id })
+    expect(await fresh().auditLog.count({ where: { entityId: deal.id, action: "ASSET_DEAL_BOOKED" } })).toBe(1)
   })
 
   it("(b) books the company's excavator deal: NON_NCA by an approved override, signed, paid out with four eyes", async () => {
@@ -118,9 +120,23 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(await fresh().payoutChecklistItem.count({ where: { dealId: deal.id, required: true, confirmedAt: null } })).toBe(0)
   })
 
+  it("books the natural-person asset deal through PASQ, accepted credit life and NCA signing", async () => {
+    const client = await fresh().client.findUniqueOrThrow({ where: { reference: "CLI-SEED-AF-0003" } })
+    const deal = await fresh().assetFinanceDeal.findFirstOrThrow({
+      where: { clientId: client.id },
+      include: { application: true, loan: true },
+    })
+    expect(deal).toMatchObject({ status: "BOOKED", contractType: "INSTALMENT_SALE" })
+    expect(deal.application).toMatchObject({ status: "DISBURSED", ncaRegime: "NCA", creditLifeElection: "ACCEPTED" })
+    expect(deal.application.pasqAcknowledgedSha256).toBe(deal.application.pasqDocumentSha256)
+    expect(deal.loan).toMatchObject({ ncaRegime: "NCA", contractType: "INSTALMENT_SALE", entityId: null, clientId: client.id })
+    expect(await fresh().insurancePolicy.count({ where: { linkedLoanId: deal.loanId } })).toBe(1)
+  })
+
   it("(b) the loan is booked today and part-paid by an early receipt of instalment 1, with no arrears", async () => {
+    const company = await fresh().businessEntity.findFirstOrThrow({ where: { type: "COMPANY" } })
     const loan = await fresh().loan.findFirstOrThrow({
-      where: { entityId: { not: null } },
+      where: { entityId: company.id },
       include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } }, payments: true, taxInvoices: { include: { lines: true } }, contractRates: true },
     })
     expect(loan).toMatchObject({ ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE", balloonAmount: 34_500_000, status: "ACTIVE", clientId: null })
@@ -145,9 +161,11 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(loan.nextPaymentDate?.getTime()).toBe(rest[0].dueDate.getTime())
   })
 
-  it("seeds the director's portal login (entity access) and the surety's (no entity access) with the passwords set through the env", async () => {
+  it("seeds trustee and director entity access, while a surety has no entity access", async () => {
     const company = await fresh().businessEntity.findFirstOrThrow({ where: { type: "COMPANY" } })
+    const trust = await fresh().businessEntity.findFirstOrThrow({ where: { type: "TRUST" } })
     for (const [email, password, entities] of [
+      ["test.trustee.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_TRUSTEE_PASSWORD, [trust.id]],
       ["test.director.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_DIRECTOR_PASSWORD, [company.id]],
       ["test.surety.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_SURETY_PASSWORD, []],
     ] as const) {

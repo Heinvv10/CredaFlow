@@ -17,11 +17,19 @@ import { decideSupplierBankAccount } from "@/lib/asset-finance/supplier-bank-dec
 import { parseAssetCreate } from "@/lib/asset-finance/asset-input"
 import { dbDate } from "@/lib/asset-finance/dates"
 import type { SeedActor } from "./asset-finance-documents"
-import { AF_PRODUCT_CODE, PRIME, SUPPLIER, SUPPLIER_ACCOUNT, SUPPLIER_ACCOUNT_NOTE, VAT_VENDOR_NUMBER, type AfAsset } from "./asset-finance-data"
+import { AF_PRODUCT_CODE, PRIME, REPO, SUPPLIER, SUPPLIER_ACCOUNT, SUPPLIER_ACCOUNT_NOTE, VAT_VENDOR_NUMBER, type AfAsset } from "./asset-finance-data"
 
 /** PRIME, recorded by `requester` and approved by `approver` (four-eyes). */
 export async function ensurePrime(tenantId: string, requester: SeedActor, approver: SeedActor): Promise<void> {
-  const input = parseReferenceRateInput(PRIME)
+  await ensureReferenceRate(tenantId, requester, approver, PRIME)
+}
+
+export async function ensureRepo(tenantId: string, requester: SeedActor, approver: SeedActor): Promise<void> {
+  await ensureReferenceRate(tenantId, requester, approver, REPO)
+}
+
+async function ensureReferenceRate(tenantId: string, requester: SeedActor, approver: SeedActor, raw: typeof PRIME | typeof REPO): Promise<void> {
+  const input = parseReferenceRateInput(raw)
   if ("errors" in input) throw new Error(`Seed reference rate refused: ${JSON.stringify(input.errors)}`)
   let rate = await prisma.referenceRate.findFirst({
     where: { tenantId, basis: input.basis, effectiveDate: dbDate(input.effectiveDate), status: { not: "REJECTED" } },
@@ -44,7 +52,7 @@ export async function ensurePrime(tenantId: string, requester: SeedActor, approv
   const outcome = await prisma.$transaction((tx) => decideReferenceRate(tx, {
     tenantId, rateId, decision: "APPROVE", deciderId: approver.id, deciderEmail: approver.email, today: sastCalendarDate(new Date()),
   }))
-  if (outcome.kind !== "decided") throw new Error(`Seed: PRIME approval refused (${outcome.kind})`)
+  if (outcome.kind !== "decided") throw new Error(`Seed: ${input.basis} approval refused (${outcome.kind})`)
 }
 
 /** The asset-finance product: NON_NCA arrears terms 2% over the contract rate and a R250 collection fee. */
@@ -63,6 +71,20 @@ export async function ensureProduct(tenantId: string): Promise<string> {
     select: { id: true },
   })
   return product.id
+}
+
+export async function ensureCreditLifeProduct(tenantId: string): Promise<void> {
+  const insurer = await prisma.insurer.upsert({
+    where: { tenantId_name: { tenantId, name: "TEST Credit Life Underwriter" } },
+    update: {}, create: { tenantId, name: "TEST Credit Life Underwriter", fspNumber: "99999" },
+  })
+  await prisma.insuranceProduct.upsert({
+    where: { tenantId_code: { tenantId, code: "TEST-AF-CREDIT-LIFE" } },
+    update: {}, create: {
+      tenantId, code: "TEST-AF-CREDIT-LIFE", name: "TEST Asset Credit Life", type: "CREDIT_LIFE",
+      premiumAmount: new Prisma.Decimal(1), sumAssured: new Prisma.Decimal(1), insurerId: insurer.id,
+    },
+  })
 }
 
 /** The tenant's VAT vendor details; the registered name is the tenant's legal name. */

@@ -57,7 +57,10 @@ suite("asset finance foundation: entity application status and the NON_NCA loan 
     for (const next of ["APPROVED", "DISBURSED", "CANCELLED"]) expectRejected(setStatus(declined, next), "cannot move from DECLINED")
     const cancelled = f.application({ entityId }, "NCA")
     sql(`${cancelled}; ${setStatus(idOf(cancelled), "CANCELLED")}`)
-    expectRejected(setStatus(idOf(cancelled), "APPROVED"), "cannot move from CANCELLED")
+    expectRejected(
+      `UPDATE "LoanApplication" SET "status" = 'APPROVED', "approvedAt" = CURRENT_TIMESTAMP, "approvedById" = '${f.ids.userId}' WHERE "id" = '${idOf(cancelled)}'`,
+      "cannot move from CANCELLED",
+    )
     const open = f.nonNcaApplication()
     expectRejected(setStatus(open, "DISBURSED"), "cannot move from")
     expect(status(open)).not.toBe("DISBURSED")
