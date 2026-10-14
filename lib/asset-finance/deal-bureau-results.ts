@@ -21,13 +21,14 @@ export interface DealBureauResult {
 }
 
 /** An attempt that left no CreditBureauCheck row; null for anything else. */
-function attemptWithoutCheck(value: unknown): { clientId: string; outcome: string; reason?: string; error?: string } | null {
+function attemptWithoutCheck(value: unknown): { clientId: string; outcome: string; provider?: string; reason?: string; error?: string } | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null
   const data = value as Record<string, unknown>
   if (typeof data.clientId !== "string" || typeof data.outcome !== "string" || data.withCheck === true) return null
   return {
     clientId: data.clientId,
     outcome: data.outcome,
+    provider: typeof data.provider === "string" ? data.provider : undefined,
     reason: typeof data.reason === "string" ? data.reason : undefined,
     error: typeof data.error === "string" ? data.error : undefined,
   }
@@ -84,7 +85,7 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
         clientId: data.clientId,
         name: names.get(data.clientId) ?? data.clientId,
         outcome: data.outcome === "skipped" ? "skipped" : "failed",
-        provider: "experian",
+        provider: data.provider ?? "experian",
         score: null, riskGrade: null, hasAdverse: false, deceased: false, underDebtReview: false, hasJudgement: false,
         detail: data.reason ?? data.error ?? null,
         at: at.toISOString(),
