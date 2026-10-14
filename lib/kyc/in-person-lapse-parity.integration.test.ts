@@ -197,6 +197,15 @@ suite("in-person lapse rule across the app and database layers", () => {
       { biometricFailureReason: "subject_identity_changed", workerFailureReason: "id_document_portrait_invalid", idDocumentId: "d_other_id", idDocumentSha256: "9".repeat(64) }), true],
     ["a worker reason that is not a portrait refusal", () => selfie(
       { biometricFailureReason: "subject_identity_changed", workerFailureReason: "face_not_detected", idDocumentId }), true],
+    // Deleted while in flight: no writer touches it again, so it has no reason and no marker.
+    ["a selfie deleted while processing, submitted after the attestation", () => selfie(
+      {}, { extractionStatus: "processing", deletedAt: new Date() }), false],
+    ["a selfie deleted while pending, submitted after the attestation", () => selfie(
+      {}, { extractionStatus: "pending", deletedAt: new Date() }), false],
+    ["a selfie deleted while processing, submitted BEFORE the attestation", () => selfie(
+      {}, { extractionStatus: "processing", deletedAt: new Date(), createdAt: new Date(completedAt.getTime() - 3_600_000) }), true],
+    ["a selfie deleted after it failed, submitted after the attestation", () => selfie(
+      { biometricFailureReason: "face_not_detected" }, { extractionStatus: "failed", deletedAt: new Date() }), true],
     ["a benign failure submitted after the attestation", () => selfie({ biometricFailureReason: "face_not_detected" }), true],
   ]
 

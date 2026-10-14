@@ -66,7 +66,14 @@ const idDocument = (over: Partial<{ id: string; contentSha256: string | null; de
 
 const MISSING = { ok: false as const, reason: "biometric_evidence_missing" as const }
 
-function current(over: Partial<Parameters<typeof currentInPersonKycVerification>[1]> = {}, rec = record()) {
+type TestAttempt = { biometricResult: unknown; createdAt: Date; deletedAt?: Date | null; extractionStatus?: string | null }
+
+/** Attempts default to a live (not deleted), failed row, the usual shape of a recorded verdict. */
+function current(
+  over: Partial<Omit<Parameters<typeof currentInPersonKycVerification>[1], "selfieAttempts">> & { selfieAttempts?: TestAttempt[] } = {},
+  rec = record(),
+) {
+  const { selfieAttempts = [], ...rest } = over
   return currentInPersonKycVerification(rec, {
     clientId: "client-1",
     subject,
@@ -74,8 +81,8 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
     portraitRefusals: [],
-    selfieAttempts: [],
-    ...over,
+    ...rest,
+    selfieAttempts: selfieAttempts.map((attempt) => ({ deletedAt: null, extractionStatus: "failed", ...attempt })),
   })
 }
 
@@ -460,6 +467,20 @@ describe("lapse on a later face verdict or an unknown outcome", () => {
     expect(idDocumentPortraitRefused([refusal({})], { id: "doc-id-copy", contentSha256: ID_SHA })).toBe(true)
     expect(matchesIdPortraitRefusal(refusal({}))).toBe(true)
     expect(matchesIdPortraitRefusal({ biometricResult: { workerFailureReason: "face_not_detected" } })).toBe(false)
+  })
+
+  it("lapses for an attempt deleted while still pending or processing (no writer touches it again)", () => {
+    const deleted = (extractionStatus: string, createdAt: Date) => ({
+      biometricResult: null, createdAt, deletedAt: at(2_000), extractionStatus,
+    })
+    for (const status of ["pending", "processing"]) {
+      expect(current({ selfieAttempts: [deleted(status, at(1_000))] })).toBeNull()
+      // Created before the attestation: staff attested knowing it was in flight.
+      expect(current({ selfieAttempts: [deleted(status, at(-1_000))] })).not.toBeNull()
+    }
+    // Deleted after it finished, or never deleted, is not an unknown outcome.
+    expect(current({ selfieAttempts: [deleted("failed", at(1_000))] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ ...deleted("processing", at(1_000)), deletedAt: null }] })).not.toBeNull()
   })
 
   it("lapses for ANY attempt with an unknown outcome created after the attestation", () => {

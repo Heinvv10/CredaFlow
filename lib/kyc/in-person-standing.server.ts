@@ -43,7 +43,7 @@ export async function findStandingInPersonAttestation(
     }),
     tx.clientDocument.findMany({
       where: { tenantId: args.tenantId, clientId: args.clientId, ...PRIOR_FAILED_ATTEMPT_CONDITIONS },
-      select: { biometricResult: true, createdAt: true },
+      select: { biometricResult: true, createdAt: true, deletedAt: true, extractionStatus: true },
     }),
   ])
   // Judged against the attestation ON FILE, as readCompositeKycState does: a

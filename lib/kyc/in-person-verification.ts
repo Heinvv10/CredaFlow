@@ -371,14 +371,26 @@ const UNKNOWN_OUTCOME_REASON = "biometric_outcome_not_recorded"
 
 /**
  * Whether ANY selfie attempt (deleted or not, latest or not) submitted after
- * the attestation has an unknown outcome: it ended biometric_outcome_not_recorded,
- * or the sweeper failed it (`sweptAt`, kept when a late answer replaced the reason). The lost verdict could have been a
- * mismatch, so it fails closed and lapses the attestation.
+ * the attestation has an unknown outcome. Any of:
+ *  - it ended biometric_outcome_not_recorded;
+ *  - the sweeper failed it (`sweptAt`, kept when a late answer replaced the
+ *    reason);
+ *  - it was DELETED while still pending or processing: neither the sweeper nor
+ *    the worker's write touches a deleted row, so it never gets a reason, and
+ *    it no longer blocks the route either. Its verdict is lost the same way
+ *    (biometric-evidence.ts already treats such an attempt as adverse).
+ * The lost verdict could have been a mismatch, so it fails closed and lapses
+ * the attestation.
  *
  * Mirrors the `unknown_outcome` NOT EXISTS in the same SQL function.
  */
 export function unknownOutcomeAfterAttestation(
-  attempts: readonly { biometricResult: unknown; createdAt: Date }[],
+  attempts: readonly {
+    biometricResult: unknown
+    createdAt: Date
+    deletedAt: Date | null
+    extractionStatus: string | null
+  }[],
   attestationCompletedAt: Date,
 ): boolean {
   return attempts.some((attempt) => {
@@ -387,7 +399,9 @@ export function unknownOutcomeAfterAttestation(
     // reason with the real one, but a selfie that was lost and swept stays
     // lost for this rule, whatever arrives later.
     const unknown = result?.biometricFailureReason === UNKNOWN_OUTCOME_REASON ||
-      typeof result?.sweptAt === "string"
+      typeof result?.sweptAt === "string" ||
+      (attempt.deletedAt instanceof Date &&
+        (attempt.extractionStatus === "pending" || attempt.extractionStatus === "processing"))
     return unknown && attempt.createdAt.getTime() >= attestationCompletedAt.getTime()
   })
 }
@@ -450,7 +464,12 @@ export function currentInPersonKycVerification(
      * or not, with its creation time. Required, not optional: omitting it
      * would silently disable both lapse rules.
      */
-    selfieAttempts: readonly { biometricResult: unknown; createdAt: Date }[]
+    selfieAttempts: readonly {
+      biometricResult: unknown
+      createdAt: Date
+      deletedAt: Date | null
+      extractionStatus: string | null
+    }[]
   },
 ): InPersonKycVerificationEvidence | null {
   if (

@@ -91,6 +91,9 @@ describe(`migration ${NEW_MIGRATION}`, () => {
       `AND unknown_outcome."createdAt" >= attestation."completedAt"`,
       // The sweeper's marker survives a late answer that replaces the reason.
       `OR jsonb_typeof(unknown_outcome."biometricResult" -> 'sweptAt') = 'string'`,
+      // Deleted while in flight: nothing writes a deleted row again.
+      `unknown_outcome."deletedAt" IS NOT NULL`,
+      `AND unknown_outcome."extractionStatus" IN ('pending', 'processing')`,
     ]))
   })
 

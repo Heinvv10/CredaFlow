@@ -37,18 +37,18 @@
 
 ## Stuck selfie attempts
 - `selfie-sweeper.server.ts` (cron `sweep-stuck-selfies`) fails a selfie stuck in
-  `processing` 15 min as `biometric_outcome_not_recorded`: adverse, never
-  exceptionable. Never use a benign reason.
+  `processing` 15 min as `biometric_outcome_not_recorded` (adverse, never benign).
 - A late worker answer is accepted only if adverse as given, for the current
   attempt and subject. It replaces the swept reason (`subject_identity_changed`
   when the ID moved on, worker's reason kept in `workerFailureReason`) but keeps
   `sweptAt`: a lost selfie stays lost for the lapse rule.
 - An in-person attestation lapses (SQL + TS, migration 20261014120000) when ANY
   attempt records an adverse verdict at/after its `completedAt` on the attested
-  ID, or was submitted after it and was swept / `biometric_outcome_not_recorded`.
+  ID, or was submitted after it and was swept, `biometric_outcome_not_recorded`,
+  or deleted while still pending/processing (no writer touches it again).
   Earlier, or about a superseded ID, it stands. Portrait refusals read
   `biometricFailureReason` OR `workerFailureReason`. Recover: re-attest later.
-- Lapse, lease and KYC_EXCEPTION stamps use the DB clock (`lib/db-clock.ts`).
-  Both grant routes share `inPersonAttestationIdempotencyKey` and refuse while an
-  attestation stands. The migration demotes clients it would strand.
-- Real-DB suites: `RUN_SELFIE_SWEEPER_IT=1`, and `RUN_KYC_IN_PERSON_IT=1` for the lapse parity.
+- Lapse, lease and KYC_EXCEPTION stamps use the DB clock (`lib/db-clock.ts`). Both
+  grant routes share `inPersonAttestationIdempotencyKey` and refuse while one
+  stands; the migration demotes clients it would strand.
+- Real-DB suites: `RUN_SELFIE_SWEEPER_IT=1`, `RUN_KYC_IN_PERSON_IT=1` (parity).

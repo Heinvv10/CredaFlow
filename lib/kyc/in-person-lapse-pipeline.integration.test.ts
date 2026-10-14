@@ -293,6 +293,37 @@ suite("in-person attestation against a later face verdict", () => {
     expect((await audits(a.selfieId)).some(isLateAudit)).toBe(false)
   })
 
+  // A portal client can delete an unverified attempt that is still being
+  // checked. Neither the sweeper nor the worker writes a deleted row, so it
+  // never gets a reason or a marker, and it stops blocking the route.
+  it("lapses when a selfie submitted after the attestation is deleted while still processing", async () => {
+    const f = await seed()
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    const a = await attempt(f, 1_000, { createdAt: new Date(Date.now() + 1_000) })
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+
+    await db.clientDocument.update({ where: { id: a.selfieId }, data: { deletedAt: new Date(), deletedByType: "client" } })
+    // The sweeper skips deleted rows, so nothing will ever answer for it.
+    expect(await sweep(f)).toEqual({ swept: 0, failed: 0 })
+    expect((await row(a.selfieId)).extractionStatus).toBe("processing")
+
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+    expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
+    // Recovery: a fresh attestation completed after the lost attempt.
+    await pause(1_100)
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
+  })
+
+  it("stands when the selfie was deleted while processing BEFORE the attestation (staff attested knowing)", async () => {
+    const f = await seed()
+    const a = await attempt(f, 1_000)
+    await db.clientDocument.update({ where: { id: a.selfieId }, data: { deletedAt: new Date(), deletedByType: "client" } })
+    await pause(10)
+    expect((await inPerson(f.clientId)).status).toBe(200)
+    expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
+  })
+
   it("lapses when a selfie submitted after the attestation is swept with an unknown outcome", async () => {
     const f = await seed()
     expect((await inPerson(f.clientId)).status).toBe(200)

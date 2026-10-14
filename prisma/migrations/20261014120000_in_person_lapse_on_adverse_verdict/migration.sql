@@ -25,8 +25,13 @@
 -- 2. subject_has_in_person_kyc_verification: the v2 body
 --    (20261011060000_face_match_v2_evidence) with two NOT EXISTS added, one
 --    for an adverse verdict recorded after the attestation, one for an
---    unknown-outcome attempt submitted after it. Every v2 condition is kept
---    (lib/kyc/in-person-lapse-migration.test.ts compares them).
+--    unknown-outcome attempt submitted after it (failed unrecorded, swept, or
+--    deleted while pending/processing). The ID-portrait refusal NOT EXISTS is
+--    WIDENED to also read biometricResult.workerFailureReason, the reason the
+--    worker itself gave, which the ID/subject binding keeps when it replaces
+--    the recorded reason with subject_identity_changed. Every other v2
+--    condition is kept (lib/kyc/in-person-lapse-migration.test.ts compares
+--    them and pins the one reworded line).
 -- 3. Data step: every client still VERIFIED that no longer satisfies
 --    client_has_composite_kyc is demoted by revoke_client_composite_kyc, which
 --    writes the KYC_STATUS_CHANGED audit row, and the count is RAISEd as a
@@ -219,14 +224,16 @@ AS $function$
           AND "face_verdict_is_adverse"(verdict."biometricResult")
       )
       -- Added by 20261014120000_in_person_lapse_on_adverse_verdict: a selfie
-      -- attempt submitted AFTER the attestation whose outcome is unknown (the
-      -- worker died and the sweeper failed it, or its verdict could not be
-      -- recorded), or that the sweeper failed (biometricResult.sweptAt, which
-      -- stays when a late worker answer replaces the reason), lapses it too. The lost verdict could have been a mismatch,
-      -- so this fails closed. ANY such attempt counts, deleted or not, latest
-      -- or not, over the same attempts as above; one created in the same
-      -- millisecond as the attestation counts as after, as the v2 release
-      -- rule above does (completedAt <= createdAt). Mirrors
+      -- attempt submitted AFTER the attestation whose outcome is unknown lapses
+      -- it too. Unknown means any of: it ended biometric_outcome_not_recorded
+      -- (the worker died, or its verdict could not be recorded); the sweeper
+      -- failed it (biometricResult.sweptAt, which stays when a late worker
+      -- answer replaces the reason); or it was deleted while still pending or
+      -- processing, which no writer touches again. The lost verdict could have
+      -- been a mismatch, so this fails closed. ANY such attempt counts,
+      -- deleted or not, latest or not, over the same attempts as above; one
+      -- created in the same millisecond as the attestation counts as after, as
+      -- the v2 release rule above does (completedAt <= createdAt). Mirrors
       -- unknownOutcomeAfterAttestation in lib/kyc/in-person-verification.ts.
       AND NOT EXISTS (
         SELECT 1
@@ -243,6 +250,12 @@ AS $function$
             unknown_outcome."biometricResult" ->> 'biometricFailureReason' =
               'biometric_outcome_not_recorded'
             OR jsonb_typeof(unknown_outcome."biometricResult" -> 'sweptAt') = 'string'
+            -- Deleted while still pending/processing: neither the sweeper nor
+            -- the worker writes a deleted row, so it never gets a reason.
+            OR (
+              unknown_outcome."deletedAt" IS NOT NULL
+              AND unknown_outcome."extractionStatus" IN ('pending', 'processing')
+            )
           )
           AND unknown_outcome."createdAt" >= attestation."completedAt"
       )
