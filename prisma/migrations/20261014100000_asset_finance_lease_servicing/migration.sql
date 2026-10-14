@@ -687,7 +687,9 @@ BEGIN
 
   IF NEW."loanId" IS DISTINCT FROM OLD."loanId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" OR NEW."origin" IS DISTINCT FROM OLD."origin"
     OR NEW."outcome" IS DISTINCT FROM OLD."outcome" OR NEW."electedAt" IS DISTINCT FROM OLD."electedAt"
-    OR NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId"
+    -- The elector changes only with a re-based purchase (the re-baser elects); purchase terms only while ELECTED.
+    OR ((NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId")
+      AND NOT (OLD."status" = 'ELECTED' AND NEW."outcome" = 'PURCHASE' AND NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"))
     OR (OLD."status" <> 'ELECTED' AND (NEW."purchasePriceExclVatCents" IS DISTINCT FROM OLD."purchasePriceExclVatCents"
       OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"))
     OR (OLD."taxInvoiceId" IS NOT NULL AND NEW."taxInvoiceId" IS DISTINCT FROM OLD."taxInvoiceId")

@@ -216,14 +216,21 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
   })
 
   it("an elected purchase is re-based only on a valuation that passes the same rule", async () => {
-    const rebase = async (tx: Tx, v: Parameters<typeof valuation>[2]) => {
+    const rebase = async (tx: Tx, v: Parameters<typeof valuation>[2], electedById: string = fx.officer) => {
       const { id } = await purchase(tx, loans.expired)
-      await tx.leaseEndOfTerm.update({ where: { id }, data: { purchaseValuationId: (await valuation(tx, loans.expired, v)).id } })
+      await tx.leaseEndOfTerm.update({ where: { id }, data: { purchaseValuationId: (await valuation(tx, loans.expired, v)).id, electedById } })
     }
     await ruleAdmits(database(), (tx) => rebase(tx, {})) // a current assessor's valuation by someone else
     await refuses(without(G, `OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
      AND NOT public."purchaseValuationOk"`, `OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
      AND FALSE AND NOT public."purchaseValuationOk"`), MARKET, (tx) => rebase(tx, { source: "INTERNAL" }))
+    // The re-baser is the elector: re-basing on a valuation you recorded is refused (four-eyes against the re-baser).
+    await refuses(without(PV, ` AND (elector_id IS NULL OR v."createdById" IS DISTINCT FROM elector_id)`), MARKET, (tx) => rebase(tx, { by: fx.adminA }, fx.adminA))
+    // The elector changes only with a re-based purchase.
+    await refuses(without(G, `
+    OR ((NEW."electedById" IS DISTINCT FROM OLD."electedById" OR NEW."electedByClientId" IS DISTINCT FROM OLD."electedByClientId")
+      AND NOT (OLD."status" = 'ELECTED' AND NEW."outcome" = 'PURCHASE' AND NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId"))`),
+      /are fixed once set/, async (tx) => tx.leaseEndOfTerm.update({ where: { id: (await purchase(tx, loans.expired)).id }, data: { electedById: fx.adminA } }))
   })
 
   it("a purchase is sale-invoiced once the term ends, on a valuation still current", async () => {

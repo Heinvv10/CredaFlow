@@ -81,7 +81,11 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
   }
   if (rebase && loan.leaseEndOfTerm) {
     // A purchase elected early is re-based on a current valuation before it is invoiced (the old one may have aged out).
-    const row = await tx.leaseEndOfTerm.update({ where: { id: loan.leaseEndOfTerm.id, tenantId }, data: purchase, select: { id: true, status: true } })
+    // The re-baser becomes the elector: the database checks the valuation's four-eyes against them.
+    const row = await tx.leaseEndOfTerm.update({
+      where: { id: loan.leaseEndOfTerm.id, tenantId },
+      data: { ...purchase, electedById: actor.userId ?? null, electedByClientId: actor.clientId ?? null }, select: { id: true, status: true },
+    })
     await audit(tx, actor, AuditAction.LEASE_END_OF_TERM_ELECTED, row.id, { loanId: input.loanId, outcome: input.outcome, rebased: true, ...purchase })
     return { kind: "ok", endOfTermId: row.id, status: row.status }
   }
