@@ -6,8 +6,9 @@
  *   - the daily cron (app/api/cron/asset-finance-lease-invoices) invoices every
  *     rental whose due date has arrived, supply date = the due date;
  *   - the receipt paths (manual, bank sync, portal) call
- *     issueLeaseInvoicesOnReceipt, which invoices a rental the receipt reached
- *     before its due date, supply date = the receipt's date.
+ *     issueLeaseInvoicesOnReceipt, which invoices a rental money has reached
+ *     before its due date, supply date = the day the cash first reached it
+ *     (./lease-supply-date.ts).
  * // UNTESTED: tax memo pending — the time-of-supply rule for rentals (VAT Act
  * s9(3)(a) as we read it: the earlier of the payment becoming due and its
  * receipt). DESIGN D7 requires a signed tax-advisor memo before this ships.
