@@ -39,6 +39,7 @@ type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]
 const today = () => sastCalendarDate(new Date())
 const day = (offset: number) => fromDayNumber(toDayNumber(today()) + offset)
 const G = "guardLeaseEndOfTerm"
+const PV = "purchaseValuationOk" // the purchase valuation rule, shared by the election and a re-basing
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_FINANCE_LEASE_IT=1 is required")
@@ -182,6 +183,10 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
     await refuses(without(G, `OR NEW."extensionNoticeOn" > today`), NOTICE, give(day(1), day(60)))
     await refuses(without(G, `OR NEW."extensionEndsOn" IS NULL`), NOTICE, give(today(), null))
     await refuses(without(G, `OR NEW."extensionEndsOn" < (NEW."extensionNoticeOn" + INTERVAL '1 month')::date`), NOTICE, give(today(), day(7)))
+    // Never before the billed period ends (a running lease: its term runs years on).
+    await refuses(without(G, `
+      OR NEW."extensionEndsOn" < public."leaseTermEnd"(NEW."loanId", NEW."tenantId")`), NOTICE,
+      async (tx) => notice(tx, (await extending(tx, loans.running)).id, today(), day(40)))
   })
 
   it("the extension's end, and the billed figures once invoiced, are fixed", async () => {
@@ -204,10 +209,21 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
   it("a purchase rests on an assessor's or dealer's valuation, recorded by someone other than the elector, within the tenant's age", async () => {
     await ruleAdmits(database(), (tx) => purchase(tx, loans.expired, { valuedOn: day(-30) })) // exactly the maximum age (30 days)
     await ruleAdmits(database(), (tx) => purchase(tx, loans.expired, { by: fx.officer }, null)) // the lessee elects in the portal
-    await refuses(without(G, ` OR valuation.source NOT IN ('ASSESSOR', 'DEALER')`), MARKET, (tx) => purchase(tx, loans.expired, { source: "INTERNAL" }))
-    await refuses(without(G, ` OR (NEW."electedById" IS NOT NULL AND valuation."createdById" IS NOT DISTINCT FROM NEW."electedById")`), MARKET,
+    await refuses(without(PV, ` AND v."source" IN ('ASSESSOR', 'DEALER')`), MARKET, (tx) => purchase(tx, loans.expired, { source: "INTERNAL" }))
+    await refuses(without(PV, ` AND (elector_id IS NULL OR v."createdById" IS DISTINCT FROM elector_id)`), MARKET,
       (tx) => purchase(tx, loans.expired, { by: fx.officer }))
-    await refuses(without(G, `loan_row."assetId" OR valuation."valuedOn" < today - max_age`, `loan_row."assetId"`), MARKET, (tx) => purchase(tx, loans.expired, { valuedOn: day(-31) }))
+    await refuses(without(PV, `v."valuedOn" >= (now() AT TIME ZONE 'Africa/Johannesburg')::date - max_age AND `), MARKET, (tx) => purchase(tx, loans.expired, { valuedOn: day(-31) }))
+  })
+
+  it("an elected purchase is re-based only on a valuation that passes the same rule", async () => {
+    const rebase = async (tx: Tx, v: Parameters<typeof valuation>[2]) => {
+      const { id } = await purchase(tx, loans.expired)
+      await tx.leaseEndOfTerm.update({ where: { id }, data: { purchaseValuationId: (await valuation(tx, loans.expired, v)).id } })
+    }
+    await ruleAdmits(database(), (tx) => rebase(tx, {})) // a current assessor's valuation by someone else
+    await refuses(without(G, `OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
+     AND NOT public."purchaseValuationOk"`, `OR NEW."purchaseValuationId" IS DISTINCT FROM OLD."purchaseValuationId")
+     AND FALSE AND NOT public."purchaseValuationOk"`), MARKET, (tx) => rebase(tx, { source: "INTERNAL" }))
   })
 
   it("a purchase is sale-invoiced once the term ends, on a valuation still current", async () => {
