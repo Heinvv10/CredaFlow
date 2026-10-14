@@ -5,6 +5,7 @@ import { isSha256Digest } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 import { recordPasqAcknowledgement } from "@/lib/compliance/pasq-acknowledgement.server"
 import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
+import { recordedCallerIp } from "@/lib/rate-limit"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       clientId: access.clientId,
       clientEmail: access.clientEmail,
       method: "portal",
-      ipAddress: req.headers.get("x-forwarded-for") ?? null,
+      ipAddress: recordedCallerIp(req),
       userAgent: req.headers.get("user-agent") ?? null,
     })
     if (!result.ok) {

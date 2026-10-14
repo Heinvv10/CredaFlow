@@ -1,5 +1,5 @@
 import { CREDIT_LIFE_DISCLOSURE_VERSION } from "@/lib/insurance/credit-life-election"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 import { parseLenderIdentity } from "@/lib/config/identity"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
@@ -108,6 +108,7 @@ const loan = {
 }
 
 beforeEach(() => {
+  vi.stubEnv("TRUSTED_PROXY", "1")
   vi.clearAllMocks()
   requireApiRoleMock.mockResolvedValue({ user: { id: "staff-1" } })
   userFindUniqueMock.mockResolvedValue({ active: true, tenantId: "tenant-1" })
@@ -122,6 +123,8 @@ beforeEach(() => {
   })
   documentAccessCreateMock.mockResolvedValue({ id: "access-1" })
 })
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe("GET /api/loans/[id]/debit-mandate", () => {
   it("refuses with 409 and renders nothing when the lender identity is not configured", async () => {
@@ -213,7 +216,7 @@ describe("GET /api/loans/[id]/debit-mandate", () => {
         accessorType: "staff",
         accessorId: "staff-1",
         action: "view_draft",
-        ipAddress: "192.0.2.10",
+        ipAddress: "198.51.100.2",
         userAgent: "mandate-test-agent",
       },
     })

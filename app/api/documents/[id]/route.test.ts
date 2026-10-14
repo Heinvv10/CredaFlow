@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 
 const clientDocumentFindFirstMock = vi.fn()
 const documentAccessLogCreateMock = vi.fn()
@@ -22,13 +22,14 @@ import { GET, DELETE } from "./route"
 
 function buildReq(): Request {
   return new Request("https://staging.acme-lending.example/api/documents/doc_1", {
-    headers: { "x-forwarded-for": "203.0.113.9", "user-agent": "vitest" },
+    headers: { "x-forwarded-for": "198.51.100.7, 203.0.113.9", "user-agent": "vitest" },
   })
 }
 
 const ctx = { params: Promise.resolve({ id: "doc_1" }) }
 
 beforeEach(() => {
+  vi.stubEnv("TRUSTED_PROXY", "1")
   vi.resetAllMocks()
   withTenantContextMock.mockImplementation(async (_req, cb) => cb({ id: "tenant_acme" }))
   getDocumentCallerMock.mockResolvedValue({
@@ -47,6 +48,8 @@ beforeEach(() => {
   })
   documentAccessLogCreateMock.mockResolvedValue({ id: "log_1" })
 })
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe("GET /api/documents/[id] — POPIA access log", () => {
   it("staff GET: 200 + writes a DocumentAccessLog (action=metadata, staff id)", async () => {

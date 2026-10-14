@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { PDFDocument } from "pdf-lib"
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 /**
@@ -106,7 +106,7 @@ function read(host = LENDER): Promise<Response> {
   const req = new NextRequest(url, {
     headers: {
       "x-tenant-slug": host.slug,
-      "x-forwarded-for": "203.0.113.7",
+      "x-forwarded-for": "198.51.100.9, 203.0.113.7",
       "user-agent": "vitest",
     },
   })
@@ -136,6 +136,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  vi.stubEnv("TRUSTED_PROXY", "1")
   vi.clearAllMocks()
   rows.tenants = [LENDER, OTHER_LENDER]
   rows.applications = [{
@@ -181,6 +182,8 @@ beforeEach(() => {
     path === "/s/pasq.pdf" ? pasq : agreement,
   )
 })
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe("GET signing packet — the borrower it belongs to", () => {
   beforeEach(() => authMock.mockResolvedValue(owner))

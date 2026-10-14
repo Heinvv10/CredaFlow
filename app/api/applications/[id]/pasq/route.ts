@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { requireApiRole, requireOwnerOrStaff } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import {
   calculateLoanFromDecisionInputs,
   createAffordabilityCalculatorEvidence,
@@ -475,7 +476,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         accessorType: access.type,
         accessorId: access.type === "staff" ? access.user.id : access.clientId,
         action: "view",
-        ipAddress: req.headers.get("x-forwarded-for") ?? null,
+        ipAddress: recordedCallerIp(req),
         userAgent: req.headers.get("user-agent") ?? null,
       },
     })

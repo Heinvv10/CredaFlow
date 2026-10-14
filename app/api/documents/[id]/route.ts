@@ -3,6 +3,7 @@ import { auditDocumentAccessRefusal } from "@/lib/audit-refusals"
 import { prisma } from "@/lib/prisma"
 import { deleteFile } from "@/lib/storage"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { AuditAction } from "@/lib/audit"
@@ -59,7 +60,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           accessorType: caller.type,
           accessorId: caller.type === "staff" ? caller.userId : caller.clientId,
           action: "metadata",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })

@@ -101,6 +101,17 @@ setting AUTH_URL "$public_url"
 setting PORTAL_PORT "$portal_port"
 setting PORTAL_NEXTAUTH_URL "$portal_url"
 setting NEXT_PUBLIC_PORTAL_LOGIN_URL "${portal_url%/}/portal/login"   # baked at build: rebuild to change it
+# The supported production topology binds both apps to loopback behind one
+# TLS-terminating proxy. A non-loopback bind cannot prove that forwarding
+# headers came through that proxy, so persisted evidence must fail closed even
+# when an older .env trusted a proxy.
+effective_bind="${bind:-$(env_get "$env" APP_BIND)}"
+[ -n "$effective_bind" ] || effective_bind=127.0.0.1
+if [[ "$effective_bind" == 127.* ]]; then
+  setting TRUSTED_PROXY 1
+else
+  [ "$(env_get "$env" TRUSTED_PROXY)" = 0 ] || { env_set "$env" TRUSTED_PROXY 0; note "set TRUSTED_PROXY=0 for non-loopback bind"; }
+fi
 add POSTGRES_USER credaflow
 add POSTGRES_DB credaflow
 add POSTGRES_PASSWORD "$(openssl rand -hex 24)"

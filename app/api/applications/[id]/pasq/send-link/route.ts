@@ -3,6 +3,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAudit } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { sendSms, sendWhatsApp } from "@/lib/integrations/bulksms"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 import { sendEmail } from "@/lib/email/service"
@@ -141,7 +142,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
           action: AuditAction.PASQ_LINK_SEND_FAILED,
           entity: "LoanApplication",
           entityId: id,
-          ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+          ipAddress: recordedCallerIp(req) ?? undefined,
           newValue: { channel, failure, sent: false, ...extra },
         })
       const pasqDocument = await prisma.clientDocument.findFirst({
@@ -317,7 +318,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
           accessorType: "staff",
           accessorId: guard.user.id,
           action: "email_to_client",
-          ipAddress: req.headers.get("x-forwarded-for") ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })
@@ -344,7 +345,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         : AuditAction.PASQ_LINK_SEND_FAILED,
       entity: "LoanApplication",
       entityId: id,
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: recordedCallerIp(req) ?? undefined,
       newValue: {
         tokenId: minted.id,
         channel,

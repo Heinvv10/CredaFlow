@@ -159,7 +159,7 @@ export async function logDocumentContentAccess(opts: {
       accessorType: "staff",
       accessorId: opts.staffUserId,
       action: opts.action,
-      ipAddress: opts.req.headers.get("x-forwarded-for") ?? null,
+      ipAddress: recordedCallerIp(opts.req),
       userAgent: opts.req.headers.get("user-agent") ?? null,
     })),
   })

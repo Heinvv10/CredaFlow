@@ -7,6 +7,7 @@ import { requireOwnerOrStaff } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
+import { recordedCallerIp } from "@/lib/rate-limit"
 import { verifyLockedCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
 import { requireDebitMandateBankDetails } from "@/lib/loan/debit-mandate"
 import {
@@ -496,9 +497,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
             accessorType: access.type,
             accessorId: access.type === "staff" ? access.user.id : access.clientId,
             action: "view",
-            ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-              ?? req.headers.get("x-real-ip")
-              ?? null,
+            ipAddress: recordedCallerIp(req),
             userAgent: req.headers.get("user-agent") ?? null,
           },
         })
@@ -566,9 +565,7 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
           accessorType: access.type,
           accessorId: access.type === "staff" ? access.user.id : access.clientId,
           action: "view_debit_mandate_draft",
-          ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-            ?? req.headers.get("x-real-ip")
-            ?? null,
+          ipAddress: recordedCallerIp(req),
           userAgent: req.headers.get("user-agent") ?? null,
         },
       })
