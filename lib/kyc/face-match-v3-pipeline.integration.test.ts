@@ -515,7 +515,7 @@ suite("face match v3 through the real pipeline", () => {
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "FAILED", kycVerificationMethod: null })
       expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
       expect(await layers(fixture.clientId)).toEqual({ app: false, appReason: "subject_identity_changed", sql: false })
-      expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 409 })
+      expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 422 })
 
       // Staff verify the new copy through the normal document-verify route,
       // which re-derives the client's KYC: the copy is now the newest verified
@@ -881,7 +881,7 @@ suite("face match v3 through the real pipeline", () => {
       // With the substitute on file its passed selfie blocks the in-person
       // route; once deleted, staff may verify in person against the real ID.
       expect(await offerAndRoute(fixture.clientId)).toEqual(
-        deleteSubstitute ? { offered: true, status: 200 } : { offered: false, status: 409 },
+        deleteSubstitute ? { offered: true, status: 200 } : { offered: false, status: 422 },
       )
     })
 
@@ -893,7 +893,7 @@ suite("face match v3 through the real pipeline", () => {
       await addIdCopy(fixture, "later", { verified: false, contentSha256: "c".repeat(64) })
 
       expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
-      expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 409 })
+      expect(await offerAndRoute(fixture.clientId)).toEqual({ offered: false, status: 422 })
     })
 
     it("re-verifies a client whose new ID copy staff verified, after a new selfie (LEGIT3)", async () => {
@@ -902,7 +902,7 @@ suite("face match v3 through the real pipeline", () => {
       await capture(fixture)
       expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
       const replacement = await addIdCopy(fixture, "replacement", { verified: false, contentSha256: "b".repeat(64) })
-      expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
+      expect((await kyc(fixture.clientId)).kycStatus).toBe("PENDING")
 
       // The old match no longer describes the verified ID: PENDING, not FAILED.
       expect((await verifyDocument(fixture.clientId, replacement)).status).toBe(200)
@@ -931,18 +931,20 @@ suite("face match v3 through the real pipeline", () => {
       expect(await origination(fixture.clientId)).toEqual(FAILED_ATTEMPT)
     })
 
-    it("lapses biometric KYC when a newer ID copy is verified after the match", async () => {
+    it("lapses biometric KYC when a newer ID copy is uploaded, and stays lapsed once it is verified", async () => {
       const fixture = await seedClient()
       stubVlm(passingReply())
       await capture(fixture)
       expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
 
-      // Uploaded but unverified: the verified copy the match rests on still governs.
+      // Uploaded and unreviewed: it outweighs the verified copy
+      // (subject_has_pending_id_replacement), so
+      // ClientDocument_revoke_stale_composite_kyc demotes the client at once.
       const newer = await addIdCopy(fixture, "newer", { verified: false, contentSha256: "b".repeat(64) })
-      expect((await kyc(fixture.clientId)).kycStatus).toBe("VERIFIED")
+      expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
 
-      // Verified: the match no longer describes the ID the KYC rests on, and
-      // ClientDocument_revoke_stale_composite_kyc demotes the client.
+      // Verified: the match no longer describes the ID the KYC rests on, so
+      // it stays PENDING until a new selfie.
       await db.clientDocument.update({ where: { id: newer }, data: { verified: true, verifiedAt: new Date() } })
       expect(await kyc(fixture.clientId)).toEqual({ kycStatus: "PENDING", kycVerificationMethod: null })
       const audit = await db.auditLog.findFirstOrThrow({
