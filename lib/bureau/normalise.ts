@@ -25,7 +25,10 @@ export function randsToCents(value: unknown): number {
  * the same reason (reckless-lending risk sits on the side of understating).
  *
  * Null when the report carries neither a total nor a tradeline, so a report
- * that says nothing about debt is not mistaken for one that says "none".
+ * that says nothing about debt is not mistaken for one that says "none": it
+ * is stored as `totalMonthly: null` and the bureau gate sends it to manual
+ * review (lib/decision/bureau-gate.ts). A negative amount (a credit balance,
+ * a parse error) never offsets real debt: each is counted as zero.
  *
  * Affordability then uses max(application debts, client-record debts, this):
  * lib/decision/affordability-gate.ts and the database's approval verifier
@@ -35,9 +38,13 @@ export function bureauInstalmentTotalCents(
   report: Pick<BureauReport, "tradelines" | "statedMonthlyInstalmentCents">,
 ): number | null {
   const counted = report.tradelines.filter((t) => t.open !== false)
-  const summed = counted.reduce((sum, t) => sum + t.instalmentCents, 0)
+  const summed = counted.reduce((sum, t) => sum + nonNegative(t.instalmentCents), 0)
   if (report.statedMonthlyInstalmentCents == null && report.tradelines.length === 0) return null
-  return Math.max(report.statedMonthlyInstalmentCents ?? 0, summed)
+  return Math.max(nonNegative(report.statedMonthlyInstalmentCents ?? 0), summed)
+}
+
+function nonNegative(cents: number): number {
+  return Number.isFinite(cents) && cents > 0 ? cents : 0
 }
 
 /** The account list the credit checks read (lib/credit-checks/load-facts.ts). */

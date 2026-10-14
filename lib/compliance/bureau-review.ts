@@ -8,6 +8,8 @@ import { openBureauCredentials, type BureauCredentialMap } from "@/lib/bureau/cr
 import { runBureauEnquiry } from "@/lib/bureau/enquiry"
 import { bureauCheckRow, scoreDropAlert } from "@/lib/bureau/persist"
 import { bureauProviderOrder } from "@/lib/bureau/registry"
+import { redactIdNumbers } from "@/lib/bureau/normalise"
+import { isApprovalBureau } from "@/lib/compliance/bureau"
 import type { BureauPurpose } from "@/lib/bureau/types"
 
 export type BureauReviewRequest = {
@@ -150,6 +152,9 @@ export async function runBureauReviewCheck(
         credentials ??= openBureauCredentials(config?.bureauCredentials ?? null)
         return credentials[providerId] ?? null
       },
+      // An origination enquiry is for an approval: a bureau whose report could
+      // not support one is recorded as skipped, never called and billed.
+      eligible: isApprovalBureau,
       beforeAttempt: () => currentReview(prisma, opts),
     })
     if (run.stale) return "stale"
@@ -192,7 +197,8 @@ export async function runBureauReviewCheck(
       subjectFingerprint,
     }
     const rows = run.attempts.map((attempt) => bureauCheckRow(base, attempt, attempt.status === "OK" ? alert : undefined))
-    const last = run.attempts[run.attempts.length - 1]
+    // The outcome is the last bureau actually asked; skipped ones only explain the run.
+    const last = run.attempts.findLast((a) => a.status !== "SKIPPED_NOT_APPROVABLE") ?? run.attempts[run.attempts.length - 1]
     const failure = last.status === "OK" ? null : last
     const attempts = run.attempts.map((a) => ({ attempt: a.attempt, provider: a.provider, status: a.status }))
 
@@ -248,7 +254,7 @@ export async function runBureauReviewCheck(
         clientId: opts.clientId,
         provider: primary,
         reviewGeneration: opts.reviewGeneration,
-        error: error instanceof Error ? error.message : "bureau check failed",
+        error: redactIdNumbers(error instanceof Error ? error.message : "bureau check failed"),
       },
       completedAt: null,
     }).catch((recordError) => {

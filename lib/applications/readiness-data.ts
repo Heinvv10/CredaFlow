@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { APPROVAL_BUREAU_PROVIDERS, bureauMaxAgeDays, bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckUsableWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { approvalEvidenceApplicationInclude } from "@/lib/affordability/current-approval"
 import { hasClientBorrower, type WithClientBorrower } from "@/lib/borrower"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
@@ -290,9 +290,7 @@ export async function readApplicationReadiness(
         where: {
           tenantId,
           applicationId: { in: applicationIds },
-          ok: true,
-          createdAt: { gte: bureauStalenessCutoff(bureauMaxAgeDays(tenantConfig)) },
-          provider: { in: [...APPROVAL_BUREAU_PROVIDERS] },
+          ...approvalBureauCheckUsableWhere({ maxAgeDays: bureauMaxAgeDays(tenantConfig) }),
         },
         orderBy: { createdAt: "desc" },
         select: readinessBureauSelect,

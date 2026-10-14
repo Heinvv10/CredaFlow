@@ -3,14 +3,15 @@ import { SIMULATED_BUREAU_REASON, simulatedBureauBlock } from "./bureau-simulate
 
 afterEach(() => vi.unstubAllEnvs())
 
-const fromSimulator = { simulated: true, simulationSource: "simulated-bureau" }
-const fromExperianDryRun = { simulated: true, simulationSource: "experian" }
-const legacyDryRun = { simulated: true }
+const check = (obligations: unknown, provider = "experian") => ({ obligations, provider })
+const fromSimulator = check({ simulated: true, simulationSource: "simulated-bureau" }, "simulated")
+const fromExperianDryRun = check({ simulated: true, simulationSource: "experian" })
+const legacyDryRun = check({ simulated: true })
 
 describe("simulatedBureauBlock — the policy of the provider that produced the check", () => {
   it("never blocks a genuine check", () => {
     vi.stubEnv("NODE_ENV", "production")
-    expect(simulatedBureauBlock({ totalMonthly: 1 }).blocked).toBe(false)
+    expect(simulatedBureauBlock(check({ totalMonthly: 1 })).blocked).toBe(false)
     expect(simulatedBureauBlock(null).blocked).toBe(false)
   })
 
@@ -39,7 +40,16 @@ describe("simulatedBureauBlock — the policy of the provider that produced the 
 
   it("refuses a simulated check whose source it does not recognise, everywhere", () => {
     vi.stubEnv("NODE_ENV", "development")
-    expect(simulatedBureauBlock({ simulated: true, simulationSource: "made-up" }).blocked).toBe(true)
-    expect(simulatedBureauBlock({ simulated: true, simulationSource: 7 }).blocked).toBe(true)
+    expect(simulatedBureauBlock(check({ simulated: true, simulationSource: "made-up" })).blocked).toBe(true)
+    expect(simulatedBureauBlock(check({ simulated: true, simulationSource: 7 })).blocked).toBe(true)
+  })
+
+  it("governs a row from the simulated bureau by its provider, whatever its marker says", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("EXPERIAN_ENV", "UAT")
+    // Marker stripped, or relabelled as an Experian dry-run that UAT would allow.
+    expect(simulatedBureauBlock(check({ totalMonthly: 0 }, "simulated")).blocked).toBe(true)
+    expect(simulatedBureauBlock(check(null, "simulated")).blocked).toBe(true)
+    expect(simulatedBureauBlock(check({ simulated: true, simulationSource: "experian" }, "simulated")).blocked).toBe(true)
   })
 })

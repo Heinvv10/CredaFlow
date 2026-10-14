@@ -48,6 +48,13 @@ const request = {
   reviewGeneration: "review-generation-1",
 }
 
+const experianNotConfigured = {
+  ok: false,
+  error: "Experian not configured (set EXPERIAN_USERNAME / EXPERIAN_PASSWORD)",
+  errorCode: "NOT_CONFIGURED",
+  errorClass: "CONFIG",
+}
+
 const currentReview = {
   status: "UNDER_REVIEW",
   clientId: "client-1",
@@ -184,18 +191,19 @@ describe("bureau review generation binding", () => {
   })
 
   it("records every attempt, in order, when the primary bureau fails and the fallback answers", async () => {
-    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["xds", "experian"], bureauCredentials: null })
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "simulated"], bureauCredentials: null })
+    getCreditReportMock.mockResolvedValue(experianNotConfigured)
 
     await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
 
     const rows = bureauCheckCreateMock.mock.calls.map((call) => call[0].data)
     expect(rows.map((r) => [r.attempt, r.provider, r.status, r.ok])).toEqual([
-      [1, "xds", "NOT_CONFIGURED", false],
-      [2, "experian", "OK", true],
+      [1, "experian", "NOT_CONFIGURED", false],
+      [2, "simulated", "OK", true],
     ])
     expect(complianceRecordCreateMock.mock.calls[0][0].data).toMatchObject({
       status: "COMPLETED",
-      data: { provider: "experian", attempts: [{ provider: "xds", status: "NOT_CONFIGURED" }, { provider: "experian", status: "OK" }] },
+      data: { provider: "simulated", attempts: [{ provider: "experian", status: "NOT_CONFIGURED" }, { provider: "simulated", status: "OK" }] },
     })
     expect(auditLogCreateMock).toHaveBeenCalledOnce()
     expect(JSON.stringify(auditLogCreateMock.mock.calls[0][0])).not.toContain("9001015800086")
@@ -214,7 +222,8 @@ describe("bureau review generation binding", () => {
   })
 
   it("stops before a fallback attempt once the review generation moved on", async () => {
-    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["xds", "experian"], bureauCredentials: null })
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "simulated"], bureauCredentials: null })
+    getCreditReportMock.mockResolvedValue(experianNotConfigured)
     applicationFindUniqueMock
       .mockResolvedValueOnce(currentReview) // start of the run
       .mockResolvedValueOnce(currentReview) // before attempt 1
@@ -222,8 +231,44 @@ describe("bureau review generation binding", () => {
 
     await expect(runBureauReviewCheck(request)).resolves.toBe("stale")
 
-    expect(getCreditReportMock).not.toHaveBeenCalled()
+    expect(getCreditReportMock).toHaveBeenCalledOnce()
     expect(bureauCheckCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("never calls a non-approval bureau for an origination enquiry: it is recorded as skipped", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "transunion", "xds", "simulated"], bureauCredentials: null })
+    getCreditReportMock.mockResolvedValue(experianNotConfigured)
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    const rows = bureauCheckCreateMock.mock.calls.map((call) => call[0].data)
+    expect(rows.map((r) => [r.provider, r.status])).toEqual([
+      ["experian", "NOT_CONFIGURED"],
+      ["transunion", "SKIPPED_NOT_APPROVABLE"],
+      ["xds", "SKIPPED_NOT_APPROVABLE"],
+      ["simulated", "OK"],
+    ])
+    expect(getCreditReportMock).toHaveBeenCalledOnce()
+  })
+
+  it("names the last bureau actually asked when the run ends on a skip", async () => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "transunion"], bureauCredentials: null })
+    getCreditReportMock.mockResolvedValue(experianNotConfigured)
+
+    await runBureauReviewCheck(request)
+
+    expect(complianceRecordCreateMock.mock.calls[0][0].data).toMatchObject({
+      status: "PENDING",
+      data: { provider: "experian", error: experianNotConfigured.error },
+    })
+  })
+
+  it("redacts ID numbers from a failure recorded by the catch-all", async () => {
+    tenantConfigFindUniqueMock.mockRejectedValue(new Error("lookup failed for 9001015800088"))
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("failed")
+
+    expect(JSON.stringify(complianceRecordCreateMock.mock.calls[0][0].data)).not.toContain("9001015800088")
   })
 
   it("marks a simulated provider response on the stored bureau check", async () => {
@@ -253,7 +298,7 @@ describe("bureau review generation binding", () => {
     await runBureauReviewCheck(request)
 
     const stored = bureauCheckCreateMock.mock.calls[0][0].data
-    expect(stored.obligations).toBeUndefined()
+    expect(stored.obligations).toEqual({ totalMonthly: null })
   })
 
   it("flags a score drop against the latest genuine earlier check", async () => {

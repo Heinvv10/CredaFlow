@@ -10,6 +10,10 @@
  *    another bureau would reject the same request, and asking it would only
  *    spend a second enquiry; or
  *  - `beforeAttempt` says the caller's work went stale (a newer review).
+ * A bureau the caller's purpose cannot use (`eligible` false: an approval
+ * enquiry and a bureau outside APPROVAL_BUREAU_PROVIDERS) is recorded as
+ * SKIPPED_NOT_APPROVABLE and NOT called, so it never spends an enquiry whose
+ * report could not be used.
  * Every attempt is returned, in order, for the caller to persist.
  *
  * A timed-out attempt is abandoned, not cancelled: adapters receive an
@@ -38,6 +42,8 @@ export interface RunBureauEnquiryArgs {
   timeoutMs?: number
   /** Checked before every attempt; false stops the run as stale. */
   beforeAttempt?: () => Promise<boolean>
+  /** Whether the run may call this bureau; omitted = every bureau. */
+  eligible?: (providerId: string) => boolean
   /** Test seam; defaults to the registry. */
   resolve?: (id: string) => BureauProvider | null
 }
@@ -101,8 +107,25 @@ async function attemptOne(
 }
 
 export async function runBureauEnquiry(args: RunBureauEnquiryArgs): Promise<BureauEnquiryRun> {
+  // Defence in depth: callers check consent before building a request, but no
+  // enquiry may leave this function without naming the consent it relies on.
+  const consentReference: unknown = args.request?.consent?.reference
+  if (typeof consentReference !== "string" || consentReference.trim() === "") {
+    throw new BureauProviderError("SUBJECT_REJECTED", "A bureau enquiry needs the consumer's consent reference")
+  }
   const attempts: BureauAttempt[] = []
   for (const providerId of args.order) {
+    if (args.eligible && !args.eligible(providerId)) {
+      attempts.push({
+        attempt: attempts.length + 1,
+        provider: providerId,
+        status: "SKIPPED_NOT_APPROVABLE",
+        error: `Not called: "${providerId}" is not an approval bureau, so its report could not support this decision`,
+        providerCode: null,
+        errorClass: null,
+      })
+      continue
+    }
     if (args.beforeAttempt && !(await args.beforeAttempt())) {
       return { attempts, report: null, stale: true }
     }

@@ -51,7 +51,7 @@ export function localDirectoryTransport(directory: string): SubmissionTransport 
         throw new SubmissionTransportError("NOT_CONFIGURED", "The local bureau TEST outbox is refused on a deployed build")
       }
       // The file name is ours (bureauFileName), but never trust it as a path.
-      if (!/^[A-Za-z0-9_.-]+$/.test(file.fileName)) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(file.fileName) || /^\.+$/.test(file.fileName)) {
         throw new SubmissionTransportError("DELIVERY_FAILED", "Bureau file name is not a plain file name")
       }
       const location = join(directory, file.fileName)

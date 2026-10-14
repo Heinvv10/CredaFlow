@@ -37,8 +37,22 @@ export function bureauStalenessCutoff(maxAgeDays: number, now: Date = new Date()
  */
 export const APPROVAL_BUREAU_PROVIDERS: readonly string[] = ["experian", "simulated"]
 
-/** The approval-path bureau read: this review generation, a successful
- *  check, current under the tenant's window, from an approval bureau. */
+export function isApprovalBureau(providerId: string): boolean {
+  return APPROVAL_BUREAU_PROVIDERS.includes(providerId)
+}
+
+/** What makes any bureau check usable for approval: successful, current under
+ *  the tenant's window, from an approval bureau. Batched reads (the board's
+ *  readiness) bind the application and generation themselves. */
+export function approvalBureauCheckUsableWhere(args: { maxAgeDays: number; now?: Date }) {
+  return {
+    ok: true as const,
+    createdAt: { gte: bureauStalenessCutoff(args.maxAgeDays, args.now) },
+    provider: { in: [...APPROVAL_BUREAU_PROVIDERS] },
+  }
+}
+
+/** The approval-path bureau read: this review generation, plus approvalBureauCheckUsableWhere. */
 export function approvalBureauCheckWhere(args: {
   tenantId: string
   applicationId: string
@@ -52,8 +66,6 @@ export function approvalBureauCheckWhere(args: {
     applicationId: args.applicationId,
     clientId: args.clientId,
     reviewGeneration: args.reviewGeneration,
-    ok: true as const,
-    createdAt: { gte: bureauStalenessCutoff(args.maxAgeDays, args.now) },
-    provider: { in: [...APPROVAL_BUREAU_PROVIDERS] },
+    ...approvalBureauCheckUsableWhere(args),
   }
 }

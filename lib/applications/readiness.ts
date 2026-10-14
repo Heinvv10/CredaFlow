@@ -79,6 +79,7 @@ export interface ReadinessBureauCheck {
   hasNotice: boolean
   /** Carries the `simulated` marker the bureau gate reads. */
   obligations?: unknown
+  provider?: string
 }
 
 /** The client columns the payout bank tuple is built from. */
@@ -237,7 +238,7 @@ function approvalBlockers(input: ReadinessInput): string[] {
     return ["Bureau reports deceased"]
   }
   // Not overridable: a reasoned override cannot approve on fabricated evidence.
-  if (simulatedBureauBlock(input.bureau?.obligations).blocked) {
+  if (simulatedBureauBlock(input.bureau).blocked) {
     return ["Bureau check is simulated"]
   }
   if (!input.bureau) {

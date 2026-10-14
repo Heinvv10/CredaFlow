@@ -52,6 +52,8 @@ export function openBureauCredentials(stored: string | null): BureauCredentialMa
     parsed = JSON.parse(openSecret(stored, key()))
   } catch (error) {
     if (error instanceof BureauCredentialsError) throw error
+    // A wrong key, tampered ciphertext or non-JSON plaintext. The cause is not
+    // chained: a JSON.parse message can quote the decrypted secret.
     throw new BureauCredentialsError("stored bureau credentials could not be opened")
   }
   if (!isCredentialMap(parsed)) throw new BureauCredentialsError("stored bureau credentials are malformed")

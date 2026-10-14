@@ -21,20 +21,20 @@ export function scoreDropAlert(previous: number | null | undefined, current: num
  * The `CreditBureauCheck.obligations` JSON for a report. Every reader of the
  * column depends on these keys:
  *  - `totalMonthly` (cents) → bureauMonthlyObligations → affordability's
- *    bureauObligationsCents (lib/affordability/snapshot.ts)
+ *    bureauObligationsCents (lib/affordability/snapshot.ts). Always written:
+ *    null when the report says nothing about debt, which the bureau gate
+ *    refuses without an audited override (bureauObligationsKnown).
  *  - `simulated` → isSimulatedBureauCheck; `simulationSource` names the
  *    simulation-guard policy that governs it (absent = "experian")
  *  - `accounts` → the credit checks (lib/credit-checks/load-facts.ts)
  *  - `scoreDropAlert` → the application page
- * Undefined when there is nothing to say, as before the framework.
  */
-export function reportObligations(report: BureauReport, alert?: ScoreDropAlert): Prisma.InputJsonObject | undefined {
+export function reportObligations(report: BureauReport, alert?: ScoreDropAlert): Prisma.InputJsonObject {
   const totalMonthly = bureauInstalmentTotalCents(report)
   const accounts = tradelineAccounts(report.tradelines)
-  if (totalMonthly == null && !alert && accounts.length === 0 && !report.simulated) return undefined
   return {
     ...(report.simulated ? { simulated: true, simulationSource: report.simulationSource ?? report.provider } : {}),
-    ...(totalMonthly != null ? { totalMonthly } : {}),
+    totalMonthly,
     ...(alert ? { scoreDropAlert: { ...alert } } : {}),
     ...(accounts.length > 0 ? { accounts: accounts as unknown as Prisma.InputJsonArray } : {}),
   }
@@ -44,7 +44,8 @@ export interface CheckRowBase {
   tenantId: string
   clientId: string
   applicationId: string
-  reviewGeneration: string
+  /** Null on the asset-finance path, which has no review generation. */
+  reviewGeneration: string | null
   subjectFingerprint: string
 }
 

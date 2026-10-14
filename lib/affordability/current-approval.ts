@@ -450,7 +450,7 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "bureau_subject_changed" }
   }
-  if (simulatedBureauBlock(bureauCheck?.obligations).blocked) {
+  if (simulatedBureauBlock(bureauCheck).blocked) {
     return { ok: false, reason: "bureau_simulated" }
   }
 
@@ -643,7 +643,7 @@ export function verifyCurrentAffordabilityApproval(args: {
   if (bureauCheck && !bureauCheckMatchesSubject(bureauCheck, application.client)) {
     return { ok: false, reason: "bureau_subject_changed" }
   }
-  if (simulatedBureauBlock(bureauCheck?.obligations).blocked) {
+  if (simulatedBureauBlock(bureauCheck).blocked) {
     return { ok: false, reason: "bureau_simulated" }
   }
   if (

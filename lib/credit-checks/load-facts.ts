@@ -80,11 +80,11 @@ export function payslipFacts(documentId: string, extraction: unknown, validation
 }
 
 /** Bureau accounts as stored by lib/compliance/bureau-review.ts under obligations.accounts. */
-export function bureauDebts(obligations: unknown): DebtFacts[] {
+export function bureauDebts(obligations: unknown, provider?: string): DebtFacts[] {
   const accounts = (obligations as { accounts?: unknown } | null)?.accounts
   if (!Array.isArray(accounts)) return []
   // A simulated account list is fabricated: not evidence where simulation is forbidden.
-  if (simulatedBureauBlock(obligations).blocked) return []
+  if (simulatedBureauBlock({ obligations, provider }).blocked) return []
   return accounts.flatMap((a: { subscriber?: unknown; instalmentCents?: unknown; status?: unknown }) =>
     // A closed or settled account explains no current debit order.
     typeof a?.subscriber === "string" && typeof a.instalmentCents === "number"
@@ -183,7 +183,7 @@ export async function loadApplicationFacts(
     }),
     db.creditBureauCheck.findFirst({
       where: { tenantId, applicationId, ok: true },
-      select: { obligations: true },
+      select: { obligations: true, provider: true },
       orderBy: { createdAt: "desc" },
     }),
   ])
@@ -220,7 +220,7 @@ export async function loadApplicationFacts(
   const income = slipNet !== null && declared !== null ? Math.min(slipNet, declared) : slipNet ?? declared
   const debts: DebtFacts[] = [
     ...app.client.debtObligations.map((d) => ({ name: d.creditProvider, monthlyInstalmentCents: d.monthlyInstalment, source: "DECLARED" as const })),
-    ...bureauDebts(bureau?.obligations),
+    ...bureauDebts(bureau?.obligations, bureau?.provider),
   ]
   return {
     status: app.status,

@@ -31,12 +31,23 @@ function simulationSource(obligations: unknown): GuardedIntegration | null {
   return typeof source === "string" && BUREAU_SIMULATION_SOURCES.has(source) ? (source as GuardedIntegration) : null
 }
 
+/** The simulated bureau's provider id (lib/bureau/providers/simulated.ts). */
+const SIMULATED_PROVIDER = "simulated"
+
 /**
  * A simulated check is fabricated evidence wherever this deployment forbids
- * simulation by the provider that produced it. Takes the stored
- * `CreditBureauCheck.obligations` JSON, which carries both the marker and its source.
+ * simulation by the provider that produced it. Reads the stored check's
+ * `obligations` JSON (the marker and its source) and its `provider`: a row
+ * from the simulated bureau is governed by that bureau's policy whatever its
+ * marker says, so a missing or altered marker cannot launder it.
  */
-export function simulatedBureauBlock(obligations: unknown): { blocked: boolean; reason?: string } {
+export function simulatedBureauBlock(
+  check: { obligations?: unknown; provider?: string | null } | null | undefined,
+): { blocked: boolean; reason?: string } {
+  const obligations = check?.obligations
+  if (check?.provider === SIMULATED_PROVIDER) {
+    return isSimulationPermitted("simulated-bureau") ? { blocked: false } : { blocked: true, reason: SIMULATED_BUREAU_REASON }
+  }
   if (!isSimulatedBureauCheck(obligations)) return { blocked: false }
   const source = simulationSource(obligations)
   if (source === null || !isSimulationPermitted(source)) {

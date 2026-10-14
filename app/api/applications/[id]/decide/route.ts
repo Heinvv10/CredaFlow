@@ -849,7 +849,7 @@ export async function POST(
 
         // A simulated check is fabricated evidence wherever this deployment
         // forbids Experian simulation; an override reason cannot approve on it.
-        const simulatedStop = simulatedBureauBlock(bureauCheck?.obligations)
+        const simulatedStop = simulatedBureauBlock(bureauCheck)
         if (simulatedStop.blocked) {
           return NextResponse.json(
             {
@@ -893,6 +893,7 @@ export async function POST(
               hasJudgement: bureauCheck.hasJudgement,
               hasNotice: bureauCheck.hasNotice,
               obligations: bureauCheck.obligations,
+              provider: bureauCheck.provider,
             },
             { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
           )

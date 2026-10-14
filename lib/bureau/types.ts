@@ -158,6 +158,8 @@ export type BureauAttemptStatus =
   | "UNKNOWN_PROVIDER"
   | "SIMULATION_FORBIDDEN"
   | "SUBJECT_REJECTED"
+  /** Not called: the run's purpose needs an approval bureau and this one is not. */
+  | "SKIPPED_NOT_APPROVABLE"
 
 export type BureauAttempt =
   | { attempt: number; provider: string; status: "OK"; report: BureauReport }
