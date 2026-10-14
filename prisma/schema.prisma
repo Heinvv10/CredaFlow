@@ -88,6 +88,8 @@ model User {
   referenceRatesRequested      ReferenceRate[]            @relation("ReferenceRatesRequested")
   referenceRatesDecided        ReferenceRate[]            @relation("ReferenceRatesDecided")
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
+  kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
+  kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
 
   @@unique([tenantId, id])
 }
@@ -182,6 +184,7 @@ model Tenant {
   financedAssets             FinancedAsset[]
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
+  kycOverrideRequests        KycOverrideRequest[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -270,6 +273,13 @@ model TenantConfig {
   // is demanded at sign-in only from a user who enrolled. Default on, for
   // existing rows too.
   requireStaffTotp Boolean @default(true)
+
+  // Failed-selfie and in-person override policy (lib/kyc/override-policy.ts).
+  // A clear biometric mismatch remains non-overridable regardless of these
+  // settings; the database independently enforces that boundary.
+  kycOverrideEnabled        Boolean  @default(true)
+  kycOverrideMinRole        UserRole @default(ADMIN)
+  kycOverrideSecondApprover Boolean  @default(false)
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -477,6 +487,7 @@ model Client {
   avsChecks                          AvsCheck[]
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
+  kycOverrideRequests    KycOverrideRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -671,9 +682,51 @@ model ClientDocument {
   client                   Client              @relation(fields: [clientId], references: [id])
   loanNotes                LoanNote[]
   statementAnalyses        StatementAnalysis[]
+  kycOverrideRequests KycOverrideRequest[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, clientId, docType, biometricAttemptSequence], map: "ClientDocument_biometric_attempt_order_idx")
+}
+
+enum KycOverrideKind {
+  EXCEPTION
+  IN_PERSON
+}
+
+enum KycOverrideRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+model KycOverrideRequest {
+  id                String                   @id @default(cuid())
+  tenantId          String
+  clientId          String
+  selfieDocumentId  String?
+  kind              KycOverrideKind
+  payload           Json
+  requestedById     String
+  requestedWithTotp Boolean                  @default(false)
+  requestedAt       DateTime                 @default(now())
+  status            KycOverrideRequestStatus @default(PENDING)
+  decidedById       String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  expiresAt         DateTime
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  client         Client          @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  selfieDocument ClientDocument? @relation(fields: [tenantId, selfieDocumentId], references: [tenantId, id])
+  requestedBy    User            @relation("KycOverrideRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id])
+  decidedBy      User?           @relation("KycOverrideDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, clientId, status, expiresAt])
+  @@index([tenantId, requestedById])
+  @@index([tenantId, decidedById])
 }
 
 enum DocumentTemplateKind {
