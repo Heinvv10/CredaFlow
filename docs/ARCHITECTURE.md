@@ -96,7 +96,12 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   grant, audited per use). The lender grants and revokes under Settings →
   Support access, which also shows the support-access audit trail.
   `lib/operator/console-census.test.ts` lists every console page and route and
-  runs each against sentinel borrower rows.
+  runs each against sentinel borrower rows. Writes on the console host must be
+  same-origin, and `/api/operator` writes JSON (CSRF). A support grant does not
+  open a suspended lender. A lender's custom domain (`Tenant.domain`, which
+  outranks the slug in host resolution) is normalised and may not be a host the
+  deployment serves or another lender's subdomain host
+  (`lib/config/tenant-domain.ts`).
 - **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
   and `(tenantId, email)`; one person may be a client of two lenders.
 - **Provider credentials** are per tenant, sealed in `TenantConfig`

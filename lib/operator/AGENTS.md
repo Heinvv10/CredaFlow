@@ -26,6 +26,11 @@ Operator console.
   nothing else is served there and no other host serves it or accepts an
   operator session. Writes there are the console's own management APIs; the
   grant-gated support paths stay GET/HEAD, and there are no server actions.
+  Every write there must be same-origin (Origin / Sec-Fetch-Site) and every
+  `/api/operator` write `application/json`: send JSON from console UI.
+- **Tenant.domain goes through `lib/config/tenant-domain.ts`** (normalised; never
+  a deployment host or another lender's subdomain host): it outranks the slug
+  in host resolution, so a bad one takes over a host.
 - **Sign-in and every request apply one rule set** (`lib/auth-principal.ts`:
   active, binding, suspended lender, TOTP state, enrolment hold). Add a rule
   there, never to one path only; `lib/__tests__/auth-principal-parity.test.ts`
