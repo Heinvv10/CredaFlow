@@ -627,3 +627,14 @@ it("DELETE 409s when a concurrent write already moved the application into a ter
   expect(res.status).toBe(409)
   expect(auditLogCreateMock).not.toHaveBeenCalled()
 })
+
+it("DELETE 409s with no audit row when UNDER_REVIEW is moved by a concurrent write (updateMany count 0)", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", reference: "APP-1", status: "UNDER_REVIEW", loan: null })
+  updateManyMock.mockResolvedValue({ count: 0 })
+
+  const res = await DELETE(deleteReq(), ctx)
+
+  expect(res.status).toBe(409)
+  expect(updateManyMock).toHaveBeenCalledOnce()
+  expect(auditLogCreateMock).not.toHaveBeenCalled()
+})

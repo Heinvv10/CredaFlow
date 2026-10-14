@@ -32,3 +32,16 @@ export function isDeclinedTerminal(application: {
 }): boolean {
   return application.status === "DECLINED" || (application.status === "CANCELLED" && !!application.declineCategory)
 }
+
+/** Statuses from which staff may cancel; DECLINED is final. */
+export function canCancelApplication(application: { status: string }): boolean {
+  return ["DRAFT", "SUBMITTED", "UNDER_REVIEW"].includes(application.status)
+}
+
+/** The "Debt evidence invalid" rail blocker: meaningless on a declined application. */
+export function showDebtEvidenceBlocker(
+  application: { status: string; declineCategory: string | null },
+  debtEvidenceInvalid: boolean,
+): boolean {
+  return debtEvidenceInvalid && !isDeclinedTerminal(application)
+}
