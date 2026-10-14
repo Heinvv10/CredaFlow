@@ -21,9 +21,10 @@ describe("cashReachedOn: the day the cash first reached a rental (C4)", () => {
   it("the default charges a receipt paid are not cash towards the rentals", async () => {
     expect(await reached([{ amount: 10_200, on: "2027-03-20", defaultInterestAllocated: 150, chargeFeesAllocated: 50 }])).toBeNull()
   })
-  it("asks only for allocated, unreversed, non-waiver receipts of the loan, oldest first", async () => {
+  it("asks only for allocated, unreversed, non-waiver receipts of the loan, oldest first, against the rows before the rental", async () => {
     const t = tx([])
     await cashReachedOn(t.tx as never, { tenantId: "t1", loanId: "l1", periodNo: 2 })
+    expect((t.tx.repaymentSchedule.aggregate.mock.calls[0] as unknown as [unknown])[0]).toMatchObject({ where: { tenantId: "t1", loanId: "l1", installmentNo: { lt: 2 } } })
     expect((t.findMany.mock.calls[0] as unknown as [unknown])[0]).toMatchObject({
       where: { tenantId: "t1", loanId: "l1", reversed: false, allocationStatus: "ALLOCATED", paymentMethod: { not: "WAIVER" } },
       orderBy: [{ receivedAt: "asc" }, { id: "asc" }],

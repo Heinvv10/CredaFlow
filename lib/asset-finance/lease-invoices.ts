@@ -106,10 +106,11 @@ export async function issueLeaseRentalInvoice(
 }
 
 /**
- * The receipt-path hook: every uninvoiced rental of this lease that has
- * received money and falls due after `receivedOn` is invoiced now, supply
- * date = the receipt day; one already due is invoiced on its due date (the
- * cron may not have run yet). Does nothing for any other contract type.
+ * The receipt-path hook: every uninvoiced rental of this lease that money has
+ * reached is invoiced now, supply date = the day the cash first reached it
+ * (./lease-supply-date.ts), whatever order the receipts were captured in; one
+ * already due is invoiced on its due date at the latest (the cron may not have
+ * run yet). Does nothing for any other contract type.
  *
  * A receipt is never refused or rolled back for its invoice: each rental is
  * invoiced inside its own SAVEPOINT, and a refusal or error is rolled back to
@@ -118,7 +119,7 @@ export async function issueLeaseRentalInvoice(
  */
 export async function issueLeaseInvoicesOnReceipt(
   tx: LeaseInvoiceTx & Pick<VatTransaction, "repaymentSchedule" | "payment">,
-  input: { tenantId: string; loanId: string; contractType: ContractType | null | undefined; receivedOn: string; today: string; createdById: string | null },
+  input: { tenantId: string; loanId: string; contractType: ContractType | null | undefined; today: string; createdById: string | null },
 ): Promise<void> {
   if (input.contractType !== "OPERATING_LEASE" && input.contractType !== "FULL_MAINTENANCE_LEASE") return
   const rentals = await tx.leaseRental.findMany({
@@ -130,8 +131,8 @@ export async function issueLeaseInvoicesOnReceipt(
     const due = isoOfDbDate(rental.dueDate)
     // The earliest day the cash reached the rental (./lease-supply-date.ts), never later than its due date.
     const reached = await cashReachedOn(tx, { tenantId: input.tenantId, loanId: input.loanId, periodNo: rental.periodNo })
-    if (reached === null) continue
-    const supplyDate = reached < due ? reached : due
+    if (reached === null && due > input.today) continue // not reached and not yet due: nothing supplied
+    const supplyDate = reached !== null && reached < due ? reached : due
     await tx.$executeRawUnsafe("SAVEPOINT lease_rental_invoice")
     let refusal: { reason: string; error: string } | null = null
     try {
