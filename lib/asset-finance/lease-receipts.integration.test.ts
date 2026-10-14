@@ -146,6 +146,24 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
     expect(audits[0].newValue).toMatchObject({ reason: "vat_rate_changed", source: "receipt" })
   }, 60_000)
 
+  it("an invoice that throws after it is written is rolled back alone: the receipt stands", async () => {
+    // Tamper rental 3 consistently (triggers off): its total no longer equals what its invoice lines add up to.
+    const [, second, third] = await rentals(clientLoan)
+    await database().$transaction([
+      database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      database().$executeRawUnsafe(`UPDATE "LeaseRental" SET "vatCents" = "vatCents" + 1, "totalCents" = "totalCents" + 1 WHERE "id" = $1`, third.id),
+      database().$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "totalDue" = "totalDue" + 1, "principalDue" = "principalDue" + 1 WHERE "id" = $1`, third.scheduleId),
+    ])
+    const paidOnSecond = (await database().repaymentSchedule.findUniqueOrThrow({ where: { id: second.scheduleId } })).totalPaid
+    const amount = second.totalCents - paidOnSecond + 100 // settles rental 2; R1.00 reaches rental 3
+    const result = await applyManualReceipt(database() as unknown as PaymentDb, { loanId: clientLoan, tenantId: fx.tenantId, amount, capturedById: fx.officer, reference: "SYNTHETIC-3" })
+    expect(await database().payment.count({ where: { id: result.payment.id } })).toBe(1)
+    expect((await rentals(clientLoan))[2].taxInvoiceId).toBeNull()
+    expect(await database().taxInvoice.count({ where: { loanId: clientLoan } })).toBe(2) // rentals 1 and 2 only
+    const audit = await database().auditLog.findFirstOrThrow({ where: { tenantId: fx.tenantId, action: "LEASE_INVOICE_REFUSED", entityId: third.id } })
+    expect(audit.newValue).toMatchObject({ reason: "invoice_error", source: "receipt" })
+  }, 60_000)
+
   it("the issuer refuses a supply date after the due date, and a lessee with no address", async () => {
     const r = (await rentals(spareLoan))[2]
     const issue = (supplyDate: string) => database().$transaction((tx) => issueLeaseRentalInvoice(tx as never, {
