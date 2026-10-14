@@ -41,6 +41,31 @@ export function isOperatorConsolePath(path: string): boolean {
 type GateRequest = { nextUrl: URL; url: string; method: string; headers: Headers }
 type GateSession = { user?: { role?: string | null; totpEnrolmentRequired?: boolean } | null } | null | undefined
 
+/**
+ * A write must come from the console's own pages (CSRF). The browser says so
+ * in Origin (host and port as the request's Host) and, where it sends it,
+ * Sec-Fetch-Site: same-origin. A write that carries neither is refused: every
+ * browser that runs the console sends at least one.
+ */
+function crossSiteWrite(req: GateRequest): boolean {
+  const origin = req.headers.get("origin")
+  const site = req.headers.get("sec-fetch-site")
+  if (!origin && !site) return true
+  if (site !== null && site !== "same-origin") return true
+  if (origin !== null) {
+    let host: string
+    try {
+      host = new URL(origin).host
+    } catch {
+      return true
+    }
+    if (host.toLowerCase() !== (req.headers.get("host") ?? "").toLowerCase()) return true
+  }
+  return false
+}
+
+const isJson = (req: GateRequest) => /^application\/json(\s*;|$)/i.test(req.headers.get("content-type") ?? "")
+
 const notFound = (api: boolean) =>
   api ? NextResponse.json({ error: "Not found" }, { status: 404 }) : new NextResponse("Not found", { status: 404 })
 
@@ -65,6 +90,13 @@ export function operatorHostGate(req: GateRequest, session: GateSession, forward
   // The console has no server actions, and a page is only ever read.
   if (req.headers.has("next-action")) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   if (!isApi && !isReadMethod(req.method)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (!isReadMethod(req.method)) {
+    if (crossSiteWrite(req)) return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 })
+    // A cross-site form can only send text/plain, urlencoded or multipart.
+    if (isOperatorConsolePath(path) && !isJson(req)) {
+      return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 })
+    }
+  }
 
   const user = session?.user
   if (isPublic) {

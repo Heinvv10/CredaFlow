@@ -18,8 +18,11 @@ const OPERATOR_HELD: Session = { user: { ...OPERATOR!.user, totpEnrolmentRequire
 const STAFF: Session = { user: { id: "u-1", role: "SUPER_ADMIN", tenantId: "tenant-1", totpEnrolmentRequired: false } }
 const CLIENT: Session = { user: { id: "c-1", role: "CLIENT", tenantId: "tenant-1", totpEnrolmentRequired: false } }
 
-function visit(host: string, pathname: string, session: Session, init: { method?: string; headers?: Record<string, string> } = {}) {
-  const req = new NextRequest(`https://${host}${pathname}`, { ...init, headers: { host, ...init.headers } }) as NextRequest & { auth: unknown }
+// A write from the console's own pages: same origin, JSON. `raw` sends exactly the headers given.
+function visit(host: string, pathname: string, session: Session, init: { method?: string; headers?: Record<string, string>; raw?: boolean } = {}) {
+  const write = !!init.method && init.method !== "GET" && init.method !== "HEAD"
+  const sameOrigin = write && !init.raw ? { origin: `https://${host}`, "sec-fetch-site": "same-origin", "content-type": "application/json" } : {}
+  const req = new NextRequest(`https://${host}${pathname}`, { method: init.method, headers: { host, ...sameOrigin, ...init.headers } }) as NextRequest & { auth: unknown }
   req.auth = session
   return handler(req)
 }
@@ -99,6 +102,48 @@ describe("operator console host — serves the console only", () => {
     const res = await visit(CONSOLE, "/operator", OPERATOR, { headers: { "x-tenant-slug": "lender" } })
     expect(res.headers.get("x-middleware-request-x-tenant-slug")).toBeNull()
     expect(res.headers.get("x-middleware-request-x-cf-request-method")).toBe("GET")
+  })
+})
+
+describe("operator console host — cross-site writes are refused (CSRF)", () => {
+  const raw = (method: string, headers: Record<string, string>) => ({ method, raw: true, headers })
+
+  it("refuses a cross-origin text/plain POST to /api/operator/users", async () => {
+    const res = await visit(CONSOLE, "/api/operator/users", OPERATOR, raw("POST", { origin: "https://evil.example", "content-type": "text/plain" }))
+    expect(res.status).toBe(403)
+  })
+
+  it("refuses a write whose Origin is another host or port, or whose Sec-Fetch-Site is not same-origin", async () => {
+    const json = { "content-type": "application/json" }
+    for (const headers of [
+      { ...json, origin: "https://app.lender.example" },
+      { ...json, origin: `https://${CONSOLE}:8443` },
+      { ...json, origin: "null" },
+      { ...json, origin: `https://${CONSOLE}`, "sec-fetch-site": "same-site" },
+      { ...json, "sec-fetch-site": "cross-site" },
+    ]) {
+      expect((await visit(CONSOLE, "/api/operator/lenders", OPERATOR, raw("POST", headers))).status, JSON.stringify(headers)).toBe(403)
+    }
+  })
+
+  it("refuses a write that carries neither Origin nor Sec-Fetch-Site, sign-in and sign-out included", async () => {
+    for (const path of ["/api/operator/users", "/api/auth/callback/credentials", "/api/auth/signout", "/api/auth/reset-password"]) {
+      expect((await visit(CONSOLE, path, OPERATOR, raw("POST", { "content-type": "application/json" }))).status, path).toBe(403)
+    }
+  })
+
+  it("requires application/json on every /api/operator write", async () => {
+    for (const ct of ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", ""]) {
+      const res = await visit(CONSOLE, "/api/operator/users", OPERATOR, raw("POST", { origin: `https://${CONSOLE}`, ...(ct ? { "content-type": ct } : {}) }))
+      expect(res.status, ct).toBe(415)
+    }
+    const ok = await visit(CONSOLE, "/api/operator/users", OPERATOR, raw("POST", { origin: `https://${CONSOLE}`, "content-type": "application/json; charset=utf-8" }))
+    expect(passes(ok)).toBe(true)
+  })
+
+  it("lets a same-origin sign-in through (NextAuth posts a form)", async () => {
+    const res = await visit(CONSOLE, "/api/auth/callback/credentials", null, raw("POST", { origin: `https://${CONSOLE}`, "content-type": "application/x-www-form-urlencoded" }))
+    expect(passes(res)).toBe(true)
   })
 })
 
