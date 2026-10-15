@@ -6,22 +6,22 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import {
-  dealBureauSubjects, recentlyCheckedClientIds, RECHECK_WINDOW_DAYS, runDealBureauCheck, type DealBureauOutcome,
+  dealBureauSubjects, dealRecheckWindowDays, recentlyCheckedClientIds, runDealBureauCheck, type DealBureauOutcome,
 } from "@/lib/asset-finance/deal-bureau"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 
 const OPEN_FOR_CHECKS = ["DRAFT", "SUBMITTED", "REFERRED"]
 
 /**
- * Run the existing consumer bureau check (Experian) for every active
+ * Run the consumer bureau check (the tenant's approval bureaus) for every active
  * DIRECTOR and TRUSTEE of the deal's entity (manage_asset_finance; goal
  * decision 2a.3). One check per person, sequentially; each attempt is stored
  * against the deal's application (lib/asset-finance/deal-bureau.ts) and the
  * run is audited with every person's outcome. 422 when the entity has no
  * director or trustee; 409 once the deal is decided.
  *
- * A person with a check stored for this application in the last
- * RECHECK_WINDOW_DAYS is not enquired on again (outcome "recent"): every
+ * A person with a check stored for this application inside the tenant's
+ * bureau freshness window (dealRecheckWindowDays) is not enquired on again (outcome "recent"): every
  * enquiry marks their credit record. Body `{ force: true }` re-checks them;
  * it needs decide_asset_finance (403, audited) and the run is audited as
  * ASSET_DEAL_BUREAU_FORCED_RERUN with the people re-checked. Concurrent runs
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         reason: "insufficient_role",
         status: 403,
       })
-      return NextResponse.json({ error: "Re-running a bureau check inside 30 days needs the decide_asset_finance permission" }, { status: 403 })
+      return NextResponse.json({ error: "Re-running a bureau check inside the lender's bureau freshness window needs the decide_asset_finance permission" }, { status: 403 })
     }
     const deal = await prisma.assetFinanceDeal.findFirst({
       where: { id, tenantId: tenant.id },
@@ -70,7 +70,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const startedAt = new Date()
-    const recent = await recentlyCheckedClientIds(tenant.id, deal.applicationId, subjects.map((s) => s.clientId), startedAt)
+    const windowDays = await dealRecheckWindowDays(tenant.id)
+    const recent = await recentlyCheckedClientIds(tenant.id, deal.applicationId, subjects.map((s) => s.clientId), windowDays, startedAt)
     const results: Array<{ clientId: string; role: string; outcome: DealBureauOutcome }> = []
     const auditRun = (interruptedAtClientId?: string) => {
       const rechecked = force
@@ -84,9 +85,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         entity: "AssetFinanceDeal",
         entityId: deal.id,
         newValue: {
-          applicationId: deal.applicationId, provider: "experian", results,
+          applicationId: deal.applicationId, results,
           ...(interruptedAtClientId ? { interrupted: true, interruptedAtClientId } : {}),
-          ...(force ? { forced: true, recheckedWithinDays: RECHECK_WINDOW_DAYS, recheckedClientIds: [...new Set(rechecked)] } : {}),
+          ...(force ? { forced: true, recheckedWithinDays: windowDays, recheckedClientIds: [...new Set(rechecked)] } : {}),
         },
       })
     }

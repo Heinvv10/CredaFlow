@@ -67,7 +67,7 @@ describe("documentAuthenticity", () => {
 
   it("does not producer-check a bank with no allow-list", () => {
     const s = clean()
-    s.bank = "NEDBANK"
+    s.bank = "TYMEBANK"
     s.authenticity!.producer = "Anything"
     expect(documentAuthenticity(facts({ statements: [s] }))).toEqual([])
   })

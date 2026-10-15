@@ -53,7 +53,8 @@ function columnsOf(line: PdfWord[], below: PdfWord[] | undefined, above: PdfWord
   const at = (ws: PdfWord[] | undefined, t: string) => ws?.find((w) => w.text === t)
   const amount = at(line, "Amount")
   const balance = at(line, "Balance")
-  if (!at(line, "Date") || !amount || !balance) return null
+  // The header starts with "Date": a reference that happens to say "Date Amount Balance" must not move the columns.
+  if (line[0]?.text !== "Date" || !amount || !balance) return null
   const charges = at(below, "Charges") ?? at(above, "Accrued") ?? at(line, "Bank")
   return { amount: amount.xMax, balance: balance.xMax, charges: charges?.xMax ?? balance.xMax + 50 }
 }
@@ -103,7 +104,9 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     if (figures[col]) return null
     figures[col] = `${w.text}${suffix}`
   }
-  if (!figures.amount) return null
+  // FNB prints a balance on every row (corpus: no row without one): one without is
+  // a misread or an edit, and a blank balance lets a +X/−X pair of edits cancel out.
+  if (!figures.amount || !figures.balance) return null
   const amountCents = fnbCents(figures.amount)
   const date = rowDate(line[0].text, line[1].text, periodStart)
   if (amountCents === null || !date) return null
@@ -112,7 +115,7 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     date,
     description: text,
     amountCents,
-    balanceCents: figures.balance ? fnbCents(figures.balance) : null,
+    balanceCents: fnbCents(figures.balance),
     page,
   }
 }
