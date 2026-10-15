@@ -52,7 +52,7 @@ export async function transitionMandate(args: {
     })
     if (updated.count === 0) return false
     let cancelledInstructions = 0
-    if (args.to === "SUSPENDED" || args.to === "CANCELLED") {
+    if (args.to === "SUSPENDED" || args.to === "CANCELLED" || args.to === "EXPIRED" || args.to === "REJECTED") {
       const cancelled = await tx.collectionInstruction.updateMany({
         where: { tenantId: args.tenantId, mandateId: args.mandateId, status: "PENDING" },
         data: { status: "CANCELLED", statusReason: `Mandate ${args.to.toLowerCase()}: ${args.reason}` },
@@ -194,6 +194,9 @@ export async function submitMandate(ctx: EngineContext, mandateId: string): Prom
     reason: `Submitted to ${ctx.provider.id}`, actor: engineActor, now: ctx.now,
     set: { providerMandateRef: handle.providerMandateRef, simulated: handle.simulated === true },
   })
+  if (moved && to !== "PENDING_REGISTRATION" && !handle.providerMandateRef) {
+    await flagMandateForReview(ctx, m.id, `${ctx.provider.id} answered ${handle.status} without a reference: obtain it from the provider`)
+  }
   if (!moved) {
     // Cancelled while the call was in flight: keep what the provider gave us.
     await keepProviderReference(ctx, m.id, handle.providerMandateRef, handle.simulated === true)
@@ -260,6 +263,11 @@ export async function refreshMandates(ctx: EngineContext): Promise<RefreshSummar
       if (m.status === "PENDING_REGISTRATION") {
         const found = ctx.provider.findMandate ? await ctx.provider.findMandate(m.id, ctx.creds) : null
         const to = found ? fromProviderStatus(found.status) : null
+        if (found && to !== "PENDING_REGISTRATION" && !found.providerMandateRef) {
+          // Registered (or decided) at the provider but no reference to poll or cancel it by.
+          await flagMandateForReview(ctx, m.id, `${ctx.provider.id} reported the mandate ${found.status} without a reference: obtain it from the provider`)
+          continue
+        }
         if (!found || !to || to === "PENDING_REGISTRATION" || !canTransition(m.status, to)) {
           if (m.statusChangedAt < registrationTimeout) {
             await flagMandateForReview(ctx, m.id,
@@ -282,12 +290,17 @@ export async function refreshMandates(ctx: EngineContext): Promise<RefreshSummar
       if (!current.ref || (current.status !== "PENDING_AUTH" && current.status !== "ACTIVE")) continue
       const to = fromProviderStatus(await ctx.provider.getMandateStatus(current.ref, ctx.creds))
       if (to === current.status || !canTransition(current.status, to)) continue
+      const ended = to === "CANCELLED" || to === "SUSPENDED" || to === "EXPIRED" || to === "REJECTED"
       const moved = await transitionMandate({
         tenantId: ctx.tenantId, mandateId: m.id, from: current.status, to,
         reason: `${ctx.provider.id} reported ${to}`, actor: engineActor, now: ctx.now,
-        set: to === "CANCELLED" || to === "SUSPENDED" ? { providerCancelledAt: ctx.now } : undefined,
+        set: ended ? { providerCancelledAt: ctx.now } : undefined,
       })
       if (moved) summary.changed++
+      // The bank ended a mandate we were collecting on: a person follows it up with the client.
+      if (moved && current.status === "ACTIVE" && to !== "CANCELLED") {
+        await flagMandateForReview(ctx, m.id, `${ctx.provider.id} reported ${to} for an active mandate: contact the client and arrange another way to pay`)
+      }
     } catch (error) {
       summary.errors.push(`${m.id}: ${errorSummary(error)}`)
     }

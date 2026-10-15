@@ -53,7 +53,14 @@ export const SUBMISSION_WINDOW_BUSINESS_DAYS = 3
 /** Engine policy: a submission (mandate or batch) with no answer after this long is reconciled. */
 export const STUCK_SUBMISSION_HOURS = 2
 
-/** Engine policy: an uploaded batch with no load report after this long goes to a person. */
+/**
+ * Engine policy, NOT a verified provider rule: how long a file-based rail is
+ * given to register a mandate or load a batch before a person is asked, and
+ * after which "no record at the provider" counts as confirmed not-found when
+ * withdrawing a mandate. The 48 hours is an assumption about two-day
+ * processing; confirm the provider's registration and load-report timings in
+ * its rulebook before go-live.
+ */
 export const LOAD_REPORT_TIMEOUT_HOURS = 48
 
 /** Engine policy: failed mandate submissions are retried this many times, with doubling backoff, then go to a person. */

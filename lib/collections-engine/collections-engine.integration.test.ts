@@ -71,8 +71,10 @@ suite("collections engine on the simulated rail (real Postgres)", () => {
     expect(payment).toMatchObject({ amount: INSTALMENT_1, paymentMethod: "DEBIT_ORDER", allocationStatus: "ALLOCATED" })
     const result = await prisma.collectionResult.findFirstOrThrow({ where: { tenantId: fx.tenantId } })
     expect(result).toMatchObject({ outcome: "PAID", paymentId: payment.id, simulated: true, reviewReason: null })
+    // Exactly what the rail reported, including its own id for the outcome.
+    const ref = (await instructionsOf(fx))[0].instructionRef
     firstPaid = {
-      instructionRef: (await instructionsOf(fx))[0].instructionRef, status: "PAID", reason: null, rawCode: "SIM-PAID",
+      instructionRef: ref, status: "PAID", reason: null, rawCode: "SIM-PAID", providerResultId: `SIM-${ref}-PAID`,
       settledAmountCents: INSTALMENT_1, resolvedAt: result.resolvedAt, simulated: true,
     }
   })

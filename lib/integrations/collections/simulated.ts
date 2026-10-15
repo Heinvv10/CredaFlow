@@ -128,6 +128,7 @@ function outcomeFor(i: AwaitingInstruction): CollectionOutcome | null {
   const base = {
     instructionRef: i.instructionRef,
     resolvedAt: i.actionDate,
+    providerResultId: `SIM-${i.instructionRef}-${scripted.status}`,
     simulated: true as const,
     raw: { simulated: true, instructionRef: i.instructionRef, scenario: scripted },
   }

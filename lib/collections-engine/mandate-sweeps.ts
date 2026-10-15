@@ -92,6 +92,11 @@ export async function cancelAtProvider(ctx: EngineContext, summary: SweepSummary
         }
         const found = await provider.findMandate(m.id, ctx.creds)
         ref = found?.providerMandateRef ?? null
+        if (found && !ref && found.status !== "PENDING_REGISTRATION") {
+          await flagMandateForReview(ctx, m.id,
+            `${WITHDRAWAL_REVIEW}${m.provider} holds it (${found.status}) but gave no reference to cancel it by: cancel it with the provider, then acknowledge`)
+          continue
+        }
         if (!ref) {
           if (!found && m.statusChangedAt < timeout) {
             // Past the registration window and still unknown to the provider: nothing to withdraw.

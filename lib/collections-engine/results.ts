@@ -23,7 +23,7 @@ import { RESULT_LOOKBACK_DAYS } from "./scheme-rules"
 import { allocatePaidResult } from "./allocate"
 import { noteCollectionOutcome } from "./unpaid"
 import { applyStopRules, applyStopRulesToAll } from "./stop-rules"
-import { ENGINE_ACTOR, errorSummary, isUniqueViolation, type EngineContext } from "./context"
+import { ENGINE_ACTOR, errorSummary, isUniqueViolation, isUniqueViolationOn, type EngineContext } from "./context"
 
 export interface IngestSummary {
   fetched: number
@@ -36,7 +36,18 @@ export interface IngestSummary {
   errors: string[]
 }
 
-export const resultKey = (o: Pick<CollectionOutcome, "instructionRef" | "status">) => `${o.instructionRef}:${o.status}`
+/**
+ * One provider outcome: the instruction, the status, and the provider's own id
+ * for it (else the resolved date). A repeat report collides on this key; a
+ * second, distinct debit under the same reference does not.
+ */
+export const resultKey = (o: Pick<CollectionOutcome, "instructionRef" | "status" | "providerResultId" | "resolvedAt">) =>
+  `${o.instructionRef}:${o.status}:${o.providerResultId ?? o.resolvedAt.toISOString().slice(0, 10)}`
+
+const DOUBLE_DEBIT =
+  "Possible double debit: a second payment was reported for a debit already booked as paid. Not booked: confirm with the provider, then refund or capture it by hand."
+const NOT_APPLIED =
+  "This outcome could not be applied to its instruction (it conflicts with a later presentment of the same instalment). Not booked: confirm with the provider and act by hand."
 
 export const emptyIngest = (): IngestSummary => ({
   fetched: 0, recorded: 0, duplicates: 0, unmatched: 0, allocated: 0, needsReview: 0, suspended: 0, errors: [],
@@ -69,6 +80,32 @@ function reviewReasonFor(o: CollectionOutcome, afterPayment: boolean): string | 
   return null
 }
 
+/** Record an outcome that could not be applied, without touching its instruction. False if it was already recorded. */
+async function recordUnapplied(ctx: EngineContext, instructionId: string, o: CollectionOutcome): Promise<boolean> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const row = await tx.collectionResult.create({
+        data: {
+          tenantId: ctx.tenantId, provider: ctx.provider.id, instructionId, resultKey: resultKey(o),
+          outcome: o.status as "PAID" | "UNPAID" | "DISPUTED", reasonCode: (o.reason ?? null) as CollectionReasonCode | null,
+          rawCode: o.rawCode, rawPayload: (o.raw ?? o) as Prisma.InputJsonValue,
+          settledAmountCents: o.status === "PAID" ? o.settledAmountCents : null, resolvedAt: o.resolvedAt,
+          simulated: o.simulated === true, reviewReason: NOT_APPLIED, processedAt: ctx.now, createdAt: ctx.now,
+        },
+      })
+      await logAuditStrict({
+        tenantId: ctx.tenantId, userEmail: ENGINE_ACTOR.userEmail,
+        action: AuditAction.COLLECTION_RESULT_NEEDS_REVIEW, entity: "CollectionResult", entityId: row.id,
+        newValue: { instructionId, outcome: o.status, reason: NOT_APPLIED },
+      }, tx)
+    })
+    return true
+  } catch (error) {
+    if (isUniqueViolationOn(error, "resultKey")) return false
+    throw error
+  }
+}
+
 export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, summary: IngestSummary): Promise<void> {
   if (o.status === "PENDING") return
   const status = o.status
@@ -95,8 +132,10 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
       const returnedLater = status === "PAID"
         // >=: a return with the same timestamp as the payment came after it.
         && prior.some((r) => r.outcome !== "PAID" && !r.reportedAfterPayment && r.resolvedAt >= o.resolvedAt)
-      reviewReason = returnedLater ? RETURNED_BEFORE_REPORT : reviewReasonFor(o, afterPayment)
-      const moveInstruction = !afterPayment && !returnedLater
+      const secondPayment = status === "PAID" && prior.some((r) => r.outcome === "PAID")
+      reviewReason = secondPayment ? DOUBLE_DEBIT : returnedLater ? RETURNED_BEFORE_REPORT : reviewReasonFor(o, afterPayment)
+      const held = returnedLater || secondPayment
+      const moveInstruction = !afterPayment && !held
       const row = await tx.collectionResult.create({
         data: {
           tenantId: ctx.tenantId, provider: ctx.provider.id, instructionId: instruction.id, resultKey: resultKey(o),
@@ -105,7 +144,7 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
           settledAmountCents: status === "PAID" ? o.settledAmountCents : null,
           resolvedAt: o.resolvedAt, simulated: o.simulated === true,
           reportedAfterPayment: afterPayment, reviewReason, createdAt: ctx.now,
-          ...(status === "PAID" && !returnedLater ? {} : { processedAt: ctx.now }),
+          ...(status === "PAID" && !held ? {} : { processedAt: ctx.now }),
         },
       })
       if (moveInstruction) {
@@ -133,8 +172,19 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
       return row
     })
   } catch (error) {
+    if (isUniqueViolationOn(error, "resultKey")) {
+      summary.duplicates++
+      return
+    }
     if (!isUniqueViolation(error)) throw error
-    summary.duplicates++
+    // Another unique key refused the instruction update (e.g. a later
+    // presentment of the instalment exists): keep the outcome, for a person.
+    if (await recordUnapplied(ctx, instruction.id, o)) {
+      summary.recorded++
+      summary.needsReview++
+    } else {
+      summary.duplicates++
+    }
     return
   }
   summary.recorded++

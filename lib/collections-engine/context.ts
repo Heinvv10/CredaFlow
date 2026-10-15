@@ -95,6 +95,13 @@ export function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
 }
 
+/** A unique violation on one particular key: P2002's target names its fields or its index. */
+export function isUniqueViolationOn(error: unknown, field: string): boolean {
+  if (!isUniqueViolation(error)) return false
+  const target = (error as Prisma.PrismaClientKnownRequestError).meta?.target
+  return Array.isArray(target) ? target.includes(field) : typeof target === "string" && target.includes(field)
+}
+
 /** A SAST calendar date as the @db.Date value Prisma writes. */
 export const dateOnly = (day: string): Date => new Date(`${day}T00:00:00.000Z`)
 

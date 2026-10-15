@@ -31,7 +31,11 @@ export async function POST(req: NextRequest) {
     }
     try {
       await resolveReviewItem(tenant.id, { userId: guard.user.id, userEmail: guard.user.email },
-        { kind, id: body.id, action: body.action } as ReviewAction, reason)
+        {
+          kind, id: body.id, action: body.action, confirmedNotSent: body.confirmedNotSent === true,
+          paymentId: typeof body.paymentId === "string" && body.paymentId ? body.paymentId : undefined,
+          noMoneyReceived: body.noMoneyReceived === true,
+        } as ReviewAction, reason)
       return NextResponse.json({ ok: true })
     } catch (error) {
       const mapped = mandateErrorResponse(error)

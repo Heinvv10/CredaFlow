@@ -43,7 +43,7 @@ describe("POST /api/collections-engine/review", () => {
     const response = await call({ kind: "INSTRUCTION", id: "i1", action: "RELEASE", reason: " provider never got it " })
     expect(response.status).toBe(200)
     expect(resolveMock).toHaveBeenCalledWith("tenant-1", { userId: "u1", userEmail: "admin@example.test" },
-      { kind: "INSTRUCTION", id: "i1", action: "RELEASE" }, "provider never got it")
+      { kind: "INSTRUCTION", id: "i1", action: "RELEASE", confirmedNotSent: false, paymentId: undefined, noMoneyReceived: false }, "provider never got it")
   })
 
   it("answers 409 when the item is not waiting for review", async () => {

@@ -24,8 +24,9 @@ import { MandateError } from "./mandates"
 import { loadEngineContext, providerFor } from "./context"
 
 export type ReviewAction =
-  | { kind: "INSTRUCTION"; id: string; action: "MARK_SUBMITTED" | "RELEASE" | "ACKNOWLEDGE" }
-  | { kind: "RESULT"; id: string; action: "ACKNOWLEDGE" }
+  | { kind: "INSTRUCTION"; id: string; action: "MARK_SUBMITTED" | "RELEASE" | "ACKNOWLEDGE"; confirmedNotSent?: boolean }
+  /** An unbooked PAID result needs paymentId (the receipt captured by hand) or noMoneyReceived. */
+  | { kind: "RESULT"; id: string; action: "ACKNOWLEDGE"; paymentId?: string; noMoneyReceived?: boolean }
   | { kind: "MANDATE"; id: string; action: "RETRY" | "ACKNOWLEDGE" }
 
 export async function resolveReviewItem(
@@ -46,6 +47,10 @@ export async function resolveReviewItem(
     if (found?.state === "ACCEPTED" || found?.state === "REJECTED") {
       throw new MandateError("INVALID_STATE", `Not released: the provider has it (${found.state}). Mark it submitted instead.`)
     }
+    // Without a provider answer that it never arrived, a release needs the staff member's word.
+    if (found?.state !== "NOT_FOUND" && !item.confirmedNotSent) {
+      throw new MandateError("INVALID_STATE", "Confirm with the provider that it was not received, and say so, before releasing it")
+    }
   }
   await prisma.$transaction(async (tx) => {
     let changed = 0
@@ -60,9 +65,23 @@ export async function resolveReviewItem(
         : { status: "PENDING", batchId: null, statusReason: `Released: ${reason}` }
       changed = (await tx.collectionInstruction.updateMany({ where: { id: item.id, tenantId, status: "NEEDS_REVIEW" }, data })).count
     } else if (item.kind === "RESULT") {
+      const result = await tx.collectionResult.findFirst({
+        where: { id: item.id, tenantId }, select: { outcome: true, paymentId: true, instruction: { select: { loanId: true } } },
+      })
+      const unbooked = result?.outcome === "PAID" && !result.paymentId
+      if (unbooked && !!item.paymentId === (item.noMoneyReceived === true)) {
+        throw new MandateError("INVALID_STATE", "This payment was not booked: name the receipt you captured for it, or confirm no money was received")
+      }
+      if (unbooked && item.paymentId) {
+        const receipt = await tx.payment.findFirst({
+          where: { id: item.paymentId, tenantId, loanId: result!.instruction.loanId, reversed: false, collectionResults: { none: {} } },
+          select: { id: true },
+        })
+        if (!receipt) throw new MandateError("INVALID_STATE", "That receipt is not a live receipt on this loan, or it is already linked to a collection")
+      }
       changed = (await tx.collectionResult.updateMany({
         where: { id: item.id, tenantId, reviewReason: { not: null }, reviewResolvedAt: null },
-        data: { reviewResolvedAt: now, reviewResolvedById: actor.userId, reviewNote: reason },
+        data: { reviewResolvedAt: now, reviewResolvedById: actor.userId, reviewNote: reason, ...(unbooked && item.paymentId ? { paymentId: item.paymentId } : {}) },
       })).count
     } else if (item.action === "RETRY") {
       changed = (await tx.debitMandate.updateMany({
@@ -81,7 +100,11 @@ export async function resolveReviewItem(
       action: AuditAction.COLLECTION_REVIEW_RESOLVED,
       entity: item.kind === "INSTRUCTION" ? "CollectionInstruction" : item.kind === "RESULT" ? "CollectionResult" : "DebitMandate",
       entityId: item.id,
-      newValue: { action: item.action, reason },
+      newValue: {
+        action: item.action, reason,
+        ...(item.kind === "INSTRUCTION" && item.action === "RELEASE" ? { confirmedNotSent: item.confirmedNotSent === true } : {}),
+        ...(item.kind === "RESULT" ? { paymentId: item.paymentId ?? null, noMoneyReceived: item.noMoneyReceived === true } : {}),
+      },
     }, tx)
   })
 }

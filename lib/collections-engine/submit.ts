@@ -47,6 +47,8 @@ async function cancelInstruction(ctx: EngineContext, id: string, reason: string)
   })
 }
 
+const OMITTED_FROM_REPORT = "Not in the provider's load report: confirm with the provider, then mark it submitted or release it"
+
 /** Write a provider's per-instruction answer (sync submit or a load report) onto the batch. */
 export async function applyLoadReport(ctx: EngineContext, batchId: string, from: "SUBMITTING" | "UPLOADED", refs: string[], report: Pick<SubmitResult, "accepted" | "rejected" | "batchRef" | "simulated">): Promise<{ accepted: number; rejected: number }> {
   const rejected = new Map(report.rejected.map((r) => [r.instructionRef, redact(r.error)]))
@@ -56,12 +58,18 @@ export async function applyLoadReport(ctx: EngineContext, batchId: string, from:
       const where = { tenantId: ctx.tenantId, batchId, instructionRef: ref, status: from }
       if (accepted.has(ref)) await tx.collectionInstruction.updateMany({ where, data: { status: "SUBMITTED", submittedAt: ctx.now } })
       else if (rejected.has(ref)) await tx.collectionInstruction.updateMany({ where, data: { status: "REJECTED", statusReason: rejected.get(ref) } })
-      // Neither: left as is for reconcileStuckInstructions.
+      else {
+        // The report does not mention it: its fate is unknown, so a person decides (never re-sent on its own).
+        const done = await tx.collectionInstruction.updateMany({ where, data: { status: "NEEDS_REVIEW", statusReason: OMITTED_FROM_REPORT } })
+        if (done.count > 0) await audit(ctx, AuditAction.COLLECTION_INSTRUCTION_NEEDS_REVIEW, "CollectionBatch", batchId, { instructionRef: ref, reason: OMITTED_FROM_REPORT }, tx)
+      }
     }
+    const omitted = refs.filter((r) => !accepted.has(r) && !rejected.has(r)).length
     await tx.collectionBatch.update({
       where: { id: batchId, tenantId: ctx.tenantId },
       data: {
-        status: "SUBMITTED", providerBatchRef: report.batchRef, submittedAt: ctx.now, ...(report.simulated ? { simulated: true } : {}),
+        status: omitted > 0 ? "NEEDS_REVIEW" : "SUBMITTED", ...(omitted > 0 ? { error: `${omitted} instruction(s) not in the load report` } : {}),
+        providerBatchRef: report.batchRef, submittedAt: ctx.now, ...(report.simulated ? { simulated: true } : {}),
         acceptedCount: refs.filter((r) => accepted.has(r)).length, rejectedCount: refs.filter((r) => rejected.has(r)).length,
       },
     })

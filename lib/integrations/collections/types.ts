@@ -151,6 +151,12 @@ export interface CollectionOutcome {
   rawCode: string | null
   settledAmountCents: number | null
   resolvedAt: Date
+  /**
+   * The provider's own id for this outcome (its transaction id). Tells a
+   * second debit under one instruction reference apart from a repeat report
+   * of the same one; without it the engine falls back to the resolved date.
+   */
+  providerResultId?: string | null
   /** The provider's record as received, persisted for audit. */
   raw?: unknown
   /** Synthetic provider outcome: no money moved. */

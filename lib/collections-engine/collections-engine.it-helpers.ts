@@ -14,7 +14,7 @@ import { vi } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { registerProvider } from "@/lib/integrations/collections/registry"
 import { simulatedCollections } from "@/lib/integrations/collections/simulated"
-import type { CollectionOutcome, CollectionProvider, InstructionLookup } from "@/lib/integrations/collections/types"
+import type { CollectionOutcome, CollectionProvider, InstructionLookup, MandateStatusValue } from "@/lib/integrations/collections/types"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { runTenant, type CollectionsCronKind, type TenantCollectionsRun } from "./cron"
 import { dateOnly, loadEngineContext, type EngineContext } from "./context"
@@ -49,6 +49,12 @@ export const flaky = {
   rejectAll: null as string | null,
   /** Replace fetchResults' answer. */
   outcomes: null as CollectionOutcome[] | null,
+  /** The load report leaves out the first instruction of the batch. */
+  omitFromLoadReport: false,
+  /** getMandateStatus answers this instead of the scripted outcome. */
+  mandateStatus: null as MandateStatusValue | null,
+  /** findMandate reports the mandate registered but gives no reference. */
+  registeredWithoutRef: false,
   calls: { collect: [] as string[][], createMandate: 0, cancelMandate: [] as string[] },
 }
 
@@ -62,6 +68,9 @@ export function resetFlaky(): void {
   flaky.registerNever = false
   flaky.rejectAll = null
   flaky.outcomes = null
+  flaky.omitFromLoadReport = false
+  flaky.mandateStatus = null
+  flaky.registeredWithoutRef = false
   flaky.calls = { collect: [], createMandate: 0, cancelMandate: [] }
 }
 
@@ -87,7 +96,15 @@ const flakyRail: CollectionProvider = {
   },
   async getBatchLoadReport(batch, creds) {
     if (flaky.rejectAll) return { state: "LOADED", accepted: [], rejected: batch.instructionRefs.map((instructionRef) => ({ instructionRef, error: flaky.rejectAll! })) }
-    return simulatedCollections.getBatchLoadReport!(batch, creds)
+    const report = await simulatedCollections.getBatchLoadReport!(batch, creds)
+    if (flaky.omitFromLoadReport && report.state === "LOADED") {
+      const [, ...rest] = [...batch.instructionRefs].sort()
+      return { state: "LOADED", accepted: rest, rejected: [] }
+    }
+    return report
+  },
+  async getMandateStatus(ref, creds) {
+    return flaky.mandateStatus ?? simulatedCollections.getMandateStatus(ref, creds)
   },
   async fetchResults(window, creds) {
     return flaky.outcomes ?? simulatedCollections.fetchResults(window, creds)
@@ -101,7 +118,11 @@ const flakyRail: CollectionProvider = {
 Object.defineProperty(flakyRail, "findMandate", {
   enumerable: true,
   get: () => (flaky.noFindMandate ? undefined
-    : async (ref: string, creds: Record<string, string>) => (flaky.registerNever ? null : simulatedCollections.findMandate!(ref, creds))),
+    : async (ref: string, creds: Record<string, string>) => {
+      if (flaky.registerNever) return null
+      const found = await simulatedCollections.findMandate!(ref, creds)
+      return found && flaky.registeredWithoutRef ? { ...found, providerMandateRef: null } : found
+    }),
 })
 Object.defineProperty(flakyRail, "findInstruction", {
   enumerable: true,

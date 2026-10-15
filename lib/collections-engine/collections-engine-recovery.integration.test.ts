@@ -73,7 +73,7 @@ suite("collections engine recovery (real Postgres)", () => {
     expect(flaky.calls.collect).toHaveLength(1)
     expect((await prisma.collectionBatch.findFirstOrThrow({ where: { id: batch.id, tenantId: fx.tenantId } })).status).toBe("NEEDS_REVIEW")
 
-    await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "RELEASE" }, "Provider confirms it never received the batch"))
+    await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "RELEASE", confirmedNotSent: true }, "Provider confirms it never received the batch"))
     expect((await instructionsOf(fx))[0].status).toBe("PENDING")
     expect(await prisma.auditLog.count({ where: { tenantId: fx.tenantId, action: "COLLECTION_REVIEW_RESOLVED", entityId: i.id, userId: fx.userId } })).toBe(1)
     await run(fx, "SUBMIT")

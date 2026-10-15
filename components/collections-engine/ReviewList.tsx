@@ -30,7 +30,7 @@ export function ReviewList({ queue, canManage, showLoan }: { queue: ReviewQueue;
           <div>
             {r.outcome.toLowerCase()} result of {formatDate(r.resolvedAt)}: {r.reviewReason}
             {loanLink(r.loanId)}
-            {canManage && <ReviewActions kind="RESULT" id={r.id} actions={["ACKNOWLEDGE"]} />}
+            {canManage && <ReviewActions kind="RESULT" id={r.id} actions={["ACKNOWLEDGE"]} unbookedPayment={r.outcome === "PAID" && !r.paymentId} />}
           </div>
         </InfoStrip>
       ))}
