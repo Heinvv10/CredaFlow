@@ -16,7 +16,8 @@ import type { StatementRead, StatementTransaction } from "./types"
 const AMOUNT_TOKEN = /-?\d{1,3}(?: \d{3})*\.\d{2}/g
 const ROW_DATE = /^\s*(\d{2}\/\d{2}\/\d{4})\s+(.*)$/
 const TABLE_HEADER = /^\s*Date\s+Description\s+(Category\s+)?Money In\s+Money Out/
-const TABLE_END = /Includes VAT|Client Care Centre|Unique Document No/
+/** The footer lines as printed, at the start of a line: a description saying "Includes VAT" is not one. */
+const TABLE_END = /^\s*(\*\s*Includes VAT|24hr Client Care Centre|Client Care Centre|Unique Document No)/
 
 function headerAmount(text: string, label: string): number | null {
   const m = lineMatch(text, new RegExp(`${label}:[ \\t]*(-?R?-?\\d[\\d ]*\\.\\d{2})`))
