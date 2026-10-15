@@ -63,7 +63,7 @@
     "imapflow": "^1.2.18",
     "lucide-react": "^1.7.0",
     "mailparser": "^3.9.14",
-    "next": "^16.2.12",
+    "next": "^16.4.1",
     "next-auth": "^5.0.0-beta.32",
     "node-cron": "^4.2.1",
     "nodemailer": "^9.0.3",
