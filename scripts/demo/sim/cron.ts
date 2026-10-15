@@ -58,6 +58,7 @@ export const SKIPPED_CRONS: Readonly<Record<string, string>> = {
   "poll-wa-templates": "polls Meta's WABA template API; no WhatsApp account in the sim",
   "automation-engine": "on-demand from Settings → Automation; production has no schedule for it",
   "cleanup-disclosures": "file housekeeping production does not schedule; no effect on demo data",
+  "sweep-stuck-selfies": "recovers a selfie whose worker died; the sim's workers do not, and its faked clock would age live attempts past the timeout",
   "payment-reminders": "duplicate of `reminders` (instrumentation.cron-census.test.ts); running both doubles every reminder",
 }
 
