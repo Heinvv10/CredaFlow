@@ -16,7 +16,7 @@ import { getPayoutProvider } from "./registry"
 import { canTransition, isSettled, statusAfterSend, type PayoutStatus } from "./state"
 import type { InitiateResult, PayoutProvider } from "./types"
 
-export type PayoutDb = Pick<typeof prisma, "disbursementPayout" | "auditLog" | "tenantConfig" | "$transaction">
+export type PayoutDb = Pick<typeof prisma, "disbursementPayout" | "auditLog" | "tenantConfig" | "loan" | "$transaction">
 
 export interface Actor {
   id: string | null
@@ -83,6 +83,13 @@ export async function dispatchPayout(db: PayoutDb, args: { tenantId: string; pay
   const config = await db.tenantConfig.findUnique({ where: { tenantId: args.tenantId }, select: { payoutsEngineEnabled: true } })
   if (config?.payoutsEngineEnabled !== true) {
     return { kind: "not_sendable", reason: "Payouts are turned off for this lender (Settings → Integrations → Payouts); nothing was sent" }
+  }
+
+  // Never send on a loan that is no longer payable (cancelled by a reversal,
+  // completed, written off): the claim below cannot be undone.
+  const loan = await db.loan.findFirst({ where: { id: payout.loanId, tenantId: args.tenantId }, select: { status: true } })
+  if (loan?.status !== "ACTIVE" && loan?.status !== "DEFAULTED") {
+    return { kind: "not_sendable", reason: "The loan is no longer active; nothing was sent" }
   }
 
   // Resolve the channel BEFORE claiming: a misconfigured channel leaves the

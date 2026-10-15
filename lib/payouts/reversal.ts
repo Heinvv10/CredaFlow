@@ -14,10 +14,13 @@
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
+import { lockLoanForPayout, raceRefusal } from "./loan-lock"
 import { applyReversalEffects } from "./reversal-effects"
+import { railRefusal } from "./reversal-rail"
 import { isOver, type PayoutStatus } from "./state"
 
-export type ReversalDb = Pick<typeof prisma, "disbursementPayout" | "disbursementReversal" | "loan" | "payment" | "auditLog" | "bureauSubmissionRecord" | "$transaction">
+export type ReversalDb = Pick<typeof prisma, "disbursementPayout" | "disbursementReversal" | "loan" | "payment" | "auditLog" | "bureauSubmissionRecord" | "tenantConfig" | "$transaction">
+type Reader = Pick<typeof prisma, "disbursementPayout" | "loan" | "payment">
 
 export type ReversalResult =
   | { ok: true; reversalId: string; status: "REQUESTED" | "APPROVED" | "REJECTED"; bureauCancellationRequired: boolean }
@@ -26,13 +29,15 @@ export type ReversalResult =
 const actorOf = (a: { id: string; email: string }) => ({ userId: a.id, userEmail: a.email })
 
 /** Why this loan's disbursement cannot be reversed now, or null. */
-async function reversalBlocker(db: ReversalDb, tenantId: string, loanId: string): Promise<string | null> {
+async function reversalBlocker(db: Reader, tenantId: string, loanId: string): Promise<string | null> {
   const loan = await db.loan.findFirst({ where: { id: loanId, tenantId }, select: { status: true } })
   if (!loan) return "Loan not found"
   if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED") return "Only an active loan's disbursement can be reversed"
   const attempts = await db.disbursementPayout.findMany({ where: { tenantId, loanId }, select: { status: true } })
   if (attempts.length === 0) return "This loan was not paid out through the payout channel; there is no payout to reverse"
   if (attempts.some((a) => !isOver(a.status as PayoutStatus))) return "A payout attempt is paid or still in progress; the money may have reached the borrower"
+  const conflict = await db.disbursementPayout.count({ where: { tenantId, loanId, providerConflictAt: { not: null }, conflictResolvedAt: null } })
+  if (conflict > 0) return "A provider reported money moving on an attempt already over; resolve that first"
   const live = await db.payment.count({ where: { tenantId, loanId, reversed: false } })
   if (live > 0) return "The loan has a live receipt; reverse it first"
   return null
@@ -50,7 +55,12 @@ export async function requestDisbursementReversal(db: ReversalDb, args: {
   if (open) return { ok: false, status: 409, error: "A reversal of this disbursement is already requested" }
   // A loan the bureau already knows needs a cancellation (V) record by hand.
   const bureauKnown = (await db.bureauSubmissionRecord.count({ where: { tenantId: args.tenantId, loanId: args.loanId, mode: "LIVE", heldReason: null } })) > 0
-  return db.$transaction(async (tx) => {
+  try {
+    return await db.$transaction(async (tx) => {
+    // The loan lock first (lib/payouts/loan-lock.ts), then re-check under it.
+    await lockLoanForPayout(tx, args.tenantId, args.loanId)
+    const late = await reversalBlocker(tx, args.tenantId, args.loanId)
+    if (late) return { ok: false as const, status: 409, error: late }
     const created = await tx.disbursementReversal.create({
       data: { tenantId: args.tenantId, loanId: args.loanId, reason: args.reason, requestedById: args.actor.id },
       select: { id: true },
@@ -60,7 +70,12 @@ export async function requestDisbursementReversal(db: ReversalDb, args: {
       entity: "DisbursementReversal", entityId: created.id, newValue: { loanId: args.loanId, reason: args.reason, bureauCancellationRequired: bureauKnown },
     }, tx)
     return { ok: true as const, reversalId: created.id, status: "REQUESTED" as const, bureauCancellationRequired: bureauKnown }
-  })
+    })
+  } catch (error) {
+    const refusal = raceRefusal(error)
+    if (refusal) return refusal
+    throw error
+  }
 }
 
 export async function decideDisbursementReversal(db: ReversalDb, args: {
@@ -83,9 +98,18 @@ export async function decideDisbursementReversal(db: ReversalDb, args: {
   if (args.approve) {
     const blocker = await reversalBlocker(db, args.tenantId, r.loanId)
     if (blocker) return { ok: false, status: 409, error: blocker }
+    // Ask the rail, where it can be asked, that no attempt paid.
+    const rail = await railRefusal(db, { tenantId: args.tenantId, loanId: r.loanId, actor: args.actor })
+    if (rail) return { ok: false, status: 409, error: rail }
   }
   const now = new Date()
-  return db.$transaction(async (tx) => {
+  try {
+    return await db.$transaction(async (tx) => {
+    if (args.approve) {
+      await lockLoanForPayout(tx, args.tenantId, r.loanId)
+      const late = await reversalBlocker(tx, args.tenantId, r.loanId)
+      if (late) return { ok: false as const, status: 409, error: late }
+    }
     const moved = await tx.disbursementReversal.updateMany({
       where: { id: r.id, tenantId: args.tenantId, status: "REQUESTED" },
       data: { status: args.approve ? "APPROVED" : "REJECTED", decidedById: args.actor.id, decidedAt: now, decisionNote: args.note },
@@ -99,5 +123,10 @@ export async function decideDisbursementReversal(db: ReversalDb, args: {
       entity: "DisbursementReversal", entityId: r.id, newValue: { loanId: r.loanId, approved: args.approve, note: args.note, ...effects },
     }, tx)
     return { ok: true as const, reversalId: r.id, status: args.approve ? "APPROVED" as const : "REJECTED" as const, bureauCancellationRequired: effects?.bureauCancellationRequired ?? false }
-  })
+    })
+  } catch (error) {
+    const refusal = raceRefusal(error)
+    if (refusal) return refusal
+    throw error
+  }
 }

@@ -22,9 +22,10 @@ export default async function OutstandingPayoutsPage() {
   const tenantId = await getStaffTenantId()
   const [payouts, reversals] = await Promise.all([
     prisma.disbursementPayout.findMany({
-      where: { tenantId, status: { in: OPEN } },
+      // Unsettled, or settled but contradicted by a later provider report.
+      where: { tenantId, OR: [{ status: { in: OPEN } }, { providerConflictAt: { not: null }, conflictResolvedAt: null }] },
       orderBy: [{ createdAt: "asc" }],
-      select: { id: true, loanId: true, attempt: true, status: true, amountCents: true, provider: true, bankName: true, accountNumber: true, submittedAt: true, createdAt: true, loan: { select: { reference: true } } },
+      select: { id: true, loanId: true, attempt: true, status: true, providerConflictState: true, conflictResolvedAt: true, amountCents: true, provider: true, bankName: true, accountNumber: true, submittedAt: true, createdAt: true, loan: { select: { reference: true } } },
     }),
     prisma.disbursementReversal.findMany({
       where: { tenantId, status: "REQUESTED" },
@@ -39,7 +40,7 @@ export default async function OutstandingPayoutsPage() {
         <Breadcrumbs className="mb-3" items={[{ label: "Disbursements", href: "/disbursements" }, { label: "Outstanding payouts" }]} />
         <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">Outstanding payouts</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--cf-text-muted)]">
-          Payouts not yet settled, oldest first: waiting to send, at the provider, needing review, or a retry awaiting approval. Open the loan to act.
+          Payouts not yet settled, oldest first: waiting to send, at the provider, needing review, a retry awaiting approval, or a failed payout a provider now reports paid. Open the loan to act.
         </p>
       </div>
       <DataPanel title="Payouts" description={`${payouts.length} not settled`}>
@@ -62,7 +63,10 @@ export default async function OutstandingPayoutsPage() {
                 <TableRow key={p.id}>
                   <TableCell><Link href={`/loans/${p.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{p.loan.reference}</Link></TableCell>
                   <TableCell>#{p.attempt} · {p.provider}</TableCell>
-                  <TableCell><StatusPill tone={p.status === "NEEDS_REVIEW" ? "danger" : "warning"}>{PAYOUT_STATUS_LABELS[p.status as PayoutStatus]}</StatusPill></TableCell>
+                  <TableCell>
+                    <StatusPill tone={p.status === "NEEDS_REVIEW" || p.providerConflictState ? "danger" : "warning"}>{PAYOUT_STATUS_LABELS[p.status as PayoutStatus]}</StatusPill>
+                    {p.providerConflictState && !p.conflictResolvedAt && <p className="mt-1 text-[11px] text-[var(--cf-danger)]">Provider now reports {p.providerConflictState}</p>}
+                  </TableCell>
                   <TableCell>{p.bankName} ••••{p.accountNumber.slice(-4)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatZAR(p.amountCents)}</TableCell>
                   <TableCell>{fmt(p.submittedAt)}</TableCell>

@@ -15,6 +15,8 @@ export interface PayoutAttemptView {
   submittedAt: string | null
   resolvedAt: string | null
   resolutionNote: string | null
+  /** A provider reported money moving after this attempt was over, not yet resolved. */
+  conflict: { state: string; detail: string | null; at: string } | null
 }
 
 export interface PayoutView {
@@ -23,13 +25,16 @@ export interface PayoutView {
   /** Newest attempt first. */
   attempts: PayoutAttemptView[]
   reversal: { id: string; status: "REQUESTED" | "APPROVED" | "REJECTED"; reason: string; requestedAt: string; decisionNote: string | null } | null
+  /** The credit bureau already knows the account: a reversal needs a cancellation (V) record by hand. */
+  bureauRegistered: boolean
 }
 
 /** A loan's payout attempts and reversal as the staff page shows them: account numbers masked to the last four digits. */
 export async function loadPayoutView(tenantId: string, loanId: string, loanStatus: string): Promise<PayoutView | null> {
-  const [attempts, reversal] = await Promise.all([
+  const [attempts, reversal, bureauLines] = await Promise.all([
     prisma.disbursementPayout.findMany({ where: { tenantId, loanId }, orderBy: { attempt: "desc" } }),
     prisma.disbursementReversal.findFirst({ where: { tenantId, loanId }, orderBy: { requestedAt: "desc" } }),
+    prisma.bureauSubmissionRecord.count({ where: { tenantId, loanId, mode: "LIVE", heldReason: null } }),
   ])
   if (attempts.length === 0) return null
   return {
@@ -49,7 +54,11 @@ export async function loadPayoutView(tenantId: string, loanId: string, loanStatu
       submittedAt: p.submittedAt?.toISOString() ?? null,
       resolvedAt: p.resolvedAt?.toISOString() ?? null,
       resolutionNote: p.resolutionNote,
+      conflict: p.providerConflictAt && !p.conflictResolvedAt
+        ? { state: p.providerConflictState ?? "", detail: p.providerConflictDetail, at: p.providerConflictAt.toISOString() }
+        : null,
     })),
+    bureauRegistered: bureauLines > 0,
     reversal: reversal
       ? { id: reversal.id, status: reversal.status, reason: reversal.reason, requestedAt: reversal.requestedAt.toISOString(), decisionNote: reversal.decisionNote }
       : null,

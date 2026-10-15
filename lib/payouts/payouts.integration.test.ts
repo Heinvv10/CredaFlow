@@ -115,7 +115,7 @@ suite.sequential("payouts (real Postgres)", () => {
     await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PAID", paidAt: new Date() } }), /resolved by a named person/)
     await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PENDING" } }), /NEEDS_REVIEW -> PENDING is not allowed/)
     // Maker-checker in the database: the disburser cannot settle it by hand.
-    await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PAID", paidAt: new Date(), resolvedById: tenant.userId, resolutionNote: "self" } }), /disburser or the requester cannot settle/)
+    await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PAID", paidAt: new Date(), resolvedById: tenant.userId, resolutionNote: "self" } }), /disburser, the requester or the approver cannot settle/)
     const out = await resolvePayout(prisma, { tenantId: tenant.tenantId, payoutId: id, actor: checker(), request: { action: "confirm_paid", note: "Seen on the bank statement" } })
     expect(out).toEqual({ ok: true, status: "PAID", changed: true })
     await refused(db.disbursementPayout.update({ where: { id }, data: { failureReason: "x" } }), /settled payout is immutable/)

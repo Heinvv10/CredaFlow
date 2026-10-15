@@ -21,7 +21,8 @@ export function PayoutRemedies({ view }: { view: PayoutView }) {
   const [message, setMessage] = useState<string | null>(null)
   const loanOpen = view.loanStatus === "ACTIVE" || view.loanStatus === "DEFAULTED"
   const openReversal = view.reversal?.status === "REQUESTED" ? view.reversal : null
-  const canRemedy = loanOpen && OVER.has(latest.status) && !openReversal
+  const conflicted = view.attempts.some((a) => a.conflict)
+  const canRemedy = loanOpen && OVER.has(latest.status) && !openReversal && !conflicted
 
   async function act(body: Record<string, unknown>) {
     setBusy(true)
@@ -34,11 +35,14 @@ export function PayoutRemedies({ view }: { view: PayoutView }) {
     setBusy(false)
   }
 
-  if (!canRemedy && latest.status !== "AWAITING_APPROVAL" && !openReversal) return null
+  if (!canRemedy && latest.status !== "AWAITING_APPROVAL" && !openReversal && !(view.reversal?.status === "APPROVED" && view.bureauRegistered)) return null
   return (
     <div className="space-y-2 border-t border-[var(--cf-border-subtle)] pt-3">
       {latest.status === "AWAITING_APPROVAL" && (
         <p className="text-sm text-[var(--cf-text)]">Retry #{latest.attempt} to ••••{latest.accountTail} awaits a second LOAN_ADMIN (not the requester or the disburser).</p>
+      )}
+      {(openReversal || view.reversal?.status === "APPROVED") && view.bureauRegistered && (
+        <p className="text-sm font-medium text-[var(--cf-warning)]">This account is registered with the credit bureau: a cancellation (V) record must be submitted by hand once the reversal is approved.</p>
       )}
       {openReversal && (
         <p className="text-sm text-[var(--cf-text)]">Reversal requested: {openReversal.reason}. A second LOAN_ADMIN (not the requester or the disburser) decides.</p>

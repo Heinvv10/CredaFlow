@@ -6,6 +6,7 @@
 import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome } from "./conflicts"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
 import type { PayoutNotification, ProviderPayoutState } from "./types"
@@ -16,8 +17,9 @@ export const STALE_SUBMITTING_MS = 10 * 60 * 1000
 export type ResolveAction =
   | { action: "send" }
   | { action: "check" }
-  | { action: "confirm_paid"; note: string; providerReference?: string | null }
+  | { action: "confirm_paid"; note: string; providerReference?: string | null; paidAt?: Date | null }
   | { action: "confirm_failed"; note: string }
+  | { action: "resolve_conflict"; outcome: ConflictOutcome; note: string; paidAt?: Date | null }
 
 export type ResolveResult =
   | { ok: true; status: PayoutStatus; changed: boolean; dispatch?: DispatchOutcome }
@@ -25,19 +27,32 @@ export type ResolveResult =
 
 const CONFIRMABLE: readonly PayoutStatus[] = ["NEEDS_REVIEW", "SUBMITTED", "PROCESSING"]
 
+/** A bank value date: yyyy-mm-dd or ISO, not in the future. Undefined when absent, null when invalid. */
+function valueDate(value: unknown, now = new Date()): Date | undefined | null {
+  if (value === undefined || value === null || value === "") return undefined
+  if (typeof value !== "string") return null
+  const at = new Date(value.length === 10 ? `${value}T12:00:00+02:00` : value)
+  return Number.isNaN(at.getTime()) || at.getTime() > now.getTime() ? null : at
+}
+
 export function parseResolveAction(body: unknown): ResolveAction | null {
   const b = (body ?? {}) as Record<string, unknown>
   const note = typeof b.note === "string" ? b.note.trim() : ""
+  const paidAt = valueDate(b.paidAt)
+  if (paidAt === null) return null
   switch (b.action) {
     case "send":
     case "check":
       return { action: b.action }
     case "confirm_paid":
       if (note.length < 5) return null
-      return { action: "confirm_paid", note: note.slice(0, 1000), providerReference: typeof b.providerReference === "string" ? b.providerReference.trim().slice(0, 120) || null : null }
+      return { action: "confirm_paid", note: note.slice(0, 1000), paidAt: paidAt ?? null, providerReference: typeof b.providerReference === "string" ? b.providerReference.trim().slice(0, 120) || null : null }
     case "confirm_failed":
       if (note.length < 5) return null
       return { action: "confirm_failed", note: note.slice(0, 1000) }
+    case "resolve_conflict":
+      if (note.length < 5 || (b.outcome !== "paid" && b.outcome !== "not_paid")) return null
+      return { action: "resolve_conflict", outcome: b.outcome, note: note.slice(0, 1000), paidAt: paidAt ?? null }
     default:
       return null
   }
@@ -51,8 +66,13 @@ export async function applyProviderState(db: PayoutDb, args: {
   reason?: string
   source: "webhook" | "status_query"
   actor: Actor
-}): Promise<{ status: PayoutStatus; changed: boolean }> {
+}): Promise<{ status: PayoutStatus; changed: boolean; conflict?: true }> {
   const current = args.payout.status as PayoutStatus
+  // Money reported moving on an attempt already over: never applied, never lost.
+  if (CONFLICTABLE.includes(current) && args.state !== "FAILED") {
+    await recordProviderConflict(db, { tenantId: args.tenantId, payout: args.payout, state: args.state, reason: args.reason, source: args.source, actor: args.actor })
+    return { status: current, changed: false, conflict: true }
+  }
   const to = nextFromProvider(current, args.state)
   if (!to) return { status: current, changed: false }
   const changed = await transitionPayout(db, {
@@ -134,18 +154,23 @@ export async function resolvePayout(db: PayoutDb, args: {
     return { ok: true, ...out }
   }
 
+  if (req.action === "resolve_conflict") {
+    const out = await resolveProviderConflict(db, { tenantId: args.tenantId, payout, outcome: req.outcome, note: req.note, paidAt: req.paidAt ?? null, actor: args.actor })
+    return out.ok ? { ok: true, status: out.status, changed: true } : out
+  }
+
   if (!CONFIRMABLE.includes(status)) {
     return { ok: false, status: 409, error: "Only a payout under review or awaiting confirmation can be confirmed by staff" }
   }
   // Maker-checker (the database repeats it): the person who disbursed, or who
   // requested this attempt, does not also declare where the money went.
-  if (args.actor.id === payout.disbursedById || args.actor.id === payout.createdById) {
+  if (args.actor.id === payout.disbursedById || args.actor.id === payout.createdById || args.actor.id === payout.approvedById) {
     await logAuditStrict({
       tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
       action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "DisbursementPayout", entityId: payout.id,
       newValue: { action: req.action, reason: "maker_checker" },
     }, db)
-    return { ok: false, status: 403, error: "Another LOAN_ADMIN must confirm this payout: you disbursed the loan or requested this attempt" }
+    return { ok: false, status: 403, error: "Another LOAN_ADMIN must confirm this payout: you disbursed the loan, or requested or approved this attempt" }
   }
   const to: PayoutStatus = req.action === "confirm_paid" ? "PAID" : "FAILED"
   const changed = await transitionPayout(db, {
@@ -154,6 +179,8 @@ export async function resolvePayout(db: PayoutDb, args: {
       resolvedById: args.actor.id,
       resolutionNote: req.note,
       ...(req.action === "confirm_paid" && req.providerReference ? { providerReference: req.providerReference } : {}),
+      // The bank's value date (e.g. from a Netcash report), not the click.
+      ...(req.action === "confirm_paid" && req.paidAt ? { paidAt: req.paidAt } : {}),
     },
     actor: args.actor, source: "staff_confirm", detail: { note: req.note },
   })

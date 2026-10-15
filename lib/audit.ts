@@ -574,6 +574,9 @@ export const AuditAction = {
   PAYOUT_STATUS_CHANGED: "PAYOUT_STATUS_CHANGED",
   // A staff payout action refused by a rule (maker-checker, engine off).
   PAYOUT_ACTION_REFUSED: "PAYOUT_ACTION_REFUSED",
+  // A provider reported money moving on an attempt already over, and its resolution.
+  PAYOUT_PROVIDER_CONFLICT: "PAYOUT_PROVIDER_CONFLICT",
+  PAYOUT_PROVIDER_CONFLICT_RESOLVED: "PAYOUT_PROVIDER_CONFLICT_RESOLVED",
   // Retries of a failed/returned payout and reversals of a disbursement whose
   // money never arrived (lib/payouts/retry.ts, lib/payouts/reversal.ts).
   PAYOUT_RETRY_REQUESTED: "PAYOUT_RETRY_REQUESTED",

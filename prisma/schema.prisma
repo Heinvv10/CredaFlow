@@ -5044,6 +5044,15 @@ model DisbursementPayout {
   approvedAt        DateTime?
   paidAt            DateTime?
   returnedAt        DateTime?
+  // A provider reported PAID/RETURNED/PROCESSING for an attempt already over
+  // (FAILED/CANCELLED): recorded, never applied, and it blocks a retry or a
+  // reversal of the loan until a second person resolves it.
+  providerConflictState  String?
+  providerConflictAt     DateTime?
+  providerConflictDetail String?
+  conflictResolvedById   String?
+  conflictResolvedAt     DateTime?
+  conflictResolutionNote String?
   provider          String
   idempotencyKey    String
   amountCents       Int

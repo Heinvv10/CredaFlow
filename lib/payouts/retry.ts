@@ -16,6 +16,7 @@ import { findVerifiedBankStatementForMandate } from "@/lib/compliance/debit-mand
 import { assertPayoutAvs, PayoutAvsError } from "./avs"
 import { payoutIdempotencyKey } from "./disbursement"
 import { getPayoutProvider } from "./registry"
+import { payoutBlocker, raceRefusal } from "./loan-lock"
 import { isOver, type PayoutStatus } from "./state"
 import { PayoutProviderError } from "./types"
 
@@ -44,6 +45,8 @@ export async function requestPayoutRetry(db: RetryDb, args: { tenantId: string; 
   }
   const openReversal = await db.disbursementReversal.findFirst({ where: { tenantId: args.tenantId, loanId: loan.id, status: { not: "REJECTED" } }, select: { id: true } })
   if (openReversal) return { ok: false, status: 409, error: "A reversal of this disbursement is open; decide it first" }
+  const conflict = await db.disbursementPayout.findFirst({ where: { tenantId: args.tenantId, loanId: loan.id, providerConflictAt: { not: null }, conflictResolvedAt: null }, select: { id: true } })
+  if (conflict) return { ok: false, status: 409, error: "A provider reported money moving on an attempt already over; resolve that first" }
 
   const c = loan.client
   if (!c.bankName || !c.bankBranchCode || !c.bankAccountNumber || (c.accountType !== "CHEQUE" && c.accountType !== "SAVINGS" && c.accountType !== "OTHER")) {
@@ -61,7 +64,7 @@ export async function requestPayoutRetry(db: RetryDb, args: { tenantId: string; 
     avs = await assertPayoutAvs(db, {
       tenantId: args.tenantId, applicationId: loan.applicationId, client: c,
       account: { bankName: c.bankName, bankAccountNumber: c.bankAccountNumber, bankBranchCode: c.bankBranchCode, accountType: c.accountType },
-      notBefore: last.resolvedAt ?? last.updatedAt,
+      notBefore: last.resolvedAt ?? last.submittedAt ?? last.createdAt,
     })
     providerId = getPayoutProvider(config.payoutProvider).id
   } catch (error) {
@@ -70,7 +73,13 @@ export async function requestPayoutRetry(db: RetryDb, args: { tenantId: string; 
   }
 
   const attempt = last.attempt + 1
-  return db.$transaction(async (tx) => {
+  try {
+    return await db.$transaction(async (tx) => {
+    // Under the loan lock, re-read everything a racing retry or reversal could have changed.
+    const blocker = await payoutBlocker(tx, args.tenantId, loan.id)
+    if (blocker) return { ok: false as const, status: 409, error: blocker }
+    const latest = await tx.disbursementPayout.findFirst({ where: { tenantId: args.tenantId, loanId: loan.id }, orderBy: { attempt: "desc" }, select: { id: true } })
+    if (latest?.id !== last.id) return { ok: false as const, status: 409, error: "Another retry of this payout was requested; refresh and try again" }
     const created = await tx.disbursementPayout.create({
       data: {
         tenantId: args.tenantId, applicationId: loan.applicationId, loanId: loan.id, attempt, retryOfId: last.id,
@@ -88,7 +97,12 @@ export async function requestPayoutRetry(db: RetryDb, args: { tenantId: string; 
       newValue: { loanId: loan.id, attempt, retryOf: last.id, previousStatus: last.status, provider: providerId, avsCheckId: avs.avsCheckId, avsSimulated: avs.simulated, bankName: c.bankName },
     }, tx)
     return { ok: true as const, payoutId: created.id, status: "AWAITING_APPROVAL" as const }
-  })
+    })
+  } catch (error) {
+    const refusal = raceRefusal(error)
+    if (refusal) return refusal
+    throw error
+  }
 }
 
 /** The second person's decision. An approval re-checks the AVS; the caller sends the payout after commit. */
@@ -101,6 +115,10 @@ export async function decidePayoutRetry(db: RetryDb, args: {
 }): Promise<RetryResult> {
   const p = await db.disbursementPayout.findFirst({ where: { id: args.payoutId, tenantId: args.tenantId } })
   if (!p || p.status !== "AWAITING_APPROVAL") return { ok: false, status: 409, error: "No retry of this payout is awaiting approval" }
+  if (args.approve) {
+    const loanState = await db.loan.findFirst({ where: { id: p.loanId, tenantId: args.tenantId }, select: { status: true } })
+    if (loanState?.status !== "ACTIVE" && loanState?.status !== "DEFAULTED") return { ok: false, status: 409, error: "The loan is no longer active; no payout can be made on it" }
+  }
   if (args.actor.id === p.requestedById || args.actor.id === p.disbursedById) {
     await logAuditStrict({
       tenantId: args.tenantId, ...actorOf(args.actor), action: AuditAction.PAYOUT_ACTION_REFUSED,
@@ -119,7 +137,7 @@ export async function decidePayoutRetry(db: RetryDb, args: {
       await assertPayoutAvs(db, {
         tenantId: args.tenantId, applicationId: p.applicationId, client: loan.client,
         account: { bankName: p.bankName, bankAccountNumber: p.accountNumber, bankBranchCode: p.branchCode, accountType: p.accountType },
-        notBefore: previous?.resolvedAt ?? previous?.updatedAt ?? null,
+        notBefore: previous ? previous.resolvedAt ?? previous.submittedAt ?? previous.createdAt : null,
       })
     } catch (error) {
       if (error instanceof PayoutAvsError) return { ok: false, status: 422, error: error.message }
@@ -128,7 +146,12 @@ export async function decidePayoutRetry(db: RetryDb, args: {
   }
   const now = new Date()
   const to = args.approve ? "PENDING" : "CANCELLED"
-  return db.$transaction(async (tx) => {
+  try {
+    return await db.$transaction(async (tx) => {
+    if (args.approve) {
+      const blocker = await payoutBlocker(tx, args.tenantId, p.loanId)
+      if (blocker) return { ok: false as const, status: 409, error: blocker }
+    }
     const moved = await tx.disbursementPayout.updateMany({
       where: { id: p.id, tenantId: args.tenantId, status: "AWAITING_APPROVAL" },
       data: args.approve
@@ -142,5 +165,10 @@ export async function decidePayoutRetry(db: RetryDb, args: {
       oldValue: { status: "AWAITING_APPROVAL" }, newValue: { status: to, approved: args.approve, note: args.note },
     }, tx)
     return { ok: true as const, payoutId: p.id, status: to as PayoutStatus }
-  })
+    })
+  } catch (error) {
+    const refusal = raceRefusal(error)
+    if (refusal) return refusal
+    throw error
+  }
 }

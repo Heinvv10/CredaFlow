@@ -51,6 +51,19 @@ describe("resolvePayout — staff actions", () => {
     }
   })
 
+  it("records the bank's value date given with a confirmation, and refuses one in the future", async () => {
+    expect(parseResolveAction({ action: "confirm_paid", note: "On the Netcash report", paidAt: "2999-01-01" })).toBeNull()
+    const request = parseResolveAction({ action: "confirm_paid", note: "On the Netcash report", paidAt: "2026-10-12" })!
+    const { db, rows } = fakePayoutDb([payoutRow({ status: "SUBMITTED", provider: "netcash" })])
+    expect(await resolvePayout(db, { tenantId: "t-1", payoutId: "po-1", actor, request })).toMatchObject({ ok: true, status: "PAID" })
+    expect(rows[0].paidAt?.toISOString()).toBe(new Date("2026-10-12T12:00:00+02:00").toISOString())
+  })
+
+  it("refuses the attempt's approver as the confirmer", async () => {
+    const { db } = fakePayoutDb([payoutRow({ status: "NEEDS_REVIEW", approvedById: "u-1" })])
+    expect(await resolvePayout(db, { tenantId: "t-1", payoutId: "po-1", actor, request: { action: "confirm_failed", note: "Not on the report" } })).toMatchObject({ ok: false, status: 403 })
+  })
+
   it("refuses to confirm a payout that is settled or never sent", async () => {
     for (const status of ["PENDING", "PAID", "FAILED"] as const) {
       const { db } = fakePayoutDb([payoutRow({ status })])

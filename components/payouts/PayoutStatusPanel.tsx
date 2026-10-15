@@ -27,6 +27,8 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
   const payout = view.attempts[0]
   const [note, setNote] = useState("")
   const [reference, setReference] = useState("")
+  const [paidOn, setPaidOn] = useState("")
+  const conflicted = view.attempts.find((a) => a.conflict)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const confirmable = payout.status === "NEEDS_REVIEW" || payout.status === "SUBMITTED" || payout.status === "PROCESSING"
@@ -47,6 +49,11 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
     >
       {view.loanStatus === "CANCELLED" && view.reversal?.status === "APPROVED" && (
         <InfoStrip variant="warning" className="mb-4">Disbursement reversed: the money never reached the borrower and the loan is cancelled.</InfoStrip>
+      )}
+      {conflicted?.conflict && (
+        <InfoStrip variant="danger" className="mb-4">
+          Provider conflict on attempt {conflicted.attempt}: {conflicted.conflict.detail ?? conflicted.conflict.state}. Retries and reversal are blocked until another LOAN_ADMIN resolves it below.
+        </InfoStrip>
       )}
       {payout.simulated && <InfoStrip variant="warning" className="mb-4">Simulated — no money moved. Not a valid payout record.</InfoStrip>}
       {payout.status === "NEEDS_REVIEW" && (
@@ -81,9 +88,24 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
               <p className="text-xs text-[var(--cf-text-muted)]">Confirmed by a LOAN_ADMIN other than the one who disbursed.</p>
               <Textarea placeholder="What you checked (required to confirm)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
               <Input placeholder="Provider or bank reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} />
+              <label className="block text-xs text-[var(--cf-text-muted)]">
+                Bank value date (blank = today)
+                <Input type="date" aria-label="Bank value date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-44" />
+              </label>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_paid", note, providerReference: reference })}>Confirm paid</Button>
+                <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_paid", note, providerReference: reference, ...(paidOn ? { paidAt: paidOn } : {}) })}>Confirm paid</Button>
                 <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_failed", note })}>Confirm not paid</Button>
+              </div>
+            </div>
+          )}
+          {conflicted?.conflict && (
+            <div className="space-y-2">
+              <Textarea placeholder="What the bank statement shows (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "not_paid", note }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>Provider was wrong: not paid</Button>
+                {conflicted.conflict.state === "PAID" && (
+                  <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "paid", note, ...(paidOn ? { paidAt: paidOn } : {}) }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>It was paid</Button>
+                )}
               </div>
             </div>
           )}
