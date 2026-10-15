@@ -59,6 +59,9 @@ export function labelKey(description: string): string {
   return counterpartyKey(description).replace(/\d/g, "9").slice(0, LABEL_KEY_MAX)
 }
 
+/** Statuses that say the request itself was bad (malformed, too large, unprocessable). */
+const BATCH_REFUSED = new Set([400, 413, 422])
+
 /** Longest label key: three words of any real merchant name fit easily. */
 export const LABEL_KEY_MAX = 80
 
@@ -133,8 +136,9 @@ export function parseLabels(content: string, keys: string[]): ModelLabels {
 
 /**
  * Labels the keys. Throws VlmUnavailableError when the model could not be
- * asked (not configured, down, timed out, an HTTP error) for any batch: then
- * nothing is stored and the read is labelled on a later run.
+ * asked (not configured, down, timed out, any HTTP error but a refused batch)
+ * for any batch: then nothing is stored and the read is labelled on a later
+ * run. A batch refused as bad (400, 413, 422) is UNCATEGORISED.
  */
 export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; version: string }> {
   const config = getVlmConfig()
@@ -160,10 +164,12 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
     } catch (err) {
       throw unavailable(`VLM request failed: ${err instanceof Error ? err.name : "unknown"}`)
     }
-    // A request the model refuses (a 4xx other than timeout or rate limit) is
-    // this batch's problem, not the model's: its keys stay UNCATEGORISED and no
-    // other read is held back.
-    if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+    // A request the model refuses as malformed or too large is this batch's
+    // problem: its keys stay UNCATEGORISED and no other read is held back. Any
+    // other failure (auth, an unknown model, rate limit, 5xx) is the model's.
+    if (BATCH_REFUSED.has(res.status)) {
+      console.warn("[statement-analysis] model refused a label batch:", { status: res.status, keys: batch.length })
+      await res.body?.cancel()
       Object.assign(labels, parseLabels("", batch))
       continue
     }

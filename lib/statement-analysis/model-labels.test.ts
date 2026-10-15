@@ -125,17 +125,17 @@ describe("labelKeys", () => {
     expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
   })
 
-  it("a request the model refuses (400) leaves that batch UNCATEGORISED and backs nothing off", async () => {
+  it.each([400, 413, 422])("a batch the model refuses (%s) is UNCATEGORISED and backs nothing off", async (status) => {
     const unlabelled = { status: "READ", modelCategoriesVersion: null }
-    fetchMock.mockResolvedValueOnce(new Response("maximum context length", { status: 400 }))
+    fetchMock.mockResolvedValueOnce(new Response("maximum context length", { status }))
     expect((await labelKeys(["SYNTH HUGE"])).labels).toEqual({ "SYNTH HUGE": "UNCATEGORISED" })
     expect(needsModelLabels(unlabelled)).toBe(true)
     fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
     expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
   })
 
-  it.each([408, 429, 503])("a %s is the model being unavailable: back off", async (status) => {
-    fetchMock.mockResolvedValueOnce(new Response("busy", { status }))
+  it.each([401, 403, 404, 408, 429, 503])("a %s is the model or its setup being unavailable: back off, store nothing", async (status) => {
+    fetchMock.mockResolvedValueOnce(new Response('{"error":"The model `synthetic-model` does not exist."}', { status }))
     await expect(labelKeys(["SYNTH GROCER"])).rejects.toBeInstanceOf(VlmUnavailableError)
     expect(needsModelLabels({ status: "READ", modelCategoriesVersion: null })).toBe(false)
   })
