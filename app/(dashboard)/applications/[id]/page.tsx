@@ -23,6 +23,7 @@ import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCh
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
+import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
 import { canCancelApplication, showDebtEvidenceBlocker } from "@/lib/applications/decision-kind"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
@@ -836,6 +837,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             initialOpenCount={openChecks}
           />
         )}
+
+        {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
 
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (

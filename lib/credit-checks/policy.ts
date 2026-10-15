@@ -120,6 +120,31 @@ export const GAMBLING_INCOME_SHARE = 0.05
 /** Short-term (payday) lenders: any transaction with one is a flag. */
 export const PAYDAY_LENDERS = ["WONGA", "LIME24", "LENDPLUS", "PRIMELOANS", "CREDIWISE", "BOODLE", "FASTA", "SPOT MONEY", "CASH CONVERTERS", "ATLAS FINANCE"] as const
 
+// ── EXPENSE_UNDERSTATED ────────────────────────────────────────────────────
+
+/**
+ * Living spend on the statements must exceed the client's declared monthly
+ * expenses by more than this AND by more than EXPENSE_GAP_MIN_SHARE of what
+ * was declared (goal 2026-10-14 §2a.4): the rand floor keeps small
+ * declarations from flagging on noise, the share keeps large ones from
+ * flagging on a rounding of the budget.
+ */
+export const EXPENSE_GAP_MIN_CENTS = 150_000
+export const EXPENSE_GAP_MIN_SHARE = 0.25
+/** Under four weeks of statements there is no month to average: no flag, and the panel says why. */
+export const EXPENSE_MIN_COVERAGE_DAYS = 28
+/**
+ * Off: the categoriser missed the accuracy gate the flag depends on (goal §6.4:
+ * ≥ 95% agreement with blind labels on held-out corpus merchants; measured
+ * 90.0–90.5% over three runs, 2026-10-14). The check, its tests and the panel
+ * figures ship. Before turning this on: pass the gate; supersede an older OPEN
+ * LIVING_SPEND_ABOVE_DECLARED when its successor is raised (recompute.ts keeps
+ * both today); have the decide route's stale check compare monthlyExpenses; and
+ * decide whether an explicit R0 declaration (stored as 0, so read as "not
+ * captured") should flag, e.g. from the apply route's declaredExpensesProvided.
+ */
+export const EXPENSE_UNDERSTATED_ENABLED = false
+
 /** Matches `name` as whole words inside an upper-cased description. */
 export function mentions(description: string, name: string): boolean {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
