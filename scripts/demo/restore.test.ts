@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 // restore.sh end to end against stubs. docker, docker-compose, curl and sleep
 // are shell stubs on PATH that answer what restore.sh asks and append every
-// docker call to a log; nothing reaches a real container.
+// docker call to a log; nothing reaches a real container. seq is stubbed to one
+// iteration so a failing health check costs one curl per wait, not 120 (the
+// rollback path waits twice, which spawned ~500 processes and took 7 s under load).
 
 const SCRIPT = join(__dirname, 'restore.sh')
 const IMAGE = 'credaflow:restore-test'
@@ -70,6 +72,7 @@ beforeEach(() => {
   stub('docker', DOCKER_STUB)
   stub('docker-compose', '#!/bin/sh\necho "docker-compose $*" >> "$STUB_LOG"\nexit 0\n')
   stub('sleep', '#!/bin/sh\nexit 0\n')
+  stub('seq', '#!/bin/sh\necho 1\n')
   stub('curl', '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\n[ -z "$STUB_HEALTH_FAIL" ]\n')
   mkdirSync(join(root, 'live'))
   writeFileSync(join(root, 'live', 'docker-compose.demo.yml'), '')

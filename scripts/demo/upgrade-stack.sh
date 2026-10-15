@@ -93,7 +93,7 @@ for c in "$LIVE_APP" "$LIVE_PORTAL" "$LIVE_DB"; do
   [ "$got" = "$live_dir" ] || die "refusing: $c was started from '$got', not LIVE_DIR $live_dir"
 done
 for c in "$LIVE_APP" "$LIVE_PORTAL"; do
-  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -qx 'DEMO_MODE=true' \
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -x 'DEMO_MODE=true' >/dev/null \
     || die "refusing: $c does not run with DEMO_MODE=true, so it is not a demo stack"
 done
 db="$(docker exec "$LIVE_DB" printenv POSTGRES_DB)" || die "cannot read POSTGRES_DB in $LIVE_DB"

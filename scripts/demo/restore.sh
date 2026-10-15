@@ -68,8 +68,10 @@ for c in "$LIVE_APP" "$LIVE_PORTAL" "$LIVE_DB"; do
   got="$(label "$c" com.docker.compose.project.working_dir)"
   [ "$got" = "$live_dir" ] || die "refusing: $c was started from '$got', not LIVE_DIR $live_dir"
 done
+# grep without -q on purpose: under pipefail, -q exits at the first match and
+# the producer can take SIGPIPE (141), a false "not a demo stack" / a skipped clear.
 for c in "$LIVE_APP" "$LIVE_PORTAL"; do
-  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -qx 'DEMO_MODE=true' \
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -x 'DEMO_MODE=true' >/dev/null \
     || die "refusing: $c does not run with DEMO_MODE=true, so it is not a demo stack"
 done
 db="$(docker exec "$LIVE_DB" printenv POSTGRES_DB)" || die "cannot read POSTGRES_DB in $LIVE_DB"
@@ -223,7 +225,7 @@ got="$(live_sql "$tmp_db" "$SNAPSHOT_COUNTS_SQL" | jq -cS .)"
 note "database staged in $tmp_db ($got)"
 
 step="staff TOTP off"
-if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | grep -qx 'DEMO_CLEAR_STAFF_TOTP=true'; then
+if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | grep -x 'DEMO_CLEAR_STAFF_TOTP=true' >/dev/null; then
   cleared="$(live_sql "$tmp_db" "$STAFF_TOTP_OFF_SQL")"
   note "staff TOTP off for $cleared users (DEMO_CLEAR_STAFF_TOTP=true)"
   live_sql "$tmp_db" "$TENANT_TOTP_POLICY_OFF_SQL" >/dev/null
