@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma"
 import { deleteFile, readFile, saveFile } from "@/lib/storage"
 import { renderSurrenderFinalNotice, renderSurrenderValuationNotice, type SurrenderNoticeData } from "./documents/nca/surrender-pdf"
 import { dbDate, isoOfDbDate } from "./dates"
+import { COST_TYPE_LABELS } from "./recovery-labels"
 import { surrenderOutcome } from "./surrender-calculation"
 
 interface Actor { tenantId: string; userId: string; userEmail?: string | null }
@@ -101,8 +102,9 @@ export async function issueSurrenderNotice(actor: Actor, id: string, kind: "valu
 
 export async function creditSurrenderProceeds(actor: Actor, id: string, saleProceedsCents: number, receivedAt?: Date): Promise<Result> {
   if (!Number.isSafeInteger(saleProceedsCents) || saleProceedsCents <= 0) return { kind: "not_ready", reason: "Sale proceeds must be positive integer cents" }
-  const request = await prisma.surrenderRequest.findFirst({ where: { id, tenantId: actor.tenantId }, select: { id: true, status: true, loanId: true } })
+  const request = await prisma.surrenderRequest.findFirst({ where: { id, tenantId: actor.tenantId }, select: { id: true, status: true, loanId: true, recovery: { select: { id: true } } } })
   if (!request) return { kind: "not_found" }
+  if (request.recovery) return { kind: "not_ready", reason: "Sale proceeds for this surrender go through its recovery" }
   if (request.status !== "VALUATION_NOTICE_ISSUED") return { kind: "not_ready", reason: "Issue the valuation notice before crediting proceeds" }
   const loan = await prisma.loan.findFirst({ where: { id: request.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
   if (!loan) return { kind: "not_found" }
@@ -153,6 +155,7 @@ async function loadNoticeData(tenantId: string, id: string) {
     valuation: true,
     loan: { select: { reference: true, client: true, entity: true } },
     asset: true,
+    recovery: { select: { costs: { select: { type: true, grossCents: true, treatment: true }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] } } },
   } })
 }
 
@@ -173,5 +176,6 @@ async function noticeData(tenantId: string, row: NoticeRow, documentDate: Date):
     valuation: row.valuation ? { valuedOn: isoOfDbDate(row.valuation.valuedOn), valuerName: row.valuation.valuerName, amountCents: row.valuation.amountCents } : undefined,
     outcome: row.saleProceedsCents === null || row.shortfallCents === null || row.refundCents === null ? undefined
       : { saleProceedsCents: row.saleProceedsCents, shortfallCents: row.shortfallCents, refundCents: row.refundCents },
+    costs: row.recovery?.costs.map((c) => ({ type: c.type, label: COST_TYPE_LABELS[c.type], grossCents: c.grossCents, treatment: c.treatment })),
   }
 }

@@ -1,5 +1,5 @@
 import { formatDatePdf, formatZarPdf } from "@/lib/pdf/helpers"
-import { DealDocumentWriter } from "../pdf-layout"
+import { DealDocumentWriter, type TableColumn } from "../pdf-layout"
 
 export interface SurrenderNoticeData {
   reference: string
@@ -11,7 +11,15 @@ export interface SurrenderNoticeData {
   valuationDueDate: string
   valuation?: { valuedOn: string; valuerName: string; amountCents: number }
   outcome?: { saleProceedsCents: number; shortfallCents: number; refundCents: number }
+  /** The linked recovery's costs; a "RECOVERY COSTS" section is printed only when this is non-empty. */
+  costs?: { type: string; label: string; grossCents: number; treatment: "DEDUCT_FROM_PROCEEDS" | "CHARGE_TO_ACCOUNT" }[]
 }
+
+const COST_COLUMNS: readonly TableColumn[] = [
+  { header: "Cost", x: 44, width: 270 },
+  { header: "Treatment", x: 320, width: 130 },
+  { header: "Amount", x: 460, width: 90, align: "right" },
+]
 
 export async function renderSurrenderValuationNotice(data: SurrenderNoticeData): Promise<Buffer> {
   const w = await baseWriter(data, "VOLUNTARY SURRENDER VALUATION NOTICE")
@@ -36,8 +44,22 @@ export async function renderSurrenderFinalNotice(data: SurrenderNoticeData): Pro
     ["Shortfall", formatZarPdf(data.outcome.shortfallCents)],
     ["Refund due", formatZarPdf(data.outcome.refundCents)],
   ])
+  if (data.costs && data.costs.length > 0) recoveryCosts(w, data.costs)
   w.placeholderClause("1", "Consumer rights following disposal and account reconciliation")
   return w.finish({ reference: data.reference, watermark: true })
+}
+
+// UNTESTED: legal sign-off on which costs an NCA lender may show against the account.
+function recoveryCosts(w: DealDocumentWriter, costs: NonNullable<SurrenderNoticeData["costs"]>): void {
+  w.table("RECOVERY COSTS", COST_COLUMNS, costs.map((c) => [
+    c.label, c.treatment === "DEDUCT_FROM_PROCEEDS" ? "Deducted from proceeds" : "Charged to account", formatZarPdf(c.grossCents),
+  ]))
+  const sum = (treatment: "DEDUCT_FROM_PROCEEDS" | "CHARGE_TO_ACCOUNT") => costs.filter((c) => c.treatment === treatment).reduce((n, c) => n + c.grossCents, 0)
+  w.labelValues([
+    ["Costs deducted from proceeds", formatZarPdf(sum("DEDUCT_FROM_PROCEEDS"))],
+    ["Costs charged to account", formatZarPdf(sum("CHARGE_TO_ACCOUNT"))],
+    ["Cost lines", "DRAFT — require lender legal approval"],
+  ])
 }
 
 async function baseWriter(data: SurrenderNoticeData, title: string): Promise<DealDocumentWriter> {
