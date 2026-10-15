@@ -40,11 +40,9 @@ const codeLines = (sql: string) =>
 
 describe("migration 20261011080000_face_match_v3_evidence", () => {
   const v2 = compositeIn(read("20261011060000_face_match_v2_evidence"))
-  const v3 = baselineFunctionSql("subject_has_composite_kyc")
-
-  it("is the newest definition of subject_has_composite_kyc", () => {
-    expect(v3).toBe(compositeIn(read("20261011080000_face_match_v3_evidence")))
-  })
+  // This migration's own body. A later migration (see
+  // id-replacement-migration.test.ts) redefines the function again.
+  const v3 = compositeIn(read("20261011080000_face_match_v3_evidence"))
 
   it("keeps every v2 condition except the provider tag", () => {
     const v3Lines = new Set(codeLines(v3))
