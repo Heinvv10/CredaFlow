@@ -60,6 +60,8 @@ vi.mock("@/lib/audit", () => ({
 vi.mock("@/lib/utils", () => ({
   generateReference: (prefix: string) => `${prefix}-TEST-1`,
 }))
+const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
+vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: screenOnSubmitMock }))
 
 import { POST } from "./route"
 
@@ -271,6 +273,7 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
       recovered: false,
       alreadyConverted: false,
     })
+    expect(screenOnSubmitMock).toHaveBeenCalledWith(expect.objectContaining({ applicationId: "app-1" }))
     const leadLock = queryRawMock.mock.calls[0][0]
     expect(leadLock.strings.join(" ")).toContain("FOR UPDATE")
     expect(leadLock.values).toEqual(["lead-1", "tenant-1"])

@@ -257,6 +257,8 @@ Domain-specific rules live next to the code:
 - `lib/bank-sync/AGENTS.md` — the one money-import path (statement CSV)
 - `lib/bureau/AGENTS.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/AGENTS.md` — bureau files; statuses are sent once
+- `lib/screening/AGENTS.md` — PEP/sanctions screening; a sanctions match is never cleared
+- `lib/fic/AGENTS.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/signing-otp/AGENTS.md` — the signing one-time code; never SMS, never stored
 - `lib/security/AGENTS.md` — staff access policy; the IP allowlist needs a closed app port
 - `lib/kyc/AGENTS.md` — failed-selfie override policy and database enforcement

@@ -83,6 +83,15 @@ const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
     sandboxEnvVar: null,
     sandboxSafeValues: [],
   },
+  /**
+   * PEP / sanctions screening (lib/screening/simulated-provider.ts). A
+   * simulated "clear" would wave a sanctioned person through, so it is refused
+   * on a deployed build unless listed in SIMULATED_INTEGRATIONS.
+   */
+  screening: {
+    sandboxEnvVar: null,
+    sandboxSafeValues: [],
+  },
 } as const
 
 export type GuardedIntegration = keyof typeof SIMULATION_FORBIDDEN_ON_DEPLOYED
