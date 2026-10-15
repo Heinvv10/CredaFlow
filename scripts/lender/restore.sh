@@ -14,11 +14,18 @@
 # A verified scratch database <db>_restore_<UTC> is left in place (inspect it,
 # then DROP DATABASE) unless --drop-scratch is given.
 #
+# Uploads: the backup's <file>.uploads.tar.gpg is decrypted and listed, and its
+# file count compared with the <file>.files sidecar (same rule as the row
+# counts). A backup made before uploads were backed up has no sidecar: noted.
+#
 # --over-live (needs --confirm <slug>, the lender's own slug) then: takes a
-# `pre-restore` backup of the live database, stops the app, renames the live
-# database to <db>_pre_restore_<UTC> and the verified scratch one to <db>,
-# starts the app and health-checks it. The old database is KEPT; to undo, stop
-# the app and swap the two names back. Dropping it is a manual decision.
+# `pre-restore` backup of the live database and uploads, stops the app,
+# unpacks the uploads into <volume>/.restore-<UTC>, checks the count there, moves
+# the current files into <volume>/.pre-restore-<UTC> and the restored ones into
+# place, renames the live database to <db>_pre_restore_<UTC> and the verified
+# scratch one to <db>, starts the app and health-checks it. The old database
+# and the old files are KEPT; to undo, stop the app and swap them back.
+# Dropping them is a manual decision.
 set -euo pipefail
 # shellcheck source=scripts/lender/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -101,8 +108,30 @@ else
   note "WARNING: no $file.counts sidecar; counts not compared (migrations: $total applied, ${unfinished:-0} unfinished)"
   drift="no sidecar: row counts were not compared"
 fi
+# The uploads archive: read back end to end and counted against its sidecar.
+archive="$file.uploads.tar.gpg"
+want_files="$(sed -n 's/^files=//p' "$file.files" 2>/dev/null | head -n1)"
+have_files=""
+if [ -z "$want_files" ]; then
+  note "WARNING: no $(basename "$file").files sidecar: this backup predates uploads backups; uploads are not restored"
+  drift="${drift:+$drift$'\n'}no uploads sidecar"
+elif [ "$want_files" = none ]; then
+  note "the backup records no uploads volume (files=none): uploads are not restored"
+else
+  [ -f "$archive" ] || fail "the backup records $want_files uploaded file(s) but $(basename "$archive") is missing; scratch database dropped"
+  listing="$(gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$archive" | tar -tf -)" \
+    || fail "uploads archive $(basename "$archive") failed to decrypt or list; scratch database dropped"
+  have_files="$(grep -vc '/$' <<<"$listing" || true)"
+  if [ "$have_files" = "$want_files" ]; then
+    note "uploads archive holds $have_files file(s), as recorded"
+  else
+    note "WARNING: uploads archive holds $have_files file(s); the backup recorded $want_files"
+    drift="${drift:+$drift$'\n'}uploads: backup=$want_files archive=$have_files"
+  fi
+fi
+
 if [ -n "$drift" ] && $over_live && ! $accept_drift; then
-  fail "refusing --over-live: the row counts could not be confirmed ($(head -n1 <<<"$drift")). If that is expected, rerun with --accept-count-drift; scratch database dropped"
+  fail "refusing --over-live: the row or file counts could not be confirmed ($(head -n1 <<<"$drift")). If that is expected, rerun with --accept-count-drift; scratch database dropped"
 fi
 
 if ! $over_live; then
@@ -115,6 +144,16 @@ fi
 note "--over-live: safety backup of the current database first"
 "$LENDER_SCRIPTS/backup.sh" "$LENDER_DIR" --label pre-restore >/dev/null
 lcompose stop app app-portal >/dev/null
+if [ -n "$have_files" ]; then
+  # Unpacked beside the live files and counted before anything moves: a bad
+  # archive leaves the volume as it was (and the app is started again).
+  if ! restored_files="$(gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$archive" \
+      | docker run --rm -i -e "TS=$ts" -e "EXPECT=$have_files" -v "$(uploads_volume):/u" "$UPLOADS_HELPER_IMAGE" sh -c "$RESTORE_UPLOADS_SH")"; then
+    lcompose up -d --no-deps app app-portal >/dev/null
+    fail "uploads could not be restored; the live files and database are unchanged and the app is started again"
+  fi
+  note "uploads restored ($restored_files file(s)); previous files kept in volume directory .pre-restore-$ts"
+fi
 psql_db postgres "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname IN ('$PGDB','$scratch') AND pid <> pg_backend_pid()" >/dev/null
 psql_db postgres "ALTER DATABASE \"$PGDB\" RENAME TO \"$old\"; ALTER DATABASE \"$scratch\" RENAME TO \"$PGDB\"" >/dev/null
 lcompose up -d --no-deps app app-portal >/dev/null
