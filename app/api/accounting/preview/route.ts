@@ -7,7 +7,8 @@ import { parsePeriodKey } from "@/lib/accounting/period"
 import { planPeriod } from "@/lib/accounting/plan"
 
 // What a month's journals would be (or are, once closed): totals per account
-// and per event type, whether it may close, and the loan-book tie-out.
+// and per event type, whether it may close, the loan-book tie-out and the
+// asset-finance controls that differ.
 // Read-only; LOAN_ADMIN.
 
 type Line = { role: string; accountCode: string; debitCents: number; creditCents: number }
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
       period: period.key, label: period.label, closed: false, batchId: null, entryCount: plan.entries.length,
       goLive: plan.isGoLive, refusal: plan.refusal,
       reconciliation: { ...plan.reconciliation, mismatches: plan.reconciliation.mismatches.slice(0, 50) },
+      controls: plan.controls.slice(0, 50),
       ...summarise(plan.entries.flatMap((e) => e.lines), plan.entries.map((e) => e.eventType)),
     })
   })

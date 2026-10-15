@@ -12,7 +12,10 @@ import { deriveEntries, type DerivedEntry } from "./derive"
 import { openingEntry, openingPositions, positionsAsLedger, type OpeningPosition } from "./opening"
 import { nextPeriodKey, parsePeriodKey, periodHasEnded, type AccountingPeriod } from "./period"
 import { compareBooks, independentBook, journalBook, type Reconciliation } from "./reconcile"
+import { assetFinanceControls, journalByKey, type ControlMismatch } from "./reconcile-controls"
 import { loadAccountMap, loadLedger, loadSettings, loadSourceLoans, type AccountingDb } from "./store"
+import { loadAssetFinanceLoans } from "./store-asset-finance"
+import { ASSET_FINANCE_ROLES } from "./accounts"
 import { verifyBalanced, type BatchTotals } from "./verify"
 
 export type CloseRefusal =
@@ -22,6 +25,8 @@ export type CloseRefusal =
   | "MAPPING_NOT_CONFIRMED"
   | "GO_LIVE_NOT_SET"
   | "RECONCILIATION_FAILED"
+  | "AF_CONTROL_FAILED"
+  | "AF_SOURCE_UNSUPPORTED"
 
 export class AccountingPeriodError extends Error {
   constructor(readonly code: CloseRefusal, message: string) {
@@ -46,6 +51,8 @@ export interface PeriodPlan {
   positions: OpeningPosition[]
   totals: BatchTotals
   reconciliation: Reconciliation
+  /** Asset-finance controls that differ (empty when every one ties). */
+  controls: ControlMismatch[]
   /** Why this period may not close now, or null. */
   refusal: { code: CloseRefusal; message: string } | null
 }
@@ -61,13 +68,17 @@ async function orderRefusal(db: PlanDb, tenantId: string, period: AccountingPeri
 }
 
 export async function planPeriod(db: PlanDb, tenantId: string, period: AccountingPeriod, now = new Date()): Promise<PeriodPlan> {
-  const [accounts, settings, loans, ledger, batchCount] = await Promise.all([
+  const [accounts, settings, consumerLoans, assetFinance, ledger, batchCount] = await Promise.all([
     loadAccountMap(db, tenantId),
     loadSettings(db, tenantId),
     loadSourceLoans(db, tenantId, period.end),
+    loadAssetFinanceLoans(db, tenantId),
     loadLedger(db, tenantId),
     db.accountingExportBatch.count({ where: { tenantId } }),
   ])
+  // A contract the sources cannot express yet is left out of the preview and refuses the close.
+  const unsupportedIds = new Set(assetFinance.unsupported.map((u) => u.loanId))
+  const loans = [...consumerLoans, ...assetFinance.loans.filter((l) => !unsupportedIds.has(l.id))]
   const isGoLive = batchCount === 0 && settings.goLiveMonth === period.key
   const positions = isGoLive ? openingPositions(loans, period) : []
   const base = isGoLive ? positionsAsLedger(positions) : ledger
@@ -77,14 +88,24 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   const entries = opening ? [opening, ...own] : own
   const totals = verifyBalanced(entries)
   const reconciliation = compareBooks(journalBook(base.posted, base.postedLoans, own), await independentBook(db, tenantId, period.end))
+  const controls = assetFinance.loans.length === 0 ? [] : await assetFinanceControls(db, tenantId, period.end, journalByKey(base.posted, base.postedLoans, own))
+  const unconfirmed = ASSET_FINANCE_ROLES.filter((role) => !settings.mappingConfirmedRoles.includes(role) && entries.some((e) => e.lines.some((l) => l.role === role)))
 
   let refusal: PeriodPlan["refusal"] = null
   if (!periodHasEnded(period, now)) refusal = { code: "PERIOD_NOT_ENDED", message: `${period.label} has not ended; a month closes once it is over` }
   else if (!settings.mappingConfirmedAt) refusal = { code: "MAPPING_NOT_CONFIRMED", message: "Review and confirm the chart-of-accounts mapping first" }
+  else if (unconfirmed.length > 0) refusal = { code: "MAPPING_NOT_CONFIRMED", message: `This month posts asset-finance accounts that were not in the mapping you confirmed (${unconfirmed.join(", ")}): review and confirm the mapping again` }
   else refusal = await orderRefusal(db, tenantId, period, settings.goLiveMonth)
+  if (!refusal && assetFinance.unsupported.length > 0) {
+    refusal = { code: "AF_SOURCE_UNSUPPORTED", message: `Asset-finance contracts the export cannot post yet: ${assetFinance.unsupported.slice(0, 3).map((u) => u.message).join("; ")}` }
+  }
   if (!refusal && reconciliation.mismatches.length > 0) {
     const sample = reconciliation.mismatches.slice(0, 3).map((m) => `${m.reference} (journal ${m.journalCents}, owed ${m.bookCents})`).join("; ")
     refusal = { code: "RECONCILIATION_FAILED", message: `The journal loan book does not tie to what borrowers owe for ${reconciliation.mismatches.length} loan(s): ${sample}` }
   }
-  return { period, isGoLive, entries, positions, totals, reconciliation, refusal }
+  if (!refusal && controls.length > 0) {
+    const sample = controls.slice(0, 3).map((c) => `${c.control} ${c.key} (journal ${c.journalCents}, books ${c.bookCents})`).join("; ")
+    refusal = { code: "AF_CONTROL_FAILED", message: `${controls.length} asset-finance control(s) do not tie: ${sample}` }
+  }
+  return { period, isGoLive, entries, positions, totals, reconciliation, controls, refusal }
 }

@@ -38,6 +38,8 @@ export async function loadAccountMap(db: AccountingDb, tenantId: string): Promis
 
 export interface AccountingSettingsView {
   mappingConfirmedAt: Date | null
+  /** The asset-finance roles the confirmed mapping covers; roles that predate asset finance need only `mappingConfirmedAt`. */
+  mappingConfirmedRoles: string[]
   goLiveMonth: string | null
   vatRegistered: boolean
   vatRateBps: number
@@ -46,9 +48,24 @@ export interface AccountingSettingsView {
 export async function loadSettings(db: Pick<AccountingDb, "accountingSettings">, tenantId: string): Promise<AccountingSettingsView> {
   const row = await db.accountingSettings.findUnique({
     where: { tenantId },
-    select: { mappingConfirmedAt: true, goLiveMonth: true, vatRegistered: true, vatRateBps: true },
+    select: { mappingConfirmedAt: true, mappingConfirmedRoles: true, goLiveMonth: true, vatRegistered: true, vatRateBps: true },
   })
-  return row ?? { mappingConfirmedAt: null, goLiveMonth: null, vatRegistered: false, vatRateBps: 1500 }
+  return row ?? { mappingConfirmedAt: null, mappingConfirmedRoles: [], goLiveMonth: null, vatRegistered: false, vatRateBps: 1500 }
+}
+
+/**
+ * A LoanCharge `day` is a calendar date; the same type, day and source is one
+ * charge, summed if the re-derivation ever split it.
+ */
+export function groupCharges(rows: Array<{ type: string; day: Date; amount: number; sourceId: string | null }>): SourceLoan["charges"] {
+  const charges = new Map<string, SourceLoan["charges"][number]>()
+  for (const c of rows) {
+    const day = sastDayStart(c.day.toISOString().slice(0, 10))
+    const key = `${c.type}|${day.toISOString()}|${c.sourceId ?? ""}`
+    const prior = charges.get(key)
+    charges.set(key, { type: c.type, day, amount: (prior?.amount ?? 0) + c.amount, sourceId: c.sourceId })
+  }
+  return [...charges.values()]
 }
 
 /** Consumer loans (contractType LOAN) booked before `asOf`, with every money source. */
@@ -79,15 +96,6 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
     },
   })
   return loans.map((loan) => {
-    // A LoanCharge `day` is a calendar date; the same type, day and source
-    // is one charge, summed if the re-derivation ever split it.
-    const charges = new Map<string, SourceLoan["charges"][number]>()
-    for (const c of loan.charges) {
-      const day = sastDayStart(c.day.toISOString().slice(0, 10))
-      const key = `${c.type}|${day.toISOString()}|${c.sourceId ?? ""}`
-      const prior = charges.get(key)
-      charges.set(key, { type: c.type, day, amount: (prior?.amount ?? 0) + c.amount, sourceId: c.sourceId })
-    }
     return {
       id: loan.id,
       reference: loan.reference,
@@ -100,7 +108,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       closedAt: loan.closedAt,
       reversedAt: loan.disbursementReversals[0]?.decidedAt ?? null,
       schedule: loan.repaymentSchedule,
-      charges: [...charges.values()],
+      charges: groupCharges(loan.charges),
       payments: loan.payments,
       payouts: loan.disbursementPayouts,
       recoveries: loan.payoutRecoveryCases.map((r) => ({ id: r.id, attempt: r.payout.attempt, amountCents: r.amountCents, paidAt: r.paidAt, recoveredAt: r.recoveredAt, unrecoverableAt: r.unrecoverableAt })),
