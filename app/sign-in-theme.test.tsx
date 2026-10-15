@@ -16,6 +16,13 @@ vi.mock("@/components/auth/LoginForm", () => ({ default: () => null }))
 vi.mock("@/components/auth/ForgotPasswordForm", () => ({ default: () => null }))
 vi.mock("@/components/auth/ResetPasswordForm", () => ({ default: () => null }))
 vi.mock("@/components/auth/PortalForgotPasswordForm", () => ({ default: () => null }))
+// The lender's portal is on and runs no WhatsApp Cloud; the pages' switch
+// behaviour has its own tests (app/portal/*/page.test.tsx).
+vi.mock("@/lib/portal/portal-policy", async (orig) => ({
+  ...(await orig<typeof import("@/lib/portal/portal-policy")>()),
+  isPortalEnabled: async () => true,
+}))
+vi.mock("@/lib/signing-otp/deliver", () => ({ isWhatsAppCloudConfigured: async () => false }))
 
 import StaffLogin from "./login/page"
 import PortalLogin from "./portal/login/page"

@@ -260,6 +260,8 @@ Domain-specific rules live next to the code:
 - `lib/screening/AGENTS.md` — PEP/sanctions screening; a sanctions match is never cleared
 - `lib/fic/AGENTS.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/lender-api/AGENTS.md` — the `/api/v1` lender API and outbound webhooks
+- `lib/signing-otp/AGENTS.md` — the signing one-time code; never SMS, never stored
+- `lib/security/AGENTS.md` — staff access policy; the IP allowlist needs a closed app port
 - `lib/kyc/AGENTS.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it

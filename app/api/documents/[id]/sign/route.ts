@@ -5,6 +5,8 @@ import { getDocumentCaller } from "@/lib/document-auth"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
+import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
+import { isSigningOtpRequired, signingOtpChallengeIdFrom, signingOtpRefusal } from "@/lib/signing-otp/policy"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -76,18 +78,75 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Document is already signed" }, { status: 409 })
     }
 
+    // Signing OTP (lib/signing-otp/policy.ts). The session decides the method,
+    // not the body: a CLIENT is portal signing (it cannot claim the branch
+    // exemption), staff are a branch witness. The code is bound to the
+    // document's content digest.
+    const otpMethod = caller.type === "client" ? "portal" : "branch"
+    const signingOtpNeeded = await isSigningOtpRequired(tenant.id, otpMethod)
+    const signingOtpChallengeId = signingOtpChallengeIdFrom(body)
+    const signingOtpBinding = {
+      tenantId: tenant.id,
+      clientId: doc.clientId,
+      purpose: "DOCUMENT" as const,
+      subjectId: id,
+      documentSha256: doc.contentSha256 ?? "",
+    }
+    if (signingOtpNeeded) {
+      if (!doc.contentSha256) {
+        return NextResponse.json(
+          { error: "This document has no integrity digest, so it cannot be signed with a code.", signingOtp: "no_digest" },
+          { status: 422 },
+        )
+      }
+      const refusal = await checkSigningOtp(prisma, signingOtpChallengeId, signingOtpBinding)
+      if (refusal) return signingOtpRefusal(refusal)
+    }
+
     const ip = recordedCallerIp(req)
 
     const signedAt = new Date()
 
-    const updated = await prisma.clientDocument.update({
-      where: { id, tenantId: tenant.id },
-      data: {
-        signatureState: "signed",
-        signedAt,
-        signedByIp: ip,
-      },
-    })
+    let signed
+    try {
+      signed = await prisma.$transaction(async (tx) => {
+        const signingOtp = signingOtpNeeded
+          ? await consumeSigningOtp(tx, {
+              ...signingOtpBinding,
+              challengeId: signingOtpChallengeId!,
+              method: otpMethod,
+              now: signedAt,
+            })
+          : null
+        // Claimed only while still unsigned and still the bytes that were
+        // checked: a concurrent signature or a replaced file misses, and the
+        // transaction (code included) rolls back.
+        const claimed = await tx.clientDocument.updateMany({
+          where: {
+            id,
+            tenantId: tenant.id,
+            deletedAt: null,
+            contentSha256: doc.contentSha256,
+            OR: [{ signatureState: null }, { signatureState: { not: "signed" } }],
+          },
+          data: {
+            signatureState: "signed",
+            signedAt,
+            signedByIp: ip,
+          },
+        })
+        if (claimed.count !== 1) throw new DocumentChangedWhileSigning()
+        const row = await tx.clientDocument.findFirstOrThrow({ where: { id, tenantId: tenant.id } })
+        return { row, signingOtp }
+      })
+    } catch (error) {
+      if (error instanceof SigningOtpRefusedError) return signingOtpRefusal(error.reason)
+      if (error instanceof DocumentChangedWhileSigning) {
+        return NextResponse.json({ error: "The document was signed or changed while you were signing." }, { status: 409 })
+      }
+      throw error
+    }
+    const { row: updated, signingOtp } = signed
 
     await logAudit({
       tenantId: tenant.id,
@@ -96,7 +155,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       action: AuditAction.DOCUMENT_SIGNED,
       entity: "ClientDocument",
       entityId: id,
-      newValue: { method, signedAt: signedAt.toISOString() },
+      newValue: { method: otpMethod, signedAt: signedAt.toISOString(), ...(signingOtp ? { signingOtp } : {}) },
       ipAddress: ip ?? undefined,
     })
 
@@ -114,3 +173,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json(updated)
   })
 }
+
+class DocumentChangedWhileSigning extends Error {}

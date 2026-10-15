@@ -8,10 +8,13 @@ import { parseSignatureInput, recordESignature, requestIp } from "@/lib/asset-fi
 import { signingErrorResponse } from "@/lib/asset-finance/signing-route"
 import { AuditAction } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
+import { signingOtpChallengeIdFrom, signingOtpRefusal } from "@/lib/signing-otp/policy"
 
 /**
- * E-sign the client's own deal document. Body `{ signature, documentSha256 }`:
- * a drawn PNG data URL or a typed name, and the digest the sign page showed.
+ * E-sign the client's own deal document. Body `{ signature, documentSha256,
+ * signingOtpChallengeId }`: a drawn PNG data URL or a typed name, the digest
+ * the sign page showed, and the signing code verified for this signer row and
+ * those bytes when the lender requires one (403/409 `signingOtp` otherwise).
  * 404 for anyone else's signer row, and for the client's own row once they no
  * longer hold the relationship that authorises it (portalSignerAuthorityWhere);
  * 409 when it is signed already, the deal is not open for signing, or the
@@ -27,7 +30,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sig
         { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
       )
     }
-    const input = parseSignatureInput(await req.json().catch(() => null))
+    const body: unknown = await req.json().catch(() => null)
+    const input = parseSignatureInput(body)
     if ("error" in input) return NextResponse.json({ error: input.error }, { status: input.status })
     const authorised = await prisma.dealSigner.findFirst({
       where: { id: signerId, tenantId, clientId: client.clientId, AND: [portalSignerAuthorityWhere(tenantId, client.clientId)] },
@@ -42,6 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sig
     try {
       result = await recordESignature({
         tenantId, clientId: client.clientId, clientEmail: client.email, signerId, input, ip: requestIp(req),
+        signingOtpChallengeId: signingOtpChallengeIdFrom(body),
       })
     } catch (error) {
       const mapped = signingErrorResponse(error)
@@ -70,6 +75,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sig
         return refuse("stale_view", "The document was replaced after you opened it; reload the page and read it again")
       case "document_changed":
         return refuse("document_changed", "This deal changed after its documents were prepared, so they cannot be signed; contact the lender")
+      case "signing_otp":
+        return signingOtpRefusal(result.reason)
       case "signed":
         return NextResponse.json({ signerId, signedAt: result.signedAt.toISOString() })
     }

@@ -12,8 +12,24 @@ vi.mock("next/navigation", () => ({ redirect: (p: string) => redirectMock(p) }))
 vi.mock("@/components/auth/LoginForm", () => ({ default: () => null }))
 vi.mock("@/lib/tenant", () => ({ getResolvedTenantId: async () => "tenant-1", getTenantConfig: async () => null }))
 vi.mock("@/lib/config/identity", () => ({ getLenderBrandName: async () => "Acme Lending" }))
+const portal = vi.hoisted(() => ({ enabled: true }))
+vi.mock("@/lib/portal/portal-policy", async (orig) => ({
+  ...(await orig<typeof import("@/lib/portal/portal-policy")>()),
+  isPortalEnabled: async () => portal.enabled,
+}))
 
+import { renderToStaticMarkup } from "react-dom/server"
 import PortalLoginPage from "./page"
+
+describe("PortalLoginPage — lender portal switched off", () => {
+  it("shows the unavailable page instead of the sign-in form", async () => {
+    portal.enabled = false
+    authMock.mockResolvedValue(null)
+    const html = renderToStaticMarkup(await PortalLoginPage({ searchParams: Promise.resolve({}) }))
+    portal.enabled = true
+    expect(html).toContain("The client portal is not available")
+  })
+})
 
 const CLIENT = { user: { role: "CLIENT", email: "a@b.com" } }
 const SIGN = "/portal/agreement/app123"

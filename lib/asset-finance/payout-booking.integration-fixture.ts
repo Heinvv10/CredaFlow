@@ -23,6 +23,7 @@ import { GET as panelRoute, POST as payoutRoute } from "@/app/api/asset-finance/
 import { POST as approveRoute } from "@/app/api/asset-finance/deals/[id]/payout/approve/route"
 import { POST as bookRoute } from "@/app/api/asset-finance/deals/[id]/book/route"
 import { GET as invoiceRoute } from "@/app/api/asset-finance/tax-invoices/[id]/route"
+import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fixture"
 
 export type SessionUser = { id: string; email: string; role: string; tenantId: string }
 export type SetSession = (user: SessionUser | null) => void
@@ -90,7 +91,13 @@ export async function prepareAndSign(
       continue
     }
     setSession({ id: row.clientId, email: `${row.clientId}@booking-it.test`, role: "CLIENT", tenantId: fx.tenantId })
-    expect((await routes.portalSign(row.id, { signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256 })).status).toBe(200)
+    // The lender requires a signing code by default (lib/signing-otp).
+    const signingOtpChallengeId = await verifiedSigningOtp(db, {
+      tenantId: fx.tenantId, clientId: row.clientId, purpose: "DEAL_DOCUMENT", subjectId: row.id, documentSha256: row.documentSha256!,
+    })
+    expect((await routes.portalSign(row.id, {
+      signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256, signingOtpChallengeId,
+    })).status).toBe(200)
   }
 }
 
