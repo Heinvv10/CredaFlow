@@ -16,6 +16,8 @@ export interface SynthTx {
   category?: string
   amountCents: number
   feeCents?: number
+  /** A fee printed in Nedbank's Fees column: accrued, so it moves neither this row's amount nor its balance. */
+  accruedFeeCents?: number
   /** Printed with its amount but leaving the balance unmoved (FNB's EDO Collection Attempt). */
   nonPosting?: true
 }
@@ -46,10 +48,10 @@ export const GENUINE_PRODUCERS = {
 const FONT_SIZE = 6
 const ROWS_PER_PAGE = 45
 
-const pad = (s: string, n: number) => (s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length))
-const lpad = (s: string, n: number) => (s.length >= n ? s : " ".repeat(n - s.length) + s)
+export const pad = (s: string, n: number) => (s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length))
+export const lpad = (s: string, n: number) => (s.length >= n ? s : " ".repeat(n - s.length) + s)
 const dmy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+export const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const longDate = (iso: string) =>
   `${Number(iso.slice(8, 10))} ${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`
 
@@ -62,7 +64,7 @@ export function balances(s: SynthStatement): number[] {
   return s.transactions.map((t) => (t.nonPosting ? running : (running += t.amountCents + (t.feeCents ?? 0))))
 }
 
-async function render(lines: string[][], opts: BuildOptions, fallback: { producer: string; creator: string }): Promise<Uint8Array> {
+export async function render(lines: string[][], opts: BuildOptions, fallback: { producer: string; creator: string }): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Courier)
   for (const pageLines of lines) {
@@ -78,7 +80,7 @@ async function render(lines: string[][], opts: BuildOptions, fallback: { produce
   return doc.save({ useObjectStreams: false })
 }
 
-function paginate(head: string[], header: string[], rows: string[], footer: string[]): string[][] {
+export function paginate(head: string[], header: string[], rows: string[], footer: string[]): string[][] {
   const pages: string[][] = []
   for (let i = 0; i < rows.length || pages.length === 0; i += ROWS_PER_PAGE) {
     pages.push([...(pages.length === 0 ? head : []), ...header, ...rows.slice(i, i + ROWS_PER_PAGE), ...footer, `Page ${pages.length + 1}`])

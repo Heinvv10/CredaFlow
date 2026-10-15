@@ -31,11 +31,24 @@ export const STALE_STATEMENT_DAYS = 45
  * the statement corpus (2026-10-13): every Capitec original was "OpenPDF 2.0.2"
  * with no creator, every FNB original "Compart MFFPDF I/O Filter …" by
  * "Compart Docponent API …". Matched as prefixes so a version bump of the same
- * library does not flag. A bank not listed here is not producer-checked.
+ * library does not flag; "" means the bank writes none. A bank not listed here
+ * is not producer-checked.
+ *
+ * Added 2026-10-14 from the same corpus: Nedbank (no producer, OpenText
+ * Exstream), ABSA's two systems (BIRT on iText; TargetStream), Standard Bank
+ * (PDFlib+PDI by Designer). Discovery writes no metadata on its app statements
+ * (8 of 9 files) and StreamServe on the other. A file stripped of its metadata
+ * would pass for Discovery, so manual-review.ts sends every PDF without a
+ * producer or creator to a person (AUTHENTICITY_UNCHECKED). Standard Bank and
+ * Discovery are limited evidence (6–9 files each).
  */
 export const EXPECTED_PRODUCERS: Partial<Record<string, { producer: string[]; creator: string[] }>> = {
   CAPITEC: { producer: ["OpenPDF"], creator: [""] },
   FNB: { producer: ["Compart MFFPDF"], creator: ["Compart Docponent"] },
+  NEDBANK: { producer: [""], creator: ["OpenText Exstream"] },
+  ABSA: { producer: ["iText 2.1.7 by 1T3XT", "TargetStream StreamEDS"], creator: ["BIRT Report Engine", "TargetStream Technologies"] },
+  STANDARD_BANK: { producer: ["PDFlib+PDI"], creator: ["Designer"] },
+  DISCOVERY: { producer: ["", "StreamServe Communication Server"], creator: ["", "Discovery Bank"] },
 }
 
 /**
