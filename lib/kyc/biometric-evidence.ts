@@ -300,7 +300,7 @@ function refusesSamePerson(value: unknown, yes: unknown): boolean {
  * faceVerdict every completed attempt now persists (lib/kyc/biometric-
  * decision.ts), which survives paths that write no provider result.
  */
-function adverseFaceVerdict(result: Record<string, unknown> | null): boolean {
+export function adverseFaceVerdict(result: Record<string, unknown> | null): boolean {
   if (!result) return false
   const verdict = jsonRecord(result.faceVerdict)
   return refusesSamePerson(result.samePerson, "same") ||

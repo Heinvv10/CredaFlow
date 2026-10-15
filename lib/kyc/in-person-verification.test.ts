@@ -6,6 +6,8 @@ import {
   BLOCKING_SELFIE_CONDITIONS,
   currentInPersonKycVerification,
   idDocumentPortraitRefused,
+  matchesIdPortraitRefusal,
+  inPersonAttestationIdempotencyKey,
   selfieBlocksInPersonVerification,
   matchesBlockingSelfie,
   parseInPersonKycVerificationEvidence,
@@ -64,7 +66,14 @@ const idDocument = (over: Partial<{ id: string; contentSha256: string | null; de
 
 const MISSING = { ok: false as const, reason: "biometric_evidence_missing" as const }
 
-function current(over: Partial<Parameters<typeof currentInPersonKycVerification>[1]> = {}, rec = record()) {
+type TestAttempt = { biometricResult: unknown; createdAt: Date; deletedAt?: Date | null; extractionStatus?: string | null }
+
+/** Attempts default to a live (not deleted), failed row, the usual shape of a recorded verdict. */
+function current(
+  over: Partial<Omit<Parameters<typeof currentInPersonKycVerification>[1], "selfieAttempts">> & { selfieAttempts?: TestAttempt[] } = {},
+  rec = record(),
+) {
+  const { selfieAttempts = [], ...rest } = over
   return currentInPersonKycVerification(rec, {
     clientId: "client-1",
     subject,
@@ -72,7 +81,8 @@ function current(over: Partial<Parameters<typeof currentInPersonKycVerification>
     blockingBiometricAttempt: false,
     biometricAssessment: MISSING,
     portraitRefusals: [],
-    ...over,
+    ...rest,
+    selfieAttempts: selfieAttempts.map((attempt) => ({ deletedAt: null, extractionStatus: "failed", ...attempt })),
   })
 }
 
@@ -189,6 +199,7 @@ describe("currentInPersonKycVerification", () => {
       blockingBiometricAttempt: false,
       biometricAssessment: MISSING,
       portraitRefusals: [],
+      selfieAttempts: [],
     })).toBeNull()
   })
 
@@ -394,5 +405,112 @@ describe("matchesBlockingSelfie", () => {
     // enum member cannot leave the in-memory half matching a stale literal.
     expect(matchesBlockingSelfie({ ...live, docType: BLOCKING_SELFIE_CONDITIONS.docType }))
       .toBe(true)
+  })
+})
+
+
+describe("lapse on a later face verdict or an unknown outcome", () => {
+  const at = (offsetMs: number) => new Date(APPROVED_AT.getTime() + offsetMs)
+  const attempt = (offsetMs: number, over: Record<string, unknown> = {}, createdAt = at(offsetMs)) => ({
+    createdAt,
+    biometricResult: {
+      verdictRecordedAt: at(offsetMs).toISOString(),
+      idDocumentId: "doc-id-copy",
+      faceVerdict: { samePerson: "different" },
+      ...over,
+    },
+  })
+  const benign = (offsetMs: number) => ({
+    createdAt: at(offsetMs),
+    biometricResult: { biometricFailureReason: "extraction_incomplete", verdictRecordedAt: at(offsetMs).toISOString() },
+  })
+
+  it("lapses when an adverse verdict was recorded after the attestation", () => {
+    expect(current({ selfieAttempts: [attempt(1_000)] })).toBeNull()
+  })
+
+  it("is not rescued by a later benign-failing retake: the verdict is read on ANY attempt", () => {
+    expect(current({ selfieAttempts: [attempt(1_000), benign(2_000)] })).toBeNull()
+    expect(current({ selfieAttempts: [benign(2_000), attempt(1_000)] })).toBeNull()
+  })
+
+  it.each([
+    ["recorded before the attestation", attempt(-1_000)],
+    ["about another ID copy", attempt(1_000, { idDocumentId: "doc-old" })],
+    ["a passing answer", attempt(1_000, { faceVerdict: { samePerson: "same", faceMatch: true } })],
+    ["no stamp", { createdAt: at(1_000), biometricResult: { idDocumentId: "doc-id-copy", faceVerdict: { samePerson: "different" } } }],
+    ["a malformed stamp", attempt(1_000, { verdictRecordedAt: "2099-01-01 00:00:00" })],
+  ])("stands for a verdict %s", (_name, selfieAttempt) => {
+    expect(current({ selfieAttempts: [selfieAttempt] })).not.toBeNull()
+  })
+
+  it.each([
+    ["recorded in the same millisecond as the attestation (cannot be ordered)", attempt(0)],
+    ["naming no ID copy at all (fail closed)", { createdAt: at(1_000), biometricResult: { verdictRecordedAt: at(1_000).toISOString(), faceVerdict: { samePerson: "different" } } }],
+  ])("lapses for a verdict %s", (_name, selfieAttempt) => {
+    expect(current({ selfieAttempts: [selfieAttempt] })).toBeNull()
+  })
+
+  it("lapses for a swept attempt whose reason a late answer replaced (the sweptAt marker)", () => {
+    const swept = { biometricResult: { biometricFailureReason: "subject_identity_changed", sweptAt: at(500).toISOString() } }
+    expect(current({ selfieAttempts: [{ ...swept, createdAt: at(1_000) }] })).toBeNull()
+    expect(current({ selfieAttempts: [{ ...swept, createdAt: at(-1_000) }] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ biometricResult: { sweptAt: 5 }, createdAt: at(1_000) }] })).not.toBeNull()
+  })
+
+  it("keeps an ID-portrait refusal the worker gave behind a replaced reason", () => {
+    const refusal = (over: Record<string, unknown>) => ({
+      biometricResult: { biometricFailureReason: "subject_identity_changed", workerFailureReason: "id_document_portrait_invalid", ...over },
+    })
+    expect(current({ portraitRefusals: [refusal({ idDocumentId: "doc-id-copy" })] })).toBeNull()
+    expect(current({ portraitRefusals: [refusal({ idDocumentId: "doc-other", idDocumentSha256: "9".repeat(64) })] })).not.toBeNull()
+    expect(idDocumentPortraitRefused([refusal({})], { id: "doc-id-copy", contentSha256: ID_SHA })).toBe(true)
+    expect(matchesIdPortraitRefusal(refusal({}))).toBe(true)
+    expect(matchesIdPortraitRefusal({ biometricResult: { workerFailureReason: "face_not_detected" } })).toBe(false)
+  })
+
+  it("lapses for an attempt deleted while still pending or processing (no writer touches it again)", () => {
+    const deleted = (extractionStatus: string, createdAt: Date) => ({
+      biometricResult: null, createdAt, deletedAt: at(2_000), extractionStatus,
+    })
+    for (const status of ["pending", "processing"]) {
+      expect(current({ selfieAttempts: [deleted(status, at(1_000))] })).toBeNull()
+      // Created before the attestation: staff attested knowing it was in flight.
+      expect(current({ selfieAttempts: [deleted(status, at(-1_000))] })).not.toBeNull()
+    }
+    // Deleted after it finished, or never deleted, is not an unknown outcome.
+    expect(current({ selfieAttempts: [deleted("failed", at(1_000))] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ ...deleted("processing", at(1_000)), deletedAt: null }] })).not.toBeNull()
+  })
+
+  it("lapses for ANY attempt with an unknown outcome created after the attestation", () => {
+    const unknown = { biometricResult: { biometricFailureReason: "biometric_outcome_not_recorded" } }
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(1_000) }] })).toBeNull()
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(-1_000) }] })).not.toBeNull()
+    expect(current({ selfieAttempts: [{ ...unknown, createdAt: at(0) }] })).toBeNull()
+    expect(current({
+      selfieAttempts: [{ biometricResult: { biometricFailureReason: "face_not_detected" }, createdAt: at(1_000) }],
+    })).not.toBeNull()
+  })
+})
+
+describe("inPersonAttestationIdempotencyKey", () => {
+  const base = {
+    clientId: "client-1",
+    idDocument: { id: "doc-id-copy", contentSha256: ID_SHA },
+    subjectFingerprint: "f".repeat(64),
+  }
+
+  it("names the circumstances attested to", () => {
+    expect(inPersonAttestationIdempotencyKey({ ...base, latestAttempt: null }))
+      .toBe(`kyc-in-person:client-1:doc-id-copy:${ID_SHA}:${"f".repeat(64)}:no-selfie`)
+  })
+
+  it("changes when the latest attempt's verdict is recorded, so a re-attestation after a lapse is a new key", () => {
+    const swept = { id: "selfie-1", biometricResult: { swept: true } }
+    const stamped = { id: "selfie-1", biometricResult: { verdictRecordedAt: "2026-10-14T10:00:00.123Z" } }
+    const keyOf = (latestAttempt: typeof swept | typeof stamped) => inPersonAttestationIdempotencyKey({ ...base, latestAttempt })
+    expect(keyOf(stamped)).not.toBe(keyOf(swept))
+    expect(keyOf(stamped)).toBe(`${keyOf(swept)}:2026-10-14T10:00:00.123Z`)
   })
 })
