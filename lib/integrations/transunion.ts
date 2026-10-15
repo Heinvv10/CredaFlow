@@ -27,8 +27,10 @@ interface CreditReportResult {
   error?: string
 }
 
-// Module-level token cache
-let cachedToken: { token: string; expiresAt: number } | null = null
+// Token cache, keyed by the tenant's TransUnion client id: one process serves
+// several tenants (lib/bureau), and a token minted on one lender's credentials
+// must never be spent on another's enquiry.
+const cachedTokens = new Map<string, { token: string; expiresAt: number }>()
 
 async function getCredentials(tenantId: string): Promise<{ clientId: string; clientSecret: string } | null> {
   try {
@@ -47,6 +49,7 @@ async function getCredentials(tenantId: string): Promise<{ clientId: string; cli
 
 async function getAccessToken(clientId: string, clientSecret: string): Promise<string | null> {
   const now = Date.now()
+  const cachedToken = cachedTokens.get(clientId)
   if (cachedToken && cachedToken.expiresAt > now + 30_000) {
     return cachedToken.token
   }
@@ -66,11 +69,9 @@ async function getAccessToken(clientId: string, clientSecret: string): Promise<s
 
     const data = await res.json()
     const expiresIn = (data.expires_in as number) ?? 3600
-    cachedToken = {
-      token: data.access_token as string,
-      expiresAt: now + expiresIn * 1000,
-    }
-    return cachedToken.token
+    const token = data.access_token as string
+    cachedTokens.set(clientId, { token, expiresAt: now + expiresIn * 1000 })
+    return token
   } catch {
     return null
   }

@@ -3,7 +3,7 @@
  * has no current StatementAnalysis yet, text readers only: the vision reader
  * runs in the background from the upload path, never inside a staff request.
  */
-import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
+import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import type { AppStatus, StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
@@ -80,11 +80,11 @@ export function payslipFacts(documentId: string, extraction: unknown, validation
 }
 
 /** Bureau accounts as stored by lib/compliance/bureau-review.ts under obligations.accounts. */
-export function bureauDebts(obligations: unknown): DebtFacts[] {
+export function bureauDebts(obligations: unknown, provider?: string): DebtFacts[] {
   const accounts = (obligations as { accounts?: unknown } | null)?.accounts
   if (!Array.isArray(accounts)) return []
   // A simulated account list is fabricated: not evidence where simulation is forbidden.
-  if (simulatedBureauBlock(isSimulatedBureauCheck(obligations)).blocked) return []
+  if (simulatedBureauBlock({ obligations, provider }).blocked) return []
   return accounts.flatMap((a: { subscriber?: unknown; instalmentCents?: unknown; status?: unknown }) =>
     // A closed or settled account explains no current debit order.
     typeof a?.subscriber === "string" && typeof a.instalmentCents === "number"
@@ -138,7 +138,7 @@ export async function loadApplicationFacts(
     where: { id: applicationId, tenantId },
     select: {
       id: true, status: true, clientId: true, submittedAt: true, createdAt: true,
-      client: { select: { firstName: true, lastName: true, idNumber: true, monthlyIncome: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
+      client: { select: { firstName: true, lastName: true, idNumber: true, monthlyIncome: true, monthlyExpenses: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
     },
   })
   // Consumer credit checks read a natural person's statements, payslips and
@@ -183,7 +183,7 @@ export async function loadApplicationFacts(
     }),
     db.creditBureauCheck.findFirst({
       where: { tenantId, applicationId, ok: true },
-      select: { obligations: true },
+      select: { obligations: true, provider: true },
       orderBy: { createdAt: "desc" },
     }),
   ])
@@ -220,7 +220,7 @@ export async function loadApplicationFacts(
   const income = slipNet !== null && declared !== null ? Math.min(slipNet, declared) : slipNet ?? declared
   const debts: DebtFacts[] = [
     ...app.client.debtObligations.map((d) => ({ name: d.creditProvider, monthlyInstalmentCents: d.monthlyInstalment, source: "DECLARED" as const })),
-    ...bureauDebts(bureau?.obligations),
+    ...bureauDebts(bureau?.obligations, bureau?.provider),
   ]
   return {
     status: app.status,
@@ -233,6 +233,8 @@ export async function loadApplicationFacts(
       applicationDate,
       clientName: `${app.client.firstName} ${app.client.lastName}`,
       monthlyIncomeCents: income,
+      // 0 is the column's default: nothing captured, not a declared R0 (as for income).
+      declaredExpensesCents: app.client.monthlyExpenses > 0 ? app.client.monthlyExpenses : null,
       statements,
       deletedStatementIds: deleted.map((d) => d.id),
       mismatchedPayslipIds: slipFacts.filter((s) => !s.matchesClient).map((s) => s.documentId),

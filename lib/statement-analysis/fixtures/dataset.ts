@@ -5,6 +5,8 @@
  */
 import type { SynthStatement, SynthTx } from "./synthetic"
 
+export type SynthBank = "CAPITEC" | "FNB" | "NEDBANK" | "ABSA" | "ABSA_ESTATEMENT" | "STANDARD_BANK" | "DISCOVERY"
+
 export interface Scenario {
   /** First day of the first month (YYYY-MM-01); the statement runs three months. */
   start: string
@@ -17,8 +19,8 @@ export interface Scenario {
   returnedDebit?: boolean
   /** FNB: a creditor's failed early debit order, printed but not posted. */
   collectionAttempt?: boolean
-  /** Capitec rows carry a Fee column; FNB prints fees as their own rows. */
-  bank: "CAPITEC" | "FNB"
+  /** Capitec rows carry a Fee column; the other banks print fees as their own rows. */
+  bank: SynthBank
 }
 
 const day = (month: string, d: number) => `${month}-${String(d).padStart(2, "0")}`
@@ -59,7 +61,7 @@ export function syntheticStatement(s: Scenario): SynthStatement {
   tx.sort((a, b) => a.date.localeCompare(b.date))
   return {
     holder: "T TESTER",
-    accountNumber: s.bank === "CAPITEC" ? "0000000001" : "62000000001",
+    accountNumber: s.bank === "FNB" ? "62000000001" : "0000000001",
     periodStart: day(months[0], 1),
     periodEnd: lastDay(months[2]),
     openingCents: 234_567,

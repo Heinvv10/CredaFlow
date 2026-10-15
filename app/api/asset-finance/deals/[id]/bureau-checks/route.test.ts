@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-// The 30-day re-check window on director/trustee bureau checks (review M3).
+// The re-check window on director/trustee bureau checks (review M3): the
+// tenant's bureau freshness window, 30 days in this fixture.
 // The route, the permission map and the recent-check query run for real;
 // session, Prisma, the provider call and the audit writers are stubbed.
 const m = vi.hoisted(() => ({
@@ -19,7 +20,8 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: true }) },
+    // bureauMaxAgeDays is the re-check window (the tenant's bureau freshness window).
+    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: true, bureauMaxAgeDays: 30 }) },
     assetFinanceDeal: { findFirst: m.dealFindFirst },
     creditBureauCheck: { findMany: m.checkFindMany },
     client: { findMany: m.clientFindMany },
@@ -129,7 +131,7 @@ describe("POST …/deals/[id]/bureau-checks: 30-day re-check window", () => {
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "ASSET_DEAL_BUREAU_FORCED_RERUN",
       userId: "admin-1",
-      newValue: expect.objectContaining({ forced: true, recheckedClientIds: ["c-recent"] }),
+      newValue: expect.objectContaining({ forced: true, recheckedWithinDays: 30, recheckedClientIds: ["c-recent"] }),
     }))
   })
 

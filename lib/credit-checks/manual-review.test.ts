@@ -53,7 +53,7 @@ describe("manualReview", () => {
     const signals = (s: string[]) => ({ producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: s })
     const photo = statement([], { method: "VLM", bank: null, authenticity: signals(["NOT_A_PDF"]) })
     const scan = statement([], { method: "VLM", authenticity: signals(["TEXT_LAYER_ABSENT"]) })
-    const unprofiled = statement([], { method: "VLM", bank: "NEDBANK" })
+    const unprofiled = statement([], { method: "VLM", bank: "TYMEBANK" })
     const forgedInfo = statement([], { authenticity: signals(["METADATA_AMBIGUOUS"]) })
     for (const s of [photo, scan, unprofiled, forgedInfo]) {
       expect(codes(manualReview(withSlip({ statements: [s] })))).toEqual(["AUTHENTICITY_UNCHECKED"])
@@ -117,6 +117,15 @@ describe("manualReview", () => {
   it("says contradictory metadata may mean an altered file, on a statement that was read too", () => {
     const s = statement([], { authenticity: { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: ["METADATA_AMBIGUOUS"] } })
     expect(manualReview(withSlip({ statements: [s] }))[0].summary).toContain("possibly altered")
+  })
+  it("raises AUTHENTICITY_UNCHECKED for a profiled bank's PDF that names no producer or creator", () => {
+    const bare = { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: [] }
+    // Discovery's app writes no metadata, so its producer check passes — and would for any stripped file.
+    const stripped = statement([], { bank: "DISCOVERY", authenticity: bare })
+    expect(codes(manualReview(withSlip({ statements: [stripped] })))).toEqual(["AUTHENTICITY_UNCHECKED"])
+    // A creator alone is metadata to check (Nedbank writes no producer).
+    const nedbank = statement([], { bank: "NEDBANK", authenticity: { ...bare, creator: "OpenText Exstream Version 16.6.60 64-bit" } })
+    expect(manualReview(withSlip({ statements: [nedbank] }))).toEqual([])
   })
 })
 

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import { documentAuthenticity } from "./document-authenticity"
+import { expenseUnderstated } from "./expense-understated"
 import { manualReview } from "./manual-review"
+import { EXPENSE_UNDERSTATED_ENABLED } from "./policy"
 import { riskBehaviour } from "./risk-behaviour"
 import { salaryMatch } from "./salary-match"
 import type { ApplicationFacts, FlagCandidate } from "./types"
@@ -19,6 +21,7 @@ export function runChecks(facts: ApplicationFacts): Array<FlagCandidate & { fing
     ...undisclosedDebt(facts),
     ...riskBehaviour(facts),
     ...manualReview(facts),
+    ...(EXPENSE_UNDERSTATED_ENABLED ? expenseUnderstated(facts) : []),
   ]
   // Evidence names the exact read its row indexes point into, so the panel
   // quotes the rows the flag was raised on even after a re-read.
