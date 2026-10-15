@@ -14,6 +14,7 @@ const queryRawMock = vi.fn()
 const transactionMock = vi.fn()
 const applicationFindFirstMock = vi.fn()
 const saveFileMock = vi.fn()
+const deleteFileMock = vi.fn()
 const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
 const readStatementInBackgroundMock = vi.fn()
@@ -22,11 +23,19 @@ const recomputeClientApplicationsMock = vi.fn()
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
   clientDocument: {
+    create: (args: unknown) => documentCreateMock(args),
     findFirst: (args: unknown) => documentFindFirstMock(args),
     updateMany: (args: unknown) => documentUpdateManyMock(args),
   },
   client: {},
 }
+
+const reprojectKycMock = vi.fn()
+const readKycBeforeMock = vi.fn()
+vi.mock("@/lib/kyc/id-upload-projection.server", () => ({
+  reprojectKycAfterIdUpload: (...args: unknown[]) => reprojectKycMock(...args),
+  readKycBeforeIdUpload: (...args: unknown[]) => readKycBeforeMock(...args),
+}))
 
 vi.mock("@/lib/document-auth", () => ({
   getDocumentCaller: () => getDocumentCallerMock(),
@@ -53,11 +62,12 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: {
       findFirst: (args: unknown) => applicationFindFirstMock(args),
     },
-    $transaction: (cb: (client: typeof tx) => Promise<unknown>) => transactionMock(cb),
+    $transaction: (cb: (client: typeof tx) => Promise<unknown>, options?: unknown) => transactionMock(cb, options),
   },
 }))
 vi.mock("@/lib/storage", () => ({
   saveFile: (...args: unknown[]) => saveFileMock(...args),
+  deleteFile: (...args: unknown[]) => deleteFileMock(...args),
 }))
 vi.mock("@/lib/vlm-extract", () => ({
   extractDocumentData: (args: unknown) => extractDocumentDataMock(args),
@@ -242,6 +252,88 @@ describe("POST /api/documents", () => {
     expect(logAuditMock).not.toHaveBeenCalled()
   })
 
+  it("re-projects the stored KYC status in the same transaction as an ID upload", async () => {
+    // A consentless portal client: no extraction transaction muddies the count.
+    getDocumentCallerMock.mockResolvedValue({
+      type: "client",
+      clientId: "client-1",
+      email: "client@example.test",
+    })
+    const order: string[] = []
+    queryRawMock.mockImplementation(async () => { order.push("lock"); return [{ lockResult: "" }] })
+    documentCreateMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      order.push("create")
+      return { id: "doc-1", ...data }
+    })
+    const kycBefore = { id: "client-1", kycStatus: "VERIFIED" }
+    readKycBeforeMock.mockImplementation(async () => { order.push("read-before"); return kycBefore })
+    reprojectKycMock.mockImplementation(async () => { order.push("reproject") })
+
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(201)
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    // The snapshot is taken BEFORE the insert: the insert can demote the
+    // client by itself, and the audit row compares against this.
+    expect(order).toEqual(["lock", "read-before", "create", "reproject"])
+    expect(reprojectKycMock).toHaveBeenCalledWith(tx, {
+      tenantId: "tenant-1",
+      clientId: "client-1",
+      documentId: "doc-1",
+      before: kycBefore,
+      actor: { type: "client", email: "client@example.test" },
+    })
+  })
+
+  it("attributes a staff ID upload's re-projection to the staff user", async () => {
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(201)
+    expect(reprojectKycMock).toHaveBeenCalledWith(tx, expect.objectContaining({
+      clientId: "client-1",
+      actor: { type: "staff", userId: "officer-1" },
+    }))
+  })
+
+  it("fails the upload when the re-projection fails, so the document is not committed alone", async () => {
+    reprojectKycMock.mockRejectedValue(new Error("audit table unavailable"))
+
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(500)
+    // The rolled-back upload leaves no orphaned file, and the transaction is
+    // not left at Prisma's 5 s default while queued behind the evidence lock.
+    expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/id.png")
+    expect(transactionMock).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ maxWait: expect.any(Number), timeout: expect.any(Number) }),
+    )
+  })
+
+  it("keeps the stored file when the upload commits", async () => {
+    const response = await POST(request("ID_COPY") as never)
+
+    expect(response.status).toBe(201)
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("removes the stored file when a non-ID document row cannot be written", async () => {
+    documentCreateMock.mockRejectedValue(new Error("database unavailable"))
+
+    const response = await POST(request("PAYSLIP") as never)
+
+    expect(response.status).toBe(500)
+    expect(deleteFileMock).toHaveBeenCalledWith("tenant-1/client-1/id.png")
+  })
+
+  it("does not re-project for other document types", async () => {
+    const response = await POST(request("PAYSLIP") as never)
+
+    expect(response.status).toBe(201)
+    expect(documentCreateMock).toHaveBeenCalledTimes(1)
+    expect(reprojectKycMock).not.toHaveBeenCalled()
+  })
+
   it("refuses SELFIE creation outside the serialized biometric workflow", async () => {
     const response = await POST(request("SELFIE") as never)
 
@@ -325,7 +417,9 @@ describe("POST /api/documents", () => {
       }),
     }))
     expect(extractDocumentDataMock).not.toHaveBeenCalled()
-    expect(transactionMock).not.toHaveBeenCalled()
+    // The ID upload's own transaction (document + KYC re-projection) is the
+    // only one: no extraction transaction follows it.
+    expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
   it("reads a staff-uploaded bank statement for the credit checks", async () => {

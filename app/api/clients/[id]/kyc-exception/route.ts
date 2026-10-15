@@ -16,6 +16,7 @@ import {
   clientKycAuditValue,
   latestSelfieOrder,
 } from "@/lib/kyc/document-state"
+import { outstandingCoreDocuments } from "@/lib/kyc/id-replacement"
 import {
   MANUAL_KYC_EXCEPTION_KIND,
   MANUAL_KYC_EXCEPTION_VERSION,
@@ -143,9 +144,13 @@ export async function POST(
                 docType: { in: [...CORE_KYC_DOCUMENT_TYPES] },
               },
               select: {
+                id: true,
                 docType: true,
                 verified: true,
                 verificationNote: true,
+                createdAt: true,
+                verificationRejectedAt: true,
+                verificationRejectedById: true,
               },
             }),
             tx.clientDocument.findFirst({
@@ -188,13 +193,9 @@ export async function POST(
             }),
           ])
 
-        const verifiedCore = new Set(
-          coreDocuments
-            .filter((document) => document.verified)
-            .map((document) => document.docType),
-        )
-        const missingDocs = CORE_KYC_DOCUMENT_TYPES.filter(
-          (docType) => !verifiedCore.has(docType),
+        const missingDocs = outstandingCoreDocuments(
+          CORE_KYC_DOCUMENT_TYPES,
+          coreDocuments,
         )
         if (missingDocs.length > 0) {
           return { kind: "core_documents_missing" as const, missingDocs }
