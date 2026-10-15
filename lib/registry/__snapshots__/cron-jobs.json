@@ -1,0 +1,201 @@
+{
+  "scheduled": [
+    {
+      "schedule": "0 7 * * *",
+      "route": "payment-reminders",
+      "method": "GET"
+    },
+    {
+      "schedule": "0 6 * * *",
+      "route": "insurance-renewal",
+      "method": "POST"
+    },
+    {
+      "schedule": "0 3 * * 0",
+      "route": "cross-sell",
+      "method": "POST"
+    },
+    {
+      "schedule": "0 4 * * 0",
+      "route": "dormant-clients",
+      "method": "POST"
+    },
+    {
+      "schedule": "30 8 * * *",
+      "route": "stale-leads-alert",
+      "method": "GET"
+    },
+    {
+      "schedule": "0 6 * * *",
+      "route": "arrangement-check",
+      "method": "GET"
+    },
+    {
+      "schedule": "15 5 * * *",
+      "route": "licence-expiry",
+      "method": "GET"
+    },
+    {
+      "schedule": "*/5 * * * *",
+      "route": "check-wa-bridge-status",
+      "method": "GET"
+    },
+    {
+      "schedule": "*/15 * * * *",
+      "route": "poll-wa-templates",
+      "method": "GET"
+    },
+    {
+      "schedule": "30 1 * * *",
+      "route": "default-charges",
+      "method": "GET"
+    },
+    {
+      "schedule": "20 * * * *",
+      "route": "website-chat-close",
+      "method": "GET"
+    },
+    {
+      "schedule": "* * * * *",
+      "route": "website-chat-handoffs",
+      "method": "GET"
+    },
+    {
+      "schedule": "45 1 * * *",
+      "route": "asset-finance-reprice",
+      "method": "GET"
+    },
+    {
+      "schedule": "15 2 * * *",
+      "route": "asset-finance-lease-invoices",
+      "method": "GET"
+    },
+    {
+      "schedule": "15 2 * * *",
+      "route": "screening-refresh",
+      "method": "GET"
+    },
+    {
+      "schedule": "* * * * *",
+      "route": "webhook-deliveries",
+      "method": "GET"
+    },
+    {
+      "schedule": "15 3 * * *",
+      "route": "lender-api-retention",
+      "method": "GET"
+    },
+    {
+      "schedule": "*/5 * * * *",
+      "route": "sweep-stuck-selfies",
+      "method": "GET"
+    },
+    {
+      "schedule": "15 6 * * *",
+      "route": "collections-results",
+      "method": "GET"
+    },
+    {
+      "schedule": "45 6 * * *",
+      "route": "collections-submit",
+      "method": "GET"
+    }
+  ],
+  "freshnessMinutes": [
+    [
+      "payment-reminders",
+      1560
+    ],
+    [
+      "insurance-renewal",
+      1560
+    ],
+    [
+      "cross-sell",
+      10200
+    ],
+    [
+      "dormant-clients",
+      10200
+    ],
+    [
+      "stale-leads-alert",
+      1560
+    ],
+    [
+      "arrangement-check",
+      1560
+    ],
+    [
+      "licence-expiry",
+      1560
+    ],
+    [
+      "check-wa-bridge-status",
+      15
+    ],
+    [
+      "poll-wa-templates",
+      45
+    ],
+    [
+      "default-charges",
+      1560
+    ],
+    [
+      "website-chat-close",
+      180
+    ],
+    [
+      "website-chat-handoffs",
+      10
+    ],
+    [
+      "asset-finance-reprice",
+      1560
+    ],
+    [
+      "asset-finance-lease-invoices",
+      1560
+    ],
+    [
+      "screening-refresh",
+      1560
+    ],
+    [
+      "webhook-deliveries",
+      10
+    ],
+    [
+      "lender-api-retention",
+      1560
+    ],
+    [
+      "sweep-stuck-selfies",
+      15
+    ],
+    [
+      "collections-results",
+      1560
+    ],
+    [
+      "collections-submit",
+      1560
+    ]
+  ],
+  "externallyScheduled": [
+    "cleanup-notifications",
+    "dpd-update",
+    "email-poll",
+    "escalations",
+    "lead-task-reminders",
+    "messaging-retry",
+    "reminders"
+  ],
+  "intentionallyUnwired": [
+    "automation-engine",
+    "cleanup-disclosures",
+    "bureau-daily",
+    "bureau-monthly"
+  ]
+}

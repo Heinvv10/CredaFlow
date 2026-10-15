@@ -1,0 +1,927 @@
+// ── Email Infrastructure ──────────────────────────────────────────────────────
+
+enum EmailProvider {
+  MSGRAPH
+  IMAP_SMTP
+}
+
+model EmailConfig {
+  id               String        @id @default(cuid())
+  tenantId         String        @unique
+  tenant           Tenant        @relation(fields: [tenantId], references: [id])
+  provider         EmailProvider @default(IMAP_SMTP)
+  fromName         String
+  fromAddress      String
+  // Default Reply-To for customer-facing mail (e.g. support@). Per-send
+  // overrides still win (Section 129/collections force collections@). When
+  // null, replies go back to fromAddress.
+  replyToAddress   String?
+  // MS Graph fields
+  tenantAzureId    String?
+  clientId         String?
+  clientSecret     String? // stored encrypted
+  // IMAP/SMTP fields
+  smtpHost         String?
+  smtpPort         Int?
+  smtpUser         String?
+  smtpPass         String? // stored encrypted
+  imapHost         String?
+  imapPort         Int?
+  imapUser         String?
+  imapPass         String? // stored encrypted
+  useTls           Boolean       @default(true)
+  active           Boolean       @default(true)
+  lastTestedAt     DateTime?
+  lastTestOk       Boolean?
+  // IMAP login check (POST /api/email/test-imap) — distinct from lastTestedAt,
+  // which records an outbound SMTP/Graph SEND. An operator debugging dead
+  // inbound needs to know the mailbox login works without emitting mail.
+  lastImapTestedAt DateTime?
+  lastImapTestOk   Boolean?
+  // Inbound poll outcome, written by lib/email/inbound-poll.ts on every run
+  // (cron and the manual button). Before this, 1,966 consecutive IMAP TLS
+  // failures were invisible because nothing durable recorded them.
+  lastPollAt       DateTime?
+  lastPollOk       Boolean?
+  lastPollError    String?       @db.VarChar(512)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+enum EmailLogStatus {
+  QUEUED
+  SENT
+  AMBIGUOUS
+  FAILED
+  BOUNCED
+  OPENED
+  REPLIED
+  // Refused by this system before dispatch — the recipient's domain is not
+  // reachable from a non-production environment. Deliberately NOT folded into
+  // FAILED: "we declined to send" and "the provider rejected it" are different
+  // facts, and an auditor asking what a test environment tried to send to a
+  // member of the public needs to be able to see the first one.
+  BLOCKED
+}
+
+model EmailLog {
+  id                        String         @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  toAddress                 String
+  toName                    String?
+  subject                   String
+  bodyHtml                  String
+  bodyText                  String?
+  category                  String? // "section129", "statement", "notice", etc.
+  referenceId               String? // loan id, policy id, etc.
+  status                    EmailLogStatus @default(QUEUED)
+  provider                  Provider?
+  messageId                 String? // provider message ID for tracking
+  // Request-scoped provider evidence when no message id exists (for example
+  // Graph request-id/client-request-id correlation for a sendMail HTTP 202).
+  providerEvidenceReference String?        @db.VarChar(512)
+  sentAt                    DateTime?
+  openedAt                  DateTime?
+  repliedAt                 DateTime?
+  errorMessage              String?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+}
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loanId    String?
+  clientId  String?
+  event     String
+  channel   String
+  status    String
+  error     String?
+  // New-send projections retain the exact Message that owns transport truth.
+  // Legacy/direct-provider rows remain null and must never be inferred later.
+  messageId String?
+  message   Message? @relation(fields: [tenantId, messageId], references: [tenantId, id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, messageId])
+}
+
+// ── Notification / Message Templates ─────────────────────────────────────────
+//
+// The legacy (tenantId, event, channel) unique is retained alongside the
+// canonical (tenantId, key) lookup.
+
+model MessageTemplate {
+  id       String  @id @default(cuid())
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  // Legacy lookup key — retained until every outbound call site uses `key`
+  // (spec §Outbound call-site inventory). 1c drops the legacy unique.
+  event    String
+  // Step 1b retyped this from String to the Channel enum via the
+  // channel_legacy rollback column (kept until 1c drops it).
+  channel  Channel
+  subject  String?
+  body     String
+  active   Boolean @default(true)
+
+  // ── Phase 9 additive columns (step 1a) ───────────────────────────────────
+  // New stable identifier — nullable in 1a, backfilled in 1b from `event`,
+  // NOT-NULL in 1c.
+  key                String?
+  category           TemplateCategory?
+  // Required only for MARKETING category — null for SERVICE / TRANSACTIONAL.
+  // Validated at write time in the Settings → Templates editor.
+  purposeRequired    ConsentPurpose?
+  // FAIS gate. INSURANCE and CREDIT_ADVISORY product templates are disabled
+  // in the compose box for operators where User.faisRepresentative = false
+  // (spec §FAIS boundary). v2 expands to a per-template sub-category list.
+  product            TemplateProduct   @default(GENERAL)
+  // s.129 / court-process — only `true` bypasses channel-level opt-out.
+  // Reviewed by compliance officer on creation; routine SERVICE templates
+  // never set this true.
+  statutoryOverride  Boolean           @default(false)
+  // Body-secrecy flag. `true` means the rendered body carries a live secret —
+  // a one-time code or a tokenised signing link — so sendMessage() persists a
+  // placeholder in Message.bodyText/bodyHtml instead of the real body. The
+  // provider still receives the TRUE body and the payloadFingerprint is still
+  // computed over the TRUE payload, so proof-of-sending and evidence
+  // integrity survive without putting the secret on the staff-visible comms
+  // timeline (an account-takeover / signature-forgery path).
+  //
+  // Deliberately a TEMPLATE-level flag rather than a per-send option: a new
+  // callsite cannot forget to set it.
+  redactStoredBody   Boolean           @default(false)
+  // WABA-shaped fields. Approved-name is set once Meta approves the template
+  // submission (spec §WABA template submission — owned, scheduled).
+  wabaTemplateName   String?
+  language           String            @default("en")
+  headerType         String?
+  headerContent      String?
+  bodyTemplate       String?
+  footer             String?
+  buttons            Json?
+  providerStatus     String?
+  providerTemplateId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  // Back-reference for the named "MessagesDisclosureTemplate" relation:
+  // Messages that cited this template as their s.18 call-recording
+  // disclosure clip (TwiML <Play>). Restrict semantics live on the child.
+  disclosureMessages Message[] @relation("MessagesDisclosureTemplate")
+  messages           Message[]
+
+  @@unique([tenantId, event, channel])
+  @@unique([tenantId, key])
+}
+
+/// In-app notification for a staff user — the bell in the dashboard header.
+///
+/// Deliberately generic rather than task-specific: `type` is a free string
+/// (matching AgentTask.type) and entityType/entityId are the same polymorphic
+/// deep-link pair AgentTask already uses, so the next producer (an approval
+/// waiting, a payment failure) needs no migration.
+///
+/// This is the IN-APP half of a reminder. The outbound half (WhatsApp/email)
+/// is dispatched by the cron and deduped via NotificationThrottle — a row here
+/// is a durable inbox item, not a delivery receipt.
+model Notification {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  /// Recipient. Cascade: a deleted staff account's unread bell items hold no
+  /// audit value — the audit trail lives in AuditLog.
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  title      String
+  body       String?
+  /// Deep-link target, e.g. entityType "Lead" + the lead id.
+  entityType String?
+  entityId   String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  /// Backs the unread-count query: (userId, readAt IS NULL).
+
+  @@index([userId, readAt])
+  @@index([tenantId, createdAt])
+}
+
+// ─── Phase 9: CRM + Helpdesk ──────────────────────────────────────────────────
+//
+// Sprint S1, migration step 1a (additive). Everything in this section is new
+// to the schema; existing tables are extended in place above (User, Tenant,
+// Loan, Session, Client, Lead, LoanApplication, NotificationTemplate→
+// MessageTemplate).
+//
+// Raw-SQL companions to this section (added in the generated migration):
+//   1. CREATE UNIQUE INDEX contact_consent_current_unique
+//      ON "ContactConsent" ("contactId","channel","purpose")
+//      WHERE "effectiveTo" IS NULL;   — partial unique not expressible in Prisma DSL
+//   2. CREATE INDEX conversations_unassigned
+//      ON "Conversation" ("tenantId","lastInboundAt" ASC)
+//      WHERE "assigneeId" IS NULL AND "status" = 'OPEN';
+//   3. ALTER TABLE "Message" ADD CONSTRAINT message_recording_requires_disclosure
+//      CHECK ("recordingKey" IS NULL OR "disclosureDeliveredAt" IS NOT NULL);
+
+enum Channel {
+  EMAIL
+  // Canonical spelling — legacy NotificationTemplate.channel rows carrying
+  // "WhatsApp" / "whatsapp" / "wa" map here in step 1b.
+  WHATSAPP
+  VOICE
+  SMS
+  CHATBOT
+  // Notes / activities entered by staff. Never used as a Message channel
+  // value — only as a Contact.firstSeenChannel for backfilled rows.
+  MANUAL
+  // Sentinel for channel-agnostic ContactConsent rows (MARKETING_GLOBAL_
+  // OBJECTION, CREDIT_BUREAU_ENQUIRY, AFFORDABILITY_CHECK, DATA_SHARING_
+  // THIRD_PARTY, AUTOMATED_DECISIONING). Never used as a Message channel
+  // value — enforced via a CHECK constraint added in S2 alongside the
+  // outbound cutover.
+  ALL_CHANNELS
+}
+
+enum ContactStatus {
+  UNKNOWN // never matched; no Lead / Client
+  LEAD // has leadId
+  CLIENT // has clientId
+  STAFF // CC'd staff member; do not treat as customer
+  BLOCKED // suppression list (do-not-contact, deceased, fraud)
+  SPAM // operator-classified spam; archive on receipt, never inbox
+  DORMANT // 14-day Unmatched window elapsed without a match
+  MERGED // archived after ContactMerge; reads forward via mergedIntoId
+}
+
+enum IdentitySource {
+  INBOUND // discovered when a message arrived
+  MANUAL // operator linked
+  IMPORT // CSV / migration backfill
+  OAUTH // verified via portal login
+  APPLICATION_FORM // captured at loan application
+}
+
+enum ConsentPurpose {
+  SERVICE_COMMS // statements, reminders, S129 — channel opt-out only
+  CROSS_SELL_CREDIT // soft-opt-in lane for T1 clients
+  CROSS_SELL_INSURANCE // soft-opt-in lane, gated by tenant IO-opinion flag
+  MARKETING_GENERAL // explicit opt-in only
+  MARKETING_GLOBAL_OBJECTION // POPIA s.69(3)(c)(ii) master "stop all" toggle
+  DATA_SHARING_THIRD_PARTY // POPIA s.11 — share PI with named third parties
+  AUTOMATED_DECISIONING // POPIA s.71 — automated decisioning
+  CREDIT_BUREAU_ENQUIRY // POPIA s.11 + NCA s.81 (gate)
+  AFFORDABILITY_CHECK // NCA s.81 affordability data processing
+  CHATBOT_TRANSCRIPT_RETAIN // chatbot session transcript retention
+}
+
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+}
+
+enum ConsentSource {
+  APPLICATION_FORM
+  PORTAL_TOGGLE
+  WA_REPLY_KEYWORD // "Y" / "YES" replies
+  CHATBOT_OPT_IN
+  CALL_RECORDED_VERBAL // verbal consent on call (cross-sell only — NOT recording itself)
+  IMPORT
+  MANUAL
+  EMAIL_LIST_UNSUBSCRIBE // RFC 8058 one-click unsub from email
+}
+
+// LawfulBasis lives on the Message, not on a virtual ContactConsent row.
+// Mixing "explicit opt-in" with "s.69(3)(a) soft opt-in" inside ConsentStatus
+// mislabels a lawful-basis exemption as recorded consent — auditor red flag.
+enum LawfulBasis {
+  EXPLICIT_OPT_IN // a GRANTED ContactConsent row authorises this send
+  S69_SOFT_OPT_IN // POPIA s.69(3)(a) — active credit relationship; no consent row
+  SERVICE_COMMS_NCA // operational comms on existing agreement
+  TRANSACTIONAL_OPERATIONAL // password resets, OTPs — bypass marketing-consent rules
+  STATUTORY_OVERRIDE // NCA s.129 / court process — overrides channel opt-out
+}
+
+enum ConvStatus {
+  OPEN
+  PENDING_CUSTOMER
+  PENDING_INTERNAL
+  CLOSED
+}
+
+enum ConvPriority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+  INTERNAL_NOTE
+}
+
+enum Provider {
+  RESEND
+  SMTP
+  MSGRAPH
+  WA_UNOFFICIAL
+  WA_CLOUD
+  WA_BSP_360DIALOG
+  TWILIO_VOICE
+  TWILIO_SMS
+  BULKSMS
+  CHATBOT
+  MANUAL
+}
+
+enum MsgStatus {
+  QUEUED
+  SENT
+  // Provider dispatch was intentionally skipped by an environment dry-run.
+  // This is terminal but is never delivery evidence.
+  SIMULATED
+  DELIVERED
+  READ
+  FAILED
+  // ── Retry cron ────────────────────────────────────────────────────────────
+  // Dispatch raised a transient error; the cron sweep will re-attempt
+  // according to backoff(retryCount). Terminal once retryCount hits 5 or
+  // an EXPIRED / SUPPRESSED_BY_CONSENT transition takes over.
+  RETRYING
+  // Re-check of canSendTx inside the retry sweep returned ok:false. Most
+  // common case: a STOP keyword arrived between the initial send and the
+  // retry. Terminal — never retried again.
+  SUPPRESSED_BY_CONSENT
+  // 5 attempts exhausted OR a permanent 4xx classification (invalid
+  // recipient, template rejected, quota exceeded). Terminal.
+  FAILED_PERMANENT
+  // Message createdAt is older than 24h. Terminal — too stale to keep
+  // retrying; ops can manually re-fire from the inbox.
+  EXPIRED
+  // Provider signalled a hard bounce (deliverability fail). Terminal.
+  // Used by the bounce-webhook path (lands later) — declaring it here so
+  // future migrations are one-line additions rather than enum extensions.
+  BOUNCED
+}
+
+// Durable state for the single provider attempt currently controlling an
+// outbound Message. The attempt token + lease are the compare-and-set boundary
+// shared by the sender and operator reconciliation: neither side may overwrite
+// a transition made by the other.
+enum MessageDispatchState {
+  DISPATCHING
+  ACCEPTED
+  SIMULATED
+  DEFINITELY_REJECTED
+  AMBIGUOUS
+  RECONCILED_SENT
+  RECONCILED_SIMULATED
+  RECONCILED_NOT_SENT
+}
+
+enum TemplateCategory {
+  SERVICE // statements, reminders — operational; channel opt-out respected
+  TRANSACTIONAL // password resets, OTPs — bypass marketing-consent rules
+  MARKETING // requires consent or s.69(3)(a) soft opt-in
+}
+
+enum TemplateProduct {
+  GENERAL // service comms not tied to a regulated product
+  CREDIT_GENERAL // general credit-product comms (not advice)
+  CREDIT_ADVISORY // advice on a credit agreement — FAIS-regulated
+  INSURANCE // any insurance product — FAIS-regulated
+}
+
+model Contact {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  firstName    String?
+  lastName     String?
+  primaryEmail String?
+  primaryPhone String? // E.164, normalised on write
+  primaryWaJid String? // WA JID e.g. 27821234567@s.whatsapp.net
+
+  status   ContactStatus @default(UNKNOWN)
+  clientId String?       @unique
+  client   Client?       @relation("ClientToContact", fields: [clientId], references: [id], onDelete: Restrict)
+  leadId   String?       @unique
+  lead     Lead?         @relation("LeadToContact", fields: [leadId], references: [id], onDelete: Restrict)
+
+  // Ambiguous-match staging — null when match was unambiguous.
+  // Shape: { "clients": ClientId[], "leads": LeadId[] }
+  ambiguousMatchCandidates Json?
+
+  // Per-channel last-inbound timestamp; denormalised from latest INBOUND
+  // Message so canSend() can enforce the 24h WA session window without an
+  // extra query. Inbound matcher takes SELECT…FOR UPDATE on this row before
+  // updating to avoid per-channel timestamp race-loss on a busy Contact.
+  // Shape: { "WHATSAPP": ISODate, "EMAIL": ISODate, ... }
+  lastInboundAtByChannel Json?
+
+  firstSeenAt      DateTime @default(now())
+  firstSeenChannel Channel
+  firstSeenContext String?
+
+  blockedAt     DateTime?
+  blockedReason String?
+  spamScore     Int?
+
+  // Merge bookkeeping (forensic retention — POPIA s.16 + 7y audit window).
+  mergedIntoId String?
+  mergedInto   Contact? @relation("ContactMerge", fields: [mergedIntoId], references: [id])
+
+  // Materialised "current consent" pointer set per (channel, purpose).
+  // Resolved at write time inside sendMessage(); read-side optimisation.
+  // Shape: { "EMAIL:MARKETING_GENERAL": "ckxxx", ... }
+  currentConsentIds Json?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  consents      ContactConsent[]
+  conversations Conversation[]
+  identities    ContactIdentity[]
+  mergedFrom    Contact[]         @relation("ContactMerge")
+  mergesFrom    ContactMerge[]    @relation("ContactMergeFrom")
+  mergesInto    ContactMerge[]    @relation("ContactMergeInto")
+
+  @@index([tenantId, status])
+  @@index([tenantId, primaryEmail])
+  @@index([tenantId, primaryPhone])
+}
+
+model ContactIdentity {
+  id        String         @id @default(cuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  contactId String
+  // Restrict — Contacts are never deleted (MERGED-status preserved per POPIA
+  // s.16 audit recall). Cascade here would silently wipe identity history if
+  // a future cleanup script ever did delete a Contact.
+  contact   Contact        @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  channel   Channel
+  value     String // normalised: lowercase email, E.164 phone, WA JID
+  verified  Boolean        @default(false)
+  source    IdentitySource
+  createdAt DateTime       @default(now())
+
+  // Tenant-scoped — two tenants may legitimately share a number (shared
+  // household phone across tenants in different branches).
+
+  @@unique([tenantId, channel, value])
+  @@index([contactId])
+  @@index([tenantId, channel, value])
+}
+
+model ContactConsent {
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+  contactId String
+  // Restrict — ContactConsent is an append-only POPIA audit log. Cascading
+  // deletes from Contact would destroy the "what consent authorised this
+  // send" chain on which Message.consentId depends. Combined with the
+  // Restrict on Message.consent, Contacts are effectively undeletable —
+  // intended invariant.
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Restrict)
+
+  channel     Channel
+  purpose     ConsentPurpose
+  // GRANTED or REVOKED — NOT_CAPTURED is modelled as the absence of any row.
+  status      ConsentStatus
+  source      ConsentSource
+  // Storage key / signed-PDF page:line / message id / portal URL.
+  evidenceRef String?
+
+  // Event-log windows. Append-only — a new row stamps the previous row's
+  // effectiveTo inside the same tx. Partial unique index on (contactId,
+  // channel, purpose) WHERE effectiveTo IS NULL enforces "one current row"
+  // at the DB level — added via raw SQL in the migration (Prisma DSL can't
+  // express partial uniques).
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+
+  revokedReason    String?
+  // staff user if MANUAL. Restrict — POPIA s.17 operator identity must
+  // survive User hard-delete; we deactivate via active=false in normal ops.
+  capturedByUserId String?
+  capturedByUser   User?   @relation("ContactConsentsCapturedBy", fields: [capturedByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime  @default(now())
+  messages  Message[]
+
+  @@index([tenantId, contactId, channel, purpose, effectiveFrom])
+  @@index([tenantId, channel, purpose, status])
+}
+
+model ContactMerge {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  // Both source + target Contacts are Restrict — POPIA s.16 forensic recall
+  // depends on the merge audit row pointing at real Contact ids, and Contacts
+  // are explicitly undeletable in this schema (see ContactConsent rationale).
+  fromContactId   String
+  fromContact     Contact  @relation("ContactMergeFrom", fields: [fromContactId], references: [id], onDelete: Restrict)
+  intoContactId   String
+  intoContact     Contact  @relation("ContactMergeInto", fields: [intoContactId], references: [id], onDelete: Restrict)
+  // staff user. Restrict — see ContactConsent.capturedByUser rationale.
+  performedById   String
+  performedBy     User     @relation("ContactMergesPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  performedAt     DateTime @default(now())
+  reason          String // operator-supplied free text
+  identitiesMoved Int // count, for rollback-investigation sanity check
+  messagesMoved   Int
+
+  @@index([tenantId, performedAt])
+  @@index([fromContactId])
+  @@index([intoContactId])
+}
+
+model Conversation {
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id])
+
+  channel Channel // first channel of the thread; per-Message channel may differ
+  subject String?
+
+  status     ConvStatus   @default(OPEN)
+  priority   ConvPriority @default(NORMAL)
+  assigneeId String?
+  assignee   User?        @relation(fields: [assigneeId], references: [id])
+
+  lastInboundAt  DateTime?
+  lastOutboundAt DateTime?
+  // GREATEST(lastInboundAt, lastOutboundAt) materialised as a column, because
+  // the inbox queue must rank a thread by ANY traffic on it. Ordering by
+  // lastInboundAt alone buried every outbound-only conversation below the
+  // first page. A SQL GREATEST() in
+  // ORDER BY cannot use a B-tree index and Prisma cannot express it, so the
+  // value is maintained by every writer that touches the two fields above.
+  lastActivityAt DateTime?
+  closedAt       DateTime?
+
+  // SetNull — deleting a Loan or Application (extraordinary) must not
+  // cascade-delete conversation history.
+  loanId        String?
+  loan          Loan?            @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  applicationId String?
+  application   LoanApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  // Set true when a non-rep operator initiates / accepts a voice call about
+  // an insurance product, OR when an insurance/credit-advisory template is
+  // selected server-side. Triggers FAIS escalation + 5y record-of-advice
+  // retention regardless of TemplateCategory.
+  faisAdviceCall Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Inbox triage indexes. The naive composite with assigneeId in the middle
+  // does not serve "Unassigned, oldest-first" well — NULL-leading B-tree
+  // scans are slow at 10k+ open conversations. The migration adds a partial
+  // index (conversations_unassigned) via raw SQL for that view.
+  //
+  // A partial UNIQUE index — one open thread per contact — is added by raw SQL
+  // in the baseline migration (Conversation_one_open_per_contact):
+  //   UNIQUE ("tenantId","contactId") WHERE "closedAt" IS NULL
+  // Prisma cannot express partial uniques, so it is invisible here. Any new
+  // Conversation write must go through lib/inbox/resolve-thread.ts or it will
+  // hit P2002.
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  messages           Message[]
+  websiteChatHandoff WebsiteChatHandoff?
+
+  @@index([tenantId, assigneeId, status, lastInboundAt(sort: Desc)])
+  @@index([tenantId, channel, status, lastInboundAt(sort: Desc)])
+  // Queue ordering is by lastActivityAt; these mirror the lastInboundAt
+  // shapes above so listConversations keeps an index-ordered scan.
+  @@index([tenantId, assigneeId, status, lastActivityAt(sort: Desc)])
+  @@index([tenantId, channel, status, lastActivityAt(sort: Desc)])
+  @@index([tenantId, contactId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id])
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  channel           Channel
+  direction         Direction
+  provider          Provider
+  // Provider-scoped uniqueness. Provider message-ids are not coordinated
+  // across providers (Twilio + WA BSPs may reuse the same opaque string),
+  // so the unique is composite on (provider, providerMessageId). NULL is
+  // allowed (composite unique permits NULLs as distinct per PG semantics)
+  // for inbound webhooks that haven't yet returned a provider id.
+  providerMessageId String?
+
+  fromValue String? // normalised channel value
+  toValue   String?
+
+  subject  String?
+  bodyText String?
+  bodyHtml String?
+
+  // Inbound attachments are NOT raw blobs — customer-supplied documents
+  // (ID copies, payslips, bank statements) are persisted as ClientDocument
+  // rows and referenced by id. Opening one goes through assertDocument
+  // Access() which writes a DocumentAccessLog row (POPIA + lib/document-
+  // auth.ts).
+  documentRefs    Json? // string[] — ClientDocument.id list
+  attachmentsMeta Json? // [{ documentId, name, mimeType, size }]
+
+  // Voice-specific
+  callDurationSec Int?
+  recordingKey    String? // VPS disk / S3 key
+  transcript      String?
+
+  // Call-recording disclosure (s.18 notification, NOT consent).
+  // Outbound: operator marks delivered before recording starts. Inbound: set
+  // when the TwiML <Play> playback-complete callback fires. Recording does
+  // not start (outbound) / is muted (inbound) until this is set. Enforced by
+  // a CHECK constraint added in raw SQL.
+  disclosureDeliveredAt   DateTime?
+  // staff user (outbound) or null (auto-played inbound). Restrict — CPA s.11
+  // / s.18 operator-identity preservation.
+  disclosureDeliveredById String?
+  disclosureDeliveredBy   User?            @relation("MessagesDisclosureDeliveredBy", fields: [disclosureDeliveredById], references: [id], onDelete: Restrict)
+  // Versioned MessageTemplate (category SERVICE). Restrict — parallel to
+  // `templateId` below: a referenced disclosure template cannot be hard-
+  // deleted while messages still cite it as the played-clip-of-record.
+  disclosureTemplateId    String?
+  disclosureTemplate      MessageTemplate? @relation("MessagesDisclosureTemplate", fields: [disclosureTemplateId], references: [id], onDelete: Restrict)
+
+  // Template provenance — Restrict so a referenced template cannot be hard-
+  // deleted while messages still reference it (use active=false / enabled=false).
+  templateId String?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  // Lawful basis is the authoritative "why was this send permitted?" answer.
+  // Stored on the Message itself so the audit trail is immutable.
+  lawfulBasis   LawfulBasis?
+  basisEvidence String? // human-readable evidence string from canSend()
+  // Set ONLY when lawfulBasis = EXPLICIT_OPT_IN; references the immutable
+  // ContactConsent row that authorised this send.
+  consentId     String?
+  consent       ContactConsent? @relation(fields: [consentId], references: [id], onDelete: Restrict)
+
+  // Fresh-2FA assertion that authorised this send — used by the voice-token
+  // mint flow + sensitive outbound (manual disbursement comms etc.).
+  totpAssertionId String?
+
+  // Per-message classifier output. Independent of Contact.status = SPAM
+  // (operator's deliberate "this person is spam" decision). Quarantined
+  // messages land in the Quarantine inbox view for operator triage.
+  quarantined Boolean @default(false)
+
+  status       MsgStatus @default(QUEUED)
+  errorMessage String?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  repliedAt    DateTime?
+
+  // ── Retry bookkeeping ──────────────────────────────────────────────────
+  // Number of dispatch attempts so far (0 = never tried, 1 = one failure
+  // already retried, ..., 5 = exhausted → status transitions to
+  // FAILED_PERMANENT).
+  retryCount  Int       @default(0)
+  // When the cron sweep is next eligible to pick this row up. NULL for any
+  // non-RETRYING row.
+  nextRetryAt DateTime?
+  // Wall-clock of the most recent classified failure. Distinct from
+  // sentAt — that lives on the success path. Used by ops to see "is this
+  // row actually being retried, or stuck?".
+  lastErrorAt DateTime?
+  // Classification result from lib/messaging/retry.ts:classifyError, or the
+  // durable no-replay/manual-reconciliation claim written before a retry
+  // crosses the provider boundary. Free-form so operational recovery markers
+  // do not require enum migrations.
+  errorClass  String?
+
+  // Optional workflow-level reservation. Automated callers use a deterministic
+  // key (subject + event + channel + occurrence) so a process restart cannot
+  // create a fresh Message for the same business event. NULL keeps intentional
+  // free-form staff messages repeatable.
+  idempotencyKey String? @db.VarChar(256)
+
+  // SHA-256 of the complete immutable outbound request (rendered bodies,
+  // recipient, business linkages, email headers and attachment byte hashes).
+  // Reusing a business idempotency key is allowed only for this exact digest.
+  payloadFingerprint String? @db.Char(64)
+
+  // Durable provider-boundary control. A fresh token is committed before every
+  // initial/retry provider call. Provider completion and operator reconciliation
+  // both CAS on this token/state. The provider's real id is kept separately from
+  // the human evidence/case reference used during reconciliation.
+  dispatchToken                   String?               @unique @db.VarChar(64)
+  dispatchState                   MessageDispatchState?
+  dispatchAttempt                 Int                   @default(0)
+  dispatchStartedAt               DateTime?
+  dispatchLeaseExpiresAt          DateTime?
+  dispatchCompletedAt             DateTime?
+  dispatchProviderMessageId       String?
+  dispatchProviderAcceptedAt      DateTime?
+  dispatchEvidenceReference       String?               @db.VarChar(512)
+  reconciliationEvidenceReference String?               @db.VarChar(512)
+  // A local dry-run receipt is not a provider message id. Keeping it separate
+  // prevents simulated rows from masquerading as externally accepted sends.
+  simulationReceiptId             String?               @db.VarChar(512)
+
+  isInternal  Boolean @default(false) // operator note; never sent outbound
+  // outbound + internal-note author. Restrict — POPIA s.17 + FAIS GCC s.3(2)
+  // operator identity must persist past User deactivation.
+  createdById String?
+  createdBy   User?   @relation("MessagesCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  // Note mutability. Only INTERNAL_NOTE rows may carry these — enforced by
+  // Message_internal_note_mutability_guard, which also makes every non-note
+  // bodyText unrewritable at the database.
+  editedAt    DateTime?
+  editedById  String?
+  editedBy    User?     @relation("MessagesEditedBy", fields: [editedById], references: [id], onDelete: Restrict)
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("MessagesDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime  @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  mentions         MessageMention[]
+  notificationLogs NotificationLog[]
+
+  @@unique([provider, providerMessageId])
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, conversationId, createdAt])
+  @@index([tenantId, status])
+  @@index([tenantId, dispatchState, dispatchLeaseExpiresAt], map: "Message_dispatch_reconciliation_idx")
+  @@index([nextRetryAt], map: "Message_retry_idx")
+}
+
+/// Who was tagged in an internal note. Resolved at write time from the
+/// composer's picker, never re-parsed from the body: a staff rename would
+/// otherwise silently repoint or break an old mention.
+model MessageMention {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messageId String
+  message   Message  @relation(fields: [tenantId, messageId], references: [tenantId, id], onDelete: Cascade)
+  /// Restrict, matching Message.createdById — who was tagged is operator
+  /// identity and must persist past deactivation.
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([tenantId, userId, createdAt])
+}
+
+model WebhookSignatureFailure {
+  id            String   @id @default(cuid())
+  // Nullable: signature failures may predate tenant resolution (the request
+  // hadn't been authenticated yet). SetNull on Tenant delete keeps the
+  // forensic record for breach-audit purposes.
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  // "TWILIO" | "BULKSMS" | "META_WA" | "WA_UNOFFICIAL"
+  provider      String
+  sourceIp      String?
+  pathname      String
+  // "MISSING_HEADER" | "BAD_HMAC" | "STALE_TIMESTAMP" | "REPLAY"
+  reason        String
+  rawHeaders    Json
+  // sha256 of the raw body — never the body itself; we don't persist
+  // unverified payloads.
+  rawBodySha256 String
+  createdAt     DateTime @default(now())
+
+  @@index([provider, createdAt])
+}
+
+model CommsSettings {
+  id                String   @id @default(cuid())
+  tenantId          String   @unique
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  whatsappEnabled   Boolean  @default(false)
+  botsEnabled       Boolean  @default(true)
+  chatAlertEmail    String?
+  waProvider        String   @default("WA_UNOFFICIAL") // WA_UNOFFICIAL | WA_CLOUD | WA_BSP_360DIALOG
+  // WhatsApp Cloud API (official) per-tenant credentials.
+  // NOTE: stored plaintext following the existing TenantConfig.*Key precedent.
+  // Access ONLY via lib/whatsapp-cloud-config.getWabaCreds so encryption can
+  // be added in one place later. Tracked as an open question in the PRD.
+  // wabaPhoneNumberId + wabaAccessToken (send creds) are read by getWabaCreds.
+  // INBOUND webhook verification is NOT sourced from these columns: the
+  // /api/webhooks/whatsapp-cloud handler verifies the x-hub-signature-256 HMAC
+  // against env WHATSAPP_CLOUD_APP_SECRET and the GET handshake against env
+  // WHATSAPP_CLOUD_VERIFY_TOKEN. That is deliberate — under Meta Embedded Signup
+  // every tenant WABA subscribes to our single Tech-Provider app, so there is
+  // one app secret / verify token (env), not one per tenant. The wabaAppSecret /
+  // wabaVerifyToken columns are RESERVED for a future per-tenant-own-app model
+  // and are not consulted for verification today; do not treat them as live
+  // inbound config.
+  wabaId            String?
+  wabaPhoneNumberId String?  @unique
+  wabaAccessToken   String?
+  wabaAppSecret     String?
+  wabaBusinessId    String?
+  wabaVerifyToken   String?
+  businessHours     Json? // { tz: string, days: { mon: { open: "08:00", close: "17:00" } | null, ... } }
+  autoReplyEnabled  Boolean  @default(false)
+  autoReplyText     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model WaBridgeNumber {
+  id                   String    @id @default(cuid())
+  slotId               String    @unique
+  number               String?
+  status               String // CONNECTING | CONNECTED | DISCONNECTED | LOGGED_OUT | RETIRED
+  priority             Int
+  connectedAt          DateTime?
+  disconnectedAt       DateTime?
+  lastDisconnectReason String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+// Singleton (id is always "singleton") tracking whether the check-wa-bridge-status
+// cron has an unresolved full-pool-down alarm on record. Independent of
+// WaBridgeNumber's per-slot status: decideWaBridgeAlert only sees CONNECTED->bad
+// transitions between polls, so it can't detect a bridge that was ALREADY down
+// when the cron started (cold start) or stuck down across every poll. This flag
+// closes that hole -- see app/api/cron/check-wa-bridge-status/route.ts.
+model WaBridgeAlarm {
+  id            String    @id @default("singleton")
+  active        Boolean   @default(false)
+  lastAlertedAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
+model CannedReply {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  title       String
+  body        String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// Atomic per-recipient throttle for outbound notifications that must be rate
+// bounded across concurrent requests (e.g. the identity-conflict portal notice
+// in app/api/website/apply). A row claims one send for `channelKey` within a
+// fixed time bucket (`windowStart`); the unique constraint makes the claim
+// atomic, so concurrent requests can't both pass a check-then-act race and
+// double-send. Rows are disposable — safe to prune by `createdAt`.
+model NotificationThrottle {
+  id          String   @id @default(cuid())
+  tenantId    String
+  channelKey  String // e.g. "portal-identity-notice:<recipient-email>"
+  windowStart DateTime // start of the fixed rate-limit bucket
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, channelKey, windowStart])
+  @@index([createdAt])
+}
+
+model WebsiteChatHandoff {
+  id               String       @id @default(cuid())
+  tenantId         String
+  tenant           Tenant       @relation(fields: [tenantId], references: [id])
+  conversationId   String       @unique
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  handedOffAt      DateTime
+  /// Set when nobody joined within the wait, or at hand-off when after hours.
+  timedOutAt       DateTime?
+  alertEmailSentAt DateTime?
+  alertAttempts    Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([tenantId, timedOutAt, handedOffAt])
+}

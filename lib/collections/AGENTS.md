@@ -4,13 +4,14 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: collections
+<!-- summary: escalation, arrangements, Section 129 -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
 Drives the arrears lifecycle: reminders before due, escalation through NCA
 collection stages (`NONE` → `SOFT_REMINDER` → `FORMAL_REMINDER` →
 `SECTION_129_SENT` → `PAYMENT_ARRANGEMENT` → `ATTORNEY_REFERRED` →
-`WRITTEN_OFF`, per `CollectionsStage` in `prisma/schema.prisma`),
+`WRITTEN_OFF`, per `CollectionsStage` in `prisma/schema/collections.prisma`),
 promise-to-pay tracking, and arrangement monitoring.
 
 ## Critical Rules

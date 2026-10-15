@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Prisma } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { createHash } from "node:crypto"
 
@@ -201,6 +202,23 @@ describe("POST …/verify and DELETE", () => {
     const res = await remove(new NextRequest(`${BASE}/doc-1`, { method: "DELETE" }), docParams)
     expect(res.status).toBe(409)
     expect((await res.json()).error).toMatch(/cannot be deleted/)
+    expect(m.logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("says why when the database keeps the document as a legal matter step's evidence or a refund's bank verification", async () => {
+    // Both shapes Prisma words a trigger's refusal in: an ORM write and a raw query.
+    const sentence = "A document that evidences a legal matter step or a refund's bank verification cannot be deleted"
+    const orm = new Prisma.PrismaClientUnknownRequestError(
+      `Invalid \`tx.entityDocument.updateMany()\` invocation\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "23514", message: "${sentence}", severity: "ERROR" }), transient: false })`,
+      { clientVersion: "test" },
+    )
+    const raw = new Prisma.PrismaClientKnownRequestError(`Raw query failed. Code: \`23514\`. Message: \`ERROR: ${sentence}\``, { code: "P2010", clientVersion: "test", meta: { code: "23514" } })
+    for (const refusal of [orm, raw]) {
+      m.tx.entityDocument.updateMany.mockRejectedValue(refusal)
+      const res = await remove(new NextRequest(`${BASE}/doc-1`, { method: "DELETE" }), docParams)
+      expect(res.status).toBe(409)
+      expect((await res.json()).error).toBe(sentence)
+    }
     expect(m.logAuditStrict).not.toHaveBeenCalled()
   })
 

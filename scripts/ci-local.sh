@@ -14,7 +14,7 @@ Usage: bash scripts/ci-local.sh quick [test paths...]
        bash scripts/ci-local.sh integration
        bash scripts/ci-local.sh full
 
-quick        Generate Prisma, typecheck, lint, and run the doc/date gates.
+quick        Generate Prisma and the registries, typecheck, lint, and run the doc/date gates.
              Optional test paths are passed to Vitest.
 quality      Run the complete GitHub quality job locally.
 integration Start disposable PostgreSQL 16, migrate it, and run every DB suite.
@@ -34,6 +34,8 @@ export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
 run_quick() {
   echo ">> Generate Prisma client"
   npx prisma generate
+  echo ">> Generate registries"
+  npm run --silent gen:registries
   echo ">> Typecheck"
   npx tsc --noEmit
   echo ">> Typecheck demo simulator"

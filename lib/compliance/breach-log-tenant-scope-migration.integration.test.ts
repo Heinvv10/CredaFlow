@@ -153,12 +153,12 @@ suite("breach log tenant-scope migration", () => {
     expect(await insert("'tenant_a'")).toBe(1)
   }, 120_000)
 
-  it("leaves the full migration history in step with schema.prisma", async () => {
+  it("leaves the full migration history in step with the Prisma schema", async () => {
     const db = await scratchDb()
     prismaCli(db.url, ["migrate", "deploy"])
     // --exit-code: 0 when the migrated database and the schema agree, 2 when they differ.
     expect(prismaCli(db.url, [
-      "migrate", "diff", "--from-url", db.url, "--to-schema-datamodel", "prisma/schema.prisma", "--exit-code",
+      "migrate", "diff", "--from-url", db.url, "--to-schema-datamodel", "prisma/schema", "--exit-code",
     ])).toContain("No difference detected")
   }, 120_000)
 

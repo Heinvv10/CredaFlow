@@ -1,0 +1,333 @@
+// ─── CRM Module ───────────────────────────────────────────────────────────────
+
+model Lead {
+  id                         String           @id @default(cuid())
+  tenantId                   String
+  tenant                     Tenant           @relation(fields: [tenantId], references: [id])
+  submissionKey              String?          @db.VarChar(36)
+  submissionFingerprint      String?          @db.Char(64)
+  submissionReference        String?          @db.VarChar(64)
+  firstName                  String
+  lastName                   String
+  email                      String?
+  phone                      String
+  source                     LeadSource       @default(MANUAL)
+  status                     LeadStatus       @default(NEW)
+  statusChangedAt            DateTime         @default(now()) // last stage change — powers days-in-stage on the board
+  assignedToId               String?
+  notes                      String?
+  tags                       String[]
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  convertedToClientId        String?
+  convertedToClient          Client?          @relation("LeadConvertedClient", fields: [tenantId, convertedToClientId], references: [tenantId, id], onDelete: Restrict)
+  convertedToApplicationId   String?
+  convertedToApplication     LoanApplication? @relation("LeadConvertedApplication", fields: [tenantId, convertedToApplicationId, convertedToClientId], references: [tenantId, id, clientId], onDelete: Restrict)
+  conversionRecoveryRequired Boolean          @default(false)
+  portalAccountClientId      String?
+  portalAccountClient        Client?          @relation("LeadPortalAccountClient", fields: [tenantId, portalAccountClientId], references: [tenantId, id], onDelete: Restrict)
+  callbackDate               DateTime? // when agent scheduled callback
+  callbackNotes              String? // context for the callback
+  lostReason                 String? // enum: TOO_EXPENSIVE, WENT_ELSEWHERE, NOT_QUALIFIED, NO_RESPONSE, PRODUCT_MISMATCH
+  referredBy                 String? // lead.id of the referring client (or just track via activity)
+  employmentType             String? // SALARIED, SELF_EMPLOYED, UNEMPLOYED, RETIRED
+  declaredIncome             Int? // in cents
+  requestedAmount            Int? // in cents
+  leadScore                  Int? // 0-100, auto-calculated
+  scoreCalculatedAt          DateTime?
+  referralCodeId             String?
+  referralCode               ReferralCode?    @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  activities     CrmActivity[]
+  contact        Contact?        @relation("LeadToContact")
+  referralEvents ReferralEvent[]
+
+  @@unique([tenantId, submissionKey])
+  @@unique([tenantId, convertedToApplicationId])
+  @@unique([tenantId, convertedToApplicationId, convertedToClientId])
+  @@index([tenantId, status])
+  @@index([tenantId, convertedToClientId])
+  @@index([tenantId, portalAccountClientId])
+  @@index([tenantId, referralCodeId])
+}
+
+enum LeadSource {
+  MANUAL
+  WEBSITE
+  REFERRAL
+  WALK_IN
+  SOCIAL
+  WHATSAPP
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL_SENT
+  CONVERTED
+  LOST
+}
+
+enum LeadLostReason {
+  TOO_EXPENSIVE
+  WENT_ELSEWHERE
+  NOT_QUALIFIED
+  NO_RESPONSE
+  PRODUCT_MISMATCH
+}
+
+enum EmploymentType {
+  SALARIED
+  SELF_EMPLOYED
+  UNEMPLOYED
+  RETIRED
+  OTHER
+}
+
+model CrmActivity {
+  id          String       @id @default(cuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  leadId      String?
+  lead        Lead?        @relation(fields: [leadId], references: [id])
+  clientId    String?
+  type        ActivityType
+  subject     String
+  notes       String?
+  pinned      Boolean      @default(false) // pin-to-top of the lead's activity feed (max 3, enforced in the action)
+  scheduledAt DateTime?
+  completedAt DateTime?
+  createdById String
+  createdAt   DateTime     @default(now())
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  WHATSAPP
+  MEETING
+  NOTE
+  FOLLOW_UP
+  LOAN_OFFER
+  INSURANCE_OFFER
+}
+
+model CrossSellOpportunity {
+  id           String            @id @default(cuid())
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  clientId     String
+  client       Client            @relation(fields: [clientId], references: [id])
+  type         CrossSellType
+  status       OpportunityStatus @default(PENDING)
+  assignedToId String?
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+enum CrossSellType {
+  FUNERAL_COVER
+  CREDIT_LIFE
+  PERSONAL_LOAN
+  PO_FUNDING
+  TOP_UP
+}
+
+enum OpportunityStatus {
+  PENDING
+  CONTACTED
+  INTERESTED
+  DECLINED
+  CONVERTED
+}
+
+// ── Automation Engine ─────────────────────────────────────────────────────────
+
+enum AutomationTrigger {
+  LEAD_STALE
+  DPD_THRESHOLD
+  PAYMENT_DUE
+  LOAN_PAID_ON_TIME_N
+  LOAN_PAID_IN_FULL
+}
+
+enum AutomationAction {
+  SEND_WA
+  CREATE_ACTIVITY
+  CHANGE_COLLECTIONS_STAGE
+  NOTIFY_AGENT
+  CREATE_OPPORTUNITY
+  ISSUE_SECTION_129
+  CREATE_AGENT_TASK
+}
+
+model AutomationRule {
+  id           String            @id @default(cuid())
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  name         String
+  description  String?
+  trigger      AutomationTrigger
+  condition    Json
+  action       AutomationAction
+  actionConfig Json              @default("{}")
+  enabled      Boolean           @default(true)
+  isBuiltIn    Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  logs   AutomationLog[]
+  pauses AutomationPause[]
+
+  @@index([tenantId, trigger, enabled])
+}
+
+model AutomationPause {
+  id          String         @id @default(cuid())
+  tenantId    String
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  ruleId      String
+  rule        AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  entityType  String
+  entityId    String
+  createdById String
+  createdAt   DateTime       @default(now())
+
+  @@unique([ruleId, entityId])
+  @@index([tenantId, entityId])
+}
+
+model AutomationLog {
+  id            String         @id @default(cuid())
+  ruleId        String
+  rule          AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  entityType    String
+  entityId      String
+  result        String
+  error         String?
+  // Stable trigger occurrence used by outbound automation idempotency. A
+  // manual replay reuses this value so uncertain provider outcomes can never
+  // be converted into a second Message reservation. Nullable for historical
+  // logs written before occurrence-aware delivery.
+  occurrenceKey String?        @db.VarChar(128)
+  // Replay evidence for SEND_WA. `dispatchPhase` distinguishes a failure
+  // before any Message reservation from a provider rejection that may be
+  // explicitly re-armed. `messageId` binds the latter to the exact durable
+  // reservation. Both are nullable for pre-deployment logs, which therefore
+  // fail closed during replay.
+  messageId     String?
+  dispatchPhase String?        @db.VarChar(32)
+  createdAt     DateTime       @default(now())
+
+  @@index([ruleId])
+  @@index([tenantId, entityId])
+  @@index([tenantId, ruleId, entityId, occurrenceKey], map: "AutomationLog_occurrence_idx")
+  @@index([tenantId, messageId], map: "AutomationLog_message_idx")
+  @@index([createdAt])
+}
+
+model AgentTask {
+  id              String    @id @default(cuid())
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id])
+  assigneeId      String?
+  assignee        User?     @relation(fields: [assigneeId], references: [id])
+  type            String
+  title           String
+  description     String?
+  entityType      String?
+  entityId        String?
+  priority        String    @default("MEDIUM")
+  status          String    @default("PENDING")
+  dueAt           DateTime?
+  completedAt     DateTime?
+  completedById   String?
+  createdByRuleId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([assigneeId, status])
+  @@index([tenantId, status])
+}
+
+// Referral agents.
+model ReferralAgent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  displayName   String
+  legalName     String?
+  phone         String?
+  email         String?
+  status        String   @default("ACTIVE") // ACTIVE | SUSPENDED | CLOSED
+  channel       String   @default("FIELD") // FIELD | SOCIAL | STAFF | PARTNER
+  notes         String?
+  commissionBps Int? // per-agent override of TenantConfig.referralCommissionBps
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  referralCodes  ReferralCode[]
+  referralEvents ReferralEvent[]
+
+  @@index([tenantId, status])
+}
+
+model ReferralCode {
+  id       String        @id @default(cuid())
+  tenantId String
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  agentId  String
+  agent    ReferralAgent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  code      String
+  label     String?
+  status    String   @default("ACTIVE") // ACTIVE | PAUSED | RETIRED
+  campaign  String?
+  qrPath    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  attributedClients Client[]        @relation("ClientReferralCode")
+  leads             Lead[]
+  referralEvents    ReferralEvent[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, agentId])
+  @@index([tenantId, status])
+}
+
+model ReferralEvent {
+  id       String         @id @default(cuid())
+  tenantId String
+  tenant   Tenant         @relation(fields: [tenantId], references: [id])
+  agentId  String?
+  agent    ReferralAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  codeId   String?
+  code     ReferralCode?  @relation(fields: [codeId], references: [id], onDelete: SetNull)
+  leadId   String?
+  lead     Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  eventType        String // CLICK | WEBSITE_APPLICATION | HANDOFF | CONVERTED | PAYOUT_ELIGIBLE | BLOCKED
+  source           String? // WEBSITE | WHATSAPP | SOCIAL | FIELD
+  attributionRaw   String?
+  amountCents      Int?
+  commissionCents  Int? // computed payable figure; distinct from amountCents (loan-principal context)
+  commissionStatus String   @default("NOT_ELIGIBLE") // NOT_ELIGIBLE | PENDING | PAYABLE | BLOCKED | REVERSED
+  qualityFlag      String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId, eventType, createdAt])
+  @@index([tenantId, agentId, createdAt])
+  @@index([tenantId, codeId, createdAt])
+  @@index([tenantId, leadId])
+}

@@ -26,10 +26,14 @@ export interface ChargeBucket {
 export { CHARGE_TYPE_LABELS } from "@/lib/loan/charge-labels"
 
 const TYPES = ["DEFAULT_INTEREST", "SERVICE_FEE", "DEFAULT_ADMIN"] as const satisfies readonly ChargeType[]
+/** Shown only where one was posted, after the always-present buckets, in this order. */
+const OPTIONAL_TYPES = ["COLLECTION_FEE", "RECOVERY_COST"] as const satisfies readonly ChargeType[]
+type OptionalType = (typeof OPTIONAL_TYPES)[number]
+const isOptional = (type: ChargeType): type is OptionalType => (OPTIONAL_TYPES as readonly ChargeType[]).includes(type)
 
 export interface ChargesSummary {
-  /** COLLECTION_FEE (NON_NCA only) is present only when one was posted */
-  buckets: Record<(typeof TYPES)[number], ChargeBucket> & { COLLECTION_FEE?: ChargeBucket }
+  /** COLLECTION_FEE (NON_NCA only) and RECOVERY_COST (after a repossession) are present only when one was posted */
+  buckets: Record<(typeof TYPES)[number], ChargeBucket> & Partial<Record<OptionalType, ChargeBucket>>
   /** charges owed now, all types */
   outstanding: number
   postings: ChargePosting[]
@@ -53,8 +57,8 @@ export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
   let feesPaid = result.feesPaid
   for (const posting of result.postings) {
     if (posting.type === "DEFAULT_INTEREST") continue
-    const bucket = posting.type === "COLLECTION_FEE"
-      ? (buckets.COLLECTION_FEE ??= { accrued: 0, paid: 0, outstanding: 0 })
+    const bucket = isOptional(posting.type)
+      ? (buckets[posting.type] ??= { accrued: 0, paid: 0, outstanding: 0 })
       : buckets[posting.type]
     const paid = Math.min(feesPaid, posting.amount)
     feesPaid -= paid
@@ -70,10 +74,11 @@ export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
   }
 }
 
-/** The per-type buckets in display order; COLLECTION_FEE only where posted. */
+/** The per-type buckets in display order; the optional ones only where posted. */
 export function chargeBucketRows(summary: ChargesSummary): Array<{ type: ChargeType; bucket: ChargeBucket }> {
   const rows: Array<{ type: ChargeType; bucket: ChargeBucket }> = TYPES.map((type) => ({ type, bucket: summary.buckets[type] }))
-  return summary.buckets.COLLECTION_FEE ? [...rows, { type: "COLLECTION_FEE", bucket: summary.buckets.COLLECTION_FEE }] : rows
+  const optional = OPTIONAL_TYPES.flatMap((type) => { const bucket = summary.buckets[type]; return bucket ? [{ type, bucket }] : [] })
+  return [...rows, ...optional]
 }
 
 /** One line per charge type still owed, for a plain breakdown under a total. */

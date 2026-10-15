@@ -615,7 +615,7 @@ export function canonicalAccountType(
     return "SAVINGS"
   }
   // Transmission is deliberately NOT canonicalised. It is no longer a
-  // selectable account type (see prisma/schema.prisma BankAccountType), so no
+  // selectable account type (see prisma/schema/clients-kyc.prisma BankAccountType), so no
   // client record can be TRANSMISSION and a transmission statement can only
   // ever be a genuine mismatch. This also keeps this function in step with the
   // DATABASE canonicaliser `canonicalAccountType`, which has never had
@@ -684,7 +684,7 @@ function extractedFieldValue(
  * record as holding?
  *
  * OTHER short-circuits this by design — see the note on `BankAccountType.OTHER`
- * in prisma/schema.prisma. It is the authorised, audited escape hatch for a
+ * in prisma/schema/clients-kyc.prisma. It is the authorised, audited escape hatch for a
  * bank product name the allow-lists have not learned, and it exists so that a
  * novel product name costs a staff decision rather than a code change, a paired
  * migration and a deploy.

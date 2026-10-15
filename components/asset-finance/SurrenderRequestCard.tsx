@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation"
 interface Props {
   loanId: string
   existing: { id: string; status: string } | null
+  /** False once the lender holds the asset (a live recovery): no new request, an existing one still shows its status. */
+  canRequest?: boolean
 }
 
-export function SurrenderRequestCard({ loanId, existing }: Props) {
+export function SurrenderRequestCard({ loanId, existing, canRequest = true }: Props) {
   const router = useRouter()
   const [condition, setCondition] = useState("")
   const [busy, setBusy] = useState(false)
@@ -48,6 +50,8 @@ export function SurrenderRequestCard({ loanId, existing }: Props) {
       </div>
     )
   }
+
+  if (!canRequest) return null
 
   return (
     <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">

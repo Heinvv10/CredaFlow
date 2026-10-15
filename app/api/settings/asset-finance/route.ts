@@ -17,7 +17,7 @@ import { parseAssetFinanceSettings } from "@/lib/asset-finance/settings-input"
 // Confirmation Gate set by CredaFlow once the lender's legal team approves the
 // agreement wording (lib/asset-finance/settings-input.ts refuses it).
 
-// Schema defaults (prisma/schema.prisma model TenantConfig), for a tenant with no config row.
+// Schema defaults (prisma/schema/tenancy.prisma model TenantConfig), for a tenant with no config row.
 const DEFAULTS = { featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false }
 const SELECT = { featureAssetFinance: true, assetPayoutDualApprovalCents: true, assetFinanceLegalWordingApproved: true } as const
 
