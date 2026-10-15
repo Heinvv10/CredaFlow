@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { manualReview } from "./manual-review"
-import { codes, facts, statement } from "./facts.test-helpers"
-import type { ApplicationFacts } from "./types"
+import { codes, facts, statement, tx } from "./facts.test-helpers"
+import type { ApplicationFacts, StatementFacts } from "./types"
 
 const payslip = { documentId: "slip-1", validated: true, matchesClient: true, netPayCents: 1_845_000, payDate: "2026-09-25" }
 const withSlip = (over: Partial<ApplicationFacts> = {}) => facts({ payslip, ...over })
@@ -129,3 +129,75 @@ describe("manualReview", () => {
   })
 })
 
+
+describe("manualReview: a boundary row the account's next or previous statement verifies", () => {
+  const boundary = (out: Array<{ code: string; key: string }>) =>
+    out.filter((c) => c.code === "FIRST_ROW_UNVERIFIED" || c.code === "LAST_ROW_UNVERIFIED").map((c) => `${c.key.split(":")[0]} ${c.code}`).sort()
+  /** A Discovery-like statement: no opening or closing printed, both derived from the rows. */
+  function derived(id: string, periodStart: string, periodEnd: string, openingCents: number, amounts: number[], over: Partial<StatementFacts> = {}): StatementFacts {
+    let running = openingCents
+    const rows = amounts.map((a, i) => tx(periodStart.replace(/\d{2}$/, String(i + 2).padStart(2, "0")), "SYNTH", a, (running += a)))
+    const s = statement(rows, {
+      documentId: id, analysisId: `an-${id}`, contentSha256: `sha-${id}`, bank: "DISCOVERY",
+      authenticity: { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 0, signals: ["OPENING_DERIVED", "CLOSING_DERIVED"] },
+      ...over,
+    })
+    Object.assign(s.read!, { periodStart, periodEnd, openingBalanceCents: openingCents, closingBalanceCents: running })
+    return s
+  }
+  const june = () => derived("a", "2026-06-01", "2026-06-30", 100_000, [500_000, -20_000])
+  const july = (opening = 580_000, over: Partial<StatementFacts> = {}) => derived("b", "2026-07-01", "2026-07-31", opening, [-30_000, 450_000], over)
+  const run = (...statements: StatementFacts[]) => boundary(manualReview(withSlip({ statements })))
+
+  it("raises both boundaries of a lone statement whose bank prints neither balance", () => {
+    expect(run(july())).toEqual(["b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  })
+
+  it("does not raise the boundary two consecutive statements of one account share when one opens where the other closed", () => {
+    expect(run(june(), july())).toEqual(["a FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+    // Whatever order they were uploaded in.
+    expect(run(july(), june())).toEqual(["a FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  })
+
+  it("chains a statement that starts on the day the previous one ended, as FNB and Nedbank date them", () => {
+    const b = july()
+    b.read!.periodStart = "2026-06-30"
+    expect(run(june(), b)).toEqual(["a FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  })
+
+  it("keeps both boundaries flagged when the opening differs from the previous closing by a cent", () => {
+    expect(run(june(), july(580_001))).toEqual(["a FIRST_ROW_UNVERIFIED", "a LAST_ROW_UNVERIFIED", "b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  })
+
+  it("does not chain another account, another bank, or a statement whose account number was not read", () => {
+    const all = ["a FIRST_ROW_UNVERIFIED", "a LAST_ROW_UNVERIFIED", "b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"]
+    const otherAccount = july()
+    otherAccount.read!.accountNumberLast4 = "0002"
+    expect(run(june(), otherAccount)).toEqual(all)
+    expect(run(june(), july(580_000, { bank: "ABSA" }))).toEqual(all)
+    const noAccount = july()
+    noAccount.read!.accountNumberLast4 = null
+    const a = june()
+    a.read!.accountNumberLast4 = null
+    expect(run(a, noAccount)).toEqual(all)
+  })
+
+  it("does not chain statements whose periods leave a gap or overlap", () => {
+    const all = ["a FIRST_ROW_UNVERIFIED", "a LAST_ROW_UNVERIFIED", "b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"]
+    const gap = july()
+    gap.read!.periodStart = "2026-07-02"
+    expect(run(june(), gap)).toEqual(all)
+    const overlap = july()
+    overlap.read!.periodStart = "2026-06-29"
+    expect(run(june(), overlap)).toEqual(all)
+    const noPeriod = july()
+    noPeriod.read!.periodStart = null
+    expect(run(june(), noPeriod)).toEqual(all)
+  })
+
+  it("does not take a vision read or an unreconciled read as the neighbour", () => {
+    expect(run(june(), july(580_000, { method: "VLM" }))).toContain("a LAST_ROW_UNVERIFIED")
+    expect(run(june(), july(580_000, { balanceCheck: "FAIL" }))).toContain("a LAST_ROW_UNVERIFIED")
+    expect(run(june(), july(580_000, { balanceCheck: "FAIL" }))).toContain("b FIRST_ROW_UNVERIFIED")
+  })
+})

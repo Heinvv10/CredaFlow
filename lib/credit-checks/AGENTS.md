@@ -19,8 +19,9 @@ a reason. Never approves, declines or scores; bureau/affordability stay the gate
   document id + content hash (`statementKey`), so a new upload is new evidence
   while a re-read of the same bytes (parser bump) keeps clearances.
 - **Flags never vanish uncleared** (`recompute.ts`): an OPEN flag no longer
-  raised supersedes only when absent evidence arrived or the document it could
-  not read has been read (`maySupersede`). Deletion, client edits and parser
+  raised supersedes only when absent evidence arrived, the document it could
+  not read has been read, or the account's adjacent statement opens/closes on
+  its derived boundary to the cent (`statement-chain.ts`, `maySupersede`). Deletion, client edits and parser
   bumps leave it OPEN (deleted documents raise *_DELETED). The DB trigger `ApplicationCheckFlag_guard_record`
   holds the record: born OPEN, no delete/truncate, fixed identity, only
   OPEN<->SUPERSEDED and OPEN->CLEARED. Recompute runs only before a decision,

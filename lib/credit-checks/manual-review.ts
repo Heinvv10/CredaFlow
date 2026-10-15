@@ -7,6 +7,7 @@
  */
 import { producerExpected } from "./document-authenticity"
 import { EXPECTED_PRODUCERS } from "./policy"
+import { firstRowChained, lastRowChained } from "./statement-chain"
 import { statementKey, type ApplicationFacts, type FlagCandidate, type StatementFacts } from "./types"
 
 const PENDING_SUMMARY = {
@@ -28,7 +29,7 @@ function unreadableSummary(s: StatementFacts): string {
     : "No reader could read the statement. Review it by hand."
 }
 
-function review(s: StatementFacts): FlagCandidate[] {
+function review(s: StatementFacts, all: StatementFacts[]): FlagCandidate[] {
   const base = { check: "MANUAL_REVIEW" as const, key: statementKey(s) }
   const evidence = { documentId: s.documentId }
   if (s.state === "PENDING") {
@@ -59,9 +60,10 @@ function review(s: StatementFacts): FlagCandidate[] {
     })
   }
   // The bank prints no opening balance, so the first row is checked by nothing:
-  // a salary edited there reconciles. A person compares it with the original.
+  // a salary edited there reconciles. A person compares it with the original,
+  // unless the account's previous statement closes where this one opens.
   const rowEvidence = (t: { date: string; amountCents: number } | undefined) => (t ? { date: t.date, amountCents: t.amountCents } : null)
-  if (s.authenticity?.signals.includes("OPENING_DERIVED")) {
+  if (s.authenticity?.signals.includes("OPENING_DERIVED") && !firstRowChained(s, all)) {
     out.push({
       ...base,
       code: "FIRST_ROW_UNVERIFIED",
@@ -77,7 +79,7 @@ function review(s: StatementFacts): FlagCandidate[] {
       evidence: { ...evidence, rows: (s.read?.transactions ?? []).flatMap((t, i) => (t.balanceCents === null && !t.nonPosting ? [i] : [])).slice(0, 20) },
     })
   }
-  if (s.authenticity?.signals.includes("CLOSING_DERIVED")) {
+  if (s.authenticity?.signals.includes("CLOSING_DERIVED") && !lastRowChained(s, all)) {
     out.push({
       ...base,
       code: "LAST_ROW_UNVERIFIED",
@@ -114,7 +116,7 @@ function each(ids: string[], code: string, summary: string, field = "documentId"
 export function manualReview(f: ApplicationFacts): FlagCandidate[] {
   const out: FlagCandidate[] = f.statements.length === 0
     ? [{ check: "MANUAL_REVIEW", code: "NO_STATEMENT", key: f.applicationId, summary: "No recent bank statement is on file for this application.", evidence: {} }]
-    : f.statements.flatMap(review)
+    : f.statements.flatMap((s) => review(s, f.statements))
   if (f.statements.length > 0 && !f.payslip && f.unreadPayslipIds.length === 0) {
     out.push({
       check: "MANUAL_REVIEW",

@@ -8,10 +8,11 @@
  *                                          the database refuses it too)
  *   - a SUPERSEDED flag raised again     → OPEN again
  *   - an OPEN flag no longer raised      → SUPERSEDED only when the evidence it
- *     complained of being absent arrived, or the statement it could not read
- *     has been read (maySupersede). Otherwise it stays OPEN: a deleted
- *     statement, an edited client record or a parser change must not make a
- *     finding disappear without an officer clearing it.
+ *     complained of being absent arrived, the statement it could not read
+ *     has been read, or the account's adjacent statement now verifies the
+ *     boundary row it could not check (maySupersede). Otherwise it stays
+ *     OPEN: a deleted statement, an edited client record or a parser change
+ *     must not make a finding disappear without an officer clearing it.
  *
  * Runs only before a decision: once an application is approved or declined
  * its flags are the record of what the officer saw, and stay as they were.
@@ -23,8 +24,9 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { canonicalJson } from "@/lib/canonical-json"
 import { loadApplicationFacts } from "./load-facts"
-import { runChecks } from "./run-checks"
-import type { ApplicationFacts } from "./types"
+import { fingerprint, runChecks } from "./run-checks"
+import { firstRowChained, lastRowChained } from "./statement-chain"
+import { statementKey, type ApplicationFacts } from "./types"
 
 export const RECOMPUTE_STATUSES: readonly AppStatus[] = ["DRAFT", "SUBMITTED", "UNDER_REVIEW"]
 
@@ -55,6 +57,8 @@ function listFlags(tenantId: string, applicationId: string, db: Pick<typeof pris
 const SUPERSEDES_ON_ARRIVAL = new Set(["NO_STATEMENT", "NO_PAYSLIP"])
 /** Codes about a statement not yet read: they go once that statement is read, not if it is deleted. */
 const SUPERSEDES_ON_READ = new Set(["NOT_READ", "NOT_READ_NO_CONSENT"])
+/** Boundary rows nothing in their statement checks: they go once the adjacent statement does (statement-chain.ts). */
+const SUPERSEDES_ON_CHAIN = new Map([["FIRST_ROW_UNVERIFIED", firstRowChained], ["LAST_ROW_UNVERIFIED", lastRowChained]])
 
 export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts): boolean {
   if (SUPERSEDES_ON_ARRIVAL.has(flag.code)) return true
@@ -62,6 +66,12 @@ export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts
   // A payslip that could not be read goes once it has been extracted.
   if (flag.code === "PAYSLIP_NOT_READ") return typeof e.payslipDocumentId === "string" && facts.extractedPayslipIds.includes(e.payslipDocumentId)
   const current = facts.statements.find((s) => s.documentId === e.documentId)
+  const chained = SUPERSEDES_ON_CHAIN.get(flag.code)
+  if (chained) {
+    // The same bytes the flag was raised on, and the boundary now verified: a
+    // neighbour deleted later raises it again (SUPERSEDED → OPEN).
+    return !!current && flag.fingerprint === fingerprint({ check: flag.check, code: flag.code, key: statementKey(current) }) && chained(current, facts.statements)
+  }
   // Every other finding stays until an officer clears it — even after a newer
   // parser re-reads its statement, since the finding may have gone for reasons
   // that have nothing to do with the re-read.
