@@ -93,14 +93,14 @@ for c in "$LIVE_APP" "$LIVE_PORTAL" "$LIVE_DB"; do
   [ "$got" = "$live_dir" ] || die "refusing: $c was started from '$got', not LIVE_DIR $live_dir"
 done
 for c in "$LIVE_APP" "$LIVE_PORTAL"; do
-  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -qx 'DEMO_MODE=true' \
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -x 'DEMO_MODE=true' >/dev/null \
     || die "refusing: $c does not run with DEMO_MODE=true, so it is not a demo stack"
 done
 db="$(docker exec "$LIVE_DB" printenv POSTGRES_DB)" || die "cannot read POSTGRES_DB in $LIVE_DB"
 db_user="$(docker exec "$LIVE_DB" printenv POSTGRES_USER)" || die "cannot read POSTGRES_USER in $LIVE_DB"
 [ "$db" != postgres ] || die "refusing: POSTGRES_DB is the maintenance db"
 [[ "$db" =~ ^[a-z_][a-z0-9_]{0,40}$ ]] || die "refusing: unexpected POSTGRES_DB name '$db'"
-db_bind="$(docker port "$LIVE_DB" 5432 | grep -m1 '^127\.0\.0\.1:')" \
+db_bind="$(docker port "$LIVE_DB" 5432 | grep '^127\.0\.0\.1:' | sed -n 1p)" \
   || die "refusing: $LIVE_DB port 5432 is not published on 127.0.0.1"
 env_file="$live_dir/.env" prod_env_file="$live_dir/.env.production"
 [ "$(env_get "$env_file" POSTGRES_DB)" = "$db" ] && [ "$(env_get "$env_file" POSTGRES_USER)" = "$db_user" ] \

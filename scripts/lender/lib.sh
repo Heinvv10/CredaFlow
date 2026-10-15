@@ -204,7 +204,7 @@ wait_db() {
 # password is not in argv). Without a `--`, everything after IMAGE is the command.
 tools_run() {
   local image="$1" opts=(); shift
-  if printf '%s\n' "$@" | grep -qx -- '--'; then
+  if printf '%s\n' "$@" | grep -x -- '--' >/dev/null; then
     while [ "$1" != "--" ]; do opts+=("$1"); shift; done
     shift
   fi

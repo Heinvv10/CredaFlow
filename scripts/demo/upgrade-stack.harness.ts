@@ -56,11 +56,13 @@ case "$*" in
   "inspect credaflow-fairscore-"*) exit 0 ;;
   *"com.docker.compose.project.working_dir"*) echo "$STUB_LIVE_DIR" ;;
   *"com.docker.compose.project"*) echo "$STUB_PROJECT" ;;
-  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE"; cat "$STUB_ROOT/container.env" ;;
+  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE"; cat "$STUB_ROOT/container.env"
+    # More output after the match, once a reader that stops early has gone (SIGPIPE under pipefail).
+    [ -z "$STUB_OUTPUT_TAIL" ] || { /bin/sleep 0.3; echo "PATH=/usr/bin"; echo "NODE_ENV=production"; } ;;
   *"HostPort"*credaflow-fairscore-portal) echo 3332 ;;
   *"HostPort"*) echo 3330 ;;
   *"HostIp"*) echo 127.0.0.1 ;;
-  "port credaflow-fairscore-db 5432") echo "$STUB_DB_BIND" ;;
+  "port credaflow-fairscore-db 5432") echo "$STUB_DB_BIND"; [ -z "$STUB_OUTPUT_TAIL" ] || { /bin/sleep 0.3; echo "[::1]:5432"; } ;;
   "exec credaflow-fairscore-db printenv POSTGRES_DB") echo credaflow_demo ;;
   "exec credaflow-fairscore-db printenv POSTGRES_USER") echo credaflow ;;
   "exec credaflow-fairscore-db sh -c "*pg_dump*)
