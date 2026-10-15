@@ -60,7 +60,7 @@ function newestCopy<T extends IdReplacementCandidate>(copies: readonly T[]): T |
  * Fail closed: while this is non-null the ID_COPY core document is outstanding,
  * so the composite KYC projection cannot stay VERIFIED on the older copy.
  * Mirrors subject_has_pending_id_replacement (migrations 20261014130000 and
- * 20261015090000).
+ * 20261015130000).
  */
 export function pendingIdReplacement<T extends IdReplacementCandidate>(
   documents: readonly T[],

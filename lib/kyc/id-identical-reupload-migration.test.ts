@@ -1,5 +1,5 @@
 /**
- * Static proof for migration 20261015090000_identical_id_reupload_not_replacement.
+ * Static proof for migration 20261015130000_identical_id_reupload_not_replacement.
  * What the rule does when it runs is proven against Postgres, beside the
  * TypeScript, by id-identical-reupload.integration.test.ts.
  */
@@ -10,7 +10,7 @@ import { baselineFunctionSql } from "@/lib/db-baseline.test-helpers"
 
 const MIGRATIONS = path.join(__dirname, "..", "..", "prisma", "migrations")
 const read = (dir: string) => fs.readFileSync(path.join(MIGRATIONS, dir, "migration.sql"), "utf8")
-const MIGRATION = "20261015090000_identical_id_reupload_not_replacement"
+const MIGRATION = "20261015130000_identical_id_reupload_not_replacement"
 const PREVIOUS = "20261014130000_replacement_id_pending_not_verified"
 
 function functionIn(sql: string, name: string): string {

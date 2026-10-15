@@ -1,6 +1,6 @@
 /**
  * Real-Postgres proof, beside the TypeScript, of migration
- * 20261015090000_identical_id_reupload_not_replacement: a newer, unreviewed ID
+ * 20261015130000_identical_id_reupload_not_replacement: a newer, unreviewed ID
  * copy with the current verified copy's digest is no pending replacement.
  *
  * Each case seeds one client (four verified core documents, an in-person

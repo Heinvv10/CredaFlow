@@ -27,7 +27,7 @@
   that function must carry the conjunct. The ID upload re-projects the stored
   status (`id-upload-projection.server.ts`); it never promotes.
 - A copy whose `contentSha256` equals the newest verified copy's is not a
-  replacement (migration 20261015090000, TS+SQL). A NULL digest never matches.
+  replacement (migration 20261015130000, TS+SQL). A NULL digest never matches.
 - Stored PENDING while the evidence derives VERIFIED (e.g. replacement deleted):
   a staff hint + Re-verify ID via the verify route; nothing auto-promotes.
 

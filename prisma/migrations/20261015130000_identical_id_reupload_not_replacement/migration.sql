@@ -45,7 +45,7 @@ AS $function$
   AND coalesce(
     (
       SELECT newest."verified" = false
-        -- BEGIN identical-reupload rule (20261015090000_identical_id_reupload_not_replacement).
+        -- BEGIN identical-reupload rule (20261015130000_identical_id_reupload_not_replacement).
         -- The newest copy is no replacement when its bytes are the current
         -- verified copy's. NULL anywhere makes the coalesce false: pending.
         -- Mirrors pendingIdReplacement in lib/kyc/id-replacement.ts.
