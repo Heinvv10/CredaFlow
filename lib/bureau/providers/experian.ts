@@ -2,7 +2,9 @@
  * Experian behind BureauProvider. A WRAPPER ONLY: the request still goes
  * through buildExperianEnquiryInput + getCreditReport (lib/integrations/
  * experian.ts), so the wire format, the dry-run and its simulation guard are
- * unchanged. Credentials stay in EXPERIAN_* env until they move per tenant.
+ * unchanged. Credentials are the tenant's own sealed TenantConfig.experianKey,
+ * with EXPERIAN_* env only for the ENV_CREDENTIALS_TENANT_SLUG tenant
+ * (lib/integrations/tenant-credentials.ts), not the bureauCredentials bag.
  */
 import {
   ENQUIRY_PURPOSE,
@@ -110,7 +112,8 @@ export const experianBureau: BureauProvider = {
       consentGranted: true,
       applicationId: request.reference,
     })
-    const result = await getCreditReport({ ...input, purpose: PURPOSE_CODE[request.purpose] })
+    // Whose Experian account: TenantConfig.experianKey (lib/integrations/tenant-credentials.ts).
+    const result = await getCreditReport({ ...input, purpose: PURPOSE_CODE[request.purpose] }, request.tenantId)
     if (result.ok) return experianReport(result as ExperianResult & { ok: true })
 
     const detail = { providerCode: result.errorCode, errorClass: result.errorClass }

@@ -29,6 +29,8 @@ export interface PortalChecklistDocument {
   verificationRejectedAt?: Date | null
   /** Always present from the database read; selects the newest ID copy. */
   createdAt?: Date
+  /** Always present from the database read; without it a copy is never identical. */
+  contentSha256?: string | null
   validationMismatch?: boolean
   biometricMatchScore?: number | null
   extractionStatus?: string

@@ -6,6 +6,9 @@ import { Prisma, type UserRole } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
+import { isOperatorRole } from "@/lib/operator/roles"
+import { resolveOperatorTenantAccess } from "@/lib/operator/tenant-access"
+import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
 
 export type { AppRole }
 
@@ -111,6 +114,9 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
   if (!session?.user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   }
+  if (isOperatorRole(session.user.role)) {
+    return operatorApiGuard(session.user, minRole)
+  }
   if (!session.user.tenantId) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
@@ -121,6 +127,37 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
   return { user: session.user as StaffUser }
+}
+
+/**
+ * An operator user (no tenant of their own) on a lender's API route: allowed
+ * only through that lender's active support grant, as READONLY, audited
+ * (lib/operator/tenant-access.ts). The lender is the request's tenant.
+ */
+async function operatorApiGuard(
+  user: { id: string; email: string; totpVerified?: boolean },
+  minRole: UserRole,
+): Promise<ApiGuardResult> {
+  const forbidden = { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  const { getResolvedTenantId } = await import("@/lib/tenant")
+  let tenantId: string
+  try {
+    tenantId = await getResolvedTenantId()
+  } catch (err) {
+    // No resolvable lender for this request: nothing to grant access to.
+    console.error("[auth-guards] operator request resolved no tenant — refusing:", err)
+    return forbidden
+  }
+  // The method and request id as proxy.ts stamped them (a route handler
+  // cannot see its own method from here); no stamp counts as a write.
+  const { headers } = await import("next/headers")
+  const h = await headers()
+  const access = await resolveOperatorTenantAccess({
+    session: user, tenantId, requiredRole: minRole, resource: `api:${minRole}`,
+    method: h.get(REQUEST_METHOD_HEADER), requestId: h.get(REQUEST_ID_HEADER),
+  })
+  if (!access.allowed) return forbidden
+  return { user: access.principal }
 }
 
 // Role hierarchy — higher index = more permissions. CLIENT is not listed; it

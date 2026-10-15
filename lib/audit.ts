@@ -166,6 +166,9 @@ export const AuditAction = {
   KYC_APPROVED: "KYC_APPROVED",
   KYC_REJECTED: "KYC_REJECTED",
   KYC_STATUS_CHANGED: "KYC_STATUS_CHANGED",
+  // Staff re-derived the stored status from evidence already on file ("Re-verify
+  // ID", lib/kyc/kyc-rederive.server.ts). No document was verified or attested.
+  KYC_STATUS_REDERIVED: "KYC_STATUS_REDERIVED",
   // One-time consumer selfie capture links. Distinct sent/failed actions for
   // the same reason PASQ_LINK_* are distinct: "we sent a credential to a
   // consumer" and "we minted one and cancelled it undelivered" are different
@@ -450,6 +453,17 @@ export const AuditAction = {
   // one (scripts/lender/bootstrap-admin.ts). Never carry a credential.
   SUPER_ADMIN_BOOTSTRAPPED: "SUPER_ADMIN_BOOTSTRAPPED",
   SUPER_ADMIN_BREAK_GLASS_RESET: "SUPER_ADMIN_BREAK_GLASS_RESET",
+  // Operator support access (lib/operator/): a lender's grant and revocation,
+  // and every use or refused use of it by an operator user. Written under the
+  // lender's tenantId so the lender's own audit log shows them.
+  SUPPORT_ACCESS_GRANTED: "SUPPORT_ACCESS_GRANTED",
+  SUPPORT_ACCESS_GRANT_REFUSED: "SUPPORT_ACCESS_GRANT_REFUSED",
+  SUPPORT_ACCESS_REVOKED: "SUPPORT_ACCESS_REVOKED",
+  SUPPORT_ACCESS_USED: "SUPPORT_ACCESS_USED",
+  SUPPORT_ACCESS_REFUSED: "SUPPORT_ACCESS_REFUSED",
+  // Provider credentials (lib/integrations/tenant-credentials.ts): which
+  // fields changed, never the values.
+  PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",
 
   // Complaints and POPIA data subject requests (app/api/complaints,
   // app/api/dsar). Identifiers, statuses and dates only: the description,
@@ -605,4 +619,27 @@ export const AuditAction = {
   RMCP_UPLOADED: "RMCP_UPLOADED",
   RMCP_APPROVED: "RMCP_APPROVED",
   RMCP_DOWNLOADED: "RMCP_DOWNLOADED",
+  // Lender API (lib/lender-api, app/api/settings/api-keys, app/api/settings/webhooks).
+  // Key and endpoint rows by id and prefix only, never a key or a signing secret.
+  API_KEY_CREATED: "API_KEY_CREATED",
+  API_KEY_REVOKED: "API_KEY_REVOKED",
+  WEBHOOK_ENDPOINT_CREATED: "WEBHOOK_ENDPOINT_CREATED",
+  WEBHOOK_ENDPOINT_DISABLED: "WEBHOOK_ENDPOINT_DISABLED",
+  // The circuit breaker paused an endpoint (no user: the system did it), and an admin resumed it.
+  WEBHOOK_ENDPOINT_PAUSED: "WEBHOOK_ENDPOINT_PAUSED",
+  WEBHOOK_ENDPOINT_RESUMED: "WEBHOOK_ENDPOINT_RESUMED",
+  // A draft application created through POST /api/v1/applications; newValue names the key.
+  APPLICATION_CREATED_VIA_API: "APPLICATION_CREATED_VIA_API",
+  // Staff working hours and IP allowlist (lib/security/staff-access-*.ts).
+  // REFUSED: a sign-in or a live session stopped by the policy, with reason.
+  // BYPASSED: a SUPER_ADMIN the policy would have stopped, let through.
+  STAFF_ACCESS_POLICY_UPDATED: "STAFF_ACCESS_POLICY_UPDATED",
+  STAFF_ACCESS_REFUSED: "STAFF_ACCESS_REFUSED",
+  STAFF_ACCESS_BYPASSED: "STAFF_ACCESS_BYPASSED",
+  // Signing OTP and portal registration policy (lib/signing-otp,
+  // lib/portal/portal-policy.ts). Never the code itself.
+  PORTAL_POLICY_UPDATED: "PORTAL_POLICY_UPDATED",
+  SIGNING_OTP_REQUESTED: "SIGNING_OTP_REQUESTED",
+  SIGNING_OTP_VERIFIED: "SIGNING_OTP_VERIFIED",
+  SIGNING_OTP_REJECTED: "SIGNING_OTP_REJECTED",
 } as const

@@ -101,6 +101,33 @@ describe("derivePortalKycChecklist", () => {
     expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-2", status: "pending_review" })
   })
 
+  it("keeps the ID item verified when the newer copy is a byte-identical re-upload", () => {
+    const sha = "a".repeat(64)
+    const documents = (newerSha: string | undefined) => [
+      { id: "id-new", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: new Date("2026-07-02T00:00:00Z"), contentSha256: newerSha },
+      { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z"), contentSha256: sha },
+    ]
+    const item = (newerSha: string | undefined) => derivePortalKycChecklist({
+      documents: documents(newerSha), composite: composite(), latestSelfieId: null,
+    }).coreDocuments.ID_COPY
+    expect(item(sha)).toEqual({ documentId: "id-old", status: "verified" })
+    // No digest on the read is never identical.
+    expect(item(undefined)).toEqual({ documentId: "id-new", status: "pending_review" })
+  })
+
+  it("points the ID item at a different copy a newer identical re-upload would hide", () => {
+    const sha = "a".repeat(64)
+    const checklist = derivePortalKycChecklist({
+      documents: [
+        { id: "id-same", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: new Date("2026-07-03T00:00:00Z"), contentSha256: sha },
+        { id: "id-other", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: new Date("2026-07-02T00:00:00Z"), contentSha256: "b".repeat(64) },
+        { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z"), contentSha256: sha },
+      ],
+      composite: composite(), latestSelfieId: null,
+    })
+    expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-other", status: "pending_review" })
+  })
+
   it("asks the client to act only when a named reviewer refused their document", () => {
     // The portal renders action_required as "This document needs attention.
     // Please replace it." A note alone does not justify that: the SYSTEM writes

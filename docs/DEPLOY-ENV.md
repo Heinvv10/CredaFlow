@@ -19,6 +19,10 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | `INTERNAL_API_SECRET` | required | bearer for `/api/notifications/*` |
 | `UNSUB_TOKEN_SECRET` | required | unsubscribe links; templated emails are refused without it |
 | `WABA_ENC_KEY` | required | 32 bytes base64; seals stored email and WhatsApp credentials. Losing it orphans them |
+| `UPLOADS_ENC_KEY` | required for new lenders (generated) | 32 bytes base64; master key of the uploads' envelope encryption (`lib/storage-crypto.ts`). Unset, new files are written in plaintext and `/api/health` warns `storage_encryption_off`. Losing it loses every encrypted document, backups included: copy it off the host with the backup passphrase. Existing files: `scripts/lender/encrypt-uploads.sh` |
+| `UPLOADS_ENC_REQUIRED` | optional (set `true` for new lenders by `provision-lender.sh`) | Off unless `true`. When on, storage refuses to write without `UPLOADS_ENC_KEY` and refuses to read a plaintext file (so `/api/health` fails). An older lender sets it after `encrypt-uploads.sh` has converted its files |
+| `WEBHOOK_SECRET_KEY` | required for webhooks (generated) | 32 bytes base64; seals the lender API's webhook signing secrets. Unset, endpoints cannot be added and deliveries fail |
+| `API_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` | optional | days kept by the nightly `lender-api-retention` cron: API request logs (default 90), finished webhook deliveries and their events (default 30) |
 | `ADMIN_SECRET` | optional | `x-admin-secret` for `/api/admin/tenants` |
 | `TRUSTED_PROXY` | set behind a proxy | number of proxies in front; default `0` |
 | `APP_MODE` | set by compose | `staff` on the staff container, `client` on the portal (`all` is the app's default when unset) |
@@ -28,14 +32,18 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 
 **Per integration** (all optional until the feature is used)
 
+Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_KEY` (`lib/integrations/tenant-credentials.ts`). The Stitch, SmileIdentity and Experian credential variables below are a fallback for a dedicated deployment: they serve only the tenant `ENV_CREDENTIALS_TENANT_SLUG` names, and no one while it is unset; a shared platform leaves it unset and sets each lender's credentials on its TenantConfig instead.
+
 | Feature | Variables |
 |---|---|
 | Payments (Stitch) | `STITCH_CLIENT_ID`, `STITCH_CLIENT_SECRET`, `STITCH_WEBHOOK_SECRET`, `STITCH_BENEFICIARY_NAME`, `STITCH_BANK_ID`, `STITCH_BANK_NAME`, `STITCH_ACCOUNT_NUMBER`, `STITCH_ACCOUNT_TYPE`, `STITCH_BRANCH_CODE` |
 | Debit mandates | `DEBIT_MANDATE_CREDITOR_BANK_NAME`, `_ACCOUNT_NUMBER`, `_BRANCH_CODE` (real, printed on every mandate; placeholders are refused), `DEBIT_MANDATE_CREDITOR_TENANT_ID` (must equal the tenant id; provision sets it) |
 | KYC (SmileIdentity) | `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY`, `SMILE_IDENTITY_ENV` (`production` or `test`), `SMILE_DRY_RUN` |
 | Face match | `FACE_MODEL_DIR`, `FACE_SIMILARITY_THRESHOLD`, `FACE_MODEL_LOAD_TIMEOUT_MS`, `FACE_COMPARISON_TIMEOUT_MS` (models are in the image) |
-| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD`, `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings. Enquiry order, freshness window and other bureaus' credentials (sealed with `WABA_ENC_KEY`) are `TenantConfig` columns (`lib/bureau/`) |
+| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD` (fallback for `TenantConfig.experianKey`, owner tenant only), `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings. Enquiry order, freshness window and other bureaus' credentials (sealed with `WABA_ENC_KEY`) are `TenantConfig` columns (`lib/bureau/`) |
 | Bureau submission | `BUREAU_SUBMISSION_MODE`; `BUREAU_SUBMISSION_TEST_OUTBOX` (absolute directory for TEST files, refused on `NODE_ENV=production`) |
+| Env credential owner | `ENV_CREDENTIALS_TENANT_SLUG` (slug of the one tenant the Stitch/SmileIdentity/Experian variables belong to; `provision-lender.sh` sets it to the stack's lender; unset = no env fallback, logged once and shown to operators on `/api/health`; never reuse the owner's slug for another tenant, see `docs/DEPLOY.md`) |
+| Row-level security | `TENANT_RLS` (`on` turns on the tenant query hook, `lib/tenant-rls.ts`; leave it off while the app connects as a superuser, see the activation checklist in `docs/ARCHITECTURE.md`) |
 | Dry-run switches | `EXPERIAN_DRY_RUN`, `TRANSUNION_DRY_RUN`, `NETCASH_DRY_RUN`, `NETCASH_COLLECTIONS_DRY_RUN`, `BULKSMS_DRY_RUN` (SMS is off by policy), `WA_DRY_RUN`, `SIMULATED_INTEGRATIONS`. On `NODE_ENV=production` a dry-run for a financial or credit provider throws unless declared a sandbox (`lib/integrations/simulation-guard.ts`) |
 | Email | primary: Settings > Email, stored sealed with `WABA_ENC_KEY`. Fallback: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`. Delivery guard: `EMAIL_DELIVERY_MODE` (default restricted to an allowlist; `unrestricted` on production only), `EMAIL_RECIPIENT_ALLOWLIST`, `EMAIL_INTERNAL_DOMAINS`, `EMAIL_INBOUND_ALLOWED_HOSTS` |
 | WhatsApp Cloud | `WHATSAPP_CLOUD_APP_SECRET`, `WHATSAPP_CLOUD_VERIFY_TOKEN` (generated), `WHATSAPP_GRAPH_VERSION`, `NEXT_PUBLIC_META_APP_ID`, `NEXT_PUBLIC_META_ES_CONFIG_ID` |

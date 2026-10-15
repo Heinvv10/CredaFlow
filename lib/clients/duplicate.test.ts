@@ -6,7 +6,7 @@ import { uniqueConflictField, conflictMessage } from "./duplicate"
  * These tests cover the MAPPING from a unique-constraint violation to a useful
  * 409 — not the constraint itself. A mocked Prisma cannot execute a unique
  * index, so nothing here proves Postgres rejects a duplicate. That is proved by
- * the index existing (Client_idNumber_key), which is checked in the integration
+ * the index existing (Client_tenantId_idNumber_key), which is checked in the integration
  * suite, not by these assertions.
  *
  * What these DO prove is that the failure stops being an anonymous 500.
@@ -25,7 +25,7 @@ describe("uniqueConflictField", () => {
   })
 
   it("names email when the email collides", () => {
-    // Email is globally unique too, and today a duplicate email 500s exactly
+    // Email is unique per tenant too, and a duplicate email used to 500 exactly
     // like a duplicate ID did. Same defect, same mapping.
     expect(uniqueConflictField(p2002(["email"]))).toBe("email")
   })
@@ -35,8 +35,15 @@ describe("uniqueConflictField", () => {
     expect(uniqueConflictField(p2002("idNumber"))).toBe("idNumber")
   })
 
-  it("picks the first field of a composite unique constraint", () => {
-    expect(uniqueConflictField(p2002(["tenantId", "idNumber"]))).toBe("tenantId")
+  it("names the field after the tenant in a per-tenant unique constraint", () => {
+    // Client is unique on (tenantId, idNumber) and (tenantId, email): the
+    // tenant is the scope, the field after it is what collided.
+    expect(uniqueConflictField(p2002(["tenantId", "idNumber"]))).toBe("idNumber")
+    expect(uniqueConflictField(p2002(["tenantId", "email"]))).toBe("email")
+  })
+
+  it("picks the first field of a composite unique constraint without a tenant", () => {
+    expect(uniqueConflictField(p2002(["applicationId", "fingerprint"]))).toBe("applicationId")
   })
 
   it("returns null for a P2002 that names no target", () => {

@@ -4,6 +4,7 @@ import { getTenantFromRequest } from "@/lib/tenant"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { safePortalPath } from "@/lib/portal-urls"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
 
 export const dynamic = "force-dynamic"
 
@@ -54,6 +55,9 @@ export async function GET(req: NextRequest) {
 
   const tenant = await getTenantFromRequest(req)
   if (!tenant) return seeOther(registerPath(email, reference, next))
+  // Portal off: the sign-in page explains it. A lender-wide answer, asked
+  // before any account lookup, so it says nothing about the email.
+  if (!(await isPortalEnabled(tenant.id))) return seeOther("/portal/login")
 
   const client = await runWithTenant(tenant.id, () =>
     prisma.client.findFirst({

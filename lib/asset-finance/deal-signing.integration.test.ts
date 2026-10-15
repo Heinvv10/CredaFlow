@@ -21,6 +21,7 @@ import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 import { dealStartDate } from "./deal-structure"
 import { isoOfDbDate } from "./dates"
+import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -47,10 +48,17 @@ const asClient = (clientId: string) => {
 const routes = () => signingRoutes(fx.host)
 const signerOf = (clientId: string, document: DealDocumentKind) =>
   database().dealSigner.findUniqueOrThrow({ where: { dealId_clientId_document: { dealId: fx.dealId, clientId, document } } })
+// The lender requires a signing code by default: each e-signature carries a
+// verified one, bound to that signer row and those bytes.
+const otpFor = (row: { id: string; clientId: string; documentSha256: string | null }) => verifiedSigningOtp(database(), {
+  tenantId: fx.tenantId, clientId: row.clientId, purpose: "DEAL_DOCUMENT", subjectId: row.id, documentSha256: row.documentSha256!,
+})
 const sign = async (clientId: string, document: DealDocumentKind) => {
   const row = await signerOf(clientId, document)
   asClient(clientId)
-  return routes().portalSign(row.id, { signature: `TEST ${clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256 })
+  return routes().portalSign(row.id, {
+    signature: `TEST ${clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256, signingOtpChallengeId: await otpFor(row),
+  })
 }
 const sqlError = async (run: () => Promise<unknown>): Promise<string> => {
   try {
@@ -130,12 +138,41 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     expect((await database().dealSigner.findUniqueOrThrow({ where: { id: other.id } })).method).toBeNull()
   })
 
+  it("refuses an e-signature without a verified code, or with a code for another document, and changes nothing", async () => {
+    const own = await signerOf(fx.suretyA, "SURETYSHIP")
+    const other = await signerOf(fx.director, "AGREEMENT")
+    asClient(fx.suretyA)
+    const bare = await routes().portalSign(own.id, { signature: "TEST Surety A", documentSha256: own.documentSha256 })
+    expect(bare.status).toBe(403)
+    expect(await bare.json()).toEqual(expect.objectContaining({ signingOtp: "required" }))
+    const wrongBytes = await verifiedSigningOtp(database(), {
+      tenantId: fx.tenantId, clientId: fx.suretyA, purpose: "DEAL_DOCUMENT", subjectId: own.id, documentSha256: "0".repeat(64),
+    })
+    expect((await routes().portalSign(own.id, {
+      signature: "TEST Surety A", documentSha256: own.documentSha256, signingOtpChallengeId: wrongBytes,
+    })).status).toBe(409)
+    const wrongRow = await verifiedSigningOtp(database(), {
+      tenantId: fx.tenantId, clientId: fx.suretyA, purpose: "DEAL_DOCUMENT", subjectId: other.id, documentSha256: own.documentSha256!,
+    })
+    expect((await routes().portalSign(own.id, {
+      signature: "TEST Surety A", documentSha256: own.documentSha256, signingOtpChallengeId: wrongRow,
+    })).status).toBe(403)
+    expect((await signerOf(fx.suretyA, "SURETYSHIP")).method).toBeNull()
+  })
+
   it("e-signs: a stale digest is refused, the signature is stored with its sha256 and IP, audited, once", async () => {
     const own = await signerOf(fx.suretyA, "SURETYSHIP")
     asClient(fx.suretyA)
     expect((await routes().portalSign(own.id, { signature: "TEST Surety A", documentSha256: "0".repeat(64) })).status).toBe(409)
-    const response = await routes().portalSign(own.id, { signature: "TEST Surety A", documentSha256: own.documentSha256 })
+    const challengeId = await otpFor(own)
+    const response = await routes().portalSign(own.id, {
+      signature: "TEST Surety A", documentSha256: own.documentSha256, signingOtpChallengeId: challengeId,
+    })
     expect(response.status).toBe(200)
+    expect(await database().signingOtpChallenge.findUniqueOrThrow({ where: { id: challengeId } }))
+      .toMatchObject({ consumedAt: expect.any(Date), signingMethod: "portal" })
+    expect(await database().auditLog.findFirst({ where: { entityId: own.id, action: "ASSET_DEAL_DOCUMENT_SIGNED" } }))
+      .toMatchObject({ newValue: expect.objectContaining({ signingOtp: expect.objectContaining({ challengeId }) }) })
     const signed = await signerOf(fx.suretyA, "SURETYSHIP")
     expect(signed).toMatchObject({
       method: "E_SIGN", signatureData: "TEST Surety A", signedByIp: "198.51.100.7",

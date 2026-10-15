@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getResolvedTenantId } from "@/lib/tenant"
 import { PortalDebitMandateClient } from "./PortalDebitMandateClient"
+import { signingOtpView } from "@/lib/signing-otp/view"
 
 export default async function PortalDebitMandatePage({
   params,
@@ -37,6 +38,8 @@ export default async function PortalDebitMandatePage({
           bankBranchCode: true,
           bankAccountNumber: true,
           accountType: true,
+          email: true,
+          whatsapp: true,
         },
       },
     },
@@ -50,9 +53,11 @@ export default async function PortalDebitMandatePage({
   ) {
     redirect(`/portal/applications/${application.id}`)
   }
+  const signingOtp = await signingOtpView(tenantId, application.client, "portal")
 
   return (
     <PortalDebitMandateClient
+      signingOtp={signingOtp}
       applicationId={application.id}
       reference={application.reference}
       clientName={`${application.client.firstName} ${application.client.lastName}`}

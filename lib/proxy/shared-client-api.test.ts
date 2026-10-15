@@ -29,6 +29,21 @@ describe("shared client API audience matcher", () => {
     }
   })
 
+  // The signing one-time code: the borrower requests and verifies it on the
+  // portal host; both endpoints are POST-only.
+  it.each(["/api/signing-otp", "/api/signing-otp/otp-1/verify"])("allows %s for POST only", (pathname) => {
+    for (const method of METHODS) {
+      expect(isSharedClientApiPath(pathname, method), method).toBe(method === "POST")
+    }
+  })
+
+  it.each(["/api/signing-otp/otp-1", "/api/signing-otp/otp-1/verify/x", "/api/signing-otpx"])(
+    "does not widen to %s",
+    (pathname) => {
+      for (const method of METHODS) expect(isSharedClientApiPath(pathname, method), method).toBe(false)
+    },
+  )
+
   it.each([
     "/api/applications/app-1/decide",
     "/api/applications/app-1/pasq/admin",

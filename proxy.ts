@@ -8,6 +8,7 @@ import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
+import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
 import { crossOriginWriteRefusal } from "@/lib/proxy/same-origin"
 import {
   buildTenantHeaders,
@@ -108,7 +109,13 @@ function route(req: NextAuthRequest): Response {
     req.nextUrl.pathname.startsWith("/api/portal/forgot-password") ||
     req.nextUrl.pathname.startsWith("/api/portal/reset-password") ||
     req.nextUrl.pathname.startsWith("/api/portal/payment/webhook")
+  // The public lender API. Every handler authenticates its own bearer API key
+  // (lib/lender-api/handler.ts, withApiKey) and binds the tenant to the key, so
+  // no session is needed. It is NOT in the public-operational allowlist: that
+  // would also serve it on the client host, and it belongs to the staff host.
+  const isLenderApi = path === "/api/v1" || path.startsWith("/api/v1/")
   const isPublicRoute =
+    isLenderApi ||
     isPublicWebsiteRoot ||
     isSeoAsset ||
     isManualAsset ||
@@ -251,7 +258,11 @@ function route(req: NextAuthRequest): Response {
   }
 
   // Forward tenant slug to Server Components via request header
-  const requestHeaders = buildTenantHeaders(req, tenantSlug)
+  const requestHeaders = stampRequest(buildTenantHeaders(req, tenantSlug), req.method)
+
+  // Operator support access is read-only: no write, server action included.
+  const operatorRefusal = operatorWriteRefusal(req.auth?.user?.role, req.method, path)
+  if (operatorRefusal) return operatorRefusal
 
   // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts)
   // reaches only the enrolment page, public paths included.

@@ -3,23 +3,15 @@ import { NextRequest } from "next/server"
 
 const requireApiRoleMock = vi.fn()
 const clientFindFirstMock = vi.fn()
-const clientFindUniqueMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, cb: (tenant: { id: string }) => Promise<unknown>) => cb({ id: "t1" }),
 }))
-vi.mock("@/lib/tenant-scope", () => ({
-  // Runs the callback straight through. The real bypass is exercised in the
-  // integration suite; here we only care that the route USES it for the
-  // cross-tenant probe and never returns identity from it.
-  withoutTenantScope: (fn: () => Promise<unknown>) => fn(),
-}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: {
       findFirst: (a: unknown) => clientFindFirstMock(a),
-      findUnique: (a: unknown) => clientFindUniqueMock(a),
     },
   },
 }))
@@ -42,7 +34,6 @@ beforeEach(() => {
   _resetRateLimitStore()
   requireApiRoleMock.mockResolvedValue({ user: { id: "officer-1", email: "officer@example.test" } })
   clientFindFirstMock.mockResolvedValue(null)
-  clientFindUniqueMock.mockResolvedValue(null)
 })
 
 describe("GET /api/clients/lookup — authorization", () => {
@@ -54,7 +45,6 @@ describe("GET /api/clients/lookup — authorization", () => {
 
     expect(res.status).toBe(403)
     expect(clientFindFirstMock).not.toHaveBeenCalled()
-    expect(clientFindUniqueMock).not.toHaveBeenCalled()
   })
 })
 
@@ -72,7 +62,6 @@ describe("GET /api/clients/lookup — input validation", () => {
     // checksum-valid candidate, so partial IDs cannot be walked to narrow
     // down a date of birth.
     expect(clientFindFirstMock).not.toHaveBeenCalled()
-    expect(clientFindUniqueMock).not.toHaveBeenCalled()
   })
 })
 
@@ -103,15 +92,18 @@ describe("GET /api/clients/lookup — results", () => {
     )
   })
 
-  it("reports a clash in another tenant WITHOUT identifying anyone", async () => {
-    clientFindFirstMock.mockResolvedValue(null)
-    clientFindUniqueMock.mockResolvedValue({ id: "someone-elses-client" })
-
+  it("never consults another tenant: an ID only another lender holds is free here", async () => {
+    // Borrowers are per lender (Client is unique on tenantId + idNumber). The
+    // only query is the caller's own tenant, so another lender's book cannot
+    // leak through this endpoint even as a bare "exists".
     const res = await GET(request(OTHER_ID))
 
     expect(res.status).toBe(200)
-    // The id came back from the database and must NOT reach the caller.
-    expect(await res.json()).toEqual({ exists: true, sameTenant: false, client: null })
+    expect(await res.json()).toEqual({ exists: false, sameTenant: false, client: null })
+    expect(clientFindFirstMock).toHaveBeenCalledTimes(1)
+    expect(clientFindFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: "t1", idNumber: OTHER_ID } })
+    )
   })
 
   it("reports a free ID number", async () => {

@@ -28,6 +28,11 @@ export function isSharedClientApiPath(pathname: string, method: string): boolean
   if (/^\/api\/applications\/[^/]+\/debit-mandate(\/sign)?$/.test(pathname)) {
     return true
   }
+  // The signing one-time code (lib/signing-otp): requested and verified by the
+  // borrower in the portal, or by a branch witness on the staff host.
+  if (method === "POST" && /^\/api\/signing-otp(\/[^/]+\/verify)?$/.test(pathname)) {
+    return true
+  }
   // The packet the borrower signs, framed on the portal signing page. GET only:
   // its POST records a returned signed packet and is staff-only, as is the
   // /email sibling, and HEAD would run the GET handler and log a read that

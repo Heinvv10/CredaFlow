@@ -42,6 +42,9 @@ case "$*" in
   "inspect -f {{range"*) echo "$STUB_PS_PORTS" ;;
   "ps -a "*) [ -z "$STUB_PROJECT_DIR" ] || { [ "$STUB_PROJECT_DIR" = BLANK ] && echo "dir=" || echo "dir=$STUB_PROJECT_DIR"; } ;;
   "volume ls"*|"network ls"*) [ -z "$STUB_FOREIGN_VOLUME" ] || echo "$STUB_FOREIGN_VOLUME" ;;
+  "volume inspect "*) [ -z "$STUB_NO_UPLOADS" ] || exit 1 ;;
+  *"tar -cf - -C /u ."*) d="$(mktemp -d)"; printf 'synthetic' > "$d/a.pdf"; printf 'synthetic' > "$d/b.jpeg"; tar -cf - -C "$d" .; rm -rf "$d" ;;
+  *"/u/.restore-"*) cat > /dev/null; [ -z "$STUB_UPLOADS_RESTORE_FAIL" ] || exit 1; echo 2 ;;
   "ps -q "*) echo "$STUB_SERVING" ;;
   "build "*) for last in "$@"; do :; done; { echo "ARGS: $*"; find "$last" -type f | sed "s|^$last/||" | sort; } >> "$STUB_LOG.build" ;;
   *"up -d --no-deps"*) if grep -qE "bad|upfail" "$STUB_LENDER/state/image.env" 2>/dev/null; then exit 1; fi ;;

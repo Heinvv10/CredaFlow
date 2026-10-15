@@ -93,6 +93,23 @@ describe("provision-lender.sh", () => {
     expect(rerun.status, rerun.out).toBe(0)
   })
 
+  // Review round 2: encryption at rest is required only where it was switched
+  // on: a new lender from the start, never an existing stack on a rerun.
+  it("requires encryption at rest for a new lender, and never adds it to an existing one", () => {
+    const read = (dir: string, k: string) => readFileSync(join(dir, ".env"), "utf8").match(new RegExp(`^${k}=(.*)$`, "m"))?.[1]
+    const fresh = join(root, "new-lender")
+    expect(provision(fresh).status).toBe(0)
+    expect(read(fresh, "UPLOADS_ENC_REQUIRED")).toBe("true")
+    expect(read(fresh, "UPLOADS_ENC_KEY")).toMatch(/^[A-Za-z0-9+/]{43}=$/)
+
+    const older = join(root, "older-lender")
+    mkdirSync(older, { mode: 0o700 })
+    writeFileSync(join(older, ".env"), "NEXT_PUBLIC_TENANT_SLUG=stub-lender\n", { mode: 0o600 })
+    expect(provision(older).status).toBe(0)
+    expect(read(older, "UPLOADS_ENC_KEY")).toBeTruthy()
+    expect(read(older, "UPLOADS_ENC_REQUIRED")).toBeUndefined()
+  })
+
   it("refuses the same host port for staff and portal", () => {
     const r = provision(join(root, "new-lender"), ["--portal-port", "3999"])
     expect(r.status).not.toBe(0)
@@ -116,6 +133,9 @@ describe("provision-lender.sh", () => {
     expect(envText).toContain("PORTAL_NEXTAUTH_URL=https://portal.example")
     expect(envText).toContain("NEXT_PUBLIC_PORTAL_LOGIN_URL=https://portal.example/portal/login")
     expect(envText).toContain("TRUSTED_PROXY=1")
+    // A dedicated stack names the one tenant its environment credentials belong to.
+    expect(envText).toMatch(/^ENV_CREDENTIALS_TENANT_SLUG=\S+$/m)
+    expect(envText.match(/^ENV_CREDENTIALS_TENANT_SLUG=(.*)$/m)?.[1]).toBe(envText.match(/^NEXT_PUBLIC_TENANT_SLUG=(.*)$/m)?.[1])
     expect(r.out).not.toContain(staff)
 
     expect(provision(dir).status).toBe(0)

@@ -17,6 +17,11 @@ model User {
   active                       Boolean                               @default(true)
   tenantId                     String?
   tenant                       Tenant?                               @relation(fields: [tenantId], references: [id])
+  // Operator staff (OPERATOR_ADMIN / OPERATOR_SUPPORT) are bound to an
+  // operator, never to a tenant: a CHECK constraint keeps the two exclusive
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId                   String?
+  operator                     Operator?                             @relation(fields: [operatorId], references: [id])
   branchId                     String?
   branch                       Branch?                               @relation(fields: [branchId], references: [id])
   totpSecret                   String?
@@ -90,12 +95,60 @@ model User {
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
   kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
+  apiKeysCreated               ApiKey[]                              @relation("ApiKeysCreatedBy")
+  apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
+  webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
+  webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
+  supportGrantsHeld            TenantSupportGrant[]                  @relation("SupportGrantOperatorUser")
+  supportGrantsGiven           TenantSupportGrant[]                  @relation("SupportGrantGrantedBy")
+  supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
 
   @@unique([tenantId, id])
+  @@index([operatorId])
+}
+
+// The platform operator above the lenders (tenants). CredaFlow is the root
+// operator; a reseller is another. Operator staff manage lenders but see no
+// borrower data unless a lender grants it (TenantSupportGrant, lib/operator/).
+model Operator {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  tenants   Tenant[]
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Time-boxed support access a lender's ADMIN/SUPER_ADMIN grants to one
+// operator user. Read-only (lib/operator/tenant-access.ts). The database caps
+// the window at 7 days from creation; every grant, revoke and use is audited.
+model TenantSupportGrant {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  operatorUserId String
+  operatorUser   User      @relation("SupportGrantOperatorUser", fields: [operatorUserId], references: [id])
+  grantedById    String
+  // Granter and revoker are bound to the tenant by compound key: a grant can
+  // only come from that lender's own staff.
+  grantedBy      User      @relation("SupportGrantGrantedBy", fields: [tenantId, grantedById], references: [tenantId, id])
+  reason         String
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedById    String?
+  revokedBy      User?     @relation("SupportGrantRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id])
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId, operatorUserId, expiresAt])
 }
 
 model Tenant {
   id                         String                      @id @default(cuid())
+  // Defaults to the root operator; nullable only so existing rows could be backfilled
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId                 String?                     @default("cf_root_operator")
+  operator                   Operator?                   @relation(fields: [operatorId], references: [id])
   slug                       String                      @unique
   name                       String
   domain                     String?                     @unique
@@ -195,18 +248,27 @@ model Tenant {
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  supportGrants              TenantSupportGrant[]
   screeningChecks            ScreeningCheck[]
   cashThresholdReports       CashThresholdReport[]
   suspiciousReportCases      SuspiciousReportCase[]
   suspiciousReportAccesses   SuspiciousReportAccess[]
   rmcpDocuments              RmcpDocument[]
   screeningBlocks            ScreeningBlock[]
+  apiKeys                    ApiKey[]
+  apiRequestLogs             ApiRequestLog[]
+  webhookEndpoints           WebhookEndpoint[]
+  webhookEvents              WebhookEvent[]
+  webhookDeliveries          WebhookDelivery[]
+  signingOtpChallenges       SigningOtpChallenge[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
   // captured in writing. See spec §Launch-blockers LB3, LB7.
   insuranceCrossSellS69OpinionReceived Boolean @default(false)
   softOptInClosedLoanTailEnabled       Boolean @default(false)
+
+  @@index([operatorId])
 }
 
 enum TenantStatus {
@@ -275,10 +337,24 @@ model TenantConfig {
   ncrStatus                 String? // Registered | Suspended | Cancelled | Deregistered
   headOfficeCity            String?
 
-  netcashKey       String?
-  bulkSmsKey       String?
-  transunionKey    String?
-  smileIdentityKey String?
+  // Provider credentials. Every *Key / *Secret column below holds a value
+  // sealed by lib/crypto/secret-box.ts (enc:v1:…); lib/integrations/
+  // tenant-credentials.ts is the only reader and writer. Pairs are stored as
+  // "id:secret" (bulkSms user:password, transunion clientId:clientSecret,
+  // smileIdentity partnerId:apiKey, experian username:password, stitch
+  // clientId:clientSecret).
+  netcashKey            String?
+  bulkSmsKey            String?
+  transunionKey         String?
+  smileIdentityKey      String?
+  experianKey           String?
+  stitchKey             String?
+  stitchWebhookSecret   String?
+  // The lender's own collection account Stitch pays into. Not secret.
+  stitchBeneficiaryName String?
+  stitchBankId          String?
+  stitchAccountNumber   String?
+  stitchBranchCode      String?
 
   informationOfficerUserId String?
 
@@ -326,6 +402,20 @@ model TenantConfig {
   // Maker-checker for screening decisions, STR decisions and RMCP approvals
   // (the database triggers read it). Changed only by a SUPER_ADMIN with TOTP.
   requireSecondReviewer  Boolean  @default(true)
+  // Borrower signing OTP (lib/signing-otp). Portal signing of the agreement,
+  // debit mandate and other documents needs a verified one-time code when
+  // requireSigningOtp is on; branch signing (staff present) is exempt while
+  // signingOtpBranchExempt is on.
+  requireSigningOtp      Boolean  @default(true)
+  signingOtpBranchExempt Boolean  @default(true)
+  // Portal self-registration (app/api/portal/register). Off refuses new
+  // activations; clients who already activated are unaffected.
+  allowNewRegistrations  Boolean  @default(true)
+  // Staff access restrictions (lib/security/staff-access-policy.ts). Hours:
+  // null = any time, else per-weekday SAST windows. Allowlist: empty = any
+  // address, else CIDR blocks the staff caller's IP must fall in.
+  staffAccessHours       Json?
+  staffIpAllowlist       String[] @default([])
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -381,6 +471,10 @@ enum UserRole {
   INSURANCE_OFFICER
   BRANCH_MANAGER
   READONLY
+  // Operator staff: bound to an Operator, never a tenant. Outside
+  // ROLE_HIERARCHY on purpose, so no tenant role gate admits them.
+  OPERATOR_ADMIN
+  OPERATOR_SUPPORT
 }
 
 model LoginLog {
@@ -458,14 +552,14 @@ model Client {
   tenantId                           String
   tenant                             Tenant                   @relation(fields: [tenantId], references: [id])
   reference                          String                   @unique @default(cuid())
-  idNumber                           String                   @unique
+  idNumber                           String
   branchId                           String?
   branch                             Branch?                  @relation(fields: [branchId], references: [id])
   firstName                          String
   lastName                           String
   dateOfBirth                        DateTime?
   gender                             Gender?
-  email                              String                   @unique
+  email                              String
   phone                              String
   whatsapp                           String?
   addressLine1                       String?
@@ -557,8 +651,12 @@ model Client {
   screeningChecks                    ScreeningCheck[]
   screeningBlocks                    ScreeningBlock[]
   suspiciousReportCases              SuspiciousReportCase[]
+  signingOtpChallenges               SigningOtpChallenge[]
 
   @@unique([tenantId, id])
+  // Borrowers are per lender: the same person may be a client of two lenders.
+  @@unique([tenantId, idNumber])
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@index([tenantId, referralCodeId])
 }
@@ -3109,6 +3207,48 @@ model NotificationLog {
   @@index([tenantId, messageId])
 }
 
+enum SigningOtpPurpose {
+  AGREEMENT
+  DEBIT_MANDATE
+  DOCUMENT
+  // An asset-finance deal document (DealSigner row): agreement, suretyship,
+  // resolution. subjectId is the DealSigner id.
+  DEAL_DOCUMENT
+}
+
+// One borrower signing OTP (lib/signing-otp). Bound to the client, the thing
+// being signed (subjectId: the application for AGREEMENT / DEBIT_MANDATE, the
+// ClientDocument for DOCUMENT) and the SHA-256 of the exact bytes shown. The
+// code is stored only as a keyed hash. Consumed once, inside the signing
+// transaction; from then on the row is the OTP evidence of that signature and
+// the database refuses to change or delete it.
+model SigningOtpChallenge {
+  id                String            @id @default(cuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  clientId          String
+  client            Client            @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  purpose           SigningOtpPurpose
+  subjectId         String
+  documentSha256    String
+  codeHash          String
+  channel           Channel
+  maskedDestination String
+  deliveryStatus    String // PENDING (before the send) | ACCEPTED | SIMULATED | FAILED
+  sentAt            DateTime?
+  expiresAt         DateTime
+  attempts          Int               @default(0)
+  maxAttempts       Int
+  verifiedAt        DateTime?
+  consumedAt        DateTime?
+  signingMethod     String? // portal | branch, set at consumption
+  requestedByUserId String? // the staff witness for a branch request
+  requestedIp       String?
+  createdAt         DateTime          @default(now())
+
+  @@index([tenantId, clientId, purpose, subjectId, createdAt])
+}
+
 model ClientOtp {
   id        String   @id @default(cuid())
   email     String
@@ -5469,4 +5609,157 @@ model LeaseTerminationQuote {
   @@unique([tenantId, taxInvoiceId])
   @@unique([tenantId, scheduleId])
   @@index([tenantId, loanId])
+}
+
+// ── Public lender API and outbound webhooks (lib/lender-api) ──────────────────
+
+// A tenant's API key. Only the SHA-256 of the full key is stored; `prefix` is
+// the public part shown in Settings and used to find the row. Scopes are
+// checked in code (lib/lender-api/scopes.ts) and by ApiKey_scopes_check. A key
+// is never deleted: revokedAt ends it, and its request log keeps pointing at it.
+model ApiKey {
+  id          String          @id @default(cuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name        String
+  prefix      String          @unique
+  keyHash     String          @unique
+  scopes      String[]
+  createdById String
+  createdBy   User            @relation("ApiKeysCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt   DateTime        @default(now())
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  revokedBy   User?           @relation("ApiKeysRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  requestLogs ApiRequestLog[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+}
+
+// One row per /api/v1 call, authenticated or not. tenantId and apiKeyId are
+// null when the bearer key matched no key.
+model ApiRequestLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  apiKeyId   String?
+  apiKey     ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: Restrict)
+  method     String
+  path       String
+  status     Int
+  ipAddress  String?
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
+// Where a tenant wants its events POSTed. The signing secret is sealed with
+// WEBHOOK_SECRET_KEY (lib/crypto/secret-box.ts) and shown once on creation.
+// Endpoints are disabled, never deleted, so the delivery log stays whole.
+model WebhookEndpoint {
+  id                  String            @id @default(cuid())
+  tenantId            String
+  tenant              Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  url                 String
+  description         String?
+  events              String[]
+  secretSealed        String
+  secretPrefix        String
+  active              Boolean           @default(true)
+  createdById         String
+  createdBy           User              @relation("WebhookEndpointsCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt           DateTime          @default(now())
+  disabledAt          DateTime?
+  disabledById        String?
+  disabledBy          User?             @relation("WebhookEndpointsDisabledBy", fields: [tenantId, disabledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Circuit breaker (lib/lender-api/webhooks/dispatch.ts): failed attempts in a
+  // row; at the threshold the endpoint is paused (its deliveries wait, PENDING)
+  // until an admin resumes it in Settings.
+  consecutiveFailures Int               @default(0)
+  pausedAt            DateTime?
+  pausedReason        String?
+  deliveries          WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, active])
+}
+
+// The outbox. Rows are written by database triggers (migration
+// 20261014150000_lender_api_webhooks) in the transaction of the change they
+// describe, and only while the tenant has an active endpoint subscribed to the
+// type. The webhook cron fans each out into WebhookDelivery rows.
+model WebhookEvent {
+  id           String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  type         String
+  entityId     String
+  data         Json
+  createdAt    DateTime          @default(now())
+  dispatchedAt DateTime?
+  deliveries   WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([dispatchedAt, createdAt])
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+// One event to one endpoint: the delivery log. attempts counts POSTs made;
+// nextAttemptAt doubles as the lease a running cron takes on the row.
+model WebhookDelivery {
+  id                 String                @id @default(cuid())
+  tenantId           String
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  endpointId         String
+  endpoint           WebhookEndpoint       @relation(fields: [tenantId, endpointId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  eventId            String
+  event              WebhookEvent          @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status             WebhookDeliveryStatus @default(PENDING)
+  attempts           Int                   @default(0)
+  nextAttemptAt      DateTime              @default(now())
+  lastAttemptAt      DateTime?
+  lastResponseStatus Int?
+  lastError          String?
+  deliveredAt        DateTime?
+  createdAt          DateTime              @default(now())
+
+  @@unique([endpointId, eventId])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+}
+
+// An outbox event a trigger could not write (migration
+// 20261014170000_webhook_breaker_outbox_guard): the write that fired it went
+// through, the event did not. /api/health warns while any are recent; the
+// retention cron prunes them. A log, not tenant data: no relation, so writing
+// it can never fail on one.
+model WebhookOutboxFailure {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  type      String
+  entityId  String
+  error     String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Last run of each in-process cron job (instrumentation.ts), read by /api/health.
+model CronHeartbeat {
+  job             String    @id
+  lastStartedAt   DateTime
+  lastFinishedAt  DateTime?
+  lastSucceededAt DateTime?
+  lastStatus      Int?
+  lastError       String?
 }

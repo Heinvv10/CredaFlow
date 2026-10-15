@@ -80,7 +80,8 @@ cp "$LENDER_SCRIPTS/docker-compose.lender.yml" "$target/docker-compose.yml"
 
 # 2. .env: created once, then only missing keys are added (nothing is rotated).
 env="$target/.env"
-[ -e "$env" ] || (umask 077; : > "$env")
+new_env=false
+[ -e "$env" ] || { (umask 077; : > "$env"); new_env=true; }
 chmod 600 "$env"
 add() { [ -n "$(env_get "$env" "$1")" ] || { env_set "$env" "$1" "$2"; note "generated/set $1"; }; }
 # setting KEY VALUE — a non-secret setting: set when absent; a rerun that asks for
@@ -94,6 +95,9 @@ setting() {
   fi
 }
 add NEXT_PUBLIC_TENANT_SLUG "$SLUG"
+# The STITCH_/SMILE_IDENTITY_/EXPERIAN_ variables in this .env are this lender's
+# own accounts: name the tenant they belong to (lib/integrations/tenant-credentials.ts).
+add ENV_CREDENTIALS_TENANT_SLUG "$SLUG"
 setting APP_PORT "$port"
 [ -z "$bind" ] || setting APP_BIND "$bind"
 setting NEXTAUTH_URL "$public_url"
@@ -119,6 +123,13 @@ for key in NEXTAUTH_SECRET CRON_SECRET INTERNAL_API_SECRET ADMIN_SECRET UNSUB_TO
   add "$key" "$(openssl rand -hex 32)"
 done
 add WABA_ENC_KEY "$(openssl rand -base64 32)"   # 32 bytes, base64: lib/crypto/secret-box.ts
+# Uploads encrypted at rest (lib/storage-crypto.ts). Losing it loses every encrypted
+# document, backups included: copy it off the host with secrets/backup.passphrase.
+add UPLOADS_ENC_KEY "$(openssl rand -base64 32)"
+# A new lender has no plaintext files, so storage fails closed from the start. An
+# existing one turns this on itself, after encrypt-uploads.sh (docs/DEPLOY.md).
+! $new_env || add UPLOADS_ENC_REQUIRED true
+add WEBHOOK_SECRET_KEY "$(openssl rand -base64 32)"   # seals webhook signing secrets (lib/lender-api/webhooks)
 add BACKUP_KEEP 14
 if ! grep -q '^# --- Provider credentials' "$env"; then
   cat >> "$env" <<'ENVTODO'

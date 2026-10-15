@@ -18,6 +18,8 @@ import { recordedCallerIp } from "@/lib/rate-limit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
 import { portalSignerWhere } from "./portal-access"
+import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError, type SigningOtpEvidence } from "@/lib/signing-otp/challenge"
+import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 
 const MAX_SIGNATURE_LENGTH = 500_000
 const PNG_PREFIX = "data:image/png;base64,"
@@ -56,6 +58,7 @@ export type ESignResult =
   | { kind: "not_signable"; reason: string }
   | { kind: "stale_view" }
   | { kind: "document_changed" }
+  | { kind: "signing_otp"; reason: SigningOtpRefusedError["reason"] }
   | { kind: "signed"; signedAt: Date }
 
 export async function recordESignature(params: {
@@ -65,6 +68,8 @@ export async function recordESignature(params: {
   signerId: string
   input: { signature: string; documentSha256: string }
   ip: string | null
+  /** The verified signing OTP (lib/signing-otp), when the lender requires one. */
+  signingOtpChallengeId?: string | null
 }): Promise<ESignResult> {
   const { tenantId, clientId, signerId, input } = params
   const signer = await prisma.dealSigner.findFirst({
@@ -93,38 +98,60 @@ export async function recordESignature(params: {
     if (fresh.sha256 !== signer.documentSha256) return { kind: "document_changed" }
   }
 
+  // Signing OTP (lib/signing-otp/policy.ts): a portal e-signature, bound to
+  // this signer row and these bytes; checked here, spent in the transaction.
+  const otpBinding = {
+    tenantId, clientId, purpose: "DEAL_DOCUMENT" as const, subjectId: signer.id, documentSha256: signer.documentSha256,
+  }
+  const otpRequired = await isSigningOtpRequired(tenantId, "portal")
+  if (otpRequired) {
+    const refusal = await checkSigningOtp(prisma, params.signingOtpChallengeId, otpBinding)
+    if (refusal) return { kind: "signing_otp", reason: refusal }
+  }
+
   const signedAt = new Date()
   // The database recomputes this digest (CHECK DealSigner_method_evidence).
   const signatureSha256 = createHash("sha256").update(input.signature, "utf8").digest("hex")
-  const signed = await prisma.$transaction(async (tx) => {
-    const { count } = await tx.dealSigner.updateMany({
-      where: { id: signer.id, tenantId, clientId, method: null, documentSha256: signer.documentSha256 },
-      data: { method: "E_SIGN", signedAt, signatureData: input.signature, signatureSha256, signedByIp: params.ip },
-    })
-    if (count !== 1) return false
-    await logAuditStrict(
-      {
-        tenantId,
-        userEmail: params.clientEmail ?? undefined,
-        action: AuditAction.ASSET_DEAL_DOCUMENT_SIGNED,
-        entity: "DealSigner",
-        entityId: signer.id,
-        newValue: {
-          dealId: signer.dealId,
-          clientId,
-          document: signer.document,
-          method: "E_SIGN",
-          documentSha256: signer.documentSha256,
-          signatureSha256,
-          signatureKind: input.signature.startsWith(PNG_PREFIX) ? "drawn" : "typed",
-          signedAt: signedAt.toISOString(),
+  let signed: boolean
+  try {
+    signed = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.dealSigner.updateMany({
+        where: { id: signer.id, tenantId, clientId, method: null, documentSha256: signer.documentSha256 },
+        data: { method: "E_SIGN", signedAt, signatureData: input.signature, signatureSha256, signedByIp: params.ip },
+      })
+      if (count !== 1) return false
+      // Spent only once the signature is recorded; a refusal throws and rolls it back.
+      const signingOtp: SigningOtpEvidence | null = otpRequired
+        ? await consumeSigningOtp(tx, { ...otpBinding, challengeId: params.signingOtpChallengeId!, method: "portal", now: signedAt })
+        : null
+      await logAuditStrict(
+        {
+          tenantId,
+          userEmail: params.clientEmail ?? undefined,
+          action: AuditAction.ASSET_DEAL_DOCUMENT_SIGNED,
+          entity: "DealSigner",
+          entityId: signer.id,
+          newValue: {
+            dealId: signer.dealId,
+            clientId,
+            document: signer.document,
+            method: "E_SIGN",
+            documentSha256: signer.documentSha256,
+            signatureSha256,
+            signatureKind: input.signature.startsWith(PNG_PREFIX) ? "drawn" : "typed",
+            signedAt: signedAt.toISOString(),
+            ...(signingOtp ? { signingOtp } : {}),
+          },
+          ipAddress: params.ip ?? undefined,
         },
-        ipAddress: params.ip ?? undefined,
-      },
-      tx,
-    )
-    return true
-  })
+        tx,
+      )
+      return true
+    })
+  } catch (error) {
+    if (error instanceof SigningOtpRefusedError) return { kind: "signing_otp", reason: error.reason }
+    throw error
+  }
   return signed ? { kind: "signed", signedAt } : { kind: "not_signable", reason: "This document was signed or changed while you were signing" }
 }
 
