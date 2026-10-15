@@ -36,7 +36,19 @@ let tenant: ChargesTenant
 
 const [IS_1, FL_1] = INSTALMENT_JOURNAL_DEALS
 const [LS, LR] = LEASE_JOURNAL_DEALS
-const [SHORT, SURPLUS] = RECOVERY_JOURNAL_DEALS
+const [SHORT, SURPLUS, SURPLUS_CHARGED, WITHDRAWN] = RECOVERY_JOURNAL_DEALS
+/** The recovery deals, each on a composite instalment sale (suffix a to d). */
+const RECOVERED = [[SHORT, "a"], [SURPLUS, "b"], [SURPLUS_CHARGED, "c"], [WITHDRAWN, "d"]] as const
+
+/** A fixture's base key as it is on the composite loan: every id of the recovery gets the suffix, the loan is the instalment sale's. */
+function compositeKey(key: string, s: string): string {
+  const [head, ...rest] = key.split(":")
+  // loan:<id>:charge:<type>:<ISO instant>:<cost id>: the instant has colons of its own
+  if (head === "loan") return key.replace(/^loan:[^:]+/, `loan:${IS_1.loan.id}-${s}`).replace(/:([^:]+)$/, (_m, cost: string) => `:${cost}-${s}`)
+  if (head === "payment") return `payment:${rest[0]}-${s}`
+  // af-recovery:<recoveryId>[:<kind>[:<id>]]
+  return [head, `${rest[0]}-${s}`, rest[1], rest[2] && `${rest[2]}-${s}`].filter((x): x is string => x !== undefined).join(":")
+}
 
 /** An instalment sale of IS-1's shape that is then repossessed: the recovery of a fixture, re-identified. */
 function repossessed(base: JournalDeal, recoveryDeal: JournalDeal, s: string): SourceLoan {
@@ -57,11 +69,11 @@ function repossessed(base: JournalDeal, recoveryDeal: JournalDeal, s: string): S
   }
 }
 
-const loans = (): SourceLoan[] => [IS_1.loan, FL_1.loan, LS.loan, LR.loan, repossessed(IS_1, SHORT, "a"), repossessed(IS_1, SURPLUS, "b")]
+const loans = (): SourceLoan[] => [IS_1.loan, FL_1.loan, LS.loan, LR.loan, ...RECOVERED.map(([deal, s]) => repossessed(IS_1, deal, s))]
 
 const close = (periodKey: string) => runWithTenant(tenant.tenantId, () =>
   closePeriod(prisma, { tenantId: tenant.tenantId, periodKey, userId: tenant.userId, userEmail: "af-it@test.invalid", now: AFTER }))
-const plan = (periodKey: string) => runWithTenant(tenant.tenantId, () => planPeriod(prisma, tenant.tenantId, parsePeriodKey(periodKey)!, AFTER))
+const plan = (periodKey: string, now = AFTER) => runWithTenant(tenant.tenantId, () => planPeriod(prisma, tenant.tenantId, parsePeriodKey(periodKey)!, now))
 const replica = (...ops: Array<ReturnType<typeof db.$executeRawUnsafe>>) => db.$transaction([db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"), ...ops])
 const nonEmpty = (v: Vector) => Object.fromEntries(Object.entries(v).filter(([, cents]) => cents !== 0))
 
@@ -152,11 +164,9 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
     const expected = (deal: JournalDeal) => Object.fromEntries(Object.entries(deal.expected).map(([k, v]) => [k, nonEmpty(v)]).filter(([, v]) => Object.keys(v as Vector).length > 0))
     for (const deal of [LS, LR]) expect(heldOf(Object.keys(deal.expected))).toEqual(expected(deal))
     // The recoveries ride on instalment sales here: only their own sources are the worked ones.
-    for (const [deal, s] of [[SHORT, "a"], [SURPLUS, "b"]] as const) {
-      const keys = Object.keys(deal.expected).map((k) => k.replace(/(r-(short|surplus)|cost-\d|vat-1|sale-1|inv-sale|pay-(short|surplus)|refund-1)/g, (m) => `${m}-${s}`).replace(`loan:${deal.loan.id}-${s}`, `loan:${IS_1.loan.id}-${s}`).replace(`loan:${deal.loan.id}`, `loan:${IS_1.loan.id}-${s}`))
-      const held = heldOf(keys)
-      const want = Object.fromEntries(Object.entries(expected(deal)).map(([k, v]) => [keys[Object.keys(deal.expected).indexOf(k)], v]))
-      expect(held).toEqual(want)
+    for (const [deal, s] of RECOVERED) {
+      const keyed = Object.entries(expected(deal)).map(([k, v]) => [compositeKey(k, s), v] as const)
+      expect(heldOf(keyed.map(([k]) => k)), deal.id).toEqual(Object.fromEntries(keyed))
     }
     const instalments = (deal: JournalDeal) => Object.fromEntries(loanSources(deal.loan, NOVEMBER).filter((s) => Object.keys(nonEmpty(s.vector)).length > 0).map((s) => [s.baseKey, nonEmpty(s.vector)]))
     for (const deal of [IS_1, FL_1]) expect(heldOf(Object.keys(instalments(deal)))).toEqual(instalments(deal))
@@ -169,6 +179,24 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
     expect(book.get("jrn-fl-1")?.cents).toBe(2_039_532)
     expect(book.get("jrn-ls")?.cents).toBe(428_835) // 3 rentals + the end-of-term invoice - credit notes 13 800 and 115
     expect(book.get("jrn-lr")?.cents).toBe(908_500) // 2 rentals + the purchase invoice - the receipt - the credit note 11 500
+  })
+
+  it("refuses a withdrawn recovery that has a repossession VAT event: the rules cannot produce that state", async () => {
+    const december = new Date("2026-12-05T10:00:00+02:00")
+    expect((await plan("2026-11", december)).refusal).toBeNull()
+    await db.$transaction([
+      db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      db.recoveryVatEvent.create({ data: {
+        id: "vat-it-wd", tenantId: tenant.tenantId, recoveryId: "r-wd-d", kind: "REPOSSESSION_DEEMED_SUPPLY", eventDate: new Date("2026-10-01T00:00:00Z"), dealContractType: "INSTALMENT_SALE",
+        debtorVatVendor: false, deemedSupplyValueCents: 575_000, inputTaxClaimCents: 75_000, outputTaxCents: 0, vatRateTenThousandths: 1500, basis: "Synthetic", recordedById: tenant.userId,
+      } }),
+    ])
+    try {
+      expect((await plan("2026-11", december)).refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("withdrawn recovery") })
+    } finally {
+      await replica(db.$executeRawUnsafe(`DELETE FROM "RecoveryVatEvent" WHERE "id" = 'vat-it-wd'`))
+    }
+    expect((await plan("2026-11", december)).refusal).toBeNull()
   })
 
   it("exports the asset-finance lines in the generic and Sage CSV, with no tax code on them", async () => {

@@ -4,7 +4,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { ACCOUNT_ROLES, DEFAULT_ACCOUNTS, parseMappingInput } from "@/lib/accounting/accounts"
-import { readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
+import { lockAccounting, readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
 import { loadAccountMap } from "@/lib/accounting/store"
 
 // The tenant's chart-of-accounts mapping. GET: LOAN_ADMIN. PUT: ADMIN, TOTP
@@ -34,6 +34,7 @@ export async function PUT(req: NextRequest) {
     const parsed = parseMappingInput(read.body)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
     await prisma.$transaction(async (tx) => {
+      await lockAccounting(tx, tenant.id)
       const before = await tx.accountingAccountMapping.findMany({ where: { tenantId: tenant.id }, select: { role: true, accountCode: true, taxCode: true, vatInclusive: true } })
       for (const row of parsed.rows) {
         await tx.accountingAccountMapping.upsert({

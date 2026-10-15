@@ -77,7 +77,9 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
     db.accountingExportBatch.count({ where: { tenantId } }),
   ])
   // A contract the sources cannot express yet is left out of the preview and refuses the close.
-  const unsupportedIds = new Set(assetFinance.unsupported.map((u) => u.loanId))
+  // Only from the day it first matters: a contract that cannot be posted yet blocks the months it would post in, never earlier ones.
+  const unsupported = assetFinance.unsupported.filter((u) => u.from === null || u.from.getTime() < period.end.getTime())
+  const unsupportedIds = new Set(unsupported.map((u) => u.loanId))
   const loans = [...consumerLoans, ...assetFinance.loans.filter((l) => !unsupportedIds.has(l.id))]
   const isGoLive = batchCount === 0 && settings.goLiveMonth === period.key
   const positions = isGoLive ? openingPositions(loans, period) : []
@@ -97,8 +99,8 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   else if (!settings.mappingConfirmedAt) refusal = { code: "MAPPING_NOT_CONFIRMED", message: "Review and confirm the chart-of-accounts mapping first" }
   else if (unconfirmed.length > 0) refusal = { code: "MAPPING_NOT_CONFIRMED", message: `This month posts asset-finance accounts that were not in the mapping you confirmed (${unconfirmed.join(", ")}): review and confirm the mapping again` }
   else refusal = await orderRefusal(db, tenantId, period, settings.goLiveMonth)
-  if (!refusal && assetFinance.unsupported.length > 0) {
-    refusal = { code: "AF_SOURCE_UNSUPPORTED", message: `Asset-finance contracts the export cannot post yet: ${assetFinance.unsupported.slice(0, 3).map((u) => u.message).join("; ")}` }
+  if (!refusal && unsupported.length > 0) {
+    refusal = { code: "AF_SOURCE_UNSUPPORTED", message: `Asset-finance contracts the export cannot post yet: ${unsupported.slice(0, 3).map((u) => u.message).join("; ")}` }
   }
   if (!refusal && reconciliation.mismatches.length > 0) {
     const sample = reconciliation.mismatches.slice(0, 3).map((m) => `${m.reference} (journal ${m.journalCents}, owed ${m.bookCents})`).join("; ")

@@ -38,14 +38,16 @@ function summarise(lines: Line[], eventTypes: string[]) {
 
 /** A control's key is a contract id or a recovery id: name the contract by its reference. */
 async function controlsWithReferences(tenantId: string, controls: ControlMismatch[]) {
-  const keys = [...new Set(controls.map((c) => c.key))]
+  // Cap first: only what is shown is resolved.
+  const shown = controls.slice(0, 50)
+  const keys = [...new Set(shown.map((c) => c.key))]
   if (keys.length === 0) return []
   const [loans, recoveries] = await Promise.all([
     prisma.loan.findMany({ where: { tenantId, id: { in: keys } }, select: { id: true, reference: true } }),
     prisma.recovery.findMany({ where: { tenantId, id: { in: keys } }, select: { id: true, loan: { select: { reference: true } } } }),
   ])
   const names = new Map<string, string>([...loans.map((l) => [l.id, l.reference] as const), ...recoveries.map((r) => [r.id, `${r.loan.reference} (recovery)`] as const)])
-  return controls.slice(0, 50).map((c) => ({ ...c, reference: names.get(c.key) ?? null }))
+  return shown.map((c) => ({ ...c, reference: names.get(c.key) ?? null }))
 }
 
 export async function GET(req: NextRequest) {

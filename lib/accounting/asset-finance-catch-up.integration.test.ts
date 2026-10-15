@@ -63,11 +63,15 @@ suite.sequential("asset finance joining a lender that already closed months (rea
     expect((await plan("2026-09")).refusal).toBeNull()
   })
 
-  it("posts the contract's history in September, dated by origin, each source once and the receivable tied", async () => {
+  it("posts the contract's history in September, dated by origin, each source once and the receivable tied, with fee VAT marked inclusive", async () => {
+    // The lender is VAT-registered and marks fee income VAT-inclusive: its consumer fees split, an asset-finance contract's never do (its VAT is the invoice's).
+    await db.accountingSettings.update({ where: { tenantId: tenant.tenantId }, data: { vatRegistered: true } })
+    await db.accountingAccountMapping.create({ data: { tenantId: tenant.tenantId, role: "FEE_INCOME", accountCode: "4010", vatInclusive: true } })
+    expect((await plan("2026-09")).controls).toEqual([])
     const out = await close("2026-09")
     const entries = await db.accountingLedgerEntry.findMany({ where: { batchId: out.batchId, loanId: "jrn-q4" }, orderBy: { eventKey: "asc" } })
     const inception = entries.find((e) => e.baseKey === "af:jrn-q4:inception")!
-    expect(inception).toMatchObject({ eventType: "ASSET_INCEPTION", postingDate: "2026-09-01", eventDate: day("2026-07-15") })
+    expect(inception).toMatchObject({ eventType: "ASSET_INCEPTION", postingDate: "2026-09-01", eventDate: new Date("2026-07-15T09:00:00+02:00") })
     expect(inception.description).toContain("AF-Q4-0001")
     // Row 1 fell due on 08-15, in the closed August: it posts now, on the first day, dated 08-15. Row 2 (09-15) posts on its day.
     expect(entries.find((e) => e.baseKey === "af:jrn-q4:row:is1-r1-q4")).toMatchObject({ postingDate: "2026-09-01", eventDate: day("2026-08-15") })

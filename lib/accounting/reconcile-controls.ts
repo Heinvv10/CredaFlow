@@ -9,7 +9,11 @@
  *   AF_OUTPUT_VAT              per contract: the VAT on its tax invoices (and the buyer invoices of its
  *                              recoveries) less credit notes; the journal holds it as OUTPUT_VAT credits
  *   AF_INPUT_VAT               per contract: the VAT on the dealer's invoice (the lease asset's VAT), on
- *                              approved recovery costs and the repossession input-tax claims
+ *                              approved recovery costs and the repossession input-tax claims. For an
+ *                              instalment sale or finance lease the figure is the inception invoice's VAT, the
+ *                              figure the journal posts too: there it checks the DATE (that it posts when the
+ *                              payout is released, once) and no supplier-side figure is read. // UNTESTED: tax —
+ *                              input VAT on a dealer that is not a VAT vendor (DESIGN.md)
  *   RECOVERY_CLEARING          per recovery: nil once its proceeds are applied or it is withdrawn
  *   RECOVERY_RESULT            per recovery: what the clearing held when it was resolved
  *   RECOVERY_REFUND_PAYABLE    per recovery: the surplus less the refund released
@@ -59,13 +63,13 @@ function perLoan(journal: ReturnType<typeof journalByKey>, role: AccountRole): M
   return out
 }
 
-/** Per recovery: Σ of a role over `recovery:<id>:*` sources, plus the proceeds payment's source for CLEARING. */
+/** Per recovery: Σ of a role over `af-recovery:<id>:*` sources, plus the proceeds payment's source for CLEARING. */
 function perRecovery(journal: ReturnType<typeof journalByKey>, role: AccountRole, proceeds: Map<string, string>): Map<string, number> {
   const out = new Map<string, number>()
   for (const [key, { vector }] of journal) {
     const cents = vector[role]
     if (!cents) continue
-    const recovery = /^recovery:([^:]+):/.exec(key)?.[1] ?? (key.startsWith("payment:") ? proceeds.get(key.slice("payment:".length)) : undefined)
+    const recovery = /^af-recovery:([^:]+):/.exec(key)?.[1] ?? (key.startsWith("payment:") ? proceeds.get(key.slice("payment:".length)) : undefined)
     if (recovery) out.set(recovery, (out.get(recovery) ?? 0) + cents)
   }
   return out
@@ -88,23 +92,27 @@ async function vatBooks(db: Db, tenantId: string, asOf: Date): Promise<{ output:
   const event = sast('v."eventDate"')
   const credit = sast('n."issueDate"')
   const released = Prisma.sql`p."status" = 'RELEASED' AND p."releasedAt" < ${asOf}`
+  // An instalment sale's or finance lease's inception invoice posts when its supplier payout is released, like a lease's asset.
+  const inceptionReleased = Prisma.sql`EXISTS (SELECT 1 FROM "AssetFinanceDeal" d JOIN "Payout" p ON p."dealId" = d."id" AND p."tenantId" = d."tenantId"
+    WHERE d."loanId" = i."loanId" AND d."tenantId" = i."tenantId" AND p."status" = 'RELEASED' AND p."releasedAt" < ${asOf})`
+  const isInception = Prisma.sql`ln."contractType" IN ('INSTALMENT_SALE', 'FINANCE_LEASE')
+    AND i."number" = (SELECT MIN(f."number") FROM "TaxInvoice" f WHERE f."loanId" = i."loanId" AND f."tenantId" = i."tenantId")`
   const rows = await db.$queryRaw<Array<{ kind: string; loanId: string; cents: bigint }>>(Prisma.sql`
     SELECT 'OUT' AS kind, i."loanId", SUM(i."vatCents")::bigint AS cents
       FROM "TaxInvoice" i JOIN "Loan" ln ON ln."id" = i."loanId" AND ln."tenantId" = i."tenantId"
-      WHERE i."tenantId" = ${tenantId} AND ln."contractType" <> 'LOAN' AND ${supply} < ${asOf} GROUP BY i."loanId"
+      WHERE i."tenantId" = ${tenantId} AND ln."contractType" <> 'LOAN' AND (CASE WHEN ${isInception} THEN ${inceptionReleased} ELSE ${supply} < ${asOf} END) GROUP BY i."loanId"
     UNION ALL
     SELECT 'OUT', rec."loanId", SUM(i."vatCents")::bigint
-      FROM "RemarketingSale" rs JOIN "Recovery" rec ON rec."id" = rs."recoveryId" JOIN "TaxInvoice" i ON i."id" = rs."taxInvoiceId"
+      FROM "RemarketingSale" rs JOIN "Recovery" rec ON rec."id" = rs."recoveryId" AND rec."tenantId" = rs."tenantId" JOIN "TaxInvoice" i ON i."id" = rs."taxInvoiceId" AND i."tenantId" = rs."tenantId"
       WHERE rs."tenantId" = ${tenantId} AND rs."status" = 'COMPLETED' AND ${issue} < ${asOf} GROUP BY rec."loanId"
     UNION ALL
     SELECT 'OUT', i."loanId", -SUM(n."vatCents")::bigint
-      FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" JOIN "Loan" ln ON ln."id" = i."loanId" AND ln."tenantId" = i."tenantId"
+      FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" AND i."tenantId" = n."tenantId" JOIN "Loan" ln ON ln."id" = i."loanId" AND ln."tenantId" = i."tenantId"
       WHERE n."tenantId" = ${tenantId} AND ln."contractType" <> 'LOAN' AND ${credit} < ${asOf} GROUP BY i."loanId"
     UNION ALL
     SELECT 'IN', i."loanId", SUM(i."vatCents")::bigint
       FROM "TaxInvoice" i JOIN "Loan" ln ON ln."id" = i."loanId" AND ln."tenantId" = i."tenantId"
-      WHERE i."tenantId" = ${tenantId} AND ln."contractType" IN ('INSTALMENT_SALE', 'FINANCE_LEASE') AND ${supply} < ${asOf}
-        AND i."number" = (SELECT MIN(f."number") FROM "TaxInvoice" f WHERE f."loanId" = i."loanId" AND f."tenantId" = i."tenantId")
+      WHERE i."tenantId" = ${tenantId} AND ${isInception} AND ${inceptionReleased}
       GROUP BY i."loanId"
     UNION ALL
     SELECT 'IN', ln."id", SUM(a."vatCents")::bigint
@@ -113,11 +121,11 @@ async function vatBooks(db: Db, tenantId: string, asOf: Date): Promise<{ output:
       WHERE ln."tenantId" = ${tenantId} AND ln."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') AND ${released} GROUP BY ln."id"
     UNION ALL
     SELECT 'IN', rec."loanId", SUM(v."inputTaxClaimCents")::bigint
-      FROM "RecoveryVatEvent" v JOIN "Recovery" rec ON rec."id" = v."recoveryId"
+      FROM "RecoveryVatEvent" v JOIN "Recovery" rec ON rec."id" = v."recoveryId" AND rec."tenantId" = v."tenantId"
       WHERE v."tenantId" = ${tenantId} AND v."kind" = 'REPOSSESSION_DEEMED_SUPPLY' AND ${event} < ${asOf} GROUP BY rec."loanId"
     UNION ALL
     SELECT 'IN', rec."loanId", SUM(c."vatCents")::bigint
-      FROM "RecoveryCost" c JOIN "Recovery" rec ON rec."id" = c."recoveryId"
+      FROM "RecoveryCost" c JOIN "Recovery" rec ON rec."id" = c."recoveryId" AND rec."tenantId" = c."tenantId"
       WHERE c."tenantId" = ${tenantId} AND c."status" = 'APPROVED' AND ${incurred} < ${asOf} GROUP BY rec."loanId"
   `)
   const output = new Map<string, number>()
@@ -141,12 +149,12 @@ async function recoveryBooks(db: Db, tenantId: string, asOf: Date): Promise<Reco
   const rows = await db.$queryRaw<Array<{ id: string; proceedsPaymentId: string | null; resolved: boolean; result: bigint; refundPayable: bigint }>>(Prisma.sql`
     SELECT rec."id", rec."proceedsPaymentId",
       ((rec."netProceedsCents" IS NOT NULL AND ${frozen} < ${asOf}) OR (rec."status" = 'WITHDRAWN' AND rec."closedAt" < ${asOf})) AS "resolved",
-      (COALESCE((SELECT SUM(c."netCents") FROM "RecoveryCost" c WHERE c."recoveryId" = rec."id" AND c."status" = 'APPROVED' AND c."treatment" = 'DEDUCT_FROM_PROCEEDS' AND ${incurred} < ${asOf}), 0)
+      (COALESCE((SELECT SUM(c."netCents") FROM "RecoveryCost" c WHERE c."recoveryId" = rec."id" AND c."tenantId" = rec."tenantId" AND c."status" = 'APPROVED' AND c."treatment" = 'DEDUCT_FROM_PROCEEDS' AND ${incurred} < ${asOf}), 0)
         + CASE WHEN rec."netProceedsCents" IS NOT NULL THEN LEAST(rec."netProceedsCents", rec."settlementDueCents") + COALESCE(rec."surplusCents", 0) ELSE 0 END
-        - COALESCE((SELECT SUM(i."totalExclVatCents") FROM "RemarketingSale" rs JOIN "TaxInvoice" i ON i."id" = rs."taxInvoiceId" WHERE rs."recoveryId" = rec."id" AND rs."status" = 'COMPLETED' AND ${issue} < ${asOf}), 0)
-        - COALESCE((SELECT SUM(v."inputTaxClaimCents") FROM "RecoveryVatEvent" v WHERE v."recoveryId" = rec."id" AND v."kind" = 'REPOSSESSION_DEEMED_SUPPLY' AND ${event} < ${asOf}), 0))::bigint AS "result",
+        - COALESCE((SELECT SUM(i."totalExclVatCents") FROM "RemarketingSale" rs JOIN "TaxInvoice" i ON i."id" = rs."taxInvoiceId" AND i."tenantId" = rs."tenantId" WHERE rs."recoveryId" = rec."id" AND rs."tenantId" = rec."tenantId" AND rs."status" = 'COMPLETED' AND ${issue} < ${asOf}), 0)
+        - COALESCE((SELECT SUM(v."inputTaxClaimCents") FROM "RecoveryVatEvent" v WHERE v."recoveryId" = rec."id" AND v."tenantId" = rec."tenantId" AND v."kind" = 'REPOSSESSION_DEEMED_SUPPLY' AND ${event} < ${asOf}), 0))::bigint AS "result",
       (CASE WHEN rec."netProceedsCents" IS NOT NULL AND ${frozen} < ${asOf} THEN COALESCE(rec."surplusCents", 0) ELSE 0 END
-        - COALESCE((SELECT SUM(f."amountCents") FROM "RecoveryRefund" f WHERE f."recoveryId" = rec."id" AND f."status" = 'RELEASED' AND f."releasedAt" < ${asOf}), 0))::bigint AS "refundPayable"
+        - COALESCE((SELECT SUM(f."amountCents") FROM "RecoveryRefund" f WHERE f."recoveryId" = rec."id" AND f."tenantId" = rec."tenantId" AND f."status" = 'RELEASED' AND f."releasedAt" < ${asOf}), 0))::bigint AS "refundPayable"
     FROM "Recovery" rec WHERE rec."tenantId" = ${tenantId}
   `)
   return rows.map((r) => ({ id: r.id, proceedsPaymentId: r.proceedsPaymentId, resolved: r.resolved, result: num(r.result), refundPayable: num(r.refundPayable) }))
@@ -157,7 +165,7 @@ async function fundBooks(db: Db, tenantId: string, asOf: Date): Promise<Map<stri
   const rows = await db.$queryRaw<Array<{ loanId: string; liability: bigint }>>(Prisma.sql`
     SELECT f."loanId",
       (CASE WHEN f."riskModel" = 'LESSEE_SETTLED' THEN -COALESCE((SELECT SUM(CASE WHEN m."kind" IN ('CONTRIBUTION', 'SETTLEMENT_BILLED') THEN m."amountCents" ELSE -m."amountCents" END)
-        FROM "MaintenanceFundMovement" m WHERE m."fundId" = f."id" AND ${on} < ${asOf}), 0) ELSE 0 END)::bigint AS "liability"
+        FROM "MaintenanceFundMovement" m WHERE m."fundId" = f."id" AND m."tenantId" = f."tenantId" AND ${on} < ${asOf}), 0) ELSE 0 END)::bigint AS "liability"
     FROM "MaintenanceFund" f WHERE f."tenantId" = ${tenantId}
   `)
   return new Map(rows.map((r) => [r.loanId, num(r.liability)]))

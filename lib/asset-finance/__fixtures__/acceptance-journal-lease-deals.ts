@@ -27,7 +27,9 @@ const common = { financedFeesCents: 0, payout: { amountCents: 1_150_000, release
  *   fund: contributions 20 000 on 08-01, 09-01 and 10-01 (the rental's maintenance ex VAT); claim 75 000 paid 09-10
  *   balance = 60 000 - 75 000 = -15 000, a deficit: billed 15 000 on 10-14 (SETTLEMENT_BILLED)
  *   end-of-term invoice 2026-10-14: deficit line 15 000 + excess usage 10 000 = 25 000 excl, VAT 3 750, 28 750 incl
- *   fund liability: -60 000 (contributions) + 75 000 (claim) - 15 000 (billed) = 0 once settled
+ *   The invoice credits the deficit line to the fund liability (it settles the fund; it is not income) and the usage line to rental income:
+ *   Dr lease debtors 28 750, Cr output VAT 3 750, Cr fund liability 15 000, Cr rental income 10 000. The billed movement itself posts nothing.
+ *   fund liability: -60 000 (contributions) + 75 000 (claim) - 15 000 (the invoice's deficit line) = 0 once settled
  *   credit note A (2026-09-20) on rental 2: 12 000 excl, VAT 12 000 x 15% = 1 800, 13 800 incl. The invoice credited rental 100 000 and
  *     maintenance 20 000, so the credit is spread 10 000 / 2 000 (exact): Dr rental income 10 000, Dr maintenance income 2 000,
  *     Dr output VAT 1 800, Cr lease debtors 13 800
@@ -43,7 +45,7 @@ const LS: JournalDeal = {
   loan: base("jrn-ls", "AF-LS-0001", {
     ...common, contractType: "FULL_MAINTENANCE_LEASE",
     rentals: [rental("ls-1", "2026-08-01"), rental("ls-2", "2026-09-01"), rental("ls-3", "2026-10-01")],
-    sundryInvoices: [invoice("inv-ls-eot", "2026-10-14", 25_000, 3_750)],
+    sundryInvoices: [{ ...invoice("inv-ls-eot", "2026-10-14", 25_000, 3_750), fundBilledExclVatCents: 15_000 }],
     creditNotes: [credit("cn-ls-a", "inv-ls-2", "2026-09-20", 12_000, 1_800, RENTAL_INCOME_PARTS), credit("cn-ls-b", "inv-ls-3", "2026-10-05", 100, 15, RENTAL_INCOME_PARTS)],
     fund: { riskModel: "LESSEE_SETTLED", movements: [
       { id: "m1", kind: "CONTRIBUTION", amountCents: 20_000, occurredOn: day("2026-08-01") },
@@ -57,14 +59,13 @@ const LS: JournalDeal = {
   expected: {
     "lease:jrn-ls:asset": ASSET,
     "lease-rental:ls-1": RENTAL, "lease-rental:ls-2": RENTAL, "lease-rental:ls-3": RENTAL,
-    "lease-invoice:inv-ls-eot": { LEASE_DEBTORS: 28_750, OUTPUT_VAT: -3_750, RENTAL_INCOME: -25_000 },
+    "lease-invoice:inv-ls-eot": { LEASE_DEBTORS: 28_750, OUTPUT_VAT: -3_750, MAINTENANCE_FUND_LIABILITY: -15_000, RENTAL_INCOME: -10_000 },
     "lease-credit:cn-ls-a": { RENTAL_INCOME: 10_000, MAINTENANCE_INCOME: 2_000, OUTPUT_VAT: 1_800, LEASE_DEBTORS: -13_800 },
     "lease-credit:cn-ls-b": { RENTAL_INCOME: 83, MAINTENANCE_INCOME: 17, OUTPUT_VAT: 15, LEASE_DEBTORS: -115 },
     "mf:m1": { MAINTENANCE_INCOME: 20_000, MAINTENANCE_FUND_LIABILITY: -20_000 },
     "mf:m2": { MAINTENANCE_INCOME: 20_000, MAINTENANCE_FUND_LIABILITY: -20_000 },
     "mf:m5": { MAINTENANCE_INCOME: 20_000, MAINTENANCE_FUND_LIABILITY: -20_000 },
     "mf:m3": { MAINTENANCE_FUND_LIABILITY: 75_000, BANK: -75_000 },
-    "mf:m4": { MAINTENANCE_INCOME: 15_000, MAINTENANCE_FUND_LIABILITY: -15_000 },
   },
   receivableCents: 428_835,
 }

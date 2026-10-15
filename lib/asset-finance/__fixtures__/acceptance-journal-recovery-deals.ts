@@ -60,13 +60,13 @@ const SHORT: JournalDeal = {
     charges: [{ type: "RECOVERY_COST", day: day("2026-10-12"), amount: 23_000, sourceId: "cost-2" }],
   }),
   expected: {
-    "recovery:r-short:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
-    "recovery:r-short:cost:cost-2": { RECOVERY_COST_EXPENSE: 20_000, INPUT_VAT: 3_000, RECOVERY_COSTS_PAYABLE: -23_000 },
-    "recovery:r-short:vat:vat-1": { INPUT_VAT: 75_000, RECOVERY_CLEARING: -75_000 },
-    "recovery:r-short:sale:sale-1": { BANK: 920_000, OUTPUT_VAT: -120_000, RECOVERY_CLEARING: -800_000 },
+    "af-recovery:r-short:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
+    "af-recovery:r-short:cost:cost-2": { RECOVERY_COST_EXPENSE: 20_000, INPUT_VAT: 3_000, RECOVERY_COSTS_PAYABLE: -23_000 },
+    "af-recovery:r-short:vat:vat-1": { INPUT_VAT: 75_000, RECOVERY_CLEARING: -75_000 },
+    "af-recovery:r-short:sale:sale-1": { BANK: 920_000, OUTPUT_VAT: -120_000, RECOVERY_CLEARING: -800_000 },
     "payment:pay-short": { RECOVERY_CLEARING: 908_500, AF_INSTALMENT_DEBTORS: -908_500 },
-    "recovery:r-short:surplus": {},
-    "recovery:r-short:result": { RECOVERY_CLEARING: -43_500, RECOVERY_RESULT: 43_500 },
+    "af-recovery:r-short:surplus": {},
+    "af-recovery:r-short:result": { RECOVERY_CLEARING: -43_500, RECOVERY_RESULT: 43_500 },
     "loan:rec-short:charge:RECOVERY_COST:2026-10-11T22:00:00.000Z:cost-2": { AF_INSTALMENT_DEBTORS: 23_000, RECOVERY_COSTS_RECHARGED: -23_000 },
   },
   receivableCents: -885_500,
@@ -90,21 +90,59 @@ const SURPLUS: JournalDeal = {
     refund: { id: "refund-1", amountCents: 308_500, releasedAt: new Date("2026-10-20T14:00:00+02:00") },
   }, { payments: [payment("pay-surplus", 600_000, "2026-10-12")] }),
   expected: {
-    "recovery:r-surplus:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
-    "recovery:r-surplus:vat:vat-1": { INPUT_VAT: 75_000, RECOVERY_CLEARING: -75_000 },
-    "recovery:r-surplus:sale:sale-1": { BANK: 920_000, OUTPUT_VAT: -120_000, RECOVERY_CLEARING: -800_000 },
+    "af-recovery:r-surplus:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
+    "af-recovery:r-surplus:vat:vat-1": { INPUT_VAT: 75_000, RECOVERY_CLEARING: -75_000 },
+    "af-recovery:r-surplus:sale:sale-1": { BANK: 920_000, OUTPUT_VAT: -120_000, RECOVERY_CLEARING: -800_000 },
     "payment:pay-surplus": { RECOVERY_CLEARING: 600_000, AF_INSTALMENT_DEBTORS: -600_000 },
-    "recovery:r-surplus:surplus": { RECOVERY_CLEARING: 308_500, RECOVERY_REFUND_PAYABLE: -308_500 },
-    "recovery:r-surplus:refund": { RECOVERY_REFUND_PAYABLE: 308_500, BANK: -308_500 },
-    "recovery:r-surplus:result": { RECOVERY_CLEARING: -43_500, RECOVERY_RESULT: 43_500 },
+    "af-recovery:r-surplus:surplus": { RECOVERY_CLEARING: 308_500, RECOVERY_REFUND_PAYABLE: -308_500 },
+    "af-recovery:r-surplus:refund": { RECOVERY_REFUND_PAYABLE: 308_500, BANK: -308_500 },
+    "af-recovery:r-surplus:result": { RECOVERY_CLEARING: -43_500, RECOVERY_RESULT: 43_500 },
   },
   receivableCents: -600_000,
 }
 
 /*
- * REC-WITHDRAWN — withdrawn before any sale (the debtor paid the arrears).
- *   the repossession VAT claim 75 000 (2026-09-20) and the deducted cost (10 000 net, 1 500 VAT, 2026-09-22) are posted
- *   clearing = +10 000 - 75 000 = -65 000; the withdrawal on 2026-10-03 moves it to the result: -65 000 (a gain)
+ * REC-SURPLUS-CHARGED — a surplus on a recovery that also has a cost charged to the account (the debtor is not charged twice).
+ *   the same sale, VAT claim and deducted towing as above, plus the legal cost (2026-09-25) CHARGE_TO_ACCOUNT: net 20 000, VAT 3 000, gross 23 000
+ *   proceeds applied 2026-10-12: settlement due 600 000; payment = min(908 500, 600 000) = 600 000
+ *   owed = 600 000 + 23 000 charged; surplus = 908 500 - 623 000 = 285 500; shortfall 0
+ *   The proceeds settle the loan, so the loan's ledger posts NO RECOVERY_COST charge (lib/asset-finance/non-nca-charges.ts never charges a loan the
+ *   day's receipts settled): the 23 000 is withheld from the refund instead, once. No charges in this fixture.
+ *   refund 285 500 released 2026-10-20
+ *   clearing = +10 000 - 75 000 - 800 000 + 600 000 + 285 500 = 20 500 -> result 20 500 (= output VAT 120 000 - claim 75 000 - towing VAT 1 500 - charged gross 23 000)
+ *   Profit and loss (cost expense + recharges + result): 20 000 + 0 + 20 500 = 40 500 = output VAT 120 000 - all input VAT (75 000 + 1 500 + 3 000),
+ *   the same 40 500 as REC-SHORT (20 000 - 23 000 + 43 500): the charged cost never moves profit, wherever it is recovered from.
+ *   cash check: bank in 920 000, out 11 500 + 23 000 (suppliers) + 285 500 (refund) = 320 000 -> 600 000 = the settlement the receipt cleared
+ *   asOf 2026-11-01. Receivable = -600 000
+ */
+const SURPLUS_CHARGED: JournalDeal = {
+  id: "REC-SURPLUS-CHARGED",
+  description: "Recovery with a surplus and a cost charged to the account",
+  asOf: "2026-11-01",
+  loan: recoveryLoan("rec-sc", {
+    id: "r-sc", proceedsDate: day("2026-10-12"), proceedsPaymentId: "pay-sc", surplusCents: 285_500, withdrawnAt: null,
+    costs: [TOWING, { id: "cost-2", netCents: 20_000, vatCents: 3_000, grossCents: 23_000, treatment: "CHARGE_TO_ACCOUNT", incurredOn: day("2026-09-25") }],
+    vatEvents: [VAT_EVENT], sale: SALE,
+    refund: { id: "refund-1", amountCents: 285_500, releasedAt: new Date("2026-10-20T14:00:00+02:00") },
+  }, { payments: [payment("pay-sc", 600_000, "2026-10-12")] }),
+  expected: {
+    "af-recovery:r-sc:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
+    "af-recovery:r-sc:cost:cost-2": { RECOVERY_COST_EXPENSE: 20_000, INPUT_VAT: 3_000, RECOVERY_COSTS_PAYABLE: -23_000 },
+    "af-recovery:r-sc:vat:vat-1": { INPUT_VAT: 75_000, RECOVERY_CLEARING: -75_000 },
+    "af-recovery:r-sc:sale:sale-1": { BANK: 920_000, OUTPUT_VAT: -120_000, RECOVERY_CLEARING: -800_000 },
+    "payment:pay-sc": { RECOVERY_CLEARING: 600_000, AF_INSTALMENT_DEBTORS: -600_000 },
+    "af-recovery:r-sc:surplus": { RECOVERY_CLEARING: 285_500, RECOVERY_REFUND_PAYABLE: -285_500 },
+    "af-recovery:r-sc:refund": { RECOVERY_REFUND_PAYABLE: 285_500, BANK: -285_500 },
+    "af-recovery:r-sc:result": { RECOVERY_CLEARING: -20_500, RECOVERY_RESULT: 20_500 },
+  },
+  receivableCents: -600_000,
+}
+
+/*
+ * REC-WITHDRAWN — withdrawn before any sale (the debtor paid the arrears). A repossession's VAT event exists only
+ * once a sale has completed, and a recovery with a completed sale cannot be withdrawn, so a withdrawn recovery has costs only.
+ *   the deducted cost (10 000 net, 1 500 VAT, 2026-09-22) is posted: Dr clearing 10 000, Dr input VAT 1 500, Cr payable 11 500
+ *   clearing = +10 000; the withdrawal on 2026-10-03 moves it to the result: +10 000 (a loss)
  */
 const WITHDRAWN: JournalDeal = {
   id: "REC-WITHDRAWN",
@@ -112,15 +150,14 @@ const WITHDRAWN: JournalDeal = {
   asOf: "2026-11-01",
   loan: recoveryLoan("rec-wd", {
     id: "r-wd", proceedsDate: null, proceedsPaymentId: null, surplusCents: 0, withdrawnAt: new Date("2026-10-03T09:00:00+02:00"),
-    costs: [TOWING], vatEvents: [VAT_EVENT], sale: null, refund: null,
+    costs: [TOWING], vatEvents: [], sale: null, refund: null,
   }),
   expected: {
-    "recovery:r-wd:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
-    "recovery:r-wd:vat:vat-1": { INPUT_VAT: 75_000, RECOVERY_CLEARING: -75_000 },
-    "recovery:r-wd:surplus": {},
-    "recovery:r-wd:result": { RECOVERY_CLEARING: 65_000, RECOVERY_RESULT: -65_000 },
+    "af-recovery:r-wd:cost:cost-1": { RECOVERY_CLEARING: 10_000, INPUT_VAT: 1_500, RECOVERY_COSTS_PAYABLE: -11_500 },
+    "af-recovery:r-wd:surplus": {},
+    "af-recovery:r-wd:result": { RECOVERY_CLEARING: -10_000, RECOVERY_RESULT: 10_000 },
   },
   receivableCents: 0,
 }
 
-export const RECOVERY_JOURNAL_DEALS: JournalDeal[] = [SHORT, SURPLUS, WITHDRAWN]
+export const RECOVERY_JOURNAL_DEALS: JournalDeal[] = [SHORT, SURPLUS, SURPLUS_CHARGED, WITHDRAWN]

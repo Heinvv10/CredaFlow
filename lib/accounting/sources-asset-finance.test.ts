@@ -68,7 +68,7 @@ describe("asset-finance sources through the ledger delta", () => {
     const entries = runWith(defaultAccounts(), null, [deal.loan], october)
     const inception = entries.find((e) => e.baseKey === "af:jrn-is-1:inception")!
     expect(inception).toMatchObject({ eventType: "ASSET_INCEPTION", postingDate: "2026-10-01", loanId: "jrn-is-1" })
-    expect(inception.eventDate).toEqual(day("2026-07-15"))
+    expect(inception.eventDate).toEqual(new Date("2026-07-15T09:00:00+02:00")) // the payout release, not the invoice day
     expect(inception.description).toContain("AF-IS-0001")
     expect(entries.find((e) => e.baseKey === "payment:pay-is1")).toMatchObject({ eventType: "RECEIPT", eventDate: new Date("2026-09-16T10:00:00+02:00"), postingDate: "2026-10-01" })
   })
@@ -87,7 +87,7 @@ describe("asset-finance sources through the ledger delta", () => {
 
   it("keeps consumer loans exactly as they were: no asset-finance source is created for them", () => {
     const keys = desiredSources([consumerLoan()], parsePeriodKey("2026-11")!.end).map((s) => s.baseKey)
-    expect(keys.filter((k) => /^(af|lease|lease-rental|lease-invoice|mf|recovery:[^:]+:)/.test(k))).toEqual([])
+    expect(keys.filter((k) => /^(af|lease|lease-rental|lease-invoice|mf|af-recovery:)/.test(k))).toEqual([])
   })
 
   it("a lease's rentals and an instalment sale's rows never use the consumer loan book", () => {
@@ -124,5 +124,91 @@ describe("a credit note spread over the income its invoice credited", () => {
     const deal = LEASE_JOURNAL_DEALS[0]
     const early = loanSources(deal.loan, day("2026-09-20")).find((s) => s.baseKey === "lease-credit:cn-ls-a")!
     expect(Object.keys(nonEmpty(early.vector))).toEqual([])
+  })
+})
+
+describe("recoveries: what the debtor pays and what reaches profit and loss", () => {
+  const pnl = (deal: JournalDeal) => {
+    const v = loanSources(deal.loan, day(deal.asOf)).reduce((sum, s) => sum + (s.vector.RECOVERY_COST_EXPENSE ?? 0) + (s.vector.RECOVERY_COSTS_RECHARGED ?? 0) + (s.vector.RECOVERY_RESULT ?? 0), 0)
+    return v
+  }
+  const [SHORT, SURPLUS, SURPLUS_CHARGED] = RECOVERY_JOURNAL_DEALS
+
+  it("a cost charged to the account never moves profit, whichever way it is recovered: 40 500 = output VAT 120 000 - input VAT 75 000 + 1 500 + 3 000", () => {
+    // shortfall: expense 20 000 - recharge 23 000 + result 43 500; surplus: expense 20 000 + result 20 500 (no recharge, the cost is withheld from the refund)
+    expect(pnl(SHORT)).toBe(40_500)
+    expect(pnl(SURPLUS_CHARGED)).toBe(40_500)
+    // without a charged cost: output VAT 120 000 - 75 000 - 1 500
+    expect(pnl(SURPLUS)).toBe(43_500)
+  })
+
+  it("the debtor is charged once: a settled loan has no recovery-cost charge, and the cost is withheld from the refund", () => {
+    expect(SURPLUS_CHARGED.loan.charges).toEqual([])
+    const sources = loanSources(SURPLUS_CHARGED.loan, day(SURPLUS_CHARGED.asOf))
+    expect(sources.filter((s) => s.baseKey.includes(":charge:"))).toEqual([])
+    // surplus = net 908 500 - settlement 600 000 - charged 23 000, and the refund released is that surplus
+    expect(SURPLUS_CHARGED.loan.assetFinance!.recoveries[0].surplusCents).toBe(908_500 - 600_000 - 23_000)
+    const cash = sources.reduce((sum, s) => sum + (s.vector.BANK ?? 0), 0)
+    // bank: +920 000 sale - 285 500 refund = 634 500; the suppliers (11 500 + 23 000) are paid through payables, outside the export
+    expect(cash).toBe(920_000 - 285_500)
+    expect(sources.reduce((sum, s) => sum + (s.vector.RECOVERY_COSTS_PAYABLE ?? 0), 0)).toBe(-(11_500 + 23_000))
+    expect(sources.reduce((sum, s) => sum + (s.vector.AF_INSTALMENT_DEBTORS ?? 0), 0)).toBe(-600_000)
+  })
+})
+
+describe("instalment-sale inception posts when the supplier is paid", () => {
+  const deal = INSTALMENT_JOURNAL_DEALS[0]
+  const inceptionAt = (asOf: string, releasedAt: Date) => {
+    const af = deal.loan.assetFinance!
+    const loan = { ...deal.loan, assetFinance: { ...af, payout: { amountCents: 950_000, releasedAt } } }
+    return loanSources(loan, day(asOf)).find((s) => s.baseKey === "af:jrn-is-1:inception")!
+  }
+
+  it("is dated by the payout's release, not the invoice's supply date", () => {
+    // invoice supplied 2026-07-15, payout released 2026-08-03: nothing posts in July, all of it in August
+    const released = new Date("2026-08-03T09:00:00+02:00")
+    expect(Object.keys(nonEmpty(inceptionAt("2026-08-01", released).vector))).toEqual([])
+    expect(nonEmpty(inceptionAt("2026-09-01", released).vector)).toEqual(deal.expected["af:jrn-is-1:inception"])
+    expect(inceptionAt("2026-09-01", released).origin.date).toEqual(released)
+  })
+
+  it("has not posted when no payout was released", () => {
+    const loan = { ...deal.loan, assetFinance: { ...deal.loan.assetFinance!, payout: null } }
+    const inception = loanSources(loan, day("2026-12-01")).find((s) => s.baseKey === "af:jrn-is-1:inception")!
+    expect(Object.keys(nonEmpty(inception.vector))).toEqual([])
+  })
+})
+
+describe("VAT stays explicit on asset-finance contracts", () => {
+  it("never splits fee VAT out of a VAT-inclusive fee account, while a consumer loan's fee still splits", () => {
+    const accounts = defaultAccounts([{ role: "FEE_INCOME", accountCode: "4010", accountName: null, taxCode: null, vatInclusive: true }])
+    const vat = { registered: true, rateBps: 1500 }
+    const october = parsePeriodKey("2026-10")!
+    const lines = runWith(accounts, vat, [INSTALMENT_JOURNAL_DEALS[0].loan], october).find((e) => e.baseKey === "af:jrn-is-1:inception")!.lines
+    // the financed fees 50 000 are one gross credit; OUTPUT_VAT is only the invoice's own 150 000
+    expect(lines.filter((l) => l.role === "FEE_INCOME").map((l) => [l.creditCents, l.sourceRole])).toEqual([[50_000, null]])
+    expect(lines.filter((l) => l.role === "OUTPUT_VAT").map((l) => [l.creditCents, l.sourceRole])).toEqual([[150_000, null]])
+    const consumer = runWith(accounts, vat, [consumerLoan({ id: "c-1", upfrontFee: true, initiationFee: 10_000 })], parsePeriodKey("2026-08")!)
+    expect(consumer.flatMap((e) => e.lines).some((l) => l.role === "OUTPUT_VAT" && l.sourceRole === "FEE_INCOME")).toBe(true)
+  })
+})
+
+describe("credit notes the sources cannot spread", () => {
+  it("post nothing, instead of an entry that does not balance", () => {
+    const deal = LEASE_JOURNAL_DEALS[0]
+    const af = deal.loan.assetFinance!
+    const orphan = { id: "cn-orphan", invoiceId: "inv-x", issueDate: day("2026-10-05"), exclVatCents: 100, vatCents: 15, inclVatCents: 115, invoiceIncome: [] }
+    const loan = { ...deal.loan, assetFinance: { ...af, creditNotes: [orphan] } }
+    const sources = loanSources(loan, day(deal.asOf))
+    expect(Object.keys(nonEmpty(sources.find((s) => s.baseKey === "lease-credit:cn-orphan")!.vector))).toEqual([])
+    for (const s of sources) expect(sum(s.vector), s.baseKey).toBe(0)
+  })
+
+  it("spread a credit on a deficit-billing invoice into the fund liability as well", () => {
+    // invoice 25 000 excl: deficit 15 000 + usage 10 000; a credit of 5 000 is 3 000 liability and 2 000 rental income
+    const note = { id: "cn", invoiceId: "inv", issueDate: day("2026-10-20"), exclVatCents: 5_000, vatCents: 750, inclVatCents: 5_750, invoiceIncome: [
+      { role: "ASSET_DISPOSAL_PROCEEDS" as const, exclVatCents: 0 }, { role: "MAINTENANCE_FUND_LIABILITY" as const, exclVatCents: 15_000 }, { role: "RENTAL_INCOME" as const, exclVatCents: 10_000 },
+    ] }
+    expect(creditShares(note)).toEqual([{ role: "MAINTENANCE_FUND_LIABILITY", cents: 3_000 }, { role: "RENTAL_INCOME", cents: 2_000 }])
   })
 })

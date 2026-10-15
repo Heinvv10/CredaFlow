@@ -1,6 +1,6 @@
 /**
  * A repossession and its sale as journal sources (slice 4b). Every base key
- * starts `recovery:<recoveryId>:` so the reconciliation can attribute a line
+ * starts `af-recovery:<recoveryId>:` so the reconciliation can attribute a line
  * to its recovery (lib/accounting/reconcile-asset-finance.ts); the proceeds
  * receipt is the generic `payment:<id>` source with `recoveryProceeds` set.
  *
@@ -29,7 +29,7 @@ function recoverySource(loan: SourceLoan, key: string, vector: Vector, type: Des
 }
 
 function ownSources(loan: SourceLoan, rec: SourceRecovery, asOf: Date): DesiredSource[] {
-  const key = (suffix: string) => `recovery:${rec.id}:${suffix}`
+  const key = (suffix: string) => `af-recovery:${rec.id}:${suffix}`
   const out: DesiredSource[] = []
   for (const cost of rec.costs) {
     const vector: Vector = {}
@@ -92,7 +92,7 @@ export function recoverySources(loan: SourceLoan, asOf: Date, siblings: DesiredS
       addTo(vector, "RECOVERY_CLEARING", -left)
       addTo(vector, "RECOVERY_RESULT", left)
     }
-    out.push(...own, recoverySource(loan, `recovery:${rec.id}:result`, vector, "RECOVERY_RESULT", resolvedOn ?? loan.startDate,
+    out.push(...own, recoverySource(loan, `af-recovery:${rec.id}:result`, vector, "RECOVERY_RESULT", resolvedOn ?? loan.startDate,
       `Recovery of the asset of ${loan.reference} settled: clearing moved to the result`, "Recovery result"))
   }
   return out

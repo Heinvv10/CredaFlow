@@ -12,6 +12,7 @@ import type { Prisma } from "@prisma/client"
 import { sastDayStart } from "@/lib/date/sast-period"
 import { groupCharges, type AccountingDb } from "./store"
 import type { SourceAssetFinance, SourceCreditNote, SourceInvoice, SourceLoan, SourceRecovery } from "./source-types"
+import { creditShares } from "./sources-asset-finance"
 
 const AF_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const
 
@@ -24,10 +25,10 @@ const INVOICE = {
 
 type InvoiceRow = { id: string; supplyDate: Date; issueDate: Date; totalExclVatCents: number; vatCents: number; totalInclVatCents: number }
 
-function toInvoice(row: InvoiceRow, assetSaleExclVatCents = 0): SourceInvoice {
+function toInvoice(row: InvoiceRow, assetSaleExclVatCents = 0, fundBilledExclVatCents = 0): SourceInvoice {
   return {
     id: row.id, supplyDate: dayOf(row.supplyDate), issueDate: dayOf(row.issueDate),
-    exclVatCents: row.totalExclVatCents, vatCents: row.vatCents, inclVatCents: row.totalInclVatCents, assetSaleExclVatCents,
+    exclVatCents: row.totalExclVatCents, vatCents: row.vatCents, inclVatCents: row.totalInclVatCents, assetSaleExclVatCents, fundBilledExclVatCents,
   }
 }
 
@@ -59,14 +60,14 @@ const LOAN_SELECT = {
     select: { id: true, rentalExclVatCents: true, maintenanceExclVatCents: true, vatCents: true, totalCents: true, taxInvoiceId: true },
   },
   leaseEndOfTerm: { select: { outcome: true, taxInvoiceId: true, purchasePriceExclVatCents: true } },
-  maintenanceFund: { select: { riskModel: true, movements: { orderBy: { occurredOn: "asc" }, select: { id: true, kind: true, amountCents: true, occurredOn: true } } } },
+  maintenanceFund: { select: { riskModel: true, movements: { orderBy: { occurredOn: "asc" }, select: { id: true, kind: true, amountCents: true, occurredOn: true, taxInvoiceId: true } } } },
   recoveries: {
     orderBy: { id: "asc" },
     select: {
       id: true, status: true, netProceedsCents: true, surplusCents: true, chargesFrozenFrom: true, proceedsPaymentId: true, closedAt: true,
       costs: { where: { status: "APPROVED" }, orderBy: { id: "asc" }, select: { id: true, netCents: true, vatCents: true, grossCents: true, treatment: true, incurredOn: true } },
       vatEvents: { where: { kind: "REPOSSESSION_DEEMED_SUPPLY" }, orderBy: { id: "asc" }, select: { id: true, eventDate: true, inputTaxClaimCents: true } },
-      sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, taxInvoice: { select: { ...INVOICE, creditNotes: { select: { id: true } } } } } },
+      sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, completedAt: true, taxInvoice: { select: { ...INVOICE, creditNotes: { select: { id: true } } } } } },
       refund: { where: { status: "RELEASED" }, select: { id: true, amountCents: true, releasedAt: true } },
     },
   },
@@ -77,10 +78,15 @@ type LoanRow = Prisma.LoanGetPayload<{ select: typeof LOAN_SELECT }>
 function recoveriesOf(loan: LoanRow, unsupported: Unsupported[]): SourceRecovery[] {
   return loan.recoveries.map((r) => {
     const sale = r.sales[0]
+    const soldOn = sale?.completedAt ?? null
     if (sale && (!sale.taxInvoice || sale.taxInvoice.totalInclVatCents !== sale.priceInclVatCents)) {
-      unsupported.push({ loanId: loan.id, message: `${loan.reference}: the remarketing sale has no tax invoice for its price` })
+      unsupported.push({ loanId: loan.id, from: soldOn, message: `${loan.reference}: the remarketing sale has no tax invoice for its price` })
     }
-    if (sale?.taxInvoice?.creditNotes.length) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a credit note against the remarketing sale invoice is not exported yet` })
+    if (sale?.taxInvoice?.creditNotes.length) unsupported.push({ loanId: loan.id, from: soldOn, message: `${loan.reference}: a credit note against the remarketing sale invoice is not exported yet` })
+    // A repossession's VAT event is made when a sale completes and a recovery with a completed sale cannot be withdrawn: such a record is not a state the rules produce.
+    if (r.status === "WITHDRAWN" && (sale || r.vatEvents.length > 0)) {
+      unsupported.push({ loanId: loan.id, from: r.closedAt, message: `${loan.reference}: a withdrawn recovery has a sale or a repossession VAT event, which the rules do not allow` })
+    }
     const settled = r.netProceedsCents !== null && r.chargesFrozenFrom !== null
     return {
       id: r.id,
@@ -106,15 +112,19 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
   const eot = loan.leaseEndOfTerm
   const assetSale = (invoiceId: string) => (eot?.outcome === "PURCHASE" && eot.taxInvoiceId === invoiceId ? eot.purchasePriceExclVatCents ?? 0 : 0)
   const rentalInvoiceIds = new Set(loan.taxInvoices.filter((i) => i.leaseRental).map((i) => i.id))
-  if (lease) {
-    if (!released) unsupported.push({ loanId: loan.id, message: `${loan.reference}: the supplier payout has not been released` })
-    else if (released.amountCents !== asset.exclVatCents + asset.vatCents) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a lease with a deposit or trade-in is not exported yet` })
-  } else {
-    if (!released) unsupported.push({ loanId: loan.id, message: `${loan.reference}: the supplier payout has not been released` })
-    if (loan.taxInvoices.some((i) => i.creditNotes.length > 0)) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a credit note against the inception invoice is not exported yet` })
-    if (loan.taxInvoices.length === 0) unsupported.push({ loanId: loan.id, message: `${loan.reference}: no inception tax invoice` })
-    if (loan.repaymentSchedule.some((r) => r.assetFinanceOpeningBalanceCents === null)) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a schedule row has no opening balance` })
+  // A payout not yet released has posted nothing, so it blocks no month. What cannot be expressed blocks the months from its release on.
+  const from = released?.releasedAt ?? null
+  const flag = (message: string) => unsupported.push({ loanId: loan.id, from, message: `${loan.reference}: ${message}` })
+  if (released) {
+    if (lease) {
+      if (released.amountCents !== asset.exclVatCents + asset.vatCents) flag("a lease with a deposit or trade-in is not exported yet")
+    } else {
+      if (loan.taxInvoices.some((i) => i.creditNotes.length > 0)) flag("a credit note against the inception invoice is not exported yet")
+      if (loan.taxInvoices.length === 0) flag("no inception tax invoice")
+      if (loan.repaymentSchedule.some((r) => r.assetFinanceOpeningBalanceCents === null)) flag("a schedule row has no opening balance")
+    }
   }
+  const billed = (invoiceId: string) => (loan.maintenanceFund?.movements ?? []).filter((m) => m.kind === "SETTLEMENT_BILLED" && m.taxInvoiceId === invoiceId).reduce((sum, m) => sum + m.amountCents, 0)
   return {
     contractType,
     financedFeesCents: deal?.financedFeesCents ?? 0,
@@ -126,14 +136,22 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
       return invoice ? [{ id: r.id, invoice: toInvoice(invoice), rentalExclVatCents: r.rentalExclVatCents, maintenanceExclVatCents: r.maintenanceExclVatCents, vatCents: r.vatCents, totalCents: r.totalCents }] : []
     }),
     sundryInvoices: lease
-      ? loan.taxInvoices.filter((i) => !rentalInvoiceIds.has(i.id)).map((i) => toInvoice(i, assetSale(i.id)))
+      ? loan.taxInvoices.filter((i) => !rentalInvoiceIds.has(i.id)).map((i) => toInvoice(i, assetSale(i.id), billed(i.id)))
       : [],
-    creditNotes: lease ? loan.taxInvoices.flatMap((i) => i.creditNotes.map((n): SourceCreditNote => ({
-      id: n.id, invoiceId: n.invoiceId, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
-      invoiceIncome: i.leaseRental
-        ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }, { role: "MAINTENANCE_INCOME", exclVatCents: i.leaseRental.maintenanceExclVatCents }]
-        : [{ role: "ASSET_DISPOSAL_PROCEEDS", exclVatCents: assetSale(i.id) }, { role: "RENTAL_INCOME", exclVatCents: i.totalExclVatCents - assetSale(i.id) }],
-    }))) : [],
+    creditNotes: lease ? loan.taxInvoices.flatMap((i) => i.creditNotes.map((n): SourceCreditNote => {
+      const note: SourceCreditNote = {
+        id: n.id, invoiceId: n.invoiceId, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
+        invoiceIncome: i.leaseRental
+          ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }, { role: "MAINTENANCE_INCOME", exclVatCents: i.leaseRental.maintenanceExclVatCents }]
+          : [
+            { role: "ASSET_DISPOSAL_PROCEEDS", exclVatCents: assetSale(i.id) }, { role: "MAINTENANCE_FUND_LIABILITY", exclVatCents: billed(i.id) },
+            { role: "RENTAL_INCOME", exclVatCents: i.totalExclVatCents - assetSale(i.id) - billed(i.id) },
+          ],
+      }
+      // A credit with no income to spread over cannot be posted in balance: refuse the close rather than crash the preview.
+      if (creditShares(note).length === 0) unsupported.push({ loanId: loan.id, from: note.issueDate, message: `${loan.reference}: a credit note on an invoice with no income to credit` })
+      return note
+    })) : [],
     fund: loan.maintenanceFund
       ? { riskModel: loan.maintenanceFund.riskModel, movements: loan.maintenanceFund.movements.map((m) => ({ ...m, occurredOn: dayOf(m.occurredOn) })) }
       : null,
@@ -141,7 +159,8 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
   }
 }
 
-export interface Unsupported { loanId: string; message: string }
+/** `from`: the contract blocks the months that end after this instant; null blocks every month. */
+export interface Unsupported { loanId: string; from: Date | null; message: string }
 
 export interface AssetFinanceLoans {
   loans: SourceLoan[]

@@ -4,7 +4,8 @@
  * tables and never through lib/accounting/sources-*.ts, so a fault in a source
  * shows up as a difference instead of agreeing with itself.
  *
- * Instalment sale and finance lease (once the inception invoice is supplied):
+ * Instalment sale and finance lease (once the supplier payout is released: that is
+ * the day the inception posts):
  *   owed = opening balance B of the first row not yet raised (0 when every row
  *          is) + the totalDue of the rows raised + default charges - applied receipts
  * This telescopes: the journal holds F + the interest each raised row accrues
@@ -39,9 +40,9 @@ export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$quer
       FROM "Loan" ln WHERE ln."tenantId" = ${tenantId} AND ln."contractType" <> 'LOAN'
     ),
     inc AS (
-      SELECT DISTINCT ON (i."loanId") i."loanId", ${supply} AS "at"
-      FROM "TaxInvoice" i JOIN l ON l."id" = i."loanId" AND NOT l.lease
-      WHERE i."tenantId" = ${tenantId} ORDER BY i."loanId", i."number"
+      SELECT d."loanId", p."releasedAt" AS "at"
+      FROM "AssetFinanceDeal" d JOIN "Payout" p ON p."dealId" = d."id" AND p."tenantId" = d."tenantId" JOIN l ON l."id" = d."loanId" AND NOT l.lease
+      WHERE d."tenantId" = ${tenantId} AND p."status" = 'RELEASED'
     ),
     rw AS (
       SELECT s."loanId", s."installmentNo", s."totalDue", s."assetFinanceOpeningBalanceCents" AS "opening",

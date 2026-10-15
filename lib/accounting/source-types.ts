@@ -104,6 +104,8 @@ export interface SourceInvoice {
   inclVatCents: number
   /** Part of exclVatCents that is the sale of the leased asset to the lessee (end of term, purchase). */
   assetSaleExclVatCents: number
+  /** Part of exclVatCents that bills a maintenance fund's deficit to the lessee: it settles the fund, it is not income. */
+  fundBilledExclVatCents?: number
 }
 
 /** A credit note against a lease tax invoice, with the income the invoice credited (the credit is spread over it). */
@@ -116,7 +118,7 @@ export interface SourceCreditNote {
   vatCents: number
   inclVatCents: number
   /** What the original invoice credited to each income role, excluding VAT. */
-  invoiceIncome: Array<{ role: "RENTAL_INCOME" | "MAINTENANCE_INCOME" | "ASSET_DISPOSAL_PROCEEDS"; exclVatCents: number }>
+  invoiceIncome: Array<{ role: "RENTAL_INCOME" | "MAINTENANCE_INCOME" | "ASSET_DISPOSAL_PROCEEDS" | "MAINTENANCE_FUND_LIABILITY"; exclVatCents: number }>
 }
 
 export interface SourceRecovery {

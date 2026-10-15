@@ -350,6 +350,18 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
   against an instalment sale's inception invoice or a repossession sale's invoice.
 - A credit note adjusts the ledger's lease debtors but not the loan's schedule: staff settle the
   schedule balance separately.
+- **Input VAT on a dealer that is not a VAT vendor.** The instalment-sale and finance-lease input VAT
+  control reads the inception invoice's VAT, the same figure the journal posts, so it checks the date
+  (posted once, when the supplier payout is released), not the dealer's own VAT. Whether the lender may
+  claim that input VAT at all (for example from a non-vendor dealer) is the accountant's call.
+- **VAT history carried in at go-live.** The opening entry carries the input and output VAT balances of
+  every contract booked before go-live. The accountant clears what was already submitted to SARS before
+  go-live against the legacy ledger; the export does not know what was submitted.
+- **No fee-VAT split on asset finance.** A VAT-inclusive fee account (a lender's setting) splits VAT out
+  of consumer fees only. An asset-finance contract's financed fees and default charges post gross: its
+  VAT is the VAT of its tax invoices, which the VAT control reads. Whether VAT is due on a financed fee
+  is for the tax adviser.
+- A billed maintenance deficit credits the lessee's fund liability (it settles the fund) and not income.
 
 ## Acceptance (every slice)
 

@@ -143,11 +143,15 @@ export function deriveEntries(args: {
   const vat = args.vat ?? null
   const entries: DerivedEntry[] = []
   const seen = new Set<string>()
+  // An asset-finance contract's VAT is explicit lines only (invoice VAT); a VAT-inclusive fee account is never split for it,
+  // so the asset-finance VAT control sees every OUTPUT_VAT line the contract posts.
+  const explicitVat = new Set(args.loans.filter((l) => l.assetFinance).map((l) => l.id))
+  const vatFor = (loanId: string | null) => (loanId && explicitVat.has(loanId) ? null : vat)
   for (const source of desiredSources(args.loans, period.end)) {
     seen.add(source.baseKey)
     const change = delta(source.vector, posted.get(source.baseKey))
     if (Object.keys(change).length === 0) continue
-    entries.push(entryFor(source, change, !postedKeys.has(source.baseKey), period, accounts, vat))
+    entries.push(entryFor(source, change, !postedKeys.has(source.baseKey), period, accounts, vatFor(source.loanId)))
   }
   for (const [baseKey, vector] of posted) {
     if (seen.has(baseKey)) continue
@@ -163,7 +167,7 @@ export function deriveEntries(args: {
       loanId: owner.loanId,
       reference: owner.reference,
       description: `Removed ${baseKey.split(":")[2] ?? "item"} reversed on ${owner.reference}`.trim(),
-      lines: linesOf(change, accounts, vat),
+      lines: linesOf(change, accounts, vatFor(owner.loanId)),
     })
   }
   return entries.sort((a, b) =>
