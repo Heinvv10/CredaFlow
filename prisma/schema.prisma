@@ -1519,6 +1519,7 @@ model Loan {
   surrenderRequests           SurrenderRequest[]
   disbursementPayouts         DisbursementPayout[]
   disbursementReversals       DisbursementReversal[]
+  payoutRecoveryCases         PayoutRecoveryCase[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1723,6 +1724,7 @@ enum ScheduleStatus {
   PAID
   OVERDUE
   WRITTEN_OFF
+  CANCELLED
 }
 
 model Payment {
@@ -5073,6 +5075,7 @@ model DisbursementPayout {
   createdById       String
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
+  recoveryCase      PayoutRecoveryCase?
 
   @@unique([tenantId, idempotencyKey])
   @@unique([applicationId, attempt])
@@ -5102,7 +5105,51 @@ model DisbursementReversal {
   decidedById   String?
   decidedAt     DateTime?
   decisionNote  String?
+  // No mandate register on this build: a staff task to cancel the debit
+  // order by hand, open until someone acknowledges it (set once).
+  debitOrderCancelAckAt   DateTime?
+  debitOrderCancelAckById String?
 
+  @@index([tenantId, loanId])
+}
+
+enum PayoutRecoveryStatus {
+  OPEN
+  ESCALATED
+  RECOVERED
+}
+
+// A provider paid out on a loan whose disbursement had already been reversed
+// (lib/payouts/recovery.ts). The loan stays CANCELLED; the money sits in
+// payout clearing until it comes back. One case per payout attempt; the
+// database guard fixes the opening facts and the order OPEN -> ESCALATED ->
+// RECOVERED (or OPEN -> RECOVERED), each step by someone other than the
+// people who made or approved the payout.
+model PayoutRecoveryCase {
+  id                String               @id @default(cuid())
+  tenantId          String
+  loanId            String
+  loan              Loan                 @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  payoutId          String               @unique
+  payout            DisbursementPayout   @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents       Int
+  // The value date the money left the lender's bank.
+  paidAt            DateTime
+  status            PayoutRecoveryStatus @default(OPEN)
+  openedById        String
+  openNote          String
+  escalatedAt       DateTime?
+  escalatedById     String?
+  escalationNote    String?
+  // The value date the funds came back.
+  recoveredAt       DateTime?
+  recoveredById     String?
+  recoveryNote      String?
+  recoveryReference String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([tenantId, status])
   @@index([tenantId, loanId])
 }
 

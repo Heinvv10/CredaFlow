@@ -7,12 +7,16 @@
  * until a second LOAN_ADMIN — not the disburser, requester or approver —
  * resolves it: "not_paid" (the provider was wrong; the attempt stays as it
  * was) or "paid" (the money did go out: the attempt becomes PAID at the value
- * date given).
+ * date given). On a loan whose disbursement was already reversed (CANCELLED)
+ * "paid" is refused, here and in the database: the loan is not reinstated, and
+ * the money that went out is "recovery" — a PayoutRecoveryCase
+ * (lib/payouts/recovery.ts) opened at the value date given.
  */
 import type { DisbursementPayout } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { Actor, PayoutDb } from "./dispatch"
 import { lockLoanForPayout, raceRefusal } from "./loan-lock"
+import { openRecoveryCase } from "./recovery"
 import type { PayoutStatus } from "./state"
 import type { ProviderPayoutState } from "./types"
 
@@ -47,7 +51,10 @@ export async function recordProviderConflict(db: PayoutDb, args: {
   })
 }
 
-export type ConflictOutcome = "not_paid" | "paid"
+export type ConflictOutcome = "not_paid" | "paid" | "recovery"
+
+const REVERSED_PAID = "This loan's disbursement was reversed, so the attempt is not resolved as paid and the loan is not reinstated: open a recovery case for the money instead"
+const NOT_REVERSED = "A recovery case is for money paid out on a reversed loan; this loan was not reversed"
 
 export async function resolveProviderConflict(db: PayoutDb, args: {
   tenantId: string
@@ -67,9 +74,12 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
     }, db)
     return { ok: false, status: 403, error: "Another LOAN_ADMIN must resolve this: you disbursed the loan, or requested or approved this attempt" }
   }
-  if (args.outcome === "paid" && p.providerConflictState !== "PAID") {
+  if (args.outcome !== "not_paid" && p.providerConflictState !== "PAID") {
     return { ok: false, status: 422, error: "The provider did not report this attempt paid" }
   }
+  const loan = await db.loan.findFirst({ where: { id: p.loanId, tenantId: args.tenantId }, select: { status: true } })
+  if (args.outcome === "paid" && loan?.status === "CANCELLED") return { ok: false, status: 409, error: REVERSED_PAID }
+  if (args.outcome === "recovery" && loan?.status !== "CANCELLED") return { ok: false, status: 409, error: NOT_REVERSED }
   if (args.outcome === "paid") {
     const other = await db.disbursementPayout.findFirst({
       where: { tenantId: args.tenantId, applicationId: p.applicationId, id: { not: p.id }, status: { notIn: ["FAILED", "RETURNED", "CANCELLED"] } },
@@ -83,7 +93,10 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
   const to: PayoutStatus = args.outcome === "paid" ? "PAID" : (p.status as PayoutStatus)
   try {
   return await db.$transaction(async (tx) => {
-    await lockLoanForPayout(tx, args.tenantId, p.loanId)
+    const locked = await lockLoanForPayout(tx, args.tenantId, p.loanId)
+    // Re-read under the lock: a reversal approved meanwhile changes the answer.
+    if (args.outcome === "paid" && locked?.status === "CANCELLED") return { ok: false as const, status: 409, error: REVERSED_PAID }
+    if (args.outcome === "recovery" && locked?.status !== "CANCELLED") return { ok: false as const, status: 409, error: NOT_REVERSED }
     const moved = await tx.disbursementPayout.updateMany({
       where: { id: p.id, tenantId: args.tenantId, status: p.status, conflictResolvedAt: null },
       data: {
@@ -92,11 +105,14 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
       },
     })
     if (moved.count !== 1) return { ok: false as const, status: 409, error: "The payout changed; refresh and try again" }
+    const recovery = args.outcome === "recovery"
+      ? await openRecoveryCase(tx, { tenantId: args.tenantId, payout: p, paidAt: args.paidAt ?? p.providerConflictAt ?? now, note: args.note, actor: args.actor })
+      : null
     await logAuditStrict({
       tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
       action: AuditAction.PAYOUT_PROVIDER_CONFLICT_RESOLVED, entity: "DisbursementPayout", entityId: p.id,
       oldValue: { status: p.status, reported: p.providerConflictState },
-      newValue: { outcome: args.outcome, status: to, note: args.note, ...(args.outcome === "paid" ? { paidAt: (args.paidAt ?? now).toISOString() } : {}) },
+      newValue: { outcome: args.outcome, status: to, note: args.note, ...(args.outcome === "paid" ? { paidAt: (args.paidAt ?? now).toISOString() } : {}), ...(recovery ? { recoveryCaseId: recovery.id } : {}) },
     }, tx)
     return { ok: true as const, status: to }
   })

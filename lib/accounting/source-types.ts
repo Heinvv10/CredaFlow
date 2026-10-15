@@ -13,6 +13,7 @@ export type EventType =
   | "DISBURSEMENT"
   | "PAYOUT_PAID"
   | "PAYOUT_RETURNED"
+  | "PAYOUT_RECOVERED"
   | "DISBURSEMENT_REVERSED"
   | "INSTALMENT_DUE"
   | "DEFAULT_CHARGE"
@@ -69,6 +70,8 @@ export interface SourceLoan {
   payments: SourcePayment[]
   /** Payout attempts (payout channel). None = paid outside the system: the disbursement credits BANK. */
   payouts: Array<{ id: string; attempt: number; amountCents: number; paidAt: Date | null; returnedAt: Date | null }>
+  /** Money paid out after the disbursement was reversed (lib/payouts/recovery.ts), by attempt. */
+  recoveries: Array<{ id: string; attempt: number; amountCents: number; paidAt: Date; recoveredAt: Date | null }>
 }
 
 export interface DesiredSource {

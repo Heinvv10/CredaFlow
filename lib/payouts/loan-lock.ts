@@ -41,7 +41,7 @@ export function raceRefusal(error: unknown): { ok: false; status: 409; error: st
     return { ok: false, status: 409, error: "Another request for this payout won; refresh and try again" }
   }
   const message = error instanceof Error ? error.message : ""
-  const guard = /(Payout guard|Reversal guard|Loan cancellation guard): ([^\n"]+)/.exec(message)
+  const guard = /(Payout guard|Reversal guard|Recovery guard|Loan cancellation guard): ([^\n"]+)/.exec(message)
   if (guard) return { ok: false, status: 409, error: guard[2].trim() }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
     return { ok: false, status: 409, error: "Another request for this loan won; refresh and try again" }

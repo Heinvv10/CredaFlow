@@ -507,8 +507,8 @@ export async function GET(req: NextRequest) {
     const [branches, scheduleItems, payments, disbursements] = await Promise.all([
       prisma.branch.findMany({ where: { tenantId: tenant.id }, select: { id: true, name: true, code: true } }),
       prisma.repaymentSchedule.findMany({
-        // Settled rows (a reversed loan's) are not due.
-        where: { tenantId: tenant.id, dueDate: { gte: mStart, lt: mEndExclusive }, status: { not: "WRITTEN_OFF" } },
+        // A reversed loan's cancelled rows are not due.
+        where: { tenantId: tenant.id, dueDate: { gte: mStart, lt: mEndExclusive }, status: { not: "CANCELLED" } },
         include: {
           loan: {
             select: {

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import type { Client, Loan, LoanApplication, Tenant } from "@prisma/client"
 import { calculateLoan } from "@/lib/loan-calculator"
-import { certificatePaidToDate, certificateSettlement, documentLoanFigures, loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { certificatePaidToDate, certificateSettlement, documentLoanFigures, documentScheduleRow, loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { getLenderLogo } from "@/lib/config/lender-logo"
 import { generateCreditAgreementPdf } from "@/lib/pdf/creditAgreement"
@@ -367,7 +367,7 @@ async function statementAdapter(ctx: SystemDocContext): Promise<Buffer> {
       arrearsAmount: figures.arrearsIncludingCharges,
     },
     product: { name: product.name },
-    schedule: schedule.map((s) => ({
+    schedule: schedule.map(documentScheduleRow).map((s) => ({
       installmentNo: s.installmentNo,
       dueDate: s.dueDate,
       totalDue: s.totalDue,

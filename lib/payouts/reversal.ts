@@ -130,3 +130,40 @@ export async function decideDisbursementReversal(db: ReversalDb, args: {
     throw error
   }
 }
+
+/**
+ * The staff task an approved reversal leaves: this build has no mandate
+ * register (lib/payouts/reversal-effects.ts NO_MANDATE_REGISTER), so someone
+ * cancels the borrower's debit order with the bank or collection provider by
+ * hand and acknowledges it here, once. Until then the loan page and the
+ * outstanding-payouts queue show the task.
+ */
+export async function acknowledgeDebitOrderCancelled(db: Pick<typeof prisma, "disbursementReversal" | "auditLog" | "$transaction">, args: {
+  tenantId: string
+  reversalId: string
+  note: string
+  actor: { id: string; email: string }
+}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const r = await db.disbursementReversal.findFirst({ where: { id: args.reversalId, tenantId: args.tenantId } })
+  if (!r) return { ok: false, status: 404, error: "Reversal not found" }
+  if (r.status !== "APPROVED") return { ok: false, status: 409, error: "Only an approved reversal leaves a debit order to cancel" }
+  if (r.debitOrderCancelAckAt) return { ok: false, status: 409, error: "The debit order is already acknowledged cancelled" }
+  try {
+    return await db.$transaction(async (tx) => {
+      const moved = await tx.disbursementReversal.updateMany({
+        where: { id: r.id, tenantId: args.tenantId, status: "APPROVED", debitOrderCancelAckAt: null },
+        data: { debitOrderCancelAckAt: new Date(), debitOrderCancelAckById: args.actor.id },
+      })
+      if (moved.count !== 1) return { ok: false as const, status: 409, error: "The debit order is already acknowledged cancelled" }
+      await logAuditStrict({
+        tenantId: args.tenantId, ...actorOf(args.actor), action: AuditAction.DEBIT_ORDER_CANCEL_ACKNOWLEDGED,
+        entity: "DisbursementReversal", entityId: r.id, newValue: { loanId: r.loanId, note: args.note },
+      }, tx)
+      return { ok: true as const }
+    })
+  } catch (error) {
+    const refusal = raceRefusal(error)
+    if (refusal) return refusal
+    throw error
+  }
+}

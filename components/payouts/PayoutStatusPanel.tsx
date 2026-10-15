@@ -13,6 +13,7 @@ import type { PayoutView } from "@/lib/payouts/view"
 import { formatZAR } from "@/lib/utils"
 import { PayoutRemedies } from "./PayoutRemedies"
 import { postAction } from "./post-action"
+import { ReversedLoanTasks } from "./ReversedLoanTasks"
 
 const TONE: Record<PayoutStatus, "neutral" | "success" | "warning" | "danger" | "info"> = {
   PENDING: "warning", SUBMITTING: "info", SUBMITTED: "info", PROCESSING: "info",
@@ -32,6 +33,7 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const confirmable = payout.status === "NEEDS_REVIEW" || payout.status === "SUBMITTED" || payout.status === "PROCESSING"
+  const reversed = view.loanStatus === "CANCELLED"
 
   async function act(body: Record<string, unknown>) {
     setBusy(true)
@@ -50,6 +52,7 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
       {view.loanStatus === "CANCELLED" && view.reversal?.status === "APPROVED" && (
         <InfoStrip variant="warning" className="mb-4">Disbursement reversed: the money never reached the borrower and the loan is cancelled.</InfoStrip>
       )}
+      <ReversedLoanTasks view={view} canAct={canAct} />
       {conflicted?.conflict && (
         <InfoStrip variant="danger" className="mb-4">
           Provider conflict on attempt {conflicted.attempt}: {conflicted.conflict.detail ?? conflicted.conflict.state}. Retries and reversal are blocked until another LOAN_ADMIN resolves it below.
@@ -104,9 +107,18 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "not_paid", note }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>Provider was wrong: not paid</Button>
                 {conflicted.conflict.state === "PAID" && (
-                  <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "paid", note, ...(paidOn ? { paidAt: paidOn } : {}) }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>It was paid</Button>
+                  // On a reversed loan the money is recovered, never "paid": the loan stays cancelled.
+                  <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: reversed ? "recovery" : "paid", note, ...(paidOn ? { paidAt: paidOn } : {}) }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>
+                    {reversed ? "It was paid: open a recovery case" : "It was paid"}
+                  </Button>
                 )}
               </div>
+              {conflicted.conflict.state === "PAID" && !confirmable && (
+                <label className="block text-xs text-[var(--cf-text-muted)]">
+                  Bank value date it left (blank = {reversed ? "when the provider reported it" : "today"})
+                  <Input type="date" aria-label="Bank value date it left" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-44" />
+                </label>
+              )}
             </div>
           )}
           {message && <p className="text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}

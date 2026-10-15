@@ -15,7 +15,7 @@ vi.mock("@/lib/loan/charges-replay", async (importOriginal) => ({
 }))
 
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
-import { certificatePaidToDate, certificateSettlement, documentLoanFigures, loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { certificatePaidToDate, certificateSettlement, documentLoanFigures, documentScheduleRow, loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { generateCertificateOfBalancePdf } from "./certificateOfBalance"
 import { generateStatementPdf } from "./statement"
 
@@ -46,7 +46,7 @@ const reversed = {
   interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const,
   startDate: new Date("2026-10-04"), maturityDate: new Date("2027-04-04"),
   lastPaymentDate: null, lastPaymentAmount: null,
-  repaymentSchedule: [{ id: "r1", installmentNo: 1, dueDate: new Date("2026-11-04"), principalDue: 1_000_000, interestDue: 256_986, feesDue: 0, totalDue: 1_256_986, totalPaid: 0, status: "WRITTEN_OFF" }],
+  repaymentSchedule: [{ id: "r1", installmentNo: 1, dueDate: new Date("2026-11-04"), principalDue: 1_000_000, interestDue: 256_986, feesDue: 0, totalDue: 1_256_986, totalPaid: 0, status: "CANCELLED" }],
 }
 const db = { payment: { aggregate: vi.fn(async () => ({ _sum: { amount: null, defaultInterestAllocated: null, chargeFeesAllocated: null } })) } }
 const client = { firstName: "Thandi", lastName: "Mthembu", idNumber: "9401010000080", email: "t@example.com", addressLine1: "45 Oak Ave", city: "Soweto" }
@@ -69,18 +69,21 @@ describe("NCA documents of a reversed (CANCELLED) loan", () => {
     expect(text).toContain(hex("Nil"))
   })
 
-  it("the statement states R 0.00 total repayable and outstanding", async () => {
+  it("the statement states R 0.00 total repayable and outstanding, and every instalment CANCELLED with R 0.00 due", async () => {
     loadChargesReplay.mockResolvedValue(null)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const figures = await loanSettlementFigures(db as any, reversed, new Date("2026-10-15"))
     const text = pdfText(await generateStatementPdf({
       lender: ACME_LENDER, client, product: { name: "Personal Loan" },
       loan: { ...reversed, ...documentLoanFigures(reversed), arrearsAmount: figures.arrearsIncludingCharges },
-      schedule: reversed.repaymentSchedule.map((s) => ({ installmentNo: s.installmentNo, dueDate: s.dueDate, totalDue: s.totalDue, totalPaid: s.totalPaid, status: s.status })),
+      schedule: reversed.repaymentSchedule.map(documentScheduleRow).map((s) => ({ installmentNo: s.installmentNo, dueDate: s.dueDate, totalDue: s.totalDue, totalPaid: s.totalPaid, status: s.status })),
       payments: [], statementDate: new Date("2026-10-15"),
     } as never))
     expect(text).toContain(hex("Outstanding Balance"))
     expect(text).toContain(hex("R 0.00"))
     expect(text).not.toMatch(new RegExp(hex("Total Repayable") + "[^\\n]*\\n[^\\n]*" + hex("R 12,569.86")))
+    // The schedule page: the instalment is cancelled and nothing is due on it.
+    expect(text).toContain(hex("CANCELLED"))
+    expect(text).not.toContain(hex("R 12,569.86"))
   })
 })

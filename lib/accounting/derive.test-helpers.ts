@@ -32,6 +32,7 @@ export function loan(overrides: TestLoan = {}): SourceLoan {
     reversedAt: null,
     charges: [],
     payouts: [],
+    recoveries: [],
     ...rest,
     // Principal sits in the instalments: R2,000 on the first, none on later ones.
     schedule: rows.map((r, i) => ({ totalPaid: 0, totalDue: (i === 0 ? 200_000 : 0) + r.interestDue + r.feesDue, ...r })),

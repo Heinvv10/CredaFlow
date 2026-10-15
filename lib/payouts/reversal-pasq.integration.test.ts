@@ -2,7 +2,7 @@
  * A disbursement reversal on a real PASQ v3 loan (signed agreement, bundled
  * credit life, debit-order mandate) commits under every database guard: the
  * PASQ billing guard keeps the contractual figures, the schedule rows are
- * settled as WRITTEN_OFF, the bundled policy is cancelled, and nothing but an
+ * settled as CANCELLED, the bundled policy is cancelled, and nothing but an
  * approved reversal may make a loan CANCELLED.
  *
  *   RUN_PAYOUTS_IT=1 DATABASE_URL=postgresql://... \
@@ -57,7 +57,7 @@ suite.sequential("disbursement reversal of a PASQ v3 loan (real Postgres)", () =
     expect(await db.disbursementReversal.findUniqueOrThrow({ where: { id: (req as { reversalId: string }).reversalId } })).toMatchObject({ status: "APPROVED" })
     const after = await db.loan.findUniqueOrThrow({ where: { id: loanId }, include: { repaymentSchedule: true } })
     expect(after).toMatchObject({ status: "CANCELLED", outstandingPrincipal: 0, arrearsAmount: 0, totalRepayable: before.totalRepayable, totalInterest: before.totalInterest })
-    expect(after.repaymentSchedule.every((r) => r.status === "WRITTEN_OFF")).toBe(true)
+    expect(after.repaymentSchedule.every((r) => r.status === "CANCELLED")).toBe(true)
     expect((await db.insurancePolicy.findUniqueOrThrow({ where: { id: policy.id } })).status).toBe("CANCELLED")
     expect(await db.auditLog.count({ where: { entityId: policy.id, action: "POLICY_CANCELLED" } })).toBe(1)
     const decided = await db.auditLog.findFirstOrThrow({ where: { entityId: (req as { reversalId: string }).reversalId, action: "DISBURSEMENT_REVERSAL_DECIDED" } })

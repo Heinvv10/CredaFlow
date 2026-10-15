@@ -9,6 +9,7 @@ import { BackLink } from "@/components/nav/BackLink"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
 import { formatStatusLabel } from "@/lib/status-style"
+import { documentLoanFigures, documentScheduleRow, owesNothing } from "@/lib/loan/charges-summary"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
@@ -59,6 +60,8 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   // Use the RECURRING instalment (schedule[1] for multi-instalment loans),
   // not the fee-loaded first instalment, so this matches the Apply quote.
   const monthlyInstalment = recurringInstalmentDue(loan.repaymentSchedule)
+  // A loan CANCELLED by a disbursement reversal owes nothing (lib/loan/charges-summary.ts).
+  const cancelled = owesNothing(loan)
 
   const statusColor: Record<string, { bg: string; text: string }> = {
     ACTIVE: { bg: "#D1FAE5", text: "#059669" },
@@ -105,9 +108,9 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {[
           { label: "Principal", value: formatZAR(loan.principal) },
-          { label: "Total Repayable", value: formatZAR(loan.totalRepayable) },
+          { label: "Total Repayable", value: formatZAR(documentLoanFigures(loan).totalRepayable) },
           { label: "Total Paid", value: formatZAR(cashPaid) },
-          { label: "Monthly Instalment", value: formatZAR(monthlyInstalment) },
+          { label: "Monthly Instalment", value: cancelled ? "—" : formatZAR(monthlyInstalment) },
           { label: "Next Payment Date", value: nextPayment ? formatDate(nextPayment.dueDate) : "—" },
           {
             label: "Next Payment Amount",
@@ -138,7 +141,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
         </div>
         <div className="flex justify-between mt-2 text-xs text-gray-400">
           <span>Paid: <span className="whitespace-nowrap">{formatZAR(cashPaid)}</span></span>
-          <span>Total: <span className="whitespace-nowrap">{formatZAR(loan.totalRepayable)}</span></span>
+          <span>Total: <span className="whitespace-nowrap">{formatZAR(documentLoanFigures(loan).totalRepayable)}</span></span>
         </div>
       </div>
 
@@ -211,7 +214,7 @@ function PortalLoanTabs({ loan }: { loan: Awaited<ReturnType<typeof getPortalLoa
                   >
                     <td className="px-5 py-3 text-gray-600">{s.installmentNo}</td>
                     <td className="px-5 py-3 text-gray-700">{formatDate(s.dueDate)}</td>
-                    <td className="px-5 py-3 font-medium text-gray-900">{formatZAR(s.totalDue)}</td>
+                    <td className="px-5 py-3 font-medium text-gray-900">{formatZAR(documentScheduleRow(s).totalDue)}</td>
                     <td className="px-5 py-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                         isPaid ? "bg-green-100 text-green-700" :

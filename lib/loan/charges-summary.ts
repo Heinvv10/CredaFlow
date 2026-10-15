@@ -135,6 +135,10 @@ export function owesNothing(loan: { status?: string | null }): boolean {
 }
 
 /** The loan's own figures as an NCA document states them: zero for a CANCELLED loan. */
+/** A schedule row as the documents state it: a reversed loan's CANCELLED row is not due. */
+export function documentScheduleRow<T extends { totalDue: number; status: string }>(row: T): T {
+  return row.status === "CANCELLED" ? { ...row, totalDue: 0 } : row
+}
 export function documentLoanFigures(loan: { status?: string | null; totalRepayable: number; outstandingPrincipal: number; daysInArrears?: number | null }) {
   return owesNothing(loan)
     ? { totalRepayable: 0, outstandingPrincipal: 0, daysInArrears: 0 }

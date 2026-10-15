@@ -7,9 +7,9 @@
  *    totalInterest / totalRepayable and schedule amounts are NOT touched: the
  *    PASQ billing guard binds them to the signed agreement, and lib/loan/
  *    charges-summary.ts states zero for a CANCELLED loan instead;
- *  - every unpaid schedule row becomes WRITTEN_OFF (the existing "no longer
- *    collected" status), so overdue lists and collection-rate denominators
- *    leave them out;
+ *  - every unpaid schedule row becomes CANCELLED (amounts unchanged), so
+ *    overdue lists and collection-rate denominators leave them out and the
+ *    documents state nothing due on them; WRITTEN_OFF stays a real write-off;
  *  - a bundled credit-life policy is cancelled the way
  *    app/api/insurance/policies/[id]/cancel does (commissions clawed back,
  *    POLICY_CANCELLED audited);
@@ -50,7 +50,7 @@ export async function applyReversalEffects(tx: Tx, args: {
   if (cancelled.count !== 1) throw new Error("The loan changed while its disbursement was being reversed")
   const rows = await tx.repaymentSchedule.updateMany({
     where: { loanId, tenantId, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] } },
-    data: { status: "WRITTEN_OFF" },
+    data: { status: "CANCELLED" },
   })
   const policies = await tx.insurancePolicy.findMany({
     where: { tenantId, linkedLoanId: loanId, status: { not: "CANCELLED" } },

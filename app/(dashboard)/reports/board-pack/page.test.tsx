@@ -46,11 +46,11 @@ describe("Board pack", () => {
     answers.clear()
   })
 
-  it("leaves settled (WRITTEN_OFF) instalments, such as a reversed loan's, out of the collection-rate denominator", async () => {
+  it("leaves a reversed loan's CANCELLED instalments out of the collection-rate denominator", async () => {
     calls.length = 0
     await BoardPackPage()
     const expected = calls.find((c) => c.op === "repaymentSchedule.aggregate")
-    expect((expected?.args.where as { status?: unknown }).status).toEqual({ not: "WRITTEN_OFF" })
+    expect((expected?.args.where as { status?: unknown }).status).toEqual({ not: "CANCELLED" })
   })
 
   it("ranks the top 10 over the collectible book only, with a stable tie-break", async () => {

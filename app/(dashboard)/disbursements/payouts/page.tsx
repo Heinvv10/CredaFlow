@@ -16,11 +16,15 @@ export const metadata = { title: "Outstanding payouts — Disbursements" }
 const OPEN: PayoutStatus[] = ["PENDING", "SUBMITTING", "SUBMITTED", "PROCESSING", "NEEDS_REVIEW", "AWAITING_APPROVAL"]
 const fmt = (d: Date | null) => (d ? d.toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" }) : "—")
 
-/** Every payout that is not settled, and every reversal awaiting a decision: the queue a second LOAN_ADMIN works. */
+/**
+ * Every payout that is not settled, every reversal awaiting a decision, and
+ * what an approved reversal leaves (money paid out afterwards to recover, a
+ * debit order to cancel by hand): the queue a second LOAN_ADMIN works.
+ */
 export default async function OutstandingPayoutsPage() {
   await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
-  const [payouts, reversals] = await Promise.all([
+  const [payouts, reversals, recoveries, debitOrders] = await Promise.all([
     prisma.disbursementPayout.findMany({
       // Unsettled, or settled but contradicted by a later provider report.
       where: { tenantId, OR: [{ status: { in: OPEN } }, { providerConflictAt: { not: null }, conflictResolvedAt: null }] },
@@ -31,6 +35,16 @@ export default async function OutstandingPayoutsPage() {
       where: { tenantId, status: "REQUESTED" },
       orderBy: { requestedAt: "asc" },
       select: { id: true, loanId: true, reason: true, requestedAt: true, loan: { select: { reference: true } } },
+    }),
+    prisma.payoutRecoveryCase.findMany({
+      where: { tenantId, status: { in: ["OPEN", "ESCALATED"] } },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, loanId: true, status: true, amountCents: true, paidAt: true, loan: { select: { reference: true } } },
+    }),
+    prisma.disbursementReversal.findMany({
+      where: { tenantId, status: "APPROVED", debitOrderCancelAckAt: null },
+      orderBy: { decidedAt: "asc" },
+      select: { id: true, loanId: true, decidedAt: true, loan: { select: { reference: true } } },
     }),
   ])
 
@@ -74,6 +88,26 @@ export default async function OutstandingPayoutsPage() {
               ))}
             </TableBody>
           </Table>
+        )}
+      </DataPanel>
+      <DataPanel title="Reversed loans: staff tasks" description="Money paid out after a reversal, to recover; debit orders to cancel by hand. Act on the loan page.">
+        {recoveries.length === 0 && debitOrders.length === 0 ? (
+          <p className="text-sm text-[var(--cf-text-muted)]">None.</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {recoveries.map((r) => (
+              <li key={r.id}>
+                <Link href={`/loans/${r.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{r.loan.reference}</Link>
+                <span className="text-[var(--cf-danger)]"> · funds paid out on a reversed loan: {formatZAR(r.amountCents)} on {fmt(r.paidAt)}{r.status === "ESCALATED" ? " · escalated" : ""}</span>
+              </li>
+            ))}
+            {debitOrders.map((r) => (
+              <li key={r.id}>
+                <Link href={`/loans/${r.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{r.loan.reference}</Link>
+                <span className="text-[var(--cf-text-muted)]"> · reversed {fmt(r.decidedAt)} · cancel the debit order by hand, then acknowledge it</span>
+              </li>
+            ))}
+          </ul>
         )}
       </DataPanel>
       <DataPanel title="Reversals awaiting a decision" description="Disbursements whose money never arrived; a second LOAN_ADMIN approves or rejects on the loan page.">

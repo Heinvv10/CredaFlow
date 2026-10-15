@@ -66,6 +66,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       },
       disbursementPayouts: { orderBy: { attempt: "asc" }, select: { id: true, attempt: true, amountCents: true, paidAt: true, returnedAt: true } },
       disbursementReversals: { where: { status: "APPROVED" }, select: { decidedAt: true } },
+      payoutRecoveryCases: { orderBy: { id: "asc" }, select: { id: true, amountCents: true, paidAt: true, recoveredAt: true, payout: { select: { attempt: true } } } },
       charges: { orderBy: [{ day: "asc" }, { type: "asc" }], select: { type: true, day: true, amount: true, sourceId: true } },
       payments: {
         orderBy: { id: "asc" },
@@ -102,6 +103,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       charges: [...charges.values()],
       payments: loan.payments,
       payouts: loan.disbursementPayouts,
+      recoveries: loan.payoutRecoveryCases.map((r) => ({ id: r.id, attempt: r.payout.attempt, amountCents: r.amountCents, paidAt: r.paidAt, recoveredAt: r.recoveredAt })),
     }
   })
 }

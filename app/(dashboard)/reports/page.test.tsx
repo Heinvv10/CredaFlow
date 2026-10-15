@@ -57,10 +57,10 @@ describe("Reports overview", () => {
     expect(html).toContain("COLLECTIBLE BOOK (FEBRUARY) R2k Active, defaulted, pending write-off and restructured loans 50% vs start of month")
   })
 
-  it("leaves settled (WRITTEN_OFF) instalments, such as a reversed loan's, out of the collection-rate denominator", async () => {
+  it("leaves a reversed loan's CANCELLED instalments out of the collection-rate denominator", async () => {
     await ReportsPage()
     const expected = calls.find((c) => c.op === "repaymentSchedule.aggregate")
-    expect((expected?.args.where as { status?: unknown }).status).toEqual({ not: "WRITTEN_OFF" })
+    expect((expected?.args.where as { status?: unknown }).status).toEqual({ not: "CANCELLED" })
   })
 
   it("puts only collectible accounts in the collections stage funnel", async () => {

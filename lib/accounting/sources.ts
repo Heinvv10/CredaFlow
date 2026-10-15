@@ -18,6 +18,8 @@
  * moves it back; FAILED or never sent posts nothing. Without attempts (the
  * channel was off) the disbursement credits BANK, as before. An approved
  * disbursement reversal takes every non-receipt source of the loan to zero.
+ * Money a provider paid out after the reversal (a recovery case) debits
+ * PAYOUT_CLEARING against BANK from the day it left until it is recovered.
  *
  * Credit-life premiums are payable to the insurer as they fall due; on
  * write-off the part not collected is reversed out of the payable (binder
@@ -112,6 +114,18 @@ function ordinarySources(loan: SourceLoan, asOf: Date): DesiredSource[] {
       baseKey: `payout:${p.id}`, loanId: loan.id, reference: loan.reference, vector,
       origin: { type: "PAYOUT_PAID", date: p.paidAt ?? loan.startDate, description: `Payout ${p.attempt} of ${loan.reference} paid` },
       change: { type: "PAYOUT_RETURNED", date: p.returnedAt, description: `Payout ${p.attempt} of ${loan.reference} returned by the bank` },
+    })
+  }
+  for (const r of loan.recoveries) {
+    const vector: Vector = {}
+    if (before(r.paidAt, asOf) && !before(r.recoveredAt, asOf)) {
+      addTo(vector, "PAYOUT_CLEARING", r.amountCents)
+      addTo(vector, "BANK", -r.amountCents)
+    }
+    out.push({
+      baseKey: `recovery:${r.id}`, loanId: loan.id, reference: loan.reference, vector,
+      origin: { type: "PAYOUT_PAID", date: r.paidAt, description: `Payout ${r.attempt} of ${loan.reference} paid out after its disbursement was reversed; to be recovered` },
+      change: { type: "PAYOUT_RECOVERED", date: r.recoveredAt, description: `Payout ${r.attempt} of ${loan.reference} recovered` },
     })
   }
   for (const row of loan.schedule) {

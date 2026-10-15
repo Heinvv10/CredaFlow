@@ -55,8 +55,8 @@ export default async function BoardPackPage() {
     }),
     prisma.loan.aggregate({ where: { tenantId }, _count: true, _sum: { principal: true } }),
     prisma.repaymentSchedule.aggregate({
-      // Settled rows (a reversed loan's, lib/payouts/reversal-effects.ts) are not due.
-      where: { tenantId, dueDate: { gte: monthStart, lt: monthEndExclusive }, status: { not: "WRITTEN_OFF" } },
+      // A reversed loan's cancelled rows (lib/payouts/reversal-effects.ts) are not due.
+      where: { tenantId, dueDate: { gte: monthStart, lt: monthEndExclusive }, status: { not: "CANCELLED" } },
       _sum: { totalDue: true },
     }),
     prisma.payment.aggregate({

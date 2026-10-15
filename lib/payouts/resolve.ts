@@ -28,7 +28,7 @@ export type ResolveResult =
 const CONFIRMABLE: readonly PayoutStatus[] = ["NEEDS_REVIEW", "SUBMITTED", "PROCESSING"]
 
 /** A bank value date: yyyy-mm-dd or ISO, not in the future. Undefined when absent, null when invalid. */
-function valueDate(value: unknown, now = new Date()): Date | undefined | null {
+export function valueDate(value: unknown, now = new Date()): Date | undefined | null {
   if (value === undefined || value === null || value === "") return undefined
   if (typeof value !== "string") return null
   const at = new Date(value.length === 10 ? `${value}T12:00:00+02:00` : value)
@@ -51,7 +51,7 @@ export function parseResolveAction(body: unknown): ResolveAction | null {
       if (note.length < 5) return null
       return { action: "confirm_failed", note: note.slice(0, 1000) }
     case "resolve_conflict":
-      if (note.length < 5 || (b.outcome !== "paid" && b.outcome !== "not_paid")) return null
+      if (note.length < 5 || (b.outcome !== "paid" && b.outcome !== "not_paid" && b.outcome !== "recovery")) return null
       return { action: "resolve_conflict", outcome: b.outcome, note: note.slice(0, 1000), paidAt: paidAt ?? null }
     default:
       return null
