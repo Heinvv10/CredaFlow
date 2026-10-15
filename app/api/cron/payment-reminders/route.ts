@@ -123,6 +123,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       tenantId,
       dueDate: { gte: startOfDay(now), lte: windowEnd },
       status: { in: ["PENDING", "PARTIAL"] },
+      // A reversed disbursement (lib/payouts/reversal.ts) leaves its rows
+      // PENDING on a CANCELLED loan that owes nothing.
+      loan: { status: { not: "CANCELLED" } },
     },
     include: {
       loan: {

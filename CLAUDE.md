@@ -93,8 +93,8 @@ SELECT conrelid::regclass, conname FROM pg_constraint WHERE contype = 'c';
 
 and `grep -rn "CREATE TRIGGER\|ADD CONSTRAINT" prisma/migrations/`.
 
-- **Prisma is the source of truth for the schema** (`prisma/schema.prisma`),
-  but not for hand-written objects. `prisma/migrations/20261009000000_baseline`
+- **Prisma is the source of truth for the schema** (`prisma/schema/`, one
+  file per domain), but not for hand-written objects. `prisma/migrations/20261009000000_baseline`
   is the single starting migration; its hand-written section holds every
   trigger, CHECK and function. `prisma migrate dev` never diffs those: a later
   migration that changes one writes the SQL by hand and updates the static
@@ -229,7 +229,10 @@ app/
 
 ## Key Files
 
-- `prisma/schema.prisma` — DB models, enums, relations
+- `prisma/schema/` — DB models, enums, relations, one file per domain
+- `lib/registry/` — audit actions, tenant-scoped models, cron jobs, simulated
+  integrations and permissions, one file per domain; add a file, never a line
+  to a shared list (`docs/ARCHITECTURE.md`, "Registries")
 - `lib/auth.ts` + `lib/auth-guards.ts` — NextAuth config + role guards
 - `lib/audit.ts` — audit-log writer (use it for ALL state changes)
 - `lib/permissions.ts` — RBAC helpers
@@ -243,26 +246,15 @@ app/
 
 ## Path-Scoped Rules
 
-Domain-specific rules live next to the code:
+Domain-specific rules live next to the code, in a `.claude.md` beside the
+module (`find lib app prisma -name .claude.md` lists them). Before editing
+inside a module, read its `.claude.md`. `npm run gen:registries` writes the
+index with each file's one-line summary to `docs/module-rules.md` (generated,
+not committed, so a PR adding a module never edits this file).
 
-- `lib/pdf/.claude.md` — NCA document hygiene
-- `lib/collections/.claude.md` — escalation, arrangements, Section 129
-- `lib/messaging/.claude.md` — the send pipeline; SMS is OFF by policy
-- `lib/integrations/.claude.md` — third-party API contracts
-- `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
-- `lib/bureau/.claude.md` — bureau enquiry providers, fallback, freshness
-- `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
-- `lib/operator/.claude.md` — operator console; borrower rows only through a grant
-- `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
-- `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
-- `lib/lender-api/.claude.md` — the `/api/v1` lender API and outbound webhooks
-- `lib/signing-otp/.claude.md` — the signing one-time code; never SMS, never stored
-- `lib/security/.claude.md` — staff access policy; the IP allowlist needs a closed app port
-- `lib/collections-engine/.claude.md` — DebiCheck engine; scheme rules in one place
-- `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
-
-When you discover a rule that only applies inside one of these modules, add it
-there — don't pile it into root.
+When you discover a rule that only applies inside one module, add it to that
+module's `.claude.md` — don't pile it into root. A new `.claude.md` needs a
+`<!-- summary: … -->` line under its title, or the generator fails.
 
 ## Works in Claude Code AND Codex
 

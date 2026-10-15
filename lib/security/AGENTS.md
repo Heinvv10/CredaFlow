@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: security
+<!-- summary: staff access policy; the IP allowlist needs a closed app port -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

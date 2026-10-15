@@ -116,6 +116,17 @@ suite("slice 4a the costs the loan's ledger could not carry", () => {
     })
   })
 
+  it("an NCA final notice is issued only once it is recorded", async () => {
+    const MSG = "The costs the loan's ledger could not carry are recorded before the final notice"
+    await refuses(raiseOff(G, MSG), new RegExp(MSG), (tx) => tx.recovery.update({
+      where: { id: R.ncaProc.id },
+      data: {
+        status: "FINAL_NOTICE_ISSUED", finalNoticeIssuedOn: dbDate(today()), finalNoticePath: "/nonexistent/fn.pdf", finalNoticeSha256: "c".repeat(64),
+        chargesFrozenUntil: dbDate(addSouthAfricanBusinessDays(today(), 10)),
+      },
+    }))
+  })
+
   describe("a shortfall opens for what is still owed", () => {
     const message = /A shortfall is open for a positive shortfall with its freeze end set/
     it("only once it is recorded", async () => {

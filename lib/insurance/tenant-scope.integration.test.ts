@@ -6,8 +6,8 @@
  * (insurance-renewal, cross-sell) touch each tenant's rows only as that
  * tenant's.
  *
- * Nothing is stubbed: the Prisma tenant-scope extension, the cron secret
- * check and the default-tenant resolver are the real ones.
+ * Nothing is stubbed: the Prisma tenant-scope extension and the cron secret
+ * check are the real ones.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/insurance/tenant-scope.integration.test.ts
@@ -122,20 +122,16 @@ const inTenant = <T>(l: Lender, query: () => PromiseLike<T>) => runWithTenant(l.
 suite.sequential("insurance and cross-sell models are tenant-scoped (real Postgres)", () => {
   let a: Lender
   let b: Lender
-  const savedEnv = { cron: process.env.CRON_SECRET, slug: process.env.NEXT_PUBLIC_TENANT_SLUG }
+  const savedEnv = { cron: process.env.CRON_SECRET }
 
   beforeAll(async () => {
     a = await lender("a")
     b = await lender("b")
     process.env.CRON_SECRET = CRON_SECRET
-    // The cross-sell cron resolves the deployment's default tenant; A plays it.
-    process.env.NEXT_PUBLIC_TENANT_SLUG = a.slug
   })
   afterAll(async () => {
     if (savedEnv.cron === undefined) delete process.env.CRON_SECRET
     else process.env.CRON_SECRET = savedEnv.cron
-    if (savedEnv.slug === undefined) delete process.env.NEXT_PUBLIC_TENANT_SLUG
-    else process.env.NEXT_PUBLIC_TENANT_SLUG = savedEnv.slug
 
     // Everything this suite created, and everything the crons wrote for it,
     // belongs to its two tenants. Children before parents. `db` has no
@@ -232,23 +228,33 @@ suite.sequential("insurance and cross-sell models are tenant-scoped (real Postgr
     }
   })
 
-  it("cross-sell writes only the default tenant's opportunities, named with that tenant", async () => {
+  it("cross-sell sweeps every tenant, naming each opportunity with its own tenant", async () => {
     await creditLifeCandidate(a)
     await creditLifeCandidate(b)
 
     const response = await crossSell(cronRequest("/api/cron/cross-sell"))
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ evaluated: 1, created: 1 })
+    // Other suites' rows share this database, so the totals are lower bounds
+    // and the overall status (503 if any tenant failed) is not this suite's concern.
+    const body = await response.json() as { evaluated: number; created: number; perTenant: Array<{ tenantId: string; error?: string }> }
+    expect(body.evaluated).toBeGreaterThanOrEqual(2)
+    expect(body.created).toBeGreaterThanOrEqual(2)
+    const own = body.perTenant.filter((t) => t.tenantId === a.tenantId || t.tenantId === b.tenantId)
+    expect(own.map((t) => t.tenantId).sort()).toEqual([a.tenantId, b.tenantId].sort())
+    expect(own.filter((t) => t.error)).toEqual([])
 
-    expect(await db.crossSellOpportunity.findMany({
-      where: { clientId: a.clientId, type: "CREDIT_LIFE" }, select: { tenantId: true, status: true },
-    })).toEqual([{ tenantId: a.tenantId, status: "PENDING" }])
-    expect(await db.crossSellOpportunity.count({ where: { clientId: b.clientId, type: "CREDIT_LIFE" } })).toBe(0)
-    expect(await db.crossSellOpportunity.count({ where: { tenantId: b.tenantId } })).toBe(1)
+    for (const l of [a, b]) {
+      expect(await db.crossSellOpportunity.findMany({
+        where: { clientId: l.clientId, type: "CREDIT_LIFE" }, select: { tenantId: true, status: true },
+      })).toEqual([{ tenantId: l.tenantId, status: "PENDING" }])
+      // The seeded FUNERAL_COVER opportunity plus the new CREDIT_LIFE one.
+      expect(await db.crossSellOpportunity.count({ where: { tenantId: l.tenantId } })).toBe(2)
+    }
 
-    // A second run finds the open opportunity through the tenant-scoped
+    // A second run finds each open opportunity through the tenant-scoped
     // duplicate check and creates nothing.
-    const again = await crossSell(cronRequest("/api/cron/cross-sell"))
-    expect(await again.json()).toEqual({ evaluated: 1, created: 0 })
-  })
+    await crossSell(cronRequest("/api/cron/cross-sell"))
+    for (const l of [a, b]) {
+      expect(await db.crossSellOpportunity.count({ where: { tenantId: l.tenantId, type: "CREDIT_LIFE" } })).toBe(1)
+    }
+  }, 30_000)
 })

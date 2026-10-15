@@ -21,6 +21,9 @@ vi.mock("react", async () => {
     ]),
     useRef: vi.fn((initial: unknown) => ({ current: initial })),
     useCallback: vi.fn((callback: unknown) => callback),
+    // useT/useLocale (lib/i18n/client) read the i18n context: none here, so English.
+    useContext: vi.fn(() => null),
+    useMemo: vi.fn((factory: () => unknown) => factory()),
     useEffect: vi.fn((effect: () => void | (() => void)) => {
       const cleanup = effect()
       if (cleanup) hooks.cleanups.push(cleanup)

@@ -51,6 +51,8 @@ function config(overrides: Partial<TenantConfigData>): TenantConfigData {
     ncrNumber: null,
     fscaNumber: null,
     companyRegNumber: null,
+    enabledLanguages: ["en"],
+    languageReviews: {},
     ...overrides,
   }
 }

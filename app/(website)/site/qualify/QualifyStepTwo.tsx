@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect } from "react"
+import { useT } from "@/lib/i18n/client"
+import { interestText, localizeProduct, termUnitText } from "@/lib/i18n/products"
 import {
-  formatInterestLabel,
   getPublicLoanProduct,
   microMaxRands,
   productForAmount,
@@ -29,13 +30,13 @@ interface StepTwoProps {
 }
 
 const PURPOSE_OPTIONS = [
-  { value: "emergency", label: "Emergency expenses" },
-  { value: "education", label: "Education" },
-  { value: "medical", label: "Medical" },
-  { value: "household", label: "Household" },
-  { value: "business", label: "Business" },
-  { value: "other", label: "Other" },
-]
+  { value: "emergency", label: "purposeEmergency" },
+  { value: "education", label: "purposeEducation" },
+  { value: "medical", label: "purposeMedical" },
+  { value: "household", label: "purposeHousehold" },
+  { value: "business", label: "purposeBusiness" },
+  { value: "other", label: "purposeOther" },
+] as const
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -43,17 +44,20 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export default function QualifyStepTwo({ data, onChange, onNext, onBack, products }: StepTwoProps) {
+  const t = useT("websiteQualify")
+  const tp = useT("websiteProducts")
   // Amount bounds (rands) + micro/personal classification, both derived from the
   // LIVE products (fail-open to static). isMicro uses the SHARED productForAmount
   // tiering rule, so the wizard and the apply form can never disagree (Phase 2).
   const amountBounds = qualifyAmountBoundsRands(products)
   const safeAmount = clamp(Math.round(data.amount), amountBounds.min, amountBounds.max)
   const isMicro = productForAmount(safeAmount, products) === "MICRO"
-  const { min: termMin, max: termMax, unit: termLabel } = qualifyTermWindow(isMicro)
+  const { min: termMin, max: termMax, unit: termUnit } = qualifyTermWindow(isMicro)
+  const termLabel = termUnitText(tp, { termUnit })
 
   // The two wizard tiers, live-overlaid (fail-open to static), for the indicator.
-  const microProduct = products.find((p) => p.code === "short-term") ?? getPublicLoanProduct("short-term")
-  const personalProduct = products.find((p) => p.code === "personal") ?? getPublicLoanProduct("personal")
+  const microProduct = localizeProduct(products.find((p) => p.code === "short-term") ?? getPublicLoanProduct("short-term"), tp)
+  const personalProduct = localizeProduct(products.find((p) => p.code === "personal") ?? getPublicLoanProduct("personal"), tp)
   const boundaryRands = microMaxRands(products)
 
   // `data.term` is stored CANONICALLY in DAYS, so it is never unit-ambiguous — the
@@ -90,7 +94,7 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
     <div className="space-y-4">
       <div>
         <div className="flex justify-between items-center mb-1.5">
-          <label className="text-sm font-semibold text-white/78">Loan Amount</label>
+          <label className="text-sm font-semibold text-white/78">{t("loanAmount")}</label>
           <span className="text-sm font-bold text-[#a5b4fc]">
             R {safeAmount.toLocaleString("en-ZA")}
           </span>
@@ -131,13 +135,13 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
             {
               product: microProduct,
               active: isMicro,
-              range: `Up to R ${boundaryRands.toLocaleString("en-ZA")}`,
+              range: t("upTo", { amount: boundaryRands.toLocaleString("en-ZA") }),
               termWindow: qualifyTermWindow(true),
             },
             {
               product: personalProduct,
               active: !isMicro,
-              range: `Over R ${boundaryRands.toLocaleString("en-ZA")}`,
+              range: t("over", { amount: boundaryRands.toLocaleString("en-ZA") }),
               termWindow: qualifyTermWindow(false),
             },
           ].map(({ product, active, range, termWindow }) => (
@@ -149,10 +153,10 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
             >
               <p className={`text-xs font-bold ${active ? "text-[#a5b4fc]" : "text-white/45"}`}>
                 {product.label}
-                {active && <span className="sr-only"> — selected for this amount</span>}
+                {active && <span className="sr-only">{t("selectedForAmount")}</span>}
               </p>
               <p className={`mt-0.5 text-[11px] ${active ? "text-white/70" : "text-white/38"}`}>
-                {range} · {formatInterestLabel(product)} · {termWindow.min}–{termWindow.max} {termWindow.unit}
+                {range} · {interestText(tp, product)} · {termWindow.min}–{termWindow.max} {termUnitText(tp, { termUnit: termWindow.unit })}
               </p>
             </div>
           ))}
@@ -160,7 +164,7 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-semibold text-white/78">Purpose</label>
+        <label className="mb-2 block text-sm font-semibold text-white/78">{t("purpose")}</label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {PURPOSE_OPTIONS.map((opt) => (
             <button
@@ -173,7 +177,7 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
                   : "border-white/12 bg-white/[0.04] text-white/62 hover:border-white/22 hover:text-white"
               }`}
             >
-              {opt.label}
+              {t(opt.label)}
             </button>
           ))}
         </div>
@@ -182,7 +186,7 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
       <div>
         <div className="flex justify-between items-center mb-1.5">
           <label className="text-sm font-semibold text-white/78">
-            Term ({termLabel})
+            {t("termIn", { unit: termLabel })}
           </label>
           <span className="text-sm font-bold text-[#a5b4fc]">
             {displayTerm} {termLabel}
@@ -219,14 +223,14 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
           onClick={onBack}
           className="flex-1 border border-white/18 py-2.5 text-sm font-bold text-white/72 transition-colors hover:bg-white/[0.05] hover:text-white"
         >
-          Back
+          {t("back")}
         </button>
         <button
           onClick={onNext}
           disabled={!canProceed}
           className="flex-1 bg-[#a5b4fc] py-2.5 text-sm font-bold text-[#11141b] transition-colors hover:bg-[#c7d2fe] disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/30"
         >
-          Check Qualification
+          {t("checkQualification")}
         </button>
       </div>
     </div>

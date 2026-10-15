@@ -11,6 +11,9 @@ import type { Session } from "next-auth"
 import { normaliseTenantDomain, tenantDomainRefusal } from "@/lib/config/tenant-domain"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
 import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
+import { applyTenantLanguages } from "@/lib/i18n/language-settings"
+
+class LanguagesInvalid extends Error {}
 
 class TenantColoursInvalid extends Error {
   constructor(readonly fields: Partial<Record<TenantColourField, string>>) {
@@ -111,6 +114,12 @@ export async function PATCH(
   // old set and commit a combination that fails.
   const colourKeys = (Object.keys(TENANT_COLOUR_VARS) as TenantColourField[]).filter((key) => body[key] !== undefined)
 
+  // Borrower-facing languages (lib/i18n). Turning af/zu/xh on shows borrowers
+  // a machine-drafted catalogue, so each needs a native-speaker review
+  // acknowledgement (languageReviewAcknowledgements), validated and audited by
+  // applyTenantLanguages in this route's transaction. English is always on.
+  const languagesRequested = body.enabledLanguages !== undefined || body.languageReviewAcknowledgements !== undefined
+
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
   if (domain !== undefined) {
@@ -198,7 +207,7 @@ export async function PATCH(
       },
     }),
   }
-  if (bureauKeys.length === 0 && colourKeys.length === 0 && credentialKeys.length === 0) {
+  if (bureauKeys.length === 0 && colourKeys.length === 0 && credentialKeys.length === 0 && !languagesRequested) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
     return NextResponse.json(redactTenantCredentials(updated))
   }
@@ -206,13 +215,21 @@ export async function PATCH(
   // The change and its audit rows commit together, or neither does.
   const day = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : value)
   const updated = await prisma.$transaction(async (tx) => {
-    if (colourKeys.length > 0) {
+    if (colourKeys.length > 0 || languagesRequested) {
       // Locks the Tenant row, not TenantConfig: the config row may not exist
       // yet. The read below is a new statement, so under READ COMMITTED it
       // sees whatever the previous lock holder committed. NO KEY UPDATE
       // serialises colour changes without blocking the FOR KEY SHARE lock that
       // every insert referencing this tenant takes.
       await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR NO KEY UPDATE`
+    }
+    if (languagesRequested) {
+      const languages = await applyTenantLanguages(tx, {
+        tenantId,
+        actor: { id: session?.user?.id ?? null, email: session?.user?.email ?? null },
+        input: { enabledLanguages: body.enabledLanguages, acknowledgements: body.languageReviewAcknowledgements },
+      })
+      if (!languages.ok) throw new LanguagesInvalid(languages.error)
     }
     const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
     if (colourKeys.length > 0) {
@@ -259,16 +276,20 @@ export async function PATCH(
     return result
   }).catch((e: unknown) => {
     // Thrown before anything is written, so the transaction rolls back clean.
-    if (e instanceof TenantColoursInvalid) return e
+    if (e instanceof TenantColoursInvalid || e instanceof LanguagesInvalid) return e
     throw e
   })
+  if (updated instanceof LanguagesInvalid) {
+    return NextResponse.json({ error: updated.message }, { status: 400 })
+  }
   if (updated instanceof TenantColoursInvalid) {
     return NextResponse.json({ error: "Tenant colours fail validation", fields: updated.fields }, { status: 422 })
   }
 
-  if (colourKeys.length > 0) {
-    // The colours are committed; a failed invalidation only leaves the old
-    // palette cached for getTenantConfig's 300 s, so it must not fail the write.
+  if (colourKeys.length > 0 || languagesRequested) {
+    // The colours (or languages) are committed; a failed invalidation only
+    // leaves the old values cached for getTenantConfig's 300 s, so it must not
+    // fail the write.
     // expire: 0, not "max": the next page load must draw the new palette,
     // not serve the stale one while revalidating.
     try {

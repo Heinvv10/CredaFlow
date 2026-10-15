@@ -3,6 +3,9 @@
 import Link from "next/link"
 import { AlertTriangle } from "lucide-react"
 import { formatZAR, maskIdNumber } from "@/lib/utils"
+import { useT } from "@/lib/i18n/client"
+import { richText } from "@/lib/i18n/rich"
+import type { MessageKey } from "@/lib/i18n/translate"
 
 export interface ClientInfo {
   firstName: string
@@ -15,23 +18,24 @@ export interface ClientInfo {
   existingDebt: number    // cents
 }
 
-export const PURPOSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "DEBT_CONSOLIDATION", label: "Debt consolidation" },
-  { value: "MEDICAL",            label: "Medical" },
-  { value: "EDUCATION",          label: "Education" },
-  { value: "HOME_IMPROVEMENT",   label: "Home improvement" },
-  { value: "VEHICLE",            label: "Vehicle" },
-  { value: "BUSINESS",           label: "Business" },
-  { value: "HOUSEHOLD",          label: "Household" },
-  { value: "FUNERAL",            label: "Funeral" },
-  { value: "OTHER",              label: "Other" },
+export const PURPOSE_CATEGORIES: ReadonlyArray<{ value: string; label: MessageKey<"portalApply"> }> = [
+  { value: "DEBT_CONSOLIDATION", label: "purposeDebtConsolidation" },
+  { value: "MEDICAL",            label: "purposeMedical" },
+  { value: "EDUCATION",          label: "purposeEducation" },
+  { value: "HOME_IMPROVEMENT",   label: "purposeHomeImprovement" },
+  { value: "VEHICLE",            label: "purposeVehicle" },
+  { value: "BUSINESS",           label: "purposeBusiness" },
+  { value: "HOUSEHOLD",          label: "purposeHousehold" },
+  { value: "FUNERAL",            label: "purposeFuneral" },
+  { value: "OTHER",              label: "purposeOther" },
 ]
 
 export function ProfileGapWarning({ client }: { client: ClientInfo }) {
+  const t = useT("portalApply")
   const missing: string[] = []
-  if (!client.idNumber) missing.push("SA ID number")
-  if (!client.phone) missing.push("phone number")
-  if (client.monthlyIncome <= 0) missing.push("monthly income")
+  if (!client.idNumber) missing.push(t("missingId"))
+  if (!client.phone) missing.push(t("missingPhone"))
+  if (client.monthlyIncome <= 0) missing.push(t("missingIncome"))
   if (missing.length === 0) return null
 
   return (
@@ -41,10 +45,9 @@ export function ProfileGapWarning({ client }: { client: ClientInfo }) {
     >
       <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-400 shrink-0" />
       <div>
-        Your profile is missing: <strong>{missing.join(", ")}</strong>. We need this
-        before we can process an application.{" "}
+        {richText(t("profileMissing", { fields: missing.join(", ") }), { b: (chunk) => <strong>{chunk}</strong> })}{" "}
         <Link href="/portal/profile" className="underline" style={{ color: "#4338CA" }}>
-          Complete your profile →
+          {t("completeProfileLink")}
         </Link>
       </div>
     </div>
@@ -52,25 +55,26 @@ export function ProfileGapWarning({ client }: { client: ClientInfo }) {
 }
 
 export function ClientSummary({ client }: { client: ClientInfo }) {
+  const t = useT("portalApply")
   const rows: ReadonlyArray<{ label: string; value: string }> = [
-    { label: "Name",             value: `${client.firstName} ${client.lastName}` },
-    { label: "SA ID Number",     value: client.idNumber ? maskIdNumber(client.idNumber) : "—" },
-    { label: "Phone",            value: client.phone || "—" },
-    { label: "Email",            value: client.email },
-    { label: "Monthly Income",   value: formatZAR(client.monthlyIncome) },
-    { label: "Monthly Expenses", value: formatZAR(client.monthlyExpenses) },
+    { label: t("name"),            value: `${client.firstName} ${client.lastName}` },
+    { label: t("idNumber"),        value: client.idNumber ? maskIdNumber(client.idNumber) : "—" },
+    { label: t("phone"),           value: client.phone || "—" },
+    { label: t("email"),           value: client.email },
+    { label: t("monthlyIncome"),   value: formatZAR(client.monthlyIncome) },
+    { label: t("monthlyExpenses"), value: formatZAR(client.monthlyExpenses) },
   ]
 
   return (
     <div className="mb-6 rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-5 text-[var(--cf-text)]">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--cf-text-secondary)]">Applying as</h2>
+        <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--cf-text-secondary)]">{t("applyingAs")}</h2>
         <Link
           href="/portal/profile"
           className="text-xs underline"
           style={{ color: "#4338CA" }}
         >
-          Update profile
+          {t("updateProfile")}
         </Link>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">

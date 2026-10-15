@@ -26,7 +26,9 @@ import {
   WEBSITE_SUBMISSION_ATTEMPT_STORAGE_KEY,
   type WebsiteSubmissionAttempt,
 } from "@/lib/applications/website-submission-attempt"
-import { APPLY_FAQS } from "./faqs"
+import { useT } from "@/lib/i18n/client"
+import { richText } from "@/lib/i18n/rich"
+import { applyFaqs } from "./faqs"
 import { buildApplyMaterialPayload } from "./payload"
 
 type Step1 = {
@@ -73,22 +75,22 @@ const productLimits: Record<string, [number, number]> = {
 // an explicit `product`, so this amount-only routing is a fallback path.
 const STATIC_APPLY_PRODUCTS = applyLivePricing({})
 
-const stepLabels = ["Personal Info", "Employment & Income", "Loan Details"]
+const stepLabels = ["stepPersonal", "stepEmployment", "stepLoan"] as const
 
 const employmentOptions = [
-  { value: "EMPLOYED", label: "Employed", body: "Salaried income" },
-  { value: "SELF_EMPLOYED", label: "Self-employed", body: "Business or contract income" },
-  { value: "PENSIONER", label: "Pensioner", body: "Pension or grant income" },
-  { value: "UNEMPLOYED", label: "Unemployed", body: "No current income" },
-]
+  { value: "EMPLOYED", label: "employed", body: "employedBody" },
+  { value: "SELF_EMPLOYED", label: "selfEmployed", body: "selfEmployedBody" },
+  { value: "PENSIONER", label: "pensioner", body: "pensionerBody" },
+  { value: "UNEMPLOYED", label: "unemployed", body: "unemployedBody" },
+] as const
 
 // `body` (the "R500 - R10,000" range) is rendered from the live bounds, not
 // hardcoded, so it tracks the admin's LoanProduct ranges.
 const productOptions = [
-  { value: "MICRO", label: "Short-term loan", icon: ShieldCheck },
-  { value: "PERSONAL", label: "Personal loan", icon: UserCheck },
-  { value: "PO_FUNDING", label: "PO funding", icon: Briefcase },
-]
+  { value: "MICRO", label: "productShortTerm", icon: ShieldCheck },
+  { value: "PERSONAL", label: "productPersonal", icon: UserCheck },
+  { value: "PO_FUNDING", label: "productPo", icon: Briefcase },
+] as const
 
 function formatRandRange(min: number, max: number): string {
   return `R${min.toLocaleString()} - R${max.toLocaleString()}`
@@ -286,6 +288,7 @@ function readInitialApplyState() {
 
 export default function ApplyPage() {
   const identity = useWebsiteIdentity()
+  const t = useT("websiteApply")
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const submitInFlightRef = useRef(false)
@@ -369,39 +372,39 @@ export default function ApplyPage() {
 
   function validateStep1(): boolean {
     const e: Record<string, string> = {}
-    if (!step1.firstName.trim()) e.firstName = "First name is required"
-    if (!step1.lastName.trim()) e.lastName = "Last name is required"
-    if (!validateSAId(step1.idNumber)) e.idNumber = "Please enter a valid 13-digit South African ID number"
-    if (!/^\+?[\d\s-]{10,}$/.test(step1.phone)) e.phone = "Please enter a valid phone number"
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(step1.email)) e.email = "Please enter a valid email address"
+    if (!step1.firstName.trim()) e.firstName = t("errFirstName")
+    if (!step1.lastName.trim()) e.lastName = t("errLastName")
+    if (!validateSAId(step1.idNumber)) e.idNumber = t("errIdNumber")
+    if (!/^\+?[\d\s-]{10,}$/.test(step1.phone)) e.phone = t("errPhone")
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(step1.email)) e.email = t("errEmail")
     setErrors(e)
     return Object.keys(e).length === 0
   }
 
   function validateStep2(): boolean {
     const e: Record<string, string> = {}
-    if (!step2.employmentStatus) e.employmentStatus = "Employment status is required"
-    if (!step2.monthlyIncome || Number(step2.monthlyIncome) <= 0) e.monthlyIncome = "Please enter your monthly income"
-    if (!step2.monthlyExpenses || Number(step2.monthlyExpenses) < 0) e.monthlyExpenses = "Please enter monthly expenses"
+    if (!step2.employmentStatus) e.employmentStatus = t("errEmployment")
+    if (!step2.monthlyIncome || Number(step2.monthlyIncome) <= 0) e.monthlyIncome = t("errIncome")
+    if (!step2.monthlyExpenses || Number(step2.monthlyExpenses) < 0) e.monthlyExpenses = t("errExpenses")
     setErrors(e)
     return Object.keys(e).length === 0
   }
 
   function validateStep3(): boolean {
     const e: Record<string, string> = {}
-    if (!step3.productType) e.productType = "Please select a loan product"
-    if (!step3.amount || Number(step3.amount) <= 0) e.amount = "Please enter a loan amount"
+    if (!step3.productType) e.productType = t("errProduct")
+    if (!step3.amount || Number(step3.amount) <= 0) e.amount = t("errAmount")
     if (step3.productType && step3.amount) {
       const [min, max] = liveProductLimits[step3.productType] ?? [0, 0]
       const amount = Number(step3.amount)
       if (amount < min || amount > max) {
-        e.amount = `Amount must be between R${min.toLocaleString()} and R${max.toLocaleString()}`
+        e.amount = t("errAmountRange", { min: min.toLocaleString(), max: max.toLocaleString() })
       }
     }
     const termError = termPlan(step3.productType, step3.termDays).error
     if (step3.productType && termError) e.termDays = termError
-    if (!step3.purpose.trim()) e.purpose = "Please describe the purpose of the loan"
-    if (!consentGiven) e.consent = "Please confirm your consent to continue"
+    if (!step3.purpose.trim()) e.purpose = t("errPurpose")
+    if (!consentGiven) e.consent = t("errConsent")
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -419,7 +422,7 @@ export default function ApplyPage() {
     if (submitInFlightRef.current) return
     if (!validateStep3()) return
     if (!turnstileToken) {
-      setErrors({ submit: "Please complete the verification challenge before submitting." })
+      setErrors({ submit: t("errTurnstile") })
       return
     }
     submitInFlightRef.current = true
@@ -517,7 +520,7 @@ export default function ApplyPage() {
           setServerTermRange(guidedRange)
           setErrors({ termDays: data.error })
         } else {
-          setErrors({ submit: data.error ?? "Something went wrong. Please try again." })
+          setErrors({ submit: data.error ?? t("errGeneric") })
         }
       }
     } catch {
@@ -526,7 +529,7 @@ export default function ApplyPage() {
       // Turnstile token before replaying it.
       setTurnstileToken(null)
       setTurnstileResetKey((key) => key + 1)
-      setErrors({ submit: "Network error. Please check your connection and try again." })
+      setErrors({ submit: t("errNetwork") })
     } finally {
       submitInFlightRef.current = false
       setLoading(false)
@@ -564,37 +567,35 @@ export default function ApplyPage() {
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center border border-[#a5b4fc]/45 bg-[#a5b4fc]/12 text-[#a5b4fc]">
             <CheckCircle size={40} />
           </div>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">Application received</p>
-          <h2 className="mb-3 text-3xl font-semibold text-white">Thank you, {step1.firstName || "there"}.</h2>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{t("receivedEyebrow")}</p>
+          <h2 className="mb-3 text-3xl font-semibold text-white">{step1.firstName ? t("thankYou", { name: step1.firstName }) : t("thankYouNoName")}</h2>
           <p className="mx-auto mb-5 max-w-md text-sm leading-relaxed text-white/62">
-            We have received your application and will contact you within 2 hours.
+            {t("receivedBody")}
           </p>
           <div className="mb-6 border border-white/10 bg-black/18 p-5">
-            <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-white/38">Reference number</p>
+            <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-white/38">{t("referenceNumber")}</p>
             <p className="text-2xl font-bold text-[#a5b4fc]">{reference}</p>
           </div>
           {applicationId && (
             <p className="text-sm text-white/50">
-              A confirmation will be sent to <strong>{step1.email}</strong>
+              {richText(t("confirmationTo", { email: step1.email }), { b: (chunk) => <strong>{chunk}</strong> })}
             </p>
           )}
 
           {hasPortalAccount ? (
             <div className="mt-7 border border-[#a5b4fc]/25 bg-[#a5b4fc]/8 p-5 text-left">
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#a5b4fc]">
-                {applicationId ? "Track your application" : "Your client portal"}
+                {applicationId ? t("trackEyebrow") : t("portalEyebrow")}
               </p>
               <h3 className="mt-2 text-lg font-semibold text-white">
                 {applicationId
-                  ? "Use the client portal for documents and status updates"
+                  ? t("trackHeading")
                   : canLogin
-                    ? "Log in to manage your account and upload documents"
-                    : "Create your portal account to upload documents"}
+                    ? t("loginHeading")
+                    : t("registerHeading")}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-white/58">
-                {canLogin
-                  ? "You already have a portal account. Log in to continue and upload supporting documents."
-                  : "Create your portal password with the same email and SA ID used in this application, then upload your ID, bank statements and proof of income."}
+                {canLogin ? t("loginBody") : t("registerBody")}
               </p>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {canRegister && portalRegisterHref && (
@@ -602,7 +603,7 @@ export default function ApplyPage() {
                     href={portalRegisterHref}
                     className="inline-flex items-center justify-center bg-[#a5b4fc] px-4 py-3 text-sm font-bold text-[#11141b] transition hover:bg-[#c7d2fe]"
                   >
-                    Create portal account
+                    {t("createPortal")}
                   </Link>
                 )}
                 {portalLoginHref && (
@@ -610,17 +611,17 @@ export default function ApplyPage() {
                     href={portalLoginHref}
                     className="inline-flex items-center justify-center border border-white/15 px-4 py-3 text-sm font-bold text-white transition hover:border-[#a5b4fc]/45 hover:text-[#a5b4fc]"
                   >
-                    Log in to portal
+                    {t("loginPortal")}
                   </Link>
                 )}
               </div>
             </div>
           ) : (
             <div className="mt-7 border border-white/12 bg-black/18 p-5 text-left">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#a5b4fc]">What happens next</p>
-              <h3 className="mt-2 text-lg font-semibold text-white">Our team will contact you</h3>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#a5b4fc]">{t("nextEyebrow")}</p>
+              <h3 className="mt-2 text-lg font-semibold text-white">{t("nextHeading")}</h3>
               <p className="mt-2 text-sm leading-relaxed text-white/58">
-                Keep your reference number handy — an advisor will be in touch within 2 hours to continue your application.
+                {t("nextBody")}
               </p>
             </div>
           )}
@@ -635,20 +636,20 @@ export default function ApplyPage() {
         <div className="absolute inset-0 bg-[#11141b]/50" />
         <div className="absolute inset-0 bg-linear-to-b from-[#11141b]/42 via-[#11141b]/28 to-[#11141b]" />
         <div className="relative mx-auto max-w-3xl">
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-[#a5b4fc]">Secure application</p>
-          <h1 className="text-balance text-4xl font-semibold text-white md:text-5xl">Apply Online</h1>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-[#a5b4fc]">{t("eyebrow")}</p>
+          <h1 className="text-balance text-4xl font-semibold text-white md:text-5xl">{t("title")}</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/62">
-            Continue from your eligibility check or complete the guided application. Your progress is saved in this browser.
+            {t("intro")}
           </p>
         </div>
       </section>
 
       <section className="mx-auto grid max-w-6xl gap-6 px-4 pb-14 lg:grid-cols-[0.8fr_1.2fr]">
         <aside className="border border-white/12 bg-white/[0.035] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-          <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">Application path</p>
-          <h2 className="mt-3 text-2xl font-semibold text-white">Three steps to submit</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{t("pathEyebrow")}</p>
+          <h2 className="mt-3 text-2xl font-semibold text-white">{t("pathHeading")}</h2>
           <p className="mt-3 text-sm leading-relaxed text-white/58">
-            {identity.tradingName} uses your identity, income and loan details to start the affordability and credit assessment workflow.
+            {t("pathBody", { brand: identity.tradingName })}
           </p>
           <div className="mt-6 space-y-3">
             {stepLabels.map((label, i) => (
@@ -657,7 +658,7 @@ export default function ApplyPage() {
                   <span className={`flex h-8 w-8 items-center justify-center text-xs font-bold ${i + 1 <= step ? "bg-[#a5b4fc] text-[#11141b]" : "bg-white/[0.06] text-white/42"}`}>
                     {i + 1 < step ? <CheckCircle size={16} /> : i + 1}
                   </span>
-                  <span className={i + 1 === step ? "font-semibold text-white" : "font-semibold text-white/54"}>{label}</span>
+                  <span className={i + 1 === step ? "font-semibold text-white" : "font-semibold text-white/54"}>{t(label)}</span>
                 </div>
               </div>
             ))}
@@ -670,29 +671,29 @@ export default function ApplyPage() {
         <div className="border border-white/12 bg-[#11141b]/78 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl md:p-7">
           {draftRestored && (
             <div className="mb-5 border border-[#a5b4fc]/35 bg-[#a5b4fc]/10 px-4 py-3 text-sm text-[#a5b4fc]">
-              We restored the details you already entered so you can continue from here.
+              {t("draftRestored")}
             </div>
           )}
-          <h2 className="mb-6 text-xl font-semibold text-white">Step {step} of 3: {stepLabels[step - 1]}</h2>
+          <h2 className="mb-6 text-xl font-semibold text-white">{t("stepOf", { step, label: t(stepLabels[step - 1]) })}</h2>
 
           {step === 1 && (
             <div className="space-y-5">
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="First Name *" error={errors.firstName}>
-                  <input className={inputClass} value={step1.firstName} onChange={(e) => setStep1({ ...step1, firstName: e.target.value })} placeholder="e.g. Thandi" />
+                <Field label={t("firstName")} error={errors.firstName}>
+                  <input className={inputClass} value={step1.firstName} onChange={(e) => setStep1({ ...step1, firstName: e.target.value })} placeholder={t("firstNamePlaceholder")} />
                 </Field>
-                <Field label="Last Name *" error={errors.lastName}>
-                  <input className={inputClass} value={step1.lastName} onChange={(e) => setStep1({ ...step1, lastName: e.target.value })} placeholder="e.g. Nkosi" />
+                <Field label={t("lastName")} error={errors.lastName}>
+                  <input className={inputClass} value={step1.lastName} onChange={(e) => setStep1({ ...step1, lastName: e.target.value })} placeholder={t("lastNamePlaceholder")} />
                 </Field>
               </div>
-              <Field label="SA ID Number *" error={errors.idNumber}>
-                <input className={inputClass} value={step1.idNumber} onChange={(e) => setStep1({ ...step1, idNumber: e.target.value })} placeholder="13-digit ID number" maxLength={13} />
+              <Field label={t("idNumber")} error={errors.idNumber}>
+                <input className={inputClass} value={step1.idNumber} onChange={(e) => setStep1({ ...step1, idNumber: e.target.value })} placeholder={t("idPlaceholder")} maxLength={13} />
               </Field>
-              <Field label="Phone Number *" error={errors.phone}>
-                <input className={inputClass} type="tel" value={step1.phone} onChange={(e) => setStep1({ ...step1, phone: e.target.value })} placeholder="e.g. 071 234 5678" />
+              <Field label={t("phone")} error={errors.phone}>
+                <input className={inputClass} type="tel" value={step1.phone} onChange={(e) => setStep1({ ...step1, phone: e.target.value })} placeholder={t("phonePlaceholder")} />
               </Field>
-              <Field label="Email Address *" error={errors.email}>
-                <input className={inputClass} type="email" value={step1.email} onChange={(e) => setStep1({ ...step1, email: e.target.value })} placeholder="e.g. thandi@example.com" />
+              <Field label={t("email")} error={errors.email}>
+                <input className={inputClass} type="email" value={step1.email} onChange={(e) => setStep1({ ...step1, email: e.target.value })} placeholder={t("emailPlaceholder")} />
               </Field>
             </div>
           )}
@@ -700,22 +701,22 @@ export default function ApplyPage() {
           {step === 2 && (
             <div className="space-y-5">
               <div>
-                <p className="mb-2 text-sm font-semibold text-white/78">Employment Status *</p>
+                <p className="mb-2 text-sm font-semibold text-white/78">{t("employmentStatus")}</p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {employmentOptions.map((option) => (
-                    <ChoiceButton key={option.value} active={step2.employmentStatus === option.value} title={option.label} body={option.body} onClick={() => setStep2({ ...step2, employmentStatus: option.value })} />
+                    <ChoiceButton key={option.value} active={step2.employmentStatus === option.value} title={t(option.label)} body={t(option.body)} onClick={() => setStep2({ ...step2, employmentStatus: option.value })} />
                   ))}
                 </div>
                 {errors.employmentStatus && <p className="mt-1 text-xs text-red-300">{errors.employmentStatus}</p>}
               </div>
-              <Field label="Employer / Business Name">
-                <input className={inputClass} value={step2.employerName} onChange={(e) => setStep2({ ...step2, employerName: e.target.value })} placeholder="e.g. ABC Company (Pty) Ltd" />
+              <Field label={t("employer")}>
+                <input className={inputClass} value={step2.employerName} onChange={(e) => setStep2({ ...step2, employerName: e.target.value })} placeholder={t("employerPlaceholder")} />
               </Field>
-              <Field label="Net (take-home) Monthly Income (R) *" error={errors.monthlyIncome}>
-                <input className={inputClass} type="number" min={0} value={step2.monthlyIncome} onChange={(e) => setStep2({ ...step2, monthlyIncome: e.target.value })} placeholder="e.g. 15000" />
+              <Field label={t("netIncome")} error={errors.monthlyIncome}>
+                <input className={inputClass} type="number" min={0} value={step2.monthlyIncome} onChange={(e) => setStep2({ ...step2, monthlyIncome: e.target.value })} placeholder={t("netIncomePlaceholder")} />
               </Field>
-              <Field label="Total Monthly Expenses (R) *" error={errors.monthlyExpenses}>
-                <input className={inputClass} type="number" min={0} value={step2.monthlyExpenses} onChange={(e) => setStep2({ ...step2, monthlyExpenses: e.target.value })} placeholder="e.g. 8000" />
+              <Field label={t("expenses")} error={errors.monthlyExpenses}>
+                <input className={inputClass} type="number" min={0} value={step2.monthlyExpenses} onChange={(e) => setStep2({ ...step2, monthlyExpenses: e.target.value })} placeholder={t("expensesPlaceholder")} />
               </Field>
             </div>
           )}
@@ -723,7 +724,7 @@ export default function ApplyPage() {
           {step === 3 && (
             <div className="space-y-5">
               <div>
-                <p className="mb-2 text-sm font-semibold text-white/78">Loan Product *</p>
+                <p className="mb-2 text-sm font-semibold text-white/78">{t("loanProduct")}</p>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {productOptions.map(({ value, label, icon: Icon }) => {
                     const [min, max] = liveProductLimits[value] ?? productLimits[value]
@@ -739,7 +740,7 @@ export default function ApplyPage() {
                       }`}
                     >
                       <Icon size={19} className="mb-3" />
-                      <span className="block text-sm font-bold">{label}</span>
+                      <span className="block text-sm font-bold">{t(label)}</span>
                       <span className="mt-1 block text-xs opacity-75">{formatRandRange(min, max)}</span>
                     </button>
                     )
@@ -750,7 +751,7 @@ export default function ApplyPage() {
               {step3.productType && (
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-white/78">
-                    Loan Amount (R {Number(step3.amount || 0).toLocaleString()})
+                    {t("loanAmount", { amount: Number(step3.amount || 0).toLocaleString() })}
                   </label>
                   <input
                     className={`${inputClass} mb-3`}
@@ -788,7 +789,7 @@ export default function ApplyPage() {
                 </div>
               )}
               {step3.productType && termPlan(step3.productType, step3.termDays).showField && (
-                <Field label="Loan Term (days) *" error={errors.termDays}>
+                <Field label={t("loanTerm")} error={errors.termDays}>
                   <input
                     className={inputClass}
                     type="number"
@@ -800,14 +801,14 @@ export default function ApplyPage() {
                     onChange={(e) => setStep3({ ...step3, termDays: e.target.value })}
                     placeholder={
                       termRange(step3.productType)
-                        ? `${termRange(step3.productType)?.min} to ${termRange(step3.productType)?.max} days`
-                        : "Number of days"
+                        ? t("termRangePlaceholder", { min: termRange(step3.productType)?.min ?? "", max: termRange(step3.productType)?.max ?? "" })
+                        : t("termPlaceholder")
                     }
                   />
                 </Field>
               )}
-              <Field label="Loan Purpose *" error={errors.purpose}>
-                <textarea className={`${inputClass} min-h-24 resize-none`} value={step3.purpose} onChange={(e) => setStep3({ ...step3, purpose: e.target.value })} placeholder="Briefly describe what the loan will be used for..." />
+              <Field label={t("purpose")} error={errors.purpose}>
+                <textarea className={`${inputClass} min-h-24 resize-none`} value={step3.purpose} onChange={(e) => setStep3({ ...step3, purpose: e.target.value })} placeholder={t("purposePlaceholder")} />
               </Field>
               <TurnstileWidget key={turnstileResetKey} onToken={setTurnstileToken} onError={() => setTurnstileToken(null)} onExpired={() => setTurnstileToken(null)} />
               {errors.submit && <p className="border border-red-300/30 bg-red-400/10 px-4 py-3 text-sm text-red-200">{errors.submit}</p>}
@@ -830,18 +831,18 @@ export default function ApplyPage() {
             {step > 1 ? (
               <button onClick={() => { setErrors({}); setStep(step - 1) }} className="flex items-center gap-2 border border-white/18 px-5 py-2.5 text-sm font-semibold text-white/72 transition-colors hover:bg-white/[0.05] hover:text-white">
                 <ArrowLeft size={16} />
-                Back
+                {t("back")}
               </button>
             ) : <div />}
             {step < 3 ? (
               <button onClick={handleNext} className="flex items-center gap-2 bg-[#a5b4fc] px-6 py-2.5 text-sm font-bold text-[#11141b] transition-colors hover:bg-[#c7d2fe]">
-                Continue
+                {t("continue")}
                 <ArrowRight size={16} />
               </button>
             ) : (
               <button onClick={handleSubmit} disabled={loading || !turnstileToken || !consentGiven} className="flex items-center gap-2 bg-[#a5b4fc] px-6 py-2.5 text-sm font-bold text-[#11141b] transition-colors hover:bg-[#c7d2fe] disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/30">
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                {loading ? "Submitting..." : "Submit Application"}
+                {loading ? t("submitting") : t("submit")}
               </button>
             )}
           </div>
@@ -849,12 +850,12 @@ export default function ApplyPage() {
       </section>
 
       <section className="mx-auto max-w-4xl px-4 pb-20 pt-4">
-        <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">Application FAQ</p>
+        <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{t("faqEyebrow")}</p>
         <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-          What to expect when you apply
+          {t("faqHeading")}
         </h2>
         <div className="mt-8">
-          <FaqAccordion items={APPLY_FAQS} />
+          <FaqAccordion items={applyFaqs(t)} />
         </div>
       </section>
     </main>

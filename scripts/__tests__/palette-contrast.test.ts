@@ -62,7 +62,7 @@ describe("CredaFlow palette", () => {
     const pattern = `#(${OLD_BRAND.join("|")})([0-9a-f]{2})?\\b|\\b(${OLD_RGB.join("|")})\\b`
     let hits: string[] = []
     try {
-      hits = execFileSync("git", ["grep", "--untracked", "-liP", pattern, "--", "app", "components", "lib", "prisma/schema.prisma", "prisma/seed*.ts", "prisma/demo-lender.ts", "scripts", ":!scripts/__tests__/palette-contrast.test.ts"], { encoding: "utf8" })
+      hits = execFileSync("git", ["grep", "--untracked", "-liP", pattern, "--", "app", "components", "lib", "prisma/schema", "prisma/seed*.ts", "prisma/demo-lender.ts", "scripts", ":!scripts/__tests__/palette-contrast.test.ts"], { encoding: "utf8" })
         .split("\n").filter(Boolean)
     } catch (e) {
       if ((e as { status?: number }).status !== 1) throw e

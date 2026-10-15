@@ -1,0 +1,132 @@
+model CreditBureauCheck {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  clientId           String
+  client             Client   @relation(fields: [clientId], references: [id])
+  applicationId      String?
+  reviewGeneration   String?
+  subjectFingerprint String?
+  provider           String   @default("transunion")
+  score              Int?
+  riskGrade          String?
+  adverseInfo        Json?
+  hasAdverse         Boolean  @default(false)
+  deceased           Boolean  @default(false)
+  underDebtReview    Boolean  @default(false)
+  hasJudgement       Boolean  @default(false)
+  hasNotice          Boolean  @default(false)
+  unscoreable        Boolean  @default(false)
+  declineReasons     Json?
+  obligations        Json?
+  ok                 Boolean  @default(false)
+  errorMessage       String?
+  // One row per provider ATTEMPT (lib/bureau/enquiry.ts): its 1-based place
+  // in the run and how it ended (lib/bureau/types.ts BureauAttemptStatus).
+  // Null on rows written before the bureau framework and on the asset-finance
+  // path, which records a single Experian call.
+  attempt            Int?
+  status             String?
+  createdAt          DateTime @default(now())
+
+  @@index([clientId])
+  @@index([applicationId])
+  @@index([applicationId, reviewGeneration])
+}
+
+// ── Bureau data submission (SACRRA Layout 700v2 → Experian) ────────────────
+// lib/bureau-submission. The ledger is the record of what the bureau was
+// told: files are never written to disk, they are re-rendered from `fields`.
+
+enum BureauSubmissionKind {
+  DAILY
+  MONTHLY
+}
+
+enum BureauSubmissionMode {
+  TEST
+  LIVE
+}
+
+enum BureauSubmissionStatus {
+  GENERATED
+  PUSHED
+  FAILED
+  REJECTED
+}
+
+model BureauSubmission {
+  id          String                   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id])
+  kind        BureauSubmissionKind
+  /// Month-end date (MONTHLY) or transaction date (DAILY), a SAST calendar day.
+  periodDate  DateTime                 @db.Date
+  mode        BureauSubmissionMode
+  sequence    Int
+  fileName    String
+  sha256      String
+  /// Lines sent, header and trailer excluded.
+  recordCount Int
+  heldCount   Int
+  /// Header field values as rendered (MONTHLY only), so a re-render does not
+  /// depend on TenantConfig as it is today.
+  header      Json?
+  status      BureauSubmissionStatus   @default(GENERATED)
+  pushedAt    DateTime?
+  createdAt   DateTime                 @default(now())
+  records     BureauSubmissionRecord[]
+
+  @@unique([tenantId, kind, periodDate, mode, sequence])
+  @@index([tenantId, createdAt])
+}
+
+model BureauSubmissionRecord {
+  id           String               @id @default(cuid())
+  tenantId     String
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  submissionId String
+  submission   BureauSubmission     @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  /// Copied from the submission: a partial unique index cannot see another
+  /// table, and the once-only guard is keyed on both.
+  kind         BureauSubmissionKind
+  mode         BureauSubmissionMode
+  loanId       String
+  loan         Loan                 @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  /// Position among the sent lines; null for a held record.
+  lineNo       Int?
+  dataFlag     String
+  statusCode   String?
+  statusDate   DateTime?            @db.Date
+  /// Every field value of the line, as rendered.
+  fields       Json
+  /// Comma-separated hold reasons; null means the line was sent.
+  heldReason   String?
+  createdAt    DateTime             @default(now())
+
+  // A raw-SQL partial unique index in the migration (not expressible here)
+  // lets a once-only status (C, T, W, L, Z) be sent once per loan per kind
+  // in LIVE mode: "BureauSubmissionRecord_live_once_only_status_key".
+
+  @@index([submissionId])
+  @@index([tenantId, loanId])
+}
+
+/// A staff member's confirmation that the consumer was given notice before an
+/// adverse status (W written off, L handed over) is listed. Without one the
+/// loan keeps reporting its arrears with no status code.
+model BureauAdverseConfirmation {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  loanId        String
+  loan          Loan     @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  statusCode    String
+  /// The date notice was given to the consumer.
+  noticeDate    DateTime @db.Date
+  confirmedById String
+  confirmedAt   DateTime @default(now())
+
+  @@unique([loanId, statusCode])
+  @@index([tenantId])
+}

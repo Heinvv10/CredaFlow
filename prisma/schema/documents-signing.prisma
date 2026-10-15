@@ -1,0 +1,101 @@
+enum DocumentTemplateKind {
+  SYSTEM
+  CUSTOM
+}
+
+enum DocumentTemplateVersionStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum DocumentSigningMethod {
+  NONE
+  NATIVE
+  SIGNUM
+}
+
+model DocumentTemplate {
+  id               String                    @id @default(cuid())
+  tenantId         String
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id])
+  key              String // stable slug, e.g. "settlement_letter"
+  name             String
+  category         String? // "Agreement" | "Collections" | "Consent" | ...
+  kind             DocumentTemplateKind
+  systemGenerator  String? // SYSTEM only: which lib/pdf module, e.g. "creditAgreement"
+  signingMethod    DocumentSigningMethod     @default(NONE)
+  requiresApproval Boolean                   @default(false) // CUSTOM legal docs → dual-approval before ACTIVE
+  isActive         Boolean                   @default(true)
+  currentVersionId String? // CUSTOM: FK to the ACTIVE version
+  createdById      String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  deletedAt        DateTime?
+  versions         DocumentTemplateVersion[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+model DocumentTemplateVersion {
+  id            String                        @id @default(cuid())
+  templateId    String
+  template      DocumentTemplate              @relation(fields: [templateId], references: [id])
+  version       Int
+  bodyHtml      String // authored HTML containing {{tokens}}
+  tokensUsed    Json // tokens referenced — for validation + preview
+  status        DocumentTemplateVersionStatus @default(DRAFT)
+  notes         String?
+  createdById   String?
+  createdAt     DateTime                      @default(now())
+  activatedById String?
+  activatedAt   DateTime?
+  approvedById  String? // dual-approval (second LOAN_ADMIN)
+  approvedAt    DateTime?
+
+  @@unique([templateId, version])
+  @@index([templateId])
+}
+
+enum SigningOtpPurpose {
+  AGREEMENT
+  DEBIT_MANDATE
+  DOCUMENT
+  // An asset-finance deal document (DealSigner row): agreement, suretyship,
+  // resolution. subjectId is the DealSigner id.
+  DEAL_DOCUMENT
+}
+
+// One borrower signing OTP (lib/signing-otp). Bound to the client, the thing
+// being signed (subjectId: the application for AGREEMENT / DEBIT_MANDATE, the
+// ClientDocument for DOCUMENT) and the SHA-256 of the exact bytes shown. The
+// code is stored only as a keyed hash. Consumed once, inside the signing
+// transaction; from then on the row is the OTP evidence of that signature and
+// the database refuses to change or delete it.
+model SigningOtpChallenge {
+  id                String            @id @default(cuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  clientId          String
+  client            Client            @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  purpose           SigningOtpPurpose
+  subjectId         String
+  documentSha256    String
+  codeHash          String
+  channel           Channel
+  maskedDestination String
+  deliveryStatus    String // PENDING (before the send) | ACCEPTED | SIMULATED | FAILED
+  sentAt            DateTime?
+  expiresAt         DateTime
+  attempts          Int               @default(0)
+  maxAttempts       Int
+  verifiedAt        DateTime?
+  consumedAt        DateTime?
+  signingMethod     String? // portal | branch, set at consumption
+  requestedByUserId String? // the staff witness for a branch request
+  requestedIp       String?
+  createdAt         DateTime          @default(now())
+
+  @@index([tenantId, clientId, purpose, subjectId, createdAt])
+}

@@ -12,7 +12,7 @@ import {
   quarterLabel,
   sastMonthBounds,
 } from "@/lib/compliance/quarters"
-import { getNcrReturnData, parWhere } from "@/lib/compliance/ncr-return"
+import { disbursedInQuarterWhere, getNcrReturnData, parWhere } from "@/lib/compliance/ncr-return"
 import { logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
@@ -289,7 +289,8 @@ export async function GET(req: NextRequest) {
     // finance) agreement is outside the Act and on neither sheet.
     const [disbursed, arrears] = await Promise.all([
       prisma.loan.findMany({
-        where: { tenantId: tenant.id, ncaRegime: "NCA", startDate: { gte: qStart, lt: qEndExclusive } },
+        // The same population as the return's "principal disbursed" line.
+        where: { ...disbursedInQuarterWhere(tenant.id, qStart, qEndExclusive), ncaRegime: "NCA" },
         include: {
           client: { select: { idNumber: true, firstName: true, lastName: true } },
           entity: { select: { legalName: true } },
@@ -507,7 +508,8 @@ export async function GET(req: NextRequest) {
     const [branches, scheduleItems, payments, disbursements] = await Promise.all([
       prisma.branch.findMany({ where: { tenantId: tenant.id }, select: { id: true, name: true, code: true } }),
       prisma.repaymentSchedule.findMany({
-        where: { tenantId: tenant.id, dueDate: { gte: mStart, lt: mEndExclusive } },
+        // A reversed loan's cancelled rows are not due.
+        where: { tenantId: tenant.id, dueDate: { gte: mStart, lt: mEndExclusive }, status: { not: "CANCELLED" } },
         include: {
           loan: {
             select: {

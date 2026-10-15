@@ -13,6 +13,9 @@ export default defineConfig({
     // DEMO_LENDER unset, whatever the shell exports: the demo suites pin the
     // default lender (prisma/demo-lender.ts).
     env: { TZ: "UTC", DEMO_LENDER: "" },
+    // Regenerates lib/registry/generated/ (scripts/gen-registries.ts) so a
+    // direct `npx vitest run` after adding an entry file sees it.
+    globalSetup: ["./vitest.global-setup.ts"],
     // Git worktrees are full checkouts of this repo living INSIDE it, each with
     // its own node_modules. Without these excludes, `npm test` in the primary
     // checkout recursively discovers every worktree's suites and runs them

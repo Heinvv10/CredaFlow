@@ -215,6 +215,8 @@ async function evaluatePaymentDue(rule: AutomationRule): Promise<number> {
       tenantId: rule.tenantId,
       dueDate: { gte: dayStart, lt: dayEnd },
       status: { in: ["PENDING", "PARTIAL"] },
+      // A CANCELLED loan (reversed disbursement) owes nothing.
+      loan: { status: { not: "CANCELLED" } },
     },
     select: { id: true },
   })

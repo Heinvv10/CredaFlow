@@ -128,18 +128,53 @@ export interface SettlementFigures {
   chargeSplitsPaid: number
 }
 
-/** The settlement a document states, itemised. Charges are 0 while off. */
+/**
+ * A CANCELLED loan owes nothing. CANCELLED is reached only through an approved
+ * disbursement reversal — the money never reached the borrower
+ * (lib/payouts/reversal.ts) — and the database refuses any other way in
+ * (guardLoanCancellation). Its contractual figures stay on the row because
+ * the PASQ billing guard binds them to the signed agreement.
+ */
+export function owesNothing(loan: { status?: string | null }): boolean {
+  return loan.status === "CANCELLED"
+}
+
+/** The loan's own figures as an NCA document states them: zero for a CANCELLED loan. */
+/** A schedule row as the documents state it: a reversed loan's CANCELLED row is not due. */
+export function documentScheduleRow<T extends { totalDue: number; status: string }>(row: T): T {
+  return row.status === "CANCELLED" ? { ...row, totalDue: 0 } : row
+}
+export function documentLoanFigures(loan: { status?: string | null; totalRepayable: number; outstandingPrincipal: number; daysInArrears?: number | null }) {
+  return owesNothing(loan)
+    ? { totalRepayable: 0, outstandingPrincipal: 0, daysInArrears: 0 }
+    : { totalRepayable: loan.totalRepayable, outstandingPrincipal: loan.outstandingPrincipal, daysInArrears: loan.daysInArrears ?? 0 }
+}
+
+/** The settlement a document states, itemised. Charges are 0 while off; everything is 0 for a CANCELLED loan. */
 export async function loanSettlementFigures(
   db: ChargesTx,
   loan: SettlementLoanLike & {
     id: string
     tenantId: string
+    status?: string | null
     outstandingPrincipal: number
     arrearsAmount: number
     repaymentSchedule: SettlementScheduleRow[]
   },
   asOf: Date,
 ): Promise<SettlementFigures> {
+  if (owesNothing(loan)) {
+    const received = await db.payment.aggregate({
+      where: { tenantId: loan.tenantId, loanId: loan.id, reversed: false, allocationStatus: "ALLOCATED", ...CASH_RECEIPTS },
+      _sum: { amount: true, defaultInterestAllocated: true, chargeFeesAllocated: true },
+    })
+    return {
+      live: false, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 0,
+      interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0,
+      paymentsReceived: received._sum.amount ?? 0,
+      chargeSplitsPaid: (received._sum.defaultInterestAllocated ?? 0) + (received._sum.chargeFeesAllocated ?? 0),
+    }
+  }
   const charges = await loadLoanCharges(db, { tenantId: loan.tenantId, loanId: loan.id }, asOf)
   const chargesOutstanding = charges?.outstanding ?? 0
   const totalToSettle = currentSettlementAmount({

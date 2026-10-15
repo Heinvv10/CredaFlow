@@ -5,7 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
 import { parseReferralCommissionInput } from "@/lib/referral-agents/commission-rate-input"
 
-// Schema default (prisma/schema.prisma model TenantConfig). Used to hydrate the
+// Schema default (prisma/schema/tenancy.prisma model TenantConfig). Used to hydrate the
 // form and to record the "old" audit value when no config row exists yet.
 const DEFAULT_BPS = 0
 

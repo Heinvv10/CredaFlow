@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { CRON_JOBS } from "@/lib/registry/generated/cron-jobs"
 
 /**
  * One row per in-process cron job (instrumentation.ts callCron), written after
@@ -20,34 +21,12 @@ export async function recordCronRun(job: string, run: { startedAt: Date; status:
 
 /**
  * How long each in-process job may go without a successful run before
- * /api/health calls it stale: about twice its schedule, plus slack. Must name
- * exactly the routes instrumentation.ts schedules (lib/ops/cron-freshness.test.ts).
+ * /api/health calls it stale: each job's `freshnessMinutes` in
+ * lib/registry/cron-jobs/, the same entry instrumentation.ts schedules from.
  */
-const HOUR = 60
-const DAY = 24 * HOUR
-export const CRON_FRESHNESS_MINUTES: Record<string, number> = {
-  "payment-reminders": DAY + 2 * HOUR,
-  "insurance-renewal": DAY + 2 * HOUR,
-  "cross-sell": 7 * DAY + 2 * HOUR,
-  "dormant-clients": 7 * DAY + 2 * HOUR,
-  "stale-leads-alert": DAY + 2 * HOUR,
-  "arrangement-check": DAY + 2 * HOUR,
-  "licence-expiry": DAY + 2 * HOUR,
-  "check-wa-bridge-status": 15,
-  "poll-wa-templates": 45,
-  "default-charges": DAY + 2 * HOUR,
-  "website-chat-close": 3 * HOUR,
-  "website-chat-handoffs": 10,
-  "asset-finance-reprice": DAY + 2 * HOUR,
-  "asset-finance-lease-invoices": DAY + 2 * HOUR,
-  "asset-finance-recovery-deadlines": DAY + 2 * HOUR,
-  "screening-refresh": DAY + 2 * HOUR,
-  "webhook-deliveries": 10,
-  "lender-api-retention": DAY + 2 * HOUR,
-  "sweep-stuck-selfies": 15,
-  "collections-results": DAY + 2 * HOUR,
-  "collections-submit": DAY + 2 * HOUR,
-}
+export const CRON_FRESHNESS_MINUTES: Record<string, number> = Object.fromEntries(
+  CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [[job.route, job.freshnessMinutes]] : [])),
+)
 
 export interface CronJobFreshness {
   job: string
