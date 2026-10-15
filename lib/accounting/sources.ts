@@ -23,6 +23,7 @@
  * write-off the part not collected is reversed out of the payable (binder
  * assumption, lib/accounting/.claude.md).
  */
+import { allocateReceipts } from "@/lib/loan/balances"
 import { addTo, before, type DesiredSource, type SourceLoan, type Vector } from "./source-types"
 import { receiptSources } from "./sources-receipts"
 import type { AccountRole } from "./accounts"
@@ -57,14 +58,29 @@ function adjustment(loan: SourceLoan, what: string, reversedAt: Date | null): De
     : { type: "ADJUSTMENT", date: null, description: `${what} re-stated on ${loan.reference}` }
 }
 
-/** Unpaid share of each raised instalment's premium: paid order is interest, then fees (premium pro rata), then principal. */
+/**
+ * Premium raised but not collected as at `asOf`. The receipts on the schedule
+ * then (live, applied, less what paid default charges) are spread over the
+ * instalments earliest first, as lib/reports/book-as-of.ts rebuilds a past
+ * book (lib/loan/balances.ts allocateReceipts); within an instalment the paid
+ * order is interest, then fees, then principal (lib/loan/receipt-allocation.ts),
+ * and the premium is taken to be collected pro rata within the fees, because
+ * the system does not record which part of an instalment's fees a receipt
+ * paid. Assumption documented in lib/accounting/.claude.md.
+ */
 function uncollectedPremium(loan: SourceLoan, asOf: Date): number {
+  const share = loan.payments
+    .filter((p) => before(p.receivedAt, asOf) && !(p.reversed && before(p.reversedAt, asOf))
+      && p.allocationStatus === "ALLOCATED" && !(p.reconciledAt && !before(p.reconciledAt, asOf)))
+    .reduce((sum, p) => sum + p.amount - p.defaultInterestAllocated - p.chargeFeesAllocated, 0)
+  const rows = [...loan.schedule].sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+  const paid = allocateReceipts(rows, share)
   let total = 0
-  for (const row of loan.schedule) {
-    if (row.creditLifePremiumDue <= 0 || !raisedOn(loan, row.dueDate, asOf)) continue
-    const feesPaid = Math.min(Math.max(row.totalPaid - row.interestDue, 0), row.feesDue)
+  rows.forEach((row, i) => {
+    if (row.creditLifePremiumDue <= 0 || !raisedOn(loan, row.dueDate, asOf)) return
+    const feesPaid = Math.min(Math.max(paid[i] - row.interestDue, 0), row.feesDue)
     total += Math.round(row.creditLifePremiumDue * (1 - (row.feesDue > 0 ? feesPaid / row.feesDue : 1)))
-  }
+  })
   return total
 }
 

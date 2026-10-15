@@ -146,4 +146,16 @@ suite.sequential("Xero push (real Postgres, stubbed fetch)", () => {
     expect(await markStalePush(prisma, { tenantId, batchId: nov.batchId, actor, now: new Date(Date.now() + 11 * 60_000) })).toBe(true)
     expect(await db.accountingXeroPush.findUniqueOrThrow({ where: { batchId: nov.batchId } })).toMatchObject({ status: "NEEDS_REVIEW" })
   })
+
+  it("pushes a month whose Bank mapping was stored before close, even on code 1000 (the stored mapping decides, not the literal)", async () => {
+    const ids = await createChargesLoan(db, await createChargesTenant(db, false))
+    const t = ids.tenantId
+    await db.accountingAccountMapping.create({ data: { tenantId: t, role: "BANK", accountCode: "1000", accountName: "Loan clearing (code 1000)" } })
+    await db.accountingSettings.create({ data: { tenantId: t, goLiveMonth: "2026-08", mappingConfirmedAt: new Date() } })
+    const aug = await runWithTenant(t, () => closePeriod(prisma, { tenantId: t, periodKey: "2026-08", userId: ids.userId, userEmail: actor.email, now: new Date("2026-11-01T00:00:00Z") }))
+    await db.xeroConnection.create({ data: { tenantId: t, status: "CONNECTED", xeroTenantId: "org-2", xeroTenantName: "Org 2", accessTokenSealed: sealSecret("at-x", KEY), refreshTokenSealed: sealSecret("rt-x", KEY), accessTokenExpiresAt: new Date(Date.now() + 3_600_000) } })
+    const fetch = vi.fn(async () => json(200, { ManualJournals: [{ ManualJournalID: "mj-1000" }] }))
+    const out = await runWithTenant(t, () => pushBatchToXero(prisma, { tenantId: t, batchId: aug.batchId, actor: { id: ids.userId, email: actor.email } }, { fetch }))
+    expect(out).toEqual({ ok: true, status: "PUSHED", manualJournalId: "mj-1000" })
+  })
 })

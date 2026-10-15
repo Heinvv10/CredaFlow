@@ -50,6 +50,17 @@ describe("disbursement through the payout channel", () => {
   })
 })
 
+describe("credit-life premium on write-off", () => {
+  it("reverses the premium not collected AS AT the write-off, from the receipts then, not the row's current paid figure", () => {
+    const paidBefore = { id: "p1", amount: 13_450, paymentMethod: "EFT", receivedAt: at("2026-09-10"), allocationStatus: "ALLOCATED" as const, reconciledAt: null, reversed: false, reversedAt: null }
+    // The row's stored totalPaid says 0 (as it might after a later re-derivation); the receipt says otherwise.
+    const written = loan({ status: "WRITTEN_OFF", writeOffAt: at("2026-10-15"), payments: [paidBefore] })
+    const oct = runWith(accounts, null, [written], OCT)
+    // R134.50 paid instalment 1's R100 interest, then R34.50 of its R69 fees: half the R20 premium was collected.
+    expect(net(byType(oct, "WRITE_OFF"))).toEqual({ CREDIT_LIFE_PAYABLE: 1_000, BAD_DEBT_EXPENSE: 202_450, LOAN_BOOK: -203_450 })
+  })
+})
+
 describe("VAT-inclusive fee income", () => {
   const vatAccounts = defaultAccounts([{ role: "FEE_INCOME", accountCode: "4010", accountName: null, taxCode: null, vatInclusive: true }])
 

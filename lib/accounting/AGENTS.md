@@ -27,9 +27,10 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
   PAYOUT_CLEARING; BANK moves only on PAID (back on RETURNED). An approved
   disbursement reversal zeroes the loan's sources.
 - **Credit-life binder assumption**: premium is payable to the insurer as it
-  falls due; on write-off the share never collected (pro rata within each
-  instalment's fees) is reversed out of the payable. Confirm with the insurer's
-  binder before go-live.
+  falls due; on write-off the share not collected AS AT the write-off is
+  reversed out of the payable: receipts then fill instalments earliest first,
+  each interest, then fees, then principal, with the premium taken pro rata
+  within the fees (no record says which). Confirm with the insurer's binder.
 - **VAT is split only** when the lender is VAT-registered AND a fee role is
   marked VAT-inclusive (default off). A tax code on a mapping goes to Xero as
   tax-inclusive; never both (refused). VAT credit notes are not exported yet.

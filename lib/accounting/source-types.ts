@@ -36,6 +36,9 @@ export interface SourcePayment {
   reversedAt: Date | null
   /** Set on the refund-due half of a split over-payment. */
   parentPaymentId: string | null
+  /** The parts of `amount` that paid default charges (not the schedule). */
+  defaultInterestAllocated: number
+  chargeFeesAllocated: number
 }
 
 export interface SourceLoan {
@@ -58,6 +61,7 @@ export interface SourceLoan {
     interestDue: number
     feesDue: number
     creditLifePremiumDue: number
+    totalDue: number
     totalPaid: number
   }>
   /** `day` is the SAST calendar day as SAST midnight. */

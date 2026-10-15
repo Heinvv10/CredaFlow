@@ -8,8 +8,9 @@ import { verifyBalanced } from "./verify"
 
 export const at = (iso: string) => new Date(`${iso}T10:00:00+02:00`)
 
-export type TestPayment = Omit<SourcePayment, "parentPaymentId"> & { parentPaymentId?: string | null }
-type TestRow = Omit<SourceLoan["schedule"][number], "totalPaid"> & { totalPaid?: number }
+export type TestPayment = Omit<SourcePayment, "parentPaymentId" | "defaultInterestAllocated" | "chargeFeesAllocated">
+  & { parentPaymentId?: string | null; defaultInterestAllocated?: number; chargeFeesAllocated?: number }
+type TestRow = Omit<SourceLoan["schedule"][number], "totalPaid" | "totalDue"> & { totalPaid?: number; totalDue?: number }
 export type TestLoan = Omit<Partial<SourceLoan>, "payments" | "schedule"> & { payments?: TestPayment[]; schedule?: TestRow[] }
 
 export function loan(overrides: TestLoan = {}): SourceLoan {
@@ -32,8 +33,9 @@ export function loan(overrides: TestLoan = {}): SourceLoan {
     charges: [],
     payouts: [],
     ...rest,
-    schedule: rows.map((r) => ({ totalPaid: 0, ...r })),
-    payments: payments.map((p) => ({ parentPaymentId: null, ...p })),
+    // Principal sits in the instalments: R2,000 on the first, none on later ones.
+    schedule: rows.map((r, i) => ({ totalPaid: 0, totalDue: (i === 0 ? 200_000 : 0) + r.interestDue + r.feesDue, ...r })),
+    payments: payments.map((p) => ({ parentPaymentId: null, defaultInterestAllocated: 0, chargeFeesAllocated: 0, ...p })),
   }
 }
 

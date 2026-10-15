@@ -62,7 +62,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       application: { select: { initiationFeePayment: true } },
       repaymentSchedule: {
         orderBy: { installmentNo: "asc" },
-        select: { id: true, installmentNo: true, dueDate: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalPaid: true },
+        select: { id: true, installmentNo: true, dueDate: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalDue: true, totalPaid: true },
       },
       disbursementPayouts: { orderBy: { attempt: "asc" }, select: { id: true, attempt: true, amountCents: true, paidAt: true, returnedAt: true } },
       disbursementReversals: { where: { status: "APPROVED" }, select: { decidedAt: true } },
@@ -72,6 +72,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
         select: {
           id: true, amount: true, paymentMethod: true, receivedAt: true, allocationStatus: true,
           reconciledAt: true, reversed: true, reversedAt: true, parentPaymentId: true,
+          defaultInterestAllocated: true, chargeFeesAllocated: true,
         },
       },
     },

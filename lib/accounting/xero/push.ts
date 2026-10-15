@@ -88,7 +88,7 @@ export async function pushBatchToXero(db: PushDb, args: {
   batchId: string
   actor: { id: string; email: string }
 }, http: XeroHttp = {}): Promise<PushOutcome> {
-  const batch = await db.accountingExportBatch.findFirst({ where: { id: args.batchId, tenantId: args.tenantId, status: "CLOSED" }, select: { id: true, periodKey: true } })
+  const batch = await db.accountingExportBatch.findFirst({ where: { id: args.batchId, tenantId: args.tenantId, status: "CLOSED" }, select: { id: true, periodKey: true, closedAt: true } })
   if (!batch) return { ok: false, httpStatus: 404, status: null, error: "Closed batch not found" }
   const lines = await loadBatchLines(db, args.tenantId, batch.id)
   const period = parsePeriodKey(batch.periodKey)
@@ -97,8 +97,12 @@ export async function pushBatchToXero(db: PushDb, args: {
   if (accounts.BANK.isDefault) {
     return { ok: false, httpStatus: 422, status: null, error: "Map the Bank role to your Xero clearing account first: Xero refuses manual journals to a bank account" }
   }
-  if (lines.some((l) => l.role === "BANK" && l.accountCode === DEFAULT_ACCOUNTS.BANK.code)) {
-    return { ok: false, httpStatus: 422, status: null, error: `This month was closed with the Bank role on its default code ${DEFAULT_ACCOUNTS.BANK.code}; post it in Xero by hand from the CSV` }
+  // The stored mapping decides, not the code: a month closed before the Bank
+  // role had a stored mapping posted its bank lines to the default code.
+  const bankMapping = await db.accountingAccountMapping.findUnique({ where: { tenantId_role: { tenantId: args.tenantId, role: "BANK" } }, select: { createdAt: true } })
+  const bankLines = lines.some((l) => l.role === "BANK")
+  if (bankLines && (!bankMapping || !batch.closedAt || bankMapping.createdAt.getTime() > batch.closedAt.getTime())) {
+    return { ok: false, httpStatus: 422, status: null, error: `This month was closed before the Bank role was mapped (its bank lines carry the default code ${DEFAULT_ACCOUNTS.BANK.code}); post it in Xero by hand from the CSV` }
   }
   let journal: ManualJournal
   try {
