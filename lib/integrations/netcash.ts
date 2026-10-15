@@ -21,6 +21,8 @@ interface DisburseResult {
   simulated?: true
   transactionId?: string
   error?: string
+  /** The request was never sent (nothing configured): no money can have moved. */
+  notSent?: true
 }
 
 async function getServiceKey(tenantId: string): Promise<string | null> {
@@ -69,7 +71,7 @@ export async function disburseFunds(opts: DisburseOptions): Promise<DisburseResu
 
   const serviceKey = await getServiceKey(opts.tenantId)
   if (!serviceKey) {
-    return { ok: false, error: "Netcash not configured" }
+    return { ok: false, error: "Netcash not configured", notSent: true }
   }
 
   const xml = buildXml(serviceKey, opts)

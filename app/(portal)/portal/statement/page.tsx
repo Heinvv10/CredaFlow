@@ -17,6 +17,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { formatZAR } from "@/lib/utils"
 import { getPortalTenantId } from "@/lib/session-tenant"
+import { documentLoanFigures, owesNothing } from "@/lib/loan/charges-summary"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
@@ -39,6 +40,7 @@ function reversalDetail(
   const reason = p.reversalReason?.trim()
   return reason ? t("reversedWithReason", { when, reason }) : when
 }
+
 
 export default async function StatementPage() {
   const session = await auth()
@@ -113,18 +115,19 @@ export default async function StatementPage() {
                 </div>
               }
             >
-              <div className="mb-4 rounded-lg border border-[rgba(79,70,229,0.28)] bg-[rgba(79,70,229,0.06)] px-4 py-3">
+              {/* A reversed loan owes nothing: no payment reference, no way to pay. */}
+              {!owesNothing(loan) && <div className="mb-4 rounded-lg border border-[rgba(79,70,229,0.28)] bg-[rgba(79,70,229,0.06)] px-4 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("paymentReference")}</p>
                 <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--cf-brand)]">{loan.reference}</p>
                 <p className="mt-1 text-[11px] text-[var(--cf-text-muted)]">
                   {t("quoteReference")}
                 </p>
-              </div>
+              </div>}
 
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("outstanding")}</p>
-                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(loan.outstandingPrincipal)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(documentLoanFigures(loan).outstandingPrincipal)}</p>
                 </div>
                 <div className="rounded-lg border border-[rgba(63,191,127,0.24)] bg-[rgba(63,191,127,0.08)] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("totalPaid")}</p>
@@ -132,7 +135,7 @@ export default async function StatementPage() {
                 </div>
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">{t("totalRepayable")}</p>
-                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(loan.totalRepayable)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(documentLoanFigures(loan).totalRepayable)}</p>
                 </div>
               </div>
 
@@ -141,7 +144,7 @@ export default async function StatementPage() {
                   icon={CreditCard}
                   title={t("noPaymentsTitle")}
                   description={t("noPaymentsDesc")}
-                  action={{ label: t("makePayment"), href: "/portal/payment" }}
+                  action={owesNothing(loan) ? undefined : { label: t("makePayment"), href: "/portal/payment" }}
                 />
               ) : (
                 <Table>

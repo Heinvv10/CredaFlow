@@ -260,6 +260,8 @@ Domain-specific rules live next to the code:
 - `lib/signing-otp/.claude.md` — the signing one-time code; never SMS, never stored
 - `lib/security/.claude.md` — staff access policy; the IP allowlist needs a closed app port
 - `lib/collections-engine/.claude.md` — DebiCheck engine; scheme rules in one place
+- `lib/accounting/.claude.md` — GL journals; closed months are final; Xero unproven
+- `lib/payouts/.claude.md` — disbursement payouts; claim before send, never pay twice
 - `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it

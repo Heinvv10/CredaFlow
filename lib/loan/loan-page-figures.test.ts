@@ -51,6 +51,15 @@ describe("staffLoanFigures", () => {
     })
   })
 
+  it("shows a loan cancelled by a disbursement reversal as owing nothing", async () => {
+    loadChargesReplay.mockResolvedValue(replay(4_248, 8_200))
+    const cancelled = { ...loan, status: "CANCELLED", totalPaid: 0 }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await staffLoanFigures(db as any, cancelled, asOf)).toMatchObject({
+      settlementAmount: 0, balance: 0, maturityBalance: 0, arrears: 0, waivable: false,
+    })
+  })
+
   it("offers the waiver only for a 1-100 cent settlement on a loan still being serviced", async () => {
     loadChargesReplay.mockResolvedValue(null)
     const residue = { ...loan, totalPaid: 216_825, outstandingPrincipal: 75, arrearsAmount: 75 }

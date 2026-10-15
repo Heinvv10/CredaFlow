@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole, requireOwnerOrStaff } from "@/lib/auth-guards"
 import { generateStatementPdf } from "@/lib/pdf/statement"
-import { loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { documentLoanFigures, documentScheduleRow, loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
@@ -122,20 +122,19 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         id: loan.id,
         reference: loan.reference,
         principal: loan.principal,
-        totalRepayable: loan.totalRepayable,
         totalPaid: loan.totalPaid,
-        outstandingPrincipal: loan.outstandingPrincipal,
         interestRatePm: loan.interestRatePm,
         interestModel: loan.interestModel,
         status: loan.status,
         startDate: loan.startDate,
         maturityDate: loan.maturityDate,
-        daysInArrears: loan.daysInArrears,
+        // Zero for a loan CANCELLED by a disbursement reversal (nothing owed).
+        ...documentLoanFigures(loan),
         // Charge-inclusive, as on the Section 129 notice.
         arrearsAmount: figures.arrearsIncludingCharges,
       },
       product: { name: loan.product.name },
-      schedule: loan.repaymentSchedule.map(s => ({
+      schedule: loan.repaymentSchedule.map(documentScheduleRow).map(s => ({
         installmentNo: s.installmentNo,
         dueDate: s.dueDate,
         totalDue: s.totalDue,

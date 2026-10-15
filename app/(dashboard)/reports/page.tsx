@@ -90,7 +90,8 @@ async function getReportData() {
     }),
     // Collection rate
     prisma.repaymentSchedule.aggregate({
-      where: { tenantId, dueDate: { gte: monthStart, lt: monthEndExclusive } },
+      // A reversed loan's cancelled rows (lib/payouts/reversal-effects.ts) are not due.
+      where: { tenantId, dueDate: { gte: monthStart, lt: monthEndExclusive }, status: { not: "CANCELLED" } },
       _sum: { totalDue: true },
     }),
     prisma.payment.aggregate({
@@ -326,6 +327,10 @@ export default async function ReportsPage() {
           <Link href="/reports/default-charges"
             className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
             Default Charges
+          </Link>
+          <Link href="/reports/accounting"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
+            Accounting Export
           </Link>
           <div className="flex flex-wrap items-center gap-1.5">
             <a href="/api/reports/export?type=loans" download

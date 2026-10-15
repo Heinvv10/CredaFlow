@@ -1,11 +1,14 @@
 import { IntegrationsTab } from "@/components/settings/IntegrationsTab"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
+import { PayoutSettingsCard } from "@/components/settings/PayoutSettingsCard"
+import { XeroConnectionCard } from "@/components/settings/XeroConnectionCard"
 
 export const metadata = {
   title: "Integrations — Settings",
 }
 
-export default function IntegrationsSettingsPage() {
+export default async function IntegrationsSettingsPage({ searchParams }: { searchParams: Promise<{ xero?: string }> }) {
+  const { xero } = await searchParams
   return (
     <div className="container mx-auto max-w-4xl py-8 space-y-6">
       <Breadcrumbs
@@ -21,6 +24,8 @@ export default function IntegrationsSettingsPage() {
         </p>
       </div>
       <IntegrationsTab />
+      <PayoutSettingsCard />
+      <XeroConnectionCard returned={xero ?? null} />
     </div>
   )
 }
