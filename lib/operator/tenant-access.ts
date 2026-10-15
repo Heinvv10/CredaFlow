@@ -29,11 +29,14 @@ export type OperatorAccessRefusal =
   | "role_insufficient"
   | "wrong_operator"
   | "no_active_grant"
+  | "tenant_inactive"
 
 export type OperatorTenantAccess =
   | {
       allowed: true
       grantId: string
+      /** When the grant this use rides on ends (the console's read-only banner). */
+      grantExpiresAt: Date
       principal: {
         id: string
         email: string
@@ -93,8 +96,11 @@ export async function resolveOperatorTenantAccess(input: {
   if (!isReadMethod(input.method)) return refuse("write_refused")
   if (input.requiredRole && !hasMinRole(SUPPORT_ACCESS_ROLE, input.requiredRole)) return refuse("role_insufficient")
 
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { operatorId: true } })
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { operatorId: true, status: true } })
   if (!tenant || tenant.operatorId !== user.operatorId) return refuse("wrong_operator")
+  // A suspended (or not yet active) lender is closed to its own staff, so to
+  // support access too; the console still shows its status and counts.
+  if (tenant.status !== "ACTIVE") return refuse("tenant_inactive")
 
   const grant = await findActiveSupportGrant(tenantId, user.id, now)
   if (!grant) return refuse("no_active_grant")
@@ -111,6 +117,7 @@ export async function resolveOperatorTenantAccess(input: {
   return {
     allowed: true,
     grantId: grant.id,
+    grantExpiresAt: grant.expiresAt,
     principal: {
       id: user.id, email: user.email, name: user.name,
       role: SUPPORT_ACCESS_ROLE, tenantId, totpVerified: true,

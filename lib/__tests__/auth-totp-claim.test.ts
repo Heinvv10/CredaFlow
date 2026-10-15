@@ -142,7 +142,9 @@ describe("totpEnrolmentRequired claim — jwt/session callbacks", () => {
     expect(free?.totpEnrolmentRequired).toBe(false)
   })
 
-  it("keeps the claim across a token refresh", async () => {
+  it("keeps the claim across a token refresh while the lender still requires 2FA", async () => {
+    // Revalidation re-decides the hold as sign-in would (lib/auth-principal.ts).
+    h.findConfig.mockResolvedValue({ requireStaffTotp: true })
     h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0 })
     const kept = await h.config!.callbacks.jwt({
       token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpEnrolmentRequired: true },
@@ -201,6 +203,8 @@ describe("totpVerified claim — jwt/session callbacks", () => {
     })
     expect(h.findUser).toHaveBeenCalled()
     expect(refreshed?.totpVerified).toBe(false)
+    // A code-verified session holds only while the user still has TOTP.
+    h.findUser.mockResolvedValue({ active: true, role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpEnabled: true, totpSecret: "S" })
     const kept = await h.config!.callbacks.jwt({
       token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: true, totpEnrolmentRequired: false },
     })

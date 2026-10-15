@@ -10,7 +10,8 @@ const { authMock, findUnique, findMany, create, transaction, logAuditStrict } = 
   logAuditStrict: vi.fn(),
 }))
 vi.mock("@/lib/auth", () => ({ auth: authMock }))
-vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, findMany }, $transaction: transaction } }))
+// findFirst: the host-rule lookups (lib/config/tenant-domain.ts); no other lender holds a clashing domain.
+vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, findMany: async (a: { where?: { domain?: unknown } }) => (a?.where?.domain ? [] : findMany(a)), findFirst: async () => null }, $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({ logAuditStrict, AuditAction: { TENANT_CREATED: "TENANT_CREATED" } }))
 
 import { GET, POST } from "./route"
