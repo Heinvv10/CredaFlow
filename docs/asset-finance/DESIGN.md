@@ -283,6 +283,43 @@ trigger or CHECK, each proven by an IT that removes it
   the deal (no upload in the claim form); the portal loans list still says
   "loan" for a lease.
 
+## Slice 4a: recovery, remarketing, legal matter (built; legal and tax to confirm)
+
+Spec and rules: [`SLICE4.md`](SLICE4.md). Code: `lib/asset-finance/recovery-*.ts`,
+`legal-matter-*.ts`, `documents/nca/recovery-pdf.ts`,
+`documents/post-sale-statement.ts`, `components/asset-finance/recovery/`;
+migration `20261015400000_asset_finance_recovery`. Evidence:
+`evidence/slice4/`.
+
+- One `Recovery` per loan at a time, on four routes: s127 surrender (the
+  existing `SurrenderRequest` is its sub-record and keeps its notices), s131
+  attachment and NON_NCA court order (both opened by the legal matter's
+  ASSET_RECOVERED step), and NON_NCA voluntary. The status flow, route rules,
+  write-once figures and asset status (`RECOVERED`, `SOLD_IN_REMARKETING`)
+  are enforced by triggers.
+- `LegalMatter` + append-only `LegalMatterStep`: an NCA summons waits for an
+  s129 step plus 10 SA business days, a NON_NCA summons needs a letter of
+  demand, an attachment order needs a judgment. Appointing the attorney on an
+  NCA loan needs an issued s129 notice; it sets `ATTORNEY_REFERRED`, which
+  makes the bureau screen propose an L. Nothing is sent automatically.
+- Costs are recorded by one person and approved or rejected by another;
+  only approved costs count. NCA deducts only the tenant's allow-listed
+  sale costs; LEGAL_TAXED needs a judgment or settlement step.
+- A sale needs a current non-INTERNAL valuation; below the highest one, or to
+  a related party (borrower, surety, director, staff, COI), it needs a second
+  approver. Proceeds are one real `Payment`; the resale tax invoice and the
+  repossession VAT event (s8(10)/s10(10), `// UNTESTED: tax`) are immutable.
+- A shortfall freezes charges from the proceeds date to the deadline (NCA:
+  final notice + 10 business days; NON_NCA: tenant demand period), then
+  collections resume via the nightly charges and a deadline cron. Write-off
+  stays the manual two-person route. A surplus is a `RecoveryRefund`
+  released by two people.
+
+Known limits: only the loan's current recovery shows on the staff panel; an
+NCA freeze is open-ended between proceeds and the final notice; the
+cost-type allow-lists, deadlines and VAT treatment await legal and tax
+sign-off. 4b (journals, IsaFlow push) waits for PR #89.
+
 ## Acceptance (every slice)
 
 - 10–20 past client deals, anonymised to synthetic data, reproduce the
