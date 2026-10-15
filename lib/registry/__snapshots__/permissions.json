@@ -10,7 +10,7 @@
     ],
     [
       "decline_loan",
-      "CREDIT_OFFICER"
+      "LOAN_ADMIN"
     ],
     [
       "delete_client",
