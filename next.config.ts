@@ -23,6 +23,10 @@ const faceComparisonFiles = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Next 16.4's `next dev` appends its own block to AGENTS.md when it detects
+  // an AI agent. AGENTS.md is a generated mirror of CLAUDE.md, so that block
+  // fails `npm run agents:check`.
+  agentRules: false,
   outputFileTracingIncludes: {
     "/api/documents/selfie": faceComparisonFiles,
     "/api/selfie-link/**": faceComparisonFiles,

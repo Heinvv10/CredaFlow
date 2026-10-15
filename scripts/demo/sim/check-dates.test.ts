@@ -10,6 +10,8 @@ describe("isBusinessDateColumn", () => {
     ["ReferenceRate", "effectiveDate"],
     ["ContractRate", "effectiveDate"],
     ["VatRate", "effectiveDate"],
+    ["LeaseTerminationQuote", "terminationDate"],
+    ["MaintenanceFund", "leaseEndDate"],
   ])("excludes %s.%s from event-clock leak detection", (table, column) => {
     expect(isBusinessDateColumn(table, column)).toBe(true)
   })
