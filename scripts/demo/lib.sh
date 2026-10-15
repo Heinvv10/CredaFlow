@@ -184,6 +184,9 @@ worktree_tag() {
 # Needed by both, shared so there is one value (nothing persisted outlives it):
 #   NEXTAUTH_SECRET  FAIS disclosure tokens (1 h TTL; only their hash is stored)
 #   CRON_SECRET, INTERNAL_API_SECRET, ADMIN_SECRET
+#   UNSUB_TOKEN_SECRET  signs List-Unsubscribe links; a production build refuses
+#     a templated email without it (the signing-OTP email). upgrade-stack adds it
+#     to a live app that predates it (ADDABLE_SECRETS, upgrade-stack.lib.sh).
 #   TURNSTILE_SECRET_KEY  Cloudflare's documented always-pass TEST secret.
 # Not here: AUTH_SECRET. Sessions are JWT cookies (lib/auth-config.ts) and no
 # stored row is derived from it, so live keeps per-container STAFF_/PORTAL_
