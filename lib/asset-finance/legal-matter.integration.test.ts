@@ -95,11 +95,27 @@ suite("slice 4a legal matter service and routes", () => {
     expect((await step(state.ncaMatter, { kind: "LETTER_OF_DEMAND", stepDate: today() })).status).toBe(403)
   })
 
-  it("appoints the attorney: referral, stage and the bureau staff view move, and nothing is confirmed or sent", async () => {
+  it("refuses an NCA attorney until a section 129 step, the issued notice and the stage are all in place", async () => {
     as(fx.adminA, "LOAN_ADMIN")
+    const appoint = async () => json(await routes.appoint(state.ncaMatter, { supplierId: fx.supplier, appointedOn: today() }))
     expect((await json(await routes.appoint(state.ncaMatter, { supplierId: "nope", appointedOn: today() }))).status).toBe(409)
     expect((await json(await routes.appoint(state.ncaMatter, { supplierId: fx.supplier, appointedOn: day(1) }))).status).toBe(400)
+    expect(await appoint()).toEqual({ status: 409, body: { error: "An NCA attorney referral needs a completed section 129 notice first" } })
+    officer()
+    const sent = await step(state.ncaMatter, { kind: "S129_SENT", stepDate: boundary.short, section129RecordId: state.s129 })
+    expect(sent.status).toBe(201)
+    state.s129Step = sent.body.id
+    as(fx.adminA, "LOAN_ADMIN")
+    expect((await appoint()).status).toBe(409) // the step alone: the record is not an issued notice and the stage is not SECTION_129_SENT
+    await database().complianceRecord.update({ where: { id: state.s129 }, data: { data: { lifecycle: "ISSUED" } } })
+    expect((await appoint()).status).toBe(409) // still no stage
+    await database().loan.update({ where: { id: nca.loanId }, data: { collectionsStage: "SECTION_129_SENT" } })
+    expect(await database().attorneyReferral.count({ where: { loanId: nca.loanId } })).toBe(0)
     expect(await listAwaitingAdverse(fx.tenantId)).toEqual([])
+  })
+
+  it("appoints the attorney: referral, stage and the bureau staff view move, and nothing is confirmed or sent", async () => {
+    as(fx.adminA, "LOAN_ADMIN")
     const appointed = await json(await routes.appoint(state.ncaMatter, { supplierId: fx.supplier, appointedOn: today() }))
     expect(appointed).toEqual({ status: 200, body: { kind: "done", id: state.ncaMatter, stageSet: true } })
     const loan = await database().loan.findUniqueOrThrow({ where: { id: nca.loanId }, select: { collectionsStage: true, attorneyReferral: true } })
@@ -111,15 +127,14 @@ suite("slice 4a legal matter service and routes", () => {
     expect(await database().bureauSubmissionRecord.count({ where: { tenantId: fx.tenantId } })).toBe(0)
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "LEGAL_MATTER_ATTORNEY_APPOINTED", entityId: state.ncaMatter } })).toBe(1)
     const bell = await notifications()
-    expect(bell.map((n) => n.userId).sort()).toEqual([fx.adminA, fx.officer].sort())
-    expect(bell[0]).toMatchObject({ title: expect.stringMatching(/^Loan RCVL-\w+: send the section 129 notice$/), entityType: "LegalMatter", entityId: state.ncaMatter })
+    const appointerBell = bell.filter((n) => n.userId === fx.adminA)
+    expect(appointerBell).toHaveLength(1)
+    expect(bell.some((n) => n.userId === fx.officer && n.title === appointerBell[0].title)).toBe(true)
+    expect(appointerBell[0]).toMatchObject({ title: expect.stringMatching(/^Loan RCVL-\w+: summons may issue from \d{4}-\d{2}-\d{2}$/), entityType: "LegalMatter", entityId: state.ncaMatter })
   })
 
   it("refuses an NCA summons a business day short of the section 129 notice and admits it on day 10", async () => {
     officer()
-    const sent = await step(state.ncaMatter, { kind: "S129_SENT", stepDate: boundary.short, section129RecordId: state.s129 })
-    expect(sent.status).toBe(201)
-    state.s129Step = sent.body.id
     const reused = await step(state.ncaMatter, { kind: "S129_SENT", stepDate: boundary.short, section129RecordId: state.s129 })
     expect(reused).toEqual({ status: 409, body: { error: "That section 129 notice record already backs a step; only a correction may name it again" } })
     expect((await json(await routes.matter(state.ncaMatter))).body.matter.eligibleSection129Records[0].usedByStepId).toBe(state.s129Step)
@@ -209,6 +224,7 @@ suite("slice 4a legal matter service and routes", () => {
     officer()
     const company = await newLoan(database(), fx, "NON_NCA")
     const matter = (await json(await routes.open(company.loanId))).body.id
+    expect((await json(await routes.appoint(matter, { supplierId: fx.supplier, appointedOn: today() }))).status).toBe(200) // no section 129 gate off the NCA
     await step(matter, { kind: "LETTER_OF_DEMAND", stepDate: today() })
     expect((await step(matter, { kind: "ASSET_RECOVERED", stepDate: today(), location: "Yard 9", condition: "Fair" })).body.error).toBe("A NON_NCA court-order recovery needs the legal matter's judgment")
     const judgment = await step(matter, stepWithEvidence({ kind: "JUDGMENT", stepDate: today() }))

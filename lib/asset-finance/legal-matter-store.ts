@@ -3,7 +3,8 @@ import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { wouldRegressCollectionsStage } from "@/lib/collections/stages"
 import { prisma } from "@/lib/prisma"
 import { dbDate } from "./dates"
-import { notifyNextLegalStep } from "./legal-matter-bell"
+import { loadHintSteps, notifyNextLegalStep } from "./legal-matter-bell"
+import { attorneyAppointmentRefusal } from "./legal-matter-gate"
 import { LegalRefusal, refusing } from "./legal-matter-guard"
 import type { AppointAttorneyInput } from "./legal-matter-input"
 import type { LegalRegime } from "./legal-matter-hint"
@@ -47,6 +48,14 @@ export async function appointAttorney(actor: LegalActor, matterId: string, input
     if (!supplier) throw new LegalRefusal("Choose an active supplier record for the attorney")
     const loan = await tx.loan.findFirst({ where: { id: matter.loanId, tenantId: actor.tenantId }, select: { id: true, reference: true, collectionsStage: true, ncaRegime: true } })
     if (!loan) return { kind: "not_found" }
+    const refusal = attorneyAppointmentRefusal({
+      regime: loan.ncaRegime as LegalRegime, collectionsStage: loan.collectionsStage, steps: await loadHintSteps(tx, actor.tenantId, matter.id),
+      // The notice the manual attorney-referral route requires: issued and completed.
+      hasIssuedNotice: await tx.complianceRecord.count({
+        where: { tenantId: actor.tenantId, type: "SECTION_129_NOTICE", referenceId: loan.id, status: "COMPLETED", completedAt: { not: null }, data: { path: ["lifecycle"], equals: "ISSUED" } },
+      }) > 0,
+    })
+    if (refusal) throw new LegalRefusal(refusal)
     await tx.legalMatter.update({ where: { id: matter.id, tenantId: actor.tenantId }, data: { attorneySupplierId: supplier.id, attorneyAppointedOn: dbDate(input.appointedOn) } })
     const referral = {
       firmId: null, firmName: supplier.name, contactPerson: supplier.contactName, contactPhone: supplier.contactPhone, contactEmail: supplier.contactEmail,
