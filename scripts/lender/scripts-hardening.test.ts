@@ -168,24 +168,15 @@ describe("bind address", () => {
 })
 
 describe("one lock per lender", () => {
-  const holdLock = async (seconds: number) => {
-    const child = spawn("flock", ["-x", join(lender, "state/lender.lock"), "sleep", String(seconds)], { stdio: "ignore" })
-    await new Promise((r) => setTimeout(r, 400))
-    return child
-  }
-
   it("deploy, backup and restore each wait on it and give up with a clear message", { timeout: 30000 }, async () => {
     const f = backup()
-    const holder = await holdLock(4)
-    try {
+    await holdThen(async () => {
       for (const [script, args] of [["deploy.sh", [lender, "cf:new"]], ["backup.sh", [lender]], ["restore.sh", [lender, f]]] as const) {
         const r = sh(script, [...args], { LENDER_LOCK_WAIT: "1" })
         expect(r.status, script).not.toBe(0)
         expect(r.out, script).toMatch(/holds .*lender\.lock/)
       }
-    } finally {
-      await new Promise((r) => holder.on("exit", r))
-    }
+    })
     expect(sh("backup.sh", [lender], { LENDER_LOCK_WAIT: "1" }).status).toBe(0)
   })
 
@@ -251,24 +242,29 @@ describe("locks", () => {
     }
     const base = join(root, "run", `credaflow-lender-locks-${process.getuid?.()}`)
     mkdirSync(base, { recursive: true, mode: 0o700 })
-    const child = spawn("flock", ["-x", join(base, "credaflow-lender-stub-lender.lock"), "sleep", "4"], { stdio: "ignore" })
-    await new Promise((r) => setTimeout(r, 400))
-    try {
+    await holdThen(async () => {
       const r = sh("backup.sh", [other], { LENDER_LOCK_WAIT: "1" })
       expect(r.status).not.toBe(0)
       expect(r.out).toMatch(/compose project 'credaflow-lender-stub-lender' holds/)
-    } finally {
-      await new Promise((r) => child.on("exit", r))
-    }
+    }, join(base, "credaflow-lender-stub-lender.lock"))
   })
 })
 
-async function holdThen(fn: () => Promise<void>) {
-  const child = spawn("flock", ["-x", join(lender, "state/lender.lock"), "sleep", "4"], { stdio: "ignore" })
-  await new Promise((r) => setTimeout(r, 400))
+// Runs fn while another process holds FILE's lock, from the moment flock has it
+// (the holder says so on stdout) until fn settles, however long fn takes on a
+// loaded host. No sleep decides either end: a fixed-length hold could expire
+// before the last script under test reached its own flock.
+async function holdThen(fn: () => Promise<void>, file = join(lender, "state/lender.lock")) {
+  const holder = spawn("bash", ["-c", 'exec 9>>"$1" && flock -x 9 && echo locked && exec sleep 600', "hold", file], { stdio: ["ignore", "pipe", "ignore"] })
+  const exited = new Promise((r) => holder.once("exit", r))
+  await new Promise<void>((ok, fail) => {
+    holder.stdout.on("data", (d: Buffer) => { if (d.toString().includes("locked")) ok() })
+    void exited.then(() => fail(new Error(`the lock holder exited before it took ${file}`)))
+  })
   try {
     await fn()
   } finally {
-    await new Promise((r) => child.on("exit", r))
+    holder.kill()
+    await exited
   }
 }

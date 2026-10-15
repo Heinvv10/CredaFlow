@@ -54,7 +54,11 @@ describe('bank statement lines', () => {
   })
 })
 
-describe('generateSpecimens', () => {
+// A full specimen set is CPU-bound rendering (SVG to PNG, three PDFs): about
+// 0.5 s idle, the two-set case 1.2-2.1 s; on a loaded 32-core host (load
+// average 90-150) those measured up to 3.9 s and 11.5 s, past the 5 s default
+// (same cause as the test below).
+describe('generateSpecimens', { timeout: 60_000 }, () => {
   it('writes byte-identical files for the same persona and as-of date', async () => {
     const p = getPersona('live-clean-approve')
     const a = await generateSpecimens(p, '2026-10-10', scratch())
