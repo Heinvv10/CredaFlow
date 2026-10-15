@@ -24,6 +24,15 @@ export const STATEMENT_UPLOAD_LOOKBACK_DAYS = 90
 /** A statement ending more than this before the application is stale (goal §5). */
 export const STALE_STATEMENT_DAYS = 45
 
+/**
+ * The next statement of an account starts on the day the previous one ended
+ * (FNB, Nedbank: 36 corpus pairs, 2026-10-15) or the day after (ABSA
+ * eStatement: 2 pairs); each of the 38 opened at the previous closing to the
+ * cent. A longer gap or an overlap is not a boundary the two share, so no
+ * agreement is noted on the flag (statement-chain.ts).
+ */
+export const STATEMENT_CHAIN_MAX_GAP_DAYS = 1
+
 // ── DOCUMENT_AUTHENTICITY ──────────────────────────────────────────────────
 
 /**
