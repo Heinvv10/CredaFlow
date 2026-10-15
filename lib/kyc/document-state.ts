@@ -195,12 +195,14 @@ export interface CompositeKycReader {
       }) => Promise<Array<{ biometricResult: unknown }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof PRIOR_FAILED_ATTEMPT_CONDITIONS
-        select: { extractionStatus: true; biometricResult: true; verificationRejectedAt: true; verificationRejectedById: true }
+        select: { extractionStatus: true; biometricResult: true; verificationRejectedAt: true; verificationRejectedById: true; createdAt: true; deletedAt: true }
       }) => Promise<Array<{
         extractionStatus: string | null
         biometricResult: unknown
         verificationRejectedAt: Date | null
         verificationRejectedById: string | null
+        createdAt: Date
+        deletedAt: Date | null
       }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof BLOCKING_SELFIE_CONDITIONS
@@ -555,7 +557,7 @@ export async function readCompositeKycState(
         clientId: args.clientId,
         ...PRIOR_FAILED_ATTEMPT_CONDITIONS,
       },
-      select: { extractionStatus: true, biometricResult: true, verificationRejectedAt: true, verificationRejectedById: true },
+      select: { extractionStatus: true, biometricResult: true, verificationRejectedAt: true, verificationRejectedById: true, createdAt: true, deletedAt: true },
     }),
   ])
   // Deterministic, and identical to the SQL predicate's row choice: verified
@@ -617,6 +619,7 @@ export async function readCompositeKycState(
           blockingBiometricAttempt: blocksAttestationOnFile,
           biometricAssessment,
           portraitRefusals,
+          selfieAttempts: failedAttempts,
         },
       )
   const result = deriveCompositeKycState({

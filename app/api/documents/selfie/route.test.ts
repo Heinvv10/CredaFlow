@@ -22,6 +22,7 @@ const txClientFindUniqueMock = vi.fn()
 const txClientUpdateMock = vi.fn()
 const auditCreateMock = vi.fn()
 const queryRawMock = vi.fn()
+const DATABASE_NOW = new Date("2026-10-14T10:00:00.123Z")
 const transactionMock = vi.fn()
 const saveFileMock = vi.fn()
 const deleteFileMock = vi.fn()
@@ -186,7 +187,10 @@ describe("POST /api/documents/selfie", () => {
       ...data,
     }))
     auditCreateMock.mockResolvedValue({ id: "audit-1" })
-    queryRawMock.mockResolvedValue([{ pg_advisory_xact_lock: null }])
+    queryRawMock.mockImplementation(async (query: { strings?: readonly string[] }) =>
+      (query.strings ?? []).join("").includes("clock_timestamp")
+        ? [{ now: DATABASE_NOW }]
+        : [{ pg_advisory_xact_lock: null }])
     transactionMock.mockImplementation(
       (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     )
@@ -236,6 +240,8 @@ describe("POST /api/documents/selfie", () => {
       extractionGeneration: expect.stringMatching(/^[0-9a-f-]{36}$/),
       extractionStartedAt: expect.any(Date),
       contentSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      // The database clock under the evidence lock, not the host clock.
+      createdAt: DATABASE_NOW,
     }))
     expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
       txDocumentCreateMock.mock.invocationCallOrder[0],
@@ -245,11 +251,14 @@ describe("POST /api/documents/selfie", () => {
     expect(txDocumentFindFirstMock.mock.calls[1][0]).toEqual(expect.objectContaining({
       where: expect.objectContaining({
         id: "selfie-doc-1",
-        extractionStatus: "processing",
         extractionGeneration: generation,
         deletedAt: null,
-        verified: false,
-        verificationNote: null,
+        // Its own processing attempt, or that attempt after the sweeper
+        // failed it (a late answer is then accepted only if adverse).
+        OR: [
+          { extractionStatus: "processing", verified: false, verificationNote: null },
+          expect.objectContaining({ extractionStatus: "failed", verified: false }),
+        ],
       }),
     }))
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -1471,6 +1480,7 @@ describe("POST /api/documents/selfie", () => {
       subjectFingerprint: biometricSubjectFingerprint(biometricSubject),
       biometricFailureReason: reason,
       faceVerdict: { samePerson: "same", faceMatch: true, faceModelSamePerson: null },
+      verdictRecordedAt: DATABASE_NOW.toISOString(),
     })
     expect(update.data.extractionError).toBe(message)
     const audit = auditCreateMock.mock.calls[1][0] as { data: { action: string; newValue: { document: Record<string, unknown> } } }
