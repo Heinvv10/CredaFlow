@@ -31,6 +31,8 @@ const PINNED = {
   finalWithCosts: "9274b32e7ea83f50e78fe66cbbe6384dc6be377716b4fae27c7f30601248b250",
   // The same notice with the linked recovery's sale and account lines added (new, no earlier pin).
   finalWithRecovery: "73bba831e204f3f125377d10e9c780768e1eb19388193d3af3811097aa6bc297",
+  // With a charged cost the account cannot carry (R 100.00 of the R 370.00 shortfall): the new line, and the shortfall net of it.
+  finalWithUnrecoverable: "3828d90e85876454611f51c984b4d967451ec8162e2ac7beaf4a418b2c514c76",
 }
 const recoveryOutcome = {
   settlementDueCents: 150_000, grossProceedsCents: 120_000, deductedCostsCents: 5_000, netProceedsCents: 115_000,
@@ -70,5 +72,20 @@ describe("s127 final notice recovery costs", () => {
     expect(printed).toEqual(expect.arrayContaining(["R 1,500.00", "R 1,200.00", "R 1,150.00", "R 370.00", "Sale and account lines: DRAFT — require lender legal approval"]))
     // Without a recovery the notice is the pinned one.
     expect(sha(await renderSurrenderFinalNotice({ ...data, recoveryOutcome: undefined }))).toBe(PINNED.final)
+  })
+
+  it("shows charged costs the account cannot carry on a line of their own, with the account shortfall net of them", async () => {
+    const withLine = await renderSurrenderFinalNotice({ ...data, costs, recoveryOutcome: { ...recoveryOutcome, unrecoverableCostsCents: 10_000 } })
+    const printed = await texts(withLine)
+    expect(printed).toContain("Charged costs not recoverable on the account")
+    expect(printed).toContain("R 100.00")
+    expect(printed).toContain("R 270.00") // R 370.00 shortfall less R 100.00
+    expect(printed).not.toContain("R 370.00")
+    expect(sha(withLine)).toBe(PINNED.finalWithUnrecoverable)
+    // Nil (or none) prints no extra line and leaves the earlier pin alone.
+    for (const unrecoverableCostsCents of [0, undefined]) {
+      const same = await renderSurrenderFinalNotice({ ...data, costs, recoveryOutcome: { ...recoveryOutcome, unrecoverableCostsCents } })
+      expect(sha(same)).toBe(PINNED.finalWithRecovery)
+    }
   })
 })

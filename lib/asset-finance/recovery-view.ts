@@ -2,7 +2,7 @@ import type { RecoveryCost, RecoveryCostTreatment, RecoveryStatus } from "@prism
 import { prisma } from "@/lib/prisma"
 import { PORTAL_AUTHORITY_ROLES } from "./portal-access"
 import { isoOfDbDate } from "./dates"
-import { costTotals } from "./recovery-outcome"
+import { accountShortfall, costTotals } from "./recovery-outcome"
 import { isNcaRoute } from "./recovery-input"
 import { COST_TYPE_LABELS } from "./recovery-labels"
 
@@ -55,7 +55,10 @@ export async function loadStaffRecoveryView(tenantId: string, id: string, opts: 
     })),
     figures: row.settlementDueCents === null ? null : {
       settlementDueCents: row.settlementDueCents, grossProceedsCents: row.grossProceedsCents, deductedCostsCents: row.deductedCostsCents, chargedCostsCents: row.chargedCostsCents,
-      netProceedsCents: row.netProceedsCents, shortfallCents: row.shortfallCents, surplusCents: row.surplusCents, proceedsPaymentId: row.proceedsPaymentId,
+      netProceedsCents: row.netProceedsCents,
+      // What the account still owes; the charged costs it cannot carry are shown apart.
+      shortfallCents: accountShortfall(row.shortfallCents ?? 0, row.unrecoverableCostsCents), unrecoverableCostsCents: row.unrecoverableCostsCents ?? 0,
+      surplusCents: row.surplusCents, proceedsPaymentId: row.proceedsPaymentId,
     },
     freeze: { from: iso(row.chargesFrozenFrom), until: iso(row.chargesFrozenUntil) },
     refund: row.refund ? {
@@ -84,6 +87,7 @@ export interface PortalRecoveryView {
     netProceedsCents: number
     chargedCostsCents: number
     shortfallCents: number
+    unrecoverableCostsCents: number
     surplusCents: number
     costs: { label: string; grossCents: number; treatment: RecoveryCostTreatment }[]
     chargesFrozenUntil: string | null
@@ -105,7 +109,7 @@ export async function loadPortalRecoveryView(tenantId: string, loanId: string): 
     notices: { valuation: nca && VALUATION_NOTICED.includes(row.status), final: nca && NCA_FINAL.includes(row.status) },
     finalAccount: showAccount ? {
       grossProceedsCents: row.grossProceedsCents ?? 0, deductedCostsCents: row.deductedCostsCents ?? 0, netProceedsCents: row.netProceedsCents ?? 0,
-      chargedCostsCents: row.chargedCostsCents ?? 0, shortfallCents: row.shortfallCents ?? 0, surplusCents: row.surplusCents ?? 0,
+      chargedCostsCents: row.chargedCostsCents ?? 0, shortfallCents: accountShortfall(row.shortfallCents ?? 0, row.unrecoverableCostsCents), unrecoverableCostsCents: row.unrecoverableCostsCents ?? 0, surplusCents: row.surplusCents ?? 0,
       costs: row.costs.map((c) => ({ label: COST_TYPE_LABELS[c.type], grossCents: c.grossCents, treatment: c.treatment })),
       chargesFrozenUntil: iso(row.chargesFrozenUntil),
     } : null,

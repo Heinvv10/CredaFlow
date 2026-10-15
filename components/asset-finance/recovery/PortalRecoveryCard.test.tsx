@@ -31,7 +31,7 @@ describe("PortalRecoveryCard", () => {
     const out = text(view({
       status: "SHORTFALL_OPEN", notices: { valuation: true, final: true },
       finalAccount: {
-        grossProceedsCents: 60_000_000, deductedCostsCents: 1_000_000, netProceedsCents: 59_000_000, chargedCostsCents: 500_000, shortfallCents: 2_500_000, surplusCents: 0,
+        grossProceedsCents: 60_000_000, deductedCostsCents: 1_000_000, netProceedsCents: 59_000_000, chargedCostsCents: 500_000, shortfallCents: 2_500_000, unrecoverableCostsCents: 0, surplusCents: 0,
         costs: [{ label: "Storage", grossCents: 1_000_000, treatment: "DEDUCT_FROM_PROCEEDS" }, { label: "Legal costs (taxed)", grossCents: 500_000, treatment: "CHARGE_TO_ACCOUNT" }],
         chargesFrozenUntil: "2026-11-20",
       },
@@ -44,10 +44,21 @@ describe("PortalRecoveryCard", () => {
     expect(out).toContain("No further charges accrue")
   })
 
+  it("prints the charged costs the account cannot carry only when there are any, apart from the shortfall owed", () => {
+    const account = (unrecoverableCostsCents: number) => text(view({
+      status: "SHORTFALL_OPEN", notices: { valuation: true, final: true },
+      finalAccount: { grossProceedsCents: 60_000_000, deductedCostsCents: 0, netProceedsCents: 60_000_000, chargedCostsCents: 500_000, shortfallCents: 2_000_000, unrecoverableCostsCents, surplusCents: 0, costs: [], chargesFrozenUntil: null },
+    }))
+    expect(account(0)).not.toContain("not recoverable")
+    const out = account(500_000)
+    expect(out).toContain("Charged costs not recoverable on the account")
+    expect(out).toContain("Shortfall you owe")
+  })
+
   it("shows a surplus due to the borrower, and nothing about a buyer or a sale", () => {
     const out = text(view({
       status: "SURPLUS_HELD",
-      finalAccount: { grossProceedsCents: 90_000_000, deductedCostsCents: 0, netProceedsCents: 90_000_000, chargedCostsCents: 0, shortfallCents: 0, surplusCents: 4_000_000, costs: [], chargesFrozenUntil: null },
+      finalAccount: { grossProceedsCents: 90_000_000, deductedCostsCents: 0, netProceedsCents: 90_000_000, chargedCostsCents: 0, shortfallCents: 0, unrecoverableCostsCents: 0, surplusCents: 4_000_000, costs: [], chargesFrozenUntil: null },
     }))
     expect(out).toContain("Surplus due to you")
     expect(out.toLowerCase()).not.toContain("buyer")

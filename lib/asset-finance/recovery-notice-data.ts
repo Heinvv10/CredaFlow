@@ -26,6 +26,7 @@ export async function loadRecoveryNoticeData(tenantId: string, id: string, docum
     || row.netProceedsCents === null || row.shortfallCents === null || row.surplusCents === null ? undefined : {
       settlementDueCents: row.settlementDueCents, grossProceedsCents: row.grossProceedsCents, deductedCostsCents: row.deductedCostsCents,
       chargedCostsCents: row.chargedCostsCents, netProceedsCents: row.netProceedsCents, shortfallCents: row.shortfallCents, surplusCents: row.surplusCents,
+      unrecoverableCostsCents: row.unrecoverableCostsCents ?? undefined,
     }
   const data: RecoveryNoticeData = {
     reference: row.loan.reference, documentDate,

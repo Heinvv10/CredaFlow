@@ -50,6 +50,15 @@ export function recoveryOutcome(input: RecoveryOutcomeInput): RecoveryOutcome {
   }
 }
 
+/**
+ * What the account still owes: the shortfall less the charged costs the loan's
+ * ledger could not carry (Recovery.unrecoverableCostsCents, null before the
+ * proceeds). shortfallCents itself still includes them.
+ */
+export function accountShortfall(shortfallCents: number, unrecoverableCostsCents: number | null): number {
+  return shortfallCents - (unrecoverableCostsCents ?? 0)
+}
+
 export function costTotals(costs: RecoveryCostLine[]): { deducted: number; charged: number } {
   let deducted = 0
   let charged = 0

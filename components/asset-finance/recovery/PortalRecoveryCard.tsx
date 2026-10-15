@@ -38,6 +38,7 @@ export function PortalRecoveryCard({ view }: { view: PortalRecoveryView }) {
               <Figure label="Costs deducted from the proceeds" value={formatMoney(account.deductedCostsCents)} />
               <Figure label="Net proceeds" value={formatMoney(account.netProceedsCents)} strong />
               <Figure label="Costs charged to the account" value={formatMoney(account.chargedCostsCents)} />
+              {account.unrecoverableCostsCents > 0 && <Figure label="Charged costs not recoverable on the account" value={formatMoney(account.unrecoverableCostsCents)} />}
               {account.shortfallCents > 0 && <Figure label="Shortfall you owe" value={formatMoney(account.shortfallCents)} strong />}
               {account.surplusCents > 0 && <Figure label="Surplus due to you" value={formatMoney(account.surplusCents)} strong />}
               {account.shortfallCents === 0 && account.surplusCents === 0 && <Figure label="Balance" value="Nothing owed either way" strong />}

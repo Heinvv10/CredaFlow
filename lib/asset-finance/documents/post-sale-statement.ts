@@ -1,6 +1,6 @@
 import { formatDatePdf, formatZarPdf } from "@/lib/pdf/helpers"
 import { DealDocumentWriter } from "./pdf-layout"
-import { COST_COLUMNS, type RecoveryNoticeData } from "./nca/recovery-pdf"
+import { COST_COLUMNS, unrecoverableLine, type RecoveryNoticeData } from "./nca/recovery-pdf"
 
 /**
  * The account statement of a NON_NCA recovery after its sale. A plain
@@ -27,7 +27,8 @@ export async function renderPostSaleStatement(data: RecoveryNoticeData): Promise
     ["Costs deducted from proceeds", formatZarPdf(o.deductedCostsCents)],
     ["Net proceeds", formatZarPdf(o.netProceedsCents)],
     ["Costs charged to account", formatZarPdf(o.chargedCostsCents)],
-    ["Amount still owing", formatZarPdf(o.shortfallCents)],
+    ...unrecoverableLine(o),
+    ["Amount still owing", formatZarPdf(o.shortfallCents - (o.unrecoverableCostsCents ?? 0))],
     ["Surplus due to customer", formatZarPdf(o.surplusCents)],
   ])
   if (data.costs.length > 0) {

@@ -14,7 +14,7 @@ export interface SurrenderNoticeData {
   /** The linked recovery's sale and account figures; their lines are added after the existing ones only when this is present. */
   recoveryOutcome?: {
     settlementDueCents: number; grossProceedsCents: number; deductedCostsCents: number; netProceedsCents: number
-    chargedCostsCents: number; shortfallCents: number; surplusCents: number
+    chargedCostsCents: number; shortfallCents: number; surplusCents: number; unrecoverableCostsCents?: number
   }
   /** The linked recovery's costs; a "RECOVERY COSTS" section is printed only when this is non-empty. */
   costs?: { type: string; label: string; grossCents: number; treatment: "DEDUCT_FROM_PROCEEDS" | "CHARGE_TO_ACCOUNT" }[]
@@ -63,7 +63,8 @@ function recoveryOutcomeLines(w: DealDocumentWriter, o: NonNullable<SurrenderNot
     ["Costs deducted from proceeds", formatZarPdf(o.deductedCostsCents)],
     ["Net proceeds", formatZarPdf(o.netProceedsCents)],
     ["Costs charged to account", formatZarPdf(o.chargedCostsCents)],
-    ["Account shortfall", formatZarPdf(o.shortfallCents)],
+    ...(o.unrecoverableCostsCents ? [["Charged costs not recoverable on the account", formatZarPdf(o.unrecoverableCostsCents)] as [string, string]] : []),
+    ["Account shortfall", formatZarPdf(o.shortfallCents - (o.unrecoverableCostsCents ?? 0))],
     ["Account surplus", formatZarPdf(o.surplusCents)],
   ])
   w.paragraph("Sale and account lines: DRAFT — require lender legal approval", w.italic)

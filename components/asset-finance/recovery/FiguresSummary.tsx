@@ -9,6 +9,7 @@ export function FiguresSummary({ figures }: { figures: NonNullable<StaffRecovery
     ["Costs deducted", figures.deductedCostsCents],
     ["Net proceeds", figures.netProceedsCents, true],
     ["Costs charged to the account", figures.chargedCostsCents],
+    ["Charged costs not recoverable on the account", figures.unrecoverableCostsCents > 0 ? figures.unrecoverableCostsCents : null],
     ["Shortfall", figures.shortfallCents, true],
     ["Surplus", figures.surplusCents, true],
   ]

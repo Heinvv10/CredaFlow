@@ -23,12 +23,18 @@ export interface RecoveryNoticeData {
     chargedCostsCents: number
     netProceedsCents: number
     shortfallCents: number
+    /** Charged costs the account cannot carry; included in shortfallCents, shown apart. */
+    unrecoverableCostsCents?: number
     surplusCents: number
   }
   costs: RecoveryCostLine[]
 }
 
 export const COST_LINES_NOTE = "Cost lines: DRAFT — require lender legal approval"
+
+/** The line for charged costs the account cannot carry, only when there are any. */
+export const unrecoverableLine = (o: { unrecoverableCostsCents?: number }): [string, string][] =>
+  o.unrecoverableCostsCents ? [["Charged costs not recoverable on the account", formatZarPdf(o.unrecoverableCostsCents)]] : []
 
 export const COST_COLUMNS: readonly TableColumn[] = [
   { header: "Cost", x: 44, width: 270 },
@@ -62,7 +68,8 @@ export async function renderRecoveryFinalNotice(data: RecoveryNoticeData): Promi
     ["Costs deducted from proceeds", formatZarPdf(o.deductedCostsCents)],
     ["Net proceeds", formatZarPdf(o.netProceedsCents)],
     ["Costs charged to account", formatZarPdf(o.chargedCostsCents)],
-    ["Shortfall", formatZarPdf(o.shortfallCents)],
+    ...unrecoverableLine(o),
+    ["Shortfall", formatZarPdf(o.shortfallCents - (o.unrecoverableCostsCents ?? 0))],
     ["Surplus due to consumer", formatZarPdf(o.surplusCents)],
   ])
   if (data.costs.length > 0) {

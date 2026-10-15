@@ -62,6 +62,28 @@ describe("s131 DRAFT notices", () => {
   })
 })
 
+describe("charged costs the account cannot carry", () => {
+  const withUnrecoverable: RecoveryNoticeData = { ...data, outcome: { ...data.outcome!, unrecoverableCostsCents: 10_000 } }
+
+  it("print on their own line and the shortfall is net of them, in the s131 notice and the NON_NCA statement", async () => {
+    for (const render of [renderRecoveryFinalNotice, renderPostSaleStatement]) {
+      const all = await texts(await render(withUnrecoverable))
+      expect(all).toContain("Charged costs not recoverable on the account")
+      expect(all).toContain("R 100.00")
+      expect(all).toContain("R 270.00") // R 370.00 less R 100.00
+      expect(all).not.toContain("R 370.00")
+    }
+  })
+
+  it("print nothing extra when there are none", async () => {
+    for (const render of [renderRecoveryFinalNotice, renderPostSaleStatement]) {
+      const all = await texts(await render({ ...data, outcome: { ...data.outcome!, unrecoverableCostsCents: 0 } }))
+      expect(all).not.toContain("Charged costs not recoverable on the account")
+      expect(all).toContain("R 370.00")
+    }
+  })
+})
+
 describe("NON_NCA post-sale statement", () => {
   it("is a plain statement: no NCA wording, no placeholder clause, no watermark", async () => {
     const all = await texts(await renderPostSaleStatement(data))
