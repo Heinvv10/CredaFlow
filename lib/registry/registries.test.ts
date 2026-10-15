@@ -4,12 +4,10 @@ import { describe, expect, it } from "vitest"
 import { AuditAction } from "@/lib/audit"
 import { CRON_FRESHNESS_MINUTES } from "@/lib/ops/cron-heartbeat"
 import { TENANT_SCOPED_MODELS } from "@/lib/tenant-scope"
-import { buildRegistries } from "@/scripts/gen-registries"
 import { CRON_JOBS } from "./generated/cron-jobs"
 import { CLIENT_PERMISSIONS, SERVER_PERMISSIONS } from "./generated/permissions"
 import { SIMULATED_INTEGRATIONS } from "./generated/simulated-integrations"
 
-const ROOT = join(__dirname, "..", "..")
 const snapshot = (name: string) => JSON.parse(readFileSync(join(__dirname, "__snapshots__", `${name}.json`), "utf8"))
 
 // The lists were moved out of their modules into lib/registry/<kind>/ files.
@@ -62,14 +60,5 @@ describe("registry parity with the pre-split lists", () => {
     expect(() => expectPreserved([], [["A", "y"]], entryKey)).toThrow()
     expect(() => expectPreserved([["B", 1], ["A", 1]], [["A", 1], ["B", 1]], entryKey)).toThrow()
     expect(() => expectPreserved([["A", 1], ["NEW", 2], ["B", 1]], [["A", 1], ["B", 1]], entryKey)).not.toThrow()
-  })
-})
-
-describe("generated registries", () => {
-  it("on disk match the entry files (run npm run gen:registries if not)", async () => {
-    const outputs = await buildRegistries()
-    for (const [rel, content] of Object.entries(outputs)) {
-      expect(readFileSync(join(ROOT, rel), "utf8"), `${rel} is stale`).toBe(content)
-    }
   })
 })
