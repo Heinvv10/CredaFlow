@@ -99,7 +99,7 @@ function ModelAssigned({ data, used }: { data: Payload; used: Payload["statement
                 {m.rows.map((r, i) => (
                   <tr key={`${r.documentId}-${r.date}-${i}`} className="border-t border-[var(--cf-border-subtle)]">
                     <td className="py-1 pr-3 whitespace-nowrap">{r.date}</td>
-                    <td className="py-1 pr-3 break-all">{r.description}</td>
+                    <td className="py-1 pr-3">{r.description}</td>
                     <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(-r.amountCents)}</td>
                     <td className="py-1 whitespace-nowrap">{LABEL[r.category]}</td>
                   </tr>
