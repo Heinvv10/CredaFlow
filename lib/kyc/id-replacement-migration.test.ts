@@ -43,9 +43,10 @@ describe(`migration ${MIGRATION}`, () => {
   })
 
   it("selects the newest non-refused ID copy the way the TypeScript does", () => {
-    // The latest definition: 20261015130000 redefines the helper (identical
-    // re-upload, id-identical-reupload-migration.test.ts) and keeps all of this.
-    const helper = baselineFunctionSql("subject_has_pending_id_replacement")
+    // This migration's own body. 20261015130000 redefines the helper (any later
+    // copy, identical re-upload exempt); id-identical-reupload-migration.test.ts
+    // pins that and checks it keeps this ordering.
+    const helper = functionIn(read(MIGRATION), "subject_has_pending_id_replacement")
     expect(helper).toContain(`candidate."verificationRejectedAt" IS NULL`)
     expect(helper).toContain(`candidate."verificationRejectedById" IS NULL`)
     expect(helper).toContain(`ORDER BY candidate."createdAt" DESC, candidate."id" COLLATE "C" DESC`)

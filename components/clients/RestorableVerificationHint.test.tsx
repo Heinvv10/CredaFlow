@@ -35,7 +35,7 @@ function textOf(node: { children: unknown[] }): string {
 
 async function mount(verifyResponse: Response) {
   const fetchMock = vi.fn((url: string) =>
-    Promise.resolve(url.endsWith("/verify") ? verifyResponse : jsonResponse(200, DOCUMENTS)))
+    Promise.resolve(url.endsWith("/kyc-rederive") ? verifyResponse : jsonResponse(200, DOCUMENTS)))
   vi.stubGlobal("fetch", fetchMock)
   let renderer!: ReactTestRenderer
   await act(async () => {
@@ -52,8 +52,8 @@ async function clickReverify(renderer: ReactTestRenderer) {
   await act(async () => { await button.props.onClick() })
 }
 
-const verifyCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
-  fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/verify"))
+const writeCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
+  fetchMock.mock.calls.filter(([, init]) => init?.method && init.method !== "GET")
 
 describe("Re-verify ID in the restorable-verification hint", () => {
   beforeEach(() => {
@@ -66,27 +66,30 @@ describe("Re-verify ID in the restorable-verification hint", () => {
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
   })
 
-  it("verifies the newest verified ID copy through the existing route, then refreshes", async () => {
+  it("re-derives from the newest verified ID copy, attesting nothing, then refreshes", async () => {
     const { renderer, fetchMock } = await mount(jsonResponse(200, { kycStatus: "VERIFIED" }))
     expect(textOf(renderer.root as unknown as { children: unknown[] })).toContain(VERIFICATION_RESTORABLE_COPY)
 
     await clickReverify(renderer)
 
-    const calls = verifyCalls(fetchMock)
+    // One write, to the re-derive route: never the document verify route.
+    const calls = writeCalls(fetchMock)
     expect(calls).toHaveLength(1)
     const [url, init] = calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe("/api/clients/client-1/documents/id-current/verify")
-    expect(init.method).toBe("PATCH")
-    expect(JSON.parse(String(init.body))).toEqual({ verified: true })
+    expect(url).toBe("/api/clients/client-1/kyc-rederive")
+    expect(init.method).toBe("POST")
+    expect(JSON.parse(String(init.body))).toEqual({ idDocumentId: "id-current" })
     expect(refresh).toHaveBeenCalledTimes(1)
     const shown = textOf(renderer.root as unknown as { children: unknown[] })
     expect(shown).not.toContain(VERIFICATION_RESTORABLE_COPY)
     expect(shown).toContain("VERIFIED")
   })
 
-  it("shows the route's refusal inline and keeps the hint, without refreshing or a toast", async () => {
-    const refusal = "Requires TOTP verification"
-    const { renderer } = await mount(jsonResponse(403, { error: refusal }))
+  it.each([
+    [403, "Forbidden"],
+    [409, "This ID copy is no longer the client's current verified copy. Reload the page to see its state."],
+  ])("shows a %i refusal inline and keeps the hint, without refreshing or a toast", async (status, refusal) => {
+    const { renderer } = await mount(jsonResponse(status, { error: refusal }))
 
     await clickReverify(renderer)
 
@@ -97,12 +100,12 @@ describe("Re-verify ID in the restorable-verification hint", () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
-  it("says so inline when the route verified the copy but KYC did not become VERIFIED", async () => {
+  it("says so inline when the route answers but KYC did not become VERIFIED", async () => {
     const { renderer } = await mount(jsonResponse(200, { kycStatus: "PENDING" }))
 
     await clickReverify(renderer)
 
     expect(textOf(renderer.root as unknown as { children: unknown[] }))
-      .toContain("The ID copy is verified, but KYC is still PENDING.")
+      .toContain("KYC is still PENDING.")
   })
 })

@@ -11,16 +11,17 @@ interface Props {
   clientId: string
   /** The newest verified ID copy (newestVerifiedIdCopyId); null while the list loads. */
   idDocumentId: string | null
-  /** The stored KYC status the verify route reports back. */
+  /** The stored KYC status the re-derive route reports back. */
   onRestored: (kycStatus: string) => void
 }
 
 /**
  * The stored status is PENDING while the evidence derives VERIFIED. "Re-verify
- * ID" sends the newest verified ID copy through the existing verify route
- * (verified: true), so its role check, TOTP-gated session, evidence lock,
- * composite re-derivation and audit row all apply unchanged. Refusals stay on
- * screen next to the button instead of in a toast.
+ * ID" asks POST /api/clients/[id]/kyc-rederive to re-derive the status from
+ * that evidence; it attests no document. It names the ID copy staff are
+ * looking at (the newest verified one), so a copy refused or superseded in
+ * another tab comes back as a 409. Refusals stay on screen next to the button
+ * instead of in a toast.
  */
 export function RestorableVerificationHint({ clientId, idDocumentId, onRestored }: Props) {
   const router = useRouter()
@@ -32,10 +33,10 @@ export function RestorableVerificationHint({ clientId, idDocumentId, onRestored 
     setSubmitting(true)
     setError(null)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents/${idDocumentId}/verify`, {
-        method: "PATCH",
+      const res = await fetch(`/api/clients/${clientId}/kyc-rederive`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ verified: true }),
+        body: JSON.stringify({ idDocumentId }),
       })
       const body: unknown = await res.json().catch(() => null)
       if (!res.ok) {
@@ -45,7 +46,7 @@ export function RestorableVerificationHint({ clientId, idDocumentId, onRestored 
       const kycStatus = (body as { kycStatus?: unknown } | null)?.kycStatus
       if (typeof kycStatus === "string") onRestored(kycStatus)
       if (kycStatus !== "VERIFIED") {
-        setError(`The ID copy is verified, but KYC is still ${typeof kycStatus === "string" ? kycStatus : "not VERIFIED"}.`)
+        setError(`KYC is still ${typeof kycStatus === "string" ? kycStatus : "not VERIFIED"}.`)
       }
       router.refresh()
     } catch {

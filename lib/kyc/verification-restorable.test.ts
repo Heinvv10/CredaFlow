@@ -40,6 +40,13 @@ describe("verificationRestorable", () => {
     expect(verificationRestorable("PENDING", composite([...coreDocuments, pendingReplacement]))).toBe(false)
   })
 
+  it("is false while a different copy awaits review behind a newer identical re-upload", () => {
+    const identicalNewest = {
+      ...pendingReplacement, id: "doc-id_copy-same", createdAt: new Date(Date.UTC(2026, 6, 22)), contentSha256: "a".repeat(64),
+    }
+    expect(verificationRestorable("PENDING", composite([...coreDocuments, pendingReplacement, identicalNewest]))).toBe(false)
+  })
+
   it("is false when the evidence is incomplete", () => {
     expect(verificationRestorable("PENDING", composite(coreDocuments.slice(1)))).toBe(false)
   })

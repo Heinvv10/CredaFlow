@@ -39,8 +39,12 @@ const [A, B, C] = ["a", "b", "c"].map((hex) => hex.repeat(64))
 const DOB = new Date("1990-04-05T00:00:00.000Z")
 const day = (n: number) => new Date(Date.UTC(2026, 6, 1 + n))
 
-/** One ID copy: its digest, whether verified or refused, and its day. */
-type Copy = { sha: string | null; verified?: boolean; refused?: boolean; on: number }
+/**
+ * One ID copy: its digest, whether verified, refused or deleted, and its day.
+ * Ids are `id_<index>_<client>`, so on a createdAt tie the later index is the
+ * one created "after" (id DESC).
+ */
+type Copy = { sha: string | null; verified?: boolean; refused?: boolean; deleted?: boolean; on: number }
 let sequence = 0
 
 async function seedClient(copies: Copy[]) {
@@ -55,6 +59,7 @@ async function seedClient(copies: Copy[]) {
     id: `id_${index}_${clientId}`, tenantId, clientId, docType: "ID_COPY" as const, fileUrl: "", fileName: "id.pdf",
     verified: copy.verified ?? false, verifiedAt: copy.verified ? day(copy.on) : null, contentSha256: copy.sha, createdAt: day(copy.on),
     verificationRejectedAt: copy.refused ? day(copy.on) : null, verificationRejectedById: copy.refused ? reviewerId : null,
+    deletedAt: copy.deleted ? day(copy.on) : null,
   }))
   const others = (["PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] as const).map((docType) => ({
     id: `${docType}_${clientId}`, tenantId, clientId, docType, fileUrl: "", fileName: "core.pdf",
@@ -62,7 +67,7 @@ async function seedClient(copies: Copy[]) {
   }))
   await db.clientDocument.createMany({ data: [...idRows, ...others] })
   // The attestation binds to the copy every reader treats as current.
-  const current = idRows.filter((row) => row.verified).sort((x, y) =>
+  const current = idRows.filter((row) => row.verified && !row.deletedAt).sort((x, y) =>
     y.createdAt.getTime() - x.createdAt.getTime() || (x.id < y.id ? 1 : -1))[0]
   const completedAt = new Date()
   await db.complianceRecord.create({ data: {
@@ -103,9 +108,16 @@ const cases: Array<{ name: string; copies: Copy[]; pending: boolean }> = [
   // A malformed digest cannot be stored (ClientDocument_contentSha256_format_check);
   // the TypeScript case is in id-replacement.test.ts.
   { name: "the same bytes as an older verified copy, not the current one", copies: [{ sha: B, verified: true, on: -1 }, { sha: A, verified: true, on: 0 }, { sha: B, on: 1 }], pending: true },
-  { name: "the same bytes newest, over a different unreviewed copy", copies: [{ sha: A, verified: true, on: 0 }, { sha: B, on: 1 }, { sha: A, on: 2 }], pending: false },
+  // Any different unreviewed copy after the verified one holds, not only the newest.
+  { name: "the same bytes newest, over a different unreviewed copy", copies: [{ sha: A, verified: true, on: 0 }, { sha: B, on: 1 }, { sha: A, on: 2 }], pending: true },
   { name: "different bytes newest, over a same-bytes copy", copies: [{ sha: A, verified: true, on: 0 }, { sha: A, on: 1 }, { sha: B, on: 2 }], pending: true },
   { name: "different bytes newest but refused, over a same-bytes copy", copies: [{ sha: A, verified: true, on: 0 }, { sha: A, on: 1 }, { sha: B, refused: true, on: 2 }], pending: false },
+  { name: "the same bytes refused newest, over a different unreviewed copy", copies: [{ sha: A, verified: true, on: 0 }, { sha: B, on: 1 }, { sha: A, refused: true, on: 2 }], pending: true },
+  { name: "the same bytes as a deleted verified copy only", copies: [{ sha: B, verified: true, on: -1 }, { sha: A, verified: true, deleted: true, on: 0 }, { sha: A, on: 1 }], pending: true },
+  // #80 semantics for different bytes are unchanged: only copies created after the current verified one count.
+  { name: "a different unreviewed copy older than the current verified one", copies: [{ sha: A, verified: true, on: -1 }, { sha: B, on: 0 }, { sha: C, verified: true, on: 1 }], pending: false },
+  { name: "a createdAt tie: the different copy has the later id", copies: [{ sha: A, verified: true, on: 0 }, { sha: B, on: 0 }], pending: true },
+  { name: "a createdAt tie: the different copy has the earlier id", copies: [{ sha: B, on: 0 }, { sha: A, verified: true, on: 0 }], pending: false },
 ]
 
 suite("identical ID re-upload: TypeScript and SQL agree", () => {
@@ -125,7 +137,10 @@ suite("identical ID re-upload: TypeScript and SQL agree", () => {
     const result = await verdicts(await seedClient(c.copies))
     // Composite KYC holds only when no replacement is pending and the
     // attested copy carries a usable digest.
-    const composite = !c.pending && /^[a-f0-9]{64}$/.test(c.copies.find((copy) => copy.verified && copy.on === 0)?.sha ?? "")
+    const current = c.copies.map((copy, index) => ({ ...copy, index }))
+      .filter((copy) => copy.verified && !copy.deleted)
+      .sort((x, y) => y.on - x.on || y.index - x.index)[0]
+    const composite = !c.pending && /^[a-f0-9]{64}$/.test(current?.sha ?? "")
     expect(result).toEqual({ sqlPending: c.pending, tsPending: c.pending, sqlComposite: composite, tsComposite: composite })
   })
 

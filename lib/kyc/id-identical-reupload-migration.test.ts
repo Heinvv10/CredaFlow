@@ -3,6 +3,7 @@
  * What the rule does when it runs is proven against Postgres, beside the
  * TypeScript, by id-identical-reupload.integration.test.ts.
  */
+import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
@@ -19,33 +20,59 @@ function functionIn(sql: string, name: string): string {
   return sql.slice(start, sql.indexOf("$function$;", start) + "$function$;".length)
 }
 
-const RULE = /\n\s*-- BEGIN identical-reupload rule[\s\S]*?-- END identical-reupload rule/
-const COLUMNS = `SELECT candidate."verified", candidate."contentSha256"`
+/** The body without comments or layout: what Postgres executes. */
+const executable = (sql: string) => sql.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim()
+
+/**
+ * Re-pin only with a reason: any change to the executable body changes this,
+ * and the TS mirror (pendingIdReplacement) and the parity suite must move with it.
+ */
+const PINNED_BODY_SHA256 = "b182eab410463aca4778bafef9a2804d7f72ac98676a8d2be3fa70c4863c81c5"
+
+const ORDER = (alias: string) => `ORDER BY ${alias}."createdAt" DESC, ${alias}."id" COLLATE "C" DESC`
 
 describe(`migration ${MIGRATION}`, () => {
-  const previous = functionIn(read(PREVIOUS), "subject_has_pending_id_replacement")
   const current = baselineFunctionSql("subject_has_pending_id_replacement")
 
   it("is the newest definition of subject_has_pending_id_replacement", () => {
     expect(current).toBe(functionIn(read(MIGRATION), "subject_has_pending_id_replacement"))
   })
 
-  it("is the previous body plus the digest column and one delimited condition, nothing else", () => {
-    expect(RULE.test(current)).toBe(true)
-    expect(current).toContain(COLUMNS)
-    const withoutRule = current.replace(RULE, "").replace(COLUMNS, `SELECT candidate."verified"`)
-    expect(withoutRule).toBe(previous)
+  it("pins the executable body", () => {
+    expect(createHash("sha256").update(executable(current)).digest("hex")).toBe(PINNED_BODY_SHA256)
   })
 
-  it("matches only a well-formed digest equal to the newest verified copy's, failing closed on NULL", () => {
-    const rule = current.match(RULE)?.[0] ?? ""
-    expect(rule).toContain(`AND NOT coalesce(`)
-    expect(rule).toContain(`newest."contentSha256" ~ '^[a-f0-9]{64}$'`)
-    expect(rule).toContain(`AND newest."contentSha256" = (`)
-    expect(rule).toContain(`current_copy."verified" = true`)
-    expect(rule).toContain(`current_copy."deletedAt" IS NULL`)
-    expect(rule).toContain(`ORDER BY current_copy."createdAt" DESC, current_copy."id" COLLATE "C" DESC`)
-    expect(rule).toMatch(/LIMIT 1\n\s*\),\n\s*false\n\s*\)/)
+  it("anchors on the newest verified copy, in the order 20261014130000 chose copies", () => {
+    const previous = functionIn(read(PREVIOUS), "subject_has_pending_id_replacement")
+    expect(previous).toContain(ORDER("candidate"))
+    expect(current).toContain(ORDER("verified_copy"))
+    expect(current).toContain(`verified_copy."verified" = true`)
+    expect(current).toContain(`verified_copy."deletedAt" IS NULL`)
+    // One LIMIT 1, on the anchor: every later candidate is checked, not only the newest.
+    expect(executable(current).match(/LIMIT 1/g)).toHaveLength(1)
+  })
+
+  it("counts a candidate created after the anchor in that same order", () => {
+    expect(executable(current)).toContain(executable(`
+      candidate."createdAt" > current_copy."createdAt"
+      OR ( candidate."createdAt" = current_copy."createdAt"
+        AND candidate."id" COLLATE "C" > current_copy."id" COLLATE "C" )`))
+  })
+
+  it("counts only unverified, unrefused, non-deleted ID copies of this client", () => {
+    for (const condition of [
+      `candidate."tenantId" = p_tenant_id`, `candidate."clientId" = p_client_id`,
+      `candidate."docType" = 'ID_COPY'`, `candidate."deletedAt" IS NULL`, `candidate."verified" = false`,
+      `candidate."verificationRejectedAt" IS NULL`, `candidate."verificationRejectedById" IS NULL`,
+    ]) expect(current).toContain(condition)
+  })
+
+  it("exempts only a well-formed digest equal to the anchor's, failing closed on NULL", () => {
+    expect(executable(current)).toContain(executable(`
+      WHERE NOT coalesce(
+        candidate."contentSha256" ~ '^[a-f0-9]{64}$'
+        AND candidate."contentSha256" = current_copy."contentSha256",
+        false )`))
   })
 
   it("changes no other function and writes no data", () => {

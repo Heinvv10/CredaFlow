@@ -116,14 +116,32 @@ describe("pendingIdReplacement: a byte-identical re-upload", () => {
     expect(pendingIdReplacement([oldestVerified, olderVerified, backToOldest])?.id).toBe("id-b")
   })
 
-  it("is decided by the newest unreviewed copy alone", () => {
+  it("does not let a newer identical copy hide a different unreviewed one", () => {
+    // Verified A, then different B, then identical A': B still holds.
     const newestSameBytes = copy({
       id: "id-c",
       createdAt: new Date("2026-07-22T08:00:00.000Z"),
       contentSha256: olderVerified.contentSha256,
     })
-    expect(pendingIdReplacement([olderVerified, newerUnverified, newestSameBytes])).toBeNull()
+    expect(pendingIdReplacement([olderVerified, newerUnverified, newestSameBytes])?.id).toBe("id-b")
     const newestOtherBytes = { ...newestSameBytes, contentSha256: digestOf("other") }
     expect(pendingIdReplacement([olderVerified, sameBytes, newestOtherBytes])?.id).toBe("id-c")
+  })
+
+  it("holds on the newest of several different unreviewed copies", () => {
+    const newestOther = copy({ id: "id-c", createdAt: new Date("2026-07-22T08:00:00.000Z") })
+    expect(pendingIdReplacement([olderVerified, newestOther, newerUnverified])?.id).toBe("id-c")
+  })
+
+  it("ignores unreviewed copies created before the current verified copy", () => {
+    const newerVerified = copy({ id: "id-c", verified: true, createdAt: new Date("2026-07-22T08:00:00.000Z") })
+    expect(pendingIdReplacement([olderVerified, newerUnverified, newerVerified])).toBeNull()
+  })
+
+  it("does not count a refused copy, even one created after the verified copy", () => {
+    const refusedOther = copy({
+      id: "id-c", createdAt: new Date("2026-07-22T08:00:00.000Z"), verificationRejectedById: "officer-1",
+    })
+    expect(pendingIdReplacement([olderVerified, sameBytes, refusedOther])).toBeNull()
   })
 })
