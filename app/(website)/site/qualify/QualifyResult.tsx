@@ -7,6 +7,8 @@ import { calculateLoan, formatZAR } from "@/lib/loan-calculator"
 import type { LoanCalcInput } from "@/lib/loan-calculator"
 import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
 import { trackQualifyResult } from "@/lib/analytics/events"
+import { useT } from "@/lib/i18n/client"
+import { termText } from "@/lib/i18n/products"
 import {
   getPublicLoanProduct,
   microMaxRands,
@@ -92,6 +94,8 @@ export default function QualifyResult({
   onRestart,
 }: ResultProps) {
   const identity = useWebsiteIdentity()
+  const t = useT("websiteQualify")
+  const tp = useT("websiteProducts")
   // Micro/personal via the SHARED productForAmount rule (so the pre-qual prices the
   // same product the apply form will route to); microMax/ceiling (RANDS, fail-open
   // to static) feed the internal fee-selection + affordability search, which use
@@ -103,7 +107,9 @@ export default function QualifyResult({
   const isMicro = productForAmount(amountRands, products) === "MICRO"
   // termValue is canonical DAYS; display it in the tier's unit.
   const termDays = termValue
-  const termLabel = isMicro ? `${termValue} days` : `${Math.round(termValue / 30)} months`
+  const termLabel = isMicro
+    ? termText(tp, { termUnit: "days" }, termValue)
+    : termText(tp, { termUnit: "months" }, Math.round(termValue / 30))
 
   const input = buildLoanInput(amountCents, termDays, products, microMax)
   const result = calculateLoan(input)
@@ -129,46 +135,46 @@ export default function QualifyResult({
         {missingIncome ? (
           <ResultHeader
             icon={<ShieldAlert size={34} />}
-            eyebrow="Incomplete assessment"
-            title="Let’s complete your income profile"
-            body="We need income and monthly expense details before this eligibility check can produce a useful estimate."
+            eyebrow={t("incompleteEyebrow")}
+            title={t("incompleteTitle")}
+            body={t("incompleteBody")}
             tone="amber"
           />
         ) : affordable ? (
           <ResultHeader
             icon={<CheckCircle size={34} />}
-            eyebrow="Indicative outcome"
-            title="You pre-qualify"
-            body="Based on the information provided, the estimated instalment appears within the affordability range."
+            eyebrow={t("qualifiedEyebrow")}
+            title={t("qualifiedTitle")}
+            body={t("qualifiedBody")}
             tone="gold"
           />
         ) : (
           <ResultHeader
             icon={<ShieldAlert size={34} />}
-            eyebrow="Advisor review"
-            title="This amount may be too high"
-            body="The selected loan estimate sits above the initial affordability threshold. A lower amount or advisor review may be more appropriate."
+            eyebrow={t("reviewEyebrow")}
+            title={t("reviewTitle")}
+            body={t("reviewBody")}
             tone="amber"
           />
         )}
 
         {!missingIncome && (
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <Metric label="Estimated instalment" value={formatZAR(result.monthlyInstalment)} highlight />
-            <Metric label="Affordability threshold" value={formatZAR(maxInstalment)} />
-            <Metric label="Requested amount" value={formatZAR(amountCents)} />
+            <Metric label={t("estimatedInstalment")} value={formatZAR(result.monthlyInstalment)} highlight />
+            <Metric label={t("affordabilityThreshold")} value={formatZAR(maxInstalment)} />
+            <Metric label={t("requestedAmount")} value={formatZAR(amountCents)} />
           </div>
         )}
 
         {!missingIncome && (
           <div className="mt-5 space-y-2">
-            <Row label="Term" value={termLabel} />
-            <Row label="Total Interest" value={formatZAR(result.totalInterest)} />
-            <Row label="Initiation Fee" value={formatZAR(result.initiationFee)} />
+            <Row label={t("term")} value={termLabel} />
+            <Row label={t("totalInterest")} value={formatZAR(result.totalInterest)} />
+            <Row label={t("initiationFee")} value={formatZAR(result.initiationFee)} />
             {result.serviceFees > 0 && (
-              <Row label="Service Fees" value={formatZAR(result.serviceFees)} />
+              <Row label={t("serviceFees")} value={formatZAR(result.serviceFees)} />
             )}
-            <Row label="Total Repayable" value={formatZAR(result.totalRepayable)} bold />
+            <Row label={t("totalRepayable")} value={formatZAR(result.totalRepayable)} bold />
           </div>
         )}
 
@@ -181,7 +187,7 @@ export default function QualifyResult({
               href={qualifyApplyHref(amountCents, termValue, products)}
               className="inline-flex items-center justify-center gap-2 bg-[#a5b4fc] px-4 py-3 text-center text-sm font-bold text-[#11141b] transition-colors hover:bg-[#c7d2fe]"
             >
-              Apply for {formatZAR(amountCents)}
+              {t("applyFor", { amount: formatZAR(amountCents) })}
               <ArrowRight size={16} />
             </Link>
           )}
@@ -193,7 +199,7 @@ export default function QualifyResult({
               href={qualifyApplyHref(maxAmount, termValue, products)}
               className="inline-flex items-center justify-center gap-2 bg-[#a5b4fc] px-4 py-3 text-center text-sm font-bold text-[#11141b] transition-colors hover:bg-[#c7d2fe]"
             >
-              Apply for {formatZAR(maxAmount)}
+              {t("applyFor", { amount: formatZAR(maxAmount) })}
               <ArrowRight size={16} />
             </Link>
           )}
@@ -202,7 +208,7 @@ export default function QualifyResult({
             className="inline-flex items-center justify-center gap-2 border border-white/18 px-4 py-3 text-sm font-bold text-white/72 transition-colors hover:bg-white/[0.05] hover:text-white"
           >
             <RotateCcw size={16} />
-            Recalculate
+            {t("recalculate")}
           </button>
         </div>
       </div>

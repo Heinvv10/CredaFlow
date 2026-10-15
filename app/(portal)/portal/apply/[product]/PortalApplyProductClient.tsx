@@ -21,6 +21,7 @@ import {
   type ClientInfo,
 } from "./parts"
 import { creditLifePremiumForAmount, validAmountCents } from "./amount"
+import { useT } from "@/lib/i18n/client"
 
 interface ProductInfo {
   id: string
@@ -48,6 +49,7 @@ interface Props {
 
 export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, product, client, creditLifeOffer }: Props) {
   const router = useRouter()
+  const t = useT("portalApply")
 
   const fixedTerm = product.minTermDays === product.maxTermDays
 
@@ -135,13 +137,13 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.")
+        setError(typeof data.error === "string" ? data.error : t("errGeneric"))
         return
       }
       router.push(`/portal/applications/${data.id}`)
       router.refresh()
     } catch {
-      setError("Network error. Please check your connection and try again.")
+      setError(t("errNetwork"))
     } finally {
       setSubmitting(false)
     }
@@ -153,17 +155,17 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
-      <BackLink href="/portal/apply" label="Back to Apply" className="mb-6" />
+      <BackLink href="/portal/apply" label={t("backToApply")} className="mb-6" />
 
       <div className="mb-6">
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#4F46E5] mb-1">
           {product.name}
         </p>
         <h1 className="text-2xl font-bold text-gray-900">
-          Apply for {product.name}
+          {t("applyForProduct", { product: product.name })}
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          We already have your profile on file. Just tell us how much you need and what for.
+          {t("profileOnFile")}
         </p>
       </div>
 
@@ -176,7 +178,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
       >
         <div>
           <label htmlFor="amount" className={labelClass}>
-            Amount (R) — between {formatZAR(product.minAmount)} and {formatZAR(product.maxAmount)}
+            {t("amountBetween", { min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) })}
           </label>
           <input
             id="amount"
@@ -197,7 +199,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         {!fixedTerm && (
           <div>
             <label htmlFor="termDays" className={labelClass}>
-              Term (days) — between {product.minTermDays} and {product.maxTermDays}
+              {t("termBetween", { min: product.minTermDays, max: product.maxTermDays })}
             </label>
             <input
               id="termDays"
@@ -217,23 +219,23 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         )}
 
         <div>
-          <label htmlFor="category" className={labelClass}>What is the loan for?</label>
+          <label htmlFor="category" className={labelClass}>{t("categoryLabel")}</label>
           <select
             id="category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             className={inputClass}
           >
-            <option value="">— Select a category (optional) —</option>
+            <option value="">{t("categoryPlaceholder")}</option>
             {PURPOSE_CATEGORIES.map(({ value, label }) => (
-              <option key={value} value={value}>{label}</option>
+              <option key={value} value={value}>{t(label)}</option>
             ))}
           </select>
         </div>
 
         <div>
           <label htmlFor="purpose" className={labelClass}>
-            Describe the purpose <span className="text-gray-400 normal-case">(required, 3–500 chars)</span>
+            {t("purposeLabel")} <span className="text-gray-400 normal-case">{t("purposeHint")}</span>
           </label>
           <textarea
             id="purpose"
@@ -364,7 +366,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
             href="/portal/apply"
             className="text-sm text-gray-600 hover:text-gray-900"
           >
-            Cancel
+            {t("cancel")}
           </Link>
           <button
             type="submit"
@@ -373,7 +375,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
             style={{ backgroundColor: "#4F46E5" }}
           >
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            Submit application
+            {t("submit")}
           </button>
         </div>
 

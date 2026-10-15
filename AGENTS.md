@@ -258,6 +258,7 @@ Domain-specific rules live next to the code:
 - `lib/bureau/AGENTS.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/AGENTS.md` — bureau files; statuses are sent once
 - `lib/operator/AGENTS.md` — operator console; borrower rows only through a grant
+- `lib/i18n/AGENTS.md` — borrower languages; legal text and money stay English
 - `lib/screening/AGENTS.md` — PEP/sanctions screening; a sanctions match is never cleared
 - `lib/fic/AGENTS.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/lender-api/AGENTS.md` — the `/api/v1` lender API and outbound webhooks

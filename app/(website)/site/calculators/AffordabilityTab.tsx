@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import { formatZAR } from "@/lib/loan-calculator"
 import { computeQualification } from "@/lib/qualify"
+import { useT } from "@/lib/i18n/client"
 
 export default function AffordabilityTab() {
   // Seeded with sensible defaults so the tab opens with a live
@@ -10,6 +11,7 @@ export default function AffordabilityTab() {
   const [income, setIncome] = useState("15000")
   const [expenses, setExpenses] = useState("6000")
   const [debt, setDebt] = useState("2000")
+  const t = useT("websiteCalculators")
 
   const result = useMemo(() => {
     const incomeCents = Math.round(Number(income) * 100)
@@ -33,17 +35,17 @@ export default function AffordabilityTab() {
     <div className="space-y-6">
       <div className="space-y-5 border border-white/12 bg-[#11141b]/70 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl md:p-7">
         <InputField
-          label="Monthly Gross Income (Rands)"
+          label={t("incomeLabel")}
           value={income}
           onChange={setIncome}
         />
         <InputField
-          label="Monthly Expenses (Rands)"
+          label={t("expensesLabel")}
           value={expenses}
           onChange={setExpenses}
         />
         <InputField
-          label="Existing Monthly Debt Payments (Rands)"
+          label={t("debtLabel")}
           value={debt}
           onChange={setDebt}
         />
@@ -52,21 +54,21 @@ export default function AffordabilityTab() {
       {hasInput && (
         <div className="border border-white/12 bg-white/[0.045] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)] backdrop-blur-xl">
           <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-[#a5b4fc]">
-            Affordability Assessment
+            {t("affordabilityTitle")}
           </p>
           <Row
-            label="Net Disposable Income (NDI)"
+            label={t("ndi")}
             value={formatZAR(result.ndi)}
             negative={result.ndi < 0}
           />
           <Row
-            label="Max Instalment (70% of NDI)"
+            label={t("maxInstalment")}
             value={formatZAR(result.maxInstalment)}
             bold
           />
           <Row
-            label="Estimated Max Loan Amount"
-            value={result.maxLoan > 0 ? formatZAR(result.maxLoan) : "Below minimum"}
+            label={t("maxLoan")}
+            value={result.maxLoan > 0 ? formatZAR(result.maxLoan) : t("belowMinimum")}
             bold
           />
         </div>
@@ -76,11 +78,9 @@ export default function AffordabilityTab() {
         className="border border-[#a5b4fc]/30 bg-[#a5b4fc]/10 p-4 text-sm leading-relaxed text-white/62"
         style={{ borderLeft: "4px solid #4F46E5" }}
       >
-        <p className="mb-1 font-semibold text-white">NCA Affordability Rule</p>
+        <p className="mb-1 font-semibold text-white">{t("ncaRuleTitle")}</p>
         <p>
-          The National Credit Act requires that your loan instalment does not exceed a
-          reasonable portion of your net disposable income. Industry standard is 70% of NDI.
-          NDI is calculated as gross income minus living expenses and existing debt obligations.
+          {t("ncaRuleBody")}
         </p>
       </div>
     </div>

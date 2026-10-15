@@ -5,15 +5,19 @@ import Link from "next/link"
 import { Menu, X, ChevronDown } from "lucide-react"
 import { APPLY_DRAFT_KEY, QUALIFY_DRAFT_KEY } from "@/lib/draft-keys"
 import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
+import { useT } from "@/lib/i18n/client"
+import type { Locale } from "@/lib/i18n/locales"
+import type { MessageKey } from "@/lib/i18n/translate"
 
-type NavLink = { label: string; href: string; children?: { label: string; href: string; description: string }[] }
+type NavLink = { label: MessageKey<"websiteShell">; href: string; children?: { label: string; href: string; description: string }[] }
 
 // The kept public pages only: offer → evaluate → contact.
 const navLinks: NavLink[] = [
-  { label: "Home", href: "/" },
-  { label: "Insurance", href: "/site/products/insurance" },
-  { label: "Calculators", href: "/site/calculators" },
-  { label: "Contact", href: "/site/contact" },
+  { label: "navHome", href: "/" },
+  { label: "navInsurance", href: "/site/products/insurance" },
+  { label: "navCalculators", href: "/site/calculators" },
+  { label: "navContact", href: "/site/contact" },
 ]
 
 function browserHasApplicationDraft() {
@@ -28,8 +32,9 @@ function browserHasApplicationDraft() {
   }
 }
 
-export default function NavBar() {
+export default function NavBar({ enabledLocales = [] }: { enabledLocales?: readonly Locale[] }) {
   const identity = useWebsiteIdentity()
+  const t = useT("websiteShell")
   const [open, setOpen] = useState(false)
   const [dropdown, setDropdown] = useState<string | null>(null)
   const [hasDraft, setHasDraft] = useState(browserHasApplicationDraft)
@@ -85,7 +90,7 @@ export default function NavBar() {
             <span className="text-white font-bold text-lg tracking-tight">{identity.tradingName}</span>
           </Link>
 
-          <nav aria-label="Main" className="hidden xl:flex items-center gap-0.5" ref={dropdownRef}>
+          <nav aria-label={t("mainNavLabel")} className="hidden xl:flex items-center gap-0.5" ref={dropdownRef}>
             {navLinks.map((link) =>
               link.children ? (
                 <div key={link.href} className="relative">
@@ -93,7 +98,7 @@ export default function NavBar() {
                     onClick={() => setDropdown(dropdown === link.label ? null : link.label)}
                     className="flex items-center gap-1 whitespace-nowrap px-2.5 py-2 text-sm font-medium text-white/72 transition-colors hover:text-white"
                   >
-                    {link.label}
+                    {t(link.label)}
                     <ChevronDown size={14} className={`transition-transform ${dropdown === link.label ? "rotate-180" : ""}`} />
                   </button>
                   {dropdown === link.label && (
@@ -121,27 +126,31 @@ export default function NavBar() {
                   href={link.href}
                   className="whitespace-nowrap px-2.5 py-2 text-sm font-medium text-white/72 transition-colors hover:text-white"
                 >
-                  {link.label}
+                  {t(link.label)}
                 </Link>
               )
             )}
           </nav>
 
           <div className="hidden xl:flex items-center gap-2">
+            <LanguageSwitcher enabled={enabledLocales} className="text-white/72" />
             <Link href="/site/qualify" className="whitespace-nowrap border border-[#a5b4fc]/70 px-3 py-2 text-sm font-semibold text-[#a5b4fc] transition-colors hover:bg-[#a5b4fc]/10">
-              Check if I qualify
+              {t("checkQualify")}
             </Link>
             <Link href={loginHref} className="whitespace-nowrap text-sm font-medium text-white/72 transition-colors hover:text-white">
-              Login
+              {t("login")}
             </Link>
             <Link href="/site/apply" className="whitespace-nowrap bg-[#a5b4fc] px-3 py-2 text-sm font-semibold text-[#11141b] transition-colors hover:bg-[#c7d2fe]">
-              Apply Now
+              {t("applyNow")}
             </Link>
           </div>
 
-          <button className="p-2 text-white/72 hover:text-white xl:hidden" onClick={() => setOpen(!open)} aria-label="Toggle menu">
-            {open ? <X size={24} /> : <Menu size={24} />}
-          </button>
+          <div className="flex items-center gap-1 xl:hidden">
+            <LanguageSwitcher enabled={enabledLocales} className="text-white/72" />
+            <button className="p-2 text-white/72 hover:text-white" onClick={() => setOpen(!open)} aria-label={t("toggleMenu")}>
+              {open ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -151,7 +160,7 @@ export default function NavBar() {
             {navLinks.map((link) => (
               <div key={link.href}>
                 <Link href={link.href} onClick={() => setOpen(false)} className="block px-3 py-2 text-sm font-medium text-white/72 hover:text-white">
-                  {link.label}
+                  {t(link.label)}
                 </Link>
                 {link.children && (
                   <div className="pl-6 space-y-1">
@@ -166,13 +175,13 @@ export default function NavBar() {
             ))}
             <div className="flex flex-col gap-2 border-t border-white/10 pt-3">
               <Link href="/site/qualify" onClick={() => setOpen(false)} className="block border border-[#a5b4fc]/70 px-4 py-2 text-center text-sm font-semibold text-[#a5b4fc]">
-                Check if I qualify
+                {t("checkQualify")}
               </Link>
               <Link href={loginHref} onClick={() => setOpen(false)} className="px-3 py-2 text-sm font-medium text-white/72 hover:text-white">
-                Login
+                {t("login")}
               </Link>
               <Link href="/site/apply" onClick={() => setOpen(false)} className="block bg-[#a5b4fc] px-4 py-2 text-center text-sm font-semibold text-[#11141b]">
-                Apply Now
+                {t("applyNow")}
               </Link>
             </div>
           </div>

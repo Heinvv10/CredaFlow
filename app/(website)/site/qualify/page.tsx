@@ -10,9 +10,10 @@ import { applyLivePricing } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
 import { QUALIFY_DRAFT_KEY } from "@/lib/draft-keys"
 import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useT } from "@/lib/i18n/client"
 import { qualifyFaqs, QUALIFY_FAQ_GROUPS } from "./faqs"
 
-const STEP_LABELS = ["Income", "Loan Details", "Result"]
+const STEP_LABELS = ["stepIncome", "stepLoan", "stepResult"] as const
 
 type StepOne = {
   employmentStatus: string
@@ -63,6 +64,7 @@ function readQualifyDraft(): { stepOne: StepOne; stepTwo: StepTwo } {
 
 export default function QualifyPage() {
   const identity = useWebsiteIdentity()
+  const t = useT("websiteQualify")
   const [step, setStep] = useState(0)
   const [stepOne, setStepOne] = useState(DEFAULT_STEP_ONE)
   const [stepTwo, setStepTwo] = useState(DEFAULT_STEP_TWO)
@@ -116,13 +118,13 @@ export default function QualifyPage() {
         <div className="relative mx-auto max-w-2xl">
           <Shield className="mx-auto mb-3 text-[#a5b4fc]" size={34} strokeWidth={1.8} />
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.28em] text-[#a5b4fc]">
-            Eligibility check
+            {t("eyebrow")}
           </p>
           <h1 className="mb-2 text-balance text-3xl font-semibold text-white md:text-4xl">
-            Check if You Qualify
+            {t("title")}
           </h1>
           <p className="mx-auto max-w-lg text-sm leading-relaxed text-white/62">
-            Answer a few guided questions to receive an instant pre-qualification estimate. No credit check required.
+            {t("intro")}
           </p>
         </div>
       </section>
@@ -130,7 +132,7 @@ export default function QualifyPage() {
       <section aria-labelledby="qualify-form-heading">
       <div className="mx-auto max-w-2xl px-4 pt-8 text-center">
         <h2 id="qualify-form-heading" className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
-          Start your eligibility check
+          {t("formHeading")}
         </h2>
       </div>
 
@@ -152,7 +154,7 @@ export default function QualifyPage() {
                   i <= step ? "text-[#a5b4fc]" : "text-white/38"
                 }`}
               >
-                {label}
+                {t(label)}
               </span>
               {i < STEP_LABELS.length - 1 && (
                 <div
@@ -201,12 +203,12 @@ export default function QualifyPage() {
       </section>
 
       <section className="mx-auto max-w-4xl px-4 pb-20 pt-4">
-        <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">Eligibility FAQ</p>
+        <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{t("faqEyebrow")}</p>
         <div className="mt-8">
           <FaqAccordion
-            groups={QUALIFY_FAQ_GROUPS.map((heading) => ({
-              heading,
-              items: qualifyFaqs(identity).filter((faq) => faq.group === heading),
+            groups={QUALIFY_FAQ_GROUPS.map(({ group, heading }) => ({
+              heading: t(heading),
+              items: qualifyFaqs(identity, t).filter((faq) => faq.group === group),
             }))}
           />
         </div>

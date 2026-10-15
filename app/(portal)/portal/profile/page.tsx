@@ -7,7 +7,11 @@ import { ProfileForm } from "./ProfileForm"
 import { PasswordFields } from "./PasswordFields"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
-import { maskIdNumber, SAST_TIME_ZONE } from "@/lib/utils"
+import { maskIdNumber } from "@/lib/utils"
+import { getLocale, getTenantEnabledLocales } from "@/lib/i18n/server"
+import { createTranslator } from "@/lib/i18n/translate"
+import { formatLongDay } from "@/lib/i18n/format"
+import { LOCALE_NATIVE_NAMES, isLocale } from "@/lib/i18n/locales"
 
 function maskAccountNumber(acc: string | null): string {
   if (!acc) return "---"
@@ -21,6 +25,8 @@ export default async function ProfilePage() {
 
   const tenantId = await getPortalTenantId()
   const identity = await getLenderIdentity(tenantId)
+  const [locale, enabledLocales] = await Promise.all([getLocale(), getTenantEnabledLocales(tenantId)])
+  const t = createTranslator(locale, "portalProfile")
 
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },
@@ -31,9 +37,9 @@ export default async function ProfilePage() {
     return (
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
-          <p className="text-gray-500">No client profile found.</p>
+          <p className="text-gray-500">{t("noProfile")}</p>
           <p className="text-sm text-gray-400 mt-2">
-            Contact {identity.publicEmail} for assistance.
+            {t("contactForHelp", { email: identity.publicEmail })}
           </p>
         </div>
       </div>
@@ -41,13 +47,11 @@ export default async function ProfilePage() {
   }
 
   const dob = client.dateOfBirth
-    ? new Date(client.dateOfBirth).toLocaleDateString("en-ZA", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        timeZone: SAST_TIME_ZONE,
-      })
-    : "Not set"
+    ? formatLongDay(client.dateOfBirth, locale)
+    : t("notSet")
+  const commsLanguage = isLocale(client.preferredLanguage)
+    ? LOCALE_NATIVE_NAMES[client.preferredLanguage]
+    : t("commsLanguageDefault")
 
   return (
     <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8">
@@ -60,9 +64,9 @@ export default async function ProfilePage() {
           <User className="w-5 h-5" style={{ color: "#4338CA" }} />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-gray-900">My Profile</h1>
+          <h1 className="text-xl font-bold text-gray-900">{t("title")}</h1>
           <p className="text-sm text-gray-500">
-            View and manage your personal information
+            {t("subtitle")}
           </p>
         </div>
       </div>
@@ -70,13 +74,19 @@ export default async function ProfilePage() {
       {/* Read-only personal info */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-5">
         <h2 className="text-sm font-bold text-gray-900 mb-4">
-          Personal Information
+          {t("personalInfo")}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ReadOnlyField label="Full Name" value={`${client.firstName} ${client.lastName}`} />
-          <ReadOnlyField label="ID Number" value={maskIdNumber(client.idNumber)} />
-          <ReadOnlyField label="Date of Birth" value={dob} />
-          <ReadOnlyField label="Email" value={client.email} />
+          <ReadOnlyField label={t("fullName")} value={`${client.firstName} ${client.lastName}`} />
+          <ReadOnlyField label={t("idNumber")} value={maskIdNumber(client.idNumber)} />
+          <ReadOnlyField label={t("dob")} value={dob} />
+          <ReadOnlyField label={t("email")} value={client.email} />
+          {enabledLocales.length > 1 && (
+            <div className="md:col-span-2">
+              <ReadOnlyField label={t("commsLanguage")} value={commsLanguage} />
+              <p className="mt-1 text-xs text-gray-400">{t("commsLanguageNote")}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -97,18 +107,18 @@ export default async function ProfilePage() {
       {/* Banking details */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-5">
         <h2 className="text-sm font-bold text-gray-900 mb-4">
-          Banking Details
+          {t("bankingDetails")}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ReadOnlyField label="Bank" value={client.bankName || "---"} />
+          <ReadOnlyField label={t("bank")} value={client.bankName || "---"} />
           <ReadOnlyField
-            label="Account Number"
+            label={t("accountNumber")}
             value={maskAccountNumber(client.bankAccountNumber)}
           />
-          <ReadOnlyField label="Branch Code" value={client.bankBranchCode || "---"} />
+          <ReadOnlyField label={t("branchCode")} value={client.bankBranchCode || "---"} />
         </div>
         <p className="text-xs text-gray-400 mt-4">
-          To update banking details, please contact us or visit a branch.
+          {t("bankingNote")}
         </p>
         {identity.publicWhatsappE164 && (
           <a
@@ -118,7 +128,7 @@ export default async function ProfilePage() {
             className="inline-block mt-2 px-4 py-2 rounded-lg border text-sm font-semibold transition-colors hover:bg-amber-50/50"
             style={{ borderColor: "#4338CA", color: "#4338CA" }}
           >
-            Request Update
+            {t("requestUpdate")}
           </a>
         )}
       </div>
@@ -126,7 +136,7 @@ export default async function ProfilePage() {
       {/* Password change */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-5">
         <h2 className="text-sm font-bold text-gray-900 mb-4">
-          Change Password
+          {t("changePassword")}
         </h2>
         <PasswordFields />
       </div>
