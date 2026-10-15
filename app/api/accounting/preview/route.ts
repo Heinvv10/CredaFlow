@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { ACCOUNT_ROLES, DEFAULT_ACCOUNTS } from "@/lib/accounting/accounts"
 import { parsePeriodKey } from "@/lib/accounting/period"
 import { planPeriod } from "@/lib/accounting/plan"
+import type { ControlMismatch } from "@/lib/accounting/reconcile-controls"
 
 // What a month's journals would be (or are, once closed): totals per account
 // and per event type, whether it may close, the loan-book tie-out and the
@@ -35,6 +36,18 @@ function summarise(lines: Line[], eventTypes: string[]) {
   }
 }
 
+/** A control's key is a contract id or a recovery id: name the contract by its reference. */
+async function controlsWithReferences(tenantId: string, controls: ControlMismatch[]) {
+  const keys = [...new Set(controls.map((c) => c.key))]
+  if (keys.length === 0) return []
+  const [loans, recoveries] = await Promise.all([
+    prisma.loan.findMany({ where: { tenantId, id: { in: keys } }, select: { id: true, reference: true } }),
+    prisma.recovery.findMany({ where: { tenantId, id: { in: keys } }, select: { id: true, loan: { select: { reference: true } } } }),
+  ])
+  const names = new Map<string, string>([...loans.map((l) => [l.id, l.reference] as const), ...recoveries.map((r) => [r.id, `${r.loan.reference} (recovery)`] as const)])
+  return controls.slice(0, 50).map((c) => ({ ...c, reference: names.get(c.key) ?? null }))
+}
+
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
@@ -58,7 +71,7 @@ export async function GET(req: NextRequest) {
       period: period.key, label: period.label, closed: false, batchId: null, entryCount: plan.entries.length,
       goLive: plan.isGoLive, refusal: plan.refusal,
       reconciliation: { ...plan.reconciliation, mismatches: plan.reconciliation.mismatches.slice(0, 50) },
-      controls: plan.controls.slice(0, 50),
+      controls: await controlsWithReferences(tenant.id, plan.controls),
       ...summarise(plan.entries.flatMap((e) => e.lines), plan.entries.map((e) => e.eventType)),
     })
   })
