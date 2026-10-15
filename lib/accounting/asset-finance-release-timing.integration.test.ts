@@ -135,13 +135,69 @@ suite.sequential("a withdrawn recovery with a VAT event blocks from the earliest
     expect((await planFor("2026-09")).refusal).toBeNull()
   })
 
-  it("an event dated after the withdrawal blocks from the withdrawal", async () => {
-    await vatEvent("2026-10-20")
+  it("an event dated after the withdrawal leaves September open and blocks October, from the withdrawal itself", async () => {
+    // withdrawn 3 Oct, event 20 Nov: only the withdrawal (and not the event) is before the end of October
+    await vatEvent("2026-11-20")
     try {
       expect((await planFor("2026-09")).refusal).toBeNull()
+      expect((await runWithTenant(lender.tenantId, () => closePeriod(prisma, { tenantId: lender.tenantId, periodKey: "2026-09", userId: lender.userId, userEmail: "h1@test.invalid", now: AFTER }))).created).toBe(true)
+      expect((await planFor("2026-10")).refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("withdrawn recovery") })
     } finally {
       await removeVatEvent()
     }
+  })
+})
+
+
+// A sale blocked for its invoice or price, and a withdrawn recovery that has a sale, block from the EARLIER of the sale's
+// completion and its invoice's date. The scenarios differ only in which of the two dates comes first.
+const SALE_INCL = 920_000
+const withSale = (id: string, invoiceOn: string, over: { withdrawnAt?: Date }): SourceLoan => {
+  const loan = sale(id, "2026-07-15", true)
+  return {
+    ...loan,
+    assetFinance: {
+      ...loan.assetFinance!,
+      recoveries: [{
+        id: `r-${id}`, proceedsDate: null, proceedsPaymentId: null, surplusCents: 0, withdrawnAt: over.withdrawnAt ?? null, costs: [], vatEvents: [],
+        sale: { id: `s-${id}`, priceInclVatCents: SALE_INCL, invoice: invoice(`inv-s-${id}`, invoiceOn, 800_000, 120_000) }, refund: null,
+      }],
+    },
+  }
+}
+
+const SALE_SCENARIOS = [
+  // [id, invoice date, completedAt, mismatched price?, withdrawn?, what blocks September]
+  ["jrn-h1-s1", "2026-09-10", "2026-10-05T09:00:00+02:00", true, false, "the invoice is dated first"],
+  ["jrn-h1-s2", "2026-10-02", "2026-09-05T09:00:00+02:00", true, false, "the completion is first"],
+  ["jrn-h1-s3", "2026-09-10", "2026-09-10T09:00:00+02:00", false, true, "a withdrawn recovery that has a sale: the sale is before the withdrawal"],
+] as const
+
+suite.sequential("a sale blocks from the earlier of its completion and its invoice (real Postgres)", () => {
+  const lenders = new Map<string, ChargesTenant>()
+  const planFor = (id: string, key: string) => runWithTenant(lenders.get(id)!.tenantId, () => planPeriod(prisma, lenders.get(id)!.tenantId, parsePeriodKey(key)!, AFTER))
+
+  beforeAll(async () => {
+    for (const [id, invoiceOn, completedAt, mismatched, withdrawn] of SALE_SCENARIOS) {
+      const loan = withSale(id, invoiceOn, { withdrawnAt: withdrawn ? new Date("2026-10-03T09:00:00+02:00") : undefined })
+      const lender = await createChargesTenant(db, false)
+      lenders.set(id, lender)
+      await removeSourceLoans(db, [id])
+      await insertSourceLoan(db, lender, loan)
+      await db.$transaction([
+        db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+        db.$executeRawUnsafe(`UPDATE "RemarketingSale" SET "completedAt" = '${completedAt}'${mismatched ? `, "priceInclVatCents" = ${SALE_INCL - 100}` : ""} WHERE "id" = 's-${id}'`),
+      ])
+      await db.accountingSettings.create({ data: { tenantId: lender.tenantId, mappingConfirmedAt: new Date(), goLiveMonth: "2026-08", mappingConfirmedRoles: [...ASSET_FINANCE_ROLES] } })
+    }
+  })
+  afterAll(async () => { await removeSourceLoans(db, SALE_SCENARIOS.map(([id]) => id)) })
+
+  it.each(SALE_SCENARIOS.map((s) => [s[0], s[5]] as const))("%s: August is open, September is refused (%s)", async (id) => {
+    expect((await planFor(id, "2026-08")).refusal).toBeNull()
+    const lender = lenders.get(id)!
+    expect((await runWithTenant(lender.tenantId, () => closePeriod(prisma, { tenantId: lender.tenantId, periodKey: "2026-08", userId: lender.userId, userEmail: "h1@test.invalid", now: AFTER }))).created).toBe(true)
+    expect((await planFor(id, "2026-09")).refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED" })
   })
 })
 

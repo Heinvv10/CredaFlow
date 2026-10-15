@@ -50,7 +50,8 @@ export async function loadSettings(db: Pick<AccountingDb, "accountingSettings">,
     where: { tenantId },
     select: { mappingConfirmedAt: true, mappingConfirmedRoles: true, goLiveMonth: true, vatRegistered: true, vatRateBps: true },
   })
-  return row ?? { mappingConfirmedAt: null, mappingConfirmedRoles: [], goLiveMonth: null, vatRegistered: false, vatRateBps: 1500 }
+  // A settings row from before the column may hold NULL for the list.
+  return row ? { ...row, mappingConfirmedRoles: row.mappingConfirmedRoles ?? [] } : { mappingConfirmedAt: null, mappingConfirmedRoles: [], goLiveMonth: null, vatRegistered: false, vatRateBps: 1500 }
 }
 
 /**

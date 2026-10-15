@@ -43,7 +43,7 @@ const MAX_CLOSE_ATTEMPTS = 3
 /** A write conflict under REPEATABLE READ: Prisma's P2034, or the raw query's P2010 carrying SQLSTATE 40001. */
 function isSerializationFailure(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
-  return error.code === "P2034" || (error.code === "P2010" && (error.meta as { code?: string } | undefined)?.code === "40001") || /40001|could not serialize/i.test(error.message)
+  return error.code === "P2034" || (error.code === "P2010" && (error.meta as { code?: string } | undefined)?.code === "40001")
 }
 
 export async function closePeriod(db: GenerateDb, args: {
