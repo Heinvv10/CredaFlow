@@ -9,7 +9,11 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
   })
   try {
     const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: "networkidle0" })
+    // puppeteer 25 types setContent's waitUntil as load/domcontentloaded
+    // only; waitForNetworkIdle keeps the networkidle0 wait (no request in
+    // flight for 500 ms) for images and fonts the HTML pulls in.
+    await page.setContent(html, { waitUntil: "load" })
+    await page.waitForNetworkIdle({ idleTime: 500, concurrency: 0 })
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
