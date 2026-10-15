@@ -8,9 +8,13 @@ import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { CHARGES_FLAG_INCLUDE, chargesEnabled } from "@/lib/loan/charges-replay"
 import { latestCashReceipt, resyncChargesIfLive, scheduleShareOfReceipts } from "@/lib/loan/receipt-charges"
 import { restoreContractualBulletSchedule } from "@/lib/loan/settlement"
+import { guardSentence } from "@/lib/asset-finance/recovery-result"
 import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
 
 class PaymentAlreadyReversedError extends Error {}
+class RecoveryProceedsKeptError extends Error {}
+
+const PROCEEDS_KEPT = "This receipt is a recovery's sale proceeds and cannot be reversed"
 
 export async function PATCH(
   req: NextRequest,
@@ -48,15 +52,6 @@ export async function PATCH(
         )
       }
 
-      // A recovery's sale-proceeds receipt is kept (the database refuses it too: Payment_recovery_proceeds_kept).
-      const [recoveries, sales] = await Promise.all([
-        prisma.recovery.count({ where: { tenantId: tenant.id, proceedsPaymentId: id } }),
-        prisma.remarketingSale.count({ where: { tenantId: tenant.id, proceedsPaymentId: id } }),
-      ])
-      if (recoveries + sales > 0) {
-        return NextResponse.json({ error: "This receipt is a recovery's sale proceeds and cannot be reversed" }, { status: 409 })
-      }
-
       const asOf = new Date()
 
       try {
@@ -65,6 +60,15 @@ export async function PATCH(
           // balances — otherwise a payment landing mid-reversal is
           // lost from the re-derived totals.
           await lockLoanForUpdate(tx, payment.loanId)
+
+          // A recovery's sale-proceeds receipt is kept (the database refuses it too:
+          // Payment_recovery_proceeds_kept). Checked after the loan lock, which the
+          // proceeds step also takes, so a race answers 409 rather than 500.
+          const [recoveries, sales] = await Promise.all([
+            tx.recovery.count({ where: { tenantId: tenant.id, proceedsPaymentId: id } }),
+            tx.remarketingSale.count({ where: { tenantId: tenant.id, proceedsPaymentId: id } }),
+          ])
+          if (recoveries + sales > 0) throw new RecoveryProceedsKeptError()
 
           // The pre-transaction projection is only a fast-path. Claim the
           // reversal authoritatively after the loan lock so two staff requests
@@ -289,6 +293,9 @@ export async function PATCH(
           }
         })
       } catch (error) {
+        if (error instanceof RecoveryProceedsKeptError || guardSentence(error)?.includes("sale-proceeds receipt is not reversed")) {
+          return NextResponse.json({ error: PROCEEDS_KEPT }, { status: 409 })
+        }
         if (error instanceof PaymentAlreadyReversedError) {
           return NextResponse.json(
             { error: "Payment already reversed" },

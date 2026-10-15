@@ -19,6 +19,14 @@ describe("PortalRecoveryCard", () => {
     expect(out).not.toContain("Net proceeds")
   })
 
+  it("prints no valuation, and no claim about one, when the server withholds it", () => {
+    const out = text(view({ valuationAmountCents: null }))
+    expect(out).not.toContain("Valuation<")
+    expect(out.toLowerCase()).not.toContain("not yet valued")
+    expect(out).toContain("Valuation notice")
+    expect(out).toContain("Notices issued")
+  })
+
   it("shows the final account with its cost lines and the shortfall owed", () => {
     const out = text(view({
       status: "SHORTFALL_OPEN", notices: { valuation: true, final: true },

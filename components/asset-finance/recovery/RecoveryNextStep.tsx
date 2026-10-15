@@ -1,4 +1,5 @@
 import type { RecoveryRoute } from "@prisma/client"
+import { isNcaRoute } from "@/lib/asset-finance/recovery-input"
 import type { StaffRecovery } from "./recovery-panel-data"
 import { StepButton } from "./StepButton"
 import { ValuationForm, type SurrenderLink } from "./ValuationForm"
@@ -25,7 +26,7 @@ export function RecoveryNextStep({ view, surrender, today, canRecordPayment }: {
     case "RECOVERED":
       return <ValuationForm recoveryId={view.id} today={today} surrender={s127 ? surrender : null} />
     case "VALUED":
-      if (route === "NON_NCA_VOLUNTARY" || route === "NON_NCA_COURT_ORDER") {
+      if (!isNcaRoute(route)) {
         return <StepButton label="List for sale" busyLabel="Listing…" calls={[{ url: url("list"), body: {} }]} />
       }
       return (
@@ -53,7 +54,7 @@ export function RecoveryNextStep({ view, surrender, today, canRecordPayment }: {
         </div>
       )
     case "PROCEEDS_APPLIED":
-      return isNca(route)
+      return isNcaRoute(route)
         ? <StepButton label="Issue the final notice" busyLabel="Issuing…" calls={[{ url: url("final-notice"), body: {} }]} />
         : <StepButton label="Open the outcome" busyLabel="Opening…" calls={[{ url: url("outcome"), body: {} }]} />
     case "FINAL_NOTICE_ISSUED":
@@ -70,4 +71,3 @@ export function RecoveryNextStep({ view, surrender, today, canRecordPayment }: {
   }
 }
 
-const isNca = (route: RecoveryRoute): boolean => route.startsWith("NCA_")

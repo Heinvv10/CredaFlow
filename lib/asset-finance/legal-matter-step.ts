@@ -7,7 +7,6 @@ import { dbDate } from "./dates"
 import { safeFileName } from "./entity-document-io"
 import { attorneyAppointer, notifyNextLegalStep } from "./legal-matter-bell"
 import { LegalRefusal, refusing, type Refused } from "./legal-matter-guard"
-import type { LegalRegime } from "./legal-matter-hint"
 import type { LegalStepInput } from "./legal-matter-input"
 import { closeLegalMatterTx, type LegalActor } from "./legal-matter-store"
 import { createRecoveryTx } from "./recovery-create"
@@ -68,7 +67,7 @@ export async function recordLegalStep(actor: LegalActor, matterId: string, input
           correctsStepId: input.correctsStepId, evidenceDocumentId, recoveryId, closedMatter: closed },
       }, tx)
       await notifyNextLegalStep(tx, {
-        tenantId: actor.tenantId, matterId, loanReference: loan.reference, regime: loan.ncaRegime as LegalRegime,
+        tenantId: actor.tenantId, matterId, loanReference: loan.reference, regime: loan.ncaRegime,
         recipients: [matter.createdById, await attorneyAppointer(tx, actor.tenantId, matterId)],
       })
       return { kind: "done", id: step.id, recoveryId, closed }

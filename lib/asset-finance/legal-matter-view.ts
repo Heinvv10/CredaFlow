@@ -58,7 +58,7 @@ export async function getLegalMatterView(tenantId: string, ref: { matterId: stri
     },
   })
   if (!matter) return "matterId" in ref ? { kind: "not_found" } : { kind: "done", view: null }
-  const regime = matter.loan.ncaRegime as LegalRegime
+  const regime = matter.loan.ncaRegime
   const steps = matter.steps.map((step) => ({
     id: step.id, kind: step.kind, stepDate: isoOfDbDate(step.stepDate), note: step.note, section129RecordId: step.section129RecordId,
     correctsStepId: step.correctsStepId, hasEvidence: step.evidenceDocumentId !== null, recordedById: step.recordedById, createdAt: step.createdAt.toISOString(),

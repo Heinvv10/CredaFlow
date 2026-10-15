@@ -12,7 +12,7 @@ import { requireAssetFinanceEnabled } from "./require-enabled"
 export async function withRecoveryStaff(
   req: Request,
   permission: PermissionKey | null,
-  handler: (actor: RecoveryActor) => Promise<Response>,
+  handler: (actor: RecoveryActor, can: (permission: PermissionKey) => boolean) => Promise<Response>,
 ): Promise<Response> {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
@@ -20,7 +20,7 @@ export async function withRecoveryStaff(
     const disabled = await requireAssetFinanceEnabled(tenant.id)
     if (disabled) return disabled
     if (permission && !canDo(guard.user.role, permission)) return NextResponse.json({ error: `This step needs the ${permission} permission` }, { status: 403 })
-    return handler({ tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email })
+    return handler({ tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }, (key) => canDo(guard.user.role, key))
   })
 }
 

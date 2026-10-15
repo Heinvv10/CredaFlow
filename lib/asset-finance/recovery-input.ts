@@ -5,6 +5,9 @@ import type { StaffRecoveryInput } from "./recovery-store"
 
 type Parsed<T> = { data: T } | { errors: Record<string, string> }
 
+/** The two s127 / s131 routes run under the National Credit Act; the NON_NCA ones do not. */
+export const isNcaRoute = (route: RecoveryRoute): boolean => route.startsWith("NCA_")
+
 const ROUTES: RecoveryRoute[] = ["NCA_S127_SURRENDER", "NCA_S131_ATTACHMENT", "NON_NCA_VOLUNTARY", "NON_NCA_COURT_ORDER"]
 const TREATMENTS: RecoveryCostTreatment[] = ["DEDUCT_FROM_PROCEEDS", "CHARGE_TO_ACCOUNT"]
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/

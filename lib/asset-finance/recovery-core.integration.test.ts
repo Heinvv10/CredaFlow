@@ -127,6 +127,9 @@ suite.sequential("recovery core: routes, notices and documents (real Postgres)",
     expect(document.status).toBe(200)
     const printed = await pdfTexts(new Uint8Array(await document.arrayBuffer()))
     expect(printed).toEqual(expect.arrayContaining(["RECOVERY COSTS", "Towing and transport", "R 5,000.00", "Cost lines: DRAFT — require lender legal approval", DRAFT_WATERMARK]))
+    // The linked recovery's sale and account lines follow the existing ones, marked draft.
+    expect(printed).toEqual(expect.arrayContaining(["Settlement due at sale", "Gross sale price", "Net proceeds", "Account shortfall", "Sale and account lines: DRAFT — require lender legal approval"]))
+    expect(printed.indexOf("Settlement due at sale")).toBeGreaterThan(printed.lastIndexOf("Refund due"))
     expect((await r.finalNotice(id)).status).toBe(409)
     expect(loan.regime).toBe("NCA")
   }, 120_000)

@@ -11,6 +11,11 @@ export interface SurrenderNoticeData {
   valuationDueDate: string
   valuation?: { valuedOn: string; valuerName: string; amountCents: number }
   outcome?: { saleProceedsCents: number; shortfallCents: number; refundCents: number }
+  /** The linked recovery's sale and account figures; their lines are added after the existing ones only when this is present. */
+  recoveryOutcome?: {
+    settlementDueCents: number; grossProceedsCents: number; deductedCostsCents: number; netProceedsCents: number
+    chargedCostsCents: number; shortfallCents: number; surplusCents: number
+  }
   /** The linked recovery's costs; a "RECOVERY COSTS" section is printed only when this is non-empty. */
   costs?: { type: string; label: string; grossCents: number; treatment: "DEDUCT_FROM_PROCEEDS" | "CHARGE_TO_ACCOUNT" }[]
 }
@@ -44,9 +49,24 @@ export async function renderSurrenderFinalNotice(data: SurrenderNoticeData): Pro
     ["Shortfall", formatZarPdf(data.outcome.shortfallCents)],
     ["Refund due", formatZarPdf(data.outcome.refundCents)],
   ])
+  if (data.recoveryOutcome) recoveryOutcomeLines(w, data.recoveryOutcome)
   if (data.costs && data.costs.length > 0) recoveryCosts(w, data.costs)
   w.placeholderClause("1", "Consumer rights following disposal and account reconciliation")
   return w.finish({ reference: data.reference, watermark: true })
+}
+
+// UNTESTED: legal sign-off on the recovery's sale and account lines.
+function recoveryOutcomeLines(w: DealDocumentWriter, o: NonNullable<SurrenderNoticeData["recoveryOutcome"]>): void {
+  w.labelValues([
+    ["Settlement due at sale", formatZarPdf(o.settlementDueCents)],
+    ["Gross sale price", formatZarPdf(o.grossProceedsCents)],
+    ["Costs deducted from proceeds", formatZarPdf(o.deductedCostsCents)],
+    ["Net proceeds", formatZarPdf(o.netProceedsCents)],
+    ["Costs charged to account", formatZarPdf(o.chargedCostsCents)],
+    ["Account shortfall", formatZarPdf(o.shortfallCents)],
+    ["Account surplus", formatZarPdf(o.surplusCents)],
+  ])
+  w.paragraph("Sale and account lines: DRAFT — require lender legal approval", w.italic)
 }
 
 // UNTESTED: legal sign-off on which costs an NCA lender may show against the account.

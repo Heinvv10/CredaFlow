@@ -9,6 +9,7 @@ type Params = { params: Promise<{ loanId: string }> }
 export async function GET(req: NextRequest, { params }: Params) {
   return withRecoveryStaff(req, null, async (actor) => {
     const { loanId } = await params
+    if (await prisma.loan.count({ where: { id: loanId, tenantId: actor.tenantId } }) !== 1) return NextResponse.json({ error: "Loan not found" }, { status: 404 })
     const rows = await prisma.recovery.findMany({
       where: { tenantId: actor.tenantId, loanId }, orderBy: { createdAt: "desc" }, select: { id: true, route: true, status: true, recoveredOn: true },
     })

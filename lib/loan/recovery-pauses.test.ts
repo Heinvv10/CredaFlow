@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { loadChargesReplay } from "@/lib/loan/charges-replay"
-import { recoveryChargePauses } from "./recovery-freeze-window"
+import { loadChargesReplay } from "./charges-replay"
+import { recoveryChargePauses } from "./recovery-pauses"
 
 const d = (ymd: string) => new Date(`${ymd}T12:00:00+02:00`)
 

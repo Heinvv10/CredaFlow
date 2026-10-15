@@ -1,16 +1,18 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt, PaymentApplicationError, type PaymentDb } from "@/lib/loan/apply-payment"
+import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { prisma } from "@/lib/prisma"
 import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
+import { isNcaRoute } from "./recovery-input"
 import { recoveryChargeFreeze } from "./recovery-deadline"
 import { costTotals, recoveryOutcome } from "./recovery-outcome"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
 import type { SigningTx } from "./signing-prepare"
 
-export interface ProceedsInput { receivedAt: Date }
 export type ProceedsApplied = {
   kind: "done"; id: string; paymentId: string | null; paymentCents: number; shortfallCents: number; surplusCents: number; replay: boolean
 }
@@ -30,9 +32,14 @@ export type ProceedsApplied = {
 const idempotencyKey = (recoveryId: string) => `asset-recovery:${recoveryId}:proceeds`
 const lockRecovery = (tx: SigningTx, id: string) => tx.$queryRaw`SELECT 1 FROM "Recovery" WHERE id = ${id} FOR UPDATE`
 
-export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string, input: ProceedsInput): Promise<NotFound | NotReady | ProceedsApplied> {
-  if (!Number.isFinite(input.receivedAt.getTime())) return { kind: "not_ready", reason: "Provide a valid receivedAt" }
+export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string): Promise<NotFound | NotReady | ProceedsApplied> {
   return refusable(() => prisma.$transaction(async (tx): Promise<NotFound | ProceedsApplied> => {
+    // Proceeds are applied as of now: the database dates the charge freeze from today, so a back-dated receipt could not be honest.
+    const receivedAt = new Date()
+    const head = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { loanId: true } })
+    if (!head) return { kind: "not_found" }
+    // The loan first (its lock is what orders every receipt), then the recovery, before the settlement is read: a receipt landing in between would make it stale.
+    await lockLoanForUpdate(tx, head.loanId)
     await lockRecovery(tx, recoveryId)
     const recovery = await tx.recovery.findFirst({
       where: { id: recoveryId, tenantId: actor.tenantId },
@@ -52,13 +59,12 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
     }
     const sale = recovery.sales[0]
     if (recovery.status !== "SOLD" || !sale) throw new RecoveryRefusal("Proceeds are applied to a sold recovery")
-    const receivedOn = sastCalendarDate(input.receivedAt)
-    if (toDayNumber(receivedOn) > toDayNumber(sastCalendarDate(new Date()))) throw new RecoveryRefusal("The proceeds cannot be dated in the future")
+    const receivedOn = sastCalendarDate(receivedAt)
     if (toDayNumber(receivedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The proceeds cannot be dated before the recovery")
 
     if (recovery.costs.some((cost) => cost.status === "PENDING")) throw new RecoveryRefusal("Proceeds are applied once every cost is decided")
     const { deducted, charged } = costTotals(recovery.costs.filter((cost) => cost.status === "APPROVED"))
-    const settlementDueCents = (await loanSettlementFigures(tx, recovery.loan, input.receivedAt)).totalToSettle
+    const settlementDueCents = (await loanSettlementFigures(tx, recovery.loan, receivedAt)).totalToSettle
     let outcome
     try {
       outcome = recoveryOutcome({ settlementDueCents, grossProceedsCents: sale.priceInclVatCents, deductedCostsCents: deducted, chargedCostsCents: charged })
@@ -75,7 +81,7 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
         const receipt = await applyManualReceipt(inThisTransaction, {
           loanId: recovery.loanId, tenantId: actor.tenantId, amount: outcome.paymentCents, paymentMethod: "EFT", reference: `REC-${recovery.id}`,
           notes: "Repossessed asset sale proceeds", capturedById: actor.userId, capturedByEmail: actor.userEmail,
-          idempotencyKey: idempotencyKey(recovery.id), receivedAt: input.receivedAt,
+          idempotencyKey: idempotencyKey(recovery.id), receivedAt: receivedAt,
         })
         paymentId = receipt.payment.id
       } catch (error) {
@@ -85,7 +91,7 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
       await tx.remarketingSale.update({ where: { id: sale.id, tenantId: actor.tenantId }, data: { proceedsPaymentId: paymentId } })
     }
 
-    const nca = recovery.route === "NCA_S127_SURRENDER" || recovery.route === "NCA_S131_ATTACHMENT"
+    const nca = isNcaRoute(recovery.route)
     const demandDays = (await tx.tenantConfig.findUnique({ where: { tenantId: actor.tenantId }, select: { nonNcaDemandPeriodDays: true } }))?.nonNcaDemandPeriodDays ?? 10
     const freeze = nca ? null : recoveryChargeFreeze({ regime: "NON_NCA", proceedsAppliedOn: receivedOn, nonNcaDemandPeriodDays: demandDays })
     await advance(tx, actor, recovery.id, "SOLD", {
@@ -93,6 +99,9 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
       netProceedsCents: outcome.netProceedsCents, shortfallCents: outcome.shortfallCents, surplusCents: outcome.surplusCents, proceedsPaymentId: paymentId,
       chargesFrozenFrom: dbDate(receivedOn), ...(freeze ? { chargesFrozenUntil: dbDate(freeze.frozenUntil) } : {}),
     })
+
+    // The freeze has begun and the charged costs are on the account from today: persist what the replay now derives (a no-op while default charges are off).
+    await syncLoanCharges(tx, { tenantId: actor.tenantId, loanId: recovery.loanId }, receivedAt, { source: "recovery_proceeds", userId: actor.userId, userEmail: actor.userEmail })
 
     if (recovery.route === "NCA_S127_SURRENDER") {
       if (!recovery.surrenderRequest || recovery.surrenderRequest.status !== "VALUATION_NOTICE_ISSUED" || !paymentId) {

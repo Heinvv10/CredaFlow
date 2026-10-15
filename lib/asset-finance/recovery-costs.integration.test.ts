@@ -251,6 +251,23 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, entityId: paymentId, action: "PAYMENT_REVERSED" } })).toBe(0)
   }, 120_000)
 
+  it("shows the consumer the valuation only once it is a notice (NCA) or the asset is listed (NON_NCA)", async () => {
+    const portalAs = async (loanId: string) => {
+      const clientId = (await database().loan.findUniqueOrThrow({ where: { id: loanId } })).clientId
+      const director = (await database().entityRelationship.findFirst({ where: { tenantId: fx.tenantId, entity: { loans: { some: { id: loanId } } }, role: "DIRECTOR" } }))?.clientId
+      as(fx, clientId ?? director ?? "", "CLIENT")
+      return (await routes().portal(loanId)).body.recovery as { valuationAmountCents: number | null; status: string }
+    }
+    const shown = async (nca: boolean, to: "VALUED" | "VALUATION_NOTICE_ISSUED" | "LISTED") => {
+      const { loan } = await ladderRecovery(database(), fx, nca, to, { valuationCents: 98_700_000 })
+      return portalAs(loan.loanId)
+    }
+    expect((await shown(true, "VALUED")).valuationAmountCents).toBeNull()
+    expect((await shown(true, "VALUATION_NOTICE_ISSUED")).valuationAmountCents).toBe(98_700_000)
+    expect((await shown(false, "VALUED")).valuationAmountCents).toBeNull()
+    expect((await shown(false, "LISTED")).valuationAmountCents).toBe(98_700_000)
+  }, 120_000)
+
   it("keeps tenants apart (404) and enforces the roles", async () => {
     officer()
     const loan = await newLoan(database(), fx, "NON_NCA")
@@ -259,6 +276,7 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     as(other, other.adminA, "LOAN_ADMIN")
     const foreign = recoveryRoutes(other.host)
     expect((await foreign.view(id)).status).toBe(404)
+    expect((await foreign.list(loan.loanId)).status).toBe(404)
     expect((await foreign.valuation(id, { valuedOn: today(), source: "ASSESSOR", valuerName: "TEST", amountCents: 1 })).status).toBe(404)
     expect((await foreign.listForSale(id)).status).toBe(404)
     expect((await foreign.cost(id, cost())).status).toBe(404)

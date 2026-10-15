@@ -1,12 +1,14 @@
-import { createHash } from "node:crypto"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
-import { deleteFile, readFile, saveFile } from "@/lib/storage"
+import { deleteFile, saveFile } from "@/lib/storage"
 import { renderPostSaleStatement } from "./documents/post-sale-statement"
 import { renderRecoveryFinalNotice, renderRecoveryValuationNotice } from "./documents/nca/recovery-pdf"
 import { dbDate, isoOfDbDate } from "./dates"
+import { readVerified } from "./notice-bytes"
 import type { RecoveryActor } from "./recovery-create"
+import { isNcaRoute } from "./recovery-input"
 import { loadRecoveryNoticeData } from "./recovery-notice-data"
 import { recoveryChargeFreeze } from "./recovery-deadline"
 import type { SigningTx } from "./signing-prepare"
@@ -26,7 +28,7 @@ export async function issueRecoveryValuationNotice(actor: RecoveryActor, id: str
   const loaded = await loadRecoveryNoticeData(actor.tenantId, id, new Date())
   if (!loaded) return { kind: "not_found" }
   const { row, data } = loaded
-  if (row.route === "NON_NCA_VOLUNTARY" || row.route === "NON_NCA_COURT_ORDER") return { kind: "not_ready", reason: NOT_NCA }
+  if (!isNcaRoute(row.route)) return { kind: "not_ready", reason: NOT_NCA }
   if (row.status !== "VALUED") return { kind: "not_ready", reason: "The recovery is not ready for its valuation notice" }
   if (row.surrenderRequestId) {
     return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
@@ -52,7 +54,7 @@ export async function issueRecoveryFinalNotice(actor: RecoveryActor, id: string)
   const loaded = await loadRecoveryNoticeData(actor.tenantId, id, new Date())
   if (!loaded) return { kind: "not_found" }
   const { row, data } = loaded
-  if (row.route === "NON_NCA_VOLUNTARY" || row.route === "NON_NCA_COURT_ORDER") return { kind: "not_ready", reason: NOT_NCA }
+  if (!isNcaRoute(row.route)) return { kind: "not_ready", reason: NOT_NCA }
   if (row.status !== "PROCEEDS_APPLIED" || !row.chargesFrozenFrom) return { kind: "not_ready", reason: "Apply the sale proceeds before the final notice" }
   const finalNoticeIssuedOn = sastCalendarDate(new Date())
   const { frozenUntil } = recoveryChargeFreeze({ regime: "NCA", proceedsAppliedOn: isoOfDbDate(row.chargesFrozenFrom), finalNoticeIssuedOn, nonNcaDemandPeriodDays: 0 })
@@ -87,22 +89,20 @@ export async function readRecoveryDocument(tenantId: string, id: string, kind: R
     route: true, surrenderRequestId: true, valuationNoticePath: true, valuationNoticeSha256: true, finalNoticePath: true, finalNoticeSha256: true,
   } })
   if (!row) return null
-  const nonNca = row.route === "NON_NCA_VOLUNTARY" || row.route === "NON_NCA_COURT_ORDER"
+  const nonNca = !isNcaRoute(row.route)
   if (kind === "statement") {
     if (!nonNca) return null
     const loaded = await loadRecoveryNoticeData(tenantId, id, new Date())
     if (!loaded?.data.outcome) return null
     const bytes = await renderPostSaleStatement(loaded.data)
-    return { bytes, sha256: createHash("sha256").update(bytes).digest("hex") }
+    return { bytes, sha256: sha256DocumentBytes(bytes) }
   }
   if (nonNca) return null
   if (row.surrenderRequestId) return readSurrenderNotice(tenantId, row.surrenderRequestId, kind)
   const path = kind === "valuation" ? row.valuationNoticePath : row.finalNoticePath
   const sha256 = kind === "valuation" ? row.valuationNoticeSha256 : row.finalNoticeSha256
   if (!path || !sha256) return null
-  const bytes = await readFile(path)
-  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error("Recovery notice bytes failed integrity check")
-  return { bytes, sha256 }
+  return readVerified(path, sha256, "Recovery notice")
 }
 
 async function auditNotice(tx: SigningTx, actor: RecoveryActor, id: string, action: string, newValue: Record<string, unknown>): Promise<void> {
@@ -116,7 +116,7 @@ async function storeAndAdvance(
   actor: RecoveryActor, id: string, bytes: Buffer, from: "VALUED" | "PROCEEDS_APPLIED",
   data: (storagePath: string, sha256: string) => Parameters<typeof advance>[4], action: string, extra: Record<string, unknown> = {},
 ): Promise<RecoveryResult> {
-  const sha256 = createHash("sha256").update(bytes).digest("hex")
+  const sha256 = sha256DocumentBytes(bytes)
   const stored = await saveFile(bytes, "application/pdf")
   try {
     const outcome = await refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {

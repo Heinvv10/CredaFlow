@@ -2,6 +2,7 @@ import type { RecoveryStatus } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import type { RecoveryActor } from "./recovery-create"
+import { isNcaRoute } from "./recovery-input"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
 
 export type OutcomeSettled = { kind: "done"; id: string; status: Extract<RecoveryStatus, "SHORTFALL_OPEN" | "SURPLUS_HELD" | "CLOSED"> }
@@ -25,7 +26,7 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
       select: { id: true, route: true, status: true, shortfallCents: true, surplusCents: true, chargesFrozenFrom: true, chargesFrozenUntil: true },
     })
     if (!recovery) return { kind: "not_found" }
-    const nca = recovery.route === "NCA_S127_SURRENDER" || recovery.route === "NCA_S131_ATTACHMENT"
+    const nca = isNcaRoute(recovery.route)
     const from: RecoveryStatus = nca ? "FINAL_NOTICE_ISSUED" : "PROCEEDS_APPLIED"
     if (recovery.status !== from) {
       throw new RecoveryRefusal(nca ? "An NCA recovery opens its outcome after its final notice" : "A recovery opens its outcome after its proceeds are applied")

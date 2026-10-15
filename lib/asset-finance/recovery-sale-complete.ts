@@ -6,7 +6,7 @@ import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
 import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
-import { approvalRequired, SELF_DEALING } from "./recovery-sale"
+import { approvalRequired, SELF_DEALING, SELF_VALUED_RERECORD, valuationFacts } from "./recovery-sale"
 import { actorIsBuyer } from "./recovery-screening-store"
 import { repossessionVatEvent, type RecoveryContractType } from "./recovery-vat"
 import type { SigningTx } from "./signing-prepare"
@@ -55,8 +55,18 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
     const today = sastCalendarDate(new Date())
     if (toDayNumber(input.completedOn) > toDayNumber(today)) throw new RecoveryRefusal("The sale cannot be completed on a future date")
     if (toDayNumber(input.completedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The sale cannot be dated before the recovery")
+    const { selfValued } = await valuationFacts(tx, actor.tenantId, recovery.assetId, sale.valuationId, today, sale.createdById)
+    // Not self-valued when recorded but self-valued now (the proposer has since recorded a tying valuation): it must be re-recorded, not approved.
+    if (selfValued && !sale.selfValued) throw new RecoveryRefusal(SELF_VALUED_RERECORD)
     if (approvalRequired(sale) && (!sale.approvedById || sale.approvedById === sale.createdById)) {
-      throw new RecoveryRefusal("A sale under the valuation, or to a screened party, is approved by someone other than the person who proposed it")
+      throw new RecoveryRefusal("A sale under the valuation, to a screened party, or on a valuation its proposer recorded is approved by someone other than the person who proposed it")
+    }
+    // Costs deducted from the proceeds must leave something: net proceeds stay above nil, or the recovery could never apply them.
+    const deducted = await tx.recoveryCost.aggregate({
+      where: { tenantId: actor.tenantId, recoveryId: recovery.id, status: "APPROVED", treatment: "DEDUCT_FROM_PROCEEDS" }, _sum: { grossCents: true },
+    })
+    if ((deducted._sum.grossCents ?? 0) >= sale.priceInclVatCents) {
+      throw new RecoveryRefusal("The approved costs deducted from the proceeds are at least the sale price: nothing would be left to apply")
     }
     const contractType = recovery.loan.contractType as RecoveryContractType
 

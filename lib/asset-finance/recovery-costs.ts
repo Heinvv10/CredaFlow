@@ -5,7 +5,9 @@ import { vatOnExclusive } from "@/lib/vat/amounts"
 import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
 import { dbDate } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
+import { isNcaRoute } from "./recovery-input"
 import { RecoveryRefusal, refusable, type RecoveryResult } from "./recovery-result"
+import type { SigningTx } from "./signing-prepare"
 
 export interface RecoveryCostInput {
   type: RecoveryCostType
@@ -47,7 +49,7 @@ export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: strin
     const recovery = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { route: true } })
     if (!recovery) return { kind: "not_found" }
     // NCA: a taxed legal cost follows an uncorrected judgment or settlement that carries its legal document.
-    if (input.type === "LEGAL_TAXED" && recovery.route.startsWith("NCA_")) {
+    if (input.type === "LEGAL_TAXED" && isNcaRoute(recovery.route)) {
       const step = input.legalStepId
         ? await tx.legalMatterStep.findFirst({ where: { id: input.legalStepId, tenantId: actor.tenantId, kind: { in: ["JUDGMENT", "SETTLED"] }, evidenceDocumentId: { not: null } }, select: { id: true } })
         : null
@@ -86,6 +88,19 @@ export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: strin
 }
 
 /**
+ * Once the sale is completed, approving a cost to be deducted from its proceeds must leave
+ * the net proceeds above nil: the deducted costs stay below the sale price.
+ */
+async function requireProceedsLeft(tx: SigningTx, tenantId: string, recoveryId: string, addedCents: number): Promise<void> {
+  const sale = await tx.remarketingSale.findFirst({ where: { tenantId, recoveryId, status: "COMPLETED" }, select: { priceInclVatCents: true } })
+  if (!sale) return
+  const deducted = await tx.recoveryCost.aggregate({ where: { tenantId, recoveryId, status: "APPROVED", treatment: "DEDUCT_FROM_PROCEEDS" }, _sum: { grossCents: true } })
+  if ((deducted._sum.grossCents ?? 0) + addedCents >= sale.priceInclVatCents) {
+    throw new RecoveryRefusal("Approving this cost would deduct the whole sale price from the proceeds: nothing would be left to apply")
+  }
+}
+
+/**
  * The one decision on a PENDING cost, by someone other than its recorder
  * (decide_asset_finance at the route): APPROVED costs count in the proceeds and
  * on the notices, REJECTED ones stay on the ledger for the record. The
@@ -95,6 +110,7 @@ export async function decideRecoveryCost(actor: RecoveryActor, recoveryId: strin
   return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
     const cost = await tx.recoveryCost.findFirst({ where: { id: costId, recoveryId, tenantId: actor.tenantId }, select: { status: true, recordedById: true, type: true, grossCents: true, treatment: true } })
     if (!cost) return { kind: "not_found" }
+    if (decision === "APPROVED" && cost.treatment === "DEDUCT_FROM_PROCEEDS") await requireProceedsLeft(tx, actor.tenantId, recoveryId, cost.grossCents)
     if (cost.status !== "PENDING") throw new RecoveryRefusal("This cost has already been decided")
     if (cost.recordedById === actor.userId) throw new RecoveryRefusal("A cost is decided by someone other than the person who recorded it")
     const approvedAt = new Date()

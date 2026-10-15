@@ -5,21 +5,6 @@ import { createNotification } from "@/lib/notifications/bell"
 import { prisma } from "@/lib/prisma"
 import { dbDate } from "./dates"
 
-/**
- * The deadline sweep behind app/api/cron/asset-finance-recovery-deadlines.
- * For every SHORTFALL_OPEN recovery whose charge freeze ended before `day`
- * (SAST), once: the shortfall loan's collections stage moves to ATTORNEY_REFERRED
- * when it has an open legal matter with an attorney appointed (never backwards,
- * never to WRITTEN_OFF; with no attorney the stage stays and collections picks
- * the loan up as it does any arrears), the recovery's creator gets a bell item,
- * and an audit row is written. That audit row is the "handled" marker, written in
- * the same transaction, so a rerun changes nothing. Charges themselves resume by
- * the replay (lib/asset-finance/recovery-freeze-window.ts), not here. Write-off
- * is never automatic. Each recovery runs in its own transaction; one failure is
- * logged and counted and the sweep goes on.
- */
-export const RECOVERY_DEADLINE_AUDIT_ACTION = AuditAction.ASSET_RECOVERY_DEADLINE_PASSED
-
 export interface RecoveryDeadlineRun {
   ok: boolean
   day: string
@@ -34,7 +19,7 @@ async function handleRecovery(recovery: { id: string; tenantId: string; loanId: 
   const { tenantId } = recovery
   return prisma.$transaction(async (tx) => {
     await lockLoanForUpdate(tx, recovery.loanId)
-    const done = await tx.auditLog.count({ where: { tenantId, action: RECOVERY_DEADLINE_AUDIT_ACTION, entity: "Recovery", entityId: recovery.id } })
+    const done = await tx.auditLog.count({ where: { tenantId, action: AuditAction.ASSET_RECOVERY_DEADLINE_PASSED, entity: "Recovery", entityId: recovery.id } })
     if (done > 0) return "already_handled"
     const loan = await tx.loan.findFirst({ where: { id: recovery.loanId, tenantId }, select: { reference: true, status: true, collectionsStage: true } })
     if (!loan) throw new Error(`Loan ${recovery.loanId} of recovery ${recovery.id} not found`)
@@ -55,13 +40,26 @@ async function handleRecovery(recovery: { id: string; tenantId: string; loanId: 
       }, tx.notification)
     }
     await logAuditStrict({
-      tenantId, action: RECOVERY_DEADLINE_AUDIT_ACTION, entity: "Recovery", entityId: recovery.id,
+      tenantId, action: AuditAction.ASSET_RECOVERY_DEADLINE_PASSED, entity: "Recovery", entityId: recovery.id,
       newValue: { loanId: recovery.loanId, day, collectible, collectionsStageMoved: moveStage, hasAttorney: attorney > 0 },
     }, tx)
     return "handled"
   })
 }
 
+/**
+ * The deadline sweep behind app/api/cron/asset-finance-recovery-deadlines.
+ * For every SHORTFALL_OPEN recovery whose charge freeze ended before `day`
+ * (SAST), once: the shortfall loan's collections stage moves to ATTORNEY_REFERRED
+ * when it has an open legal matter with an attorney appointed (never backwards,
+ * never to WRITTEN_OFF; with no attorney the stage stays and collections picks
+ * the loan up as it does any arrears), the recovery's creator gets a bell item,
+ * and an audit row is written. That audit row is the "handled" marker, written in
+ * the same transaction, so a rerun changes nothing. Charges themselves resume by
+ * the replay (lib/loan/recovery-pauses.ts), not here. Write-off
+ * is never automatic. Each recovery runs in its own transaction; one failure is
+ * logged and counted and the sweep goes on.
+ */
 export async function runRecoveryDeadlineSweep(day: string): Promise<RecoveryDeadlineRun> {
   const run: RecoveryDeadlineRun = { ok: true, day, handled: 0, alreadyHandled: 0, failed: 0 }
   const tenants = await prisma.tenantConfig.findMany({ where: { featureAssetFinance: true }, orderBy: { tenantId: "asc" }, select: { tenantId: true } })
@@ -77,7 +75,7 @@ export async function runRecoveryDeadlineSweep(day: string): Promise<RecoveryDea
         else run.alreadyHandled++
       } catch (error) {
         run.failed++
-        console.error("[asset-finance-recovery-deadlines] recovery failed", { tenantId, recoveryId: recovery.id, error })
+        console.error("[asset-finance-recovery-deadlines] recovery failed", { tenantId, recoveryId: recovery.id, error: error instanceof Error ? error.name : "unknown" })
       }
     }
   }

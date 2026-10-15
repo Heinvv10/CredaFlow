@@ -25,15 +25,42 @@ beforeEach(() => {
 })
 
 describe("RecoveryPanel", () => {
+  it("passes the manage permission on as the right to see the refund's bank details", async () => {
+    mocks.data.mockResolvedValue({ kind: "none" })
+    await html({ canManage: true, canDecide: false })
+    await html({ canManage: false, canDecide: false })
+    expect(mocks.data.mock.calls.map((c) => c[2])).toEqual([{ bankDetails: true }, { bankDetails: false }])
+  })
+
   it("renders nothing when the loan has no recovery and nothing to record", async () => {
     mocks.data.mockResolvedValue({ kind: "none" })
     expect(await RecoveryPanel({ tenantId: "t-1", loanId: "l-1", userId: "u-1", canManage: true, canDecide: true, canRecordPayment: true })).toBeNull()
   })
 
   it("offers to record a recovery to a manager only", async () => {
-    mocks.data.mockResolvedValue({ kind: "record", regime: "NON_NCA", lease: false, surrenders: [] })
+    mocks.data.mockResolvedValue({ kind: "record", regime: "NON_NCA", lease: false, surrenders: [], canRecord: true, withdrawn: [] })
     expect(await html({ canManage: true, canDecide: false })).toContain("Record recovery")
     expect(await RecoveryPanel({ tenantId: "t-1", loanId: "l-1", userId: "u-1", canManage: false, canDecide: false, canRecordPayment: false })).toBeNull()
+  })
+
+  it("shows a withdrawn recovery as a compact line beside the record form", async () => {
+    mocks.data.mockResolvedValue({ kind: "record", regime: "NON_NCA", lease: false, surrenders: [], canRecord: true,
+      withdrawn: [{ id: "w1", route: "NON_NCA_VOLUNTARY", recoveredOn: "2026-10-01", reason: "Debtor paid in full" }] })
+    const manager = await html({ canManage: true, canDecide: false })
+    expect(manager).toContain("Withdrawn: Voluntary hand-over (non-NCA)")
+    expect(manager).toContain("Debtor paid in full")
+    expect(manager).toContain("Record recovery")
+    const reader = await html({ canManage: false, canDecide: false })
+    expect(reader).toContain("Debtor paid in full")
+    expect(reader).not.toContain("Record recovery")
+  })
+
+  it("shows only the history when nothing can be recorded", async () => {
+    mocks.data.mockResolvedValue({ kind: "record", regime: "NCA", lease: false, surrenders: [], canRecord: false,
+      withdrawn: [{ id: "w1", route: "NCA_S127_SURRENDER", recoveredOn: "2026-10-01", reason: "Surrender withdrawn by the debtor" }] })
+    const out = await html({ canManage: true, canDecide: true })
+    expect(out).toContain("Surrender withdrawn by the debtor")
+    expect(out).not.toContain("Record recovery")
   })
 
   it("shows a non-NCA recovery's stepper without notice steps, its next step and the cost ledger", async () => {

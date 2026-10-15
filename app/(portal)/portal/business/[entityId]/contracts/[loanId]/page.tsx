@@ -12,6 +12,7 @@ import { statusLabel } from "@/lib/asset-finance/labels"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { PortalRecoverySection } from "@/components/asset-finance/recovery/PortalRecoverySection"
+import { loadSurrenderRequestOpen } from "@/lib/asset-finance/surrender-request-gate"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
@@ -50,6 +51,9 @@ export default async function PortalContractPage({ params }: Params) {
     return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} extra={<PortalRecoverySection tenantId={tenantId} loanId={loanId} />} />
   }
   const asset = view.asset
+  // A voluntary surrender (NCA s127) can be asked for until the lender holds the asset; an existing request still shows.
+  const surrenderApplies = view.loan.ncaRegime === "NCA" && view.loan.contractType !== "LOAN"
+  const canRequestSurrender = surrenderApplies && await loadSurrenderRequestOpen(tenantId, loanId)
   // portalOutstanding: the settlement figure while default charges are live
   // for the loan, otherwise the outstanding principal (capitalised interest included).
   const settling = view.chargesLive
@@ -99,9 +103,9 @@ export default async function PortalContractPage({ params }: Params) {
         <PortalContractSchedule rows={view.schedule} />
       </DataPanel>
       <PortalRecoverySection tenantId={tenantId} loanId={loanId} />
-      {view.loan.ncaRegime === "NCA" && view.loan.contractType !== "LOAN" && (
+      {surrenderApplies && (view.surrender || canRequestSurrender) && (
         <DataPanel title="Voluntary surrender" description="NCA section 127 request and notices">
-          <SurrenderRequestCard loanId={view.loan.id} existing={view.surrender} />
+          <SurrenderRequestCard loanId={view.loan.id} existing={view.surrender} canRequest={canRequestSurrender} />
         </DataPanel>
       )}
     </div>

@@ -1,11 +1,15 @@
-import type { RecoveryRoute, ValuationSource } from "@prisma/client"
+import type { RecoveryRoute, SurrenderStatus, ValuationSource } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { dbDate } from "./dates"
 import { recordMeterReading } from "./meter-readings"
 import { createRecoveryTx, type RecoveryActor } from "./recovery-create"
+import { isNcaRoute } from "./recovery-input"
 import { advance, RecoveryRefusal, refusable, type RecoveryResult } from "./recovery-result"
+
+// A surrender whose proceeds are credited already has its sale: only an earlier one is linked to a recovery.
+const LINKABLE_SURRENDER: SurrenderStatus[] = ["REQUESTED", "VALUED", "VALUATION_NOTICE_ISSUED"]
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -33,9 +37,10 @@ export async function createRecovery(actor: RecoveryActor, loanId: string, input
     if (!loan) return { kind: "not_found" }
     if (input.route === "NCA_S127_SURRENDER") {
       const surrender = input.surrenderRequestId
-        ? await tx.surrenderRequest.findFirst({ where: { id: input.surrenderRequestId, tenantId: actor.tenantId, loanId }, select: { id: true } })
+        ? await tx.surrenderRequest.findFirst({ where: { id: input.surrenderRequestId, tenantId: actor.tenantId, loanId }, select: { status: true } })
         : null
       if (!surrender) return { kind: "not_found" }
+      if (!LINKABLE_SURRENDER.includes(surrender.status)) throw new RecoveryRefusal("A recovery links a surrender before its sale proceeds are credited")
     } else if (input.surrenderRequestId) {
       throw new RecoveryRefusal("Only an s127 recovery names a surrender")
     }
@@ -78,13 +83,14 @@ export async function recordRecoveryValuation(actor: RecoveryActor, id: string, 
     if (!recovery) return { kind: "not_found" }
     if (recovery.status !== "RECOVERED") throw new RecoveryRefusal("The recovery is not awaiting its valuation")
     let valuationId: string
+    let valuerName = ""
     let reused = false
     if (recovery.surrenderRequest) {
       if (!recovery.surrenderRequest.valuationId) throw new RecoveryRefusal("Record the surrender's valuation first: an s127 recovery reuses it")
       valuationId = recovery.surrenderRequest.valuationId
       reused = true
     } else {
-      const valuerName = input.valuerName.trim()
+      valuerName = input.valuerName.trim()
       if (!ISO_DAY.test(input.valuedOn) || !valuerName || !Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) {
         throw new RecoveryRefusal("Provide a valid date, valuer and positive valuation in cents")
       }
@@ -96,7 +102,7 @@ export async function recordRecoveryValuation(actor: RecoveryActor, id: string, 
     await advance(tx, actor, id, "RECOVERED", { status: "VALUED", valuationId })
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
       action: AuditAction.ASSET_RECOVERY_VALUED, entity: "Recovery", entityId: id,
-      newValue: reused ? { valuationId, reusedFromSurrender: true } : { valuationId, valuedOn: input.valuedOn, source: input.source, valuerName: input.valuerName.trim(), amountCents: input.amountCents },
+      newValue: reused ? { valuationId, reusedFromSurrender: true } : { valuationId, valuedOn: input.valuedOn, source: input.source, valuerName, amountCents: input.amountCents },
     }, tx)
     return { kind: "done", id }
   }))
@@ -107,7 +113,7 @@ export async function listForSale(actor: RecoveryActor, id: string): Promise<Rec
   return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
     const recovery = await tx.recovery.findFirst({ where: { id, tenantId: actor.tenantId }, select: { status: true, route: true } })
     if (!recovery) return { kind: "not_found" }
-    const nca = recovery.route === "NCA_S127_SURRENDER" || recovery.route === "NCA_S131_ATTACHMENT"
+    const nca = isNcaRoute(recovery.route)
     const from = nca ? "VALUATION_NOTICE_ISSUED" : "VALUED"
     if (recovery.status !== from) throw new RecoveryRefusal(nca ? "An NCA recovery is listed after its valuation notice" : "A recovery is listed once it is valued")
     await advance(tx, actor, id, from, { status: "LISTED" })

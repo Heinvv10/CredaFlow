@@ -40,10 +40,31 @@ describe("recoveryChargeFreeze", () => {
     }).frozenUntil).toBe("2027-01-04")
   })
 
-  it("NON_NCA: a zero-day period freezes the proceeds day only", () => {
+  // The database allows a demand period of 1 to 90 days only (CHECK TenantConfig_recovery_settings), so the shortest freeze is one day after the proceeds.
+  it("NON_NCA: the shortest period (1 day) freezes the proceeds day and the next, the longest (90 days) runs to the same day three months on", () => {
     expect(recoveryChargeFreeze({
-      regime: "NON_NCA", proceedsAppliedOn: "2026-05-05", nonNcaDemandPeriodDays: 0,
-    })).toEqual({ frozenFrom: "2026-05-05", frozenUntil: "2026-05-05" })
+      regime: "NON_NCA", proceedsAppliedOn: "2026-05-05", nonNcaDemandPeriodDays: 1,
+    })).toEqual({ frozenFrom: "2026-05-05", frozenUntil: "2026-05-06" })
+    // 28 Dec + 3 = 31 Dec, + 31 = 31 Jan, + 28 = 28 Feb, + 28 = 28 Mar: 90 days
+    expect(recoveryChargeFreeze({
+      regime: "NON_NCA", proceedsAppliedOn: "2026-12-28", nonNcaDemandPeriodDays: 90,
+    }).frozenUntil).toBe("2027-03-28")
+  })
+
+  it("NCA: a final notice on the Friday before a Monday holiday skips the holiday and the Workers' Day Friday that follows", () => {
+    // Fri 24 Apr 2026, Mon 27 Apr (Freedom Day) skipped: Tue 28 (1), Wed 29 (2), Thu 30 (3), Fri 1 May (Workers' Day) skipped,
+    // Mon 4 (4), 5 (5), 6 (6), 7 (7), 8 (8), 11 (9), 12 May (10).
+    expect(recoveryChargeFreeze({
+      regime: "NCA", proceedsAppliedOn: "2026-04-22", finalNoticeIssuedOn: "2026-04-24", nonNcaDemandPeriodDays: 10,
+    })).toEqual({ frozenFrom: "2026-04-22", frozenUntil: "2026-05-12" })
+  })
+
+  it("NCA: a final notice on the Friday before a holiday that falls on a Sunday skips the Monday that replaces it", () => {
+    // Women's Day, 9 Aug 2026, is a Sunday, so Mon 10 Aug is a holiday. Fri 7 Aug notice: Tue 11 (1), 12 (2), 13 (3), 14 (4),
+    // Mon 17 (5), 18 (6), 19 (7), 20 (8), 21 (9), Mon 24 Aug (10).
+    expect(recoveryChargeFreeze({
+      regime: "NCA", proceedsAppliedOn: "2026-08-07", finalNoticeIssuedOn: "2026-08-07", nonNcaDemandPeriodDays: 10,
+    })).toEqual({ frozenFrom: "2026-08-07", frozenUntil: "2026-08-24" })
   })
 
   it("rejects a bad period or date", () => {

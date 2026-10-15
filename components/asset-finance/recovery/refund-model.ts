@@ -38,12 +38,12 @@ export function refundBody(form: RefundForm): Built<FormData> {
 
 export interface RefundLike { status: "PENDING_APPROVAL" | "APPROVED" | "RELEASED"; createdById: string; approvedById: string | null }
 
-/** Create (a manager, once), approve (an approver other than the creator), release (an approver other than the one who approved it, once approved). */
+/** Create (a manager, once), approve (an approver other than the creator), release (an approver who neither created nor approved it, once approved). */
 export function refundActions(refund: RefundLike | null, userId: string, perms: { canManage: boolean; canDecide: boolean }): { create: boolean; approve: boolean; release: boolean } {
   if (!refund) return { create: perms.canManage, approve: false, release: false }
   return {
     create: false,
     approve: refund.status === "PENDING_APPROVAL" && perms.canDecide && refund.createdById !== userId,
-    release: refund.status === "APPROVED" && perms.canDecide && refund.approvedById !== userId,
+    release: refund.status === "APPROVED" && perms.canDecide && refund.approvedById !== userId && refund.createdById !== userId,
   }
 }

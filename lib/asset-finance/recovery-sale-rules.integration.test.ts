@@ -177,7 +177,7 @@ suite.sequential("remarketing sale rules (real Postgres, real routes)", () => {
     expect(await database().remarketingSale.findUniqueOrThrow({ where: { id: sale } })).toMatchObject({ status: "PENDING_APPROVAL" })
   }, 120_000)
 
-  it("applies proceeds only to a sold recovery, with a valid date not in the future", async () => {
+  it("applies proceeds only to a sold recovery, as of now", async () => {
     const rec = await plainListed(database(), fx, "NON_NCA", 50_000_000)
     officer()
     expect((await readJson(await routes().proceeds(rec.id))).status).toBe(409) // LISTED
@@ -190,8 +190,9 @@ suite.sequential("remarketing sale rules (real Postgres, real routes)", () => {
     expect(await database().recoveryRefund.count({ where: { recoveryId: rec.id } })).toBe(0)
     const sale = (await propose(rec, 60_000_000)).body.id as string
     expect((await readJson(await routes().completeSale(rec.id, sale))).status).toBe(200)
-    expect((await readJson(await routes().proceeds(rec.id, { receivedAt: "not a date" }))).status).toBe(400)
-    expect((await readJson(await routes().proceeds(rec.id, { receivedAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }))).status).toBe(409)
+    // Proceeds are applied as of now: a receipt date, back-dated or future, is refused.
+    expect((await readJson(await routes().proceeds(rec.id, { receivedAt: new Date(Date.now() - 3 * 86_400_000).toISOString() }))).status).toBe(400)
+    expect((await readJson(await routes().proceeds(rec.id, { receivedAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }))).status).toBe(400)
     expect(await database().payment.count({ where: { loanId: rec.loan.loanId } })).toBe(0)
     // An undecided cost blocks the proceeds; a rejected one is not counted, an approved one is.
     const pending = await database().recoveryCost.create({ data: costData(fx, rec.id, { type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 100_000 }) })

@@ -7,7 +7,6 @@ import { loadHintSteps, notifyNextLegalStep } from "./legal-matter-bell"
 import { attorneyAppointmentRefusal } from "./legal-matter-gate"
 import { LegalRefusal, refusing } from "./legal-matter-guard"
 import type { AppointAttorneyInput } from "./legal-matter-input"
-import type { LegalRegime } from "./legal-matter-hint"
 import type { SigningTx } from "./signing-prepare"
 
 export interface LegalActor { tenantId: string; userId: string; userEmail?: string | null }
@@ -49,7 +48,7 @@ export async function appointAttorney(actor: LegalActor, matterId: string, input
     const loan = await tx.loan.findFirst({ where: { id: matter.loanId, tenantId: actor.tenantId }, select: { id: true, reference: true, collectionsStage: true, ncaRegime: true } })
     if (!loan) return { kind: "not_found" }
     const refusal = attorneyAppointmentRefusal({
-      regime: loan.ncaRegime as LegalRegime, collectionsStage: loan.collectionsStage, steps: await loadHintSteps(tx, actor.tenantId, matter.id),
+      regime: loan.ncaRegime, collectionsStage: loan.collectionsStage, steps: await loadHintSteps(tx, actor.tenantId, matter.id),
       // The notice the manual attorney-referral route requires: issued and completed.
       hasIssuedNotice: await tx.complianceRecord.count({
         where: { tenantId: actor.tenantId, type: "SECTION_129_NOTICE", referenceId: loan.id, status: "COMPLETED", completedAt: { not: null }, data: { path: ["lifecycle"], equals: "ISSUED" } },
@@ -70,7 +69,7 @@ export async function appointAttorney(actor: LegalActor, matterId: string, input
       newValue: { loanId: loan.id, attorneySupplierId: supplier.id, appointedOn: input.appointedOn, collectionsStage: stageSet ? "ATTORNEY_REFERRED" : loan.collectionsStage },
     }, tx)
     await notifyNextLegalStep(tx, {
-      tenantId: actor.tenantId, matterId: matter.id, loanReference: loan.reference, regime: loan.ncaRegime as LegalRegime,
+      tenantId: actor.tenantId, matterId: matter.id, loanReference: loan.reference, regime: loan.ncaRegime,
       recipients: [matter.createdById, actor.userId],
     })
     return { kind: "done", id: matter.id, stageSet }

@@ -27,13 +27,13 @@ describe("refundActions", () => {
     expect(refundActions(null, "u-1", officer)).toEqual({ create: true, approve: false, release: false })
     expect(refundActions({ status: "PENDING_APPROVAL", createdById: "u-1", approvedById: null }, "u-1", officer).create).toBe(false)
   })
-  it("never lets the creator approve, and releases only once approved", () => {
+  it("never lets the creator approve, and releases only once approved, by neither its creator nor its approver", () => {
     const pending = { status: "PENDING_APPROVAL" as const, createdById: "u-1", approvedById: null }
     expect(refundActions(pending, "u-1", admin)).toMatchObject({ approve: false, release: false })
     expect(refundActions(pending, "u-2", admin)).toMatchObject({ approve: true, release: false })
     const approved = { status: "APPROVED" as const, createdById: "u-1", approvedById: "u-2" }
     expect(refundActions(approved, "u-3", admin)).toMatchObject({ approve: false, release: true })
-    expect(refundActions(approved, "u-1", admin)).toMatchObject({ release: true })
+    expect(refundActions(approved, "u-1", admin)).toMatchObject({ release: false })
     expect(refundActions(approved, "u-2", admin)).toMatchObject({ release: false })
     expect(refundActions(approved, "u-3", officer)).toMatchObject({ release: false })
   })

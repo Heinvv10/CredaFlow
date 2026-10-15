@@ -93,7 +93,7 @@ async function seedTlbRecovery(ctx: RecoverySeedContext, today: string): Promise
     if (sale.belowValuation && !sale.approvedById) expectDone("sale approval", await approveSale(actorOf(tenantId, staff.adminOne), recoveryId, sale.id))
     expectDone("sale completion", await completeSale(officer, recoveryId, sale.id, { completedOn: today }))
   }
-  if (await statusOf(tenantId, recoveryId) === "SOLD") expectDone("proceeds", await applySaleProceeds(officer, recoveryId, { receivedAt: new Date() }))
+  if (await statusOf(tenantId, recoveryId) === "SOLD") expectDone("proceeds", await applySaleProceeds(officer, recoveryId))
   if (await statusOf(tenantId, recoveryId) === "PROCEEDS_APPLIED") expectDone("final notice", await issueRecoveryFinalNotice(officer, recoveryId))
   if (await statusOf(tenantId, recoveryId) === "FINAL_NOTICE_ISSUED") expectDone("outcome", await settleOutcome(officer, recoveryId))
 }

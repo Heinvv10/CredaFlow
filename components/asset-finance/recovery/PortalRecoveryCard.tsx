@@ -27,7 +27,8 @@ export function PortalRecoveryCard({ view }: { view: PortalRecoveryView }) {
       actions={<StatusPill tone={tone}>{STATUS_LABELS[view.status]}</StatusPill>}>
       <div className="space-y-5 text-sm">
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          <Figure label="Valuation" value={view.valuationAmountCents === null ? "Not yet valued" : formatMoney(view.valuationAmountCents)} />
+          {/* The server withholds the valuation until the borrower may see it: absent says nothing, so nothing is printed. */}
+          {view.valuationAmountCents !== null && <Figure label="Valuation" value={formatMoney(view.valuationAmountCents)} />}
           <Figure label="Notices issued" value={notices.length > 0 ? notices.join(", ") : "None yet"} />
         </dl>
         {account && (

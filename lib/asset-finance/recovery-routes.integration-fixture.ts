@@ -16,6 +16,7 @@ import { POST as decideRoute } from "@/app/api/asset-finance/recoveries/[id]/cos
 import { POST as finalNoticeRoute } from "@/app/api/asset-finance/recoveries/[id]/final-notice/route"
 import { POST as withdrawRoute } from "@/app/api/asset-finance/recoveries/[id]/withdraw/route"
 import { POST as closeRoute } from "@/app/api/asset-finance/recoveries/[id]/close/route"
+import { GET as refundDocumentRoute } from "@/app/api/asset-finance/recoveries/[id]/refund/document/route"
 import { GET as documentRoute } from "@/app/api/asset-finance/recoveries/[id]/documents/[kind]/route"
 import { POST as surrenderValuationRoute } from "@/app/api/asset-finance/surrenders/[id]/valuation/route"
 import { POST as surrenderValuationNoticeRoute } from "@/app/api/asset-finance/surrenders/[id]/valuation-notice/route"
@@ -45,6 +46,7 @@ export function recoveryRoutes(host: string) {
     withdraw: post(withdrawRoute, "/withdraw"),
     close: post(closeRoute, "/close"),
     document: (id: string, kind: string) => documentRoute(req(rec(id, `/documents/${kind}`), "GET"), { params: Promise.resolve({ id, kind }) }),
+    refundDocument: (id: string) => refundDocumentRoute(req(rec(id, "/refund/document"), "GET"), withId(id)),
     surrenderValuation: async (id: string, body: unknown) => answer(await surrenderValuationRoute(req(`/api/asset-finance/surrenders/${id}/valuation`, "POST", body), withId(id))),
     surrenderValuationNotice: async (id: string) => answer(await surrenderValuationNoticeRoute(req(`/api/asset-finance/surrenders/${id}/valuation-notice`, "POST", {}), withId(id))),
     surrenderProceeds: async (id: string, body: unknown) => answer(await surrenderProceedsRoute(req(`/api/asset-finance/surrenders/${id}/proceeds`, "POST", body), withId(id))),

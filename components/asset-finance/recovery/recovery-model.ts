@@ -1,3 +1,4 @@
+import { isNcaRoute } from "@/lib/asset-finance/recovery-input"
 import type { RecoveryCostTreatment, RecoveryCostType, RecoveryRoute, RecoveryStatus } from "@prisma/client"
 
 // Labels, the stepper and the cost-treatment choices of the staff recovery
@@ -29,7 +30,7 @@ export const STATUS_LABELS: Record<RecoveryStatus, string> = {
 
 export const VALUATION_SOURCE_LABELS = { ASSESSOR: "Assessor", DEALER: "Dealer", AUCTIONEER: "Auctioneer", INTERNAL: "Internal" } as const
 
-export const isNcaRoute = (route: RecoveryRoute): boolean => route.startsWith("NCA_")
+export { isNcaRoute }
 
 export type StepState = "done" | "current" | "todo"
 export interface StepperStep { key: string; label: string; state: StepState }

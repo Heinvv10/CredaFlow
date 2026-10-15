@@ -12,6 +12,7 @@ import { RecoveryDocuments } from "./RecoveryDocuments"
 import { RecoveryNextStep } from "./RecoveryNextStep"
 import { RecoveryStepper } from "./RecoveryStepper"
 import { WithdrawRecovery } from "./WithdrawRecovery"
+import { WithdrawnHistory } from "./WithdrawnHistory"
 import { FiguresSummary } from "./FiguresSummary"
 import { RefundSection } from "./RefundSection"
 import { SalesSection } from "./SalesSection"
@@ -46,16 +47,22 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
   canDecide: boolean
   canRecordPayment: boolean
 }) {
-  const data = await loadRecoveryPanelData(tenantId, loanId)
+  const data = await loadRecoveryPanelData(tenantId, loanId, { bankDetails: canManage })
   if (data.kind === "none") return null
   const today = sastCalendarDate(new Date())
 
   if (data.kind === "record") {
-    if (!canManage) return null
+    const form = canManage && data.canRecord
+    if (!form && data.withdrawn.length === 0) return null
     return (
-      <DataPanel title="Recovery" description="The asset is back in the lender's hands: value it, notify, remarket and settle the account." density="loose">
-        <RecordRecoveryForm loanId={loanId} lease={data.lease} today={today} surrenders={data.surrenders}
-          route={data.regime === "NCA" ? "NCA_S127_SURRENDER" : "NON_NCA_VOLUNTARY"} />
+      <DataPanel title="Recovery" description={form ? "The asset is back in the lender's hands: value it, notify, remarket and settle the account." : "Recovery of the asset"} density="loose">
+        <div className="space-y-4">
+          <WithdrawnHistory withdrawn={data.withdrawn} />
+          {form && (
+            <RecordRecoveryForm loanId={loanId} lease={data.lease} today={today} surrenders={data.surrenders}
+              route={data.regime === "NCA" ? "NCA_S127_SURRENDER" : "NON_NCA_VOLUNTARY"} />
+          )}
+        </div>
       </DataPanel>
     )
   }
