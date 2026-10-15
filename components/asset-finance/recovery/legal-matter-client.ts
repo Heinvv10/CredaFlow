@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { refusalText } from "./legal-matter-form"
 
+// Also used by the recovery panel's writes.
 // POSTs one legal-matter write (app/api/asset-finance/loans/[loanId]/legal-matter,
 // legal-matters/[id]/...) and keeps a refusal (400/403/409 { error, fields }) for
 // the form to show verbatim.
@@ -25,6 +26,8 @@ export async function sendLegal(url: string, body: FormData | Record<string, unk
 }
 
 /** Runs a write, refreshes the page on success and returns whether it worked. */
+export interface LegalCall { url: string; body: FormData | Record<string, unknown> }
+
 export function useLegalAction() {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -41,5 +44,22 @@ export function useLegalAction() {
     router.refresh()
     return true
   }
-  return { busy, error, setError, run }
+  /** Runs the calls in order and stops at the first refusal (an s127 step goes through the surrender, then the recovery). */
+  const runAll = async (calls: LegalCall[]): Promise<boolean> => {
+    setBusy(true)
+    setError(null)
+    for (const call of calls) {
+      const result = await sendLegal(call.url, call.body)
+      if (!result.ok) {
+        setBusy(false)
+        setError(result.error)
+        router.refresh()
+        return false
+      }
+    }
+    setBusy(false)
+    router.refresh()
+    return true
+  }
+  return { busy, error, setError, run, runAll }
 }

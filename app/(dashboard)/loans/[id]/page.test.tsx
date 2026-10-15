@@ -38,7 +38,7 @@ describe("the staff loan page", () => {
     for (const contractType of ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"]) {
       const element = await render({ clientId: "c-1", client, contractType })
       expect(element.type).toBe(StaffAssetLoanView)
-      expect(element.props).toMatchObject({ tenantId: "t-1", userId: "u-1", canManageLease: true, canDecideLease: true })
+      expect(element.props).toMatchObject({ tenantId: "t-1", userId: "u-1", canManageLease: true, canDecideLease: true, canRecordPayment: true })
     }
   })
 
@@ -49,6 +49,6 @@ describe("the staff loan page", () => {
   it("gives a lease no decide permission to a role without it", async () => {
     mocks.session.mockResolvedValue({ user: { id: "u-2", role: "READONLY" } })
     const element = await render({ clientId: "c-1", client, contractType: "OPERATING_LEASE" })
-    expect(element.props).toMatchObject({ canManageLease: false, canDecideLease: false })
+    expect(element.props).toMatchObject({ canManageLease: false, canDecideLease: false, canRecordPayment: false })
   })
 })

@@ -11,6 +11,7 @@ import { RATE_BASIS_LABELS, ratePercent } from "@/lib/asset-finance/deal-labels"
 import { statusLabel } from "@/lib/asset-finance/labels"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
+import { PortalRecoverySection } from "@/components/asset-finance/recovery/PortalRecoverySection"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
@@ -46,7 +47,7 @@ export default async function PortalContractPage({ params }: Params) {
     // A lease is rentals, not instalments: its own view, behind the lease gate (lib/asset-finance/lease-portal-route.ts).
     const lease = await loadPortalLease(tenantId, clientId, loanId)
     if (!lease) notFound()
-    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} />
+    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} extra={<PortalRecoverySection tenantId={tenantId} loanId={loanId} />} />
   }
   const asset = view.asset
   // portalOutstanding: the settlement figure while default charges are live
@@ -97,6 +98,7 @@ export default async function PortalContractPage({ params }: Params) {
       <DataPanel title="Repayment schedule" density="compact">
         <PortalContractSchedule rows={view.schedule} />
       </DataPanel>
+      <PortalRecoverySection tenantId={tenantId} loanId={loanId} />
       {view.loan.ncaRegime === "NCA" && view.loan.contractType !== "LOAN" && (
         <DataPanel title="Voluntary surrender" description="NCA section 127 request and notices">
           <SurrenderRequestCard loanId={view.loan.id} existing={view.surrender} />

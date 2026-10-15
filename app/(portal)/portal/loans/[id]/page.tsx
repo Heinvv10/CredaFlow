@@ -12,6 +12,7 @@ import { formatStatusLabel } from "@/lib/status-style"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
+import { PortalRecoverySection } from "@/components/asset-finance/recovery/PortalRecoverySection"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
@@ -53,7 +54,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
     // A sole proprietor's lease: rentals, not a loan. The lease gate decides who may see it.
     const lease = loan.clientId ? await loadPortalLease(loan.tenantId, loan.clientId, loan.id) : null
     if (!lease) redirect("/portal")
-    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} />
+    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} extra={<PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} />} />
   }
 
   const nextPayment = loan.repaymentSchedule.find(
@@ -176,6 +177,11 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
 
       {/* Tabs — Repayment Schedule + Payment History */}
       <PortalLoanTabs loan={loan} />
+      {loan.contractType !== "LOAN" && loan.assetId && (
+        <div className="mt-6">
+          <PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} />
+        </div>
+      )}
       {loan.ncaRegime === "NCA" && loan.contractType !== "LOAN" && loan.assetId && (
         <div className="mt-6">
           <SurrenderRequestCard loanId={loan.id} existing={loan.surrenderRequests[0] ?? null} />

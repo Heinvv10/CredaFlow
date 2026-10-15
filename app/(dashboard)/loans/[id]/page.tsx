@@ -72,6 +72,7 @@ export default async function LoanDetailPage(
         userId={session?.user?.id ?? ""}
         canManageLease={role ? canDo(role, "manage_asset_finance") : false}
         canDecideLease={role ? canDo(role, "decide_asset_finance") : false}
+        canRecordPayment={role ? canDo(role, "record_payment") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
       />
