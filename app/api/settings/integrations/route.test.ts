@@ -144,6 +144,37 @@ describe("PATCH /api/settings/integrations", () => {
     expect(providerSwitchBlockersMock).not.toHaveBeenCalled()
   })
 
+  // Both gates read the same requested provider: on a lender that requires
+  // 2FA, a session without a verified code is refused either way, and nothing
+  // is written.
+  it("on a 2FA-required lender, refuses and audits a provider change while live mandates remain", async () => {
+    staffTotpRequiredMock.mockResolvedValue(true)
+    providerSwitchBlockersMock.mockResolvedValue({ current: "netcash", mandates: 1, instructions: 0 })
+    const response = await PATCH(new NextRequest(
+      "https://staging.acme-lending.example/api/settings/integrations",
+      { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ collectionProvider: "simulated" }) },
+    ))
+    expect(response.status).toBe(409)
+    expect(providerSwitchBlockersMock).toHaveBeenCalledWith("tenant-1", "simulated")
+    expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: "COLLECTION_PROVIDER_CHANGE_REFUSED", tenantId: "tenant-1", status: 409,
+      detail: { current: "netcash", requested: "simulated", mandates: 1, instructions: 0 },
+    }))
+    expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
+  })
+
+  it("on a 2FA-required lender, a provider change with no live mandates still needs a verified sign-in", async () => {
+    staffTotpRequiredMock.mockResolvedValue(true)
+    const response = await PATCH(new NextRequest(
+      "https://staging.acme-lending.example/api/settings/integrations",
+      { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ collectionProvider: "simulated" }) },
+    ))
+    expect(response.status).toBe(403)
+    expect(providerSwitchBlockersMock).toHaveBeenCalledWith("tenant-1", "simulated")
+    expect(staffTotpRequiredMock).toHaveBeenCalledWith("tenant-1")
+    expect(tenantConfigUpsertMock).not.toHaveBeenCalled()
+  })
+
   const patch = (body: Record<string, unknown>) => PATCH(new NextRequest(
     "https://staging.acme-lending.example/api/settings/integrations",
     { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
