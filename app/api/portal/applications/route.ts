@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
 import { generateReference } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { resolveReferralCodeById, recordReferralEvent } from "@/lib/referral-agents/referrals"
@@ -872,6 +873,8 @@ export async function POST(req: NextRequest) {
     }).catch((err) => {
       console.error("[portal/applications] application_submitted notification failed:", err)
     })
+    // PEP / sanctions screening; never blocks or fails the submission.
+    void screenOnSubmit({ tenantId: tenant.id, applicationId: application.id, actor: null })
 
     return NextResponse.json(application, { status: 201 })
   })

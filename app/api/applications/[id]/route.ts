@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { triggerNotification } from "@/lib/notifications"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { prepareApplicationFields, type PrepareApplicationInput } from "@/lib/applications/prepare-application"
 import { lockExistingApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { Prisma } from "@prisma/client"
@@ -215,6 +216,7 @@ export async function PATCH(
           loanId: id,
           clientId: outcome.fields.clientId,
         }).catch(() => {})
+        void screenOnSubmit({ tenantId: tenant.id, applicationId: id, actor: { id: guard.user.id, email: guard.user.email } })
       }
 
       return NextResponse.json({ ok: true, id, status: outcome.fields.status })
@@ -437,6 +439,7 @@ export async function PATCH(
       )
     }
 
+    void screenOnSubmit({ tenantId: tenant.id, applicationId: id, actor: { id: guard.user.id, email: guard.user.email } })
     return NextResponse.json({ ok: true, id, status: "SUBMITTED" })
   })
 }
