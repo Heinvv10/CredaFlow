@@ -25,6 +25,7 @@ import { calculateLoan } from "../lib/loan-calculator"
 import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
 import { generateTotpSecret, generateTotpUri } from "../lib/totp"
 import { demoLender } from "./demo-lender"
+import { catalogueHash } from "../lib/i18n/catalogue-hash"
 
 // Demo data with known passwords must never reach a production database.
 // Checked before any client exists; ./seed-document-templates is imported
@@ -120,6 +121,21 @@ async function main() {
     featurePortal: true,
     featureReports: true,
     featureAssetFinance: true,
+    // The demo shows every borrower language. A real lender starts on English
+    // only (the column default) until its translations are reviewed.
+    enabledLanguages: ["en", "af", "zu", "xh"],
+    // A language is served only with a review record of its current text
+    // (lib/i18n/language-reviews.ts). DEMO ONLY: these records say plainly
+    // that nobody reviewed the drafts. Never copy them to, or seed them for, a
+    // real lender: there a named native speaker reviews each language and a
+    // Super Admin acknowledges it under Settings -> Borrower languages.
+    languageReviews: Object.fromEntries((["af", "zu", "xh"] as const).map((locale) => [locale, {
+      reviewer: "Not reviewed: synthetic demo tenant showing machine drafts",
+      acknowledgedAt: "2026-10-14T00:00:00.000Z",
+      acknowledgedById: null,
+      acknowledgedByEmail: null,
+      catalogueHash: catalogueHash(locale),
+    }])),
   }
   await prisma.tenantConfig.upsert({
     where: { tenantId: tenant.id },
@@ -156,14 +172,10 @@ async function main() {
   const clients: { id: string; income: number; expenses: number }[] = []
   for (const [i, c] of CLIENTS.entries()) {
     const email = `${c.firstName}.${c.lastName}@${LENDER.clientDomain}`.toLowerCase()
-    // idNumber is globally unique: refuse rather than rewrite another tenant's client.
-    const existing = await prisma.client.findUnique({ where: { idNumber: c.idNumber }, select: { tenantId: true } })
-    if (existing && existing.tenantId !== tenant.id) {
-      throw new Error(`Seed refused: client with ID number ${c.idNumber} belongs to another tenant (${existing.tenantId}). The demo seed never rewrites another tenant's row.`)
-    }
     const row = await prisma.client.upsert({
-      // idNumber is the stable identifier across seed revisions.
-      where: { idNumber: c.idNumber },
+      // idNumber is the stable identifier across seed revisions. It is unique
+      // per tenant, so this can only ever match the seeded tenant's own client.
+      where: { tenantId_idNumber: { tenantId: tenant.id, idNumber: c.idNumber } },
       update: { ...(portalEnv ? { portalPassword: portalHash } : {}), email },
       create: {
         tenantId: tenant.id,

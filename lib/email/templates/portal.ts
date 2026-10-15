@@ -1,5 +1,7 @@
 import { formatZAR, escapeHtml } from "@/lib/utils"
 import type { LenderIdentity } from "@/lib/config/identity"
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
+import { createTranslator } from "@/lib/i18n/translate"
 
 export type PortalEmailIdentity = Pick<LenderIdentity, "tradingName" | "legalName" | "ncrNumber" | "publicEmail">
 
@@ -49,42 +51,44 @@ export function applicationSubmittedEmail(
   reference: string,
   productName: string,
   amount: number,
-  portalUrl?: string
+  portalUrl?: string,
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
+  const t = createTranslator(locale, "comms")
   // A real, tappable button beats a plain "log into your portal" sentence and
   // gives the customer a one-click route to track/continue their application.
   const portalCta = portalUrl
     ? `
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;"><tr><td align="center">
-      <a href="${portalUrl}" style="display:inline-block;background:#4F46E5;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:14px;letter-spacing:0.5px;">Track my application</a>
+      <a href="${portalUrl}" style="display:inline-block;background:#4F46E5;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:14px;letter-spacing:0.5px;">${t("trackMyApplication")}</a>
     </td></tr></table>`
     : ""
   const portalLine = portalUrl
-    ? `<p style="margin:0 0 8px;color:#444;line-height:1.6;">Track the status of your application at any time in your client portal:</p>`
-    : `<p style="margin:0 0 16px;color:#444;line-height:1.6;">You can track the status of your application at any time by logging into your client portal.</p>`
+    ? `<p style="margin:0 0 8px;color:#444;line-height:1.6;">${t("trackWithLink")}</p>`
+    : `<p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("trackWithoutLink")}</p>`
   const body = `
-    <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">We&rsquo;ve received your application</p>
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Dear <strong>${clientName}</strong>,</p>
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Thank you for applying for a loan with ${escapeHtml(identity.tradingName)}. We have received your application and our team will review it shortly.</p>
+    <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">${t("submittedHeading")}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("dear", { name: clientName })}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("submittedThanks", { brand: escapeHtml(identity.tradingName) })}</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f9fb;border:1px solid #e5e7eb;border-radius:6px;margin:20px 0;">
       <tr><td style="padding:20px 24px;">
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;width:160px;">Reference Number</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;width:160px;">${t("labelReference")}</td>
             <td style="padding:6px 0;font-weight:bold;color:#1B1D24;">${reference}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Product</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelProduct")}</td>
             <td style="padding:6px 0;color:#1B1D24;">${productName}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Applied Amount</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelAppliedAmount")}</td>
             <td style="padding:6px 0;color:#4F46E5;font-weight:bold;">${formatZAR(amount)}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Status</td>
-            <td style="padding:6px 0;"><span style="background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;text-transform:uppercase;">Submitted</span></td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelStatus")}</td>
+            <td style="padding:6px 0;"><span style="background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;text-transform:uppercase;">${t("statusSubmitted")}</span></td>
           </tr>
         </table>
       </td></tr>
@@ -92,11 +96,11 @@ export function applicationSubmittedEmail(
 
     ${portalLine}
     ${portalCta}
-    <p style="margin:0 0 24px;color:#444;line-height:1.6;">We will notify you once a decision has been made. This typically takes 1–2 business days.</p>
+    <p style="margin:0 0 24px;color:#444;line-height:1.6;">${t("submittedDecisionTime")}</p>
 
-    <p style="margin:0;color:#888;font-size:12px;line-height:1.6;">If you have any questions, please contact us at ${contactLink(identity)}</p>
+    <p style="margin:0;color:#888;font-size:12px;line-height:1.6;">${t("anyQuestionsContact", { link: contactLink(identity) })}</p>
   `
-  return baseLayout(identity, "Loan Application Received", body)
+  return baseLayout(identity, t("headerSubmitted"), body)
 }
 
 export function identityConflictNoticeEmail(identity: PortalEmailIdentity, params: {
@@ -129,31 +133,33 @@ export function applicationApprovedEmail(
   reference: string,
   productName: string,
   amount: number,
-  portalUrl: string
+  portalUrl: string,
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
+  const t = createTranslator(locale, "comms")
   const body = `
-    <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">Your loan has been approved</p>
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Dear <strong>${clientName}</strong>,</p>
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Congratulations! Your loan application has been <strong style="color:#15803D;">approved</strong>. Please review and sign your credit agreement to proceed with disbursement.</p>
+    <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">${t("approvedHeading")}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("dear", { name: clientName })}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("approvedBody", { approved: `<strong style="color:#15803D;">${t("approvedWord")}</strong>` })}</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin:20px 0;">
       <tr><td style="padding:20px 24px;">
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;width:160px;">Reference Number</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;width:160px;">${t("labelReference")}</td>
             <td style="padding:6px 0;font-weight:bold;color:#1B1D24;">${reference}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Product</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelProduct")}</td>
             <td style="padding:6px 0;color:#1B1D24;">${productName}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Approved Amount</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelApprovedAmount")}</td>
             <td style="padding:6px 0;color:#4F46E5;font-weight:bold;">${formatZAR(amount)}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Status</td>
-            <td style="padding:6px 0;"><span style="background:#DCFCE7;color:#166534;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;text-transform:uppercase;">Approved</span></td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelStatus")}</td>
+            <td style="padding:6px 0;"><span style="background:#DCFCE7;color:#166534;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px;text-transform:uppercase;">${t("statusApproved")}</span></td>
           </tr>
         </table>
       </td></tr>
@@ -161,20 +167,20 @@ export function applicationApprovedEmail(
 
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#FEF9C3;border:1px solid #FDE047;border-radius:6px;padding:16px 20px;margin:20px 0;">
       <tr><td style="padding:16px 20px;">
-        <p style="margin:0 0 6px;font-weight:bold;color:#92400E;font-size:13px;">&#9888; Action Required: Sign Your Credit Agreement</p>
-        <p style="margin:0;color:#78350F;font-size:12px;line-height:1.5;">Your credit agreement is ready to be signed. You must sign the agreement before funds can be disbursed.</p>
+        <p style="margin:0 0 6px;font-weight:bold;color:#92400E;font-size:13px;">&#9888; ${t("actionSignTitle")}</p>
+        <p style="margin:0;color:#78350F;font-size:12px;line-height:1.5;">${t("actionSignBody")}</p>
       </td></tr>
     </table>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
       <tr><td align="center">
-        <a href="${portalUrl}" style="display:inline-block;background:#4F46E5;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:14px;letter-spacing:0.5px;">Review &amp; Sign Agreement</a>
+        <a href="${portalUrl}" style="display:inline-block;background:#4F46E5;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:14px;letter-spacing:0.5px;">${t("reviewSignCta")}</a>
       </td></tr>
     </table>
 
-    <p style="margin:0;color:#888;font-size:12px;line-height:1.6;">If you did not apply for this loan or believe this email was sent in error, please contact us immediately at ${contactLink(identity)}</p>
+    <p style="margin:0;color:#888;font-size:12px;line-height:1.6;">${t("notYouContact", { link: contactLink(identity) })}</p>
   `
-  return baseLayout(identity, "Loan Application Approved", body)
+  return baseLayout(identity, t("headerApproved"), body)
 }
 
 export function applicationDeclinedEmail(
@@ -272,34 +278,36 @@ export function paymentReceivedEmail(
   clientName: string,
   amount: number,
   reference: string,
-  outstanding: number
+  outstanding: number,
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
+  const t = createTranslator(locale, "comms")
   const body = `
-    <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">Payment received &mdash; thank you</p>
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Dear <strong>${clientName}</strong>,</p>
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">We have received your payment. Thank you for keeping your account up to date.</p>
+    <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">${t("receivedHeading")}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("dear", { name: clientName })}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("receivedBody")}</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin:20px 0;">
       <tr><td style="padding:20px 24px;">
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;width:180px;">Loan Reference</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;width:180px;">${t("labelLoanReference")}</td>
             <td style="padding:6px 0;font-weight:bold;color:#1B1D24;">${reference}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Payment Amount</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelPaymentAmount")}</td>
             <td style="padding:6px 0;color:#15803D;font-size:20px;font-weight:bold;">${formatZAR(amount)}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#888;font-size:12px;">Outstanding Balance</td>
+            <td style="padding:6px 0;color:#888;font-size:12px;">${t("labelOutstanding")}</td>
             <td style="padding:6px 0;color:#1B1D24;font-weight:bold;">${formatZAR(outstanding)}</td>
           </tr>
         </table>
       </td></tr>
     </table>
 
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Your account remains in good standing. Log in to your portal to view your updated repayment schedule.</p>
-    <p style="margin:0;color:#888;font-size:12px;line-height:1.6;">For any queries, contact us at ${contactLink(identity)}</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${t("receivedGoodStanding")}</p>
+    <p style="margin:0;color:#888;font-size:12px;line-height:1.6;">${t("anyQueriesContact", { link: contactLink(identity) })}</p>
   `
-  return baseLayout(identity, "Payment Received", body)
+  return baseLayout(identity, t("headerReceived"), body)
 }

@@ -623,3 +623,30 @@ describe("applyManualReceipt — value date", () => {
     } finally { vi.useRealTimers() }
   })
 })
+
+describe("applyManualReceipt — machine writers (collections engine)", () => {
+  it("audits a staff capture under the capturing user, dated STAFF_ASSERTED, by default", async () => {
+    const { db, auditCreate } = makeDb(makeLoan("ACTIVE"))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await applyManualReceipt(db as any, input)
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: "agent-1", newValue: expect.objectContaining({ source: "STAFF_ASSERTED" }) }),
+    })
+  })
+
+  it("keeps a machine label off the User foreign key and records who dated the receipt", async () => {
+    const { db, auditCreate, paymentCreate } = makeDb(makeLoan("ACTIVE"))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await applyManualReceipt(db as any, {
+      ...input, capturedById: "collections-engine", auditUserId: null, valueDateSource: "SYSTEM_OBSERVED", paymentMethod: "DEBIT_ORDER",
+    })
+    expect(paymentCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ capturedBy: "collections-engine", paymentMethod: "DEBIT_ORDER" }) })
+    expect(auditCreate.mock.calls.length).toBeGreaterThan(0)
+    for (const [call] of auditCreate.mock.calls) {
+      expect(call.data.userId).toBeNull()
+    }
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ newValue: expect.objectContaining({ source: "SYSTEM_OBSERVED" }) }),
+    })
+  })
+})

@@ -1,0 +1,65 @@
+[
+  [
+    "experian",
+    {
+      "sandboxEnvVar": "EXPERIAN_ENV",
+      "sandboxSafeValues": [
+        "UAT",
+        "uat",
+        "test"
+      ]
+    }
+  ],
+  [
+    "smileidentity",
+    {
+      "sandboxEnvVar": "SMILE_IDENTITY_ENV",
+      "sandboxSafeValues": [
+        "test"
+      ],
+      "legacyMessage": "SMILE_DRY_RUN must not be enabled outside SMILE_IDENTITY_ENV=test"
+    }
+  ],
+  [
+    "transunion",
+    {
+      "sandboxEnvVar": null,
+      "sandboxSafeValues": []
+    }
+  ],
+  [
+    "simulated-bureau",
+    {
+      "sandboxEnvVar": null,
+      "sandboxSafeValues": []
+    }
+  ],
+  [
+    "netcash",
+    {
+      "sandboxEnvVar": null,
+      "sandboxSafeValues": []
+    }
+  ],
+  [
+    "netcash-collections",
+    {
+      "sandboxEnvVar": null,
+      "sandboxSafeValues": []
+    }
+  ],
+  [
+    "screening",
+    {
+      "sandboxEnvVar": null,
+      "sandboxSafeValues": []
+    }
+  ],
+  [
+    "simulated-collections",
+    {
+      "sandboxEnvVar": null,
+      "sandboxSafeValues": []
+    }
+  ]
+]

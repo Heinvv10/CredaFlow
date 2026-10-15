@@ -481,6 +481,25 @@ describe("SYSTEM_GENERATORS", () => {
     expect(result).toBe(pdf)
   })
 
+  it("statement of a reversed (CANCELLED) loan states its cancelled instalments with nothing due", async () => {
+    vi.mocked(prisma.loanProduct.findUnique).mockResolvedValue({ name: "Personal Loan" } as never)
+    vi.mocked(prisma.repaymentSchedule.findMany).mockResolvedValue([
+      { installmentNo: 1, dueDate: new Date("2026-11-04"), totalDue: 1_256_986, totalPaid: 0, status: "CANCELLED" },
+    ] as never)
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([] as never)
+    vi.mocked(generateStatementPdf).mockResolvedValue(Buffer.from("statement"))
+    const loan = {
+      id: "l1", productId: "p1", reference: "LN-REV-1", principal: 1_000_000, totalRepayable: 1_256_986, totalPaid: 0,
+      outstandingPrincipal: 0, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE", status: "CANCELLED",
+      startDate: new Date("2026-10-04"), maturityDate: new Date("2027-04-04"), daysInArrears: 0, arrearsAmount: 0,
+    }
+    await SYSTEM_GENERATORS.statement(ctx({ loan: loan as never }))
+    expect(generateStatementPdf).toHaveBeenCalledWith(expect.objectContaining({
+      loan: expect.objectContaining({ totalRepayable: 0, outstandingPrincipal: 0 }),
+      schedule: [expect.objectContaining({ installmentNo: 1, totalDue: 0, status: "CANCELLED" })],
+    }))
+  })
+
   it("faisDisclosure calls the mocked generator and returns its Buffer", async () => {
     vi.mocked(prisma.insurancePolicy.findFirst).mockResolvedValue({
       type: "FUNERAL_COVER",

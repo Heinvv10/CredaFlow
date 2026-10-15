@@ -58,6 +58,10 @@ install() {
     mkdir -p node_modules && lockfile_hash > "$INSTALL_MARKER" || return
   fi
   npx prisma generate || return
+  # lib/registry/generated/ is not committed, and postinstall only ran if npm ci did.
+  if node -e 'process.exit(require("./package.json").scripts?.["gen:registries"] ? 0 : 1)'; then
+    npm run --silent gen:registries || return
+  fi
   if node -e 'process.exit(require("./package.json").scripts?.["face-models:fetch"] ? 0 : 1)'; then
     npm run face-models:fetch || return
   fi

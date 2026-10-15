@@ -1,35 +1,43 @@
 import Link from "next/link"
 import { sastParts } from "@/lib/date/sast"
 import type { LenderIdentity } from "@/lib/config/identity-schema"
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
+import { createTranslator, type MessageKey } from "@/lib/i18n/translate"
 
-const contactLinks = [
-  { label: "Contact Us", href: "/site/contact" },
+type FooterLink = { label: MessageKey<"websiteShell">; href: string }
+
+const contactLinks: FooterLink[] = [
+  { label: "footerContactUs", href: "/site/contact" },
 ]
 
-const productLinksCol = [
-  { label: "Insurance", href: "/site/products/insurance" },
-  { label: "Apply Online", href: "/site/apply" },
+const productLinksCol: FooterLink[] = [
+  { label: "footerInsurance", href: "/site/products/insurance" },
+  { label: "footerApplyOnline", href: "/site/apply" },
 ]
 
-const resourceLinks = [
-  { label: "Loan Calculator", href: "/site/calculators" },
-  { label: "Check if I Qualify", href: "/site/qualify" },
+const resourceLinks: FooterLink[] = [
+  { label: "footerLoanCalculator", href: "/site/calculators" },
+  { label: "footerCheckQualify", href: "/site/qualify" },
 ]
 
-const legalLinks = [
-  { label: "Privacy & POPIA", href: "/site/privacy" },
-  { label: "Terms & Conditions", href: "/site/terms" },
-  { label: "Regulatory Information", href: "/site/regulatory-information" },
-  { label: "Complaints", href: "/site/contact#complaints" },
+// The legal pages themselves stay English (privacy, terms, regulatory); only
+// the link names are translated.
+const legalLinks: FooterLink[] = [
+  { label: "footerPrivacy", href: "/site/privacy" },
+  { label: "footerTerms", href: "/site/terms" },
+  { label: "footerRegulatory", href: "/site/regulatory-information" },
+  { label: "footerComplaints", href: "/site/contact#complaints" },
 ]
 
-function FooterColumn({ title, links }: { title: string; links: { label: string; href: string }[] }) {
+function FooterColumn({ id, title, links, locale }: { id: string; title: string; links: FooterLink[]; locale: Locale }) {
+  const t = createTranslator(locale, "websiteShell")
   // Footer column titles are nav-group labels, not document-outline headings.
   // Using a heading tag here forced a level choice that either skipped a level
   // on pages without content H2s (audit "Heading Hierarchy Issues") or sat at
   // H2 alongside substantive content sections. The `nav` + `aria-labelledby`
   // pairing names the group for assistive tech without polluting the outline.
-  const labelId = `footer-col-${title.toLowerCase()}`
+  // The id is fixed per column: a translated title may contain spaces.
+  const labelId = `footer-col-${id}`
   return (
     <nav aria-labelledby={labelId}>
       <p id={labelId} className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[#a5b4fc]">
@@ -39,7 +47,7 @@ function FooterColumn({ title, links }: { title: string; links: { label: string;
         {links.map((link) => (
           <li key={link.href}>
             <Link href={link.href} className="text-sm text-white/54 transition-colors hover:text-white">
-              {link.label}
+              {t(link.label)}
             </Link>
           </li>
         ))}
@@ -48,7 +56,8 @@ function FooterColumn({ title, links }: { title: string; links: { label: string;
   )
 }
 
-export default function Footer({ identity }: { identity: LenderIdentity }) {
+export default function Footer({ identity, locale = DEFAULT_LOCALE }: { identity: LenderIdentity; locale?: Locale }) {
+  const t = createTranslator(locale, "websiteShell")
   return (
     /* relative z-10: a page may render a position:fixed background layer (the
        insurance quotes page does), and a positioned layer paints ABOVE
@@ -80,10 +89,10 @@ export default function Footer({ identity }: { identity: LenderIdentity }) {
             </div>
           </div>
 
-          <FooterColumn title="Contact" links={contactLinks} />
-          <FooterColumn title="Products" links={productLinksCol} />
-          <FooterColumn title="Resources" links={resourceLinks} />
-          <FooterColumn title="Legal" links={legalLinks} />
+          <FooterColumn id="contact" title={t("footerContact")} links={contactLinks} locale={locale} />
+          <FooterColumn id="products" title={t("footerProducts")} links={productLinksCol} locale={locale} />
+          <FooterColumn id="resources" title={t("footerResources")} links={resourceLinks} locale={locale} />
+          <FooterColumn id="legal" title={t("footerLegal")} links={legalLinks} locale={locale} />
         </div>
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-white/64 sm:flex-row">

@@ -48,6 +48,7 @@ const STATUS_BADGE: Record<string, string> = {
   PAID:       "bg-green-100 text-green-800",
   OVERDUE:    "bg-red-100 text-red-800",
   WRITTEN_OFF:"bg-gray-100 text-gray-500",
+  CANCELLED:  "bg-gray-100 text-gray-500",
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -144,7 +145,7 @@ export function RepaymentScheduleTable({
                         <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
                       ) : (
                         <>
-                          {item.status !== "OVERDUE" && item.status !== "WRITTEN_OFF" && item.status !== "PAID" && (
+                          {item.status !== "OVERDUE" && item.status !== "WRITTEN_OFF" && item.status !== "CANCELLED" && item.status !== "PAID" && (
                             <Button
                               size="sm"
                               variant="outline"

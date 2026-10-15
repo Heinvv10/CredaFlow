@@ -11,6 +11,8 @@ export const CHARGE_TYPE_LABELS: Record<ChargeType, string> = {
   DEFAULT_ADMIN: "Collection letter fee",
   // NON_NCA (asset finance) only; wording to be approved with the lender.
   COLLECTION_FEE: "Collection fee",
+  // A repossession's costs charged to the account (taxed legal costs); wording to be approved with the lender.
+  RECOVERY_COST: "Costs of recovering the goods",
 }
 
 /**

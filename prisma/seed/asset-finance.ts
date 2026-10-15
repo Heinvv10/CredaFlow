@@ -36,6 +36,9 @@
  *     inspection waits for the term's end, which a seed run on the booking day
  *     cannot reach).
  *
+ * (e) Recoveries (slice 4a, ./asset-finance-recovery.ts): the TLB taken through its legal matter and an s131
+ *     recovery to a shortfall, and the company lease recovered and listed.
+ *
  * DATES. Every rule runs as the app runs it, on today (SAST): each deal's
  * first instalment is a month out, the documents are prepared with the
  * planned start today, the deal is booked today (the tax invoice's supply
@@ -54,6 +57,7 @@ import { executeCompanyDeal } from "./asset-finance-execution"
 import { COMPANY, EXCAVATOR, TLB, TRACTOR, TRUST } from "./asset-finance-data"
 import { seedNaturalNcaDeal } from "./asset-finance-nca-natural"
 import { seedLeases } from "./asset-finance-leases"
+import { seedRecoveries } from "./asset-finance-recovery"
 
 export type { SeedStaff } from "./asset-finance-deal"
 
@@ -106,5 +110,8 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
       company: { entityId: company.id, directorId: people.director },
       trust: { entityId: trust.id, trusteeId: people.trusteeOne },
     })
+
+    // (e) Recoveries (slice 4a): the TLB through its legal matter to a shortfall, the company's lease listed.
+    await seedRecoveries({ tenantId, staff, tlb: { clientId: people.director, assetId: tlb }, companyEntityId: company.id })
   })
 }

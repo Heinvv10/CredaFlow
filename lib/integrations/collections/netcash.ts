@@ -9,10 +9,18 @@ import {
   CollectionProviderError,
   type AvsRequest,
   type AvsResult,
+  type AwaitingInstruction,
+  type CollectionInstructionInput,
+  type CollectionOutcome,
   type CollectionProvider,
+  type CreateMandateReq,
+  type MandateHandle,
+  type MandateStatusValue,
   type ProviderCredentials,
+  type SubmitResult,
 } from "./types"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { openCredential } from "@/lib/integrations/tenant-credentials"
 import { netcashAvsQuery } from "./netcash-avs-wire"
 
 function isDryRun(): boolean {
@@ -42,25 +50,38 @@ async function verifyAccount(req: AvsRequest, creds: ProviderCredentials): Promi
     assertSimulationAllowed("netcash-collections", true)
     return DRY_RUN_PASS
   }
-  if (!creds.netcashRiskReportsKey) {
+  // Stored sealed (lib/integrations/tenant-credentials.ts); opened only here, at use.
+  const riskReportsKey = openCredential(creds.netcashRiskReportsKey)
+  if (!riskReportsKey) {
     throw new CollectionProviderError(
       "NOT_CONFIGURED",
       "Netcash Risk-Reports service key missing (Settings → Integrations → Collections)"
     )
   }
-  return netcashAvsQuery(req, creds.netcashRiskReportsKey)
+  return netcashAvsQuery(req, riskReportsKey)
 }
 
-const notImplemented = (what: string) => {
+const notImplemented = (what: string): never => {
   throw new CollectionProviderError("NOT_IMPLEMENTED", `netcash ${what} ships in a later slice`)
 }
 
+// Typed against the final CollectionProvider interface so the real NIWS calls
+// (debit-order key: netcashDebitOrderKey) drop in without changing a caller.
+// NOT_IMPLEMENTED is a definite "nothing was sent": the engine treats it as
+// safe to retry, unlike a PROVIDER_ERROR.
 export const netcashCollections: CollectionProvider = {
   id: "netcash",
   verifyAccount,
-  createMandate: async () => notImplemented("createMandate"),
-  getMandateStatus: async () => notImplemented("getMandateStatus"),
-  cancelMandate: async () => notImplemented("cancelMandate"),
-  collect: async () => notImplemented("collect"),
-  fetchResults: async () => notImplemented("fetchResults"),
+  createMandate: async (_req: CreateMandateReq, _creds: ProviderCredentials): Promise<MandateHandle> =>
+    notImplemented("createMandate"),
+  getMandateStatus: async (_ref: string, _creds: ProviderCredentials): Promise<MandateStatusValue> =>
+    notImplemented("getMandateStatus"),
+  cancelMandate: async (_ref: string, _creds: ProviderCredentials): Promise<void> =>
+    notImplemented("cancelMandate"),
+  collect: async (_batch: CollectionInstructionInput[], _creds: ProviderCredentials): Promise<SubmitResult> =>
+    notImplemented("collect"),
+  fetchResults: async (
+    _window: { from: Date; to: Date; awaiting?: AwaitingInstruction[] },
+    _creds: ProviderCredentials,
+  ): Promise<CollectionOutcome[]> => notImplemented("fetchResults"),
 }

@@ -110,6 +110,12 @@ beforeEach(() => {
 })
 
 describe("payment-reminders — one send per instalment", () => {
+  it("never reminds a loan whose disbursement was reversed (CANCELLED)", async () => {
+    h.findMany.mockResolvedValue([])
+    await run()
+    expect(h.findMany.mock.calls[0][0].where.loan).toEqual({ status: { not: "CANCELLED" } })
+  })
+
   it("sends for a schedule due in 3 days", async () => {
     h.findMany.mockResolvedValue([scheduleDueIn(3)])
     const res = await run()

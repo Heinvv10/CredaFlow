@@ -1,0 +1,343 @@
+// ---------------------------------------------------------------------------
+// Slice 4a (docs/asset-finance/SLICE4.md): legal matters, recovery,
+// remarketing. Every legal or tax rule in the guards is UNTESTED until the
+// lender's legal team and tax adviser sign it off. Migration 20261015400000.
+// ---------------------------------------------------------------------------
+
+enum LegalMatterStatus {
+  OPEN
+  CLOSED
+}
+
+enum LegalMatterStepKind {
+  LETTER_OF_DEMAND
+  S129_SENT
+  SUMMONS_ISSUED
+  SUMMONS_SERVED
+  JUDGMENT
+  ATTACHMENT_ORDER
+  SHERIFF_RETURN
+  ASSET_RECOVERED
+  SETTLED
+  WITHDRAWN
+}
+
+// The attorney matter of a loan: one OPEN per loan (partial unique index).
+model LegalMatter {
+  id                  String            @id @default(cuid())
+  tenantId            String
+  tenant              Tenant            @relation(fields: [tenantId], references: [id])
+  loanId              String
+  loan                Loan              @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  attorneySupplierId  String?
+  attorneySupplier    Supplier?         @relation(fields: [tenantId, attorneySupplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  attorneyAppointedOn DateTime?         @db.Date
+  caseNumber          String?
+  court               String?
+  status              LegalMatterStatus @default(OPEN)
+  closedAt            DateTime?
+  createdById         String
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  recoveries          Recovery[]
+  steps               LegalMatterStep[]
+  createdBy           User              @relation("LegalMatterCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, loanId])
+}
+
+// Append-only (trigger guardLegalMatterStep): a mistake is corrected by a new
+// step naming the one it corrects.
+model LegalMatterStep {
+  id                 String              @id @default(cuid())
+  tenantId           String
+  tenant             Tenant              @relation(fields: [tenantId], references: [id])
+  matterId           String
+  matter             LegalMatter         @relation(fields: [tenantId, matterId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind               LegalMatterStepKind
+  stepDate           DateTime            @db.Date
+  note               String?
+  section129RecordId String?
+  section129Record   ComplianceRecord?   @relation(fields: [tenantId, section129RecordId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  correctsStepId     String?
+  correctsStep       LegalMatterStep?    @relation("LegalMatterStepCorrection", fields: [tenantId, correctsStepId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  evidenceDocumentId String?
+  evidenceDocument   EntityDocument?     @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedById       String
+  createdAt          DateTime            @default(now())
+  correctedBy        LegalMatterStep[]   @relation("LegalMatterStepCorrection")
+  costs              RecoveryCost[]
+  recordedBy         User                @relation("LegalMatterStepRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, matterId])
+}
+
+enum RecoveryRoute {
+  NCA_S127_SURRENDER
+  NCA_S131_ATTACHMENT
+  NON_NCA_VOLUNTARY
+  NON_NCA_COURT_ORDER
+}
+
+enum RecoveryStatus {
+  RECOVERED
+  VALUED
+  VALUATION_NOTICE_ISSUED
+  LISTED
+  SOLD
+  PROCEEDS_APPLIED
+  FINAL_NOTICE_ISSUED
+  SHORTFALL_OPEN
+  SURPLUS_HELD
+  CLOSED
+  WITHDRAWN
+}
+
+// The repossessed asset's path to sale, proceeds and the shortfall or surplus.
+// Transitions, write-once figures and the route rules are DB-guarded
+// (guardRecovery); one open recovery per loan (partial unique index).
+model Recovery {
+  id                      String             @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant             @relation(fields: [tenantId], references: [id])
+  loanId                  String
+  loan                    Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assetId                 String
+  asset                   FinancedAsset      @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  route                   RecoveryRoute
+  status                  RecoveryStatus     @default(RECOVERED)
+  // The asset's lessor status when the recovery opened (none, or RETURNED_TO_STOCK of an earlier lease), set by the trigger; withdrawing restores it.
+  previousLessorStatus    AssetLessorStatus?
+  surrenderRequestId      String?            @unique
+  surrenderRequest        SurrenderRequest?  @relation(fields: [tenantId, surrenderRequestId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  legalMatterId           String?
+  legalMatter             LegalMatter?       @relation(fields: [tenantId, legalMatterId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recoveredOn             DateTime           @db.Date
+  location                String
+  condition               String
+  meterReadingId          String?
+  meterReading            AssetMeterReading? @relation(fields: [tenantId, meterReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  valuationId             String?
+  valuation               AssetValuation?    @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  // s131 only: s127 keeps its notices on the SurrenderRequest.
+  valuationNoticePath     String?
+  valuationNoticeSha256   String?
+  finalNoticePath         String?
+  finalNoticeSha256       String?
+  settlementDueCents      Int?
+  grossProceedsCents      Int?
+  deductedCostsCents      Int?
+  chargedCostsCents       Int?
+  netProceedsCents        Int?
+  shortfallCents          Int?
+  surplusCents            Int?
+  // The part of chargedCostsCents the loan's ledger could not carry (in-duplum headroom, or a loan the proceeds settled): set once, after the proceeds.
+  unrecoverableCostsCents Int?
+  proceedsPaymentId       String?            @unique
+  proceedsPayment         Payment?           @relation("RecoveryProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  finalNoticeIssuedOn     DateTime?          @db.Date
+  chargesFrozenFrom       DateTime?          @db.Date
+  chargesFrozenUntil      DateTime?          @db.Date
+  withdrawnReason         String?
+  closedAt                DateTime?
+  createdById             String
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  costs                   RecoveryCost[]
+  refund                  RecoveryRefund?
+  sales                   RemarketingSale[]
+  vatEvents               RecoveryVatEvent[]
+  createdBy               User               @relation("RecoveryCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, surrenderRequestId])
+  @@unique([tenantId, proceedsPaymentId])
+  @@index([tenantId, loanId])
+  @@index([tenantId, assetId])
+}
+
+enum RecoveryCostType {
+  TOWING
+  STORAGE
+  VALUATION
+  REPAIRS
+  ADVERTISING
+  AUCTION_COMMISSION
+  SHERIFF
+  INSURANCE
+  LEGAL_TAXED
+  LEGAL_CONTRACTUAL
+  OTHER
+}
+
+enum RecoveryCostStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RecoveryCostTreatment {
+  DEDUCT_FROM_PROCEEDS
+  CHARGE_TO_ACCOUNT
+}
+
+// A cost of recovery: recorded PENDING, then approved or rejected once by a second person; immutable after.
+model RecoveryCost {
+  id                 String                @id @default(cuid())
+  tenantId           String
+  tenant             Tenant                @relation(fields: [tenantId], references: [id])
+  recoveryId         String
+  recovery           Recovery              @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  type               RecoveryCostType
+  netCents           Int
+  vatCents           Int
+  grossCents         Int
+  supplierId         String?
+  supplier           Supplier?             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierInvoiceRef String
+  incurredOn         DateTime              @db.Date
+  treatment          RecoveryCostTreatment
+  legalStepId        String?
+  legalStep          LegalMatterStep?      @relation(fields: [tenantId, legalStepId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  note               String?
+  recordedById       String
+  status             RecoveryCostStatus    @default(PENDING)
+  approvedById       String?
+  approvedAt         DateTime?
+  createdAt          DateTime              @default(now())
+  recordedBy         User                  @relation("RecoveryCostRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy         User?                 @relation("RecoveryCostApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, recoveryId])
+}
+
+enum SaleChannel {
+  AUCTION
+  DEALER
+  PRIVATE_TENDER
+  DEBTOR_OR_SURETY
+}
+
+enum RemarketingSaleStatus {
+  PENDING_APPROVAL
+  COMPLETED
+  CANCELLED
+}
+
+enum RemarketingBuyerType {
+  PERSON
+  ENTITY
+}
+
+// The sale of a recovered asset. The trigger recomputes belowValuation, forces
+// relatedPartyMatch on an ID match, and demands a second approver (guardRemarketingSale).
+model RemarketingSale {
+  id                    String                @id @default(cuid())
+  tenantId              String
+  tenant                Tenant                @relation(fields: [tenantId], references: [id])
+  recoveryId            String
+  recovery              Recovery              @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status                RemarketingSaleStatus @default(PENDING_APPROVAL)
+  channel               SaleChannel
+  buyerType             RemarketingBuyerType
+  buyerName             String
+  buyerIdentifier       String
+  buyerAddress          String
+  buyerVatNumber        String?
+  priceInclVatCents     Int
+  valuationId           String
+  valuation             AssetValuation        @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  highestValuationCents Int
+  belowValuation        Boolean
+  belowValuationReason  String?
+  relatedPartyMatch     Boolean
+  // The proposer recorded the valuation the sale relies on, or the highest current one: forced by the trigger, needs a second approver.
+  selfValued            Boolean               @default(false)
+  // Which lists matched: kinds and counts only, never names or ID numbers.
+  screeningResult       Json
+  createdById           String
+  approvedById          String?
+  approvedAt            DateTime?
+  completedAt           DateTime?
+  taxInvoiceId          String?               @unique
+  taxInvoice            TaxInvoice?           @relation("RemarketingSaleInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  proceedsPaymentId     String?
+  proceedsPayment       Payment?              @relation("RemarketingSaleProceeds", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt             DateTime              @default(now())
+  createdBy             User                  @relation("RemarketingSaleCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy            User?                 @relation("RemarketingSaleApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, taxInvoiceId])
+  @@index([tenantId, recoveryId])
+}
+
+enum RecoveryVatEventKind {
+  REPOSSESSION_DEEMED_SUPPLY
+  LESSOR_RESALE
+}
+
+// The VAT consequence of a recovery, derived by lib/asset-finance/recovery-vat.ts
+// (UNTESTED: tax memo); immutable, one per kind.
+model RecoveryVatEvent {
+  id                     String               @id @default(cuid())
+  tenantId               String
+  tenant                 Tenant               @relation(fields: [tenantId], references: [id])
+  recoveryId             String
+  recovery               Recovery             @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind                   RecoveryVatEventKind
+  eventDate              DateTime             @db.Date
+  dealContractType       ContractType
+  debtorVatVendor        Boolean
+  debtorVatNumber        String?
+  deemedSupplyValueCents Int
+  inputTaxClaimCents     Int
+  outputTaxCents         Int
+  vatRateTenThousandths  Int
+  basis                  String
+  recordedById           String
+  createdAt              DateTime             @default(now())
+  recordedBy             User                 @relation("RecoveryVatEventRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, recoveryId, kind])
+}
+
+enum RecoveryRefundStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RELEASED
+}
+
+// The surplus refund to the debtor: two people, bank details evidenced.
+model RecoveryRefund {
+  id                         String               @id @default(cuid())
+  tenantId                   String
+  tenant                     Tenant               @relation(fields: [tenantId], references: [id])
+  recoveryId                 String               @unique
+  recovery                   Recovery             @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents                Int
+  accountHolder              String
+  bankName                   String
+  branchCode                 String
+  accountNumber              String
+  bankVerifiedById           String
+  bankVerificationDocumentId String
+  bankVerificationDocument   EntityDocument       @relation(fields: [tenantId, bankVerificationDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status                     RecoveryRefundStatus @default(PENDING_APPROVAL)
+  createdById                String
+  approvedById               String?
+  releasedById               String?
+  releasedAt                 DateTime?
+  createdAt                  DateTime             @default(now())
+  createdBy                  User                 @relation("RecoveryRefundCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy                 User?                @relation("RecoveryRefundApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  bankVerifiedBy             User                 @relation("RecoveryRefundBankVerifiedBy", fields: [tenantId, bankVerifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  releasedBy                 User?                @relation("RecoveryRefundReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, recoveryId])
+}

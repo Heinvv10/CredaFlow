@@ -10,9 +10,11 @@ const { mocks, captured } = vi.hoisted(() => ({
   mocks: {
     clientFindFirst: vi.fn(),
     clientFindUnique: vi.fn(),
+    getTenantFromRequest: vi.fn(),
     userFindUnique: vi.fn(),
     failedAttemptCreate: vi.fn(),
     compare: vi.fn(),
+    tenantConfigFindUnique: vi.fn(),
   },
   captured: { config: undefined as undefined | CapturedConfig },
 }))
@@ -28,6 +30,8 @@ vi.mock("next-auth", () => ({
 }))
 vi.mock("next-auth/providers/credentials", () => ({ default: (config: unknown) => config }))
 vi.mock("@/lib/tenant-scope", () => ({ withoutTenantScope: <T,>(fn: () => Promise<T>) => fn() }))
+// The portal host's tenant (lib/tenant.ts resolves it from the request host).
+vi.mock("@/lib/tenant", () => ({ getTenantFromRequest: mocks.getTenantFromRequest }))
 vi.mock("bcryptjs", () => ({ default: { compare: mocks.compare, hashSync: () => "dummy-hash" } }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -35,6 +39,7 @@ vi.mock("@/lib/prisma", () => ({
     client: { findFirst: mocks.clientFindFirst, findUnique: mocks.clientFindUnique },
     failedLoginAttempt: { create: mocks.failedAttemptCreate },
     loginLog: { create: vi.fn() },
+    tenantConfig: { findUnique: mocks.tenantConfigFindUnique },
   },
 }))
 
@@ -64,9 +69,12 @@ beforeEach(() => {
   vi.stubEnv("APP_MODE", "")
   mocks.clientFindFirst.mockReset()
   mocks.clientFindUnique.mockReset()
+  mocks.getTenantFromRequest.mockReset().mockResolvedValue({ id: "t1" })
   mocks.userFindUnique.mockReset()
   mocks.failedAttemptCreate.mockReset().mockResolvedValue({})
   mocks.compare.mockReset().mockResolvedValue(true)
+  // No config row: every switch at its default (portal on).
+  mocks.tenantConfigFindUnique.mockReset().mockResolvedValue(null)
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -115,6 +123,13 @@ describe("jwt callback: client sessions are revalidated on refresh", () => {
     const forged = clientToken({ id: "c2", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
     expect(await jwt({ token: forged })).toBeNull()
     expect(await jwt({ token: clientToken({ id: "c2", credentialStamp: clientCredentialStamp("c2", "t1", HASH) }) })).not.toBeNull()
+  })
+
+  it("ends every client session once the lender switches its portal off", async () => {
+    mocks.clientFindFirst.mockResolvedValue({ portalPassword: HASH, tenant: { config: { featurePortal: false } } })
+    expect(await jwt({ token: clientToken() })).toBeNull()
+    mocks.clientFindFirst.mockResolvedValue({ portalPassword: HASH, tenant: { config: { featurePortal: true } } })
+    expect(await jwt({ token: clientToken() })).not.toBeNull()
   })
 
   it("keeps a session whose credential is unchanged", async () => {
@@ -191,6 +206,31 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
     mocks.clientFindUnique.mockResolvedValue(clientRow)
     const user = await authorize(asClient("stamp@example.test"))
     expect(user).toMatchObject({ id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
+  })
+
+  it("looks the client up in the portal host's tenant only; a host with no tenant looks nobody up", async () => {
+    mocks.getTenantFromRequest.mockResolvedValueOnce({ id: "t2" }).mockResolvedValueOnce(null)
+    mocks.clientFindUnique.mockResolvedValue(null)
+    await expect(authorize(asClient("same@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(mocks.clientFindUnique).toHaveBeenCalledWith({ where: { tenantId_email: { tenantId: "t2", email: "same@example.test" } } })
+    await expect(authorize(asClient("nohost@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(mocks.clientFindUnique).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses a client sign-in, after the password check, while the lender's portal is off", async () => {
+    mocks.clientFindUnique.mockResolvedValue(clientRow)
+    mocks.tenantConfigFindUnique.mockResolvedValue({ featurePortal: false })
+    await expect(authorize(asClient("off@example.test"))).rejects.toMatchObject({ code: "portal_disabled" })
+    expect(mocks.failedAttemptCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ reason: "portal_disabled" }),
+    })
+  })
+
+  it("does not reveal that the portal is off to a wrong password", async () => {
+    mocks.clientFindUnique.mockResolvedValue(clientRow)
+    mocks.tenantConfigFindUnique.mockResolvedValue({ featurePortal: false })
+    mocks.compare.mockResolvedValue(false)
+    expect(await authorize(asClient("off@example.test"))).toBeNull()
   })
 
   it("APP_MODE=client refuses loginType=staff before any staff lookup", async () => {

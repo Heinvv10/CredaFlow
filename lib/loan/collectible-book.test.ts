@@ -6,7 +6,7 @@ import {
   collectibleParWhere,
 } from "./collectible-book"
 
-// Mirrors prisma/schema.prisma's LoanStatus. Written out so the split below is
+// Mirrors prisma/schema/loans-payments.prisma's LoanStatus. Written out so the split below is
 // checked against the real enum rather than against itself.
 const ALL_LOAN_STATUSES = [
   "ACTIVE",

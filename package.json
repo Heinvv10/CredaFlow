@@ -3,17 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "gen:registries": "tsx scripts/gen-registries.ts",
+    "postinstall": "test ! -f scripts/gen-registries.ts || tsx scripts/gen-registries.ts",
+    "predev": "npm run --silent gen:registries",
     "dev": "next dev",
+    "prebuild": "npm run --silent gen:registries",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "pretest": "npm run --silent gen:registries",
     "test": "vitest run",
+    "typecheck": "npm run --silent gen:registries && tsc --noEmit",
     "ci:quick": "bash scripts/ci-local.sh quick",
     "ci:quality": "bash scripts/ci-local.sh quality",
     "ci:integration": "bash scripts/ci-local.sh integration",
     "ci:full": "bash scripts/ci-local.sh full",
-    "seed:base": "tsx prisma/seed.ts",
-    "seed:staging": "tsx prisma/seed.ts && tsx prisma/seed-staging.ts",
+    "seed:base": "npm run --silent gen:registries && tsx prisma/seed.ts",
+    "seed:staging": "npm run --silent gen:registries && tsx prisma/seed.ts && tsx prisma/seed-staging.ts",
     "claude-md:check": "tsx scripts/check-claude-md-paths.ts",
     "agents:mirror": "tsx scripts/mirror-agents-md.ts",
     "agents:check": "tsx scripts/mirror-agents-md.ts --check",
@@ -22,12 +28,13 @@
     "test:tz": "for z in UTC Africa/Johannesburg America/New_York Pacific/Kiritimati; do echo \"-- TZ=$z\"; TZ=$z vitest run --config vitest.tz.config.ts lib/date/ || exit 1; done",
     "dates:check": "tsx scripts/check-date-boundaries.ts",
     "face-models:fetch": "tsx scripts/fetch-face-models.ts",
-    "lender:bootstrap-tenant": "tsx scripts/lender/bootstrap-tenant-cli.ts",
-    "lender:bootstrap-admin": "tsx scripts/lender/bootstrap-admin-cli.ts",
-    "uploads:encrypt": "tsx scripts/encrypt-uploads-cli.ts",
-    "demo:typecheck": "tsc --noEmit -p scripts/demo/tsconfig.json"
+    "lender:bootstrap-tenant": "npm run --silent gen:registries && tsx scripts/lender/bootstrap-tenant-cli.ts",
+    "lender:bootstrap-admin": "npm run --silent gen:registries && tsx scripts/lender/bootstrap-admin-cli.ts",
+    "uploads:encrypt": "npm run --silent gen:registries && tsx scripts/encrypt-uploads-cli.ts",
+    "demo:typecheck": "npm run --silent gen:registries && tsc --noEmit -p scripts/demo/tsconfig.json"
   },
   "prisma": {
+    "schema": "prisma/schema",
     "seed": "npm run --silent seed:staging"
   },
   "dependencies": {
@@ -44,9 +51,9 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
-    "@tiptap/pm": "^3.27.3",
-    "@tiptap/react": "^3.27.3",
-    "@tiptap/starter-kit": "^3.27.3",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/react": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
     "@types/node-cron": "^3.0.11",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
@@ -55,19 +62,19 @@
     "exceljs": "^4.4.0",
     "imapflow": "^1.2.18",
     "lucide-react": "^1.7.0",
-    "mailparser": "^3.9.14",
-    "next": "^16.2.12",
+    "mailparser": "^3.9.39",
+    "next": "^16.4.1",
     "next-auth": "^5.0.0-beta.32",
     "node-cron": "^4.2.1",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.1.1",
     "onnxruntime-node": "^1.30.0",
     "pdf-lib": "^1.17.1",
-    "puppeteer": "^24.40.0",
+    "puppeteer": "^25.14.0",
     "qrcode": "1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.8.1",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0"
   },
@@ -76,7 +83,6 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
-    "@types/nodemailer": "^8.0.0",
     "@types/pngjs": "6.0.5",
     "@types/qrcode": "1.5.6",
     "@types/react": "^19",
@@ -95,10 +101,10 @@
     "vitest": "^4.1.5"
   },
   "overrides": {
-    "postcss": "8.5.12"
+    "postcss": "8.5.30"
   },
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=22.12.0"
   },
   "optionalDependencies": {
     "@rolldown/binding-win32-x64-msvc": "1.0.0"

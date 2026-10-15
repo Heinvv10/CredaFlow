@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { AlertCircle } from "lucide-react"
 import { safeInternalPath } from "@/lib/safe-path"
+import { accessRefusalMessage } from "@/lib/security/staff-access-messages"
 
-export type LoginVariant = "staff" | "client"
+export type LoginVariant = "staff" | "client" | "operator"
 
 type CopyMap = {
   title: string
@@ -35,6 +36,13 @@ const COPY: Record<LoginVariant, CopyMap> = {
     subtitle: "Sign in to manage your loans and applications",
     emailPlaceholder: "your.email@example.com",
     fallbackDest: "/portal",
+    errorWrongAudience: "Invalid email or password",
+  },
+  operator: {
+    title: "Operator console",
+    subtitle: "Platform operator sign-in. Two-factor authentication is required.",
+    emailPlaceholder: "you@example.com",
+    fallbackDest: "/operator",
     errorWrongAudience: "Invalid email or password",
   },
 }
@@ -69,7 +77,7 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
       email,
       password,
       code: otpCode,
-      loginType: variant === "staff" ? "staff" : "client",
+      loginType: variant,
       redirect: false,
     })
   }
@@ -100,6 +108,10 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
         setError("Too many sign-in attempts. Wait a few minutes and try again.")
       } else if (errorCode === "wrong_audience") {
         setError(copy.errorWrongAudience)
+      } else if (accessRefusalMessage(errorCode)) {
+        // Working hours / IP allowlist / portal off: told only after the
+        // password (and code) were right, so it reveals nothing to a guesser.
+        setError(accessRefusalMessage(errorCode)!)
       } else if (step === "totp") {
         // Falling back to password step on a non-TOTP error mid-flow is jarring;
         // treat as an invalid-code retry to avoid leaking which factor failed.
@@ -183,12 +195,16 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
                   /portal/forgot-password (Client OTP flow backed by
                   /api/portal/{forgot,reset}-password). Replaces the previous dead
                   a dead mailto: link. */}
-              <Link
-                href={variant === "staff" ? "/forgot-password" : "/portal/forgot-password"}
-                className="text-sm font-medium text-[var(--cf-brand-alt)] hover:underline"
-              >
-                Forgot password?
-              </Link>
+              {/* Operator staff have no self-service reset: an OPERATOR_ADMIN
+                  sends them a new link from the console. */}
+              {variant !== "operator" ? (
+                <Link
+                  href={variant === "staff" ? "/forgot-password" : "/portal/forgot-password"}
+                  className="text-sm font-medium text-[var(--cf-brand-alt)] hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              ) : null}
             </div>
             <Button
               type="submit"

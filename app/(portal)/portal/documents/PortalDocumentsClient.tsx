@@ -10,9 +10,7 @@ import { Upload, Eye, Trash2, CheckCircle, AlertCircle, Clock, RefreshCcw, Loade
 import { toast } from "@/lib/toast"
 import { UploadDialog } from "@/components/documents/UploadDialog"
 import { DocumentPreviewDialog } from "@/components/documents/DocumentPreviewDialog"
-import { SAST_TIME_ZONE } from "@/lib/utils"
 import {
-  DOC_TYPE_LABELS,
   REQUIRED_DOC_TYPES,
   formatFileSize,
   type DocumentRecord,
@@ -25,10 +23,12 @@ import {
   deletePortalDocumentAndReconcile,
   PortalDocumentPoller,
 } from "@/lib/kyc/portal-document-poller"
-import {
-  PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE,
-  portalSelfieFailureMessage,
-} from "@/lib/kyc/biometric-failure-copy"
+import { portalSelfieFailureKind } from "@/lib/kyc/biometric-failure-copy"
+import { useLocale, useT } from "@/lib/i18n/client"
+import { formatDay } from "@/lib/i18n/format"
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
+import { SAST_TIME_ZONE } from "@/lib/utils"
+import { docTypeLabel } from "@/lib/i18n/portal-labels"
 
 interface Props {
   clientId: string
@@ -48,6 +48,13 @@ const PORTAL_UPLOAD_TYPES = [
   "OTHER",
 ]
 
+// English keeps its existing date (en-ZA, numeric); another language uses the
+// shared locale formatter.
+function uploadedOn(iso: string, locale: Locale): string {
+  if (locale === DEFAULT_LOCALE) return new Date(iso).toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE })
+  return formatDay(iso, locale)
+}
+
 export function PortalDocumentsClient({
   clientId,
   popiaConsentGiven: _popiaConsentGiven,
@@ -63,6 +70,12 @@ export function PortalDocumentsClient({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const mounted = useRef(true)
   const poller = useRef<PortalDocumentPoller | null>(null)
+  const t = useT("portalDocuments")
+  const labels = useT("portalLabels")
+  const locale = useLocale()
+  const docLabel = (docType: string) => docTypeLabel(labels, docType)
+  const selfieFailure = (reason: string | null | undefined) =>
+    t(`selfieFail_${portalSelfieFailureKind(reason)}`)
 
   const refreshDocumentState = useCallback(async () => {
     const res = await fetch(
@@ -102,7 +115,7 @@ export function PortalDocumentsClient({
   }, [])
 
   const handleDelete = async (docId: string) => {
-    if (!confirm("Delete this document?")) return
+    if (!confirm(t("confirmDelete"))) return
     setDeletingId(docId)
     try {
       const result = await deletePortalDocumentAndReconcile({
@@ -112,8 +125,8 @@ export function PortalDocumentsClient({
       })
       if (!result.ok) {
         toast.error(
-          "Document not deleted",
-          result.error ?? "This document cannot be deleted.",
+          t("notDeletedTitle"),
+          result.error ?? t("notDeletedBody"),
         )
       }
     } catch {
@@ -168,30 +181,30 @@ export function PortalDocumentsClient({
   ) => {
     if (status === "verified") {
       return {
-        detail: "Accepted by our team.",
-        label: "Verified",
+        detail: t("coreVerifiedDetail"),
+        label: t("verified"),
         tone: "success" as const,
       }
     }
     if (status === "pending_review") {
       return {
-        detail: "Uploaded. No action is needed while our team reviews it.",
-        label: "Pending review",
+        detail: t("corePendingDetail"),
+        label: t("pendingReview"),
         tone: "warning" as const,
       }
     }
     if (status === "action_required") {
       return {
-        detail: "This document needs attention. Please replace it.",
-        label: "Action needed",
+        detail: t("coreActionDetail"),
+        label: t("actionNeeded"),
         tone: "danger" as const,
       }
     }
     return {
       detail: documentPresent
-        ? "This document needs attention. Please replace it."
-        : "Upload this document now.",
-      label: "Missing",
+        ? t("coreActionDetail")
+        : t("coreUploadNow"),
+      label: t("missing"),
       tone: "danger" as const,
     }
   }
@@ -205,20 +218,20 @@ export function PortalDocumentsClient({
         : undefined
       if (checklistItem?.documentId === doc.id) {
         if (checklistItem.status === "verified") {
-          return { label: "Verified", tone: "success" as const }
+          return { label: t("verified"), tone: "success" as const }
         }
         if (checklistItem.status === "pending_review") {
-          return { label: "Pending review", tone: "info" as const }
+          return { label: t("pendingReview"), tone: "info" as const }
         }
         if (checklistItem.status === "action_required") {
-          return { label: "Action needed", tone: "danger" as const }
+          return { label: t("actionNeeded"), tone: "danger" as const }
         }
       }
-      if (doc.verified) return { label: "Verified", tone: "success" as const }
+      if (doc.verified) return { label: t("verified"), tone: "success" as const }
       // Only the core types staff review for KYC have a pending-review state.
       // Other types (OTHER, generated documents) keep their previous label.
       if (!(REQUIRED_DOC_TYPES as readonly string[]).includes(doc.docType)) {
-        return { label: "Superseded", tone: "neutral" as const }
+        return { label: t("superseded"), tone: "neutral" as const }
       }
       // Superseded means an older copy that a newer one replaced. The newest
       // copy of a type is never superseded, even while an older one is
@@ -230,30 +243,30 @@ export function PortalDocumentsClient({
         (Date.parse(other.createdAt) > Date.parse(doc.createdAt) ||
           (Date.parse(other.createdAt) === Date.parse(doc.createdAt) && other.id > doc.id)),
       )
-      if (replacedByNewer) return { label: "Superseded", tone: "neutral" as const }
+      if (replacedByNewer) return { label: t("superseded"), tone: "neutral" as const }
       // Only a named reviewer's refusal is shown as needing action. A validation
       // mismatch alone shows Pending review here, although the checklist item
       // (portal-checklist.ts) counts it as action_required.
       return doc.verificationRejectedById
-        ? { label: "Action needed", tone: "danger" as const }
-        : { label: "Pending review", tone: "info" as const }
+        ? { label: t("actionNeeded"), tone: "danger" as const }
+        : { label: t("pendingReview"), tone: "info" as const }
     }
     if (doc.id !== kycChecklist.latestSelfieId) {
-      return { label: "Superseded", tone: "neutral" as const }
+      return { label: t("superseded"), tone: "neutral" as const }
     }
     if (kycChecklist.selfie.status === "exception_accepted") {
-      return { label: "Senior exception", tone: "warning" as const }
+      return { label: t("seniorException"), tone: "warning" as const }
     }
     if (kycChecklist.selfie.status === "verified") {
-      return { label: "Verified", tone: "success" as const }
+      return { label: t("verified"), tone: "success" as const }
     }
     if (kycChecklist.selfie.status === "pending_review") {
-      return { label: "Pending review", tone: "info" as const }
+      return { label: t("pendingReview"), tone: "info" as const }
     }
     if (kycChecklist.selfie.status === "action_required") {
-      return { label: "Action needed", tone: "danger" as const }
+      return { label: t("actionNeeded"), tone: "danger" as const }
     }
-    return { label: "Required", tone: "warning" as const }
+    return { label: t("required"), tone: "warning" as const }
   }
 
   const getExtractionLabel = (
@@ -264,7 +277,7 @@ export function PortalDocumentsClient({
       return (
         <span className="flex items-center gap-1 text-xs text-[var(--cf-info)]">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Analysing your document...
+          {t("analysing")}
         </span>
       )
     }
@@ -272,7 +285,7 @@ export function PortalDocumentsClient({
       return (
         <span className="flex items-center gap-1 text-xs text-[var(--cf-success)]">
           <CheckCircle className="h-3 w-3" />
-          Document scanned
+          {t("scanned")}
         </span>
       )
     }
@@ -288,7 +301,7 @@ export function PortalDocumentsClient({
       }
       return (
         <span className="text-xs text-[var(--cf-text-muted)]">
-          We couldn&apos;t read this document automatically. Our team will review it manually.
+          {t("couldNotRead")}
         </span>
       )
     }
@@ -298,13 +311,13 @@ export function PortalDocumentsClient({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6">
       <SectionHeader
-        eyebrow="Secure document vault"
-        title="Documents"
-        description="Upload and manage the documents needed for verification and credit assessment."
+        eyebrow={t("eyebrow")}
+        title={t("title")}
+        description={t("description")}
         actions={
           <Button onClick={() => { setSelectedUploadType(undefined); setUploadOpen(true) }}>
             <Upload className="mr-2 h-4 w-4" />
-            Upload
+            {t("upload")}
           </Button>
         }
       />
@@ -315,34 +328,34 @@ export function PortalDocumentsClient({
       </InfoStrip>
 
       <DataPanel
-        title="Required documents"
-        description="Complete each item from this checklist. Use the action on the row instead of searching for the generic upload button."
+        title={t("requiredDocs")}
+        description={t("requiredDocsDesc")}
         variant="raised"
         density="loose"
       >
         <div className="mb-4 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-text-muted)]">
           {kycChecklist.manualReviewHold ? (
             <span>
-              An advisor review is required before the overall KYC outcome can complete. Existing document statuses remain visible below.
+              {t("manualHold")}
             </span>
           ) : kycChecklist.complete ? (
             <span className="font-medium text-[var(--cf-success)]">
               {kycChecklist.substituteKind === "in_person"
-                ? "All required documents are complete. Your identity was confirmed in person by our staff, so no selfie is needed."
+                ? t("completeInPerson")
                 : kycChecklist.manualExceptionActive
-                  ? "All required documents are complete. A senior manual KYC exception is active; biometric verification did not pass."
-                  : "All required documents and selfie verification are complete."}
+                  ? t("completeException")
+                  : t("completeAll")}
             </span>
           ) : remainingChecklistItems > 0 ? (
             <span>
-              {remainingChecklistItems} action{remainingChecklistItems === 1 ? "" : "s"} needed from you before verification can continue.
+              {remainingChecklistItems === 1 ? t("actionsNeededOne") : t("actionsNeededMany", { n: remainingChecklistItems })}
             </span>
           ) : kycChecklist.pendingReviewCount > 0 ? (
             <span>
-              All required items are uploaded. {kycChecklist.pendingReviewCount} item{kycChecklist.pendingReviewCount === 1 ? " is" : "s are"} awaiting verification; no upload action is needed.
+              {kycChecklist.pendingReviewCount === 1 ? t("pendingOne") : t("pendingMany", { n: kycChecklist.pendingReviewCount })}
             </span>
           ) : (
-            <span>All required evidence is on file and awaiting the final advisor decision.</span>
+            <span>{t("awaitingFinal")}</span>
           )}
         </div>
 
@@ -351,7 +364,7 @@ export function PortalDocumentsClient({
             const doc = docsByType.get(dt)
             const status = kycChecklist.coreDocuments[dt].status
             const statusCopy = coreStatusCopy(status, Boolean(doc))
-            const label = DOC_TYPE_LABELS[dt]
+            const label = docLabel(dt)
             return (
               <div
                 key={dt}
@@ -375,7 +388,7 @@ export function PortalDocumentsClient({
                 <div className="flex items-center justify-between gap-2 sm:justify-end">
                   <StatusPill tone={statusCopy.tone}>{statusCopy.label}</StatusPill>
                   <Button variant={status === "verified" || status === "pending_review" ? "outline" : "default"} size="sm" onClick={() => handleReplace(dt)}>
-                    {doc ? "Replace" : "Upload"}
+                    {doc ? t("replace") : t("upload")}
                   </Button>
                 </div>
               </div>
@@ -398,49 +411,49 @@ export function PortalDocumentsClient({
                 <Camera className="h-5 w-5 shrink-0 text-[var(--cf-warning)]" />
               )}
               <div className="min-w-0">
-                <p className="font-semibold text-[var(--cf-text)]">Selfie verification</p>
+                <p className="font-semibold text-[var(--cf-text)]">{t("selfieTitle")}</p>
                 <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">
                   {selfieExceptionAccepted
-                    ? "A senior reviewer accepted a manual KYC exception for this failed biometric attempt. This is not a biometric pass."
+                    ? t("selfieExceptionDetail")
                     : selfieVerified
-                    ? `Identity verified at ${selfieDoc?.biometricMatchScore}% match.`
+                    ? t("selfieVerifiedDetail", { score: String(selfieDoc?.biometricMatchScore) })
                     : selfiePending
                       ? kycChecklist.selfie.awaitingIdVerification
-                        ? PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE
+                        ? t("selfieAwaitingId")
                         : kycChecklist.selfie.reason === "document_not_verified"
-                        ? "Identity checks passed and are awaiting advisor review."
-                        : "Selfie received. Verification is running."
+                        ? t("selfieChecksPassed")
+                        : t("selfieReceived")
                       : selfieFailed
-                        ? portalSelfieFailureMessage(kycChecklist.selfie.reason)
+                        ? selfieFailure(kycChecklist.selfie.reason)
                         : hasIdDocument
-                          ? "Take a live selfie so we can match it to your ID."
-                          : "Upload your ID first, then take a selfie."}
+                          ? t("selfieTake")
+                          : t("selfieIdFirst")}
                 </p>
               </div>
             </div>
             <div className="flex items-center justify-between gap-2 sm:justify-end">
               {selfieExceptionAccepted ? (
-                <StatusPill tone="warning">Senior exception</StatusPill>
+                <StatusPill tone="warning">{t("seniorException")}</StatusPill>
               ) : selfieVerified ? (
-                <StatusPill tone="success">Verified - {selfieDoc?.biometricMatchScore}%</StatusPill>
+                <StatusPill tone="success">{t("verifiedScore", { score: String(selfieDoc?.biometricMatchScore) })}</StatusPill>
               ) : selfiePending ? (
                 <StatusPill tone="info">
                   {kycChecklist.selfie.reason === "document_not_verified" ||
                     kycChecklist.selfie.awaitingIdVerification
-                    ? "Pending review"
-                    : "Verifying"}
+                    ? t("pendingReview")
+                    : t("verifying")}
                 </StatusPill>
               ) : selfieFailed ? (
-                <StatusPill tone="danger">Action needed</StatusPill>
+                <StatusPill tone="danger">{t("actionNeeded")}</StatusPill>
               ) : (
-                <StatusPill tone="warning">Required</StatusPill>
+                <StatusPill tone="warning">{t("required")}</StatusPill>
               )}
               <Button variant={selfieVerified || selfieExceptionAccepted ? "outline" : "default"} size="sm" onClick={() => handleReplace("SELFIE")}>
                 {selfieVerified || selfieExceptionAccepted || selfieFailed
-                  ? "Retake"
+                  ? t("retake")
                   : selfiePending
-                    ? "Replace"
-                    : "Take selfie"}
+                    ? t("replace")
+                    : t("takeSelfie")}
               </Button>
             </div>
           </div>
@@ -448,44 +461,44 @@ export function PortalDocumentsClient({
       </DataPanel>
 
       <DataPanel
-        title="Upload another document"
-        description="Use this for supporting files or when an advisor asks for something extra. Checklist items above are faster."
+        title={t("uploadAnother")}
+        description={t("uploadAnotherDesc")}
         variant="raised"
         density="loose"
         className="border-[rgba(79,70,229,0.38)] bg-[rgba(79,70,229,0.10)]"
         actions={
           <Button onClick={() => { setSelectedUploadType(undefined); setUploadOpen(true) }}>
             <Upload className="mr-2 h-4 w-4" />
-            Upload other file
+            {t("uploadOther")}
           </Button>
         }
       >
         <div className="space-y-2 text-sm text-[var(--cf-text-muted)]">
-          <p>Accepted formats: JPG, PNG, WebP or PDF. Maximum file size is 10MB.</p>
+          <p>{t("formats")}</p>
           {kycChecklist.manualReviewHold ? (
-            <p>An advisor must resolve the current verification hold before the checklist can complete.</p>
+            <p>{t("holdNote")}</p>
           ) : remainingChecklistItems > 0 ? (
             <p>
-              Action needed: {[
-                ...customerActionTypes.map((dt) => DOC_TYPE_LABELS[dt]),
+              {t("actionNeededList", { list: [
+                ...customerActionTypes.map((dt) => docLabel(dt)),
                 ...(
                   kycChecklist.selfie.status === "missing" ||
                   kycChecklist.selfie.status === "action_required"
-                    ? ["Selfie verification"]
+                    ? [t("selfieTitle")]
                     : []
                 ),
-              ].join(", ")}.
+              ].join(", ") })}
             </p>
           ) : kycChecklist.pendingReviewCount > 0 ? (
-            <p>No additional upload is currently needed. Submitted items are awaiting verification.</p>
+            <p>{t("noUploadNeeded")}</p>
           ) : (
-            <p className="font-medium text-[var(--cf-success)]">Checklist complete. Upload here only if we request extra supporting documents.</p>
+            <p className="font-medium text-[var(--cf-success)]">{t("checklistComplete")}</p>
           )}
         </div>
       </DataPanel>
 
       {docs.length > 0 && (
-        <DataPanel title="My documents" description="Preview, replace or delete documents that are not yet verified." variant="default" density="compact">
+        <DataPanel title={t("myDocs")} description={t("myDocsDesc")} variant="default" density="compact">
           <div className="divide-y divide-[var(--cf-border-subtle)]">
             {docs.map((doc) => {
               const status = documentStatus(doc)
@@ -502,10 +515,10 @@ export function PortalDocumentsClient({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-[var(--cf-text)]">
-                        {DOC_TYPE_LABELS[doc.docType] || doc.docType}
+                        {docLabel(doc.docType)}
                       </p>
                       <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">
-                        {new Date(doc.createdAt).toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE })} - {formatFileSize(doc.fileSize)}
+                        {uploadedOn(doc.createdAt, locale)} - {formatFileSize(doc.fileSize)}
                       </p>
                     </div>
                     <StatusPill tone={status.tone}>{status.label}</StatusPill>
@@ -514,8 +527,8 @@ export function PortalDocumentsClient({
                         variant="outline"
                         size="sm"
                         onClick={() => setPreviewDoc(doc)}
-                        aria-label={`Preview ${DOC_TYPE_LABELS[doc.docType] || doc.docType}`}
-                        title="Preview"
+                        aria-label={t("previewAria", { doc: docLabel(doc.docType) })}
+                        title={t("preview")}
                       >
                         <Eye className="h-3 w-3" />
                       </Button>
@@ -525,8 +538,8 @@ export function PortalDocumentsClient({
                             variant="outline"
                             size="sm"
                             onClick={() => handleReplace(doc.docType)}
-                            aria-label={`Replace ${DOC_TYPE_LABELS[doc.docType] || doc.docType}`}
-                            title="Replace"
+                            aria-label={t("replaceAria", { doc: docLabel(doc.docType) })}
+                            title={t("replace")}
                           >
                             <RefreshCcw className="h-3 w-3" />
                           </Button>
@@ -537,8 +550,8 @@ export function PortalDocumentsClient({
                               className="text-[var(--cf-danger)] hover:bg-[rgba(208,92,75,0.08)]"
                               onClick={() => handleDelete(doc.id)}
                               disabled={deletingId === doc.id}
-                              aria-label={`Delete ${DOC_TYPE_LABELS[doc.docType] || doc.docType}`}
-                              title="Delete"
+                              aria-label={t("deleteAria", { doc: docLabel(doc.docType) })}
+                              title={t("delete")}
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
@@ -553,17 +566,16 @@ export function PortalDocumentsClient({
                   {doc.docType === "SELFIE" && !isLatestSelfie && (
                     <div className="flex items-center gap-2 text-xs">
                       <Fingerprint className="h-3 w-3 text-[var(--cf-text-muted)]" />
-                      <span className="text-[var(--cf-text-muted)]">Superseded by a newer selfie attempt.</span>
+                      <span className="text-[var(--cf-text-muted)]">{t("supersededSelfie")}</span>
                     </div>
                   )}
                   {isLatestSelfie && selfieVerified && (
                     <div className="flex items-center gap-2 text-xs">
                       <Fingerprint className="h-3 w-3 text-[var(--cf-text-muted)]" />
                       <span className="font-medium text-[var(--cf-success)]">
-                        Identity verified
                         {doc.biometricMatchScore != null
-                          ? ` - ${doc.biometricMatchScore}% match`
-                          : ""}
+                          ? t("identityVerifiedScore", { score: doc.biometricMatchScore })
+                          : t("identityVerified")}
                       </span>
                     </div>
                   )}
@@ -573,15 +585,15 @@ export function PortalDocumentsClient({
                         ? <Clock className="h-3 w-3" />
                         : <Loader2 className="h-3 w-3 animate-spin" />}
                       {kycChecklist.selfie.awaitingIdVerification
-                        ? PORTAL_SELFIE_AWAITING_ID_VERIFICATION_MESSAGE
+                        ? t("selfieAwaitingId")
                         : kycChecklist.selfie.reason === "document_not_verified"
-                        ? "Identity checks are awaiting advisor review."
-                        : "Verifying your identity... This may take up to 60 seconds."}
+                        ? t("checksAwaitingAdvisor")
+                        : t("verifyingIdentity")}
                     </span>
                   )}
                   {isLatestSelfie && selfieFailed && (
                     <span className="text-xs text-[var(--cf-danger)]">
-                      {portalSelfieFailureMessage(kycChecklist.selfie.reason)}
+                      {selfieFailure(kycChecklist.selfie.reason)}
                     </span>
                   )}
                 </div>

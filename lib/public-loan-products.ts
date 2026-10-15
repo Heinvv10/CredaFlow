@@ -564,13 +564,6 @@ export function buildProductApplyHref(product: PublicLoanProduct, quote: PublicL
   return `${base}?${params.toString()}`
 }
 
-export function formatTerm(product: PublicLoanProduct, term: number) {
-  // Singularise at 1 ("1 month" / "1 day") — PO funding's 1-month minimum makes
-  // the singular reachable via a plain slider drag.
-  const unit = term === 1 ? product.termUnit.slice(0, -1) : product.termUnit
-  return `${term} ${unit}`
-}
-
 // ── Marketing-copy formatters (Phase 3) ──────────────────────────────────────
 // Whole-rand, comma-grouped, no decimals — the style the hardcoded copy used
 // ("R500", "R10,000"). CENTS in. Client-safe (no prisma).

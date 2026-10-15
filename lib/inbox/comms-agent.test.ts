@@ -29,7 +29,8 @@ describe("isCommsAgentAllowed", () => {
 // The two role hierarchies are separate copies, so this pins them to the same answers.
 describe("hasMinRole parity: lib/permissions.ts vs lib/auth-guards.ts", () => {
   it("covers every role in the schema", () => {
-    expect(ROLES).toHaveLength(9)
+    // Nine tenant roles plus the two operator roles (lib/operator/roles.ts).
+    expect(ROLES).toHaveLength(11)
   })
 
   it.each([...ROLES, "CLIENT", "NOT_A_ROLE"])("%s agrees for every minimum role", (role) => {

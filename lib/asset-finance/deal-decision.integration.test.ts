@@ -35,6 +35,7 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { SECTION129_BORROWER_INCLUDE, section129Addressee } from "@/lib/collections/section129-addressee"
 import { buildSection129Attachments } from "@/lib/email/section129-attachments"
 import { getLenderIdentity } from "@/lib/config/identity"
+import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -151,8 +152,11 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(signers.map((s) => s.document).sort()).toEqual(["AGREEMENT", "RESOLUTION"])
     signInClient(fx.director)
     for (const signer of signers) {
+      const signingOtpChallengeId = await verifiedSigningOtp(database(), {
+        tenantId: fx.tenantId, clientId: signer.clientId, purpose: "DEAL_DOCUMENT", subjectId: signer.id, documentSha256: signer.documentSha256!,
+      })
       const signed = await portalSignerRoute(request(`/api/portal/asset-finance/deal-signers/${signer.id}/sign`, "POST", {
-        signature: "TEST Director", documentSha256: signer.documentSha256,
+        signature: "TEST Director", documentSha256: signer.documentSha256, signingOtpChallengeId,
       }), { params: Promise.resolve({ signerId: signer.id }) })
       expect(signed.status, await signed.clone().text()).toBe(200)
     }
@@ -264,7 +268,22 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     const agreement = await agreementResponse.json() as { documentId: string; sha256: string }
     signInClient(fx.director)
     expect((await routes().viewDocument(agreement.documentId)).status).toBe(200)
-    expect((await routes().signNcaAgreement(deals.natural, { signature: "Test Director", documentSha256: agreement.sha256 })).status).toBe(200)
+    // The lender requires a signing code (default): none, or one for other
+    // bytes, is refused; one verified for this signer row and bytes signs.
+    const bare = await routes().signNcaAgreement(deals.natural, { signature: "Test Director", documentSha256: agreement.sha256 })
+    expect(bare.status).toBe(403)
+    expect(await bare.json()).toEqual(expect.objectContaining({ signingOtp: "required" }))
+    const agreementSigner = await database().dealSigner.findFirstOrThrow({ where: { dealId: deals.natural, document: "AGREEMENT" } })
+    const otpFor = (documentSha256: string) => verifiedSigningOtp(database(), {
+      tenantId: fx.tenantId, clientId: agreementSigner.clientId, purpose: "DEAL_DOCUMENT", subjectId: agreementSigner.id, documentSha256,
+    })
+    expect((await routes().signNcaAgreement(deals.natural, {
+      signature: "Test Director", documentSha256: agreement.sha256, signingOtpChallengeId: await otpFor("0".repeat(64)),
+    })).status).toBe(409)
+    expect((await dealRow(deals.natural)).application.agreementSignedAt).toBeNull()
+    expect((await routes().signNcaAgreement(deals.natural, {
+      signature: "Test Director", documentSha256: agreement.sha256, signingOtpChallengeId: await otpFor(agreement.sha256),
+    })).status).toBe(200)
     signIn(fx.adminA, "LOAN_ADMIN")
     expect((await routes().countersignNcaAgreement(deals.natural, { signature: "Test Provider" })).status).toBe(200)
     expect((await dealRow(deals.natural)).application).toMatchObject({

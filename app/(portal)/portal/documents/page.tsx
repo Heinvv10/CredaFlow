@@ -10,6 +10,7 @@ import {
   PORTAL_KYC_SNAPSHOT_OPTIONS,
   readPortalKycDocumentState,
 } from "@/lib/kyc/portal-document-state"
+import { getT } from "@/lib/i18n/server"
 
 async function getClientData(email: string) {
   const tenantId = await getPortalTenantId()
@@ -29,13 +30,14 @@ export default async function PortalDocumentsPage() {
   const client = await getClientData(session.user.email)
 
   if (!client) {
+    const t = await getT("portalDocuments")
     return (
       <div className="max-w-3xl mx-auto px-6 py-8">
         <EmptyState
           icon={FileText}
-          title="No client account found"
-          description="This portal login is not linked to a client profile yet. Contact support so we can connect your documents."
-          action={{ label: "Back to Overview", href: "/portal" }}
+          title={t("noClientTitle")}
+          description={t("noClientDesc")}
+          action={{ label: t("backToOverview"), href: "/portal" }}
         />
       </div>
     )

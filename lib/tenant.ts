@@ -5,6 +5,7 @@ import { headers } from "next/headers"
 import type { NextRequest } from "next/server"
 import type { TenantStatus } from "@prisma/client"
 import { getCurrentTenantId, runWithTenant } from "./tenant-scope"
+import { normaliseHost } from "./config/deployment-urls"
 
 export type TenantContext = {
   id: string
@@ -34,13 +35,18 @@ export type TenantConfigData = {
   ncrNumber: string | null
   fscaNumber: string | null
   companyRegNumber: string | null
+  /** Raw column; read through lib/i18n/locales.ts normaliseEnabledLocales. */
+  enabledLanguages: string[]
+  /** Raw JSON; read through lib/i18n/language-reviews.ts servableLocales. */
+  languageReviews: unknown
 }
 
 export async function getTenantFromRequest(
   req: NextRequest | Request
 ): Promise<TenantContext | null> {
-  const hostname = req.headers.get("host") ?? ""
-  const baseHostname = hostname.split(":")[0]
+  // Normalised as Tenant.domain is stored (lib/config/tenant-domain.ts): a
+  // Host is case-insensitive and may carry a trailing dot.
+  const baseHostname = normaliseHost(req.headers.get("host") ?? "")
 
   // 1. Check if hostname matches a known custom domain
   const isLocalhost =
@@ -148,6 +154,8 @@ export function getTenantConfig(tenantId: string) {
           ncrNumber: true,
           fscaNumber: true,
           companyRegNumber: true,
+          enabledLanguages: true,
+          languageReviews: true,
         },
       })
     },
@@ -267,7 +275,21 @@ export async function withTenantContext<T>(
   // a tenant assignment fails closed.
   const { auth } = await import("./auth")
   const session = await auth()
-  if (session?.user) {
+  const { isOperatorRole } = await import("./operator/roles")
+  if (session?.user && isOperatorRole(session.user.role)) {
+    // An operator user holds no tenant: only this lender's active support
+    // grant lets them in (lib/operator/tenant-access.ts, audited there).
+    const { resolveOperatorTenantAccess } = await import("./operator/tenant-access")
+    const { REQUEST_ID_HEADER } = await import("./proxy/operator-read-only")
+    const access = await resolveOperatorTenantAccess({
+      session: session.user, tenantId: tenant.id, resource: new URL(req.url).pathname,
+      method: req.method, requestId: req.headers.get(REQUEST_ID_HEADER),
+    })
+    if (!access.allowed) {
+      const { NextResponse } = await import("next/server")
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+  } else if (session?.user) {
     const principalTenantId = session.user.tenantId
     if (!principalTenantId || principalTenantId !== tenant.id) {
       const { NextResponse } = await import("next/server")

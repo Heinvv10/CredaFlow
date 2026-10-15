@@ -5,8 +5,9 @@ import { sendEmail } from "@/lib/email/service"
 import { getLenderBrandName } from "@/lib/config/identity"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import crypto from "crypto"
+import { STAFF_RESET_LINK_MINUTES } from "@/lib/password-reset"
 
-const EXPIRY_MINUTES = 30
+const EXPIRY_MINUTES = STAFF_RESET_LINK_MINUTES
 
 // Per-IP cap. Real users send at most one or two reset emails; anything
 // beyond that is enumeration or spam.

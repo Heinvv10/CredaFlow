@@ -4,6 +4,8 @@
  * Provider comes from the collections registry; result persisted per POPIA
  * audit needs. Gate helpers are pure so route code stays thin.
  */
+import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { SIMULATED_PROVIDER_ID } from "@/lib/integrations/collections/simulated"
 import { prisma } from "@/lib/prisma"
 import { getAvsProvider } from "@/lib/integrations/collections/registry"
 import type { AvsChecks } from "@/lib/integrations/collections/types"
@@ -82,6 +84,8 @@ export function evaluateAvsGate(
     applicationId: string | null
     subjectFingerprint?: string | null
     passed: boolean
+    /** Registry key of the provider that produced the check. */
+    provider?: string
   } | null,
   client: AvsSubjectClient,
   applicationId: string,
@@ -98,6 +102,11 @@ export function evaluateAvsGate(
   if (!avsCheckMatchesSubject(latest, client))
     return { ok: false, reason: "Applicant or bank details changed since the last AVS check — re-verify" }
   if (!latest.passed) return { ok: false, reason: "Latest AVS check failed" }
+  // A simulated pass asserts nothing about a real account. Accepted only where
+  // this deployment permits the simulated rail (local, tests, declared demos).
+  if (latest.provider === SIMULATED_PROVIDER_ID && !isSimulationPermitted("simulated-collections")) {
+    return { ok: false, reason: "Simulated AVS evidence is not accepted on this deployment" }
+  }
   return { ok: true, reason: null }
 }
 

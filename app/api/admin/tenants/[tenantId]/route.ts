@@ -3,13 +3,17 @@ import { revalidateTag } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { CredentialInputError, redactTenantCredentials, sealCredential } from "@/lib/integrations/tenant-credentials"
 import { cleanAddressLine } from "@/lib/bureau-submission/clean"
-import { redactTenantBureauCredentials } from "@/lib/bureau/credentials"
 import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
 import type { Session } from "next-auth"
+import { normaliseTenantDomain, tenantDomainRefusal } from "@/lib/config/tenant-domain"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
 import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
+import { applyTenantLanguages } from "@/lib/i18n/language-settings"
+
+class LanguagesInvalid extends Error {}
 
 class TenantColoursInvalid extends Error {
   constructor(readonly fields: Partial<Record<TenantColourField, string>>) {
@@ -45,8 +49,11 @@ export async function GET(
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
   }
 
-  return NextResponse.json(redactTenantBureauCredentials(tenant))
+  return NextResponse.json(redactTenantCredentials(tenant))
 }
+
+// Sealed on write (lib/integrations/tenant-credentials.ts); null clears one.
+const CREDENTIAL_KEYS = ["netcashKey", "bulkSmsKey", "transunionKey"] as const
 
 export async function PATCH(
   req: NextRequest,
@@ -95,7 +102,6 @@ export async function PATCH(
     primaryColor, secondaryColor, darkColor,
     faviconUrl,
     featureLms, featureCrm, featureIms, featureMarketing, featurePortal, featureReports,
-    netcashKey, bulkSmsKey, transunionKey,
     featureBureauSubmission, bureauSupplierNumber, bureauTradingName, bureauReportingStartDate,
     ..._ // discard unknown fields
   } = body as Record<string, string | boolean | null | undefined>
@@ -108,9 +114,23 @@ export async function PATCH(
   // old set and commit a combination that fails.
   const colourKeys = (Object.keys(TENANT_COLOUR_VARS) as TenantColourField[]).filter((key) => body[key] !== undefined)
 
+  // Borrower-facing languages (lib/i18n). Turning af/zu/xh on shows borrowers
+  // a machine-drafted catalogue, so each needs a native-speaker review
+  // acknowledgement (languageReviewAcknowledgements), validated and audited by
+  // applyTenantLanguages in this route's transaction. English is always on.
+  const languagesRequested = body.enabledLanguages !== undefined || body.languageReviewAcknowledgements !== undefined
+
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
-  if (domain !== undefined) tenantUpdate.domain = domain
+  if (domain !== undefined) {
+    // Normalised, and never a host the deployment or another lender serves
+    // (lib/config/tenant-domain.ts).
+    const parsed = normaliseTenantDomain(domain)
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 422 })
+    const refusal = parsed.domain ? await tenantDomainRefusal(parsed.domain, tenantId) : null
+    if (refusal) return NextResponse.json({ error: refusal }, { status: 422 })
+    tenantUpdate.domain = parsed.domain
+  }
   if (status !== undefined) tenantUpdate.status = status
 
   const configUpdate: Record<string, unknown> = {}
@@ -124,9 +144,22 @@ export async function PATCH(
   if (featureMarketing !== undefined) configUpdate.featureMarketing = featureMarketing
   if (featurePortal !== undefined) configUpdate.featurePortal = featurePortal
   if (featureReports !== undefined) configUpdate.featureReports = featureReports
-  if (netcashKey !== undefined) configUpdate.netcashKey = netcashKey
-  if (bulkSmsKey !== undefined) configUpdate.bulkSmsKey = bulkSmsKey
-  if (transunionKey !== undefined) configUpdate.transunionKey = transunionKey
+  const credentialKeys = CREDENTIAL_KEYS.filter((key) => body[key] !== undefined)
+  for (const key of credentialKeys) {
+    const value = body[key]
+    if (value !== null && (typeof value !== "string" || value.length === 0)) {
+      return NextResponse.json({ error: `${key} must be a non-empty string, or null` }, { status: 400 })
+    }
+    try {
+      configUpdate[key] = value === null ? null : sealCredential(value)
+    } catch (e) {
+      if (e instanceof CredentialInputError) {
+        return NextResponse.json({ error: `${key}: enter the credential itself, not a sealed value` }, { status: 400 })
+      }
+      console.error("Refusing to store a provider credential:", e)
+      return NextResponse.json({ error: "Credential encryption is not configured on this deployment" }, { status: 500 })
+    }
+  }
 
   // Bureau data submission (lib/bureau-submission). These decide whether real
   // people's loans are reported to a credit bureau and under whose name, so
@@ -174,21 +207,29 @@ export async function PATCH(
       },
     }),
   }
-  if (bureauKeys.length === 0 && colourKeys.length === 0) {
+  if (bureauKeys.length === 0 && colourKeys.length === 0 && credentialKeys.length === 0 && !languagesRequested) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
-    return NextResponse.json(redactTenantBureauCredentials(updated))
+    return NextResponse.json(redactTenantCredentials(updated))
   }
 
   // The change and its audit rows commit together, or neither does.
   const day = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : value)
   const updated = await prisma.$transaction(async (tx) => {
-    if (colourKeys.length > 0) {
+    if (colourKeys.length > 0 || languagesRequested) {
       // Locks the Tenant row, not TenantConfig: the config row may not exist
       // yet. The read below is a new statement, so under READ COMMITTED it
       // sees whatever the previous lock holder committed. NO KEY UPDATE
       // serialises colour changes without blocking the FOR KEY SHARE lock that
       // every insert referencing this tenant takes.
       await tx.$queryRaw`SELECT 1 FROM "Tenant" WHERE id = ${tenantId} FOR NO KEY UPDATE`
+    }
+    if (languagesRequested) {
+      const languages = await applyTenantLanguages(tx, {
+        tenantId,
+        actor: { id: session?.user?.id ?? null, email: session?.user?.email ?? null },
+        input: { enabledLanguages: body.enabledLanguages, acknowledgements: body.languageReviewAcknowledgements },
+      })
+      if (!languages.ok) throw new LanguagesInvalid(languages.error)
     }
     const before = await tx.tenantConfig.findUnique({ where: { tenantId } })
     if (colourKeys.length > 0) {
@@ -209,6 +250,18 @@ export async function PATCH(
         newValue: Object.fromEntries(colourKeys.map((key) => [key, configUpdate[key]])),
       }, tx)
     }
+    if (credentialKeys.length > 0) {
+      // Which credentials changed, never their values.
+      await logAuditStrict({
+        tenantId,
+        userId: session?.user?.id,
+        userEmail: session?.user?.email ?? undefined,
+        action: AuditAction.PROVIDER_CREDENTIALS_UPDATED,
+        entity: "TenantConfig",
+        entityId: tenantId,
+        newValue: { updatedKeys: credentialKeys, cleared: credentialKeys.filter((key) => body[key] === null) },
+      }, tx)
+    }
     if (bureauKeys.length === 0) return result
     await logAuditStrict({
       tenantId,
@@ -223,16 +276,20 @@ export async function PATCH(
     return result
   }).catch((e: unknown) => {
     // Thrown before anything is written, so the transaction rolls back clean.
-    if (e instanceof TenantColoursInvalid) return e
+    if (e instanceof TenantColoursInvalid || e instanceof LanguagesInvalid) return e
     throw e
   })
+  if (updated instanceof LanguagesInvalid) {
+    return NextResponse.json({ error: updated.message }, { status: 400 })
+  }
   if (updated instanceof TenantColoursInvalid) {
     return NextResponse.json({ error: "Tenant colours fail validation", fields: updated.fields }, { status: 422 })
   }
 
-  if (colourKeys.length > 0) {
-    // The colours are committed; a failed invalidation only leaves the old
-    // palette cached for getTenantConfig's 300 s, so it must not fail the write.
+  if (colourKeys.length > 0 || languagesRequested) {
+    // The colours (or languages) are committed; a failed invalidation only
+    // leaves the old values cached for getTenantConfig's 300 s, so it must not
+    // fail the write.
     // expire: 0, not "max": the next page load must draw the new palette,
     // not serve the stale one while revalidating.
     try {
@@ -242,5 +299,5 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json(redactTenantBureauCredentials(updated))
+  return NextResponse.json(redactTenantCredentials(updated))
 }

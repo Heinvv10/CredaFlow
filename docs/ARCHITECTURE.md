@@ -53,12 +53,82 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   the `x-tenant-slug` header (set by `proxy.ts` from the host, never trusted
   from the caller), then by `NEXT_PUBLIC_TENANT_SLUG` (`lib/tenant.ts`,
   `getTenantFromRequest` / `getResolvedTenantId`). Staff and portal sessions
-  carry their user's `tenantId`. Background jobs use `getDefaultTenantId()`,
-  which throws rather than guess.
+  carry their user's `tenantId`. Cron routes (`app/api/cron/*`) have no
+  request tenant of their own; these are the patterns in use (examples, not
+  a full list):
+  - a per-tenant frame: loop over the tenant rows and run each tenant inside
+    `runWithTenant` (website-chat-close, website-chat-handoffs,
+    sweep-stuck-selfies; cross-sell and dormant-clients, which sweep ACTIVE
+    tenants only because they create sales opportunities);
+  - an explicit `tenantId` on every tenant-scope query, with no frame:
+    insurance-renewal;
+  - a loop over the tenants whose `TenantConfig` enables the job, still one
+    frame per tenant: default-charges (a feature flag plus a recorded
+    go-live) and screening-refresh (a configured provider);
+  - `getTenantFromRequest()`, which, when the scheduler's `NEXTAUTH_URL` host
+    matches no tenant domain (or is unset, so the call goes to localhost),
+    falls back to `NEXT_PUBLIC_TENANT_SLUG` or the sole ACTIVE tenant, and
+    answers 400 when that is ambiguous: for example poll-wa-templates and
+    stale-leads-alert;
+  - unscoped, under `withoutTenantScope`: email-poll;
+  - the default tenant, `getDefaultTenantId()`, which throws rather than
+    guess: arrangement-check, dpd-update, licence-expiry and
+    payment-reminders still use it.
 - **Scoping queries.** `lib/tenant-scope.ts` is a Prisma extension that adds
   the current tenant (from `AsyncLocalStorage`, set by `runWithTenant`) to
   queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
   must pass `where: { tenantId }` by hand.
+- **Row-level security.** Underneath the extension, Postgres RLS
+  (`prisma/migrations/20261014130000_tenant_rls`, extended to later scoped
+  models by `20261015130000_tenant_rls_new_scoped_models`) filters the scoped tables and
+  the borrower core's children by `app.tenant_id`, which `lib/tenant-rls.ts`
+  sets transaction-locally for every query and transaction run inside a frame
+  when `TENANT_RLS=on` (`withoutTenantScope` sets `app.rls_bypass` instead).
+  It is off by default and is **not a backstop yet** (see the activation
+  checklist below). Once active it catches what the
+  extension cannot see: raw SQL, nested relation reads, trigger bodies. With no
+  frame the policies let rows through unless the database sets
+  `app.rls_strict = 'on'`. RLS binds only a role that is neither superuser nor
+  `BYPASSRLS`; the application must connect as such a role for it to hold.
+- **Operators.** An `Operator` (CredaFlow is the root one) runs tenants.
+  Operator staff (`OPERATOR_ADMIN`, `OPERATOR_SUPPORT`) hold no tenant and
+  clear no tenant role gate; a lender's ADMIN may grant one of them read-only
+  access for up to 7 days (`TenantSupportGrant`, `lib/operator/`), and every
+  grant and use is audited. Read-only means GET/HEAD: `proxy.ts` refuses any
+  other method from an operator session, server actions included. New
+  tenants default to the root operator.
+- **Operator console.** Operator staff sign in and work only on their own
+  host, `OPERATOR_APP_HOST` (`/operator`, `/api/operator`;
+  `lib/proxy/operator-host.ts`), as clients do on the portal host: the
+  session cookie is host-only, the console host serves nothing else, and no
+  other host serves the console or accepts an operator session. TOTP is
+  mandatory (no lender policy applies): a user without it reaches only the
+  enrolment page, and the console accepts only a sign-in that verified a code
+  (`lib/operator/console-auth.ts`). `OPERATOR_ADMIN` provisions lenders
+  (`scripts/lender`'s validation and create path, plus an invite to the first
+  SUPER_ADMIN), suspends and reactivates them (suspension stops the lender's
+  staff signing in and ends their sessions), sends a lender admin a reset
+  link, and manages operator users; `OPERATOR_SUPPORT` views lenders and uses
+  grants. Invite and reset links go to the account's own email through the
+  deployment's SMTP account; the console never sees a password or token.
+  Lender pages show aggregate counts only; "open lender" reads a short,
+  masked borrower summary through `resolveOperatorTenantAccess` (an active
+  grant, audited per use). The lender grants and revokes under Settings →
+  Support access, which also shows the support-access audit trail.
+  `lib/operator/console-census.test.ts` lists every console page and route and
+  runs each against sentinel borrower rows. Writes on the console host must be
+  same-origin, and `/api/operator` writes JSON (CSRF). A support grant does not
+  open a suspended lender. A lender's custom domain (`Tenant.domain`, which
+  outranks the slug in host resolution) is normalised and may not be a host the
+  deployment serves or another lender's subdomain host
+  (`lib/config/tenant-domain.ts`).
+- **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
+  and `(tenantId, email)`; one person may be a client of two lenders.
+- **Provider credentials** are per tenant, sealed in `TenantConfig`
+  (`lib/integrations/tenant-credentials.ts`). The Experian, SmileIdentity and
+  Stitch environment variables serve only the tenant
+  `ENV_CREDENTIALS_TENANT_SLUG` names (set by `provision-lender.sh` on a
+  dedicated stack); unset, they serve no one.
 - **Lender identity.** Legal name, trading name, NCR, FSP and company
   registration numbers, office address, contacts and logo are columns of
   `TenantConfig`. `lib/config/identity.ts` reads them:
@@ -103,11 +173,84 @@ enforcement (`pg_trigger`, `pg_constraint`; the queries are in `CLAUDE.md`),
 and `npm run db:drift` compares a live database's objects with what the
 migrations declare.
 
+## Row-level security: activation checklist
+
+The policies (`prisma/migrations/20261014130000_tenant_rls`) are in every
+database, but nothing enforces them yet. Every stack connects as a superuser,
+which Postgres exempts from all policies, and the query hook that sets the
+tenant (`lib/tenant-rls.ts`) is off unless `TENANT_RLS=on`. `/api/health`
+warns an operator session while the role bypasses RLS.
+
+**RLS is not a backstop yet.** It isolates nothing until the application
+connects as a role RLS binds, `TENANT_RLS=on`, every entry point runs in a
+tenant frame and the database sets `app.rls_strict = 'on'`. Before all four,
+tenant isolation rests on `lib/tenant-scope.ts` alone. Turning RLS on is a
+separate workstream (W0b); in this order:
+
+1. **Two database roles.** A migrate role that owns the schema and runs
+   `prisma migrate deploy`, and an application role that is neither
+   superuser nor `BYPASSRLS`, with `SELECT, INSERT, UPDATE, DELETE` on the
+   tables and `USAGE` on the sequences. FORCE binds an owner too, so the app
+   role may own the tables, but must not be a superuser.
+2. **Handle `P2002` without `meta.target`.** Under RLS, Postgres withholds the
+   key of a unique violation on a covered table and Prisma reports
+   "Unique constraint failed on the (not available)". Each site that reads
+   the target must find the collided key another way (as
+   `app/api/clients/route.ts` now does) or stop depending on it:
+   `app/api/webhooks/whatsapp/route.ts`,
+   `app/api/webhooks/whatsapp-cloud/route.ts`,
+   `app/api/insurance/policies/route.ts`, `lib/insurance/quote/create.ts`,
+   `lib/insurance/policy/bind.ts`, `lib/asset-finance/asset-input.ts`,
+   `lib/inbox/resolve-thread.ts`. Error-message parsing of 23505 `DETAIL`
+   (asset serial/VIN, supplier bank account) has the same problem.
+3. **Scripts on a plain `PrismaClient`** run with no frame, so strict mode
+   shows them nothing: `prisma/seed.ts`, `prisma/seed-staging.ts`,
+   `scripts/lender/bootstrap-tenant-cli.ts`,
+   `scripts/lender/bootstrap-admin-cli.ts`,
+   `scripts/bureau-submission-seed-local.ts` and `scripts/demo/*` (the
+   simulator's operator and read-only clients). Give each a bypass
+   (`SET app.rls_bypass = 'on'` on its session) or a tenant frame.
+4. **Frames on every entry point.** Most Server Component pages, some API
+   routes and crons pass `where.tenantId` by hand with no
+   `runWithTenant` frame; webhook handlers read before they know the tenant
+   (the Stitch and WhatsApp webhooks look the payment or phone number up
+   first). Each needs a frame, or an explicit `withoutTenantScope` for a
+   cross-tenant lookup by an unguessable key.
+5. **Frames inside an open transaction.** With the hook on, an interactive
+   transaction is bound to one tenant, once: the tenant whose frame opened
+   it, or, for one opened with no frame, the first tenant frame entered
+   inside it. A query from another tenant's frame on it is refused
+   (`RlsTransactionTenantError`, the transaction rolls back), never
+   re-pointed: concurrent queries of two frames on one connection would read
+   under each other's setting. The binding is not reverted when the inner
+   frame exits; it only narrows. A transaction opened in `withoutTenantScope`
+   stays in the system context. Batch transactions take the frame they were
+   opened in. Before activation, find code that enters another tenant's frame
+   inside a transaction and restructure it.
+6. **Data migrations** run as the migrate role with no frame. With strict
+   mode on (`ALTER DATABASE … SET app.rls_strict = 'on'`) a migration that
+   reads or updates rows must `SET LOCAL app.rls_bypass = 'on'` first.
+7. **Policies required before activation:** `TenantConfig` (credentials and
+   lender identity), `User` (with a bypass for sign-in, which looks the user
+   up before any tenant is known; `tenantId` is nullable for operator staff),
+   `IntegrationConfig`, `EmailConfig` (mail credentials) and `AuditLog`
+   (nullable tenant: decide who sees platform rows). The other tables the RLS
+   migration's header lists follow.
+8. **Batch transactions built across frames.** `$transaction([...])` takes
+   the frame it is *called* in, not the frames its promises were created in.
+   A batch called outside any frame from promises built inside tenant frames
+   runs with no tenant setting, so its raw operations see every tenant
+   (permissive) or nothing (strict). Before activation, either refuse a
+   frame-less batch that contains a raw operation, or find and fix every
+   such call site.
+9. Run every integration suite as the application role (not a superuser),
+   then set `TENANT_RLS=on` in the app, then strict mode.
+
 ## Migrations
 
 `prisma/migrations/20261009000000_baseline` is the starting point: one
 migration that creates the whole schema. Its first part is what Prisma
-generates from `schema.prisma`; its second, hand-written part holds every
+generates from the schema (`prisma/schema/`); its second, hand-written part holds every
 trigger, function, CHECK constraint, partial or expression index, special
 default and the statutory reference data (public holidays). The baseline was
 produced by squashing an older migration history and proven equivalent by
@@ -116,9 +259,9 @@ writes no tenant data.
 
 Adding a migration:
 
-- **Schema-only change** — edit `schema.prisma`, run
+- **Schema-only change** — edit the domain's file in `prisma/schema/`, run
   `npx prisma migrate dev --name <change>`, commit the generated SQL.
-  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <url>`
+  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema --shadow-database-url <url>`
   must then be empty.
 - **Changing a hand-written object** — Prisma never diffs these, so write the
   SQL yourself (`CREATE OR REPLACE FUNCTION`, `DROP TRIGGER … ; CREATE
@@ -134,6 +277,56 @@ Adding a migration:
 
 `prisma/migrations/20261009120000_neutral_tenant_palette` is an example of the
 smallest kind: it only changes column defaults.
+
+## Registries
+
+A handful of lists change in nearly every feature PR. Each is assembled from
+small entry files so two PRs that add entries touch different files and never
+conflict, in git or in GitHub's mergeability check (which ignores local merge
+drivers).
+
+`scripts/gen-registries.ts` reads every `lib/registry/<kind>/*.ts` in path
+order, refuses a duplicate (naming both files) or a malformed entry, and writes
+`lib/registry/generated/<kind>.ts`. The generated files are **not committed**:
+they are rebuilt by `npm ci` (postinstall), before `npm run dev`, `build`,
+`test` and `typecheck`, by vitest's global setup (so `npx vitest run` sees a
+new entry), by `scripts/ci-local.sh` and by the CI workflow; the Docker build
+gets them through `npm run build`. After adding an entry while `next dev`
+runs, restart it or run `npm run gen:registries`.
+
+The modules the app imports re-export the merged values under their old names,
+so no call site changed. `lib/registry/registries.test.ts` compares every value,
+in order, with `lib/registry/__snapshots__/`, taken from the lists before they
+were split; a merged PR that adds an entry adds it to the snapshot too.
+
+Add an entry by creating a file named after your feature in the kind's folder
+(existing files carry a numeric prefix so the merged order matched the old
+lists; a new name sorts after them). Edit an existing domain file only to
+change that domain's entries.
+
+| Kind | Folder | Entry | Read through |
+|---|---|---|---|
+| Audit actions | `lib/registry/audit-actions/` | `defineAuditActions({ X_DONE: "X_DONE" })` — value equals name | `AuditAction` (`lib/audit.ts`) |
+| Tenant-scoped models | `lib/registry/tenant-scoped-models/` | `defineTenantScopedModels(["Model"] as const)` — model needs a non-null `tenantId`, and RLS coverage (`lib/tenant-isolation.integration.test.ts`) | `TENANT_SCOPED_MODELS` (`lib/tenant-scope.ts`) |
+| Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
+| Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
+| Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — one minimum role, a Prisma `UserRole` | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
+| Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |
+
+### The Prisma schema
+
+`prisma/schema/` holds one `.prisma` file per domain (`prismaSchemaFolder`;
+`package.json` `prisma.schema`); migrations stay in `prisma/migrations`. Put a
+new model in its domain's file, or a new file for a new domain. Tests that
+read the schema text use `readPrismaSchema()` (`prisma/schema-source.ts`).
+
+The unavoidable shared lines are back-relations on Tenant, Client, Loan, User
+and the like. In every model they form one alphabetical block, one field per
+line (`prisma/schema-order.test.ts` fails with the expected order otherwise),
+so two PRs adding different back-relations insert at different lines. Two that
+sort next to each other still conflict, and `prisma format` re-aligns a whole
+block when a new field name is longer than any in it; both are rare and
+resolve trivially.
 
 ## Seeds
 

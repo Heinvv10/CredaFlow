@@ -24,8 +24,10 @@ vi.mock("@/components/portal/StitchPaymentForm", () => ({
   StitchPaymentForm: (props: unknown) => { formProps(props); return null },
 }))
 vi.mock("@/components/portal/ManualPaymentForm", () => ({ ManualPaymentForm: () => null }))
+vi.mock("@/lib/loan/settlement", () => ({ currentSettlementAmount: () => 123_456 }))
 
 import PaymentPage from "./page"
+import { formatZAR } from "@/lib/utils"
 
 describe("portal Make Payment", () => {
   it("offers the loans a client can still pay, a loan in default included", async () => {
@@ -33,6 +35,21 @@ describe("portal Make Payment", () => {
     renderToStaticMarkup(await PaymentPage())
     expect(loanFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ status: { in: ["ACTIVE", "DEFAULTED"] } }),
+    }))
+  })
+
+  it("labels a lease's figure rentals outstanding and a loan's settlement (main's English)", async () => {
+    const loan = (id: string, reference: string, contractType: string) =>
+      ({ id, reference, contractType, interestModel: "AMORTISED", outstandingPrincipal: 100_000, repaymentSchedule: [] })
+    loanFindMany.mockResolvedValue([loan("a", "LS-1", "OPERATING_LEASE"), loan("b", "LN-2", "TERM_LOAN")])
+    // The per-loan references sit in the bank transfer panel.
+    for (const [k, v] of Object.entries({ STITCH_BENEFICIARY_NAME: "Acme", STITCH_BANK_NAME: "Test Bank", STITCH_ACCOUNT_NUMBER: "1", STITCH_BRANCH_CODE: "2", STITCH_ACCOUNT_TYPE: "Current" })) vi.stubEnv(k, v)
+    const html = renderToStaticMarkup(await PaymentPage()).replace(/<!-- -->/g, "")
+    vi.unstubAllEnvs()
+    expect(html).toContain(`>${formatZAR(123_456)} rentals outstanding</span>`)
+    expect(html).toContain(`>${formatZAR(123_456)} settlement</span>`)
+    expect(formProps).toHaveBeenLastCalledWith(expect.objectContaining({
+      loans: [expect.objectContaining({ id: "a", lease: true }), expect.objectContaining({ id: "b", lease: false })],
     }))
   })
 
