@@ -26,7 +26,11 @@ async function hold(lock: string): Promise<void> {
   // One process: bash takes the lock on fd 9, then becomes sleep, so kill() releases it.
   const child = spawn('bash', ['-c', 'exec 9>>"$1"; flock 9; echo held; exec sleep 30', 'holder', lock])
   holder = child
-  await new Promise<void>((resolve) => child.stdout?.once('data', () => resolve()))
+  await new Promise<void>((resolve, reject) => {
+    child.stdout?.once('data', () => resolve())
+    child.once('error', reject)
+    child.once('exit', (code) => reject(new Error(`lock holder exited ${code}`)))
+  })
 }
 
 const logged = (): string => (existsSync(calls) ? readFileSync(calls, 'utf8') : '')
@@ -62,7 +66,24 @@ describe('bake.sh sim stack lock', () => {
     const r = bake('acme-data', { DEMO_SIM_LOCK: lock })
     expect(r.status).toBe(1)
     expect(r.out).toMatch(/in use by another bake \(lock .*elsewhere\.lock\)/)
+    expect(logged()).toBe('')
   })
+
+  it('waits DEMO_SIM_LOCK_WAIT seconds for the lock, as a cron bake does', async () => {
+    await hold(join(root, '.credaflow-demo-sim.lock'))
+    setTimeout(() => holder?.kill(), 1000)
+    const r = await new Promise<{ status: number | null; out: string }>((resolve) => {
+      const child = spawn('bash', [SCRIPT, '--image', 'credaflow:test'], {
+        env: { PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: root, DEMO_DATA_DIR: join(root, 'acme-data'), DEMO_SIM_LOCK_WAIT: '20' },
+      })
+      let out = ''
+      child.stdout?.on('data', (d) => { out += d })
+      child.stderr?.on('data', (d) => { out += d })
+      child.once('close', (status) => resolve({ status, out }))
+    })
+    expect(r.out).not.toMatch(/in use by another bake/)
+    expect(r.out).toMatch(/demo:typecheck failed/)
+  }, 15_000)
 
   it('goes past the lock when nobody holds it', () => {
     const r = bake('acme-data')
