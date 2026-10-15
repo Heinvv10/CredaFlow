@@ -6,8 +6,8 @@
  * (lib/payouts/conflicts.ts). Each is a PayoutUnappliedReport row, written
  * with its audit row, and stays on the outstanding-payouts queue — however
  * old — until a LOAN_ADMIN acknowledges it, once, with a note (audited; the
- * database guards both). Not the disburser, the attempt's creator or
- * approver, or whoever resolved its conflict (maker-checker, DB too).
+ * database guards both). Not anyone who acted on that attempt (actedOnPayout;
+ * the guard computes the same list from the rows).
  * Acknowledging clears the list entry only: a conflict on the attempt still
  * blocks retry, reversal and send until it is resolved (lib/payouts/
  * conflicts.ts). Exact duplicates are not kept: they repeat an event already
@@ -62,26 +62,47 @@ export async function loadUnappliedReports(db: Pick<typeof prisma, "payoutUnappl
   }
 }
 
-export async function acknowledgeUnappliedReport(db: Pick<typeof prisma, "payoutUnappliedReport" | "auditLog" | "$transaction">, args: {
+/**
+ * Everyone who acted on a payout attempt, from the rows (guardPayoutUnappliedReport
+ * computes the same list): the disburser, its creator and requester, its
+ * approver, whoever confirmed it paid, failed or returned, every resolver of
+ * a conflict on it (earlier ones from the audit trail: a reopen clears the
+ * column), and the recovery case's opener and escalator.
+ */
+export async function actedOnPayout(db: Pick<typeof prisma, "disbursementPayout" | "auditLog">, tenantId: string, payoutId: string): Promise<Set<string>> {
+  const [p, resolvers] = await Promise.all([
+    db.disbursementPayout.findFirst({
+      where: { id: payoutId, tenantId },
+      select: {
+        disbursedById: true, createdById: true, requestedById: true, approvedById: true, resolvedById: true, returnedById: true,
+        conflictResolvedById: true, recoveryCase: { select: { openedById: true, escalatedById: true } },
+      },
+    }),
+    db.auditLog.findMany({ where: { entity: "DisbursementPayout", entityId: payoutId, action: AuditAction.PAYOUT_PROVIDER_CONFLICT_RESOLVED }, select: { userId: true } }),
+  ])
+  const ids = [
+    p?.disbursedById, p?.createdById, p?.requestedById, p?.approvedById, p?.resolvedById, p?.returnedById, p?.conflictResolvedById,
+    p?.recoveryCase?.openedById, p?.recoveryCase?.escalatedById, ...resolvers.map((r) => r.userId),
+  ]
+  return new Set(ids.filter((id): id is string => Boolean(id)))
+}
+
+export async function acknowledgeUnappliedReport(db: Pick<typeof prisma, "payoutUnappliedReport" | "disbursementPayout" | "auditLog" | "$transaction">, args: {
   tenantId: string
   id: string
   note: string
   actor: Actor & { id: string }
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const entry = await db.payoutUnappliedReport.findFirst({
-    where: { id: args.id, tenantId: args.tenantId },
-    include: { payout: { select: { disbursedById: true, createdById: true, approvedById: true, conflictResolvedById: true } } },
-  })
+  const entry = await db.payoutUnappliedReport.findFirst({ where: { id: args.id, tenantId: args.tenantId } })
   if (!entry) return { ok: false, status: 404, error: "Report not found" }
   if (entry.acknowledgedAt) return { ok: false, status: 409, error: "This report is already acknowledged" }
-  const p = entry.payout
-  if ([p.disbursedById, p.createdById, p.approvedById, p.conflictResolvedById].includes(args.actor.id)) {
+  if ((await actedOnPayout(db, args.tenantId, entry.payoutId)).has(args.actor.id)) {
     await logAuditStrict({
       tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
       action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "PayoutUnappliedReport", entityId: entry.id,
       newValue: { action: "acknowledge_report", reason: "maker_checker", payoutId: entry.payoutId },
     }, db)
-    return { ok: false, status: 403, error: "Another LOAN_ADMIN must acknowledge this: you disbursed the loan, requested or approved this attempt, or resolved its conflict" }
+    return { ok: false, status: 403, error: "Another LOAN_ADMIN must acknowledge this: you acted on this payout (disbursed, requested, approved, confirmed, resolved or recovered it)" }
   }
   try {
     return await db.$transaction(async (tx) => {

@@ -10,8 +10,8 @@ import { avsSubjectFingerprint } from "@/lib/compliance/avs-subject"
 import { createChargesLoan, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createDisbursementPayout } from "./disbursement"
 
-/** `end` RETURNED: the payout was paid, then the bank returned it (no AVS check added). */
-export async function failedPayoutLoan(db: PrismaClient, tenant: ChargesTenant, disburser: { id: string; email: string }, end: "FAILED" | "RETURNED" = "FAILED") {
+/** `end` PAID / RETURNED: the payout was paid (then returned by the bank); no AVS check added. */
+export async function failedPayoutLoan(db: PrismaClient, tenant: ChargesTenant, disburser: { id: string; email: string }, end: "FAILED" | "PAID" | "RETURNED" = "FAILED") {
   const ids = await createChargesLoan(db, tenant)
   const loan = await db.loan.findUniqueOrThrow({ where: { id: ids.loanId }, select: { applicationId: true, reference: true, clientId: true } })
   const client = await db.client.update({ where: { id: loan.clientId! }, data: { bankName: "FNB", bankBranchCode: "250655", bankAccountNumber: "62000001111", accountType: "SAVINGS" } })
@@ -21,9 +21,9 @@ export async function failedPayoutLoan(db: PrismaClient, tenant: ChargesTenant, 
     user: disburser, avs: { avsCheckId: "it", simulated: true },
   }))
   await db.disbursementPayout.update({ where: { id }, data: { status: "SUBMITTING", submittedAt: new Date(), providerReference: `sim-disburse:${loan.applicationId}-1111` } })
-  if (end === "RETURNED") {
+  if (end !== "FAILED") {
     await db.disbursementPayout.update({ where: { id }, data: { status: "PAID", paidAt: new Date() } })
-    await db.disbursementPayout.update({ where: { id }, data: { status: "RETURNED", returnedAt: new Date() } })
+    if (end === "RETURNED") await db.disbursementPayout.update({ where: { id }, data: { status: "RETURNED", returnedAt: new Date() } })
     return { loanId: ids.loanId, applicationId: loan.applicationId, payoutId: id, reference: loan.reference }
   }
   await db.disbursementPayout.update({ where: { id }, data: { status: "FAILED", failureReason: "account closed" } })

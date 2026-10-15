@@ -2,10 +2,14 @@
 --  (1) every provider report not applied (stale, dropped, refused) is kept in
 --      PayoutUnappliedReport and stays on the outstanding-payouts queue until
 --      a person acknowledges it, once, with a note (lib/payouts/
---      unapplied-reports.ts) — not the disburser, the attempt's creator or
---      approver, or whoever resolved its conflict. Acknowledging clears the
---      entry only; a conflict still blocks until it is resolved. Never
---      changed otherwise, never deleted.
+--      unapplied-reports.ts) — not anyone who acted on that payout attempt:
+--      the disburser, its creator and requester, its approver, whoever
+--      confirmed it paid, failed or returned, every resolver of a conflict on
+--      it (the audit trail keeps earlier ones a reopen cleared), and the
+--      recovery case's opener and escalator. Computed here from the rows,
+--      the same list as unapplied-reports.ts. Acknowledging clears the entry
+--      only; a conflict still blocks until it is resolved. Never changed
+--      otherwise, never deleted.
 --  (2) a reopen never lowers the stored conflict state
 --      (guardDisbursementPayout = the 20261015260000 version plus that rule),
 --      and the conflict fields stay consistent
@@ -76,7 +80,13 @@ BEGIN
       MESSAGE = 'Payout guard: a report not applied is acknowledged by a named person, with a note';
   END IF;
   SELECT * INTO made FROM "DisbursementPayout" WHERE "id" = NEW."payoutId";
-  IF NEW."acknowledgedById" IN (made."disbursedById", made."createdById", coalesce(made."approvedById", ''), coalesce(made."conflictResolvedById", '')) THEN
+  IF NEW."acknowledgedById" IN (made."disbursedById", made."createdById", coalesce(made."requestedById", ''), coalesce(made."approvedById", ''),
+      coalesce(made."resolvedById", ''), coalesce(made."returnedById", ''), coalesce(made."conflictResolvedById", ''))
+    OR EXISTS (SELECT 1 FROM "PayoutRecoveryCase" rc WHERE rc."payoutId" = NEW."payoutId"
+      AND NEW."acknowledgedById" IN (rc."openedById", coalesce(rc."escalatedById", '')))
+    OR EXISTS (SELECT 1 FROM "AuditLog" a WHERE a."entity" = 'DisbursementPayout' AND a."entityId" = NEW."payoutId"
+      AND a."action" = 'PAYOUT_PROVIDER_CONFLICT_RESOLVED' AND a."userId" = NEW."acknowledgedById")
+  THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'Payout guard: a report not applied is acknowledged by someone who neither made, approved or resolved this payout';
   END IF;
