@@ -4,6 +4,11 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
+import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { SIMULATED_PROVIDER_ID } from "@/lib/integrations/collections/simulated"
+import { providerSwitchBlockers } from "@/lib/collections-engine/provider-switch"
+import { auditRefusal } from "@/lib/audit-refusals"
+import { AuditAction } from "@/lib/audit"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import {
   isEnvCredentialsTenant,
@@ -15,7 +20,7 @@ import {
 } from "@/lib/integrations/tenant-credentials"
 
 // Registry keys from lib/integrations/collections/registry.ts, plus null (= off).
-const VALID_COLLECTION_PROVIDERS = [null, "netcash"]
+const VALID_COLLECTION_PROVIDERS = [null, "netcash", SIMULATED_PROVIDER_ID]
 
 // The lender's Stitch collection account: not secret, stored as typed.
 const STITCH_BENEFICIARY_FIELDS = ["stitchBeneficiaryName", "stitchBankId", "stitchAccountNumber", "stitchBranchCode"] as const
@@ -111,6 +116,40 @@ export async function PATCH(req: NextRequest) {
       }
       if (!VALID_COLLECTION_PROVIDERS.includes(body.avsProvider ?? null)) {
         return NextResponse.json({ error: "Unknown AVS provider" }, { status: 400 })
+      }
+      // Choosing the simulator where it would refuse every call is a
+      // misconfiguration: say so now, not at the first collection run.
+      if (
+        (body.collectionProvider === SIMULATED_PROVIDER_ID || body.avsProvider === SIMULATED_PROVIDER_ID)
+        && !isSimulationPermitted("simulated-collections")
+      ) {
+        return NextResponse.json(
+          { error: "The simulated provider is not permitted on this deployment (SIMULATED_INTEGRATIONS)" },
+          { status: 422 },
+        )
+      }
+
+      // Live mandates and in-flight debits are worked against the current
+      // provider: switching away would strand them (provider-switch.ts).
+      if ("collectionProvider" in body) {
+        const requested = body.collectionProvider ?? null
+        const blocked = await providerSwitchBlockers(tenant.id, requested)
+        if (blocked) {
+          await auditRefusal({
+            action: AuditAction.COLLECTION_PROVIDER_CHANGE_REFUSED,
+            entity: "TenantConfig",
+            entityId: tenant.id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: "live_collections_on_current_provider",
+            status: 409,
+            detail: { current: blocked.current, requested, mandates: blocked.mandates, instructions: blocked.instructions },
+          })
+          return NextResponse.json({
+            error: `The collection provider cannot change while ${blocked.current} still holds ${blocked.mandates} live mandate(s) and ${blocked.instructions} open debit(s). Cancel or finish them first.`,
+          }, { status: 409 })
+        }
       }
 
       if ("collectionsEngineEnabled" in body) {

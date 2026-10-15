@@ -44,6 +44,8 @@ export const CRON_FRESHNESS_MINUTES: Record<string, number> = {
   "webhook-deliveries": 10,
   "lender-api-retention": DAY + 2 * HOUR,
   "sweep-stuck-selfies": 15,
+  "collections-results": DAY + 2 * HOUR,
+  "collections-submit": DAY + 2 * HOUR,
 }
 
 export interface CronJobFreshness {
