@@ -6,10 +6,12 @@ import type { BankCode } from "./types"
  * text layer wins, so the more specific names come first: "African Bank" text
  * must not be read as ABSA, which only matches as a word.
  *
- * Markers are looked for in the statement's header, the text before its first
- * transaction row, because a payee can name another bank. Only when the header
- * names no bank (ABSA prints its domain in the footer) are they looked for
- * anywhere in the text.
+ * Banks the statement's header (the text before its first transaction row)
+ * names come first, because a payee can name another bank; every other bank
+ * the text names follows, since some banks (ABSA, Discovery, Capitec) print
+ * their marker only in the footer and a header line (a holder's "c/o" address)
+ * can name the wrong one. For a footer-only bank a payee's bank can still be
+ * tried first: the pipeline keeps the reader that reads.
  */
 const MARKERS: Array<[BankCode, RegExp]> = [
   ["CAPITEC", /capitecbank\.co\.za|Capitec Bank Limited/i],
@@ -39,13 +41,12 @@ export function detectBank(text: string): BankCode | null {
 }
 
 /**
- * Every bank whose marker the header carries, in marker order; when the header
- * names none, every bank the text carries. A statement can still name another
- * bank in a transaction ("DISCOVERY BANK" as a payee), so the pipeline tries
- * each one's text reader and keeps the one that reads.
+ * Every bank whose marker the text carries: the header's first, then the rest,
+ * each group in marker order. The pipeline tries each one's text reader and
+ * keeps the one that reads.
  */
 export function detectBanks(text: string): BankCode[] {
   const marked = (t: string) => MARKERS.filter(([, marker]) => marker.test(t)).map(([bank]) => bank)
   const inHeader = marked(header(text))
-  return inHeader.length > 0 ? inHeader : marked(text)
+  return [...inHeader, ...marked(text).filter((b) => !inHeader.includes(b))]
 }
