@@ -47,6 +47,8 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
           (typeof where.domain === "string" ? r.domain === where.domain : true) &&
           (where.domain && typeof where.domain === "object" ? typeof r.domain === "string" && r.domain.startsWith(where.domain.startsWith) : true),
         ) ?? null,
+      findMany: async ({ where }: { where: { domain: { startsWith: string } } }) =>
+        tables.tenants.filter((r) => typeof r.domain === "string" && r.domain.startsWith(where.domain.startsWith)),
       create: async ({ data }: { data: Row }) => {
         const { config, ...rest } = data
         const row = { id: nextId(), ...rest }

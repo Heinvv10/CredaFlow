@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // A lender's custom domain (Tenant.domain) resolves its host BEFORE the edge's
 // tenant slug (lib/tenant.ts), so a domain that names a host the deployment
 // already serves would take that host over. B1, PR #91.
-const h = vi.hoisted(() => ({ findFirst: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findFirst: h.findFirst } } }))
+const h = vi.hoisted(() => ({ findFirst: vi.fn(), findMany: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findFirst: h.findFirst, findMany: h.findMany } } }))
 
 import { readFileSync } from "node:fs"
 import path from "node:path"
@@ -12,6 +12,7 @@ import { isReservedDeploymentHost, normaliseTenantDomain, tenantDomainRefusal, t
 
 beforeEach(() => {
   h.findFirst.mockReset().mockResolvedValue(null)
+  h.findMany.mockReset().mockResolvedValue([])
   vi.stubEnv("OPERATOR_APP_HOST", "console.platform.example")
   vi.stubEnv("STAFF_APP_HOST", "app.platform.example")
   vi.stubEnv("TENANT_HOST_MAP", "staff.acme.example=acme,portal.acme.example=acme")
@@ -126,13 +127,19 @@ describe("reserved hosts cover every host variable the proxy reads", () => {
 
 describe("tenantSlugRefusal — a new lender's subdomain host must not be another lender's domain", () => {
   it("refuses a slug that is the first label of an existing lender's 3+-label domain", async () => {
-    h.findFirst.mockResolvedValue({ slug: "acme", domain: "beta.lenders.example" })
+    h.findMany.mockResolvedValue([{ slug: "acme", domain: "beta.lenders.example" }])
     expect(await tenantSlugRefusal("beta")).toMatch(/beta\.lenders\.example/)
-    expect(h.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { domain: { startsWith: "beta." } } }))
+    expect(h.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { domain: { startsWith: "beta." } } }))
   })
 
   it("accepts a slug when the matching domain is a bare 2-label domain (no subdomain fallback)", async () => {
-    h.findFirst.mockResolvedValue({ slug: "acme", domain: "beta.example" })
+    h.findMany.mockResolvedValue([{ slug: "acme", domain: "beta.example" }])
     expect(await tenantSlugRefusal("beta")).toBeNull()
+  })
+
+  // Coordinator, PR #91: a 2-label match listed first must not mask a 3-label one.
+  it("checks every matching domain: beta.com does not mask beta.lender.co.za", async () => {
+    h.findMany.mockResolvedValue([{ slug: "one", domain: "beta.com" }, { slug: "two", domain: "beta.lender.co.za" }])
+    expect(await tenantSlugRefusal("beta")).toMatch(/beta\.lender\.co\.za/)
   })
 })

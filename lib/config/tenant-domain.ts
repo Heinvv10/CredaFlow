@@ -16,6 +16,7 @@ import { normaliseHost, operatorAppHost, parseTenantHostMap, staffAppHost } from
 export type TenantHostLookup = {
   tenant: {
     findFirst(args: { where: Prisma.TenantWhereInput; select: { slug: true; domain: true } }): PromiseLike<{ slug: string; domain: string | null } | null>
+    findMany(args: { where: Prisma.TenantWhereInput; select: { slug: true; domain: true } }): PromiseLike<Array<{ slug: string; domain: string | null }>>
   }
 }
 
@@ -109,9 +110,8 @@ export async function tenantDomainRefusal(domain: string, tenantId: string | nul
  * domain would win and the new lender's host would serve the other lender.
  */
 export async function tenantSlugRefusal(slug: string, db: TenantHostLookup = prisma): Promise<string | null> {
-  const holder = await db.tenant.findFirst({ where: { domain: { startsWith: `${slug}.` } }, select: { slug: true, domain: true } })
-  if (holder?.domain && holder.domain.split(".").length >= 3) {
-    return `slug ${slug}: its subdomain host would be ${holder.domain}, lender "${holder.slug}"'s domain`
-  }
-  return null
+  // Every match: a 2-label one (beta.com) must not mask a 3-label one (beta.lender.co.za).
+  const matches = await db.tenant.findMany({ where: { domain: { startsWith: `${slug}.` } }, select: { slug: true, domain: true } })
+  const holder = matches.find((t) => t.domain && t.domain.split(".").length >= 3)
+  return holder ? `slug ${slug}: its subdomain host would be ${holder.domain}, lender "${holder.slug}"'s domain` : null
 }
