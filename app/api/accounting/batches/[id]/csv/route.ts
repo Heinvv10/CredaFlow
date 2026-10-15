@@ -34,7 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       })
     } catch (error) {
       if (error instanceof BatchIntegrityError) {
-        console.error("[accounting]", error.message)
+        console.error("Accounting batch failed its integrity check:", error.name)
         return NextResponse.json({ error: "This batch failed its integrity check and cannot be exported." }, { status: 500 })
       }
       throw error

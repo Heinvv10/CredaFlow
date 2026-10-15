@@ -93,6 +93,20 @@ describe("Xero manual journals", () => {
     expect(journal).toMatchObject({ Status: "DRAFT", Date: "2026-09-30", LineAmountTypes: "NoTax" })
   })
 
+  it("sends tax-inclusive when every account carries a tax code, and refuses a partly taxed journal", () => {
+    const base = { postingDate: "2026-09-10", reference: "LN-1", description: "d", eventKey: "e" }
+    const taxed = summariseForXero([
+      { ...base, lineNo: 1, accountCode: "1090", taxCode: "NONE", debitCents: 115, creditCents: 0 },
+      { ...base, lineNo: 2, accountCode: "4010", taxCode: "OUTPUT", debitCents: 0, creditCents: 115 },
+    ], "n", "2026-09-30")
+    expect(taxed.LineAmountTypes).toBe("Inclusive")
+    expect(taxed.JournalLines.map((l) => l.TaxType)).toEqual(["NONE", "OUTPUT"])
+    expect(() => summariseForXero([
+      { ...base, lineNo: 1, accountCode: "1090", taxCode: null, debitCents: 115, creditCents: 0 },
+      { ...base, lineNo: 2, accountCode: "4010", taxCode: "OUTPUT", debitCents: 0, creditCents: 115 },
+    ], "n", "2026-09-30")).toThrow(/every account in the mapping, or on none/)
+  })
+
   it("sends the organisation and an idempotency key, and returns the journal id", async () => {
     const fetch = vi.fn(async () => json(200, { ManualJournals: [{ ManualJournalID: "mj-1" }] }))
     const out = await createManualJournal({ accessToken: "at", xeroTenantId: "org-1", journal, idempotencyKey: "credaflow-b1-1" }, { fetch })

@@ -16,7 +16,7 @@ import { sealSecret, openSecret } from "@/lib/crypto/secret-box"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { closePeriod } from "../generate"
 import { completeXeroConnect, disconnectXero, startXeroConnect, xeroAccessToken } from "./connection"
-import { pushBatchToXero } from "./push"
+import { markStalePush, pushBatchToXero } from "./push"
 
 const suite = process.env.RUN_ACCOUNTING_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -43,6 +43,7 @@ suite.sequential("Xero push (real Postgres, stubbed fetch)", () => {
     const ids = await createChargesLoan(db, await createChargesTenant(db, false))
     tenantId = ids.tenantId
     actor.id = ids.userId
+    await db.accountingSettings.create({ data: { tenantId, goLiveMonth: "2026-08", mappingConfirmedAt: new Date() } })
     const out = await runWithTenant(tenantId, () => closePeriod(prisma, { tenantId, periodKey: "2026-08", userId: ids.userId, userEmail: actor.email, now: new Date("2026-11-01T00:00:00Z") }))
     batchId = out.batchId
   })
@@ -87,32 +88,62 @@ suite.sequential("Xero push (real Postgres, stubbed fetch)", () => {
     expect(openSecret(row.refreshTokenSealed!, KEY)).toBe("rt-1")
   })
 
-  it("pushes a closed month once; a second push is refused without calling Xero", async () => {
+  it("marks the connection NEEDS_RECONNECT when Xero refuses to refresh, and pushes nothing", async () => {
+    await connect(new Date("2020-01-01T00:00:00Z"))
+    const fetch = vi.fn(async () => json(400, { error: "invalid_grant" }))
+    await expect(xeroAccessToken(prisma, tenantId, { fetch })).rejects.toMatchObject({ kind: "auth" })
+    expect(await db.xeroConnection.findUniqueOrThrow({ where: { tenantId } })).toMatchObject({ status: "NEEDS_RECONNECT", accessTokenSealed: null })
+    const push = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId, actor }, { fetch }))
+    expect(push.ok).toBe(false)
+  })
+
+  it("refuses to push while the Bank role has its default code, or a month closed with it", async () => {
     await connect(new Date(Date.now() + 3_600_000))
+    const fetch = vi.fn()
+    const unmapped = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId, actor }, { fetch }))
+    expect(unmapped).toMatchObject({ ok: false, httpStatus: 422, error: expect.stringContaining("Map the Bank role") })
+    await db.accountingAccountMapping.create({ data: { tenantId, role: "BANK", accountCode: "1090", accountName: "Loan clearing" } })
+    const closedWithDefault = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId, actor }, { fetch }))
+    expect(closedWithDefault).toMatchObject({ ok: false, httpStatus: 422, error: expect.stringContaining("by hand") })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("pushes a closed month once, tax-free and balanced; a second push is refused without calling Xero", async () => {
+    await connect(new Date(Date.now() + 3_600_000))
+    await createChargesLoan(db, { tenantId, userId: actor.id, productId: (await db.loanProduct.findFirstOrThrow({ where: { tenantId } })).id })
+    const sep = await runWithTenant(tenantId, () => closePeriod(prisma, { tenantId, periodKey: "2026-09", userId: actor.id, userEmail: actor.email, now: new Date("2026-11-01T00:00:00Z") }))
     const fetch = vi.fn(async () => json(200, { ManualJournals: [{ ManualJournalID: "mj-1" }] }))
-    const first = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId, actor }, { fetch }))
+    const first = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId: sep.batchId, actor }, { fetch }))
     expect(first).toEqual({ ok: true, status: "PUSHED", manualJournalId: "mj-1" })
-    const second = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId, actor }, { fetch }))
+    const second = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId: sep.batchId, actor }, { fetch }))
     expect(second).toMatchObject({ ok: false, httpStatus: 409 })
     expect(fetch).toHaveBeenCalledTimes(1)
-    const body = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body))
-    expect(body.ManualJournals[0].JournalLines).toEqual([
-      { LineAmount: -2000, AccountCode: "1000", Description: expect.any(String) },
-      { LineAmount: 2000, AccountCode: "1100", Description: expect.any(String) },
+    const journal = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body)).ManualJournals[0]
+    expect(journal.LineAmountTypes).toBe("NoTax")
+    // The second loan's August disbursement lands late in September, on the mapped clearing account.
+    expect(journal.JournalLines.map((l: { AccountCode: string; LineAmount: number }) => [l.AccountCode, l.LineAmount])).toEqual([
+      ["1090", -2000], ["1100", 2338], ["4000", -200], ["4010", -138],
     ])
-    expect(await db.accountingXeroPush.findUniqueOrThrow({ where: { batchId } })).toMatchObject({ status: "PUSHED", xeroManualJournalId: "mj-1" })
-    await expect(db.accountingXeroPush.update({ where: { batchId }, data: { status: "SENDING" } })).rejects.toThrow(/PUSHED -> SENDING is not allowed/)
+    expect(await db.accountingXeroPush.findUniqueOrThrow({ where: { batchId: sep.batchId } })).toMatchObject({ status: "PUSHED", xeroManualJournalId: "mj-1" })
+    await expect(db.accountingXeroPush.update({ where: { batchId: sep.batchId }, data: { status: "SENDING" } })).rejects.toThrow(/PUSHED -> SENDING is not allowed/)
   })
 
   it("parks an unknown outcome for review and never re-sends it", async () => {
-    const ids = await createChargesLoan(db, { tenantId, userId: actor.id, productId: (await db.loanProduct.findFirstOrThrow({ where: { tenantId } })).id })
-    expect(ids.loanId).toBeTruthy()
-    const sep = await runWithTenant(tenantId, () => closePeriod(prisma, { tenantId, periodKey: "2026-09", userId: actor.id, userEmail: actor.email, now: new Date("2026-11-01T00:00:00Z") }))
+    await createChargesLoan(db, { tenantId, userId: actor.id, productId: (await db.loanProduct.findFirstOrThrow({ where: { tenantId } })).id })
+    const oct = await runWithTenant(tenantId, () => closePeriod(prisma, { tenantId, periodKey: "2026-10", userId: actor.id, userEmail: actor.email, now: new Date("2026-11-01T00:00:00Z") }))
     const fetch = vi.fn(async () => json(503, {}))
-    const out = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId: sep.batchId, actor }, { fetch }))
+    const out = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId: oct.batchId, actor }, { fetch }))
     expect(out).toMatchObject({ ok: false, status: "NEEDS_REVIEW" })
-    const again = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId: sep.batchId, actor }, { fetch }))
+    const again = await runWithTenant(tenantId, () => pushBatchToXero(prisma, { tenantId, batchId: oct.batchId, actor }, { fetch }))
     expect(again).toMatchObject({ ok: false, httpStatus: 409 })
     expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("moves a push stuck SENDING for 10 minutes to review instead of resending", async () => {
+    const nov = await runWithTenant(tenantId, () => closePeriod(prisma, { tenantId, periodKey: "2026-11", userId: actor.id, userEmail: actor.email, now: new Date("2026-12-02T00:00:00Z") }))
+    await db.accountingXeroPush.create({ data: { tenantId, batchId: nov.batchId, status: "SENDING", xeroTenantId: "org-1", pushedById: actor.id } })
+    expect(await markStalePush(prisma, { tenantId, batchId: nov.batchId, actor })).toBe(false)
+    expect(await markStalePush(prisma, { tenantId, batchId: nov.batchId, actor, now: new Date(Date.now() + 11 * 60_000) })).toBe(true)
+    expect(await db.accountingXeroPush.findUniqueOrThrow({ where: { batchId: nov.batchId } })).toMatchObject({ status: "NEEDS_REVIEW" })
   })
 })

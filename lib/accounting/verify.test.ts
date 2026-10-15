@@ -6,7 +6,7 @@ function entry(key: string, lines: Array<[number, number]>): DerivedEntry {
   return {
     eventKey: key, baseKey: key, eventType: "ADJUSTMENT", eventDate: new Date(0), postingDate: "2026-09-01", loanId: null,
     reference: "R", description: "d",
-    lines: lines.map(([debitCents, creditCents], i) => ({ role: i === 0 ? "BANK" : "LOAN_BOOK", accountCode: String(i), taxCode: null, debitCents, creditCents })),
+    lines: lines.map(([debitCents, creditCents], i) => ({ role: i === 0 ? "BANK" : "LOAN_BOOK", sourceRole: null, accountCode: String(i), taxCode: null, debitCents, creditCents })),
   }
 }
 

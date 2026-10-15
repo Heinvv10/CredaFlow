@@ -21,6 +21,8 @@ export interface StoredLine {
   reference: string
   description: string
   eventKey: string
+  /** The journal role; not part of the digest or the CSV. */
+  role?: string
 }
 
 export type CsvFormat = "generic" | "sage"

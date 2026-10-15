@@ -122,7 +122,7 @@ export async function disconnectXero(db: XeroDb, args: { tenantId: string }, htt
       const revoked = await revokeRefreshToken(config, open(row.refreshTokenSealed), http)
       remoteCleanup = removed && revoked
     } catch (error) {
-      console.error("[xero] remote disconnect failed:", error instanceof Error ? error.message : "unknown")
+      console.error("Xero remote disconnect failed:", error instanceof Error ? error.name : "unknown")
     }
   }
   await db.xeroConnection.update({
@@ -147,10 +147,24 @@ export async function xeroAccessToken(db: XeroDb, tenantId: string, http: XeroHt
     if (row.accessTokenExpiresAt && row.accessTokenExpiresAt.getTime() - REFRESH_MARGIN_MS > now.getTime()) {
       return { accessToken: open(row.accessTokenSealed), xeroTenantId: row.xeroTenantId }
     }
-    const tokens = await refreshTokens(requireXeroConfig(), open(row.refreshTokenSealed), http, now)
-    await tx.xeroConnection.update({ where: { id: row.id }, data: tokenColumns(tokens) })
-    return { accessToken: tokens.accessToken, xeroTenantId: row.xeroTenantId }
-  }, { timeout: 30_000 })
+    try {
+      const tokens = await refreshTokens(requireXeroConfig(), open(row.refreshTokenSealed), http, now)
+      await tx.xeroConnection.update({ where: { id: row.id }, data: tokenColumns(tokens) })
+      return { accessToken: tokens.accessToken, xeroTenantId: row.xeroTenantId }
+    } catch (error) {
+      // Refused (revoked, expired after 60 idle days, rotated elsewhere): the
+      // connection needs an admin to connect again. The status change commits;
+      // the caller still gets the error.
+      if (error instanceof XeroError && error.kind === "auth") {
+        await tx.xeroConnection.update({ where: { id: row.id }, data: { status: "NEEDS_RECONNECT", accessTokenSealed: null, accessTokenExpiresAt: null } })
+        return error
+      }
+      throw error
+    }
+  }, { timeout: 30_000 }).then((out) => {
+    if (out instanceof XeroError) throw out
+    return out
+  })
 }
 
 /** What Settings may show: never a token. */

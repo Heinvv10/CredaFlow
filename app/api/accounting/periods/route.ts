@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AccountingPeriodError, closePeriod } from "@/lib/accounting/generate"
 import { readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
 import { UnbalancedJournalError } from "@/lib/accounting/verify"
+import { AuditAction, logAudit } from "@/lib/audit"
 
 // Accounting export history (GET, LOAN_ADMIN) and closing a month (POST,
 // ADMIN; TOTP when the lender requires it). Closing is idempotent: a month
@@ -42,10 +43,15 @@ export async function POST(req: NextRequest) {
       const out = await closePeriod(prisma, { tenantId: tenant.id, periodKey: String(period ?? ""), userId: guard.user.id, userEmail: guard.user.email })
       return NextResponse.json(out, { status: out.created ? 201 : 200 })
     } catch (error) {
-      if (error instanceof AccountingPeriodError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 })
-      if (error instanceof UnbalancedJournalError) {
-        console.error("[accounting] refused an unbalanced batch:", error.message)
-        return NextResponse.json({ error: `Refused: the journals do not balance (${error.message}). Nothing was exported.` }, { status: 500 })
+      if (error instanceof AccountingPeriodError || error instanceof UnbalancedJournalError) {
+        const code = error instanceof AccountingPeriodError ? error.code : "UNBALANCED"
+        // A refused close is evidence too (a reconciliation failure, an unbalanced batch).
+        await logAudit({
+          tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email,
+          action: AuditAction.ACCOUNTING_CLOSE_REFUSED, entity: "AccountingExportBatch", entityId: String(period ?? ""),
+          newValue: { periodKey: String(period ?? ""), code, reason: error.message.slice(0, 500) },
+        })
+        return NextResponse.json({ error: error.message, code }, { status: code === "UNBALANCED" ? 500 : 422 })
       }
       throw error
     }

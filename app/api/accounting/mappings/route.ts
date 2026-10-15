@@ -9,7 +9,8 @@ import { loadAccountMap } from "@/lib/accounting/store"
 
 // The tenant's chart-of-accounts mapping. GET: LOAN_ADMIN. PUT: ADMIN, TOTP
 // when required, audited. A change applies to months closed after it; closed
-// months keep the codes they were exported with.
+// months keep the codes they were exported with. Any change withdraws the
+// lender's confirmation of the mapping: no month closes until it is confirmed again.
 
 async function view(tenantId: string) {
   const map = await loadAccountMap(prisma, tenantId)
@@ -33,18 +34,19 @@ export async function PUT(req: NextRequest) {
     const parsed = parseMappingInput(read.body)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
     await prisma.$transaction(async (tx) => {
-      const before = await tx.accountingAccountMapping.findMany({ where: { tenantId: tenant.id }, select: { role: true, accountCode: true, taxCode: true } })
+      const before = await tx.accountingAccountMapping.findMany({ where: { tenantId: tenant.id }, select: { role: true, accountCode: true, taxCode: true, vatInclusive: true } })
       for (const row of parsed.rows) {
         await tx.accountingAccountMapping.upsert({
           where: { tenantId_role: { tenantId: tenant.id, role: row.role } },
           create: { tenantId: tenant.id, ...row, updatedById: guard.user.id },
-          update: { accountCode: row.accountCode, accountName: row.accountName, taxCode: row.taxCode, updatedById: guard.user.id },
+          update: { accountCode: row.accountCode, accountName: row.accountName, taxCode: row.taxCode, vatInclusive: row.vatInclusive, updatedById: guard.user.id },
         })
       }
+      await tx.accountingSettings.updateMany({ where: { tenantId: tenant.id }, data: { mappingConfirmedAt: null, mappingConfirmedById: null } })
       await logAuditStrict({
         tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email,
         action: AuditAction.ACCOUNTING_MAPPING_UPDATED, entity: "AccountingAccountMapping", entityId: tenant.id,
-        oldValue: { mappings: before }, newValue: { mappings: parsed.rows.map(({ role, accountCode, taxCode }) => ({ role, accountCode, taxCode })) },
+        oldValue: { mappings: before }, newValue: { mappings: parsed.rows.map(({ role, accountCode, taxCode, vatInclusive }) => ({ role, accountCode, taxCode, vatInclusive })), confirmationWithdrawn: true },
       }, tx)
     })
     return NextResponse.json({ mappings: await view(tenant.id) })

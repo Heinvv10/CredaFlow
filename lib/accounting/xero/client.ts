@@ -12,8 +12,11 @@
  *
  * UNPROVEN: no Xero developer app exists yet, so none of this has met the real
  * API. Every test stubs fetch. Scopes default to the long-standing
- * `accounting.transactions accounting.settings.read offline_access`; Xero is
- * moving new apps to granular scopes, so XERO_SCOPES overrides the default.
+ * `accounting.transactions accounting.settings.read offline_access`. Xero is
+ * moving new apps to granular scopes; a manual-journals-only scope (likely
+ * `accounting.manualjournals`) would be narrower, but its exact name could not
+ * be verified here, so XERO_SCOPES overrides the default once the developer
+ * app shows which scopes it is offered.
  *
  * Errors say whether the request could have taken effect: a 4xx answer and an
  * exhausted 429 are DEFINITE (nothing created); a network failure or a 5xx is
@@ -164,7 +167,7 @@ export interface ManualJournal {
   Narration: string
   Date: string
   Status: "DRAFT" | "POSTED"
-  LineAmountTypes: "NoTax"
+  LineAmountTypes: "NoTax" | "Inclusive"
   JournalLines: Array<{ LineAmount: number; AccountCode: string; Description: string; TaxType?: string }>
 }
 

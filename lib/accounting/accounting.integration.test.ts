@@ -8,7 +8,21 @@
  */
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
+// The tie-out's independent figure, skewed on demand to prove a close is refused.
+const skew = vi.hoisted(() => ({ cents: 0 }))
+vi.mock("./reconcile", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./reconcile")>()
+  return {
+    ...real,
+    independentBook: async (...args: Parameters<typeof real.independentBook>) => {
+      const book = await real.independentBook(...args)
+      if (skew.cents) for (const v of book.values()) v.cents += skew.cents
+      return book
+    },
+  }
+})
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
@@ -42,6 +56,24 @@ suite.sequential("accounting export (real Postgres)", () => {
     paymentId = payment.id
   })
   afterAll(async () => { await db.$disconnect() })
+
+  it("refuses the first close until the mapping is confirmed and the go-live month is set, and starts at go-live", async () => {
+    await expect(close("2026-08")).rejects.toMatchObject({ code: "MAPPING_NOT_CONFIRMED" })
+    await db.accountingSettings.create({ data: { tenantId: ids.tenantId, mappingConfirmedAt: new Date() } })
+    await expect(close("2026-08")).rejects.toMatchObject({ code: "GO_LIVE_NOT_SET" })
+    await db.accountingSettings.update({ where: { tenantId: ids.tenantId }, data: { goLiveMonth: "2026-08" } })
+    await expect(close("2026-09")).rejects.toMatchObject({ code: "OUT_OF_ORDER" })
+  })
+
+  it("refuses a close whose journal loan book does not tie to what borrowers owe", async () => {
+    skew.cents = 100
+    try {
+      await expect(close("2026-08")).rejects.toMatchObject({ code: "RECONCILIATION_FAILED" })
+    } finally {
+      skew.cents = 0
+    }
+    expect(await db.accountingExportBatch.count({ where: { tenantId: ids.tenantId } })).toBe(0)
+  })
 
   it("closes the first month with everything to its end, balanced and sealed", async () => {
     const out = await close("2026-08")

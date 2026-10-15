@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 
 interface XeroStatus {
   configured: boolean
-  status: "PENDING_AUTH" | "SELECT_ORGANISATION" | "CONNECTED" | "DISCONNECTED"
+  status: "PENDING_AUTH" | "SELECT_ORGANISATION" | "CONNECTED" | "DISCONNECTED" | "NEEDS_RECONNECT"
   organisationName: string | null
   organisations: Array<{ tenantId: string; tenantName: string }>
   connectedAt: string | null
@@ -58,7 +58,7 @@ export function XeroConnectionCard({ returned }: { returned: string | null }) {
     <DataPanel
       title="Xero"
       description="Push each closed month's journals to Xero as a draft manual journal (Reports → Accounting export)."
-      actions={state && <StatusPill tone={connected ? "success" : "neutral"}>{connected ? "Connected" : state.status === "SELECT_ORGANISATION" ? "Choose organisation" : "Not connected"}</StatusPill>}
+      actions={state && <StatusPill tone={connected ? "success" : "neutral"}>{connected ? "Connected" : state.status === "SELECT_ORGANISATION" ? "Choose organisation" : state.status === "NEEDS_RECONNECT" ? "Needs reconnect" : "Not connected"}</StatusPill>}
     >
       {state && !state.configured && (
         <InfoStrip variant="warning" className="mb-3">
@@ -66,6 +66,9 @@ export function XeroConnectionCard({ returned }: { returned: string | null }) {
         </InfoStrip>
       )}
       {connected && <p className="mb-3 text-sm text-[var(--cf-text)]">Organisation: <span className="font-medium">{state.organisationName}</span></p>}
+      {state?.status === "NEEDS_RECONNECT" && (
+        <InfoStrip variant="warning" className="mb-3">Xero refused to renew access (revoked or idle too long). Connect again; nothing is pushed until then.</InfoStrip>
+      )}
       {state?.status === "SELECT_ORGANISATION" && (
         <div className="mb-3 flex flex-wrap gap-2">
           {state.organisations.map((o) => (

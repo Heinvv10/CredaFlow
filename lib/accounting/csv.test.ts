@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest"
+import { parseMappingInput } from "./accounts"
 import { cell, linesDigest, rands, renderCsv, type StoredLine } from "./csv"
 
 const lines: StoredLine[] = [
   { lineNo: 2, postingDate: "2026-09-10", accountCode: "1100", taxCode: null, debitCents: 0, creditCents: 50_005, reference: "LN-1", description: "Receipt on LN-1", eventKey: "payment:p1" },
   { lineNo: 1, postingDate: "2026-09-10", accountCode: "1000", taxCode: "NONE", debitCents: 50_005, creditCents: 0, reference: "LN-1", description: "Receipt on LN-1", eventKey: "payment:p1" },
 ]
+
+describe("mapping input", () => {
+  it("allows VAT-inclusive only on fee income, and never together with a tax code", () => {
+    expect(parseMappingInput({ mappings: [{ role: "FEE_INCOME", accountCode: "4010", vatInclusive: true }] })).toMatchObject({ ok: true })
+    expect(parseMappingInput({ mappings: [{ role: "INTEREST_INCOME", accountCode: "4000", vatInclusive: true }] })).toMatchObject({ ok: false, error: expect.stringContaining("only fee income") })
+    expect(parseMappingInput({ mappings: [{ role: "FEE_INCOME", accountCode: "4010", vatInclusive: true, taxCode: "OUTPUT" }] })).toMatchObject({ ok: false, error: expect.stringContaining("twice") })
+  })
+})
 
 describe("journal CSVs", () => {
   it("renders the generic layout in line order with rand amounts", () => {

@@ -18,7 +18,7 @@ import type { AccountRole } from "./accounts"
 /** Any client that can run these reads: the app's extended client or a transaction. */
 export type AccountingDb = Pick<
   typeof prisma,
-  "loan" | "accountingAccountMapping" | "accountingExportBatch" | "accountingLedgerEntry" | "accountingJournalLine" | "$queryRaw"
+  "loan" | "accountingAccountMapping" | "accountingExportBatch" | "accountingLedgerEntry" | "accountingJournalLine" | "accountingSettings" | "$queryRaw"
 >
 
 export class BatchIntegrityError extends Error {
@@ -31,9 +31,24 @@ export class BatchIntegrityError extends Error {
 export async function loadAccountMap(db: AccountingDb, tenantId: string): Promise<AccountMap> {
   const rows = await db.accountingAccountMapping.findMany({
     where: { tenantId },
-    select: { role: true, accountCode: true, accountName: true, taxCode: true },
+    select: { role: true, accountCode: true, accountName: true, taxCode: true, vatInclusive: true },
   })
   return resolveAccountMap(rows)
+}
+
+export interface AccountingSettingsView {
+  mappingConfirmedAt: Date | null
+  goLiveMonth: string | null
+  vatRegistered: boolean
+  vatRateBps: number
+}
+
+export async function loadSettings(db: Pick<AccountingDb, "accountingSettings">, tenantId: string): Promise<AccountingSettingsView> {
+  const row = await db.accountingSettings.findUnique({
+    where: { tenantId },
+    select: { mappingConfirmedAt: true, goLiveMonth: true, vatRegistered: true, vatRateBps: true },
+  })
+  return row ?? { mappingConfirmedAt: null, goLiveMonth: null, vatRegistered: false, vatRateBps: 1500 }
 }
 
 /** Consumer loans (contractType LOAN) booked before `asOf`, with every money source. */
@@ -47,14 +62,16 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       application: { select: { initiationFeePayment: true } },
       repaymentSchedule: {
         orderBy: { installmentNo: "asc" },
-        select: { id: true, installmentNo: true, dueDate: true, interestDue: true, feesDue: true, creditLifePremiumDue: true },
+        select: { id: true, installmentNo: true, dueDate: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalPaid: true },
       },
+      disbursementPayouts: { orderBy: { attempt: "asc" }, select: { id: true, attempt: true, amountCents: true, paidAt: true, returnedAt: true } },
+      disbursementReversals: { where: { status: "APPROVED" }, select: { decidedAt: true } },
       charges: { orderBy: [{ day: "asc" }, { type: "asc" }], select: { type: true, day: true, amount: true, sourceId: true } },
       payments: {
         orderBy: { id: "asc" },
         select: {
           id: true, amount: true, paymentMethod: true, receivedAt: true, allocationStatus: true,
-          reconciledAt: true, reversed: true, reversedAt: true,
+          reconciledAt: true, reversed: true, reversedAt: true, parentPaymentId: true,
         },
       },
     },
@@ -79,9 +96,11 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       status: loan.status,
       writeOffAt: loan.writeOffAt,
       closedAt: loan.closedAt,
+      reversedAt: loan.disbursementReversals[0]?.decidedAt ?? null,
       schedule: loan.repaymentSchedule,
       charges: [...charges.values()],
       payments: loan.payments,
+      payouts: loan.disbursementPayouts,
     }
   })
 }
@@ -92,13 +111,23 @@ export interface Ledger {
   postedLoans: Map<string, { loanId: string | null; reference: string }>
 }
 
+/**
+ * What has been posted, per source and role. Lines count under their
+ * `sourceRole` when set (a VAT split counts as the gross fee). The opening
+ * entry is presentation only: its per-source positions stand in for it.
+ */
 export async function loadLedger(db: AccountingDb, tenantId: string): Promise<Ledger> {
   const rows = await db.$queryRaw<Array<{ baseKey: string; loanId: string | null; reference: string; role: string; net: bigint }>>(Prisma.sql`
-    SELECT e."baseKey", e."loanId", e."reference", l."role", SUM(l."debitCents" - l."creditCents")::bigint AS "net"
+    SELECT e."baseKey", e."loanId", e."reference", COALESCE(l."sourceRole", l."role") AS "role", SUM(l."debitCents" - l."creditCents")::bigint AS "net"
     FROM "AccountingJournalLine" l
     JOIN "AccountingLedgerEntry" e ON e."id" = l."entryId" AND e."tenantId" = l."tenantId"
-    WHERE e."tenantId" = ${tenantId}
-    GROUP BY e."baseKey", e."loanId", e."reference", l."role"
+    WHERE e."tenantId" = ${tenantId} AND e."eventType" <> 'OPENING'
+    GROUP BY e."baseKey", e."loanId", e."reference", COALESCE(l."sourceRole", l."role")
+    UNION ALL
+    SELECT o."baseKey", o."loanId", o."reference", o."role", SUM(o."cents")::bigint AS "net"
+    FROM "AccountingOpeningPosition" o
+    WHERE o."tenantId" = ${tenantId}
+    GROUP BY o."baseKey", o."loanId", o."reference", o."role"
   `)
   const ledger: Ledger = { posted: new Map(), postedKeys: new Set(), postedLoans: new Map() }
   for (const row of rows) {
@@ -106,7 +135,7 @@ export async function loadLedger(db: AccountingDb, tenantId: string): Promise<Le
     ledger.postedLoans.set(row.baseKey, { loanId: row.loanId, reference: row.reference })
     const vector: Vector = ledger.posted.get(row.baseKey) ?? {}
     const net = Number(row.net)
-    if (net !== 0) vector[row.role as AccountRole] = net
+    if (net !== 0) vector[row.role as AccountRole] = (vector[row.role as AccountRole] ?? 0) + net
     ledger.posted.set(row.baseKey, vector)
   }
   return ledger
@@ -123,7 +152,7 @@ export async function loadBatchLines(db: AccountingDb, tenantId: string, batchId
     where: { tenantId, batchId },
     orderBy: { lineNo: "asc" },
     select: {
-      lineNo: true, accountCode: true, taxCode: true, debitCents: true, creditCents: true,
+      lineNo: true, role: true, accountCode: true, taxCode: true, debitCents: true, creditCents: true,
       entry: { select: { postingDate: true, reference: true, description: true, eventKey: true } },
     },
   })
@@ -137,6 +166,7 @@ export async function loadBatchLines(db: AccountingDb, tenantId: string, batchId
     reference: l.entry.reference,
     description: l.entry.description,
     eventKey: l.entry.eventKey,
+    role: l.role,
   }))
   if (linesDigest(stored) !== batch.linesSha256) throw new BatchIntegrityError(batchId)
   return stored

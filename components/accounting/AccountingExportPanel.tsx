@@ -2,37 +2,28 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
+import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { MetricCard } from "@/components/app-shell/MetricCard"
-import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatZAR } from "@/lib/utils"
+import { AccountingHistory, type Batch } from "./AccountingHistory"
 
 interface Preview {
   period: string
   label: string
   closed: boolean
   batchId: string | null
+  goLive?: boolean
   entryCount: number
   debitCents: number
   creditCents: number
   accounts: Array<{ role: string; accountCode: string; name: string; debitCents: number; creditCents: number }>
   events: Record<string, number>
+  refusal: { code: string; message: string } | null
+  reconciliation: { journalTotalCents: number; bookTotalCents: number; mismatches: Array<{ loanId: string; reference: string; journalCents: number; bookCents: number }> } | null
 }
-
-interface Batch {
-  id: string
-  periodKey: string
-  entryCount: number
-  lineCount: number
-  totalDebitCents: number
-  totalCreditCents: number
-  closedAt: string
-  xeroPush: { status: string; xeroManualJournalId: string | null; error: string | null } | null
-}
-
-const PUSH_TONE: Record<string, "success" | "warning" | "danger" | "info"> = { PUSHED: "success", SENDING: "info", FAILED: "danger", NEEDS_REVIEW: "danger" }
 
 export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean }) {
   const [period, setPeriod] = useState(initialPeriod)
@@ -42,7 +33,6 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
   const [message, setMessage] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setMessage(null)
     const [p, h] = await Promise.all([
       fetch(`/api/accounting/preview?period=${encodeURIComponent(period)}`),
       fetch("/api/accounting/periods"),
@@ -71,12 +61,13 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
   }
 
   const balanced = preview ? preview.debitCents === preview.creditCents : false
+  const rec = preview?.reconciliation ?? null
 
   return (
     <div className="space-y-6">
       <DataPanel
         title="Period"
-        description="A SAST calendar month. A month closes once it has ended, in order; closing seals its journals for good."
+        description="A SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good."
         actions={
           <div className="flex items-center gap-2">
             <label htmlFor="period" className="text-xs text-[var(--cf-text-muted)]">Month</label>
@@ -86,12 +77,31 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
       >
         {preview && (
           <div className="space-y-4">
+            {preview.goLive && <InfoStrip variant="default">Go-live month: history before {preview.label} posts as one opening entry.</InfoStrip>}
             <div className="grid gap-4 md:grid-cols-4">
               <MetricCard label="Status" value={preview.closed ? "Closed" : "Open (preview)"} />
               <MetricCard label="Journal entries" value={String(preview.entryCount)} />
               <MetricCard label="Debits" value={formatZAR(preview.debitCents)} />
               <MetricCard label="Credits" value={formatZAR(preview.creditCents)} tone={balanced ? "neutral" : "warning"} detail={balanced ? "Balanced" : "Does not balance"} />
             </div>
+            {rec && (
+              <div className="rounded-md border border-[var(--cf-border-subtle)] p-3 text-sm">
+                <p className="text-[var(--cf-text)]">
+                  Loan-book tie-out at month end: journal {formatZAR(rec.journalTotalCents)} · owed by borrowers {formatZAR(rec.bookTotalCents)} ·{" "}
+                  <span className={rec.mismatches.length ? "font-semibold text-[var(--cf-danger)]" : "font-semibold text-[var(--cf-success)]"}>
+                    {rec.mismatches.length ? `${rec.mismatches.length} loan(s) differ` : "ties"}
+                  </span>
+                </p>
+                {rec.mismatches.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-xs text-[var(--cf-text-secondary)]">
+                    {rec.mismatches.slice(0, 10).map((m) => (
+                      <li key={m.loanId}>{m.reference}: journal {formatZAR(m.journalCents)}, owed {formatZAR(m.bookCents)}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {preview.refusal && !preview.closed && <InfoStrip variant="warning">Cannot close yet: {preview.refusal.message}</InfoStrip>}
             {preview.accounts.length > 0 ? (
               <Table>
                 <TableHeader>
@@ -121,7 +131,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
             </p>
             <div className="flex flex-wrap gap-2">
               {!preview.closed && canClose && (
-                <Button disabled={busy || !balanced} onClick={() => post("/api/accounting/periods", { period: preview.period }, () => `${preview.label} closed.`)}>
+                <Button disabled={busy || !balanced || preview.refusal !== null} onClick={() => post("/api/accounting/periods", { period: preview.period }, () => `${preview.label} closed.`)}>
                   Close {preview.label}
                 </Button>
               )}
@@ -137,46 +147,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
         {message && <p className="mt-3 text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}
       </DataPanel>
 
-      <DataPanel title="Export history" description={xeroConnected ? "Closed months. Push sends one DRAFT manual journal per month to Xero." : "Closed months. Connect Xero under Settings → Integrations to push journals."}>
-        {batches.length === 0 ? (
-          <p className="text-sm text-[var(--cf-text-muted)]">No month has been closed yet.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead className="text-right">Entries</TableHead>
-                <TableHead className="text-right">Debits = Credits</TableHead>
-                <TableHead>Closed</TableHead>
-                <TableHead>Xero</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {batches.map((b) => (
-                <TableRow key={b.id}>
-                  <TableCell>{b.periodKey}</TableCell>
-                  <TableCell className="text-right tabular-nums">{b.entryCount}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatZAR(b.totalDebitCents)}</TableCell>
-                  <TableCell>{new Date(b.closedAt).toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg" })}</TableCell>
-                  <TableCell>
-                    {b.xeroPush ? <StatusPill tone={PUSH_TONE[b.xeroPush.status] ?? "info"}>{b.xeroPush.status.replace("_", " ")}</StatusPill> : <span className="text-xs text-[var(--cf-text-muted)]">Not pushed</span>}
-                  </TableCell>
-                  <TableCell className="space-x-2 text-right">
-                    <a className="text-xs text-[var(--cf-brand)] hover:underline" href={`/api/accounting/batches/${b.id}/csv?format=generic`} download>CSV</a>
-                    <a className="text-xs text-[var(--cf-brand)] hover:underline" href={`/api/accounting/batches/${b.id}/csv?format=sage`} download>Sage</a>
-                    {canClose && xeroConnected && (!b.xeroPush || b.xeroPush.status === "FAILED") && (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => post(`/api/accounting/batches/${b.id}/xero`, { action: "push" }, (j) => `Pushed to Xero (journal ${String(j.manualJournalId)}).`)}>
-                        Push to Xero
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </DataPanel>
+      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} busy={busy} post={post} />
     </div>
   )
 }

@@ -12,39 +12,42 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
 
 ## Critical Rules
 - **Derived, never hand-entered.** `lib/accounting/sources.ts` says what each
-  source (disbursement, instalment, default charge, receipt, write-off)
-  should have posted by a date; `lib/accounting/derive.ts` posts the
-  difference from the ledger. A later change to a source becomes an
-  adjustment in the next open month, never an edit of a closed one.
-- **One loan-book receivable.** Income is recognised when due; a receipt
-  credits the loan book whole. The system stores no receipt
-  principal/interest split, so none is invented here.
-- **Closed is final (DB-enforced).** `guardAccountingBatch`,
-  `guardAccountingLedgerRow`, the `requireAccountingBatchClosedAtCommit`
-  constraint trigger and the balance CHECKs live in
-  `prisma/migrations/20261015090000_accounting_payouts`. Prisma does not
-  report a COMMIT-time error: `closePeriod` runs `SET CONSTRAINTS ALL
-  IMMEDIATE` before returning, keep it.
-- **Each event once.** `(tenantId, eventKey)` is unique; a first posting uses
-  the base key, a correction `<baseKey>@<yyyy-mm>`.
-- **Months close in order**, only after they end. CSVs render from stored
-  lines and are refused if they no longer match `linesSha256`.
-- **Accounting tables are NOT tenant-scoped** (`lib/tenant-scope.ts`): pass
-  `tenantId` by hand on every query.
-- **Xero is unproven** (`lib/accounting/xero/`): built to the public API, no
-  developer app yet; tests stub fetch. A push is claimed before it is sent
-  (`AccountingXeroPush`); an unknown outcome is `NEEDS_REVIEW`, never retried.
+  source should have posted by a date; `lib/accounting/derive.ts` posts the
+  difference from the ledger. A later change is an adjustment in the next open
+  month, never an edit of a closed one. `(tenantId, eventKey)` is unique.
+- **One loan-book receivable**; income when due; receipts credit it whole
+  (no receipt principal/interest split exists to export).
+- **A month may close only** once ended, after an ADMIN confirmed the mapping
+  (any mapping change withdraws it), in order from `AccountingSettings.goLiveMonth`,
+  and when every loan's journal book ties to `lib/accounting/reconcile.ts`
+  (independent SQL). `lib/accounting/plan.ts` decides; refusals are audited.
+- **Go-live**: history before the month is one OPENING entry plus
+  `AccountingOpeningPosition` rows; bank and P&L history nets to opening equity.
+- **Payout channel**: a loan with payout attempts books against
+  PAYOUT_CLEARING; BANK moves only on PAID (back on RETURNED). An approved
+  disbursement reversal zeroes the loan's sources.
+- **Credit-life binder assumption**: premium is payable to the insurer as it
+  falls due; on write-off the share never collected (pro rata within each
+  instalment's fees) is reversed out of the payable. Confirm with the insurer's
+  binder before go-live.
+- **VAT is split only** when the lender is VAT-registered AND a fee role is
+  marked VAT-inclusive (default off). A tax code on a mapping goes to Xero as
+  tax-inclusive; never both (refused). VAT credit notes are not exported yet.
+- **Closed is final (DB-enforced)**: guards in the 20261015090000 and
+  20261015120100 migrations. Prisma does not report COMMIT errors:
+  `closePeriod` runs `SET CONSTRAINTS ALL IMMEDIATE`, keep it.
+- **Accounting tables are NOT tenant-scoped**: pass `tenantId` by hand.
+- **Xero is unproven**: built to the public API, tests stub fetch. A push is
+  claimed first; a stale or unknown one is NEEDS_REVIEW, never resent. BANK
+  must be mapped (Xero refuses manual journals to bank accounts). Tokens move
+  to W0's tenant-credentials store once W0 lands; until then they are sealed
+  in `XeroConnection` under `WABA_ENC_KEY`.
 - Consumer loans only (`contractType LOAN`); asset finance is not exported yet.
-- **VAT is not split out of any amount.** A mapping's tax code is passed through
-  to the CSVs and Xero only; how fees carry VAT is the lender accountant's call.
-- **Xero tokens move to W0's tenant-credentials store once W0 lands**;
-  until then they are sealed in `XeroConnection` under `WABA_ENC_KEY`.
 
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `lib/accounting/sources.ts` | Desired vector per money source |
-| `lib/accounting/derive.ts` | Delta against the ledger -> entries |
-| `lib/accounting/generate.ts` | `closePeriod`: lock, derive, verify, store, seal |
-| `lib/accounting/csv.ts` | CSV layouts and the lines digest |
+| `lib/accounting/plan.ts` | What a close would post, and whether it may |
+| `lib/accounting/generate.ts` | `closePeriod`: lock, plan, store, seal |
+| `lib/accounting/opening.ts` | Go-live opening entry and positions |
 | `lib/accounting/xero/push.ts` | One DRAFT manual journal per closed month |

@@ -1,6 +1,7 @@
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { AccountingExportPanel } from "@/components/accounting/AccountingExportPanel"
 import { AccountMappingEditor } from "@/components/accounting/AccountMappingEditor"
+import { AccountingSettingsPanel } from "@/components/accounting/AccountingSettingsPanel"
 import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -17,9 +18,11 @@ export default async function AccountingExportPage() {
     prisma.accountingExportBatch.findFirst({ where: { tenantId }, orderBy: { periodStart: "desc" }, select: { periodKey: true } }),
     prisma.xeroConnection.findUnique({ where: { tenantId }, select: { status: true } }),
   ])
-  // Open on the next month to close, or last month when nothing is closed yet.
+  // Open on the next month to close: after the last closed one, else the
+  // go-live month, else last month.
+  const settings = await prisma.accountingSettings.findUnique({ where: { tenantId }, select: { goLiveMonth: true } })
   const lastMonth = periodKeyOf(new Date(parsePeriodKey(periodKeyOf(new Date()))!.start.getTime() - 1))
-  const initialPeriod = latest ? nextPeriodKey(latest.periodKey) : lastMonth
+  const initialPeriod = latest ? nextPeriodKey(latest.periodKey) : settings?.goLiveMonth ?? lastMonth
   const canAdmin = hasMinRole(user.role, "ADMIN")
 
   return (
@@ -33,6 +36,7 @@ export default async function AccountingExportPage() {
           reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.
         </p>
       </div>
+      <AccountingSettingsPanel canEdit={canAdmin} locked={latest !== null} />
       <AccountingExportPanel initialPeriod={initialPeriod} canClose={canAdmin} xeroConnected={xero?.status === "CONNECTED"} />
       <AccountMappingEditor canEdit={canAdmin} />
     </div>

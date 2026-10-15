@@ -11,6 +11,7 @@ interface Mapping {
   code: string
   name: string
   taxCode: string | null
+  vatInclusive: boolean
   isDefault: boolean
   description: string
   defaultCode: string
@@ -38,12 +39,12 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
       const res = await fetch("/api/accounting/mappings", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mappings: rows.map((r) => ({ role: r.role, accountCode: r.code, accountName: r.name, taxCode: r.taxCode })) }),
+        body: JSON.stringify({ mappings: rows.map((r) => ({ role: r.role, accountCode: r.code, accountName: r.name, taxCode: r.taxCode, vatInclusive: r.vatInclusive })) }),
       })
       const json = (await res.json().catch(() => ({}))) as { mappings?: Mapping[]; error?: string }
       if (res.ok && json.mappings) {
         setRows(json.mappings)
-        setMessage("Saved. Months closed from now on use these codes.")
+        setMessage("Saved. Months closed from now on use these codes. Confirm the mapping again before the next close.")
       } else {
         setMessage(json.error ?? `Save failed (${res.status})`)
       }
@@ -67,6 +68,7 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
             <TableHead>Account code</TableHead>
             <TableHead>Account name</TableHead>
             <TableHead>Tax code</TableHead>
+            <TableHead>VAT-incl.</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -84,6 +86,11 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
               </TableCell>
               <TableCell>
                 <Input aria-label={`${r.role} tax code`} value={r.taxCode ?? ""} disabled={!canEdit} placeholder="none" onChange={(e) => update(r.role, { taxCode: e.target.value || null })} className="w-28" />
+              </TableCell>
+              <TableCell>
+                {(r.role === "FEE_INCOME" || r.role === "DEFAULT_FEE_INCOME") && (
+                  <input type="checkbox" aria-label={`${r.role} amounts include VAT`} checked={r.vatInclusive} disabled={!canEdit} onChange={(e) => update(r.role, { vatInclusive: e.target.checked })} />
+                )}
               </TableCell>
             </TableRow>
           ))}

@@ -1,56 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { resolveAccountMap, type AccountRole } from "./accounts"
-import { accumulate, deriveEntries, type DerivedEntry, type PostedLedger } from "./derive"
+import { deriveEntries } from "./derive"
 import { parsePeriodKey } from "./period"
 import type { SourceLoan } from "./sources"
 import { verifyBalanced } from "./verify"
+import { at, byType, defaultAccounts, ledger, loan, net, runWith, type TestPayment } from "./derive.test-helpers"
 
-const accounts = resolveAccountMap([])
+const accounts = defaultAccounts()
 const AUG = parsePeriodKey("2026-08")!
 const SEP = parsePeriodKey("2026-09")!
 const OCT = parsePeriodKey("2026-10")!
-const at = (iso: string) => new Date(`${iso}T10:00:00+02:00`)
-
-function loan(overrides: Partial<SourceLoan> = {}): SourceLoan {
-  return {
-    id: "loan-1",
-    reference: "LN-0001",
-    principal: 200_000,
-    initiationFee: 10_000,
-    upfrontFee: false,
-    startDate: at("2026-08-05"),
-    status: "ACTIVE",
-    writeOffAt: null,
-    closedAt: null,
-    schedule: [
-      { id: "row-1", installmentNo: 1, dueDate: at("2026-09-01"), interestDue: 10_000, feesDue: 6_900, creditLifePremiumDue: 2_000 },
-      { id: "row-2", installmentNo: 2, dueDate: at("2026-10-20"), interestDue: 5_000, feesDue: 6_900, creditLifePremiumDue: 2_000 },
-    ],
-    charges: [],
-    payments: [],
-    ...overrides,
-  }
-}
-
-function ledger() {
-  return { posted: new Map() as PostedLedger, keys: new Set<string>() }
-}
-
-function run(loans: SourceLoan[], period = SEP, state = ledger()) {
-  const entries = deriveEntries({ loans, period, posted: state.posted, postedKeys: state.keys, postedLoans: new Map(), accounts })
-  verifyBalanced(entries)
-  accumulate(state.posted, state.keys, entries)
-  return entries
-}
-
-/** Signed per-role totals (+ debit) of some entries. */
-function net(entries: DerivedEntry[]): Partial<Record<AccountRole, number>> {
-  const out: Partial<Record<AccountRole, number>> = {}
-  for (const e of entries) for (const l of e.lines) out[l.role] = (out[l.role] ?? 0) + l.debitCents - l.creditCents
-  return out
-}
-
-const byType = (entries: DerivedEntry[], type: string) => entries.filter((e) => e.eventType === type)
+const run = (loans: SourceLoan[], period = SEP, state = ledger()) => runWith(accounts, null, loans, period, state)
 
 describe("journal derivation per money event", () => {
   it("disburses the full principal to the loan book (deferred fee)", () => {
@@ -85,7 +44,7 @@ describe("journal derivation per money event", () => {
   })
 
   it("credits a receipt to the loan book, an unapplied one to unallocated receipts", () => {
-    const payments: SourceLoan["payments"] = [
+    const payments: TestPayment[] = [
       { id: "p1", amount: 50_000, paymentMethod: "EFT", receivedAt: at("2026-09-10"), allocationStatus: "ALLOCATED", reconciledAt: null, reversed: false, reversedAt: null },
       { id: "p2", amount: 7_000, paymentMethod: "EFT", receivedAt: at("2026-09-11"), allocationStatus: "UNAPPLIED", reconciledAt: null, reversed: false, reversedAt: null },
     ]
@@ -95,7 +54,7 @@ describe("journal derivation per money event", () => {
   })
 
   it("books a waiver as an expense, not cash", () => {
-    const payments: SourceLoan["payments"] = [
+    const payments: TestPayment[] = [
       { id: "w1", amount: 75, paymentMethod: "WAIVER", receivedAt: at("2026-09-12"), allocationStatus: "ALLOCATED", reconciledAt: null, reversed: false, reversedAt: null },
     ]
     const waiver = byType(run([loan({ payments })]), "WAIVER")
@@ -125,16 +84,17 @@ describe("journal derivation per money event", () => {
     expect(net(byType(oct, "REFUND"))).toEqual({ UNALLOCATED_RECEIPTS: 7_000, BANK: -7_000 })
   })
 
-  it("writes off what the loan book holds, raises nothing after, and books recoveries as recoveries", () => {
+  it("writes off what the loan book holds (uncollected premium back out of the payable), raises nothing after, books recoveries as recoveries", () => {
     const state = ledger()
     run([loan()], AUG, state)
     run([loan()], SEP, state)
-    const payments: SourceLoan["payments"] = [
+    const payments: TestPayment[] = [
       { id: "late", amount: 1_000, paymentMethod: "EFT", receivedAt: at("2026-10-25"), allocationStatus: "ALLOCATED", reconciledAt: null, reversed: false, reversedAt: null },
     ]
     const oct = run([loan({ status: "WRITTEN_OFF", writeOffAt: at("2026-10-15"), payments })], OCT, state)
     expect(oct.some((e) => e.baseKey.endsWith("row-2"))).toBe(false)
-    expect(net(byType(oct, "WRITE_OFF"))).toEqual({ BAD_DEBT_EXPENSE: 216_900, LOAN_BOOK: -216_900 })
+    // Instalment 1's R20 premium was never collected: it is not owed to the insurer.
+    expect(net(byType(oct, "WRITE_OFF"))).toEqual({ CREDIT_LIFE_PAYABLE: 2_000, BAD_DEBT_EXPENSE: 214_900, LOAN_BOOK: -216_900 })
     expect(net(byType(oct, "RECEIPT"))).toEqual({ BANK: 1_000, BAD_DEBT_RECOVERY: -1_000 })
     let book = 0
     for (const vector of state.posted.values()) book += vector.LOAN_BOOK ?? 0
@@ -197,7 +157,7 @@ describe("periods, idempotency and corrections", () => {
 
   it("keeps every period balanced across a full lifecycle", () => {
     const state = ledger()
-    const payments: SourceLoan["payments"] = [
+    const payments: TestPayment[] = [
       { id: "p1", amount: 100_000, paymentMethod: "EFT", receivedAt: at("2026-09-02"), allocationStatus: "ALLOCATED", reconciledAt: null, reversed: true, reversedAt: at("2026-10-01") },
       { id: "p2", amount: 7_000, paymentMethod: "EFT", receivedAt: at("2026-09-03"), allocationStatus: "REFUNDED", reconciledAt: at("2026-10-09"), reversed: false, reversedAt: null },
     ]

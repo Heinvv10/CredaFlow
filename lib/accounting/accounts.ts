@@ -10,9 +10,12 @@
 
 export const ACCOUNT_ROLES = [
   "BANK",
+  "PAYOUT_CLEARING",
   "LOAN_BOOK",
   "UNALLOCATED_RECEIPTS",
   "CREDIT_LIFE_PAYABLE",
+  "OUTPUT_VAT",
+  "OPENING_BALANCE_EQUITY",
   "INTEREST_INCOME",
   "FEE_INCOME",
   "DEFAULT_INTEREST_INCOME",
@@ -24,18 +27,36 @@ export const ACCOUNT_ROLES = [
 
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
 
+/**
+ * Roles whose history does not carry into the go-live month's opening entry:
+ * income and expense (last year's profit is not this system's to restate) and
+ * BANK (the lender's books already hold the bank balance). Their history nets
+ * into OPENING_BALANCE_EQUITY, which the accountant reconciles to the legacy
+ * ledger once.
+ */
+export const NOT_CARRIED_AT_OPENING: readonly AccountRole[] = [
+  "BANK", "INTEREST_INCOME", "FEE_INCOME", "DEFAULT_INTEREST_INCOME", "DEFAULT_FEE_INCOME",
+  "BAD_DEBT_RECOVERY", "BAD_DEBT_EXPENSE", "WAIVER_EXPENSE",
+]
+
+/** Fee income roles a lender may mark VAT-inclusive (interest is VAT-exempt). */
+export const VAT_INCLUSIVE_ROLES: readonly AccountRole[] = ["FEE_INCOME", "DEFAULT_FEE_INCOME"]
+
 export interface AccountDefault {
   code: string
   name: string
   description: string
 }
 
-/** Sensible defaults: an asset/liability/income/expense numbering most SA charts accept. */
+/** Sensible defaults: an asset/liability/equity/income/expense numbering most SA charts accept. */
 export const DEFAULT_ACCOUNTS: Record<AccountRole, AccountDefault> = {
-  BANK: { code: "1000", name: "Bank", description: "Cash paid out and received" },
+  BANK: { code: "1000", name: "Bank", description: "Cash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account" },
+  PAYOUT_CLEARING: { code: "2100", name: "Disbursements awaiting payout", description: "Loans booked whose payout the provider has not yet confirmed paid (payout channel on)" },
   LOAN_BOOK: { code: "1100", name: "Loans receivable", description: "Everything borrowers owe: principal plus interest, fees, premiums and charges once due" },
   UNALLOCATED_RECEIPTS: { code: "2150", name: "Unallocated receipts", description: "Money received and not yet applied to a loan, or owed back as a refund" },
-  CREDIT_LIFE_PAYABLE: { code: "2200", name: "Credit life premiums payable", description: "Bundled credit-life premiums collected for the insurer" },
+  CREDIT_LIFE_PAYABLE: { code: "2200", name: "Credit life premiums payable", description: "Bundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off" },
+  OUTPUT_VAT: { code: "2300", name: "VAT output", description: "VAT inside VAT-inclusive fees, when the lender is VAT-registered" },
+  OPENING_BALANCE_EQUITY: { code: "3900", name: "Opening balance equity", description: "Contra of the go-live opening entry; reconcile it to the legacy ledger" },
   INTEREST_INCOME: { code: "4000", name: "Interest income", description: "Contractual interest as instalments fall due" },
   FEE_INCOME: { code: "4010", name: "Fee income", description: "Initiation and monthly service fees" },
   DEFAULT_INTEREST_INCOME: { code: "4020", name: "Default interest income", description: "Default interest charged after a missed instalment" },
@@ -54,6 +75,7 @@ export interface ResolvedAccount {
   code: string
   name: string
   taxCode: string | null
+  vatInclusive: boolean
   isDefault: boolean
 }
 
@@ -64,6 +86,7 @@ export interface MappingRow {
   accountCode: string
   accountName: string | null
   taxCode: string | null
+  vatInclusive?: boolean
 }
 
 /** The tenant's map: its rows over the defaults. Unknown roles in storage are ignored. */
@@ -72,8 +95,8 @@ export function resolveAccountMap(rows: MappingRow[]): AccountMap {
   const entries = ACCOUNT_ROLES.map((role): [AccountRole, ResolvedAccount] => {
     const row = byRole.get(role)
     return [role, row
-      ? { role, code: row.accountCode, name: row.accountName ?? DEFAULT_ACCOUNTS[role].name, taxCode: row.taxCode, isDefault: false }
-      : { role, code: DEFAULT_ACCOUNTS[role].code, name: DEFAULT_ACCOUNTS[role].name, taxCode: null, isDefault: true }]
+      ? { role, code: row.accountCode, name: row.accountName ?? DEFAULT_ACCOUNTS[role].name, taxCode: row.taxCode, vatInclusive: row.vatInclusive === true && VAT_INCLUSIVE_ROLES.includes(role), isDefault: false }
+      : { role, code: DEFAULT_ACCOUNTS[role].code, name: DEFAULT_ACCOUNTS[role].name, taxCode: null, vatInclusive: false, isDefault: true }]
   })
   return Object.fromEntries(entries) as AccountMap
 }
@@ -81,16 +104,16 @@ export function resolveAccountMap(rows: MappingRow[]): AccountMap {
 const CODE = /^[A-Za-z0-9][A-Za-z0-9 .\-/]{0,29}$/
 const TAX = /^[A-Za-z0-9][A-Za-z0-9 _\-]{0,29}$/
 
-export type MappingInput = { role: AccountRole; accountCode: string; accountName: string | null; taxCode: string | null }
+export type MappingInput = { role: AccountRole; accountCode: string; accountName: string | null; taxCode: string | null; vatInclusive: boolean }
 
-/** Validates a PUT body: `{ mappings: [{ role, accountCode, accountName?, taxCode? }] }`. */
+/** Validates a PUT body: `{ mappings: [{ role, accountCode, accountName?, taxCode?, vatInclusive? }] }`. */
 export function parseMappingInput(body: unknown): { ok: true; rows: MappingInput[] } | { ok: false; error: string } {
   const list = (body as { mappings?: unknown } | null)?.mappings
   if (!Array.isArray(list) || list.length === 0) return { ok: false, error: "mappings must be a non-empty list" }
   const seen = new Set<string>()
   const rows: MappingInput[] = []
   for (const item of list) {
-    const { role, accountCode, accountName, taxCode } = (item ?? {}) as Record<string, unknown>
+    const { role, accountCode, accountName, taxCode, vatInclusive } = (item ?? {}) as Record<string, unknown>
     if (!isAccountRole(role)) return { ok: false, error: `Unknown account role: ${String(role)}` }
     if (seen.has(role)) return { ok: false, error: `${role} is listed twice` }
     seen.add(role)
@@ -99,7 +122,11 @@ export function parseMappingInput(body: unknown): { ok: true; rows: MappingInput
     const name = typeof accountName === "string" && accountName.trim() ? accountName.trim().slice(0, 80) : null
     const tax = typeof taxCode === "string" && taxCode.trim() ? taxCode.trim() : null
     if (tax !== null && !TAX.test(tax)) return { ok: false, error: `${role}: tax code must be 1-30 letters, digits, spaces, dashes or underscores` }
-    rows.push({ role, accountCode: code, accountName: name, taxCode: tax })
+    const inclusive = vatInclusive === true
+    if (inclusive && !VAT_INCLUSIVE_ROLES.includes(role)) return { ok: false, error: `${role}: only fee income can be marked VAT-inclusive` }
+    // Splitting VAT here AND tagging a Xero tax code would count the VAT twice.
+    if (inclusive && tax !== null) return { ok: false, error: `${role}: a VAT-inclusive split and a tax code together would count VAT twice; use one` }
+    rows.push({ role, accountCode: code, accountName: name, taxCode: tax, vatInclusive: inclusive })
   }
   return { ok: true, rows }
 }

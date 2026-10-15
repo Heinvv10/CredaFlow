@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
-import { pushBatchToXero, resolveXeroPush } from "@/lib/accounting/xero/push"
+import { markStalePush, pushBatchToXero, resolveXeroPush } from "@/lib/accounting/xero/push"
 
 // Push a closed month to Xero ({ action: "push" }), or resolve a push whose
 // outcome was unknown after checking Xero ({ action: "resolve", outcome:
-// "pushed" | "not_pushed", manualJournalId?, note }). ADMIN; TOTP when required.
+// "pushed" | "not_pushed", manualJournalId?, note }), or move a push stuck
+// SENDING for 10 minutes to review ({ action: "check" }). ADMIN; TOTP when required.
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("ADMIN")
@@ -25,6 +26,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const out = await pushBatchToXero(prisma, { tenantId: tenant.id, batchId: id, actor })
       return out.ok ? NextResponse.json(out) : NextResponse.json(out, { status: out.httpStatus })
     }
+    if (body.action === "check") {
+      const moved = await markStalePush(prisma, { tenantId: tenant.id, batchId: id, actor })
+      return NextResponse.json({ ok: true, movedToReview: moved })
+    }
     if (body.action === "resolve") {
       const note = typeof body.note === "string" ? body.note.trim() : ""
       const outcome = body.outcome
@@ -38,6 +43,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const ok = await resolveXeroPush(prisma, { tenantId: tenant.id, batchId: id, outcome, manualJournalId, note: note.slice(0, 1000), actor })
       return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "No push of this batch is awaiting review" }, { status: 409 })
     }
-    return NextResponse.json({ error: "action must be push or resolve" }, { status: 400 })
+    return NextResponse.json({ error: "action must be push, check or resolve" }, { status: 400 })
   })
 }
