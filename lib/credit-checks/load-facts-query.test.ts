@@ -180,7 +180,7 @@ describe("statementSnapshot", () => {
       .toEqual(["consent-pending:an-old", "unread:"])
     expect(findMany).toHaveBeenCalledWith({
       where: { tenantId: "t1", clientId: "client-1", docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: since } },
-      select: { id: true, statementAnalyses: { where: { parserVersion: expect.any(String) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true } } },
+      select: { id: true, statementAnalyses: { where: { parserVersion: expect.any(String) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true, modelCategoriesAt: true } } },
     })
   })
 })

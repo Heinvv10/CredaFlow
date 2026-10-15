@@ -1203,7 +1203,7 @@ export async function POST(
             }
             // Evidence that arrived after the recompute read it has not been
             // checked: new or deleted statements and payslips, new statement
-            // reads, or any payslip whose extraction changed since (started,
+            // reads or model labels, or any payslip whose extraction changed since (started,
             // finished, re-run). Payslip extraction takes the client evidence
             // lock held here, so it cannot change between this and the write;
             // an upload or a statement read does not take it, so one landing
@@ -1218,7 +1218,8 @@ export async function POST(
                 OR: [{ createdAt: { gt: asOf } }, { deletedAt: { gt: asOf } }],
               },
             }) + await tx.statementAnalysis.count({
-              where: { tenantId: tenant.id, createdAt: { gt: asOf }, clientDocument: { clientId } },
+              // Model labels stored since are new evidence too: they can add living spend.
+              where: { tenantId: tenant.id, OR: [{ createdAt: { gt: asOf } }, { modelCategoriesAt: { gt: asOf } }], clientDocument: { clientId } },
             })
             const payslipsNow = await tx.clientDocument.findMany({
               where: { tenantId: tenant.id, clientId, docType: "PAYSLIP", deletedAt: null, createdAt: { gte: checks?.evidenceSince ?? new Date(0) } },

@@ -4,8 +4,8 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 // The CI integration job runs every suite through scripts/run-integration-tests.sh, which
-// exports every RUN_*_IT it finds. The lender build-context suite builds real Docker images
-// and runs the job out of memory, so its gate must stay opt-in: not exported, not in the gated
+// exports every RUN_*_IT it finds. The lender build-context and image-PDF suites build real
+// Docker images and run the job out of memory, so their gate must stay opt-in: not exported, not in the gated
 // set, and named in the output so it is never silently dropped.
 
 const SCRIPT = join(process.cwd(), "scripts", "run-integration-tests.sh")
@@ -17,15 +17,16 @@ const SPAWN_TIMEOUT_MS = 50_000
 const run = (arg: string) => spawnSync("bash", [SCRIPT, arg], { env, encoding: "utf8", timeout: SPAWN_TIMEOUT_MS })
 
 describe("run-integration-tests.sh opt-in suites", { timeout: 60_000 }, () => {
-  it("lists the docker-build suite as opt-in", () => {
+  it("lists the docker-build suites as opt-in", () => {
     const r = run("--print-opt-in")
     expect(r.status).toBe(0)
     expect(r.stdout).toContain("scripts/lender/build-context.integration.test.ts  (RUN_DOCKER_BUILD_IT=1)")
+    expect(r.stdout).toContain("lib/documents/html-to-pdf.image.integration.test.ts  (RUN_DOCKER_BUILD_IT=1)")
   })
 
   it("lists nothing else: every other suite stays gated", () => {
     const lines = run("--print-opt-in").stdout.trim().split("\n").filter(Boolean)
-    expect(lines).toHaveLength(1)
+    expect(lines).toHaveLength(2)
   })
 
   it("exports every other RUN_*_IT but never the opt-in one", () => {

@@ -51,11 +51,21 @@ describe("GET /api/applications/[id]/statement-export", () => {
     await wb.xlsx.load(await res.arrayBuffer())
     expect(wb.worksheets.map((w) => w.name)).toEqual(["Summary", "Transactions", "Monthly"])
     const tx = wb.getWorksheet("Transactions")!
-    expect(JSON.stringify((tx.getRow(2).values as unknown[]).slice(1))).toBe(JSON.stringify([1, "2026-07-02", "Card Purchase: SHOPRITE", -845.5, 154.5, "FOOD", 1, "yes"]))
+    expect(JSON.stringify((tx.getRow(2).values as unknown[]).slice(1))).toBe(JSON.stringify([1, "2026-07-02", "Card Purchase: SHOPRITE", -845.5, 154.5, "FOOD", 1, "yes", "rules"]))
     expect(wb.getWorksheet("Monthly")!.getRow(2).getCell(1).value).toBe("2026-07")
     // Money-out columns only: no income category can hold a debit.
     expect((wb.getWorksheet("Monthly")!.getRow(1).values as unknown[]).join("|")).not.toMatch(/SALARY_INCOME|OTHER_INCOME/)
     expect(wb.getWorksheet("Summary")!.getRow(7).getCell(7).value).toBe("PASS")
+  })
+
+  it("marks a row the model categorised as model, the rest as rules", async () => {
+    const s = { ...statement([tx("2026-07-02", "Card Purchase: SYNTH ZOLA TRADING", -10_000), tx("2026-07-03", "Card Purchase: SHOPRITE", -5_000)]), modelLabels: { "SYNTH ZOLA TRADING": "FOOD" } }
+    const f = facts({ statements: [s] })
+    insightsMock.mockResolvedValue({ facts: f, insights: computeInsights([{ ...s, read: s.read! }], { clientName: f.clientName, declaredExpensesCents: null }), read: [s], unread: 0 })
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await (await get()).arrayBuffer())
+    const tx2 = wb.getWorksheet("Transactions")!
+    expect([2, 3].map((r) => [tx2.getRow(r).getCell(6).value, tx2.getRow(r).getCell(9).value])).toEqual([["FOOD", "model"], ["FOOD", "rules"]])
   })
 
   it("strips the reference to safe filename characters and is never cached", async () => {

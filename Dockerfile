@@ -68,8 +68,10 @@ ENV BUILD_TIME=$BUILD_TIME
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_DOWNLOAD=1
 
+# --create-home: chromium (lib/documents/html-to-pdf.ts) writes to $HOME and
+# fails to launch when /home/nextjs does not exist.
 RUN groupadd --system --gid 1001 nodejs && \
-    useradd --system --uid 1001 --gid nodejs nextjs
+    useradd --system --create-home --uid 1001 --gid nodejs nextjs
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

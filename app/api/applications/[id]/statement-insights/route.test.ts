@@ -29,7 +29,7 @@ describe("GET /api/applications/[id]/statement-insights", () => {
   it("returns the figures for the tenant's application and logs every statement they summarise", async () => {
     const res = await get()
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ coverageDays: 92, months: [], unreadStatements: 1 })
+    expect(await res.json()).toEqual({ coverageDays: 92, months: [], unreadStatements: 1, modelLabelsEnabled: false })
     expect(insightsMock).toHaveBeenCalledWith("t1", "app-1")
     expect(logAccessMock).toHaveBeenCalledWith(expect.objectContaining({ documentIds: ["doc-1", "doc-2"], staffUserId: "u1", action: "statement_insights" }))
   })

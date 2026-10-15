@@ -1,8 +1,9 @@
 /**
  * Puts each statement transaction in one category (categories.ts). A pure
- * function of the transaction and the client's name: categories are computed
- * on read, never stored, so CATEGORISER_VERSION names the rules a figure or a
- * flag came from.
+ * function of the transaction, the client's name and the read's stored model
+ * labels: categories are computed on read, never stored, so
+ * CATEGORISER_VERSION names the rules a figure or a flag came from (and
+ * StatementAnalysis.modelCategoriesVersion the model labels).
  *
  * Rules run in order and the first match decides; `rule` says which. Words
  * match whole, upper-cased (policy.ts mentions()). The checks' own lists come
@@ -16,21 +17,26 @@ import type { Category } from "./categories"
 import {
   BANK_FEE_WORDS, CASH_WORDS, EXTRA_CREDIT, EXTRA_GAMBLING, LIVING_MERCHANTS, OWN_TRANSFER_WORDS, SALARY_WORDS, SAVINGS_WORDS,
 } from "./merchants"
+import { modelLabelFor } from "./model-labels"
 import type { StatementTransaction } from "./types"
 
 export { isLiving, LIVING_CATEGORIES, type Category, type LivingCategory } from "./categories"
 
 /** Bump when a rule or a word list changes what a transaction is categorised as. */
-export const CATEGORISER_VERSION = "categoriser-v1"
+export const CATEGORISER_VERSION = "categoriser-v2"
 
 export interface CategoriseContext {
   /** The client's name: a transfer to it is a transfer between their own accounts. */
   clientName: string | null
+  /** The read's stored model labels (StatementAnalysis.modelCategories), if any. */
+  modelLabels?: unknown
 }
 
 export interface Categorised {
   category: Category
   rule: string
+  /** The category came from the model, not a rule: say so wherever it is shown. */
+  modelAssigned?: true
 }
 
 /** One pattern that matches any of `names` as whole words in an upper-cased description. */
@@ -57,7 +63,15 @@ function namesClient(upper: string, clientName: string | null): boolean {
   return parts.length >= 2 && parts.every((p) => words([p]).test(upper))
 }
 
+/** Rules first; a debit no rule categorises takes the read's model label, if it has one. */
 export function categorise(tx: StatementTransaction, ctx: CategoriseContext): Categorised {
+  const byRule = categoriseByRules(tx, ctx)
+  if (byRule.category !== "UNCATEGORISED" || tx.amountCents >= 0) return byRule
+  const label = modelLabelFor(ctx.modelLabels, tx.description)
+  return label ? { category: label, rule: "model", modelAssigned: true } : byRule
+}
+
+function categoriseByRules(tx: StatementTransaction, ctx: CategoriseContext): Categorised {
   const d = tx.description.toUpperCase()
   const is = (category: Category, rule: string): Categorised => ({ category, rule })
   if (tx.amountCents > 0) {
