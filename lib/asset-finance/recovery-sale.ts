@@ -6,7 +6,7 @@ import { purchaseMaxAgeDays } from "./lease-term-end"
 import type { RecoveryActor } from "./recovery-create"
 import { RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
 import { screenBuyer } from "./recovery-screening"
-import { loadScreeningCandidates } from "./recovery-screening-store"
+import { actorIsBuyer, loadScreeningCandidates } from "./recovery-screening-store"
 import type { SaleInput } from "./recovery-sale-input"
 import type { SigningTx } from "./signing-prepare"
 
@@ -21,6 +21,8 @@ export type SaleProposed = { kind: "done"; id: string; belowValuation: boolean; 
 export type SaleDone = { kind: "done"; id: string }
 
 export const approvalRequired = (sale: { belowValuation: boolean; relatedPartyMatch: boolean }) => sale.belowValuation || sale.relatedPartyMatch
+
+export const SELF_DEALING = "A staff member cannot propose, approve or complete the sale of an asset to themselves"
 
 const auditActor = (actor: RecoveryActor) => ({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined })
 
@@ -48,6 +50,7 @@ export async function proposeSale(actor: RecoveryActor, recoveryId: string, inpu
     const recovery = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { id: true, status: true, assetId: true, loanId: true } })
     if (!recovery) return { kind: "not_found" }
     if (recovery.status !== "LISTED") throw new RecoveryRefusal("A sale is proposed on a listed recovery")
+    if (await actorIsBuyer(tx, actor.tenantId, actor.userId, { name: input.buyerName, identifier: input.buyerIdentifier })) throw new RecoveryRefusal(SELF_DEALING)
     const now = new Date()
     const today = sastCalendarDate(now)
     const highest = await independentValuation(tx, actor.tenantId, recovery.assetId, input.valuationId, today)
@@ -98,6 +101,7 @@ export async function approveSale(actor: RecoveryActor, recoveryId: string, sale
     const sale = await pendingSale(tx, actor, recoveryId, saleId)
     if (!sale) return { kind: "not_found" }
     if (!approvalRequired(sale)) throw new RecoveryRefusal("This sale needs no approval: it is at or above the valuation and the buyer matched no screened list")
+    if (await actorIsBuyer(tx, actor.tenantId, actor.userId, { name: sale.buyerName, identifier: sale.buyerIdentifier })) throw new RecoveryRefusal(SELF_DEALING)
     if (sale.createdById === actor.userId) throw new RecoveryRefusal("A sale is approved by someone other than the person who proposed it")
     if (sale.approvedById) throw new RecoveryRefusal("The sale is already approved")
     await tx.remarketingSale.update({ where: { id: sale.id, tenantId: actor.tenantId }, data: { approvedById: actor.userId, approvedAt: new Date() } })

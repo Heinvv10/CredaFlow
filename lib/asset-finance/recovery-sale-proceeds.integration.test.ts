@@ -29,6 +29,7 @@ const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: RecoveryFixture
+let adminC = ""
 const database = (): PrismaClient => {
   if (!db) throw new Error("RUN_ASSET_FINANCE_RECOVERY_IT=1 is required")
   return db
@@ -37,6 +38,7 @@ const as = (id: string, role: "CREDIT_OFFICER" | "LOAN_ADMIN") => { session.curr
 const officer = () => as(fx.officer, "CREDIT_OFFICER")
 const adminA = () => as(fx.adminA, "LOAN_ADMIN")
 const adminB = () => as(fx.adminB, "LOAN_ADMIN")
+const third = () => as(adminC, "LOAN_ADMIN")
 const routes = () => saleRoutes(fx.host)
 const deal = (id: string): AcceptanceRecoveryDeal => RECOVERY_DEALS.find((d) => d.id === id) as AcceptanceRecoveryDeal
 
@@ -53,6 +55,7 @@ async function sell(recovery: { id: string; valuationId: string }, d: Acceptance
 suite.sequential("sale, VAT event, proceeds and outcome (real Postgres, real routes)", () => {
   beforeAll(async () => {
     fx = await createRecoveryFixture(database(), t)
+    adminC = (await database().user.create({ data: { tenantId: fx.tenantId, email: `admin-c-${t}@staff.invalid`, password: "x", role: "LOAN_ADMIN" } })).id
     await database().vatConfig.create({ data: { tenantId: fx.tenantId, vatNumber: "4000000001", registeredName: "TEST Asset Credit (Pty) Ltd", address: "1 Synthetic Road, Johannesburg, 2000" } })
   }, 120_000)
 
@@ -129,7 +132,7 @@ suite.sequential("sale, VAT event, proceeds and outcome (real Postgres, real rou
 
     expect(await readJson(await routes().outcome(recovery.id))).toMatchObject({ status: 200, body: { status: "SURPLUS_HELD" } })
 
-    // The surplus refund: created by one LOAN_ADMIN, never approved by the same one, released by a LOAN_ADMIN, which closes the recovery.
+    // The surplus refund takes three different LOAN_ADMINs: one creates, another approves, a third releases, which closes the recovery.
     adminA()
     const created = await readJson(await routes().refund(recovery.id, refundForm()))
     expect(created).toMatchObject({ status: 201, body: { amountCents: d.expected.surplusCents } })
@@ -140,9 +143,11 @@ suite.sequential("sale, VAT event, proceeds and outcome (real Postgres, real rou
     expect((await readJson(await routes().approveRefund(recovery.id))).status).toBe(200)
     expect((await readJson(await routes().releaseRefund(recovery.id))).status).toBe(409) // the approver cannot also release
     adminA()
+    expect((await readJson(await routes().releaseRefund(recovery.id))).status).toBe(409) // nor can the creator
+    third()
     expect(await readJson(await routes().releaseRefund(recovery.id))).toMatchObject({ status: 200 })
     expect(await database().recovery.findUniqueOrThrow({ where: { id: recovery.id } })).toMatchObject({ status: "CLOSED" })
-    expect(await database().recoveryRefund.findUniqueOrThrow({ where: { recoveryId: recovery.id } })).toMatchObject({ status: "RELEASED", releasedById: fx.adminA, approvedById: fx.adminB })
+    expect(await database().recoveryRefund.findUniqueOrThrow({ where: { recoveryId: recovery.id } })).toMatchObject({ status: "RELEASED", releasedById: adminC, approvedById: fx.adminB, createdById: fx.adminA })
     const audited = await database().auditLog.findMany({ where: { tenantId: fx.tenantId, entityId: { in: [recovery.id] } }, select: { newValue: true } })
     expect(JSON.stringify(audited)).not.toContain("62000000001")
   }, 180_000)

@@ -1,12 +1,23 @@
-import { normaliseName } from "@/lib/asset-finance/payout-checklist"
-
 // The pure part of related-party screening for a remarketing sale: does the
 // buyer equal, or appear in, any list a recovery must not sell to without a
 // second approver? Loading the lists is the caller's job. The result carries
 // kinds only, never a name or identifier: it is stored on the sale and written
-// to the audit log. Names compare as normaliseName tokens (so punctuation and
-// spacing do not hide a match); identifiers compare with everything but
-// letters and digits stripped.
+// to the audit log.
+//
+// Identifiers (canonical form, mirrored by the SQL recoveryIdentifierKey):
+//   NFKC, Unicode decimal digits as ASCII, everything but letters and digits
+//   dropped, upper case. A CIPC registration number (YYYY/NNNNNN/NN) is further
+//   reduced to YYYY + NNNNNN + the suffix as a number: the CK prefix and the
+//   suffix's leading zero are insignificant. A buyer's identifier may carry a
+//   label ("ID: ...", "Reg ..."): letters around an otherwise numeric key are dropped.
+// Names: NFKD with the marks removed, lower case, apostrophes dropped, titles
+//   (Mr, Mrs, Ms, Miss, Dr, Prof, Adv) and company words (Pty, Proprietary,
+//   Ltd, Limited, CC, Inc, Trading, Trading as, T/A) dropped, name particles
+//   (van der, de, du ...) joined to the word after them however they were
+//   spaced, then compared as a SET of tokens (order does not matter), or as
+//   the same letters run together. A natural person also matches probably on
+//   surname plus first initial. Free text (a COI declaration) matches on the
+//   buyer's tokens in order, as whole tokens.
 // UNTESTED: the list of screened parties needs the lender's compliance sign-off.
 
 export type ScreeningKind = "BORROWER" | "RELATED_PARTY" | "STAFF" | "COI_DECLARATION"
@@ -20,6 +31,8 @@ export interface ScreeningCandidates {
   kind: ScreeningKind
   names: string[]
   identifiers: string[]
+  /** Names of natural persons, which also match probably on surname and first initial. */
+  people?: string[]
   /** Free text (COI details): matches when it contains the buyer's name or identifier as whole tokens. */
   freeText?: string[]
 }
@@ -34,13 +47,73 @@ export interface ScreeningResult {
   matches: ScreeningMatch[]
 }
 
-/** Letters and digits only, upper case. */
-export function normaliseIdentifier(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+/** NFKC with every Unicode decimal digit as its ASCII digit. */
+function fold(value: string): string {
+  return value.normalize("NFKC").replace(/\p{Nd}/gu, (digit) => {
+    let start = digit.codePointAt(0) as number
+    const at = start
+    while (start > 0 && at - (start - 1) < 10 && /\p{Nd}/u.test(String.fromCodePoint(start - 1))) start--
+    return String((at - start) % 10)
+  })
 }
 
-function tokens(value: string): string[] {
-  return normaliseName(value).split(/[^\p{L}\p{N}]+/u).filter((token) => token !== "")
+/** Letters and digits only, upper case (the digits ASCII). */
+export function normaliseIdentifier(value: string): string {
+  return fold(value).replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+}
+
+const REGISTRATION = /^(?:CK)?(\d{4})(\d{6})(\d{1,2})$/
+
+/** The identifier as screening compares it: label letters dropped from a numeric key, a CIPC number in canonical form. */
+export function canonicalIdentifier(value: string): string {
+  let key = normaliseIdentifier(value)
+  const bare = key.replace(/^[A-Z]{1,8}(?=\d)/, "").replace(/(?<=\d)[A-Z]{1,8}$/, "")
+  if (/^\d{6,}$/.test(bare)) key = bare
+  const registration = REGISTRATION.exec(key)
+  return registration ? `${registration[1]}${registration[2]}${Number(registration[3])}` : key
+}
+
+const TITLES = new Set(["mr", "mrs", "ms", "miss", "dr", "prof", "adv"])
+const COMPANY_WORDS = new Set(["pty", "proprietary", "ltd", "limited", "cc", "inc", "incorporated", "trading"])
+const PARTICLES = new Set(["van", "der", "den", "de", "du", "von", "le", "la", "ten", "ter", "te", "vander", "vanden", "vande"])
+
+function words(value: string): string[] {
+  return fold(value).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
+    .replace(/['’`´]/g, "").replace(/\bt\/a\b/g, " ").split(/[^\p{L}\p{N}]+/u).filter((word) => word !== "")
+}
+
+/** The tokens of a name once titles and company words are gone and particles are joined to the word after them. */
+export function nameTokens(value: string): string[] {
+  const kept = words(value).filter((word, i, all) => !TITLES.has(word) && !COMPANY_WORDS.has(word) && !(word === "as" && all[i - 1] === "trading"))
+  const tokens: string[] = []
+  let prefix = ""
+  for (const word of kept) {
+    if (PARTICLES.has(word)) {
+      prefix += word
+      continue
+    }
+    tokens.push(prefix + word)
+    prefix = ""
+  }
+  if (prefix !== "") tokens.push(prefix)
+  return tokens
+}
+
+const sortedKey = (tokens: string[]) => [...tokens].sort().join(" ")
+
+function sameName(buyer: string[], candidate: string[]): boolean {
+  if (buyer.length === 0 || candidate.length === 0) return false
+  return sortedKey(buyer) === sortedKey(candidate) || buyer.join("") === candidate.join("")
+}
+
+/** A natural person's surname (the last word) and first initial both appear in the buyer's name. */
+function probablyPerson(buyer: string[], person: string[]): boolean {
+  if (buyer.length < 2 || person.length < 2) return false
+  const surname = person[person.length - 1]
+  const at = buyer.indexOf(surname)
+  if (at < 0) return false
+  const initial = person[0][0]
+  return buyer.some((token, i) => i !== at && token.startsWith(initial))
 }
 
 /** Whether `needle` occurs in `haystack` as a run of whole tokens. */
@@ -52,38 +125,35 @@ function containsTokens(haystack: string[], needle: string[]): boolean {
   return false
 }
 
-/** Whether a run of whole tokens concatenates to `identifier` (a registration number split by slashes or spaces). */
+/** Whether a run of whole words concatenates to the identifier (a registration number split by slashes or spaces). */
 function containsIdentifier(haystack: string[], identifier: string): boolean {
   if (identifier === "") return false
   for (let start = 0; start < haystack.length; start++) {
     let joined = ""
-    for (let end = start; end < haystack.length && joined.length < identifier.length; end++) {
+    for (let end = start; end < haystack.length && joined.length < identifier.length + 3; end++) {
       joined += haystack[end]
-      if (joined === identifier) return true
+      if (canonicalIdentifier(joined) === identifier) return true
     }
   }
   return false
 }
 
 export function screenBuyer(buyer: ScreeningBuyer, candidates: ScreeningCandidates[]): ScreeningResult {
-  const name = tokens(buyer.name)
-  const identifier = normaliseIdentifier(buyer.identifier)
+  const name = nameTokens(buyer.name)
+  const identifier = canonicalIdentifier(buyer.identifier)
   const matches: ScreeningMatch[] = []
   for (const candidate of candidates) {
+    const people = new Set(candidate.people ?? [])
     for (const candidateName of candidate.names) {
-      if (name.length > 0 && tokens(candidateName).join(" ") === name.join(" ")) {
-        matches.push({ kind: candidate.kind, on: "NAME" })
-      }
+      const tokens = nameTokens(candidateName)
+      if (sameName(name, tokens) || (people.has(candidateName) && probablyPerson(name, tokens))) matches.push({ kind: candidate.kind, on: "NAME" })
     }
     for (const candidateIdentifier of candidate.identifiers) {
-      if (identifier !== "" && normaliseIdentifier(candidateIdentifier) === identifier) {
-        matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
-      }
+      if (identifier !== "" && canonicalIdentifier(candidateIdentifier) === identifier) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
     }
     for (const text of candidate.freeText ?? []) {
-      const words = tokens(text)
-      if (containsTokens(words, name)) matches.push({ kind: candidate.kind, on: "NAME" })
-      if (containsIdentifier(words, identifier)) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
+      if (containsTokens(nameTokens(text), name)) matches.push({ kind: candidate.kind, on: "NAME" })
+      if (containsIdentifier(words(text), identifier)) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
     }
   }
   return { match: matches.length > 0, matches }

@@ -1,4 +1,4 @@
-import type { ScreeningCandidates } from "./recovery-screening"
+import { screenBuyer, type ScreeningBuyer, type ScreeningCandidates } from "./recovery-screening"
 import type { SigningTx } from "./signing-prepare"
 
 // Loads the lists a remarketing buyer is screened against (recovery-screening.ts
@@ -35,12 +35,26 @@ export async function loadScreeningCandidates(tx: SigningTx, tenantId: string, l
     ...(deal?.signers.map((s) => s.client) ?? []),
   ]
   const borrower: ScreeningCandidates = loan?.client
-    ? { kind: "BORROWER", names: [personNames(loan.client)], identifiers: [loan.client.idNumber] }
+    ? { kind: "BORROWER", names: [personNames(loan.client)], people: [personNames(loan.client)], identifiers: [loan.client.idNumber] }
     : { kind: "BORROWER", names: [loan?.entity?.legalName, loan?.entity?.tradingName].filter((n): n is string => !!n), identifiers: loan?.entity ? [loan.entity.registrationNumber] : [] }
   return [
     borrower,
-    { kind: "RELATED_PARTY", names: related.map(personNames), identifiers: related.map((p) => p.idNumber) },
-    { kind: "STAFF", names: staff.flatMap((u) => (u.name ? [u.name] : [])), identifiers: [] },
+    { kind: "RELATED_PARTY", names: related.map(personNames), people: related.map(personNames), identifiers: related.map((p) => p.idNumber) },
+    { kind: "STAFF", names: staff.flatMap((u) => (u.name ? [u.name] : [])), people: staff.flatMap((u) => (u.name ? [u.name] : [])), identifiers: [] },
     { kind: "COI_DECLARATION", names: [], identifiers: [], freeText: declarations.flatMap((d) => (d.details ? [d.details] : [])) },
   ]
+}
+
+/**
+ * Whether the acting staff member screens as the buyer: their own name, or any
+ * conflict declaration of theirs (any year) naming the buyer. Nobody proposes,
+ * approves or completes the sale of an asset to themselves.
+ */
+export async function actorIsBuyer(tx: SigningTx, tenantId: string, userId: string, buyer: ScreeningBuyer): Promise<boolean> {
+  const user = await tx.user.findFirst({ where: { id: userId, tenantId }, select: { name: true } })
+  const declarations = await tx.coiDeclaration.findMany({ where: { tenantId, userId }, select: { details: true } })
+  return screenBuyer(buyer, [
+    { kind: "STAFF", names: user?.name ? [user.name] : [], people: user?.name ? [user.name] : [], identifiers: [] },
+    { kind: "COI_DECLARATION", names: [], identifiers: [], freeText: declarations.flatMap((d) => (d.details ? [d.details] : [])) },
+  ]).match
 }

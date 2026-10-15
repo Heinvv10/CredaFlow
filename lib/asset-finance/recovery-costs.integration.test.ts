@@ -109,7 +109,7 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     // NCA: taxed legal costs name the judgment or settlement step; other types are never charged to the account.
     const taxed = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT" }))
     expect(taxed.status).toBe(409)
-    expect(String(taxed.body.error)).toMatch(/Taxed legal costs name the judgment or settlement step/)
+    expect(String(taxed.body.error)).toMatch(/Taxed legal costs name the evidenced judgment or settlement step/)
     const judgment = await database().legalMatterStep.findFirstOrThrow({ where: { matterId, kind: "JUDGMENT" } })
     const legal = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT", legalStepId: judgment.id }))
     expect(legal.status).toBe(201)

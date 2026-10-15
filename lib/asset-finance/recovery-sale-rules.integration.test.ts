@@ -125,7 +125,7 @@ suite.sequential("remarketing sale rules (real Postgres, real routes)", () => {
 
     const non = await plainListed(database(), fx, "NON_NCA", 50_000_000)
     expect(await propose(non, 60_000_000, { buyerName: "test DIRECTOR", buyerIdentifier: "9999999999999" })).toMatchObject({ status: 201, body: { relatedPartyMatch: true } })
-    await database().coiDeclaration.create({ data: { tenantId: fx.tenantId, userId: fx.officer, year: Number(sastCalendarDate(new Date()).slice(0, 4)), hasConflict: true, details: "Cousin owns TEST Cousin Autos" } })
+    await database().coiDeclaration.create({ data: { tenantId: fx.tenantId, userId: fx.adminB, year: Number(sastCalendarDate(new Date()).slice(0, 4)), hasConflict: true, details: "Cousin owns TEST Cousin Autos" } })
     const coi = await propose(non, 60_000_000, { buyerName: "Test Cousin Autos", buyerIdentifier: "8888888888888" })
     expect(coi).toMatchObject({ status: 201, body: { relatedPartyMatch: true } })
     expect((await database().remarketingSale.findUniqueOrThrow({ where: { id: coi.body.id as string } })).screeningResult).toMatchObject({ matches: [{ kind: "COI_DECLARATION", on: "NAME" }] })

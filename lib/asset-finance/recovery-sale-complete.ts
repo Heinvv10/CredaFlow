@@ -6,7 +6,8 @@ import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
 import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
-import { approvalRequired } from "./recovery-sale"
+import { approvalRequired, SELF_DEALING } from "./recovery-sale"
+import { actorIsBuyer } from "./recovery-screening-store"
 import { repossessionVatEvent, type RecoveryContractType } from "./recovery-vat"
 import type { SigningTx } from "./signing-prepare"
 
@@ -50,6 +51,7 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
     const { recovery } = sale
     if (sale.status !== "PENDING_APPROVAL") throw new RecoveryRefusal(`The sale is already ${sale.status.toLowerCase()}`)
     if (recovery.status !== "LISTED") throw new RecoveryRefusal("A sale completes on a listed recovery")
+    if (await actorIsBuyer(tx, actor.tenantId, actor.userId, { name: sale.buyerName, identifier: sale.buyerIdentifier })) throw new RecoveryRefusal(SELF_DEALING)
     const today = sastCalendarDate(new Date())
     if (toDayNumber(input.completedOn) > toDayNumber(today)) throw new RecoveryRefusal("The sale cannot be completed on a future date")
     if (toDayNumber(input.completedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The sale cannot be dated before the recovery")
