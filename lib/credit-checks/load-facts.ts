@@ -6,7 +6,7 @@
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import type { AppStatus, StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { needsModelLabels } from "@/lib/statement-analysis/model-labels"
+import { needsModelLabels, storedModelLabels } from "@/lib/statement-analysis/model-labels"
 import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { PARSER_VERSION } from "@/lib/statement-analysis/analyse"
 import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/lib/statement-analysis/types"
@@ -40,7 +40,7 @@ export function statementFacts(documentId: string, a: StatementAnalysis): Statem
     read,
     balanceCheck: a.balanceCheck,
     authenticity: a.authenticity as unknown as AuthenticityFacts,
-    modelLabels: a.modelCategories,
+    modelLabels: storedModelLabels(a),
   }
 }
 

@@ -90,6 +90,15 @@ export function needsModelLabels(a: { status: string; modelCategoriesVersion: st
   return MODEL_LABELS.enabled && !!config && Date.now() >= unavailableUntil && a.status === "READ" && a.modelCategoriesVersion !== modelLabelsVersion(config.model)
 }
 
+/**
+ * A read's stored labels, to apply on read: only while labelling is on and
+ * only from the current prompt, so labels written before a switch-off or by an
+ * older prompt never feed a figure, a flag or the export.
+ */
+export function storedModelLabels(a: { modelCategories: unknown; modelCategoriesVersion: string | null }): unknown {
+  return MODEL_LABELS.enabled && a.modelCategoriesVersion?.endsWith(`|${MODEL_LABEL_PROMPT_VERSION}`) ? a.modelCategories : null
+}
+
 /** The stored labels: label key → category. */
 export type ModelLabels = Record<string, Category>
 
