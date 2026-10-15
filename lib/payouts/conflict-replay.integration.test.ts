@@ -2,8 +2,9 @@
  * Real-Postgres proof against replayed provider reports (PR #89 round 3
  * scan, "fail-open / webhook replay"): a report carries the provider's event
  * id and event time; an exact duplicate is audited and changes nothing; a
- * report is ordered by the provider's event time (capped at receipt, which
- * is the database clock), so one not newer than a resolution never reopens it.
+ * new event id reopens a resolved conflict whatever its event time, while
+ * the provider's event time (capped at receipt, the database clock) decides
+ * the state stored; every report not applied is listed for staff.
  *
  *   RUN_PAYOUTS_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/payouts/conflict-replay.integration.test.ts
@@ -20,6 +21,7 @@ import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.inte
 import { failedPayoutLoan } from "./payouts.integration-fixture"
 import { signSimulatedWebhook, simulatedPayouts } from "./providers/simulated"
 import { applyProviderState, ingestNotification, resolvePayout } from "./resolve"
+import { loadUnappliedReports } from "./unapplied-reports"
 import type { ProviderPayoutState } from "./types"
 
 const suite = process.env.RUN_PAYOUTS_IT === "1" ? describe : describe.skip
@@ -67,12 +69,38 @@ suite.sequential("replayed provider reports (real Postgres)", () => {
     expect(await outcomes(loan.payoutId)).toEqual(["recorded", "duplicate", "reopened"])
   })
 
-  it("does not reopen on a new event whose provider time is not newer than the resolution", async () => {
+  it("E2: reopens on a new event id even when its provider time is older than the resolution", async () => {
     const loan = await failedPayoutLoan(db, tenant, user(""))
     await report(loan.payoutId, "PAID", { id: "E1", at: minutesAgo(10) })
     await resolveNotPaid(loan.payoutId)
-    expect(await report(loan.payoutId, "PAID", { id: "E0", at: minutesAgo(8) })).toMatchObject({ report: "dropped" })
-    expect(await row(loan.payoutId)).toMatchObject({ conflictResolvedById: resolver().id, providerConflictEventId: "E1" })
+    expect(await report(loan.payoutId, "PAID", { id: "E0", at: minutesAgo(8) })).toMatchObject({ conflict: true, report: "reopened" })
+    expect(await row(loan.payoutId)).toMatchObject({ conflictResolvedAt: null, providerConflictState: "PAID", providerConflictEventId: "E0" })
+  })
+
+  it("E3: a PAID whose event time is earlier than a stored RETURNED's is stored as paid, then returned", async () => {
+    const loan = await failedPayoutLoan(db, tenant, user(""))
+    expect(await report(loan.payoutId, "RETURNED", { id: "R1", at: minutesAgo(2) })).toMatchObject({ report: "recorded" })
+    expect(await report(loan.payoutId, "PAID", { id: "P1", at: minutesAgo(6) })).toMatchObject({ conflict: true, report: "returned_after_paid" })
+    expect(await row(loan.payoutId)).toMatchObject({ providerConflictState: "PAID_THEN_RETURNED", conflictResolvedAt: null })
+    // A PAID later than the RETURNED is the stronger, later fact.
+    const other = await failedPayoutLoan(db, tenant, user(""))
+    await report(other.payoutId, "RETURNED", { id: "R1", at: minutesAgo(6) })
+    expect(await report(other.payoutId, "PAID", { id: "P1", at: minutesAgo(2) })).toMatchObject({ report: "strengthened" })
+    expect(await row(other.payoutId)).toMatchObject({ providerConflictState: "PAID" })
+  })
+
+  it("lists every report not applied (stale, dropped, refused) for staff, and audits a late PAID on a RETURNED attempt", async () => {
+    const loan = await failedPayoutLoan(db, tenant, user(""))
+    await report(loan.payoutId, "PROCESSING", { id: "S1", at: null })
+    await report(loan.payoutId, "PAID", { id: "P1", at: null })
+    await report(loan.payoutId, "RETURNED", { id: "R1", at: minutesAgo(30) })
+    const listed = (await loadUnappliedReports(prisma, tenant.tenantId)).filter((r) => r.payoutId === loan.payoutId)
+    expect(listed.map((r) => r.outcome).sort()).toEqual(["dropped", "stale"])
+    // An attempt paid, then returned, hears PAID again.
+    const paid = await failedPayoutLoan(db, tenant, user(""), "RETURNED")
+    expect(await report(paid.payoutId, "PAID", { id: "P9", at: null })).toMatchObject({ status: "RETURNED", changed: false })
+    expect(await db.auditLog.count({ where: { entityId: paid.payoutId, action: "PAYOUT_PROVIDER_REPORT_IGNORED" } })).toBe(1)
+    expect((await loadUnappliedReports(prisma, tenant.tenantId)).some((r) => r.payoutId === paid.payoutId)).toBe(true)
   })
 
   it("caps a provider event time in the future at receipt", async () => {
@@ -82,7 +110,7 @@ suite.sequential("replayed provider reports (real Postgres)", () => {
     expect(r.providerConflictEventAt!.getTime()).toBeLessThanOrEqual(r.providerConflictAt!.getTime())
   })
 
-  it("the database refuses a reopen by a report not newer than the resolution", async () => {
+  it("the database refuses a reopen carrying the very event the decision was made on", async () => {
     const loan = await failedPayoutLoan(db, tenant, user(""))
     await report(loan.payoutId, "PAID", { id: "E1", at: minutesAgo(10) })
     await resolveNotPaid(loan.payoutId)
@@ -91,7 +119,7 @@ suite.sequential("replayed provider reports (real Postgres)", () => {
       where: { id: loan.payoutId },
       data: {
         conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null,
-        providerConflictAt: new Date(r.conflictResolvedAt!.getTime() + 1000), providerConflictEventAt: minutesAgo(9), providerConflictEventId: "E0", providerConflictDetail: "replayed",
+        providerConflictAt: new Date(r.conflictResolvedAt!.getTime() + 1000), providerConflictEventAt: minutesAgo(9), providerConflictEventId: r.providerConflictEventId, providerConflictDetail: "replayed",
       },
     }), /terms never change/)
   })

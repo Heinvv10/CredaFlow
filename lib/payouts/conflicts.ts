@@ -19,11 +19,14 @@
  *  - "recorded": the first PAID/RETURNED;
  *  - "strengthened": a stronger report (PAID > RETURNED) replaces an
  *    unresolved one;
- *  - "returned_after_paid": a RETURNED after an unresolved PAID is the later,
- *    final fact: stored as PAID_THEN_RETURNED (nets to not paid; never paid
- *    or recovered, and nothing overwrites it);
- *  - "reopened": a PAID/RETURNED after the conflict was resolved not paid
- *    clears the resolution and blocks again;
+ *  - "returned_after_paid": a RETURNED later (by event time) than an
+ *    unresolved PAID, or a PAID earlier than an unresolved RETURNED, is
+ *    stored as PAID_THEN_RETURNED (nets to not paid; never paid or recovered,
+ *    and nothing overwrites it);
+ *  - "reopened": any new PAID/RETURNED event (a new event id, or a status
+ *    query) after the conflict was resolved not paid clears the resolution
+ *    and blocks again, whatever its event time (the time only decides the
+ *    state stored);
  *  - "duplicate": the provider's event id was seen before for this attempt
  *    (a redelivery or replay); nothing changes;
  *  - "rejected": the database refused it (a rule the code did not foresee):
@@ -31,11 +34,12 @@
  *    audited (PAYOUT_PROVIDER_REPORT_REJECTED), logged and listed on the
  *    outstanding-payouts queue, never thrown at a webhook;
  *  - "dropped": weaker than the unresolved report, the attempt is no longer
- *    over, the money is already a recovery case, or (after a resolution) the
- *    event is not newer than the decision.
+ *    over, or the money is already a recovery case.
  *
- * Reports are ordered by the provider's own event time, capped at receipt;
- * receipt and resolution times come from the database clock (dbClock).
+ * Every report not applied (stale, dropped, rejected, or a late report on a
+ * settled attempt) is listed for staff (lib/payouts/unapplied-reports.ts).
+ * The provider's event time is capped at receipt; receipt and resolution
+ * times come from the database clock (dbClock).
  */
 import type { DisbursementPayout } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -56,6 +60,19 @@ export interface ProviderEvent { id: string | null; at: Date | null }
 export const PAID_THEN_RETURNED = "PAID_THEN_RETURNED"
 const STRENGTH: Partial<Record<string, number>> = { [PAID_THEN_RETURNED]: 5, PAID: 4, RETURNED: 3, PROCESSING: 2, SUBMITTED: 1 }
 const strength = (state: string | null) => (state ? STRENGTH[state] ?? 0 : 0)
+
+/**
+ * The state to store when `next` (at `nextAt`) meets the stored `prev` (at
+ * `prevAt`), by the provider's event times; null = `prev` stands. A RETURNED
+ * after a PAID, or a PAID before a RETURNED, is paid-then-returned.
+ */
+function combine(prev: string | null, prevAt: Date | null, next: string, nextAt: Date): string | null {
+  if (!prev) return next
+  const later = !prevAt || nextAt.getTime() >= prevAt.getTime()
+  if (prev === "PAID" && next === "RETURNED") return later ? PAID_THEN_RETURNED : null
+  if (prev === "RETURNED" && next === "PAID") return later ? "PAID" : PAID_THEN_RETURNED
+  return strength(next) > strength(prev) ? next : null
+}
 
 export async function recordProviderConflict(db: PayoutDb, args: {
   tenantId: string
@@ -115,20 +132,23 @@ async function recordInTx(db: PayoutDb, args: Parameters<typeof recordProviderCo
     }
     const row = await tx.disbursementPayout.findFirst({
       where: { id: args.payout.id, tenantId: args.tenantId },
-      select: { status: true, providerConflictState: true, providerConflictAt: true, conflictResolvedAt: true, recoveryCase: { select: { id: true } } },
+      select: { status: true, providerConflictState: true, providerConflictAt: true, providerConflictEventAt: true, conflictResolvedAt: true, recoveryCase: { select: { id: true } } },
     })
     let outcome: ReportOutcome = "dropped"
     let data: Record<string, unknown> | null = null
     if (row && CONFLICTABLE.includes(row.status as PayoutStatus)) {
       // Stamped under the loan lock: after any resolution that committed while this report waited.
       const reported = { providerConflictState: args.state, providerConflictAt: receivedAt, providerConflictDetail: detail, providerConflictEventId: eventId, providerConflictEventAt: eventAt }
+      const next = combine(row.providerConflictState, row.providerConflictEventAt ?? row.providerConflictAt, args.state, eventAt)
+      const stated = next === PAID_THEN_RETURNED
+        ? { ...reported, providerConflictState: PAID_THEN_RETURNED, providerConflictDetail: `${detail} (paid, then returned)`.slice(0, 500) }
+        : next ? { ...reported, providerConflictState: next } : null
       if (!row.providerConflictAt) [outcome, data] = ["recorded", reported]
       else if (!row.conflictResolvedAt) {
-        if (row.providerConflictState === "PAID" && args.state === "RETURNED") {
-          [outcome, data] = ["returned_after_paid", { ...reported, providerConflictState: PAID_THEN_RETURNED, providerConflictDetail: `${detail} (after reporting it PAID)`.slice(0, 500) }]
-        } else if (strength(args.state) > strength(row.providerConflictState)) [outcome, data] = ["strengthened", reported]
-      } else if (!row.recoveryCase && eventAt.getTime() > row.conflictResolvedAt.getTime()) {
-        [outcome, data] = ["reopened", { ...reported, conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
+        if (stated) [outcome, data] = [next === PAID_THEN_RETURNED ? "returned_after_paid" : "strengthened", stated]
+      } else if (!row.recoveryCase) {
+        // A new event reopens whatever its time; its time only decides the state kept.
+        [outcome, data] = ["reopened", { ...(stated ?? { ...reported, providerConflictState: row.providerConflictState }), conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
       }
     }
     if (data && row) {

@@ -95,7 +95,17 @@ export async function applyProviderState(db: PayoutDb, args: {
     return { status: current, changed: false, ...(stored ? { conflict: true as const } : {}), report }
   }
   const to = nextFromProvider(current, args.state)
-  if (!to) return { status: current, changed: false }
+  if (!to) {
+    // A different state on an attempt that cannot take it (e.g. PAID on a RETURNED one): audited, listed for staff.
+    if (args.state !== current) {
+      await logAuditStrict({
+        tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
+        action: AuditAction.PAYOUT_PROVIDER_REPORT_IGNORED, entity: "DisbursementPayout", entityId: args.payout.id,
+        newValue: { status: current, reported: args.state, source: args.source, outcome: "stale", eventId: args.event?.id ?? null },
+      }, db)
+    }
+    return { status: current, changed: false }
+  }
   const changed = await transitionPayout(db, {
     tenantId: args.tenantId, payoutId: args.payout.id, from: current, to,
     data: args.reason ? { failureReason: args.reason.slice(0, 500) } : {},

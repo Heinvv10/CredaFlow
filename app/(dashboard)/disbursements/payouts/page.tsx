@@ -10,15 +10,12 @@ import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { conflictStateLabel, PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
 import { loadDoublePayoutRisks } from "@/lib/payouts/double-payout"
+import { loadUnappliedReports } from "@/lib/payouts/unapplied-reports"
 import { formatZAR } from "@/lib/utils"
 
 export const metadata = { title: "Outstanding payouts — Disbursements" }
 
 const OPEN: PayoutStatus[] = ["PENDING", "SUBMITTING", "SUBMITTED", "PROCESSING", "NEEDS_REVIEW", "AWAITING_APPROVAL"]
-/** The instant `n` days before now (a query bound, not render state). */
-function daysAgo(n: number): Date {
-  return new Date(Date.now() - n * 86_400_000)
-}
 const fmt = (d: Date | null) => (d ? d.toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" }) : "—")
 
 /**
@@ -52,14 +49,11 @@ export default async function OutstandingPayoutsPage() {
       select: { id: true, loanId: true, decidedAt: true, loan: { select: { reference: true } } },
     }),
     loadDoublePayoutRisks(prisma, tenantId),
-    // Provider reports the database refused to record (lib/payouts/conflicts.ts): someone must look.
-    prisma.auditLog.findMany({
-      where: { tenantId, action: "PAYOUT_PROVIDER_REPORT_REJECTED", createdAt: { gte: daysAgo(30) } },
-      orderBy: { createdAt: "desc" }, take: 50, select: { id: true, entityId: true, createdAt: true, newValue: true },
-    }),
+    // Provider reports not applied (stale, dropped, refused): someone must look.
+    loadUnappliedReports(prisma, tenantId),
   ])
   const rejectedLoans = new Map((await prisma.disbursementPayout.findMany({
-    where: { tenantId, id: { in: rejected.map((r) => r.entityId ?? "") } },
+    where: { tenantId, id: { in: rejected.map((r) => r.payoutId) } },
     select: { id: true, attempt: true, loanId: true, loan: { select: { reference: true } } },
   })).map((p) => [p.id, p]))
 
@@ -111,15 +105,14 @@ export default async function OutstandingPayoutsPage() {
         )}
       </DataPanel>
       {rejected.length > 0 && (
-        <DataPanel title="Provider reports refused (last 30 days)" description="A provider report the system could not record. Nothing changed; check the provider's report and the loan by hand.">
+        <DataPanel title="Provider reports not applied (last 30 days)" description="Reports that changed nothing: stale (no money news, or a state the attempt cannot take), dropped (weaker than the open report, or already a recovery case) or refused by the database. Check the provider's report and the loan by hand.">
           <ul className="space-y-2 text-sm">
             {rejected.map((r) => {
-              const p = rejectedLoans.get(r.entityId ?? "")
-              const v = (r.newValue ?? {}) as { reported?: string; reason?: string }
+              const p = rejectedLoans.get(r.payoutId)
               return (
-                <li key={r.id}>
-                  {p ? <Link href={`/loans/${p.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{p.loan.reference}</Link> : r.entityId}
-                  <span className="text-[var(--cf-danger)]"> · attempt #{p?.attempt ?? "?"} reported {v.reported ?? "?"} on {fmt(r.createdAt)} · {v.reason ?? "refused"}</span>
+                <li key={r.auditId}>
+                  {p ? <Link href={`/loans/${p.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{p.loan.reference}</Link> : r.payoutId}
+                  <span className={r.outcome === "rejected" ? "text-[var(--cf-danger)]" : "text-[var(--cf-text-muted)]"}> · attempt #{p?.attempt ?? "?"} reported {r.reported || "?"} on {fmt(r.at)} · {r.outcome}{r.reason ? `: ${r.reason}` : ""}</span>
                 </li>
               )
             })}
