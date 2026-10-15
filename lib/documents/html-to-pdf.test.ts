@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const { setContent, pdf, newPage, close, launch } = vi.hoisted(() => ({
+const { setContent, waitForNetworkIdle, pdf, newPage, close, launch } = vi.hoisted(() => ({
   setContent: vi.fn(),
+  waitForNetworkIdle: vi.fn(),
   pdf: vi.fn(),
   newPage: vi.fn(),
   close: vi.fn(),
@@ -16,7 +17,7 @@ import { htmlToPdf } from "./html-to-pdf"
 
 beforeEach(() => {
   vi.clearAllMocks()
-  newPage.mockResolvedValue({ setContent, pdf })
+  newPage.mockResolvedValue({ setContent, waitForNetworkIdle, pdf })
   launch.mockResolvedValue({ newPage, close })
 })
 
@@ -34,7 +35,10 @@ describe("htmlToPdf", () => {
       }),
     )
     expect(newPage).toHaveBeenCalledTimes(1)
-    expect(setContent).toHaveBeenCalledWith("<h1>Hi</h1>", { waitUntil: "networkidle0" })
+    expect(setContent).toHaveBeenCalledWith("<h1>Hi</h1>", { waitUntil: "load" })
+    expect(waitForNetworkIdle).toHaveBeenCalledWith({ idleTime: 500, concurrency: 0 })
+    expect(waitForNetworkIdle.mock.invocationCallOrder[0]).toBeGreaterThan(setContent.mock.invocationCallOrder[0])
+    expect(pdf.mock.invocationCallOrder[0]).toBeGreaterThan(waitForNetworkIdle.mock.invocationCallOrder[0])
     expect(pdf).toHaveBeenCalledWith(
       expect.objectContaining({ format: "A4", printBackground: true }),
     )
