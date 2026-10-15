@@ -1,7 +1,9 @@
 /**
  * H1 of the PR review, against a real database: an instalment sale posts when its supplier payout is
- * released, and a contract that cannot be posted yet blocks only the months from then on. A payout not
- * released has posted nothing and blocks nothing; a contract booked after a month cannot block that month.
+ * released, and a contract that cannot be posted blocks only the months from the day it was booked or
+ * released: a contract booked after a month cannot block that month. (The app never leaves a booked
+ * contract with an unreleased payout: booking releases it in the same transaction. The unreleased case
+ * is written straight to the tables here.)
  *
  *   RUN_ACCOUNTING_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/accounting/asset-finance-release-timing.integration.test.ts
@@ -37,9 +39,9 @@ const sale = (id: string, releasedAt: string, openings: boolean): SourceLoan => 
   },
 })
 
-// UNSUPPORTED: no schedule opening balances, released on 2026-10-14; APPROVED: its payout is approved but never released.
+// LATE: no schedule opening balances, released on 2026-10-14; APPROVED: booked 2026-10-14 but its payout is approved and never released.
 const LATE = sale("jrn-h1-late", "2026-10-14", false)
-const APPROVED = sale("jrn-h1-approved", "2026-08-20", true)
+const APPROVED = sale("jrn-h1-approved", "2026-10-14", true)
 
 const plan = (key: string) => runWithTenant(tenant.tenantId, () => planPeriod(prisma, tenant.tenantId, parsePeriodKey(key)!, AFTER))
 const close = (key: string) => runWithTenant(tenant.tenantId, () => closePeriod(prisma, { tenantId: tenant.tenantId, periodKey: key, userId: tenant.userId, userEmail: "h1@test.invalid", now: AFTER }))
@@ -66,7 +68,7 @@ suite.sequential("an instalment sale posts when its payout is released (real Pos
     expect(august.controls).toEqual([])
   })
 
-  it("a payout never released has posted nothing: its tax invoice and schedule owe nothing to the books", async () => {
+  it("a payout never released has posted nothing, and its contract (booked in October) blocks neither August nor September", async () => {
     const book = await runWithTenant(tenant.tenantId, () => independentBook(prisma, tenant.tenantId, day("2026-11-01")))
     expect(book.has(APPROVED.id)).toBe(false)
     expect((await plan("2026-09")).entries).toEqual([])
@@ -77,6 +79,7 @@ suite.sequential("an instalment sale posts when its payout is released (real Pos
     expect((await close("2026-09")).created).toBe(true)
     const october = await plan("2026-10")
     expect(october.refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("a schedule row has no opening balance") })
+    expect(october.refusal?.message).toContain("the supplier payout has not been released")
     expect(october.controls).toEqual([])
     await expect(close("2026-10")).rejects.toMatchObject({ code: "AF_SOURCE_UNSUPPORTED" })
   })

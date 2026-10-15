@@ -112,17 +112,19 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
   const eot = loan.leaseEndOfTerm
   const assetSale = (invoiceId: string) => (eot?.outcome === "PURCHASE" && eot.taxInvoiceId === invoiceId ? eot.purchasePriceExclVatCents ?? 0 : 0)
   const rentalInvoiceIds = new Set(loan.taxInvoices.filter((i) => i.leaseRental).map((i) => i.id))
-  // A payout not yet released has posted nothing, so it blocks no month. What cannot be expressed blocks the months from its release on.
-  const from = released?.releasedAt ?? null
+  // Booking creates the loan and releases the payout in one transaction (lib/asset-finance/booking.ts, lease-booking.ts), so a booked
+  // contract with an unreleased payout is not a state the app produces. If one exists it cannot be posted, from the day it was booked
+  // (never for the months before). What cannot be expressed blocks the months from the payout's release on.
+  const bookedOn = !lease && loan.taxInvoices[0] ? dayOf(loan.taxInvoices[0].supplyDate) : loan.startDate
+  const from = released?.releasedAt ?? bookedOn
   const flag = (message: string) => unsupported.push({ loanId: loan.id, from, message: `${loan.reference}: ${message}` })
-  if (released) {
-    if (lease) {
-      if (released.amountCents !== asset.exclVatCents + asset.vatCents) flag("a lease with a deposit or trade-in is not exported yet")
-    } else {
-      if (loan.taxInvoices.some((i) => i.creditNotes.length > 0)) flag("a credit note against the inception invoice is not exported yet")
-      if (loan.taxInvoices.length === 0) flag("no inception tax invoice")
-      if (loan.repaymentSchedule.some((r) => r.assetFinanceOpeningBalanceCents === null)) flag("a schedule row has no opening balance")
-    }
+  if (!released) flag("the supplier payout has not been released")
+  else if (lease) {
+    if (released.amountCents !== asset.exclVatCents + asset.vatCents) flag("a lease with a deposit or trade-in is not exported yet")
+  } else {
+    if (loan.taxInvoices.some((i) => i.creditNotes.length > 0)) flag("a credit note against the inception invoice is not exported yet")
+    if (loan.taxInvoices.length === 0) flag("no inception tax invoice")
+    if (loan.repaymentSchedule.some((r) => r.assetFinanceOpeningBalanceCents === null)) flag("a schedule row has no opening balance")
   }
   const billed = (invoiceId: string) => (loan.maintenanceFund?.movements ?? []).filter((m) => m.kind === "SETTLEMENT_BILLED" && m.taxInvoiceId === invoiceId).reduce((sum, m) => sum + m.amountCents, 0)
   return {
