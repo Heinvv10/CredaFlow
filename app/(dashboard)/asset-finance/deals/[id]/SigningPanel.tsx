@@ -20,8 +20,8 @@ const STATE_TONE: Record<SignerState, "neutral" | "warning" | "success"> = {
 const link = "text-[var(--cf-brand)] underline-offset-2 hover:underline"
 
 /** The deal page's "Documents & signing" panel (goal §4.9). */
-export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; canManage: boolean; userId: string }) {
-  const { dealId, panel, canManage, userId } = props
+export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; canManage: boolean; userId: string; advanceStart?: string }) {
+  const { dealId, panel, canManage, userId, advanceStart } = props
   const open = panel.dealStatus === "APPROVED"
   const today = sastCalendarDate(new Date())
   const latest = fromDayNumber(toDayNumber(today) + MAX_PLANNED_START_DAYS)
@@ -29,7 +29,7 @@ export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; 
     && panel.signers.every((s) => s.state === "SIGNED" || s.state === "CONFIRMED")
   const actions = canManage && open ? (
     <div className="flex flex-wrap gap-2">
-      {panel.canPrepare && <PrepareDocumentsForm dealId={dealId} today={today} latest={latest} again={panel.signers.length > 0} />}
+      {panel.canPrepare && <PrepareDocumentsForm dealId={dealId} today={today} latest={latest} again={panel.signers.length > 0} fixedStart={advanceStart} />}
       {panel.signers.length > 0 && (
         <DealActionButton url={`/api/asset-finance/deals/${dealId}/contract`} label="Mark contracted" busyLabel="Checking signatures…" />
       )}

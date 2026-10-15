@@ -984,6 +984,59 @@ describe("PUT /api/clients/[id] partial-update semantics", () => {
     expect(clientUpdateMock).not.toHaveBeenCalled()
   })
 
+  it("records a staff capture that changes the expenses, an explicit R0 included", async () => {
+    const zero = { housing: 0, transport: 0, food: 0, education: 0, insurance: 0, clothing: 0, entertainment: 0, medical: 0, other: 0 }
+    const r0 = await PUT(putRequest({
+      expenseBreakdown: { ...zero, belowMleJustification: "Lives with family who cover the household costs." },
+    }), context)
+    expect(r0.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 0, monthlyExpensesDeclaredAt: expect.any(Date) })
+
+    clientUpdateMock.mockClear()
+    const higher = await PUT(putRequest({ expenseBreakdown: { ...zero, housing: 900_000 } }), context)
+    expect(higher.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 900_000, monthlyExpensesDeclaredAt: expect.any(Date) })
+  })
+
+  it("staff explicit R0 on a never-captured client records a declaration", async () => {
+    const zero = { housing: 0, transport: 0, food: 0, education: 0, insurance: 0, clothing: 0, entertainment: 0, medical: 0, other: 0 }
+    clientFindUniqueMock.mockResolvedValue(baseClient({
+      monthlyExpenses: 0,
+      monthlyExpensesDeclaredAt: null,
+      expenseBreakdown: { id: "expense-1", updatedAt: new Date("2026-07-18T11:00:00Z"), ...zero, belowMleJustification: null },
+    }))
+    const response = await PUT(putRequest({
+      expenseBreakdown: { ...zero, belowMleJustification: "Lives with family who cover the household costs." },
+    }), context)
+    expect(response.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 0, monthlyExpensesDeclaredAt: expect.any(Date) })
+  })
+
+  it("does not read an untouched all-zero form save as a declaration", async () => {
+    // No income, so no Regulation 23A justification is asked for: the zeros
+    // are only the form's blanks.
+    const zero = { housing: 0, transport: 0, food: 0, education: 0, insurance: 0, clothing: 0, entertainment: 0, medical: 0, other: 0 }
+    clientFindUniqueMock.mockResolvedValue(baseClient({
+      grossMonthlyIncome: null,
+      monthlyIncome: 0,
+      monthlyExpenses: 0,
+      monthlyExpensesDeclaredAt: null,
+      expenseBreakdown: null,
+    }))
+    const response = await PUT(putRequest({ monthlyIncome: 0, expenseBreakdown: { ...zero, belowMleJustification: "" } }), context)
+    expect(response.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).not.toHaveProperty("monthlyExpensesDeclaredAt")
+  })
+
+  it("leaves the capture record alone when a save does not change the expenses", async () => {
+    // The edit form sends every expense field on every save, a blank as 0.
+    const response = await PUT(putRequest({
+      expenseBreakdown: { housing: 300_000, transport: 100_000, food: 200_000, education: 0, insurance: 50_000, clothing: 25_000, entertainment: 25_000, medical: 50_000, other: 50_000 },
+    }), context)
+    expect(response.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).not.toHaveProperty("monthlyExpensesDeclaredAt")
+  })
+
   it("rejects an explicit zero gross income when positive net income is declared", async () => {
     const response = await PUT(putRequest({
       grossMonthlyIncome: 0,

@@ -32,6 +32,8 @@ const tx = {
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: (...a: unknown[]) => h.requireRole(...a) }))
 vi.mock("@/lib/tenant", () => ({ withTenantContext: (_req: unknown, fn: (tenant: { id: string }) => Promise<unknown>) => fn({ id: "tenant-1" }) }))
 vi.mock("@/lib/affordability/evidence-locks", () => ({ lockAffordabilityClientEvidence: (...a: unknown[]) => h.lockEvidence(...a) }))
+const DATABASE_NOW = new Date("2026-10-14T10:00:00.123Z")
+vi.mock("@/lib/db-clock", () => ({ databaseNow: async () => DATABASE_NOW }))
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: (fn: (client: typeof tx) => Promise<unknown>, options: unknown) => h.transaction(fn, options) } }))
 
 import { PUT } from "./route"
@@ -94,9 +96,28 @@ describe("PUT /api/clients/[id]/kyc-override-requests/[requestId]", () => {
     expect(h.tenantConfigFind.mock.invocationCallOrder[0]).toBeLessThan(h.lockEvidence.mock.invocationCallOrder[0])
     expect(h.complianceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        data: expect.objectContaining({ approvedWithTotp: true, overrideRequestId: "request-1" }),
+        completedAt: DATABASE_NOW,
+        data: expect.objectContaining({ approvedAt: DATABASE_NOW.toISOString(), approvedWithTotp: true, overrideRequestId: "request-1" }),
       }),
     }))
+  })
+
+  it("refuses to grant while a replacement ID copy awaits review", async () => {
+    const docs = ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"].map((docType) => ({
+      id: `doc-${docType}`, docType, verified: true, createdAt: new Date("2026-07-01T00:00:00Z"),
+      verificationRejectedAt: null, verificationRejectedById: null,
+    }))
+    h.documentFindMany.mockResolvedValue([
+      ...docs,
+      { id: "id-replacement", docType: "ID_COPY", verified: false, createdAt: new Date("2026-07-02T00:00:00Z"),
+        verificationRejectedAt: null, verificationRejectedById: null },
+    ])
+
+    const response = await call()
+
+    expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(h.complianceCreate).not.toHaveBeenCalled()
+    expect(h.clientUpdate).not.toHaveBeenCalled()
   })
 
   it("refuses self-approval before any grant", async () => {
@@ -185,5 +206,17 @@ describe("PUT /api/clients/[id]/kyc-override-requests/[requestId]", () => {
     }))
     const response = await call()
     expect(response.status).toBe(409)
+  })
+
+  it("answers a taken exception key in the exception's terms, not the in-person ones", async () => {
+    h.complianceCreate.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("unique", {
+      code: "P2002",
+      clientVersion: "test",
+    }))
+    const response = await call()
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body).toMatchObject({ code: "exception_exists" })
+    expect(body.error).toContain("senior exception")
   })
 })
