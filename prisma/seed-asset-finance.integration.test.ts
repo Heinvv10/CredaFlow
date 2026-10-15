@@ -4,8 +4,11 @@
  * leaves (a) the trust's NCA finance lease, (b) the natural-person NCA
  * instalment sale and (c) the company's NON_NCA deal booked, with the entity
  * deals part-paid by early receipts and every four-eyes step taken by two different
- * staff users and the known synthetic portal logins working. Rerun
- * idempotency is proved, for the whole seed, by prisma/seed.integration.test.ts.
+ * staff users and the known synthetic portal logins working, and (d) the three
+ * lease deals of prisma/seed/asset-finance-leases.ts with their servicing
+ * (claims, readings, a termination quote, an elected end of term). Rerun
+ * idempotency is proved, for the whole seed, by prisma/seed.integration.test.ts,
+ * and for the leases here (a second seed leaves every lease count unchanged).
  *
  * Self-contained like that suite: it creates, migrates, seeds and drops its
  * own seed_af_it_<hex> database, so the role in DATABASE_URL needs CREATEDB.
@@ -40,6 +43,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     if (!db) throw new Error("RUN_SEED_DB_IT=1 is required")
     return db
   }
+  let seedEnv: NodeJS.ProcessEnv = process.env
   const userId = async (local: string) => (await fresh().user.findUniqueOrThrow({ where: { email: STAFF(local) } })).id
 
   beforeAll(async () => {
@@ -48,6 +52,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const url = new URL(process.env.DATABASE_URL ?? "")
     url.pathname = `/${name}`
     const env = { ...process.env, DATABASE_URL: url.toString(), ...PORTAL_PASSWORDS }
+    seedEnv = env
     execFileSync("npx", ["prisma", "migrate", "deploy"], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"] })
     execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"] })
     db = new PrismaClient({ datasources: { db: { url: url.toString() } } })
@@ -81,7 +86,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     })
     expect(trust.relationships.map((r) => [r.role, r.trusteeKind])).toEqual([["TRUSTEE", "NATURAL"], ["TRUSTEE", "NATURAL"]])
     expect(trust.documents.find((d) => d.docType === "LETTERS_OF_AUTHORITY")?.verifiedAt).not.toBeNull()
-    const deal = await fresh().assetFinanceDeal.findFirstOrThrow({ where: { entityId: trust.id }, include: { application: true, loan: true } })
+    const deal = await fresh().assetFinanceDeal.findFirstOrThrow({ where: { entityId: trust.id, contractType: "FINANCE_LEASE" }, include: { application: true, loan: true } })
     expect(deal.status).toBe("BOOKED")
     expect(deal.application).toMatchObject({
       status: "DISBURSED", ncaRegime: "NCA", ncaClassificationRule: "TRUST_FEW_NATURAL_TRUSTEES",
@@ -95,7 +100,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const company = await fresh().businessEntity.findFirstOrThrow({ where: { type: "COMPANY" } })
     expect(company.annualTurnover).toBe(BigInt(2_500_000_000))
     const deal = await fresh().assetFinanceDeal.findFirstOrThrow({
-      where: { entityId: company.id },
+      where: { entityId: company.id, contractType: "INSTALMENT_SALE" },
       include: { application: true, payout: true, signers: { include: { client: true } }, asset: true },
     })
     expect(deal).toMatchObject({ status: "BOOKED", structurePreset: "ANNUAL_SEASONAL", rateBasis: "PRIME", balloonCents: 34_500_000, decision: "APPROVE" })
@@ -136,7 +141,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
   it("(b) the loan is booked today and part-paid by an early receipt of instalment 1, with no arrears", async () => {
     const company = await fresh().businessEntity.findFirstOrThrow({ where: { type: "COMPANY" } })
     const loan = await fresh().loan.findFirstOrThrow({
-      where: { entityId: company.id },
+      where: { entityId: company.id, contractType: "INSTALMENT_SALE" },
       include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } }, payments: true, taxInvoices: { include: { lines: true } }, contractRates: true },
     })
     expect(loan).toMatchObject({ ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE", balloonAmount: 34_500_000, status: "ACTIVE", clientId: null })
@@ -179,4 +184,109 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       expect([...new Set(authority.map((r) => r.entityId))]).toEqual(entities)
     }
   })
+
+  const leaseLoan = (contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE", who: { entityType?: "COMPANY" | "TRUST"; soleProprietor?: true }) =>
+    fresh().loan.findFirstOrThrow({
+      where: { contractType, ...(who.soleProprietor ? { entityId: null } : { entity: { type: who.entityType } }) },
+      include: {
+        assetFinanceDeal: { include: { asset: true } }, application: true, payments: true,
+        leaseRentals: { orderBy: { periodNo: "asc" }, include: { taxInvoice: true } },
+        maintenanceFund: { include: { movements: true, claims: { orderBy: { createdAt: "asc" } } } },
+        meterReadings: { orderBy: { value: "asc" } }, leaseTerminationQuotes: true,
+        leaseEndOfTerm: { include: { damageItems: true, finalReading: true } },
+      },
+    })
+
+  it("(d1) the company's full-maintenance lease of a TLB: lender risk, three rentals paid and invoiced, two claims and readings", async () => {
+    const loan = await leaseLoan("FULL_MAINTENANCE_LEASE", { entityType: "COMPANY" })
+    expect(loan).toMatchObject({ status: "ACTIVE", ncaRegime: "NON_NCA", cpaApplies: false, clientId: null })
+    expect(loan.application).toMatchObject({ status: "DISBURSED", ncaClassificationRule: "LEASE_NOT_CREDIT_AGREEMENT" })
+    expect(loan.assetFinanceDeal).toMatchObject({ status: "BOOKED", maintenanceRiskModel: "LENDER_RISK", usageUnit: "HOURS" })
+    expect(loan.assetFinanceDeal?.asset.assetClass).toBe("TLB")
+    expect(loan.leaseRentals).toHaveLength(36)
+    const invoiced = loan.leaseRentals.filter((r) => r.taxInvoiceId !== null)
+    expect(invoiced.map((r) => r.periodNo)).toEqual([1, 2, 3])
+    expect(invoiced.every((r) => r.taxInvoice?.totalInclVatCents === r.totalCents)).toBe(true)
+    expect(loan.payments).toHaveLength(3)
+    // A receipt is never refused for its invoice: a refusal is only audited, so look for one.
+    expect(await fresh().auditLog.count({ where: { action: "LEASE_INVOICE_REFUSED" } })).toBe(0)
+
+    const fund = loan.maintenanceFund
+    expect(fund?.riskModel).toBe("LENDER_RISK")
+    const maintenance = invoiced.reduce((sum, r) => sum + r.maintenanceExclVatCents, 0)
+    const movements = fund?.movements ?? []
+    expect(movements.filter((m) => m.kind === "CONTRIBUTION")).toHaveLength(3)
+    expect(movements.filter((m) => m.kind === "CLAIM").map((m) => m.amountCents)).toEqual([320_000])
+    expect(maintenance - 320_000).toBe(1_030_000)
+    const claims = fund?.claims ?? []
+    expect(claims.map((c) => [c.status, c.amountExclVatCents])).toEqual([["PAID", 320_000], ["SUBMITTED", 185_000]])
+    const [paid, open] = claims
+    expect(paid.submittedById).toBe(await userId("credit.officer"))
+    expect(paid.approvedById).not.toBe(paid.submittedById)
+    expect(paid.paymentReference).toBe("TEST-PAY-CLAIM-0001")
+    expect([open.approvedById, open.firstApprovedById]).toEqual([null, null])
+
+    expect(loan.meterReadings.map((r) => [r.value, r.source])).toEqual([[40, "STAFF"], [52, "STAFF"], [58, "STAFF"], [61, "PORTAL"]])
+    expect(paid.meterReadingId).toBe(loan.meterReadings[1].id)
+  })
+
+  it("(d2) the sole proprietor's operating lease of a registered bakkie: CPA applies, one rental invoiced, a termination quote still QUOTED", async () => {
+    const loan = await leaseLoan("OPERATING_LEASE", { soleProprietor: true })
+    expect(loan).toMatchObject({ status: "ACTIVE", cpaApplies: true, entityId: null })
+    expect(loan.assetFinanceDeal).toMatchObject({ status: "BOOKED", cpaRule: "CPA_NATURAL_PERSON" })
+    expect(loan.assetFinanceDeal?.asset).toMatchObject({ assetClass: "LIGHT_COMMERCIAL", registrationNumber: "TEST001GP" })
+    expect(loan.leaseRentals).toHaveLength(36)
+    expect(loan.leaseRentals.filter((r) => r.taxInvoiceId !== null).map((r) => r.periodNo)).toEqual([1])
+    expect(loan.leaseRentals.some((r) => r.cancelledAt !== null)).toBe(false)
+    expect(loan.maintenanceFund).toBeNull()
+    expect(loan.leaseTerminationQuotes).toHaveLength(1)
+    const [quote] = loan.leaseTerminationQuotes
+    expect(quote).toMatchObject({ status: "QUOTED", cpaCancellation: true, acceptedAt: null, taxInvoiceId: null })
+    expect(quote.remainingRentals).toBeGreaterThan(0)
+    expect(quote.totalCents).toBe(quote.invoiceExclVatCents + quote.invoiceVatCents)
+    expect(loan.leaseEndOfTerm).toBeNull()
+    const lessee = await fresh().client.findUniqueOrThrow({ where: { id: loan.clientId ?? "" } })
+    expect(lessee.email.endsWith(".invalid")).toBe(true)
+  })
+
+  it("(d3) the trust's full-maintenance lease at end of term: RETURN elected, the inspection waiting for the term's end", async () => {
+    const loan = await leaseLoan("FULL_MAINTENANCE_LEASE", { entityType: "TRUST" })
+    expect(loan).toMatchObject({ status: "ACTIVE", clientId: null })
+    expect(loan.assetFinanceDeal).toMatchObject({ status: "BOOKED", maintenanceRiskModel: "LESSEE_SETTLED" })
+    expect(loan.leaseRentals).toHaveLength(5)
+    expect(loan.leaseRentals.filter((r) => r.taxInvoiceId !== null)).toHaveLength(1)
+    const end = loan.leaseEndOfTerm
+    expect(end).toMatchObject({ origin: "EXPIRY", outcome: "RETURN", status: "ELECTED", inspectedOn: null, finalReadingId: null, taxInvoiceId: null })
+    expect(end?.electedById).toBe(await userId("credit.officer"))
+    expect(end?.damageItems).toEqual([])
+    expect(loan.maintenanceFund).toMatchObject({ riskModel: "LESSEE_SETTLED", settledAt: null })
+    expect(loan.assetFinanceDeal?.asset.lessorStatus).not.toBe("RETURNED_TO_STOCK")
+  })
+
+  it("a second seed run leaves every lease count unchanged", async () => {
+    const snapshot = async () => ({
+      leases: await fresh().loan.count({ where: { contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } }),
+      leaseDeals: await fresh().assetFinanceDeal.count({ where: { contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } }),
+      rentals: await fresh().leaseRental.count(),
+      rentalsInvoiced: await fresh().leaseRental.count({ where: { taxInvoiceId: { not: null } } }),
+      payments: await fresh().payment.count(),
+      funds: await fresh().maintenanceFund.count(),
+      fundMovements: await fresh().maintenanceFundMovement.count(),
+      claims: await fresh().maintenanceClaim.count(),
+      readings: await fresh().assetMeterReading.count(),
+      quotes: await fresh().leaseTerminationQuote.count(),
+      endsOfTerm: await fresh().leaseEndOfTerm.count(),
+      damageItems: await fresh().leaseDamageItem.count(),
+      taxInvoices: await fresh().taxInvoice.count(),
+      documents: await fresh().entityDocument.count(),
+      clients: await fresh().client.count(),
+      products: await fresh().loanProduct.count(),
+      assets: await fresh().financedAsset.count(),
+      audit: await fresh().auditLog.count(),
+    })
+    const before = await snapshot()
+    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 1, damageItems: 0, funds: 2 })
+    execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env: seedEnv, stdio: ["ignore", "pipe", "pipe"] })
+    expect(await snapshot()).toEqual(before)
+  }, 240_000)
 })

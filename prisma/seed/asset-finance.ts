@@ -29,6 +29,13 @@
  *     BOOKED today, then part-paid by an early receipt of the first
  *     instalment, so it shows a payment and a reduced balance, no arrears.
  *
+ * (d) Three leases (slice 3, ./asset-finance-leases.ts), after the above, on the
+ *     company, a new sole-proprietor client and the trust: a full-maintenance
+ *     lease with claims and readings, a CPA operating lease with an
+ *     early-termination quote, and a trust lease with its RETURN elected (the
+ *     inspection waits for the term's end, which a seed run on the booking day
+ *     cannot reach).
+ *
  * DATES. Every rule runs as the app runs it, on today (SAST): each deal's
  * first instalment is a month out, the documents are prepared with the
  * planned start today, the deal is booked today (the tax invoice's supply
@@ -46,6 +53,7 @@ import { originateCompanyDeal, seedTrustDeal, type SeedStaff } from "./asset-fin
 import { executeCompanyDeal } from "./asset-finance-execution"
 import { COMPANY, EXCAVATOR, TLB, TRACTOR, TRUST } from "./asset-finance-data"
 import { seedNaturalNcaDeal } from "./asset-finance-nca-natural"
+import { seedLeases } from "./asset-finance-leases"
 
 export type { SeedStaff } from "./asset-finance-deal"
 
@@ -91,5 +99,12 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
     const today = sastCalendarDate(new Date())
     const dealId = await originateCompanyDeal(tenantId, staff, parties, today)
     await executeCompanyDeal(tenantId, staff, dealId, { directorId: people.director, entityId: company.id }, today)
+
+    // (d) The leases, on the entities above.
+    await seedLeases({
+      tenantId, staff, supplierId,
+      company: { entityId: company.id, directorId: people.director },
+      trust: { entityId: trust.id, trusteeId: people.trusteeOne },
+    })
   })
 }

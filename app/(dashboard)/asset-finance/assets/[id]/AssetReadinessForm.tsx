@@ -18,7 +18,7 @@ const LABELS: Record<AssetReadinessField, string> = {
 
 interface AssetReadinessFormProps {
   assetId: string
-  initial: Record<AssetReadinessField, string | null> & { lenderNotedConfirmed: boolean }
+  initial: Record<AssetReadinessField, string | null> & { natisOwner: string | null; lenderNotedConfirmed: boolean }
 }
 
 export function AssetReadinessForm({ assetId, initial }: AssetReadinessFormProps) {
@@ -26,6 +26,7 @@ export function AssetReadinessForm({ assetId, initial }: AssetReadinessFormProps
   const [values, setValues] = useState<Record<AssetReadinessField, string>>(
     Object.fromEntries(ASSET_READINESS_FIELDS.map((field) => [field, initial[field] ?? ""])) as Record<AssetReadinessField, string>,
   )
+  const [natisOwner, setNatisOwner] = useState(initial.natisOwner ?? "")
   const [lenderNoted, setLenderNoted] = useState(initial.lenderNotedConfirmed)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,7 +39,7 @@ export function AssetReadinessForm({ assetId, initial }: AssetReadinessFormProps
     const result = await sendJson(
       `/api/asset-finance/assets/${assetId}`,
       "PATCH",
-      assetReadinessPatch(values, lenderNoted),
+      assetReadinessPatch({ ...values, natisOwner }, lenderNoted),
     )
     setSaving(false)
     if (!result.ok) {
@@ -58,6 +59,10 @@ export function AssetReadinessForm({ assetId, initial }: AssetReadinessFormProps
             <TextField key={field} id={field} label={LABELS[field]} value={values[field]}
               onChange={(value) => setValues((current) => ({ ...current, [field]: value }))} error={fields[field]} />
           ))}
+          <div className="space-y-1.5">
+            <TextField id="natisOwner" label="eNaTIS owner" value={natisOwner} onChange={setNatisOwner} error={fields.natisOwner} />
+            <p className="text-xs text-[var(--cf-text-muted)]">A leased vehicle&apos;s owner on eNaTIS must be the lender (checked at payout).</p>
+          </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-[var(--cf-text)]">
           <input type="checkbox" checked={lenderNoted} onChange={(event) => setLenderNoted(event.target.checked)} />

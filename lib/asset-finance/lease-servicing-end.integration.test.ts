@@ -18,6 +18,9 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { runWithTenant } from "@/lib/tenant-scope"
+import { loadLeaseStaffData } from "@/components/asset-finance/lease/lease-staff-data"
+import { loadPortalLease } from "./portal-lease"
 import { cpaCancellationDate } from "./lease-termination"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
 import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
@@ -191,6 +194,15 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     // The termination charge is due on the termination date, not at the old term's end (its cancelled rentals owe nothing).
     const charge = await database().repaymentSchedule.findUniqueOrThrow({ where: { id: accepted.scheduleId ?? "" } })
     expect(sastCalendarDate(charge.dueDate)).toBe(isoOfDbDate(quote.terminationDate))
+    // The lessee's portal view lists the charge (not as a rental) with its tax invoice.
+    const portal = () => runWithTenant(fx.tenantId, () => loadPortalLease(fx.tenantId, fx.lessee, loans.terminate))
+    const view = await portal()
+    expect(view?.rentals).toHaveLength(rentals.length)
+    expect(view?.otherCharges).toEqual([{
+      id: charge.id, kind: "TERMINATION", dueDate: isoOfDbDate(quote.terminationDate), totalCents: charge.totalDue, paidCents: 0, outstandingCents: charge.totalDue,
+      state: "PENDING", invoice: { id: accepted.taxInvoiceId, invoiceNumber: accepted.taxInvoice?.invoiceNumber },
+    }])
+    expect(view?.endOfTerm.chosen).toMatchObject({ early: true, inspected: false })
     expect((await routes().portalAccept(loans.terminate, quote.id)).status).toBe(409) // once
     const end = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.terminate } })
     expect(end).toMatchObject({ origin: "EARLY_TERMINATION", outcome: "RETURN", status: "ELECTED" })
@@ -201,6 +213,7 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     // Test setup: the termination date arrives.
     await testSetup(database(), [`UPDATE "LeaseTerminationQuote" SET "terminationDate" = $2::date WHERE "id" = $1`, quote.id, today()])
     expect((await json(await inspect())).status).toBe(200)
+    expect((await portal())?.endOfTerm.chosen).toMatchObject({ inspected: true })
     staff(fx.adminA, "LOAN_ADMIN")
     expect((await json(await routes().endOfTerm(loans.terminate, "invoice"))).status).toBe(200)
     await payAllOwed(database(), fx, loans.terminate)
@@ -211,6 +224,8 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     expect(firstRun.expiryNotices).toBe(1) // the expiring CPA lease only; the 24-month one is years out
     const notice = await database().leaseExpiryNotice.findUniqueOrThrow({ where: { loanId: loans.expiry } })
     expect(isoOfDbDate(notice.queuedOn)).toBe(today())
+    // The staff lease panel reads it, so the end-of-term panel links the notice's PDF.
+    expect((await runWithTenant(fx.tenantId, () => loadLeaseStaffData(fx.tenantId, loans.expiry)))?.expiryNotice).toEqual({ queuedOn: today() })
     expect(await database().notification.count({ where: { tenantId: fx.tenantId, type: "LEASE_EXPIRY_NOTICE", entityId: loans.expiry } })).toBeGreaterThan(0)
     expect((await runLeaseInvoiceBatch(database() as never, today())).expiryNotices).toBe(0)
     expect(await database().message.count({ where: { tenantId: fx.tenantId, direction: "OUTBOUND" } })).toBe(0) // nothing is sent
