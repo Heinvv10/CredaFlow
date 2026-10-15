@@ -29,7 +29,7 @@ function fakeTx() {
     },
     financedAsset: {
       findFirst: vi.fn(async () => ({
-        cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000, releasedAt: null as Date | null,
+        cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000, releasedAt: null as Date | null, lessorStatus: null as string | null,
         make: "TEST", model: "EX-1", serialNumber: "TEST0000000000001",
       })),
     },
