@@ -31,6 +31,7 @@ import {
   normalizeManualKycExceptionText,
 } from "@/lib/kyc/manual-exception-policy"
 import { selectUsableIdDocument } from "@/lib/kyc/usable-id-document"
+import { outstandingCoreDocuments } from "@/lib/kyc/id-replacement"
 import { getLockedKycOverridePolicy, overrideEligibility, type KycOverrideRefusalCode } from "@/lib/kyc/override-policy"
 
 function policyRefusal(code: KycOverrideRefusalCode) {
@@ -172,11 +173,9 @@ export async function POST(
           }),
         ])
 
-        const verifiedCore = new Set(
-          coreDocuments.filter((d) => d.verified).map((d) => d.docType),
-        )
-        const missingDocs = CORE_KYC_DOCUMENT_TYPES.filter(
-          (docType) => !verifiedCore.has(docType),
+        const missingDocs = outstandingCoreDocuments(
+          CORE_KYC_DOCUMENT_TYPES,
+          coreDocuments,
         )
         if (missingDocs.length > 0) {
           return { kind: "core_documents_missing" as const, missingDocs }
