@@ -13,6 +13,7 @@ const VALID: Record<string, string> = {
   "lib/registry/simulated-integrations/a.ts": `export default { netcash: { sandboxEnvVar: null, sandboxSafeValues: [] } }`,
   "lib/registry/permissions/a.ts": `export default { view_reports: "READONLY" }`,
   "lib/pdf/.claude.md": "# Module: pdf\n<!-- summary: NCA document hygiene -->\n",
+  "prisma/schema/auth.prisma": "enum UserRole {\n  ADMIN\n  // a comment\n  READONLY\n}\n",
 }
 
 let root: string | null = null
@@ -107,12 +108,12 @@ describe("gen-registries", () => {
   it("splits permissions into the server and client maps", async () => {
     const out = await buildRegistries(
       repo({
-        "lib/registry/permissions/a.ts": `export default { both: "ADMIN", split: { server: "LOAN_ADMIN", client: "CREDIT_OFFICER" }, clientOnly: { client: "READONLY" } }`,
+        "lib/registry/permissions/a.ts": `export default { both: "ADMIN", split: { server: "READONLY", client: "ADMIN" }, clientOnly: { client: "READONLY" } }`,
       }),
     )
     const gen = out["lib/registry/generated/permissions.ts"]
-    expect(gen).toMatch(/SERVER_PERMISSIONS = \{\s*"both": "ADMIN",\s*"split": "LOAN_ADMIN"\s*\}/)
-    expect(gen).toMatch(/CLIENT_PERMISSIONS = \{\s*"both": "ADMIN",\s*"split": "CREDIT_OFFICER",\s*"clientOnly": "READONLY"\s*\}/)
+    expect(gen).toMatch(/SERVER_PERMISSIONS = \{\s*"both": "ADMIN",\s*"split": "READONLY"\s*\}/)
+    expect(gen).toMatch(/CLIENT_PERMISSIONS = \{\s*"both": "ADMIN",\s*"split": "ADMIN",\s*"clientOnly": "READONLY"\s*\}/)
   })
 
   it("refuses a module .claude.md without a summary line", async () => {
@@ -125,5 +126,43 @@ describe("gen-registries", () => {
     await expect(
       buildRegistries(repo({ "lib/registry/permissions/b.ts": `export const x = { a: "ADMIN" }` })),
     ).rejects.toThrow(/permissions\/b\.ts: no default export/)
+  })
+
+  it("refuses a 5-field schedule node-cron would reject at boot", async () => {
+    await expect(
+      buildRegistries(
+        repo({
+          "lib/registry/cron-jobs/a.ts": `export default [{ route: "x", owner: "in-process", schedule: "99 99 99 99 99", freshnessMinutes: 60 }]`,
+        }),
+      ),
+    ).rejects.toThrow(/not a valid cron expression/)
+  })
+
+  it("refuses a field the owner does not take, so a schedule is never silently dropped", async () => {
+    await expect(
+      buildRegistries(
+        repo({ "lib/registry/cron-jobs/a.ts": `export default [{ route: "x", owner: "external", schedule: "0 1 * * *" }]` }),
+      ),
+    ).rejects.toThrow(/x \(external\) does not take schedule/)
+  })
+
+  it.each([
+    ["lib/registry/audit-actions/b.mts", "export default {}"],
+    ["lib/registry/cron-jobs/b.js", "export default []"],
+    ["lib/registry/cron-jobs/b.tsx", "export default []"],
+    ["lib/registry/cron-jobs/types.d.ts", "export {}"],
+    ["lib/registry/cron-jobs/sub/a.ts", "export default []"],
+  ])("refuses %s rather than skipping it", async (path, content) => {
+    await expect(buildRegistries(repo({ [path]: content }))).rejects.toThrow(/not an entry file/)
+  })
+
+  it("refuses a permission role that is not a UserRole", async () => {
+    await expect(
+      buildRegistries(repo({ "lib/registry/permissions/a.ts": `export default { x: "SUPERDUPER" }` })),
+    ).rejects.toThrow(/names "SUPERDUPER", which is not a UserRole/)
+    rmSync(root!, { recursive: true, force: true })
+    await expect(
+      buildRegistries(repo({ "lib/registry/permissions/a.ts": `export default { x: { client: "ADMIN", sever: "ADMIN" } }` })),
+    ).rejects.toThrow(/does not take sever/)
   })
 })

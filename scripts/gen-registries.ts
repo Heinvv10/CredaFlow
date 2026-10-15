@@ -16,9 +16,10 @@
  *   npm run gen:registries -- --check # exit 1 if an output is missing or stale
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { validate as validCronExpression } from "node-cron"
 import type { CronJob, PermissionRule, SimulationRule } from "../lib/registry/define"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -34,9 +35,16 @@ function fail(msg: string): never {
 
 async function loadKind(root: string, kind: string): Promise<Entry<unknown>[]> {
   const dir = join(root, "lib", "registry", kind)
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-    .sort()
+  const files: string[] = []
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isFile() && e.name.endsWith(".test.ts")) continue
+    // Anything else here is an entry file or a mistake: never skip one silently.
+    if (!e.isFile() || !e.name.endsWith(".ts") || e.name.endsWith(".d.ts")) {
+      fail(`${relative(root, join(dir, e.name))}: not an entry file — entries are .ts files directly in lib/registry/${kind}/`)
+    }
+    files.push(e.name)
+  }
+  files.sort()
   const out: Entry<unknown>[] = []
   for (const f of files) {
     const file = relative(root, join(dir, f))
@@ -99,13 +107,19 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
       return (value as CronJob[]).map((job) => ({ file, key: String(job?.route), value: job }))
     }),
   )
+  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
   return items.map(({ file, value: job }) => {
+    const keys = allowed[job.owner as keyof typeof allowed]
+    const extra = keys ? Object.keys(job).filter((k) => !keys.includes(k)) : []
+    if (extra.length) fail(`${file}: ${job.route} (${job.owner}) does not take ${extra.join(", ")}`)
     if (!/^[a-z][a-z0-9-]*$/.test(job.route)) fail(`${file}: cron route "${job.route}" is not a /api/cron/<name> segment`)
     switch (job.owner) {
       case "in-process": {
         const fields = typeof job.schedule === "string" ? job.schedule.trim().split(/\s+/) : []
         // node-cron reads a 6-field expression's FIRST field as seconds.
         if (fields.length !== 5) fail(`${file}: ${job.route} schedule "${job.schedule}" must have exactly 5 fields`)
+        // node-cron throws on an invalid expression at boot, and every job after it goes unscheduled.
+        if (!validCronExpression(job.schedule)) fail(`${file}: ${job.route} schedule "${job.schedule}" is not a valid cron expression`)
         const method = job.method ?? "GET"
         if (method !== "GET" && method !== "POST") fail(`${file}: ${job.route} method must be GET or POST`)
         if (!Number.isInteger(job.freshnessMinutes) || job.freshnessMinutes <= 0) {
@@ -138,13 +152,30 @@ function simulatedIntegrations(entries: Entry<unknown>[]): Record<string, Simula
   return Object.fromEntries(items.map((i) => [i.key, i.value]))
 }
 
-function permissions(entries: Entry<unknown>[]): { server: Record<string, string>; client: Record<string, string> } {
+/** The Prisma UserRole enum, read from the schema folder: a permission names one of these. */
+function userRoles(root: string): Set<string> {
+  const dir = join(root, "prisma", "schema")
+  const schema = existsSync(dir)
+    ? readdirSync(dir).filter((f) => f.endsWith(".prisma")).map((f) => readFileSync(join(dir, f), "utf8")).join("\n")
+    : ""
+  const body = schema.match(/^enum UserRole \{([\s\S]*?)\n\}/m)?.[1]
+  if (!body) fail("prisma/schema: enum UserRole not found")
+  return new Set(body.split("\n").map((l) => l.replace(/\/\/.*$/, "").trim()).filter(Boolean))
+}
+
+function permissions(root: string, entries: Entry<unknown>[]): { server: Record<string, string>; client: Record<string, string> } {
+  const roles = userRoles(root)
   const server: Record<string, string> = {}
   const client: Record<string, string> = {}
   for (const { file, key, value } of objectItems<PermissionRule>("permissions", entries)) {
     const rule = typeof value === "string" ? { server: value, client: value } : value
     if (typeof rule !== "object" || rule === null || (!rule.server && !rule.client)) {
       fail(`${file}: ${key} must name a role, or { server?, client? } with at least one`)
+    }
+    const extra = Object.keys(rule).filter((k) => k !== "server" && k !== "client")
+    if (extra.length) fail(`${file}: ${key} does not take ${extra.join(", ")}`)
+    for (const role of [rule.server, rule.client]) {
+      if (role !== undefined && !roles.has(role)) fail(`${file}: ${key} names "${role}", which is not a UserRole`)
     }
     if (rule.server) server[key] = rule.server
     if (rule.client) client[key] = rule.client
@@ -198,7 +229,7 @@ export async function buildRegistries(root: string = ROOT): Promise<Record<strin
   const models = tenantScopedModels(await loadKind(root, "tenant-scoped-models"))
   const cron = cronJobs(await loadKind(root, "cron-jobs"))
   const simulated = simulatedIntegrations(await loadKind(root, "simulated-integrations"))
-  const perms = permissions(await loadKind(root, "permissions"))
+  const perms = permissions(root, await loadKind(root, "permissions"))
   const gen = (f: string) => `lib/registry/generated/${f}`
   return {
     [gen("audit-actions.ts")]: tsModule("audit-actions", `export const AUDIT_ACTIONS = ${lit(audit)} as const`),
@@ -233,7 +264,10 @@ async function main() {
       continue
     }
     mkdirSync(dirname(abs), { recursive: true })
-    writeFileSync(abs, content, "utf8")
+    // Write then rename, so a concurrent reader (a parallel test run) never sees half a file.
+    const tmp = `${abs}.${process.pid}.tmp`
+    writeFileSync(tmp, content, "utf8")
+    renameSync(tmp, abs)
     console.log(`[gen:registries] wrote ${rel}`)
   }
   if (check && stale.length) {

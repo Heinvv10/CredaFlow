@@ -13,7 +13,8 @@ function backRelations(body: string): { name: string; line: number }[] {
     .split("\n")
     .map((text, line) => ({ text, line }))
     .flatMap(({ text, line }) => {
-      const m = text.match(/^\s+(\w+)\s+(\w+)(\[\])?\??(\s.*)?$/)
+      // A trailing comment says nothing about the field; Prisma field definitions are one line.
+      const m = text.replace(/\/\/.*$/, "").match(/^\s+(\w+)\s+(\w+)(\[\])?\??(\s.*)?$/)
       if (!m || !models.has(m[2]) || (m[4] ?? "").includes("fields:")) return []
       return [{ name: m[1], line }]
     })
