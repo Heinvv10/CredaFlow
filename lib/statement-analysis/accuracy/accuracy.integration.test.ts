@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { analyseStatement } from "../analyse"
 import { VlmUnavailableError } from "../vlm-reader"
-import { formatReport, loadCorpus, outcomeOf, textPassRate, type Outcome } from "./run"
+import { formatReport, loadCorpus, outcomeOf, TEXT_GATES, textPassRate, type Outcome } from "./run"
 
 const RUN = process.env.RUN_STATEMENT_ACCURACY === "1"
 const suite = RUN ? describe : describe.skip
@@ -29,7 +29,7 @@ if (!RUN) {
 }
 
 suite("statement reader accuracy (corpus)", () => {
-  it("reads the corpus; bank-produced Capitec/FNB PDFs pass the balance check by text", async () => {
+  it("reads the corpus; each gated bank's own PDFs pass the balance check by text", async () => {
     const files = loadCorpus(corpusDir)
     expect(files.length, `no statements in ${corpusDir}`).toBeGreaterThan(0)
 
@@ -47,9 +47,16 @@ suite("statement reader accuracy (corpus)", () => {
     process.stdout.write(`\n${report}\n`)
     if (process.env.STATEMENT_ACCURACY_REPORT) writeFileSync(process.env.STATEMENT_ACCURACY_REPORT, `${report}\n`)
 
-    // Goal §8.1: ≥ 95% balance PASS by the text method.
+    // Each gated bank: ≥ 95% balance PASS by the text method on its own files
+    // (v1 goal §8.1 for Capitec + FNB; v2 goal §2a.2 for Nedbank and ABSA).
     const own = textPassRate(outcomes, true)
     expect(own.pass / own.total).toBeGreaterThanOrEqual(0.95)
+    for (const [bank, gate] of Object.entries(TEXT_GATES)) {
+      if (gate === null) continue
+      const b = textPassRate(outcomes, true, [bank])
+      expect(b.total, `${bank}: no bank-produced files`).toBeGreaterThan(0)
+      expect(b.pass / b.total, `${bank} TEXT PASS ${b.pass}/${b.total}`).toBeGreaterThanOrEqual(gate)
+    }
     // Goal §8.3: no genuine (bank-produced) statement reads as a balance break.
     const falseTamper = outcomes.filter((o) => o.bankProduced && o.method === "TEXT"
       && o.authenticityCodes.some((c) => c === "BALANCE_MISMATCH" || c === "RUNNING_BALANCE_BREAK"))
