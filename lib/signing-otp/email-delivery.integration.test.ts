@@ -112,6 +112,18 @@ suite("signing OTP by email through SMTP (real database, real SMTP sink)", () =>
   afterAll(async () => {
     sink?.kill()
     rmSync(mailDir, { recursive: true, force: true })
+    // Children first. No challenge here is consumed, so SigningOtpChallenge_guard allows the delete.
+    await db.signingOtpChallenge.deleteMany({ where: { tenantId } })
+    await db.message.deleteMany({ where: { tenantId } })
+    await db.conversation.deleteMany({ where: { tenantId } })
+    await db.emailLog.deleteMany({ where: { tenantId } })
+    await db.messageTemplate.deleteMany({ where: { tenantId } })
+    await db.contactIdentity.deleteMany({ where: { tenantId } })
+    await db.contact.deleteMany({ where: { tenantId } })
+    await db.client.deleteMany({ where: { tenantId } })
+    await db.emailConfig.deleteMany({ where: { tenantId } })
+    await db.auditLog.deleteMany({ where: { tenantId } })
+    await db.tenant.deleteMany({ where: { id: tenantId } })
     await db.$disconnect()
   })
   beforeEach(() => {

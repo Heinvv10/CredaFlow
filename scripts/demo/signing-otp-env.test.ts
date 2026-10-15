@@ -50,7 +50,8 @@ describe('ensure_shared_secrets', () => {
 /**
  * The `environment:` mapping of one service in a compose file, read by
  * indentation (no YAML parser is a declared dependency). Only plain
- * `KEY: value` entries; merge keys and comments are skipped.
+ * `KEY: value` entries, the value bare, "double" or 'single' quoted, with an
+ * optional trailing `# comment`; merge keys and comment lines are skipped.
  */
 function serviceEnvironment(yaml: string, service: string): Record<string, string> {
   const lines = yaml.split('\n')
@@ -63,11 +64,24 @@ function serviceEnvironment(yaml: string, service: string): Record<string, strin
   const env: Record<string, string> = {}
   for (const line of block.slice(envAt + 1)) {
     if (!/^ {6}/.test(line)) break
-    const m = /^ {6}([A-Z0-9_]+):\s*(.*)$/.exec(line)
-    if (m) env[m[1]] = m[2].replace(/^"(.*)"$/, '$1')
+    const m = /^ {6}([A-Z0-9_]+):\s*("[^"]*"|'[^']*'|[^#\s][^#]*?)?\s*(#.*)?$/.exec(line)
+    if (m) env[m[1]] = (m[2] ?? '').replace(/^(["'])(.*)\1$/, '$2')
   }
   return env
 }
+
+describe('serviceEnvironment', () => {
+  it.each([
+    ['DEMO_MODE: "true"'],
+    ["DEMO_MODE: 'true'"],
+    ['DEMO_MODE: true'],
+    ['DEMO_MODE: "true"  # reveal codes'],
+    ['DEMO_MODE: true # reveal codes'],
+  ])('reads %s as true', (entry) => {
+    const yaml = ['services:', '  app:', '    environment:', '      <<: *x', '      # note', `      ${entry}`, '  db:', '    environment:', '      DEMO_MODE: "false"'].join('\n')
+    expect(serviceEnvironment(yaml, 'app').DEMO_MODE).toBe('true')
+  })
+})
 
 describe('docker-compose.demo-sim.yml', () => {
   it('runs the sim app with DEMO_MODE exactly "true"', () => {
