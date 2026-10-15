@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fakePayoutDb, payoutRow } from "./payouts.test-helpers"
 import { signSimulatedWebhook, simulatedPayouts } from "./providers/simulated"
-import { ingestNotification, parseResolveAction, resolvePayout } from "./resolve"
+import { ingestNotification, parseResolveAction, resolvePayout, valueDate } from "./resolve"
 import { canTransition, nextFromProvider, PAYOUT_STATUSES, statusAfterSend } from "./state"
 
 const actor = { id: "u-1", email: "staff@test.invalid" }
@@ -57,6 +57,14 @@ describe("resolvePayout — staff actions", () => {
     const { db, rows } = fakePayoutDb([payoutRow({ status: "SUBMITTED", provider: "netcash" })])
     expect(await resolvePayout(db, { tenantId: "t-1", payoutId: "po-1", actor, request })).toMatchObject({ ok: true, status: "PAID" })
     expect(rows[0].paidAt?.toISOString()).toBe(new Date("2026-10-12T12:00:00+02:00").toISOString())
+  })
+
+  it("takes today's value date given before noon (SAST) as now, not as the future", () => {
+    const morning = new Date("2026-10-15T07:13:00+02:00")
+    expect(valueDate("2026-10-15", morning)?.toISOString()).toBe(morning.toISOString())
+    expect(valueDate("2026-10-14", morning)?.toISOString()).toBe(new Date("2026-10-14T12:00:00+02:00").toISOString())
+    expect(valueDate("2026-10-16", morning)).toBeNull()
+    expect(valueDate("2026-10-15", new Date("2026-10-15T15:00:00+02:00"))?.toISOString()).toBe(new Date("2026-10-15T12:00:00+02:00").toISOString())
   })
 
   it("refuses the attempt's approver as the confirmer", async () => {

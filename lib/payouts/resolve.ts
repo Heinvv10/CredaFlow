@@ -6,6 +6,7 @@
 import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome } from "./conflicts"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
@@ -32,7 +33,10 @@ export function valueDate(value: unknown, now = new Date()): Date | undefined | 
   if (value === undefined || value === null || value === "") return undefined
   if (typeof value !== "string") return null
   const at = new Date(value.length === 10 ? `${value}T12:00:00+02:00` : value)
-  return Number.isNaN(at.getTime()) || at.getTime() > now.getTime() ? null : at
+  if (Number.isNaN(at.getTime())) return null
+  // A date-only value is stamped at SAST noon; today's, given before noon, is now.
+  if (value.length === 10 && value === sastCalendarDate(now) && at.getTime() > now.getTime()) return now
+  return at.getTime() > now.getTime() ? null : at
 }
 
 export function parseResolveAction(body: unknown): ResolveAction | null {
