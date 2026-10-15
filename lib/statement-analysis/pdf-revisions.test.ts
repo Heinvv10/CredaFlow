@@ -257,9 +257,10 @@ describe("the cost of checking appended saves stays linear in the file size", ()
     expect(getHeapStatistics().total_heap_size - heap).toBeLessThan(64 * 1024 * 1024)
   })
 
-  it("on the body-header scan over 2 MB of digits, spaces and comment markers", () => {
+  it("on the body-header scan over a 560 KB line of \"1 % \"", () => {
     // Body headers are indexed once the stream maps an object the table does not list (Word's type 2s).
-    const noise = `1 % % % % % % % % % % % % % % % % % % % % % % % %\n${"9 ".repeat(10)}`.repeat(30_000)
+    // Each "1" starts a candidate header whose comment runs to the line's end: eb9782e9's regex took over 30 s here.
+    const noise = `${"1 % ".repeat(140_000)}\n${"9 ".repeat(10)}`
     const o = original({ xrefStreams: 1, padding: noise.length })
     // Same length as the padding line, so every offset holds.
     const noisy = o.pdf.replace(/%x+\n/, `%\n${noise.slice(0, -1)}\n`)

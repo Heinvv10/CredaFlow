@@ -11,6 +11,7 @@
  * Hardening against such originals stopped here by decision (PR #95).
  */
 import { inflateSync } from "zlib"
+import { objectHeaders } from "./pdf-object-headers"
 
 const PDF_SPACE = "[\\0\\t\\n\\f\\r ]"
 const PDF_SPACE_BYTES = [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]
@@ -168,23 +169,10 @@ function everyXrefStreamEntry(
   return true
 }
 
-/**
- * An uncompressed object header at a token start; a comment is whitespace
- * between its tokens. The comment must end at its EOL, so it matches one way only.
- */
-const HEADER_GAP = `(?:${PDF_SPACE}|%[^\\r\\n]*[\\r\\n])+`
-const BODY_HEADER = new RegExp(`(?<![^\\0\\t\\n\\f\\r ])(\\d+)${HEADER_GAP}\\d+${HEADER_GAP}obj(?![A-Za-z0-9])`, "g")
 const OBJECT_STREAM = new RegExp(`^\\d+${PDF_SPACE}+\\d+${PDF_SPACE}+obj${PDF_SPACE}*<<[^>]*?/Type${PDF_SPACE}*/ObjStm(?![A-Za-z0-9])`)
 
 function bodyHeaders(r: Revisions): Map<number, number[]> {
-  if (!r.headers) {
-    r.headers = new Map()
-    for (const m of r.bytes.subarray(0, r.originalEnd).toString("latin1").matchAll(BODY_HEADER)) {
-      const at = r.headers.get(Number(m[1]))
-      if (at) at.push(m.index)
-      else r.headers.set(Number(m[1]), [m.index])
-    }
-  }
+  r.headers ??= objectHeaders(r.bytes, r.originalEnd)
   return r.headers
 }
 
