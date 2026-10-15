@@ -7,12 +7,12 @@
 #                  logs/        cron logs (cron-run.sh)
 #                  logs/LAST_FAILURE-<job>, last-bake, last-restore  results (status.sh)
 #                  bake.lock, restore.lock, cron-run.lock  the jobs' flock files
-#   DEMO_SIM_LOCK  the host-wide sim stack lock bake.sh holds; default ~/.credaflow-demo-sim.lock.
-#                  One file for every DEMO_DATA_DIR: the sim stack is one per host.
 #                  runner.json  the runner's last update (update-runner.sh)
 #   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
 #   DEMO_RUNNER_DIR  the clean checkout cron runs from; default ~/Workspace/CredaFlow-demo-runner
 #   DEMO_LENDER    the lender a bake is branded as (prisma/demo-lender.ts); default acme
+#   DEMO_SIM_LOCK  the host-wide sim stack lock bake.sh holds; default ~/.credaflow-demo-sim.lock.
+#                  One file for every DEMO_DATA_DIR: the sim stack is one per host.
 #
 # Every Docker name the demo scripts touch is defined once, below. The live
 # project name can be overridden (DEMO_LIVE_PROJECT) only to point restore.sh
