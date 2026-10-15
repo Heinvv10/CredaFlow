@@ -119,7 +119,9 @@ export function disbursedInQuarterWhere(
   start: Date,
   end: Date,
 ): Prisma.LoanWhereInput {
-  return { tenantId, startDate: { gte: start, lt: end } }
+  // A disbursement reversed because the money never reached the borrower
+  // (lib/payouts/reversal.ts) advanced no credit: not a new agreement.
+  return { tenantId, startDate: { gte: start, lt: end }, disbursementReversals: { none: { status: "APPROVED" } } }
 }
 
 /**

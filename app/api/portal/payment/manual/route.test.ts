@@ -98,6 +98,16 @@ describe("POST /api/portal/payment/manual", () => {
     expect(saveFile).not.toHaveBeenCalled()
   })
 
+  it("refuses a payment claim on a reversed (CANCELLED) loan: nothing is owed on it", async () => {
+    auth.mockResolvedValue({ user: { email: "client@example.com" } })
+    findFirstClient.mockResolvedValue({ id: "c1", firstName: "Pieter", lastName: "van der Berg" })
+    findFirstLoan.mockResolvedValue({ id: "l1", reference: "LN-0005", status: "CANCELLED" })
+    const res = await POST(makeReq({ loanId: "l1", amount: "10000" }, pdf()))
+    expect(res.status).toBe(409)
+    expect(saveFile).not.toHaveBeenCalled()
+    expect(createDoc).not.toHaveBeenCalled()
+  })
+
   it("returns 400 when content does not match the declared type", async () => {
     auth.mockResolvedValue({ user: { email: "client@example.com" } })
     const fake = new File([Buffer.from("GIF89a not a pdf")], "fake.pdf", { type: "application/pdf" })

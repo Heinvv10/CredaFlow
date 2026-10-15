@@ -56,6 +56,9 @@ model Tenant {
   softOptInClosedLoanTailEnabled       Boolean @default(false)
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  accountingAccountMappings  AccountingAccountMapping[]
+  accountingExportBatches    AccountingExportBatch[]
+  accountingSettings         AccountingSettings?
   advisorCommissions         AdvisorCommission[]
   agentTasks                 AgentTask[]
   apiKeys                    ApiKey[]
@@ -101,6 +104,7 @@ model Tenant {
   crossSellOpps              CrossSellOpportunity[]
   dataSubjectRequests        DataSubjectRequest[]
   debitMandates              DebitMandate[]
+  disbursementPayouts        DisbursementPayout[]
   documentTemplates          DocumentTemplate[]
   emailConfig                EmailConfig?
   emailLogs                  EmailLog[]
@@ -166,6 +170,7 @@ model Tenant {
   webhookEvents              WebhookEvent[]
   webhookSignatureFailures   WebhookSignatureFailure[]
   websiteChatHandoffs        WebsiteChatHandoff[]
+  xeroConnection             XeroConnection?
 
   @@index([operatorId])
 }
@@ -322,6 +327,11 @@ model TenantConfig {
   avsProvider              String? // null = use collectionProvider's AVS
   netcashDebitOrderKey     String? // Netcash per-service keys (collections
   netcashRiskReportsKey    String? // + AVS); distinct from netcashKey (payouts)
+
+  // W6 payout channels (lib/payouts). Off = the disburse route behaves exactly
+  // as before: it records the payout and calls no provider.
+  payoutsEngineEnabled Boolean @default(false)
+  payoutProvider       String? // lib/payouts/registry.ts provider id
 
   ndiBufferPct Int @default(110)
 

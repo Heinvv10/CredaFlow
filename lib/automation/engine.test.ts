@@ -467,6 +467,12 @@ describe("PAYMENT_DUE — SAST day window", () => {
     return call.where.dueDate as { gte: Date; lt?: Date; lte?: Date }
   }
 
+  it("skips instalments of a loan whose disbursement was reversed (CANCELLED)", async () => {
+    await windowFor("2026-08-20T09:00:00Z")
+    const call = vi.mocked(prisma.repaymentSchedule.findMany).mock.calls.at(-1)?.[0] as any
+    expect(call.where.loan).toEqual({ status: { not: "CANCELLED" } })
+  })
+
   it("targets the SAST calendar day, not the container's UTC one", async () => {
     // now = 2026-08-17T22:30Z is 00:30 SAST on 18 Aug, so "3 days from now" is
     // 21 August in Johannesburg. Local-midnight arithmetic on a UTC container

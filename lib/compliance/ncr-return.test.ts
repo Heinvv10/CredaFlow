@@ -134,6 +134,9 @@ describe("population predicates", () => {
     expect(disbursedInQuarterWhere(TENANT, start, end)).toEqual({
       tenantId: TENANT,
       startDate: { gte: start, lt: end },
+      // A reversed disbursement (the money never reached the borrower) is not
+      // a new agreement or principal disbursed.
+      disbursementReversals: { none: { status: "APPROVED" } },
     })
     expect(receiptsInQuarterWhere(TENANT, start, end)).toEqual({
       tenantId: TENANT,

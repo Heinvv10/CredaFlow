@@ -55,7 +55,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       if (!["flag_missed", "revert"].includes(action)) {
         return NextResponse.json({ error: "Invalid action. Use: flag_missed, revert" }, { status: 400 })
       }
-      if (action === "flag_missed" && ["OVERDUE", "PAID", "WRITTEN_OFF"].includes(entry.status)) {
+      if (action === "flag_missed" && ["OVERDUE", "PAID", "WRITTEN_OFF", "CANCELLED"].includes(entry.status)) {
         return NextResponse.json({ error: `An instalment that is ${entry.status.toLowerCase().replace("_", " ")} cannot be flagged as missed` }, { status: 409 })
       }
       if (action === "revert" && entry.status !== "OVERDUE") {

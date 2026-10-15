@@ -1,0 +1,149 @@
+"use client"
+
+import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { DataPanel } from "@/components/app-shell/DataPanel"
+import { InfoStrip } from "@/components/app-shell/InfoStrip"
+import { StatusPill } from "@/components/app-shell/StatusPill"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { conflictStateLabel, PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
+import type { PayoutView } from "@/lib/payouts/view"
+import { formatZAR } from "@/lib/utils"
+import { PayoutRemedies } from "./PayoutRemedies"
+import { postAction } from "./post-action"
+import { ReversedLoanTasks } from "./ReversedLoanTasks"
+
+const TONE: Record<PayoutStatus, "neutral" | "success" | "warning" | "danger" | "info"> = {
+  PENDING: "warning", SUBMITTING: "info", SUBMITTED: "info", PROCESSING: "info",
+  PAID: "success", FAILED: "danger", RETURNED: "danger", NEEDS_REVIEW: "danger",
+  AWAITING_APPROVAL: "warning", CANCELLED: "neutral",
+}
+
+const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" }) : "—")
+
+export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: boolean }) {
+  const router = useRouter()
+  const payout = view.attempts[0]
+  const [note, setNote] = useState("")
+  const [reference, setReference] = useState("")
+  const [paidOn, setPaidOn] = useState("")
+  const conflicted = view.attempts.find((a) => a.conflict)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const confirmable = payout.status === "NEEDS_REVIEW" || payout.status === "SUBMITTED" || payout.status === "PROCESSING"
+  const [backOn, setBackOn] = useState("")
+  const reversed = view.loanStatus === "CANCELLED"
+
+  async function act(body: Record<string, unknown>) {
+    setBusy(true)
+    const out = await postAction(`/api/payouts/${payout.id}`, body)
+    setMessage(out.message)
+    if (out.ok) router.refresh()
+    setBusy(false)
+  }
+
+  return (
+    <DataPanel
+      title="Payout"
+      description={`Attempt ${payout.attempt} · provider: ${payout.provider}`}
+      actions={<StatusPill tone={TONE[payout.status]}>{PAYOUT_STATUS_LABELS[payout.status]}</StatusPill>}
+    >
+      {view.loanStatus === "CANCELLED" && view.reversal?.status === "APPROVED" && (
+        <InfoStrip variant="warning" className="mb-4">Disbursement reversed: the money never reached the borrower and the loan is cancelled.</InfoStrip>
+      )}
+      <ReversedLoanTasks view={view} canAct={canAct} />
+      {view.doublePayout.map((d) => (
+        <InfoStrip key={`${d.payoutId}-${d.liveAttempt}`} variant="danger" className="mb-4">
+          Possible double payout: the provider reports attempt {d.attempt} paid, and attempt {d.liveAttempt} is {PAYOUT_STATUS_LABELS[d.liveStatus as PayoutStatus].toLowerCase()}.
+          {d.liveStatus === "PAID" ? " If both stand the borrower was paid twice: recover one (confirm it returned) before anything else." : " Do not send it until attempt " + d.attempt + " is resolved."}
+        </InfoStrip>
+      ))}
+      {conflicted?.conflict && (
+        <InfoStrip variant="danger" className="mb-4">
+          Provider conflict on attempt {conflicted.attempt}: {conflicted.conflict.detail ?? conflicted.conflict.state}. The provider now says it was {conflictStateLabel(conflicted.conflict.state)}.
+          {conflicted.conflict.state === "PAID_THEN_RETURNED" ? " Confirm the return on the bank statement, then resolve it as not paid." : ""} Retries and reversal are blocked until another LOAN_ADMIN resolves it below.
+        </InfoStrip>
+      )}
+      {payout.simulated && <InfoStrip variant="warning" className="mb-4">Simulated — no money moved. Not a valid payout record.</InfoStrip>}
+      {payout.status === "NEEDS_REVIEW" && (
+        <InfoStrip variant="warning" className="mb-4">
+          The provider&apos;s answer is unknown. It will not be sent again. Check the provider&apos;s report, then confirm it paid or failed.
+        </InfoStrip>
+      )}
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <dt className="text-[var(--cf-text-muted)]">Amount</dt><dd className="text-right font-medium tabular-nums text-[var(--cf-text)]">{formatZAR(payout.amountCents)}</dd>
+        <dt className="text-[var(--cf-text-muted)]">To</dt><dd className="text-right text-[var(--cf-text)]">{payout.bankName} ••••{payout.accountTail}</dd>
+        <dt className="text-[var(--cf-text-muted)]">Sent</dt><dd className="text-right text-[var(--cf-text)]">{fmt(payout.submittedAt)}</dd>
+        <dt className="text-[var(--cf-text-muted)]">Provider reference</dt><dd className="truncate text-right text-[var(--cf-text)]">{payout.providerReference ?? "—"}</dd>
+        {payout.failureReason && (<><dt className="text-[var(--cf-text-muted)]">Reason</dt><dd className="text-right text-[var(--cf-danger)]">{payout.failureReason}</dd></>)}
+        {payout.resolvedAt && (<><dt className="text-[var(--cf-text-muted)]">Settled</dt><dd className="text-right text-[var(--cf-text)]">{fmt(payout.resolvedAt)}</dd></>)}
+        {payout.resolutionNote && (<><dt className="text-[var(--cf-text-muted)]">Staff note</dt><dd className="text-right text-[var(--cf-text)]">{payout.resolutionNote}</dd></>)}
+      </dl>
+      {view.attempts.length > 1 && (
+        <p className="mt-3 text-xs text-[var(--cf-text-muted)]">
+          Earlier attempts: {view.attempts.slice(1).map((a) => `#${a.attempt} ${PAYOUT_STATUS_LABELS[a.status].toLowerCase()} (••••${a.accountTail})`).join("; ")}
+        </p>
+      )}
+      {canAct && (
+        <div className="mt-4 space-y-3 border-t border-[var(--cf-border-subtle)] pt-4">
+          <div className="flex flex-wrap gap-2">
+            {payout.status === "PENDING" && <Button size="sm" disabled={busy} onClick={() => act({ action: "send" })}>Send payout</Button>}
+            {(payout.status === "SUBMITTING" || payout.status === "SUBMITTED" || payout.status === "PROCESSING") && (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => act({ action: "check" })}>Check status</Button>
+            )}
+          </div>
+          {confirmable && (
+            <div className="space-y-2">
+              <p className="text-xs text-[var(--cf-text-muted)]">Confirmed by a LOAN_ADMIN other than the one who disbursed.</p>
+              <Textarea placeholder="What you checked (required to confirm)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+              <Input placeholder="Provider or bank reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} />
+              <label className="block text-xs text-[var(--cf-text-muted)]">
+                Bank value date (blank = today)
+                <Input type="date" aria-label="Bank value date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-44" />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_paid", note, providerReference: reference, ...(paidOn ? { paidAt: paidOn } : {}) })}>Confirm paid</Button>
+                <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_failed", note })}>Confirm not paid</Button>
+              </div>
+            </div>
+          )}
+          {payout.status === "PAID" && (
+            <div className="space-y-2">
+              <p className="text-xs text-[var(--cf-text-muted)]">The bank credited it back? Confirm the return (a LOAN_ADMIN other than the one who disbursed, requested or approved it). The accounting export reverses it from that date.</p>
+              <Textarea placeholder="What the bank statement shows (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+              <label className="block text-xs text-[var(--cf-text-muted)]">
+                Bank value date of the return
+                <Input type="date" aria-label="Bank value date of the return" value={backOn} onChange={(e) => setBackOn(e.target.value)} className="mt-1 w-44" />
+              </label>
+              <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5 || !backOn} onClick={() => act({ action: "confirm_returned", note, returnedAt: backOn })}>Confirm returned</Button>
+            </div>
+          )}
+          {conflicted?.conflict && (
+            <div className="space-y-2">
+              <Textarea placeholder="What the bank statement shows (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "not_paid", note, conflictState: conflicted.conflict?.state, conflictAt: conflicted.conflict?.at }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>Provider was wrong: not paid</Button>
+                {conflicted.conflict.state === "PAID" && (
+                  // On a reversed loan the money is recovered, never "paid": the loan stays cancelled.
+                  <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: reversed ? "recovery" : "paid", note, conflictState: conflicted.conflict?.state, conflictAt: conflicted.conflict?.at, ...(paidOn ? { paidAt: paidOn } : {}) }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>
+                    {reversed ? "It was paid: open a recovery case" : "It was paid"}
+                  </Button>
+                )}
+              </div>
+              {conflicted.conflict.state === "PAID" && !confirmable && (
+                <label className="block text-xs text-[var(--cf-text-muted)]">
+                  Bank value date it left (blank = {reversed ? "when the provider reported it" : "today"})
+                  <Input type="date" aria-label="Bank value date it left" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-44" />
+                </label>
+              )}
+            </div>
+          )}
+          {message && <p className="text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}
+          <PayoutRemedies view={view} />
+        </div>
+      )}
+    </DataPanel>
+  )
+}

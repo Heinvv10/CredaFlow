@@ -31,6 +31,7 @@ import {
   projectPortalLoanOverview,
 } from "@/lib/portal/loan-overview"
 import { sastHour } from "@/lib/date/sast"
+import { owesNothing } from "@/lib/loan/charges-summary"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDayMonth, formatLongDay } from "@/lib/i18n/format"
@@ -39,6 +40,7 @@ import type { Locale } from "@/lib/i18n/locales"
 
 type HomeT = Translator<"portalHome">
 type LabelsT = Translator<"portalLabels">
+
 
 async function getPortalData(email: string) {
   const tenantId = await getPortalTenantId()
@@ -247,7 +249,8 @@ export default async function ClientPortalPage() {
       <DataPanel title={t("quickActions")} description={t("quickActionsDesc")}>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {[
-            { icon: CreditCard, label: t("makePayment"), href: "/portal/payment" },
+            // No shortcut to pay when every loan was reversed (nothing is owed).
+            ...(data.loans.length > 0 && data.loans.every(owesNothing) ? [] : [{ icon: CreditCard, label: t("makePayment"), href: "/portal/payment" }]),
             { icon: Calendar, label: t("viewSchedule"), href: primaryLoan ? `/portal/loans/${primaryLoan.id}` : "/portal/loans" },
             {
               icon: Download,

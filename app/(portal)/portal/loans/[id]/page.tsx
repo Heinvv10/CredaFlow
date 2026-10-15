@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Download, CreditCard } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
+import { documentLoanFigures, documentScheduleRow, owesNothing } from "@/lib/loan/charges-summary"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
@@ -54,6 +55,8 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   // Use the RECURRING instalment (schedule[1] for multi-instalment loans),
   // not the fee-loaded first instalment, so this matches the Apply quote.
   const monthlyInstalment = recurringInstalmentDue(loan.repaymentSchedule)
+  // A loan CANCELLED by a disbursement reversal owes nothing (lib/loan/charges-summary.ts).
+  const cancelled = owesNothing(loan)
 
   const statusColor: Record<string, { bg: string; text: string }> = {
     ACTIVE: { bg: "#D1FAE5", text: "#059669" },
@@ -100,9 +103,9 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {[
           { label: t("principal"), value: formatZAR(loan.principal) },
-          { label: t("totalRepayable"), value: formatZAR(loan.totalRepayable) },
+          { label: t("totalRepayable"), value: formatZAR(documentLoanFigures(loan).totalRepayable) },
           { label: t("totalPaid"), value: formatZAR(cashPaid) },
-          { label: t("monthlyInstalment"), value: formatZAR(monthlyInstalment) },
+          { label: t("monthlyInstalment"), value: cancelled ? "—" : formatZAR(monthlyInstalment) },
           { label: t("nextPaymentDate"), value: nextPayment ? formatDay(nextPayment.dueDate, locale) : "—" },
           {
             label: t("nextPaymentAmount"),
@@ -133,7 +136,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
         </div>
         <div className="flex justify-between mt-2 text-xs text-gray-400">
           <span>{t("paidLabel")} <span className="whitespace-nowrap">{formatZAR(cashPaid)}</span></span>
-          <span>{t("totalLabel")} <span className="whitespace-nowrap">{formatZAR(loan.totalRepayable)}</span></span>
+          <span>{t("totalLabel")} <span className="whitespace-nowrap">{formatZAR(documentLoanFigures(loan).totalRepayable)}</span></span>
         </div>
       </div>
 
@@ -148,15 +151,18 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
             {t("downloadStatement")}
           </button>
         </a>
-        <Link href="/portal/payment">
-          <button
-            className="flex items-center gap-2 px-5 py-2.5 rounded-md border font-semibold text-sm"
-            style={{ borderColor: "#4338CA", color: "#4338CA" }}
-          >
-            <CreditCard className="h-4 w-4" />
-            {t("makeAPayment")}
-          </button>
-        </Link>
+        {/* Nothing is owed on a reversed loan: no way to pay it. */}
+        {!cancelled && (
+          <Link href="/portal/payment">
+            <button
+              className="flex items-center gap-2 px-5 py-2.5 rounded-md border font-semibold text-sm"
+              style={{ borderColor: "#4338CA", color: "#4338CA" }}
+            >
+              <CreditCard className="h-4 w-4" />
+              {t("makeAPayment")}
+            </button>
+          </Link>
+        )}
       </div>
 
       {/* Tabs — Repayment Schedule + Payment History */}
@@ -208,7 +214,7 @@ function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
                   >
                     <td className="px-5 py-3 text-gray-600">{s.installmentNo}</td>
                     <td className="px-5 py-3 text-gray-700">{formatDay(s.dueDate, locale)}</td>
-                    <td className="px-5 py-3 font-medium text-gray-900">{formatZAR(s.totalDue)}</td>
+                    <td className="px-5 py-3 font-medium text-gray-900">{formatZAR(documentScheduleRow(s).totalDue)}</td>
                     <td className="px-5 py-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                         isPaid ? "bg-green-100 text-green-700" :
