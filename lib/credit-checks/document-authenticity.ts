@@ -28,7 +28,8 @@ function flag(s: StatementFacts, code: string, summary: string, evidence: Record
   }
 }
 
-function producerExpected(bank: string, producer: string | null, creator: string | null): boolean {
+/** Whether the file was written by the program the bank's own statements come from. */
+export function producerExpected(bank: string, producer: string | null, creator: string | null): boolean {
   const expected = EXPECTED_PRODUCERS[bank]
   if (!expected) return true
   // "" means the bank writes none: the value must be absent, not merely start with nothing.

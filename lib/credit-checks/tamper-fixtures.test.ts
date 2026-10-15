@@ -7,19 +7,20 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { analyseStatement, type StatementAnalysisResult } from "@/lib/statement-analysis/analyse"
-import { syntheticStatement } from "@/lib/statement-analysis/fixtures/dataset"
+import { syntheticStatement, type SynthBank } from "@/lib/statement-analysis/fixtures/dataset"
 import { incrementalAmountEdit, resaveWithProducer } from "@/lib/statement-analysis/fixtures/doctor"
-import { buildCapitecStatement, buildFnbStatement, type BuildOptions } from "@/lib/statement-analysis/fixtures/synthetic"
+import { type BuildOptions } from "@/lib/statement-analysis/fixtures/synthetic"
+import { buildStatement, TAMPER_TARGET } from "@/lib/statement-analysis/fixtures/synthetic-banks"
 import { documentAuthenticity } from "./document-authenticity"
 import { facts } from "./facts.test-helpers"
 import type { StatementFacts } from "./types"
 
-type Bank = "CAPITEC" | "FNB"
+type Bank = SynthBank
+const BANKS: Bank[] = ["CAPITEC", "FNB", "NEDBANK", "ABSA", "ABSA_ESTATEMENT", "STANDARD_BANK", "DISCOVERY"]
 const statementFor = (bank: Bank) => syntheticStatement({ bank, start: "2026-07-01" })
-const build = (bank: Bank, opts: BuildOptions = {}) =>
-  bank === "CAPITEC" ? buildCapitecStatement(statementFor(bank), opts) : buildFnbStatement(statementFor(bank), opts)
-/** The grocery amount as each bank prints it on the first row. */
-const groceries = { CAPITEC: ["-845.50", "-945.50"], FNB: ["845.50", "945.50"] } as const
+const build = (bank: Bank, opts: BuildOptions = {}) => buildStatement(bank, statementFor(bank), opts)
+/** The row each bank's doctored variants edit, and its amount as printed before and after. */
+const target = (bank: Bank) => TAMPER_TARGET[bank]
 
 function asFacts(r: StatementAnalysisResult): StatementFacts {
   return {
@@ -35,18 +36,19 @@ async function authenticityCodes(pdf: Uint8Array): Promise<string[]> {
 
 const doctored: Array<[string, (bank: Bank) => Promise<Uint8Array>, string[]]> = [
   ["an amount edited via an incremental update",
-    async (bank) => incrementalAmountEdit(await build(bank), groceries[bank][0], groceries[bank][1]),
+    async (bank) => incrementalAmountEdit(await build(bank), ...target(bank).printed),
     // The second code proves poppler renders the appended revision: the edit took.
     ["INCREMENTAL_UPDATE", "RUNNING_BALANCE_BREAK"]],
   ["a statement re-saved through a different producer",
     async (bank) => resaveWithProducer(await build(bank), "Microsoft® Word for Microsoft 365"), ["PRODUCER_UNEXPECTED"]],
   ["a transaction changed without fixing the balance",
-    (bank) => build(bank, { misprint: { index: 0, amountCents: -94_550 } }), ["RUNNING_BALANCE_BREAK"]],
+    (bank) => build(bank, { misprint: { index: target(bank).row, amountCents: statementFor(bank).transactions[target(bank).row].amountCents - 10_000 } }),
+    ["RUNNING_BALANCE_BREAK"]],
   ["a ModDate later than its CreationDate",
     (bank) => build(bank, { createdAt: new Date("2026-10-01T08:00:00Z"), modifiedAt: new Date("2026-10-03T10:00:00Z") }), ["MODIFIED_AFTER_CREATION"]],
 ]
 
-describe.each(["CAPITEC", "FNB"] as const)("%s doctored fixtures", (bank) => {
+describe.each(BANKS)("%s doctored fixtures", (bank) => {
   it("the untouched original raises no authenticity flag", async () => {
     expect(await authenticityCodes(await build(bank))).toEqual([])
   })
@@ -60,7 +62,9 @@ describe("the committed fixture PDFs (scripts/generate-statement-fixtures.ts)", 
   const dir = join(__dirname, "..", "statement-analysis", "fixtures", "pdf")
   const read = (file: string) => authenticityCodes(readFileSync(join(dir, file)))
 
-  it.each(["capitec", "fnb"])("%s-genuine.pdf raises no authenticity flag", async (bank) => {
+  const names = BANKS.map((b) => b.toLowerCase().replace(/_/g, "-"))
+
+  it.each(names)("%s-genuine.pdf raises no authenticity flag", async (bank) => {
     expect(await read(`${bank}-genuine.pdf`)).toEqual([])
   })
 
@@ -70,6 +74,6 @@ describe("the committed fixture PDFs (scripts/generate-statement-fixtures.ts)", 
     ["balance-not-fixed", "RUNNING_BALANCE_BREAK"],
     ["modified-after-creation", "MODIFIED_AFTER_CREATION"],
   ])("every bank's %s.pdf raises %s", async (variant, code) => {
-    for (const bank of ["capitec", "fnb"]) expect(await read(`${bank}-${variant}.pdf`)).toContain(code)
+    for (const bank of names) expect(await read(`${bank}-${variant}.pdf`), bank).toContain(code)
   })
 })
