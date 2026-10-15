@@ -725,6 +725,12 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
   background-color: var(--cf-surface-soft) !important;
 }
 
+/* A scroll table's header cells are sticky: they need their own opaque
+   background (the soft tint over the panel), or the rows show through them (components/asset-finance/ScrollTable.tsx). */
+.cf-app-surface .cf-scroll-table th {
+  background: linear-gradient(var(--cf-surface-soft), var(--cf-surface-soft)), var(--cf-bg-panel) !important;
+}
+
 .cf-app-surface tbody tr:hover {
   background-color: rgba(79, 70, 229, 0.08) !important;
 }

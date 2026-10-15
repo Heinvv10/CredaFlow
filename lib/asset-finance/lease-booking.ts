@@ -13,6 +13,11 @@
  * may not have passed. The rentals' VAT is at the rate in force on the
  * commencement date, as the signed agreement printed it.
  *
+ * A full-maintenance lease's maintenance fund is opened (./maintenance-fund.ts),
+ * with the deal's risk model and the lease's end date; a lease with contracted
+ * usage records the asset's start reading (hours or km, from the asset) on
+ * the commencement date (./lease-usage.ts).
+ *
  * NO INCEPTION TAX INVOICE: the supplier invoices the lessor for the asset;
  * the lessee is invoiced per rental (./lease-invoices.ts). What is written is
  * ./lease-ledger.ts (the ledger mapping).
@@ -28,7 +33,7 @@ import { identifierMatchesAsset } from "./asset-identifier"
 import { dbDate } from "./dates"
 import { resolveRate } from "./deal-structure"
 import { termsFromDeal } from "./deal-terms"
-import { isLeaseTerms, priceLeaseTerms } from "./lease-structure"
+import { isLeaseTerms, leaseEndDate, priceLeaseTerms } from "./lease-structure"
 import { planLeaseBooking } from "./lease-ledger"
 import { payoutAmountCents } from "./payout-checklist"
 import type { SigningActor, SigningTx } from "./signing-prepare"
@@ -91,6 +96,11 @@ export async function bookLease(tx: SigningTx, actor: SigningActor, deal: Bookin
     ? { fixedRate: new Prisma.Decimal(rate.annualRate) }
     : terms.rate.margin !== null ? { margin: new Prisma.Decimal(terms.rate.margin) } : null
   if (!rateColumns) return refuse("rate_unavailable", "A reference-linked deal needs a margin")
+  const { usage, maintenance } = terms.lease
+  const startReading = usage === null ? null : usage.unit === "HOURS" ? asset.hours : asset.odometerKm
+  if (usage !== null && startReading === null) {
+    return refuse("start_reading", `Record the asset's ${usage.unit === "HOURS" ? "hours" : "odometer"} first: the contracted usage starts from it`)
+  }
   const plan = planLeaseBooking({ lease: priced.lease, startDate: start, vatRate: vat.rate, payoutCents: payout.amountCents })
 
   const annualRate = new Prisma.Decimal(rate.annualRate)
@@ -124,6 +134,16 @@ export async function bookLease(tx: SigningTx, actor: SigningActor, deal: Bookin
       return { ...rental, tenantId, loanId: loan.id, scheduleId, vatRate: new Prisma.Decimal(rental.vatRate) }
     }),
   })
+  if (maintenance !== null) {
+    await tx.maintenanceFund.create({
+      data: { tenantId, loanId: loan.id, riskModel: maintenance.riskModel, leaseEndDate: dbDate(leaseEndDate(terms, start)) },
+    })
+  }
+  if (usage !== null && startReading !== null) {
+    await tx.assetMeterReading.create({
+      data: { tenantId, assetId: asset.id, loanId: loan.id, readingDate: dbDate(start), value: startReading, unit: usage.unit, source: "STAFF", recordedById: actor.userId },
+    })
+  }
   const disbursedAt = new Date()
   const disbursed = await tx.loanApplication.updateMany({
     where: { id: application.id, tenantId, status: "APPROVED", ncaRegime: "NON_NCA" },

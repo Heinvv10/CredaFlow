@@ -126,6 +126,12 @@ const afterCallbacks: Array<() => unknown> = []
 vi.mock("@/lib/http/after-response", () => ({
   deferAfterResponse: (fn: () => unknown) => { afterCallbacks.push(fn) },
 }))
+const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
+vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
+// Each test sees only the deferred work its own request queued.
+beforeEach(() => {
+  afterCallbacks.length = 0
+})
 
 import { ContactPromotionConflictError } from "@/lib/contact/provision"
 import { POST } from "./route"
@@ -694,6 +700,25 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     })
   })
 
+  it("records when a new client declared their expenses, an explicit R0 included, and not when they did not", async () => {
+    const newClient = { ...snapshotReadyClient, id: "client_new", portalPassword: null }
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+    findFirstLoanApplicationMock.mockResolvedValue(null)
+    createClientMock.mockResolvedValue(newClient)
+    createLoanApplicationMock.mockResolvedValue({ id: "app_new", reference: "APP-NEW" })
+    const declaredAt = async (financials: Record<string, unknown>) => {
+      createClientMock.mockClear()
+      findUniqueClientMock.mockReset()
+      findUniqueClientMock.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(newClient)
+      const res = await POST(buildReq({ ...withIdentity, ...financials }))
+      expect(res.status, JSON.stringify(financials)).toBe(200)
+      return createClientMock.mock.calls[0][0].data.monthlyExpensesDeclaredAt
+    }
+    expect(await declaredAt({ monthlyIncome: 0, monthlyExpenses: 0 })).toBeInstanceOf(Date)
+    expect(await declaredAt({ monthlyIncome: 15_000, monthlyExpenses: 5_000 })).toBeInstanceOf(Date)
+    expect(await declaredAt({})).toBeNull()
+  })
+
   it("no existing match, consent AFFIRMED: sets popiaConsentGiven=true + popiaConsentAt and writes a POPIA_APPLICATION ConsentRecord", async () => {
     const newClient = { ...snapshotReadyClient, id: "client_new", portalPassword: null }
     findUniqueClientMock
@@ -776,6 +801,9 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
 
     expect(res.status).toBe(200)
     expect(body.applicationId).toBeNull()
+    screenOnSubmitMock.mockClear()
+    for (const fn of afterCallbacks.splice(0)) await fn()
+    expect(screenOnSubmitMock).not.toHaveBeenCalled()
     expect(createLoanApplicationMock).not.toHaveBeenCalled()
     // Only the term pre-check reads the product; the blocked path does no second lookup.
     expect(findFirstLoanProductMock).toHaveBeenCalledTimes(1)
@@ -797,6 +825,10 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
 
     expect(res.status).toBe(200)
     expect(body.applicationId).toBe("app_1")
+    // A6: PEP / sanctions screening is deferred until after the response, then started.
+    screenOnSubmitMock.mockClear()
+    for (const fn of afterCallbacks.splice(0)) await fn()
+    expect(screenOnSubmitMock).toHaveBeenCalledWith({ tenantId: "tenant_acme", applicationId: "app_1", actor: null })
     expect(createLoanApplicationMock).toHaveBeenCalledTimes(1)
     expect(txUpdateLeadMock).toHaveBeenCalledWith({
       where: { id: "lead_1", tenantId: "tenant_acme" },

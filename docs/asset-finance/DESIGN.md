@@ -1,8 +1,8 @@
 # Asset Finance — Design
 
 Status: **design approved 2026-10-13 (grill-me).** Slices 1 and 2 built and
-merged; slice 3 (operating and full-maintenance leases) in progress: C1–C4
-built, C5–C12 pending, see "Slice 3" below. Slice 1 goal: `.claude/handoffs/2026-10-13-asset-finance-slice1-goal.md`.
+merged; slice 3 (operating and full-maintenance leases) built (C1–C12), legal and
+tax wording to confirm, see "Slice 3" below. Slice 1 goal: `.claude/handoffs/2026-10-13-asset-finance-slice1-goal.md`.
 
 WesBank-type instalment sale and leasing of vehicles, tractors, TLBs and
 yellow machinery. Borrowers are mostly companies and trusts, some sole
@@ -153,7 +153,7 @@ movements, `LeaseRental`, `Repossession`, `RemarketingSale`, `JournalExport`,
 5. **Dealer/broker portal, tracker/telematics integration, valuation
    feeds.**
 
-## Slice 3: operating and full-maintenance leases (C1–C4 built; legal and tax to confirm)
+## Slice 3: operating and full-maintenance leases (built; legal and tax to confirm)
 
 Code: `lib/asset-finance/lease-*.ts`, `cpa-scope.ts`, `documents/lease/`;
 migration `20261014090000_asset_finance_lease_foundation`.
@@ -204,6 +204,84 @@ migration `20261014090000_asset_finance_lease_foundation`.
   only inside the repricing flag, never once invoiced.
 - **Payout checklist**: the same items; a leased vehicle's eNaTIS **owner**,
   not only the titleholder, must be the lender (`FinancedAsset.natisOwner`).
+
+### Servicing (C5–C8)
+
+Migration `20261014100000_asset_finance_lease_servicing`; staff routes under
+`app/api/asset-finance/leases/[loanId]/`, portal routes under
+`app/api/portal/asset-finance/leases/[loanId]/`. Every rule below is also a
+trigger or CHECK, each proven by an IT that removes it
+(`lease-servicing-rules-*.integration.test.ts`).
+
+- **Maintenance fund** (FML, `maintenance-fund.ts`, `maintenance-claims.ts`).
+  Opened at booking with the deal's risk model; each invoiced rental adds its
+  maintenance (ex VAT). Claims name an approved supplier and the provider's
+  invoice filed on the deal; no one approves their own claim, and a claim at
+  or above `TenantConfig.maintenanceClaimDualApprovalCents` (default R50 000)
+  needs two approvers. A claim is recorded as paid with a reference; nothing
+  is paid out from here. No claim after the lease ends. At the end of term a
+  LESSEE_SETTLED fund's deficit is billed on the end-of-term invoice and a
+  surplus is recorded as a refund owed; a LENDER_RISK fund's balance stays
+  with the lessor.
+- **Meter readings** (`meter-readings.ts`): staff, or the lessee in the
+  portal (today's reading, a running lease); never below an earlier reading
+  nor above a later one. The booking records the start reading. Excess usage
+  (`lease-usage.ts`) is billed at the end of term against the pro-rata
+  allowance, and fails closed without a final reading.
+- **End of term** (`lease-end-of-term.ts`, `lease-end-invoice.ts`), elected
+  in the six months before expiry, one outcome, final:
+  RETURN → inspection (damage items) → invoice (excess, damage, fund
+  deficit) → paid → completed, asset back in stock.
+  EXTEND → month to month: the daily cron appends one rental at a time at
+  the last rental, until a month's notice ends it; then a return.
+  PURCHASE → at least a valuation of the asset dated within
+  `TenantConfig.leasePurchaseValuationMaxAgeDays` (30); a sale invoice;
+  completes once paid and, for a registered asset, the eNaTIS change of
+  ownership is confirmed. // UNTESTED: tax/legal.
+- **Early termination** (`lease-termination*.ts`): a quote (staff, or the
+  lessee in the portal), valid `TenantConfig.leaseTerminationQuoteValidDays`
+  (10): PV of the remaining rentals ex VAT and maintenance at the contract
+  rate + the deal's penalty % + arrears; a CPA lessee's on 20 business days'
+  notice, its basis naming the Reg 5(2) factors. Accepting cancels the
+  uninvoiced rentals after the termination date (their rows go to 0),
+  invoices PV and penalty, and opens a RETURN end of term. // UNTESTED: legal.
+- **Charges** (end of term, purchase, termination) are schedule rows of their
+  own: the row's total is its tax invoice's total, never a rental's row or
+  invoice, and a closed loan is reopened for it. Receipts settle them like
+  rentals.
+- **CPA expiry notice** (`lease-expiry.ts`, `lease-daily.ts`): for a CPA
+  lessee, 40–80 business days before expiry, queued once as a staff bell
+  item. // PARTIAL: nothing is sent to the lessee (no real messages without
+  approval; the notice PDF is C9).
+
+### Documents, screens, collections, seed (C9–C12)
+
+- **Documents** (`documents/lease/`): the operating-lease and FML agreements
+  (with the maintenance-and-usage annexure), the lease statement, and the CPA
+  expiry notice, early-termination quote and inspection report. Real figures,
+  placeholder legal text, the DRAFT watermark while
+  `TenantConfig.assetFinanceLegalWordingApproved` is false; deterministic, so
+  the sha256 binds what was signed. Staff and portal routes
+  `.../leases/[loanId]/documents/[kind]`; every read is logged.
+- **Staff**: lease fields and preview on the deal form (an ADVANCE lease
+  sends its first due date as the start); `natisOwner` on the asset; a lease
+  panel on the loan page (rentals and invoices, fund and claims, readings,
+  end of term, quotes). **Portal** (the lessee, or the entity lessee's
+  authorised people): rentals and invoices, fund and claims (FML), today's
+  meter reading, quote and accept, the end-of-term choice in its window.
+  Evidence: `docs/asset-finance/evidence/slice3/`.
+- **Collections**: lease arrears use the NON_NCA charges and reminders; no
+  Section 129 (`section129-eligibility.ts` refuses NON_NCA). IT:
+  `lease-collections.integration.test.ts`.
+- **Seed**: a company FML (LENDER_RISK, claims, readings), a sole-proprietor
+  operating lease (CPA, an open quote) and a trust FML (LESSEE_SETTLED) with
+  its RETURN elected (the inspection waits for the term's end, which a seed
+  run on the booking day cannot reach), through the real lib functions. Acceptance:
+  three lease deals with independent working (`__fixtures__/acceptance-lease-deals.ts`).
+- // PARTIAL: the deal summary panel still shows deposit / trade-in / fees
+  (R 0.00) for a lease; a claim's provider invoice must already be filed on
+  the deal (no upload in the claim form); the portal loans list still says
+  "loan" for a lease.
 
 ## Acceptance (every slice)
 

@@ -54,6 +54,7 @@ import {
   DisbursementPreconditionError,
 } from "@/lib/disbursement/preconditions"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { readBorrowerScreening } from "@/lib/screening/gate"
 import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
 import { PayoutProviderError } from "@/lib/payouts/types"
 import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
@@ -304,6 +305,18 @@ export async function POST(
           { error: "Only approved applications can be disbursed" },
           { status: 400 }
         )
+      }
+
+      // A sanctions hit, or a match a periodic re-screen raised after approval,
+      // stops the payout. No provider call here; the trigger
+      // LoanApplication_a1_guard_screening refuses the DISBURSED write as well.
+      const screening = await readBorrowerScreening(tenant.id, { clientId: application.clientId, entityId: null })
+      if (!screening.allowed) {
+        return NextResponse.json({
+          error: `Cannot disburse: ${screening.message}`,
+          disbursementPrecondition: "screening",
+          screening: screening.state,
+        }, { status: 422 })
       }
 
       // Require signed agreement before disbursement

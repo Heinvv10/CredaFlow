@@ -184,6 +184,12 @@ const {
 
 // No tenant logo: documents print the text letterhead (lib/config/lender-logo.ts).
 vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: async () => undefined }))
+// Screening state is tested in lib/screening; default CLEAR keeps the payout
+// gates below the subject of every other test.
+const { readBorrowerScreening } = vi.hoisted(() => ({
+  readBorrowerScreening: vi.fn(),
+}))
+vi.mock("@/lib/screening/gate", () => ({ readBorrowerScreening }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: {
@@ -748,6 +754,8 @@ function buildTxMock(opts: {
 }
 
 beforeEach(() => {
+  readBorrowerScreening.mockReset()
+  readBorrowerScreening.mockResolvedValue({ allowed: true, state: { state: "CLEAR" }, message: "Screening is clear.", subjects: [], providerError: null })
   getLenderIdentityMock.mockReset()
   getLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
@@ -3825,5 +3833,40 @@ describe("POST /api/applications/[id]/disburse — payout channel behind payouts
     expect(res.status).toBe(409)
     expect(payoutCreate).not.toHaveBeenCalled()
     expect(sendDisbursementPayout).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/applications/[id]/disburse — screening", () => {
+  it("refuses the payout of a client whose latest screening blocks, before any transaction", async () => {
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1",
+      tenantId: "tenant-1",
+      status: "APPROVED",
+      agreementSignedAt: new Date("2026-05-01"),
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      clientId: "client-1",
+      productId: "prod-1",
+      client: { bankName: "FNB", bankAccountNumber: "12345", bankBranchCode: "250655", accountType: "SAVINGS" },
+      product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+      productType: "MICRO",
+    })
+    buildTxMock({})
+    readBorrowerScreening.mockResolvedValueOnce({
+      allowed: false,
+      state: { state: "BLOCKED", reason: "SANCTIONS_MATCH", checkIds: ["s1"] },
+      message: "The client: A confirmed sanctions match. This cannot be overridden.",
+      subjects: [],
+      providerError: null,
+    })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.disbursementPrecondition).toBe("screening")
+    expect(body.error).toContain("confirmed sanctions match")
+    expect(readBorrowerScreening).toHaveBeenCalledWith(expect.any(String), { clientId: "client-1", entityId: null })
+    expect(prismaTransaction).not.toHaveBeenCalled()
   })
 })

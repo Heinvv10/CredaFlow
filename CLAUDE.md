@@ -252,6 +252,11 @@ Domain-specific rules live next to the code:
 - `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
 - `lib/bureau/.claude.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
+- `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
+- `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
+- `lib/lender-api/.claude.md` — the `/api/v1` lender API and outbound webhooks
+- `lib/signing-otp/.claude.md` — the signing one-time code; never SMS, never stored
+- `lib/security/.claude.md` — staff access policy; the IP allowlist needs a closed app port
 - `lib/accounting/.claude.md` — GL journals; closed months are final; Xero unproven
 - `lib/payouts/.claude.md` — disbursement payouts; claim before send, never pay twice
 - `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement

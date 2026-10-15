@@ -27,8 +27,6 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import type { PrismaClient } from "@prisma/client"
-import { writeFile, mkdir } from "node:fs/promises"
-import path from "node:path"
 import { createHash } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -42,8 +40,7 @@ import { loadEligibilityRules } from "@/lib/insurance/eligibility/rules"
 import { evaluate } from "@/lib/insurance/eligibility/evaluate"
 import { waitingPeriodEndsFor } from "@/lib/insurance/policy/bind"
 import { getLenderLogo } from "@/lib/config/lender-logo"
-
-const UPLOADS_ROOT = path.join(process.cwd(), "uploads", "disclosures")
+import { saveFileAt } from "@/lib/storage"
 
 /** Statuses a quote may be disclosed in: priced, and not yet finished with. */
 const DISCLOSABLE = ["QUOTED", "ADVICE_RECORDED", "SUBMITTED_TO_INSURER", "ACCEPTED"]
@@ -312,8 +309,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         quoteId: quote.id,
       })
 
-      const tenantDir = path.join(UPLOADS_ROOT, tenant.id)
-      await mkdir(tenantDir, { recursive: true })
       // Stored under sha256(token), NOT under the token itself.
       //
       // The legacy route names the file `<payload>.<sig>.pdf`, which worked
@@ -322,7 +317,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // limit — every write failed with ENAMETOOLONG. A hash is fixed-length
       // whatever the payload grows to. The serving route derives the same hash
       // from the token, so the URL is unchanged and legacy files still resolve.
-      const filePath = path.join(tenantDir, `${hashDraftToken(draftToken)}.pdf`)
+      // Written through lib/storage, so encrypted at rest like every upload.
+      const storageRelativePath = `disclosures/${tenant.id}/${hashDraftToken(draftToken)}.pdf`
 
       const pdfBuffer = await generateFaisDisclosurePdf({
         lender,
@@ -350,7 +346,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         })),
       })
 
-      await writeFile(filePath, pdfBuffer)
+      await saveFileAt(storageRelativePath, pdfBuffer)
       const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex")
 
       await logAudit({

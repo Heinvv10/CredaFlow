@@ -6,6 +6,8 @@ import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { authorisedEntityIdsForClient } from "@/lib/asset-finance/portal-access"
 import { loadPortalSigners } from "@/lib/asset-finance/signing-view"
 import { portalBusinessLinkVisible } from "@/lib/asset-finance/portal-navigation"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
+import { PortalUnavailable } from "@/components/portal/PortalUnavailable"
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await auth()
@@ -18,6 +20,16 @@ export default async function PortalLayout({ children }: { children: React.React
 
   const userName = session.user.name || session.user.email || ""
   const tenantConfig = session.user.tenantId ? await getTenantConfig(session.user.tenantId) : null
+  // The session itself ends when the portal is switched off
+  // (lib/client-session.ts); this covers the moment before it is re-read.
+  // Read fresh, not from getTenantConfig's cache, so the switch is immediate.
+  if (session.user.tenantId && !(await isPortalEnabled(session.user.tenantId))) {
+    return (
+      <TenantThemeProvider config={tenantConfig}>
+        <PortalUnavailable />
+      </TenantThemeProvider>
+    )
+  }
   // Sureties also need the Business link to reach their signing tasks. The
   // pages and API still enforce access to each entity and signer record.
   const tenantId = session.user.tenantId

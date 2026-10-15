@@ -55,6 +55,8 @@ export interface DocumentKycInput {
 export interface CoreDocumentClassificationRow extends DocumentKycInput {
   id: string
   createdAt: Date
+  /** Read by pendingIdReplacement; absent, an ID copy is never an identical re-upload. */
+  contentSha256?: string | null
 }
 
 export interface CoreKycDocumentRow extends CoreDocumentClassificationRow {
@@ -284,8 +286,8 @@ export function deriveCompositeKycState(args: {
   // A newer ID copy awaiting review outweighs the older verified one: the
   // identity on file is in question until staff decide. Both layers apply this
   // rule: subject_has_pending_id_replacement in subject_has_composite_kyc
-  // (migration 20261014130000) mirrors pendingIdReplacement, so the app and the
-  // database reach the same verdict.
+  // (migrations 20261014130000, 20261015130000) mirrors pendingIdReplacement,
+  // so the app and the database reach the same verdict.
   const idReplacement = pendingIdReplacement(args.documents)
   if (idReplacement) verifiedTypes.delete("ID_COPY")
   const missingCoreDocuments = CORE_KYC_DOCUMENT_TYPES.filter(

@@ -17,6 +17,7 @@ import { signingRoutes } from "./deal-signing.integration-fixture"
 import { bookingRoutes, type SetSession } from "./payout-booking.integration-fixture"
 import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
 import { requiredChecklistKinds } from "./payout-checklist"
+import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fixture"
 
 export interface LeaseFixture extends DealFixture {
   lessee: string // a sole proprietor (Client)
@@ -37,7 +38,10 @@ export async function createLeaseFixture(db: PrismaClient, t: string): Promise<L
   for (const id of fx.assets) {
     await db.financedAsset.update({
       where: { id },
-      data: { trackerId: `TRK-${id.slice(-6)}`, trackerProvider: "TEST Tracking", lenderNotedConfirmed: true, natisTitleholder: lenderName, natisOwner: lenderName },
+      data: {
+        trackerId: `TRK-${id.slice(-6)}`, trackerProvider: "TEST Tracking", lenderNotedConfirmed: true, natisTitleholder: lenderName, natisOwner: lenderName,
+        hours: 400, odometerKm: 12_000, // the start reading of a lease with contracted usage
+      },
     })
   }
   const account = await db.supplierBankAccount.create({
@@ -106,6 +110,8 @@ export async function approveLease(fx: LeaseFixture, staff: Staff, body: Record<
   return dealId
 }
 
+let bareSignRefusalProved = false
+
 /** Prepare, e-sign every signer row as its client, contract. */
 export async function signLease(fx: LeaseFixture, db: PrismaClient, setSession: SetSession, dealId: string, plannedStartDate?: string): Promise<void> {
   const routes = signingRoutes(fx.host)
@@ -114,7 +120,21 @@ export async function signLease(fx: LeaseFixture, db: PrismaClient, setSession: 
   expect(prepared.status, await prepared.clone().text()).toBe(200)
   for (const row of await db.dealSigner.findMany({ where: { dealId } })) {
     setSession({ id: row.clientId, email: `${row.clientId}@lease-it.test`, role: "CLIENT", tenantId: fx.tenantId })
-    const signed = await routes.portalSign(row.id, { signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256 })
+    // The lender requires a signing code by default (lib/signing-otp): a lease
+    // document e-signed without one is refused and stays unsigned. Proved once
+    // per suite: each attempt spends the client's portal signing rate limit.
+    if (!bareSignRefusalProved) {
+      const bare = await routes.portalSign(row.id, { signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256 })
+      expect(bare.status, await bare.clone().text()).toBe(403)
+      expect((await db.dealSigner.findUniqueOrThrow({ where: { id: row.id }, select: { method: true } })).method).toBeNull()
+      bareSignRefusalProved = true
+    }
+    const signingOtpChallengeId = await verifiedSigningOtp(db, {
+      tenantId: fx.tenantId, clientId: row.clientId, purpose: "DEAL_DOCUMENT", subjectId: row.id, documentSha256: row.documentSha256!,
+    })
+    const signed = await routes.portalSign(row.id, {
+      signature: `TEST ${row.clientId.slice(0, 6)} signs`, documentSha256: row.documentSha256, signingOtpChallengeId,
+    })
     expect(signed.status, await signed.clone().text()).toBe(200)
   }
   setSession({ id: fx.officer, email: "officer@lease-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })

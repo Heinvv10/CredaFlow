@@ -11,6 +11,7 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 type BankDetails = {
   bankName: string
@@ -26,7 +27,11 @@ type Props = {
   initialBankDetails: BankDetails
   initialDraftSha256: string | null
   initiallySigned: boolean
+  /** The lender requires a verified one-time code before signing (lib/signing-otp). */
+  signingOtp?: { required: boolean; channels: SigningOtpChannel[] }
 }
+
+const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
 
 const BANKS = [
   "ABSA Bank",
@@ -50,7 +55,12 @@ export function PortalDebitMandateClient({
   initialBankDetails,
   initialDraftSha256,
   initiallySigned,
+  signingOtp = NO_SIGNING_OTP,
 }: Props) {
+  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null)
+  // Remounts the OTP step after a signing refusal that spent or voided the code.
+  const [otpAttempt, setOtpAttempt] = useState(0)
+  const otpSatisfied = !signingOtp.required || otpChallengeId !== null
   const [bank, setBank] = useState(initialBankDetails)
   const [draftSha256, setDraftSha256] = useState(initialDraftSha256)
   const [signed, setSigned] = useState(initiallySigned)
@@ -151,7 +161,7 @@ export function PortalDebitMandateClient({
   }
 
   async function sign() {
-    if (!draftSha256 || !checks.every(Boolean)) return
+    if (!draftSha256 || !checks.every(Boolean) || !otpSatisfied) return
     const signature = signMode === "draw"
       ? canvasRef.current?.toDataURL("image/png")
       : typedName.trim()
@@ -167,11 +177,16 @@ export function PortalDebitMandateClient({
           body: JSON.stringify({
             signature,
             draftDocumentSha256: draftSha256,
+            ...(otpChallengeId ? { signingOtpChallengeId: otpChallengeId } : {}),
           }),
         },
       )
-      const body = await response.json() as { error?: string }
+      const body = await response.json() as { error?: string; debitMandate?: string }
       if (!response.ok) {
+        if (body.debitMandate?.startsWith("signing_otp_")) {
+          setOtpChallengeId(null)
+          setOtpAttempt((n) => n + 1)
+        }
         setError(body.error ?? "Could not sign the debit mandate.")
         return
       }
@@ -402,9 +417,20 @@ export function PortalDebitMandateClient({
             )}
           </section>
 
+          {signingOtp.required && (
+            <SigningOtpStep
+              key={`${draftSha256}:${otpAttempt}`}
+              purpose="DEBIT_MANDATE"
+              subjectId={applicationId}
+              documentSha256={draftSha256}
+              channels={signingOtp.channels}
+              onVerified={setOtpChallengeId}
+            />
+          )}
+
           <Button
             className="w-full py-6 text-base"
-            disabled={!checks.every(Boolean) || !signatureReady || signing}
+            disabled={!checks.every(Boolean) || !signatureReady || !otpSatisfied || signing}
             onClick={sign}
           >
             {signing

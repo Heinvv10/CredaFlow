@@ -10,6 +10,7 @@
  * by an early receipt through applyManualReceipt. Each step runs only from the
  * state before it, so a rerun writes nothing.
  */
+import { seedSigningCode } from "./signing-code"
 import type { PayoutChecklistItemKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { applyManualReceipt } from "@/lib/loan/apply-payment"
@@ -27,7 +28,7 @@ import { dealActor, type SeedStaff } from "./asset-finance-deal"
 import { storeDealEvidenceDocument } from "@/lib/asset-finance/entity-document-io"
 
 /** APPROVED → CONTRACTED: prepare (the loan starts on `bookingDate`), sign every required signer row, contract. */
-async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
+export async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
   const officer = dealActor(tenantId, staff.officer)
   const signers = await prisma.dealSigner.count({ where: { tenantId, dealId, method: { not: null } } })
   if (signers === 0) {
@@ -45,6 +46,7 @@ async function signAndContract(tenantId: string, staff: SeedStaff, dealId: strin
       const signed = await recordESignature({
         tenantId, clientId: row.clientId, clientEmail: row.client.email, signerId: row.id,
         input: { signature: name, documentSha256: row.documentSha256 }, ip: null,
+        signingOtpChallengeId: await seedSigningCode(tenantId, row.clientId, row.id, row.documentSha256),
       })
       if (signed.kind !== "signed") throw new Error(`Seed: e-signature refused (${JSON.stringify(signed)})`)
       continue

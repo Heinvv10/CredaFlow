@@ -90,6 +90,10 @@ model User {
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
   kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
+  apiKeysCreated               ApiKey[]                              @relation("ApiKeysCreatedBy")
+  apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
+  webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
+  webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
 
   @@unique([tenantId, id])
 }
@@ -181,12 +185,32 @@ model Tenant {
   vatConfig                  VatConfig?
   taxInvoices                TaxInvoice[]
   leaseRentals               LeaseRental[]
+  maintenanceFunds           MaintenanceFund[]
+  maintenanceMovements       MaintenanceFundMovement[]
+  maintenanceClaims          MaintenanceClaim[]
+  assetMeterReadings         AssetMeterReading[]
+  leaseEndsOfTerm            LeaseEndOfTerm[]
+  leaseDamageItems           LeaseDamageItem[]
+  leaseExpiryNotices         LeaseExpiryNotice[]
+  leaseTerminationQuotes     LeaseTerminationQuote[]
   creditNotes                CreditNote[]
   entityDocuments            EntityDocument[]
   financedAssets             FinancedAsset[]
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  screeningChecks            ScreeningCheck[]
+  cashThresholdReports       CashThresholdReport[]
+  suspiciousReportCases      SuspiciousReportCase[]
+  suspiciousReportAccesses   SuspiciousReportAccess[]
+  rmcpDocuments              RmcpDocument[]
+  screeningBlocks            ScreeningBlock[]
+  apiKeys                    ApiKey[]
+  apiRequestLogs             ApiRequestLog[]
+  webhookEndpoints           WebhookEndpoint[]
+  webhookEvents              WebhookEvent[]
+  webhookDeliveries          WebhookDelivery[]
+  signingOtpChallenges       SigningOtpChallenge[]
   // W6 accounting export + payout channels (block at the end of this file)
   accountingAccountMappings  AccountingAccountMapping[]
   accountingExportBatches    AccountingExportBatch[]
@@ -219,22 +243,29 @@ model TenantConfig {
   faviconUrl     String?
   brandName      String?
 
-  featureLms                       Boolean @default(true)
-  featureCrm                       Boolean @default(false)
-  featureIms                       Boolean @default(false)
-  featureBureauSubmission          Boolean @default(false)
-  featureMarketing                 Boolean @default(false)
-  featurePortal                    Boolean @default(true)
-  featureReports                   Boolean @default(true)
+  featureLms                        Boolean @default(true)
+  featureCrm                        Boolean @default(false)
+  featureIms                        Boolean @default(false)
+  featureBureauSubmission           Boolean @default(false)
+  featureMarketing                  Boolean @default(false)
+  featurePortal                     Boolean @default(true)
+  featureReports                    Boolean @default(true)
   // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
-  featureAssetFinance              Boolean @default(false)
+  featureAssetFinance               Boolean @default(false)
   // Asset-finance payouts at or above this amount (cents) need a second,
   // different approver (DESIGN D8). Default R1m.
-  assetPayoutDualApprovalCents     Int     @default(100000000)
+  assetPayoutDualApprovalCents      Int     @default(100000000)
+  // Leases (slice 3): a maintenance claim at or above this amount (ex VAT,
+  // cents) needs a second approver; a purchase at the end of the term needs a
+  // valuation no older than this many days; an early-termination quote is
+  // valid this many days.
+  maintenanceClaimDualApprovalCents Int     @default(5000000)
+  leasePurchaseValuationMaxAgeDays  Int     @default(30)
+  leaseTerminationQuoteValidDays    Int     @default(10)
   // Asset-finance agreements, suretyships and resolutions render with a
   // DRAFT — NOT FOR EXECUTION watermark until the lender's legal team approves
   // the wording. Turning this on is a Confirmation Gate (Hein / legal).
-  assetFinanceLegalWordingApproved Boolean @default(false)
+  assetFinanceLegalWordingApproved  Boolean @default(false)
 
   ncrNumber        String?
   fscaNumber       String?
@@ -300,6 +331,31 @@ model TenantConfig {
   kycOverrideEnabled        Boolean  @default(true)
   kycOverrideMinRole        UserRole @default(ADMIN)
   kycOverrideSecondApprover Boolean  @default(false)
+
+  // PEP / sanctions screening (lib/screening). null = not configured: no
+  // screening runs and the approval gate passes, as before the module existed.
+  // Otherwise a key from lib/screening/registry.ts. Matches that need a human
+  // are cleared by a reviewer at or above screeningReviewMinRole
+  // (BRANCH_MANAGER or ADMIN), with TOTP when requireStaffTotp is on.
+  screeningProvider      String?
+  screeningReviewMinRole UserRole @default(ADMIN)
+  // Maker-checker for screening decisions, STR decisions and RMCP approvals
+  // (the database triggers read it). Changed only by a SUPER_ADMIN with TOTP.
+  requireSecondReviewer  Boolean  @default(true)
+  // Borrower signing OTP (lib/signing-otp). Portal signing of the agreement,
+  // debit mandate and other documents needs a verified one-time code when
+  // requireSigningOtp is on; branch signing (staff present) is exempt while
+  // signingOtpBranchExempt is on.
+  requireSigningOtp      Boolean  @default(true)
+  signingOtpBranchExempt Boolean  @default(true)
+  // Portal self-registration (app/api/portal/register). Off refuses new
+  // activations; clients who already activated are unaffected.
+  allowNewRegistrations  Boolean  @default(true)
+  // Staff access restrictions (lib/security/staff-access-policy.ts). Hours:
+  // null = any time, else per-weekday SAST windows. Allowlist: empty = any
+  // address, else CIDR blocks the staff caller's IP must fall in.
+  staffAccessHours       Json?
+  staffIpAllowlist       String[] @default([])
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -445,6 +501,9 @@ model Client {
   employerName                       String?
   monthlyIncome                      Int                      @default(0)
   monthlyExpenses                    Int                      @default(0)
+  // Set when monthlyExpenses was captured from the client or staff, so a
+  // declared R0 differs from the column's default (lib/credit-checks/load-facts.ts).
+  monthlyExpensesDeclaredAt          DateTime?
   bankName                           String?
   bankAccountNumber                  String?
   bankBranchCode                     String?
@@ -515,6 +574,10 @@ model Client {
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
   kycOverrideRequests                KycOverrideRequest[]
+  screeningChecks                    ScreeningCheck[]
+  screeningBlocks                    ScreeningBlock[]
+  suspiciousReportCases              SuspiciousReportCase[]
+  signingOtpChallenges               SigningOtpChallenge[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -633,6 +696,235 @@ enum AmlStatus {
   PENDING
   CLEARED
   FLAGGED
+}
+
+// ── PEP / sanctions screening and FIC Act registers (W4) ──────────────────
+// Hand-written enforcement for these models lives in migration
+// 20261014150000_w4_screening_fic: records cannot be deleted, a review
+// decision is made once, a confirmed sanctions match can never be cleared,
+// and approval is refused while the client's latest screening run blocks it.
+
+// One row per check type per screening run (a run = one call to the tenant's
+// provider for every type it supports). The subject is a client (natural
+// person) or a business entity, never both (CHECK ScreeningCheck_one_subject).
+// Writes Client.amlScreeningStatus for a client (lib/screening). Migration
+// 20261014160000_w4_screening_review_fixes binds a run to the identity it
+// screened (subjectFingerprint) and makes blocks sticky (ScreeningBlock).
+model ScreeningCheck {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  clientId           String?
+  client             Client?            @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId           String?
+  entity             BusinessEntity?    @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // SQL screeningCurrentFingerprint() of the subject when it was screened. A
+  // run whose fingerprint differs from the subject's current one is stale.
+  subjectFingerprint String?
+  // Who started the run (null for system runs, including the approval gate's).
+  // With TenantConfig.requireSecondReviewer on, never the one who decides it.
+  triggeredById      String?
+  // A person screened as a related party of this entity (director, member,
+  // trustee, ...). A block raised by such a run blocks the entity even after
+  // the relationship is deactivated or deleted.
+  contextEntityId    String?
+  runId              String
+  trigger            ScreeningTrigger
+  applicationId      String?
+  provider           String
+  type               ScreeningType
+  result             ScreeningResult
+  // Provider match entries, normalised (lib/screening/types.ts ScreeningMatch).
+  matches            Json               @default("[]")
+  // sha256 of type + sorted list-entry ids; a re-run with the same matches
+  // carries the earlier decision forward (carriedFromCheckId).
+  matchFingerprint   String?
+  providerReference  String?
+  errorCode          String?
+  simulated          Boolean            @default(false)
+  decision           ScreeningDecision?
+  decisionReason     String?
+  reviewedById       String?
+  reviewedAt         DateTime?
+  carriedFromCheckId String?
+  createdAt          DateTime           @default(now())
+  blocks             ScreeningBlock[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, clientId, createdAt])
+  @@index([tenantId, entityId, createdAt])
+  @@index([tenantId, runId])
+}
+
+// A sticky screening block: written by the database when a run records a
+// confirmed sanctions match or a reviewer REJECTS a match. A later clear run
+// does not end it; only a SUPER_ADMIN with TOTP lifts it, with a reason, once.
+model ScreeningBlock {
+  id              String               @id @default(cuid())
+  tenantId        String
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  clientId        String?
+  client          Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId        String?
+  entity          BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  sourceCheckId   String               @unique
+  sourceCheck     ScreeningCheck       @relation(fields: [tenantId, sourceCheckId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Copied from the source check by the database: the entity the person was
+  // screened for, if any.
+  contextEntityId String?
+  reason          ScreeningBlockReason
+  createdAt       DateTime             @default(now())
+  liftedById      String?
+  liftedAt        DateTime?
+  liftReason      String?
+
+  @@index([tenantId, clientId])
+  @@index([tenantId, entityId])
+  @@index([tenantId, contextEntityId])
+}
+
+enum ScreeningBlockReason {
+  SANCTIONS_MATCH
+  REJECTED
+}
+
+enum ScreeningType {
+  PEP
+  SANCTIONS
+  ADVERSE_MEDIA
+}
+
+enum ScreeningResult {
+  CLEAR
+  POSSIBLE_MATCH
+  CONFIRMED_MATCH
+  ERROR
+}
+
+// FALSE_POSITIVE: the match is not this client. ACCEPTED: the match is this
+// client and a senior accepts the relationship (enhanced due diligence); never
+// for sanctions. REJECTED: the match stands and blocks approval.
+enum ScreeningDecision {
+  FALSE_POSITIVE
+  ACCEPTED
+  REJECTED
+}
+
+enum ScreeningTrigger {
+  APPLICATION_SUBMIT
+  PRE_APPROVAL
+  PERIODIC
+  MANUAL
+}
+
+// Cash threshold register (lib/fic/cash-threshold.ts). Candidates are DERIVED
+// from CASH receipts at or above the threshold; a row here records what the
+// compliance officer did with one: filed with the FIC, or not reportable.
+model CashThresholdReport {
+  id           String                    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  paymentId    String
+  payment      Payment                   @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents  Int
+  status       CashThresholdReportStatus
+  fiuReference String?
+  filedAt      DateTime?
+  note         String?
+  recordedById String
+  createdAt    DateTime                  @default(now())
+
+  @@unique([tenantId, paymentId])
+  @@index([tenantId, status])
+}
+
+enum CashThresholdReportStatus {
+  FILED
+  NOT_REPORTABLE
+}
+
+// Suspicious / unusual transaction register (lib/fic/str-cases.ts). Any staff
+// member may raise a case; only the FIC compliance role may see the register,
+// and every read is logged in SuspiciousReportAccess. Never shown to the client.
+model SuspiciousReportCase {
+  id             String                   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant                   @relation(fields: [tenantId], references: [id])
+  reference      String
+  kind           SuspiciousReportKind
+  clientId       String?
+  client         Client?                  @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId         String?
+  loan           Loan?                    @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  paymentId      String?
+  payment        Payment?                 @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  grounds        String
+  status         SuspiciousReportStatus   @default(OPEN)
+  raisedById     String
+  raisedAt       DateTime                 @default(now())
+  assessedById   String?
+  assessedAt     DateTime?
+  assessmentNote String?
+  fiuReference   String?
+  reportedAt     DateTime?
+  closedAt       DateTime?
+  updatedAt      DateTime                 @updatedAt
+  accesses       SuspiciousReportAccess[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+}
+
+enum SuspiciousReportKind {
+  SUSPICIOUS_TRANSACTION
+  UNUSUAL_TRANSACTION
+  SUSPICIOUS_ACTIVITY
+}
+
+enum SuspiciousReportStatus {
+  OPEN
+  UNDER_REVIEW
+  REPORTED
+  CLOSED_NO_REPORT
+}
+
+// Every read of the STR register, a case, or an export. Append-only.
+model SuspiciousReportAccess {
+  id        String                @id @default(cuid())
+  tenantId  String
+  tenant    Tenant                @relation(fields: [tenantId], references: [id])
+  caseId    String?
+  case      SuspiciousReportCase? @relation(fields: [tenantId, caseId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  userId    String
+  action    String
+  createdAt DateTime              @default(now())
+
+  @@index([tenantId, caseId])
+  @@index([tenantId, createdAt])
+}
+
+// The lender's Risk Management and Compliance Programme, as uploaded by the
+// lender (CredaFlow generates no RMCP text). Versioned; approval is one-time.
+model RmcpDocument {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  version      Int
+  title        String
+  fileName     String
+  mimeType     String
+  storagePath  String
+  sha256       String
+  fileSize     Int
+  uploadedById String
+  uploadedAt   DateTime  @default(now())
+  approvedById String?
+  approvedAt   DateTime?
+  approvalNote String?
+  reviewDueAt  DateTime  @db.Date
+
+  @@unique([tenantId, version])
 }
 
 enum LoanPurposeCategory {
@@ -1064,6 +1356,8 @@ model BusinessEntity {
   loans                 Loan[]
   documents             EntityDocument[]
   deals                 AssetFinanceDeal[]
+  screeningChecks       ScreeningCheck[]
+  screeningBlocks       ScreeningBlock[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, type, registrationNumber])
@@ -1526,6 +1820,12 @@ model Loan {
   disbursementReversals       DisbursementReversal[]
   payoutRecoveryCases         PayoutRecoveryCase[]
   leaseRentals                LeaseRental[]
+  maintenanceFund             MaintenanceFund?
+  meterReadings               AssetMeterReading[]
+  leaseEndOfTerm              LeaseEndOfTerm?
+  leaseExpiryNotice           LeaseExpiryNotice?
+  leaseTerminationQuotes      LeaseTerminationQuote[]
+  suspiciousReportCases       SuspiciousReportCase[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1702,9 +2002,9 @@ model AvsCheck {
 }
 
 model RepaymentSchedule {
-  id                              String         @id @default(cuid())
+  id                              String                 @id @default(cuid())
   tenantId                        String
-  tenant                          Tenant         @relation(fields: [tenantId], references: [id])
+  tenant                          Tenant                 @relation(fields: [tenantId], references: [id])
   loanId                          String
   installmentNo                   Int
   dueDate                         DateTime
@@ -1713,14 +2013,16 @@ model RepaymentSchedule {
   // Opening capital at the last asset-finance solve. Preserved when a paid
   // row is reopened, so a later reprice can reconstruct its historical accrual.
   assetFinanceOpeningBalanceCents Int?
-  creditLifePremiumDue            Int            @default(0)
+  creditLifePremiumDue            Int                    @default(0)
   feesDue                         Int
   totalDue                        Int
-  totalPaid                       Int            @default(0)
-  status                          ScheduleStatus @default(PENDING)
+  totalPaid                       Int                    @default(0)
+  status                          ScheduleStatus         @default(PENDING)
   paidAt                          DateTime?
-  loan                            Loan           @relation(fields: [loanId], references: [id])
+  loan                            Loan                   @relation(fields: [loanId], references: [id])
   leaseRental                     LeaseRental?
+  leaseEndOfTermCharge            LeaseEndOfTerm?        @relation("LeaseEndOfTermCharge")
+  leaseTerminationCharge          LeaseTerminationQuote? @relation("LeaseTerminationCharge")
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1780,6 +2082,8 @@ model Payment {
   parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
   excessPayments           Payment[]               @relation("PaymentOverpayment")
   surrenderProceeds        SurrenderRequest[]      @relation("SurrenderProceedsPayment")
+  cashThresholdReport      CashThresholdReport?
+  suspiciousReportCases    SuspiciousReportCase[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])
@@ -2828,6 +3132,48 @@ model NotificationLog {
   createdAt DateTime @default(now())
 
   @@index([tenantId, messageId])
+}
+
+enum SigningOtpPurpose {
+  AGREEMENT
+  DEBIT_MANDATE
+  DOCUMENT
+  // An asset-finance deal document (DealSigner row): agreement, suretyship,
+  // resolution. subjectId is the DealSigner id.
+  DEAL_DOCUMENT
+}
+
+// One borrower signing OTP (lib/signing-otp). Bound to the client, the thing
+// being signed (subjectId: the application for AGREEMENT / DEBIT_MANDATE, the
+// ClientDocument for DOCUMENT) and the SHA-256 of the exact bytes shown. The
+// code is stored only as a keyed hash. Consumed once, inside the signing
+// transaction; from then on the row is the OTP evidence of that signature and
+// the database refuses to change or delete it.
+model SigningOtpChallenge {
+  id                String            @id @default(cuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  clientId          String
+  client            Client            @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  purpose           SigningOtpPurpose
+  subjectId         String
+  documentSha256    String
+  codeHash          String
+  channel           Channel
+  maskedDestination String
+  deliveryStatus    String // PENDING (before the send) | ACCEPTED | SIMULATED | FAILED
+  sentAt            DateTime?
+  expiresAt         DateTime
+  attempts          Int               @default(0)
+  maxAttempts       Int
+  verifiedAt        DateTime?
+  consumedAt        DateTime?
+  signingMethod     String? // portal | branch, set at consumption
+  requestedByUserId String? // the staff witness for a branch request
+  requestedIp       String?
+  createdAt         DateTime          @default(now())
+
+  @@index([tenantId, clientId, purpose, subjectId, createdAt])
 }
 
 model ClientOtp {
@@ -4287,30 +4633,33 @@ model VatRate {
 // insert trigger assigns the gap-free per-tenant number (max + 1 under an
 // advisory lock; CreditNote likewise).
 model TaxInvoice {
-  id                 String           @id @default(cuid())
+  id                 String                   @id @default(cuid())
   tenantId           String
-  tenant             Tenant           @relation(fields: [tenantId], references: [id])
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id])
   number             Int
   // Display number, e.g. "INV-000123".
   invoiceNumber      String
-  issueDate          DateTime         @db.Date
-  supplyDate         DateTime         @db.Date
+  issueDate          DateTime                 @db.Date
+  supplyDate         DateTime                 @db.Date
   loanId             String?
-  loan               Loan?            @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loan               Loan?                    @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   supplierName       String
   supplierAddress    String
   supplierVatNumber  String
   recipientName      String
   recipientAddress   String
   recipientVatNumber String?
-  vatRate            Decimal          @db.Decimal(6, 4)
+  vatRate            Decimal                  @db.Decimal(6, 4)
   totalExclVatCents  Int
   vatCents           Int
   totalInclVatCents  Int
   createdById        String?
-  createdAt          DateTime         @default(now())
+  createdAt          DateTime                 @default(now())
   lines              TaxInvoiceLine[]
   leaseRental        LeaseRental?
+  fundMovement       MaintenanceFundMovement?
+  leaseEndOfTerm     LeaseEndOfTerm?          @relation("LeaseEndOfTermInvoice")
+  leaseTermination   LeaseTerminationQuote?   @relation("LeaseTerminationInvoice")
   creditNotes        CreditNote[]
 
   @@unique([tenantId, number])
@@ -4400,6 +4749,8 @@ model EntityDocument {
   createdAt         DateTime              @default(now())
   signerScans       DealSigner[]          @relation("DealSignerScan")
   checklistEvidence PayoutChecklistItem[] @relation("PayoutChecklistEvidence")
+  maintenanceClaims MaintenanceClaim[]
+  meterReadings     AssetMeterReading[]
 
   @@unique([tenantId, id])
   @@index([tenantId, entityId])
@@ -4425,9 +4776,9 @@ enum AssetClass {
 // deal closes, is declined or cancelled; until then its serial and VIN are
 // unique across the tenant's book (partial unique indexes, hand-written).
 model FinancedAsset {
-  id                    String             @id @default(cuid())
+  id                    String              @id @default(cuid())
   tenantId              String
-  tenant                Tenant             @relation(fields: [tenantId], references: [id])
+  tenant                Tenant              @relation(fields: [tenantId], references: [id])
   assetClass            AssetClass
   make                  String
   model                 String
@@ -4444,19 +4795,24 @@ model FinancedAsset {
   natisTitleholder      String?
   // eNaTIS registered owner; a lease requires it to be the lender (payout checklist).
   natisOwner            String?
+  // Leases: the lessor's asset back in stock after a return (ready for slice-4
+  // remarketing), or sold to the lessee at the end of the term.
+  lessorStatus          AssetLessorStatus?
+  lessorStatusAt        DateTime?
   trackerProvider       String?
   trackerId             String?
   insurer               String?
   policyNumber          String?
-  lenderNotedConfirmed  Boolean            @default(false)
+  lenderNotedConfirmed  Boolean             @default(false)
   releasedAt            DateTime?
   createdById           String?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
   valuations            AssetValuation[]
   deals                 AssetFinanceDeal[]
   loans                 Loan[]
   surrenderRequests     SurrenderRequest[]
+  meterReadings         AssetMeterReading[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -4482,6 +4838,7 @@ model AssetValuation {
   createdById      String?
   createdAt        DateTime          @default(now())
   surrenderRequest SurrenderRequest?
+  leaseEndsOfTerm  LeaseEndOfTerm[]
 
   @@index([tenantId, assetId])
 }
@@ -4546,6 +4903,7 @@ model Supplier {
   updatedAt          DateTime              @updatedAt
   bankAccounts       SupplierBankAccount[]
   deals              AssetFinanceDeal[]
+  maintenanceClaims  MaintenanceClaim[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -4878,19 +5236,19 @@ model Payout {
 // accounts.ts) to the lender's own account code. A role without a row uses the
 // default code.
 model AccountingAccountMapping {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
-  role        String
-  accountCode String
-  accountName String?
-  taxCode     String?
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  role         String
+  accountCode  String
+  accountName  String?
+  taxCode      String?
   // FEE_INCOME / DEFAULT_FEE_INCOME only: the amounts include VAT, split out
   // to OUTPUT_VAT when AccountingSettings.vatRegistered.
-  vatInclusive Boolean @default(false)
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  vatInclusive Boolean  @default(false)
+  updatedById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([tenantId, role])
 }
@@ -4903,20 +5261,20 @@ enum AccountingBatchStatus {
 // One month's journals. Generated and closed in one transaction; a CLOSED
 // batch, its entries and its lines never change again (DB-enforced).
 model AccountingExportBatch {
-  id               String                  @id @default(cuid())
+  id               String                      @id @default(cuid())
   tenantId         String
-  tenant           Tenant                  @relation(fields: [tenantId], references: [id])
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id])
   periodKey        String // "2026-09", a SAST calendar month
   periodStart      DateTime
   periodEnd        DateTime // exclusive
-  status           AccountingBatchStatus   @default(OPEN)
-  entryCount       Int                     @default(0)
-  lineCount        Int                     @default(0)
-  totalDebitCents  BigInt                  @default(0)
-  totalCreditCents BigInt                  @default(0)
+  status           AccountingBatchStatus       @default(OPEN)
+  entryCount       Int                         @default(0)
+  lineCount        Int                         @default(0)
+  totalDebitCents  BigInt                      @default(0)
+  totalCreditCents BigInt                      @default(0)
   linesSha256      String?
   createdById      String
-  createdAt        DateTime                @default(now())
+  createdAt        DateTime                    @default(now())
   closedAt         DateTime?
   entries          AccountingLedgerEntry[]
   lines            AccountingJournalLine[]
@@ -5054,64 +5412,64 @@ enum DisbursementPayoutStatus {
 // application; claimed PENDING -> SUBMITTING before the provider is called; an
 // unknown outcome becomes NEEDS_REVIEW and is never retried automatically.
 model DisbursementPayout {
-  id                String                   @id @default(cuid())
-  tenantId          String
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id])
-  applicationId     String
-  loanId            String
-  loan              Loan                     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  id                      String                   @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  applicationId           String
+  loanId                  String
+  loan                    Loan                     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   // 1 = the payout the disbursement created; a retry of a FAILED/RETURNED
   // attempt is the next number, keyed disburse:<applicationId>:<attempt>.
-  attempt           Int                      @default(1)
-  retryOfId         String?
+  attempt                 Int                      @default(1)
+  retryOfId               String?
   // Who disbursed the loan (attempt 1's creator), copied to every attempt so
   // the maker-checker rules can name them.
-  disbursedById     String
-  requestedById     String?
-  approvedById      String?
-  approvedAt        DateTime?
-  paidAt            DateTime?
-  returnedAt        DateTime?
+  disbursedById           String
+  requestedById           String?
+  approvedById            String?
+  approvedAt              DateTime?
+  paidAt                  DateTime?
+  returnedAt              DateTime?
   // A return confirmed by staff at a bank value date (a second person).
-  returnedById      String?
-  returnNote        String?
+  returnedById            String?
+  returnNote              String?
   // A provider reported PAID/RETURNED (or PAID_THEN_RETURNED: paid, then
   // returned) for an attempt already over (FAILED/CANCELLED): recorded, never
   // applied, and it blocks a retry or a reversal of the loan until a second
   // person resolves it.
-  providerConflictState  String?
-  providerConflictAt     DateTime?
-  providerConflictDetail String?
+  providerConflictState   String?
+  providerConflictAt      DateTime?
+  providerConflictDetail  String?
   // The provider's id and time of the event behind the conflict (time capped
   // at receipt): a replay never reopens a resolution (lib/payouts/conflicts.ts).
   providerConflictEventId String?
   providerConflictEventAt DateTime?
-  conflictResolvedById   String?
-  conflictResolvedAt     DateTime?
-  conflictResolutionNote String?
-  provider          String
-  idempotencyKey    String
-  amountCents       Int
-  reference         String
-  accountHolder     String
-  bankName          String
-  branchCode        String
-  accountNumber     String
-  accountType       String
-  status            DisbursementPayoutStatus @default(PENDING)
-  simulated         Boolean                  @default(false)
-  providerReference String?
-  failureReason     String?
-  submittedAt       DateTime?
-  resolvedAt        DateTime?
-  resolvedById      String?
-  resolutionNote    String?
-  createdById       String
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
-  recoveryCase      PayoutRecoveryCase?
-  providerEvents    PayoutProviderEvent[]
-  unappliedReports  PayoutUnappliedReport[]
+  conflictResolvedById    String?
+  conflictResolvedAt      DateTime?
+  conflictResolutionNote  String?
+  provider                String
+  idempotencyKey          String
+  amountCents             Int
+  reference               String
+  accountHolder           String
+  bankName                String
+  branchCode              String
+  accountNumber           String
+  accountType             String
+  status                  DisbursementPayoutStatus @default(PENDING)
+  simulated               Boolean                  @default(false)
+  providerReference       String?
+  failureReason           String?
+  submittedAt             DateTime?
+  resolvedAt              DateTime?
+  resolvedById            String?
+  resolutionNote          String?
+  createdById             String
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  recoveryCase            PayoutRecoveryCase?
+  providerEvents          PayoutProviderEvent[]
+  unappliedReports        PayoutUnappliedReport[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([applicationId, attempt])
@@ -5130,17 +5488,17 @@ enum DisbursementReversalStatus {
 // only while every payout attempt is FAILED/RETURNED/CANCELLED and no receipt
 // is live. Approval cancels the loan (lib/payouts/reversal.ts).
 model DisbursementReversal {
-  id            String                     @id @default(cuid())
-  tenantId      String
-  loanId        String
-  loan          Loan                       @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  status        DisbursementReversalStatus @default(REQUESTED)
-  reason        String
-  requestedById String
-  requestedAt   DateTime                   @default(now())
-  decidedById   String?
-  decidedAt     DateTime?
-  decisionNote  String?
+  id                      String                     @id @default(cuid())
+  tenantId                String
+  loanId                  String
+  loan                    Loan                       @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status                  DisbursementReversalStatus @default(REQUESTED)
+  reason                  String
+  requestedById           String
+  requestedAt             DateTime                   @default(now())
+  decidedById             String?
+  decidedAt               DateTime?
+  decisionNote            String?
   // No mandate register on this build: a staff task to cancel the debit
   // order by hand, open until someone acknowledges it (set once).
   debitOrderCancelAckAt   DateTime?
@@ -5203,33 +5561,33 @@ enum PayoutRecoveryStatus {
 // someone other than the people who made or approved the payout. RECOVERED
 // is the full amount only; UNRECOVERABLE writes the money off to bad debts.
 model PayoutRecoveryCase {
-  id                String               @id @default(cuid())
-  tenantId          String
-  loanId            String
-  loan              Loan                 @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  payoutId          String               @unique
-  payout            DisbursementPayout   @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  amountCents       Int
+  id                   String               @id @default(cuid())
+  tenantId             String
+  loanId               String
+  loan                 Loan                 @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  payoutId             String               @unique
+  payout               DisbursementPayout   @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents          Int
   // The value date the money left the lender's bank.
-  paidAt            DateTime
-  status            PayoutRecoveryStatus @default(OPEN)
-  openedById        String
-  openNote          String
-  escalatedAt       DateTime?
-  escalatedById     String?
-  escalationNote    String?
+  paidAt               DateTime
+  status               PayoutRecoveryStatus @default(OPEN)
+  openedById           String
+  openNote             String
+  escalatedAt          DateTime?
+  escalatedById        String?
+  escalationNote       String?
   // The value date the funds came back.
-  recoveredAt       DateTime?
-  recoveredById     String?
-  recoveryNote      String?
-  recoveryReference String?
+  recoveredAt          DateTime?
+  recoveredById        String?
+  recoveryNote         String?
+  recoveryReference    String?
   // The amount staff entered as recovered: always the case's amount.
   recoveredAmountCents Int?
-  unrecoverableAt   DateTime?
-  unrecoverableById String?
-  unrecoverableNote String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  unrecoverableAt      DateTime?
+  unrecoverableById    String?
+  unrecoverableNote    String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
   @@index([tenantId, status])
   @@index([tenantId, loanId])
@@ -5288,28 +5646,447 @@ enum UsageUnit {
 // invoiced; taxInvoiceId is set once, when the rental's tax invoice is issued
 // (lib/asset-finance/lease-invoices.ts). Migration 20261014090000.
 model LeaseRental {
-  id                      String            @id @default(cuid())
+  id                      String                   @id @default(cuid())
   tenantId                String
-  tenant                  Tenant            @relation(fields: [tenantId], references: [id])
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
   loanId                  String
-  loan                    Loan              @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  scheduleId              String            @unique
-  schedule                RepaymentSchedule @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loan                    Loan                     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId              String                   @unique
+  schedule                RepaymentSchedule        @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   periodNo                Int
-  dueDate                 DateTime          @db.Date
+  dueDate                 DateTime                 @db.Date
   rentalExclVatCents      Int
   maintenanceExclVatCents Int
   vatCents                Int
   totalCents              Int
   // The VAT rate the amounts were computed at (DECIMAL(6,4), 0.1500 = 15%).
-  vatRate                 Decimal           @db.Decimal(6, 4)
-  taxInvoiceId            String?           @unique
-  taxInvoice              TaxInvoice?       @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  createdAt               DateTime          @default(now())
+  vatRate                 Decimal                  @db.Decimal(6, 4)
+  taxInvoiceId            String?                  @unique
+  taxInvoice              TaxInvoice?              @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Set when an accepted early termination cancels this rental (its schedule row goes to 0).
+  cancelledAt             DateTime?
+  createdAt               DateTime                 @default(now())
+  fundMovement            MaintenanceFundMovement?
 
   @@unique([tenantId, id])
   @@unique([tenantId, scheduleId])
   @@unique([tenantId, taxInvoiceId])
   @@unique([loanId, periodNo])
   @@index([tenantId, dueDate])
+}
+
+enum MaintenanceMovementKind {
+  CONTRIBUTION
+  CLAIM
+  SETTLEMENT_REFUND
+  SETTLEMENT_BILLED
+}
+
+enum MaintenanceClaimStatus {
+  SUBMITTED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum MeterReadingSource {
+  STAFF
+  PORTAL
+}
+
+enum LeaseEndOutcome {
+  RETURN
+  EXTEND
+  PURCHASE
+}
+
+enum LeaseEndStatus {
+  ELECTED
+  EXTENDING
+  INSPECTED
+  INVOICED
+  COMPLETED
+}
+
+enum LeaseEndOrigin {
+  EXPIRY
+  EARLY_TERMINATION
+}
+
+enum AssetLessorStatus {
+  RETURNED_TO_STOCK
+  SOLD_TO_LESSEE
+}
+
+enum LeaseTerminationStatus {
+  QUOTED
+  ACCEPTED
+}
+
+// The maintenance fund of a full-maintenance lease (lib/asset-finance/maintenance-*.ts):
+// one per FML loan, written at booking. The balance is derived from the
+// immutable movements. Migration 20261014100000.
+model MaintenanceFund {
+  id                  String                    @id @default(cuid())
+  tenantId            String
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id])
+  loanId              String                    @unique
+  loan                Loan                      @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  riskModel           MaintenanceRiskModel
+  leaseEndDate        DateTime                  @db.Date
+  settledAt           DateTime?
+  settledBalanceCents Int?
+  settledById         String?
+  createdAt           DateTime                  @default(now())
+  movements           MaintenanceFundMovement[]
+  claims              MaintenanceClaim[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId])
+}
+
+model MaintenanceFundMovement {
+  id            String                  @id @default(cuid())
+  tenantId      String
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  fundId        String
+  fund          MaintenanceFund         @relation(fields: [tenantId, fundId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind          MaintenanceMovementKind
+  amountCents   Int
+  leaseRentalId String?                 @unique
+  leaseRental   LeaseRental?            @relation(fields: [tenantId, leaseRentalId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  claimId       String?                 @unique
+  claim         MaintenanceClaim?       @relation(fields: [tenantId, claimId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  taxInvoiceId  String?                 @unique
+  taxInvoice    TaxInvoice?             @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  occurredOn    DateTime                @db.Date
+  note          String?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+
+  @@unique([tenantId, leaseRentalId])
+  @@unique([tenantId, claimId])
+  @@unique([tenantId, taxInvoiceId])
+  @@index([tenantId, fundId])
+}
+
+model MaintenanceClaim {
+  id                        String                   @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant                   @relation(fields: [tenantId], references: [id])
+  fundId                    String
+  fund                      MaintenanceFund          @relation(fields: [tenantId, fundId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierId                String
+  supplier                  Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  providerInvoiceDocumentId String
+  providerInvoiceDocument   EntityDocument           @relation(fields: [tenantId, providerInvoiceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  meterReadingId            String?
+  meterReading              AssetMeterReading?       @relation(fields: [tenantId, meterReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountExclVatCents        Int
+  description               String
+  status                    MaintenanceClaimStatus   @default(SUBMITTED)
+  submittedById             String
+  submittedAt               DateTime                 @default(now())
+  firstApprovedById         String?
+  firstApprovedAt           DateTime?
+  approvedById              String?
+  approvedAt                DateTime?
+  rejectedById              String?
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  paymentReference          String?
+  paidById                  String?
+  paidAt                    DateTime?
+  createdAt                 DateTime                 @default(now())
+  movement                  MaintenanceFundMovement?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, fundId])
+}
+
+// A dated meter reading of an asset (hours or km): monotonic per asset and
+// unit (DB), immutable. Lease usage (lib/asset-finance/lease-usage.ts).
+model AssetMeterReading {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  assetId            String
+  asset              FinancedAsset      @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId             String?
+  loan               Loan?              @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  readingDate        DateTime           @db.Date
+  value              Int
+  unit               UsageUnit
+  source             MeterReadingSource
+  evidenceDocumentId String?
+  evidenceDocument   EntityDocument?    @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedById       String?
+  recordedByClientId String?
+  createdAt          DateTime           @default(now())
+  claims             MaintenanceClaim[]
+  endOfTerm          LeaseEndOfTerm?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, assetId, unit, readingDate])
+}
+
+// The end of a lease's term (lib/asset-finance/lease-end-of-term*.ts): one per
+// lease loan; its outcome is never changed and transitions are DB-guarded.
+model LeaseEndOfTerm {
+  id                         String             @id @default(cuid())
+  tenantId                   String
+  tenant                     Tenant             @relation(fields: [tenantId], references: [id])
+  loanId                     String             @unique
+  loan                       Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  origin                     LeaseEndOrigin
+  outcome                    LeaseEndOutcome
+  status                     LeaseEndStatus     @default(ELECTED)
+  electedAt                  DateTime           @default(now())
+  electedById                String?
+  electedByClientId          String?
+  extensionNoticeOn          DateTime?          @db.Date
+  extensionEndsOn            DateTime?          @db.Date
+  inspectedOn                DateTime?          @db.Date
+  inspectionCondition        String?
+  inspectedById              String?
+  finalReadingId             String?            @unique
+  finalReading               AssetMeterReading? @relation(fields: [tenantId, finalReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  excessUsageCents           Int?
+  fundSettlementCents        Int?
+  purchasePriceExclVatCents  Int?
+  purchaseValuationId        String?
+  purchaseValuation          AssetValuation?    @relation(fields: [purchaseValuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  taxInvoiceId               String?            @unique
+  taxInvoice                 TaxInvoice?        @relation("LeaseEndOfTermInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId                 String?            @unique
+  schedule                   RepaymentSchedule? @relation("LeaseEndOfTermCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  natisTransferConfirmedAt   DateTime?
+  natisTransferConfirmedById String?
+  completedAt                DateTime?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+  damageItems                LeaseDamageItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId])
+  @@unique([tenantId, finalReadingId])
+  @@unique([tenantId, taxInvoiceId])
+  @@unique([tenantId, scheduleId])
+}
+
+model LeaseDamageItem {
+  id                 String         @id @default(cuid())
+  tenantId           String
+  tenant             Tenant         @relation(fields: [tenantId], references: [id])
+  endOfTermId        String
+  endOfTerm          LeaseEndOfTerm @relation(fields: [tenantId, endOfTermId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  description        String
+  amountExclVatCents Int
+  createdAt          DateTime       @default(now())
+
+  @@index([tenantId, endOfTermId])
+}
+
+// The CPA s14 expiry notice of a lease, queued once (lib/asset-finance/lease-expiry-store.ts).
+model LeaseExpiryNotice {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  loanId     String   @unique
+  loan       Loan     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  expiryDate DateTime @db.Date
+  queuedOn   DateTime @db.Date
+  createdAt  DateTime @default(now())
+
+  @@unique([tenantId, loanId])
+}
+
+// An early-termination quote (lib/asset-finance/lease-termination*.ts).
+model LeaseTerminationQuote {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id])
+  loanId              String
+  loan                Loan                   @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  quotedOn            DateTime               @db.Date
+  terminationDate     DateTime               @db.Date
+  validUntil          DateTime               @db.Date
+  cpaCancellation     Boolean
+  remainingRentals    Int
+  pvCents             Int
+  penaltyCents        Int
+  arrearsCents        Int
+  invoiceExclVatCents Int
+  invoiceVatCents     Int
+  totalCents          Int
+  basis               String
+  status              LeaseTerminationStatus @default(QUOTED)
+  requestedByClientId String?
+  createdById         String?
+  acceptedAt          DateTime?
+  acceptedById        String?
+  acceptedByClientId  String?
+  taxInvoiceId        String?                @unique
+  taxInvoice          TaxInvoice?            @relation("LeaseTerminationInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId          String?                @unique
+  schedule            RepaymentSchedule?     @relation("LeaseTerminationCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt           DateTime               @default(now())
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, taxInvoiceId])
+  @@unique([tenantId, scheduleId])
+  @@index([tenantId, loanId])
+}
+
+// ── Public lender API and outbound webhooks (lib/lender-api) ──────────────────
+
+// A tenant's API key. Only the SHA-256 of the full key is stored; `prefix` is
+// the public part shown in Settings and used to find the row. Scopes are
+// checked in code (lib/lender-api/scopes.ts) and by ApiKey_scopes_check. A key
+// is never deleted: revokedAt ends it, and its request log keeps pointing at it.
+model ApiKey {
+  id          String          @id @default(cuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name        String
+  prefix      String          @unique
+  keyHash     String          @unique
+  scopes      String[]
+  createdById String
+  createdBy   User            @relation("ApiKeysCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt   DateTime        @default(now())
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  revokedBy   User?           @relation("ApiKeysRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  requestLogs ApiRequestLog[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+}
+
+// One row per /api/v1 call, authenticated or not. tenantId and apiKeyId are
+// null when the bearer key matched no key.
+model ApiRequestLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  apiKeyId   String?
+  apiKey     ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: Restrict)
+  method     String
+  path       String
+  status     Int
+  ipAddress  String?
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
+// Where a tenant wants its events POSTed. The signing secret is sealed with
+// WEBHOOK_SECRET_KEY (lib/crypto/secret-box.ts) and shown once on creation.
+// Endpoints are disabled, never deleted, so the delivery log stays whole.
+model WebhookEndpoint {
+  id                  String            @id @default(cuid())
+  tenantId            String
+  tenant              Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  url                 String
+  description         String?
+  events              String[]
+  secretSealed        String
+  secretPrefix        String
+  active              Boolean           @default(true)
+  createdById         String
+  createdBy           User              @relation("WebhookEndpointsCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt           DateTime          @default(now())
+  disabledAt          DateTime?
+  disabledById        String?
+  disabledBy          User?             @relation("WebhookEndpointsDisabledBy", fields: [tenantId, disabledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Circuit breaker (lib/lender-api/webhooks/dispatch.ts): failed attempts in a
+  // row; at the threshold the endpoint is paused (its deliveries wait, PENDING)
+  // until an admin resumes it in Settings.
+  consecutiveFailures Int               @default(0)
+  pausedAt            DateTime?
+  pausedReason        String?
+  deliveries          WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, active])
+}
+
+// The outbox. Rows are written by database triggers (migration
+// 20261014150000_lender_api_webhooks) in the transaction of the change they
+// describe, and only while the tenant has an active endpoint subscribed to the
+// type. The webhook cron fans each out into WebhookDelivery rows.
+model WebhookEvent {
+  id           String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  type         String
+  entityId     String
+  data         Json
+  createdAt    DateTime          @default(now())
+  dispatchedAt DateTime?
+  deliveries   WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([dispatchedAt, createdAt])
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+// One event to one endpoint: the delivery log. attempts counts POSTs made;
+// nextAttemptAt doubles as the lease a running cron takes on the row.
+model WebhookDelivery {
+  id                 String                @id @default(cuid())
+  tenantId           String
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  endpointId         String
+  endpoint           WebhookEndpoint       @relation(fields: [tenantId, endpointId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  eventId            String
+  event              WebhookEvent          @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status             WebhookDeliveryStatus @default(PENDING)
+  attempts           Int                   @default(0)
+  nextAttemptAt      DateTime              @default(now())
+  lastAttemptAt      DateTime?
+  lastResponseStatus Int?
+  lastError          String?
+  deliveredAt        DateTime?
+  createdAt          DateTime              @default(now())
+
+  @@unique([endpointId, eventId])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+}
+
+// An outbox event a trigger could not write (migration
+// 20261014170000_webhook_breaker_outbox_guard): the write that fired it went
+// through, the event did not. /api/health warns while any are recent; the
+// retention cron prunes them. A log, not tenant data: no relation, so writing
+// it can never fail on one.
+model WebhookOutboxFailure {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  type      String
+  entityId  String
+  error     String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Last run of each in-process cron job (instrumentation.ts), read by /api/health.
+model CronHeartbeat {
+  job             String    @id
+  lastStartedAt   DateTime
+  lastFinishedAt  DateTime?
+  lastSucceededAt DateTime?
+  lastStatus      Int?
+  lastError       String?
 }

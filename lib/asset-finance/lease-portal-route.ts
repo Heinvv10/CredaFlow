@@ -69,3 +69,9 @@ export async function withPortalLeaseDocument(
 }
 
 export { notFound as portalLeaseNotFound }
+
+/** For a lib function a portal client calls: null when the client may act on this lease, else the refusal. */
+export async function clientLeaseRefusal(actor: { tenantId: string; clientId?: string }, loanId: string): Promise<{ kind: "not_found" } | null> {
+  if (!actor.clientId) return null
+  return (await findPortalLease(actor.tenantId, actor.clientId, loanId)) ? null : { kind: "not_found" }
+}
