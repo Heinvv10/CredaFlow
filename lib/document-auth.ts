@@ -5,6 +5,7 @@ import type { UserRole } from "@prisma/client"
 
 const STAFF_ROLES: UserRole[] = [
   "SUPER_ADMIN",
+  "ADMIN",
   "CREDIT_OFFICER",
   "LOAN_ADMIN",
   "COLLECTIONS_AGENT",
