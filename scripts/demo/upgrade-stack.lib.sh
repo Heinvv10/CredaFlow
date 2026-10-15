@@ -41,6 +41,10 @@ require_active() {
 # app container, or recreating it would change a secret (WABA_ENC_KEY would orphan the
 # sealed SMTP password). Both sides are compared as sha256 inside one node process fed
 # by a pipe and a file path: no value or hash reaches argv or output, only key names.
+# The one exception: a key in ADDABLE_SECRETS that the running app lacks entirely is a
+# new secret, not a changed one (nothing the app stored was made with it), so it is
+# reported and the recreated container gains it. A differing value is still refused.
+ADDABLE_SECRETS="UNSUB_TOKEN_SECRET"
 check_secrets() {
   local bad
   [ -s "$SHARED_SECRETS" ] || die "refusing: secrets file $SHARED_SECRETS is missing or empty"
@@ -51,9 +55,16 @@ const sha = (v) => createHash("sha256").update(v).digest("hex")
 const want = parseEnv(fs.readFileSync(process.argv[1], "utf8"))
 const have = {}
 for (const line of fs.readFileSync(0, "utf8").split("\n")) { const i = line.indexOf("="); if (i > 0) have[line.slice(0, i)] = line.slice(i + 1) }
-process.stdout.write(Object.keys(want).filter((k) => !(k in have) || sha(have[k]) !== sha(want[k])).join(" "))' "$SHARED_SECRETS")" \
+const addable = new Set(process.argv[2].split(" "))
+process.stdout.write(Object.keys(want).filter((k) => (k in have ? sha(have[k]) !== sha(want[k]) : !addable.has(k))).join(" "))' "$SHARED_SECRETS" "$ADDABLE_SECRETS")" \
     || die "cannot compare $SHARED_SECRETS with the env of $LIVE_APP"
   [ -z "$bad" ] || die "refusing: $SHARED_SECRETS differs from the env of the running $LIVE_APP in: $bad (a recreated container would run with other secrets; recreate it on the old values or fix the file)"
+  local key added=""
+  for key in $ADDABLE_SECRETS; do
+    [ -n "$(env_get "$SHARED_SECRETS" "$key")" ] || continue
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | grep -q "^$key=" || added="$added $key"
+  done
+  [ -z "$added" ] || note "adding new secret(s) the running $LIVE_APP does not have:$added"
 }
 
 # restore_hint — the commands that put $dump back. A plain `pg_restore --clean` into the
