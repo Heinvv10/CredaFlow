@@ -272,10 +272,11 @@ describe("the cost of checking appended saves stays linear in the file size", ()
     ["\"1 1\" then 10 MB of spaces", `1 1${" ".repeat(10_000_000)}`],
     ["\"1 \" and 5 million empty comments, twice", `1 ${"%\n".repeat(5_000_000)}1 ${"%\n".repeat(5_000_000)}`],
   ])("on %s in the original's body, without throwing (a regex ran out of stack)", (_label, noise) => {
-    const o = original({ xrefStreams: 1, padding: noise.length })
-    const noisy = o.pdf.replace(/%x+\n/, `%\n${noise.slice(0, -1)}\n`)
-    // The tail is Word's own and the stream agrees, so it stays a no-op.
-    timed(wordSave(noisy, o.trailer, `/XRefStm ${o.xrefStreams[0]}`), 0)
+    const tail = (o: ReturnType<typeof original>) =>
+      wordSave(o.pdf.replace(/%x+\n/, `%\n${noise.slice(0, -1)}\n`), o.trailer, `/XRefStm ${o.xrefStreams[0]}`)
+    // The tester's object-stream swap is counted; Word's own tail, whose stream agrees, stays a no-op.
+    timed(tail(original({ xrefStreams: 1, freed: [3], objStm: { 3: page(2, 9) }, streamOverrides: { 3: [2, "objStm", 0] }, padding: noise.length })), 1)
+    timed(tail(original({ xrefStreams: 1, padding: noise.length })), 0)
   }, 60_000)
 
   it("on 2,000 saves alternating their /XRefStm over a 16 MB original", () => {
