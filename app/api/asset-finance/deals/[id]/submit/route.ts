@@ -6,6 +6,7 @@ import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { submitDeal } from "@/lib/asset-finance/deal-submit"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 
 /**
  * Submit a DRAFT deal (manage_asset_finance; lib/asset-finance/deal-submit.ts).
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           deal: await loadDealDetail(tenant.id, id),
         })
       case "submitted":
+        // PEP / sanctions screening of the borrower; never blocks or fails the submission.
+        void screenOnSubmit({ tenantId: tenant.id, dealId: id, actor: { id: guard.user.id, email: guard.user.email } })
         return NextResponse.json({
           refusedNca: false,
           awaitingRegimeApproval: result.awaitingRegimeApproval,

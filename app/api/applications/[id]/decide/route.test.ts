@@ -35,6 +35,17 @@ const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+// The gate's own behaviour is tested in lib/screening; here, only that the
+// route obeys it before and inside the approve transaction.
+const screeningApprovalGateMock = vi.fn()
+const lockedScreeningAllowsApprovalMock = vi.fn()
+vi.mock("@/lib/screening/gate", () => ({
+  borrowerScreeningGate: (a: unknown) => screeningApprovalGateMock(a),
+  lockedBorrowerScreeningAllows: (...a: unknown[]) => lockedScreeningAllowsApprovalMock(...a),
+  isScreeningRefusal: (e: unknown) => String(e).includes("screening blocks approval") || String(e).includes("has not been screened"),
+}))
+const auditRefusalMock = vi.fn()
+vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: (a: unknown) => auditRefusalMock(a) }))
 vi.mock("@/lib/credit-checks/recompute", () => ({
   recomputeApplicationFlags: (...a: unknown[]) => recomputeApplicationFlagsMock(...a),
 }))
@@ -346,6 +357,8 @@ const approvedApplication = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  screeningApprovalGateMock.mockResolvedValue({ allowed: true, state: { state: "CLEAR" }, message: "Screening is clear.", providerError: null })
+  lockedScreeningAllowsApprovalMock.mockResolvedValue(true)
   verifyStoredPasqBindingMock.mockReset()
   verifyPasqDocumentArtifactMock.mockReset()
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co" } })
@@ -732,6 +745,96 @@ it("409s when the open-check-flags trigger refuses the approval write", async ()
   expect(res.status).toBe(409)
   expect((await res.json()).error).toContain("credit check was raised while approving")
   expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("refuses approval while a screening match awaits review, before the approve transaction", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  screeningApprovalGateMock.mockResolvedValue({
+    allowed: false,
+    state: { state: "REFER", checkIds: ["sc1"] },
+    message: "1 screening match needs a reviewer's decision.",
+    providerError: null,
+  })
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect(await res.json()).toEqual({
+    error: "Approval blocked: 1 screening match needs a reviewer's decision.",
+    screening: { state: "REFER", checkIds: ["sc1"] },
+    requiresOverride: false,
+  })
+  expect(screeningApprovalGateMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", applicationId: "app-1", borrower: expect.objectContaining({ entityId: null }) }))
+  expect(transactionMock).not.toHaveBeenCalled()
+  // A7: the refusal is audited like other refusals.
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+    action: "SCREENING_APPROVAL_REFUSED", entity: "LoanApplication", entityId: "app-1", reason: "screening_refer", status: 422,
+  }))
+})
+
+it("refuses an approver who decided a match the screening relies on, audited as screening_self_decided", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  screeningApprovalGateMock.mockResolvedValue({
+    allowed: false,
+    selfDecided: true,
+    state: { state: "CLEAR" },
+    message: "You decided a screening match this approval relies on. Another user must approve it.",
+    providerError: null,
+  })
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect((await res.json()).error).toContain("Another user must approve it")
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+    action: "SCREENING_APPROVAL_REFUSED", reason: "screening_self_decided", status: 422,
+  }))
+  expect(transactionMock).not.toHaveBeenCalled()
+})
+
+it("refuses a sanctions match even with a bureau override reason: nothing overrides it", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  screeningApprovalGateMock.mockResolvedValue({
+    allowed: false,
+    state: { state: "BLOCKED", reason: "SANCTIONS_MATCH", checkIds: ["s1"] },
+    message: "The client is a confirmed sanctions match. This cannot be overridden.",
+    providerError: null,
+  })
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good", bureauOverrideReason: "Manager approved the exception" }), ctx)
+
+  expect(res.status).toBe(422)
+  const body = await res.json()
+  expect(body.screening).toMatchObject({ state: "BLOCKED", reason: "SANCTIONS_MATCH" })
+  expect(body.requiresOverride).toBe(false)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
+it("re-reads screening under its lock in the approve transaction and refuses a change with an audited 422", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  lockedScreeningAllowsApprovalMock.mockResolvedValue(false)
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect((await res.json()).error).toContain("screening changed while approving")
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({ action: "SCREENING_APPROVAL_REFUSED", status: 422 }))
+  expect(lockedScreeningAllowsApprovalMock).toHaveBeenCalledWith(expect.anything(), "t1", { clientId: expect.any(String), entityId: null }, "u1")
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+  expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+it("audits a 422 when the screening trigger refuses the approval write", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txUpdateManyMock.mockRejectedValueOnce(new Error(
+    "Raw query failed. Code: `23514`. Message: `Application app_1 cannot be approved: its borrower's screening blocks approval`",
+  ))
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect((await res.json()).error).toContain("screening changed while approving")
+  expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({ action: "SCREENING_APPROVAL_REFUSED", status: 422 }))
 })
 
 it("still 500s an approval whose constraint check fails for any other reason", async () => {

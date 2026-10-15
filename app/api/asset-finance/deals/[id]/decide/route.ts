@@ -8,6 +8,7 @@ import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { decideDeal, parseDecideInput } from "@/lib/asset-finance/deal-decision"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
+import { borrowerScreeningGate, isScreeningRefusal } from "@/lib/screening/gate"
 
 /**
  * The credit decision on a SUBMITTED or REFERRED deal (decide_asset_finance;
@@ -46,12 +47,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const input = parseDecideInput(await req.json().catch(() => null))
     if (typeof input === "string") return NextResponse.json({ error: input }, { status: 400 })
 
+    // PEP / sanctions screening of the borrower before approval: the entity and
+    // its related parties, or the natural person (lib/screening/gate.ts). It
+    // re-screens a party that is unscreened, stale, errored or changed.
+    if (input.decision === "APPROVE") {
+      const deal = await prisma.assetFinanceDeal.findFirst({
+        where: { id, tenantId: tenant.id },
+        select: { applicationId: true, application: { select: { clientId: true, entityId: true } } },
+      })
+      if (deal) {
+        const screening = await borrowerScreeningGate({
+          tenantId: tenant.id,
+          borrower: deal.application,
+          applicationId: deal.applicationId,
+          actor: { id: guard.user.id, email: guard.user.email },
+        })
+        if (!screening.allowed) {
+          return refuse(screening.selfDecided ? "screening_self_decided" : `screening_${screening.state.state.toLowerCase()}`, 422, `Approval blocked: ${screening.message}`)
+        }
+      }
+    }
+
     let result: Awaited<ReturnType<typeof decideDeal>>
     try {
       result = await prisma.$transaction((tx) =>
         decideDeal(tx, { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }, id, input),
       )
     } catch (error) {
+      if (isScreeningRefusal(error)) {
+        return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
+      }
       if (isCheckViolation(error)) {
         return NextResponse.json({ error: "The database refused the decision; the deal changed, try again" }, { status: 409 })
       }
@@ -72,6 +97,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("s81_unaffordable", 409, "The recorded NCA s81 assessment is not affordable")
       case "credit_life_required":
         return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
+      case "screening_blocked":
+        return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
       case "refused_nca":
         return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
       case "decided":

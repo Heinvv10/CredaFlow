@@ -2,6 +2,7 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { Header } from "@/components/layout/Header"
+import { withStrAuditVisibility } from "@/lib/fic/audit-visibility"
 import { AuditLogClient } from "./AuditLogClient"
 import {
   documentAccessTimelineEntries,
@@ -12,14 +13,15 @@ import {
 } from "@/lib/audit/document-access-timeline"
 
 export default async function AuditLogPage() {
-  await requireMinRole("LOAN_ADMIN")
+  const user = await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
 
   const [logs, documentAccess, users] = await Promise.all([
     prisma.auditLog.findMany({
       // Null-tenant legacy rows are not attributable evidence and cannot safely
       // be shown to every tenant. The tenant audit view is fail-closed.
-      where: { tenantId },
+      // Tipping off: STR rows only for the FIC compliance role (lib/fic/audit-visibility.ts).
+      where: withStrAuditVisibility({ tenantId }, user.role),
       orderBy: { createdAt: "desc" },
       take: 100,
       include: { user: { select: { name: true, email: true } } },
