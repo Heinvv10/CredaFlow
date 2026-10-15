@@ -90,6 +90,7 @@ suite.sequential("a recovery's charged costs on the loan ledger (real Postgres, 
     expect(recovery).toMatchObject({ chargedCostsCents: 2_127_500, deductedCostsCents: 0 })
     expect(recovery.shortfallCents).toBe(recovery.settlementDueCents! + 2_127_500 - 60_000_000)
     expect(await loanOwes(rec.loan.loanId)).toBe(recovery.shortfallCents)
+    expect(recovery.unrecoverableCostsCents).toBe(0)
     const cost = await database().recoveryCost.findFirstOrThrow({ where: { recoveryId: rec.id } })
     expect(await database().loanCharge.findMany({ where: { loanId: rec.loan.loanId, type: "RECOVERY_COST" } })).toMatchObject([{ amount: 2_127_500, sourceId: cost.id }])
     expect(await database().loan.findUniqueOrThrow({ where: { id: rec.loan.loanId } })).toMatchObject({ status: "ACTIVE", collectionsStage: "NONE" })
@@ -105,13 +106,14 @@ suite.sequential("a recovery's charged costs on the loan ledger (real Postgres, 
     const recovery = await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })
     expect(recovery).toMatchObject({ settlementDueCents: 180_456_789, netProceedsCents: 148_735_000, shortfallCents: 34_596_789 })
     expect(await loanOwes(rec.loan.loanId)).toBe(34_596_789)
+    expect(recovery.unrecoverableCostsCents).toBe(0)
     expect(await database().loanCharge.findMany({ where: { loanId: rec.loan.loanId, type: "RECOVERY_COST" } })).toMatchObject([{ amount: 2_875_000 }])
     // Frozen charges stay frozen, the cost is not: the figure holds through the demand period.
     const loan = await database().loan.findUniqueOrThrow({ where: { id: rec.loan.loanId } })
     expect(loan).toMatchObject({ status: "ACTIVE", chargesOutstanding: 2_875_000 })
   }, 180_000)
 
-  it("NCA, in duplum: the part of a cost the headroom refuses stays owed on the recovery only", async () => {
+  it("NCA, in duplum: the part of a cost the headroom refuses is unrecoverable on the account", async () => {
     const rec = await plainListed(database(), fx, "NCA", 2_000_000)
     // R100 000 owed, 60 days overdue: the cap is that principal, less what is reserved and accrued.
     await scheduleLoan(rec.loan.loanId, 10_000_000, 10_200_000, -60)
@@ -126,6 +128,9 @@ suite.sequential("a recovery's charged costs on the loan ledger (real Postgres, 
     expect(posted.amount).toBeLessThan(12_000_000)
     const refused = 12_000_000 - posted.amount
     expect(await loanOwes(rec.loan.loanId)).toBe(recovery.shortfallCents! - refused)
+    // The refused part is the lender's: owed on the account (shortfall less unrecoverable) is what the ledger carries, to the cent.
+    expect(recovery.unrecoverableCostsCents).toBe(refused)
+    expect(recovery.shortfallCents! - recovery.unrecoverableCostsCents!).toBe(await loanOwes(rec.loan.loanId))
     // The instalment is past due, so nothing is reserved: interest and the cost together fill the principal at default (R100 000) and stop there.
     const interest = await database().loanCharge.aggregate({ where: { loanId: rec.loan.loanId, type: "DEFAULT_INTEREST" }, _sum: { amount: true } })
     const filled = (interest._sum.amount ?? 0) + posted.amount
@@ -133,13 +138,14 @@ suite.sequential("a recovery's charged costs on the loan ledger (real Postgres, 
     expect(filled).toBeGreaterThan(9_999_000)
   }, 180_000)
 
-  it("never re-opens a loan the proceeds settled: a cost the surplus did not cover stays owed on the recovery", async () => {
+  it("never re-opens a loan the proceeds settled: a cost the surplus did not cover is the lender's, and the recovery closes", async () => {
     const rec = await plainListed(database(), fx, "NON_NCA", 100_000_000)
     await scheduleLoan(rec.loan.loanId, 100_000_000, 100_000_000, 30)
     await recordDecidedCost(database(), fx, rec.id, charged("LEGAL_CONTRACTUAL", 3_000_000))
     // A price R10,000 over the settlement against R30,000 of charged costs: R20,000 uncovered.
-    expect(await sellAndSettle(rec, 101_000_000, false)).toMatchObject({ status: 200, body: { status: "SHORTFALL_OPEN" } })
-    expect(await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })).toMatchObject({ surplusCents: 0, shortfallCents: 2_000_000 })
+    // The loan is settled, nothing is owed on the account, so the recovery closes; the R20,000 is the lender's.
+    expect(await sellAndSettle(rec, 101_000_000, false)).toMatchObject({ status: 200, body: { status: "CLOSED" } })
+    expect(await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })).toMatchObject({ status: "CLOSED", surplusCents: 0, shortfallCents: 2_000_000, unrecoverableCostsCents: 2_000_000 })
     expect(await database().loanCharge.count({ where: { loanId: rec.loan.loanId, type: "RECOVERY_COST" } })).toBe(0)
     expect(await database().loan.findUniqueOrThrow({ where: { id: rec.loan.loanId } })).toMatchObject({ status: "COMPLETED", chargesOutstanding: 0 })
     expect(await loanOwes(rec.loan.loanId)).toBe(0)

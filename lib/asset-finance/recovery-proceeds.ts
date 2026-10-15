@@ -14,7 +14,7 @@ import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } fro
 import type { SigningTx } from "./signing-prepare"
 
 export type ProceedsApplied = {
-  kind: "done"; id: string; paymentId: string | null; paymentCents: number; shortfallCents: number; surplusCents: number; replay: boolean
+  kind: "done"; id: string; paymentId: string | null; paymentCents: number; shortfallCents: number; surplusCents: number; unrecoverableCostsCents: number; replay: boolean
 }
 
 // Applying a sold recovery's proceeds, in ONE transaction with the receipt:
@@ -54,6 +54,7 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
     if (recovery.settlementDueCents !== null && recovery.netProceedsCents !== null) {
       return {
         kind: "done", id: recovery.id, paymentId: recovery.proceedsPaymentId, replay: true, shortfallCents: recovery.shortfallCents ?? 0, surplusCents: recovery.surplusCents ?? 0,
+        unrecoverableCostsCents: recovery.unrecoverableCostsCents ?? 0,
         paymentCents: Math.min(recovery.netProceedsCents, recovery.settlementDueCents),
       }
     }
@@ -103,6 +104,14 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
     // The freeze has begun and the charged costs are on the account from today: persist what the replay now derives (a no-op while default charges are off).
     await syncLoanCharges(tx, { tenantId: actor.tenantId, loanId: recovery.loanId }, receivedAt, { source: "recovery_proceeds", userId: actor.userId, userEmail: actor.userEmail })
 
+    // What the account can carry: the shortfall less what the loan still owes after the sync. The rest of the charged costs (the
+    // in duplum headroom refused it, or the proceeds had already settled the loan, or default charges are off) is the lender's:
+    // not owed on the account. UNTESTED: legal | the lender absorbs costs the account cannot lawfully carry.
+    const after = await tx.loan.findFirstOrThrow({ where: { id: recovery.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
+    const owes = after.status === "COMPLETED" ? 0 : (await loanSettlementFigures(tx, after, receivedAt)).totalToSettle
+    const unrecoverableCostsCents = Math.min(charged, Math.max(0, outcome.shortfallCents - owes))
+    await advance(tx, actor, recovery.id, "PROCEEDS_APPLIED", { unrecoverableCostsCents })
+
     if (recovery.route === "NCA_S127_SURRENDER") {
       if (!recovery.surrenderRequest || recovery.surrenderRequest.status !== "VALUATION_NOTICE_ISSUED" || !paymentId) {
         throw new RecoveryRefusal("An s127 recovery credits its surrender once the valuation notice is issued and a receipt is applied")
@@ -117,9 +126,9 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
       action: AuditAction.ASSET_RECOVERY_PROCEEDS_APPLIED, entity: "Recovery", entityId: recovery.id,
       newValue: {
         saleId: sale.id, paymentId, receivedOn, settlementDueCents, grossProceedsCents: sale.priceInclVatCents, deductedCostsCents: deducted, chargedCostsCents: charged,
-        ...outcome, chargesFrozenFrom: receivedOn, chargesFrozenUntil: freeze?.frozenUntil ?? null,
+        ...outcome, unrecoverableCostsCents, chargesFrozenFrom: receivedOn, chargesFrozenUntil: freeze?.frozenUntil ?? null,
       },
     }, tx)
-    return { kind: "done", id: recovery.id, paymentId, paymentCents: outcome.paymentCents, shortfallCents: outcome.shortfallCents, surplusCents: outcome.surplusCents, replay: false }
+    return { kind: "done", id: recovery.id, paymentId, paymentCents: outcome.paymentCents, shortfallCents: outcome.shortfallCents, surplusCents: outcome.surplusCents, unrecoverableCostsCents, replay: false }
   }, { timeout: 30_000 }))
 }

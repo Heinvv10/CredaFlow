@@ -108,6 +108,8 @@ async function requireProceedsLeft(tx: SigningTx, tenantId: string, recoveryId: 
  */
 export async function decideRecoveryCost(actor: RecoveryActor, recoveryId: string, costId: string, decision: "APPROVED" | "REJECTED"): Promise<RecoveryResult> {
   return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
+    // The recovery's lock orders every decision on its costs against each other and against completeSale, which checks the same total.
+    await tx.$queryRaw`SELECT 1 FROM "Recovery" WHERE id = ${recoveryId} FOR UPDATE`
     const cost = await tx.recoveryCost.findFirst({ where: { id: costId, recoveryId, tenantId: actor.tenantId }, select: { status: true, recordedById: true, type: true, grossCents: true, treatment: true } })
     if (!cost) return { kind: "not_found" }
     if (decision === "APPROVED" && cost.treatment === "DEDUCT_FROM_PROCEEDS") await requireProceedsLeft(tx, actor.tenantId, recoveryId, cost.grossCents)

@@ -12,7 +12,7 @@ export type OutcomeSettled = { kind: "done"; id: string; status: Extract<Recover
 // on), a NON_NCA one after its proceeds (which set it at the demand period).
 // The freeze dates are write-once and already on the recovery by then; what is
 // decided here is only the status they lead to:
-//   shortfall > 0 -> SHORTFALL_OPEN (charges stay frozen until the deadline,
+//   owed > 0     -> SHORTFALL_OPEN (charges stay frozen until the deadline,
 //                    then the deadline sweep hands the loan on to collections)
 //   surplus  > 0 -> SURPLUS_HELD (a RecoveryRefund pays it out, two people)
 //   neither      -> CLOSED
@@ -23,7 +23,7 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
   return refusable(() => prisma.$transaction(async (tx): Promise<NotFound | OutcomeSettled> => {
     const recovery = await tx.recovery.findFirst({
       where: { id: recoveryId, tenantId: actor.tenantId },
-      select: { id: true, route: true, status: true, shortfallCents: true, surplusCents: true, chargesFrozenFrom: true, chargesFrozenUntil: true },
+      select: { id: true, route: true, status: true, shortfallCents: true, surplusCents: true, unrecoverableCostsCents: true, chargesFrozenFrom: true, chargesFrozenUntil: true },
     })
     if (!recovery) return { kind: "not_found" }
     const nca = isNcaRoute(recovery.route)
@@ -34,12 +34,14 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
     if (!recovery.chargesFrozenFrom || !recovery.chargesFrozenUntil) throw new RecoveryRefusal("The charge freeze has no end date yet")
     const shortfall = recovery.shortfallCents ?? 0
     const surplus = recovery.surplusCents ?? 0
-    const status: OutcomeSettled["status"] = shortfall > 0 ? "SHORTFALL_OPEN" : surplus > 0 ? "SURPLUS_HELD" : "CLOSED"
+    // Owed on the account: the shortfall less the charged costs the account could not carry (they stay recorded on the recovery).
+    const owed = shortfall - (recovery.unrecoverableCostsCents ?? 0)
+    const status: OutcomeSettled["status"] = owed > 0 ? "SHORTFALL_OPEN" : surplus > 0 ? "SURPLUS_HELD" : "CLOSED"
     await advance(tx, actor, recovery.id, from, { status, ...(status === "CLOSED" ? { closedAt: new Date() } : {}) })
     const audit = { tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined }
     await logAuditStrict({
       ...audit, action: AuditAction.ASSET_RECOVERY_OUTCOME_SETTLED, entity: "Recovery", entityId: recovery.id,
-      newValue: { status, shortfallCents: shortfall, surplusCents: surplus },
+      newValue: { status, shortfallCents: shortfall, surplusCents: surplus, unrecoverableCostsCents: recovery.unrecoverableCostsCents ?? 0, owedCents: owed },
     }, tx)
     if (status === "CLOSED") {
       await logAuditStrict({ ...audit, action: AuditAction.ASSET_RECOVERY_CLOSED, entity: "Recovery", entityId: recovery.id, newValue: { reason: "nothing owed either way" } }, tx)

@@ -106,6 +106,42 @@ suite.sequential("sale review fixes (real Postgres, real routes)", () => {
     expect(await database().recoveryCost.findUniqueOrThrow({ where: { id: swallowing.id } })).toMatchObject({ status: "PENDING" })
   }, 120_000)
 
+  it("serialises cost approvals: two that fit alone but not together cannot both be approved, nor can one race the completion", async () => {
+    const decide = (recoveryId: string, costId: string) => decideCostRoute(
+      new NextRequest(`http://${fx.host}/x`, { method: "POST", headers: { host: fx.host, "content-type": "application/json" }, body: JSON.stringify({ decision: "APPROVED" }) }),
+      { params: Promise.resolve({ id: recoveryId, costId }) },
+    )
+    const pendingCost = (recoveryId: string, grossCents: number) =>
+      database().recoveryCost.create({ data: costData(fx, recoveryId, { type: "STORAGE", treatment: "DEDUCT_FROM_PROCEEDS", grossCents }) })
+    // Several rounds, so an unlocked check would be caught by chance at least once.
+    for (let round = 0; round < 6; round++) {
+      const rec = await plainListed(database(), fx, "NON_NCA", 50_000_000)
+      await recordDecidedCost(database(), fx, rec.id, { type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 10_000_000 })
+      officer()
+      const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 60_000_000)))).body.id as string
+      expect((await readJson(await routes().completeSale(rec.id, sale))).status).toBe(200)
+      // R10m approved of a R60m price: R30m alone fits (40 < 60), two together do not (70 >= 60).
+      const [a, b] = [await pendingCost(rec.id, 30_000_000), await pendingCost(rec.id, 30_000_000)]
+      adminB()
+      const decided = await Promise.all([decide(rec.id, a.id), decide(rec.id, b.id)].map(async (response) => (await readJson(await response)).status))
+      expect(decided.sort(), `round ${round}`).toEqual([200, 409])
+      const approved = await database().recoveryCost.aggregate({ where: { recoveryId: rec.id, status: "APPROVED", treatment: "DEDUCT_FROM_PROCEEDS" }, _sum: { grossCents: true } })
+      expect(approved._sum.grossCents).toBe(40_000_000)
+    }
+    // An approval racing the completion: whichever the lock lets in first, the other sees it and refuses.
+    for (let round = 0; round < 6; round++) {
+      const rec = await plainListed(database(), fx, "NON_NCA", 50_000_000)
+      await recordDecidedCost(database(), fx, rec.id, { type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 5_000_000 })
+      const swallowing = await pendingCost(rec.id, 56_000_000)
+      officer()
+      const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 60_000_000)))).body.id as string
+      adminB() // an administrator may complete a sale too, so one session serves both calls
+      const [approval, completion] = await Promise.all([decide(rec.id, swallowing.id), routes().completeSale(rec.id, sale)])
+      const statuses = [(await readJson(approval)).status, (await readJson(completion)).status].sort()
+      expect(statuses, `round ${round}`).toEqual([200, 409])
+    }
+  }, 240_000)
+
   it("records the database's own reason when it flags a buyer the screening missed", async () => {
     const rec = await plainListed(database(), fx, "NCA", 50_000_000)
     officer()
