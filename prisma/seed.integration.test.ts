@@ -274,7 +274,7 @@ suite("demo seed passwords", () => {
     const { portal: hashes } = await passwords()
     expect(hashes).toHaveLength(5)
     for (const hash of hashes) expect(await bcrypt.compare(portal, hash)).toBe(true)
-  })
+  }, 120_000) // nine sequential cost-12 bcrypt compares; past 5 s on a loaded host
 
   it("keeps every password on a rerun and prints none", async () => {
     const before = await passwords()
