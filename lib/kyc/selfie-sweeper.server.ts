@@ -1,0 +1,263 @@
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
+import { prisma } from "@/lib/prisma"
+import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
+import {
+  clientKycAuditValue,
+  readCompositeKycState,
+  type CompositeKycReader,
+} from "@/lib/kyc/document-state"
+
+/**
+ * Selfie attempts stuck in `processing`.
+ *
+ * captureSelfie claims an attempt as `processing` and runs the VLM face match
+ * fire-and-forget. If that worker dies (deploy, OOM, crash) nothing ever
+ * writes the verdict, so the row stays `processing` for good: it counts as an
+ * adverse attempt (isAdversePriorAttempt) and closes the in-person route
+ * (BLOCKING_SELFIE_CONDITIONS), and the client has no way forward.
+ *
+ * 15 minutes is the extraction lease the document extract route already uses
+ * (EXTRACTION_LEASE_MS in app/api/documents/[id]/extract/route.ts). A live run
+ * is bounded far below it: the VLM call aborts at 55 s and the face model at
+ * 30 s, so a row older than the lease has no live worker behind it.
+ */
+export const SELFIE_PROCESSING_TIMEOUT_MS = 15 * 60 * 1000
+/** Per tenant per run; the 5-minute schedule drains any backlog. */
+const BATCH = 200
+/**
+ * The transaction waits on the client evidence advisory lock, which counts
+ * against Prisma's 5 s default; a held lock must not fail a sweep.
+ */
+const SWEEP_TRANSACTION = { maxWait: 15_000, timeout: 30_000 } as const
+
+/**
+ * The reason a swept attempt carries. Adverse in BIOMETRIC_FAILURE_REASON_CLASS
+ * and not exceptionable, which is the honest reading: a judge may have
+ * answered and the outcome was never recorded. extraction_incomplete is
+ * benign and would launder a lost "different" into a capture problem.
+ */
+export const SWEPT_BIOMETRIC_FAILURE_REASON: BiometricEvidenceFailureReason =
+  "biometric_outcome_not_recorded"
+
+/** The note the sweeper writes; a swept row carrying any other note had a staff decision. */
+export const SWEEP_EXTRACTION_ERROR = "Biometric verification did not complete and was timed out"
+
+/**
+ * A swept attempt, as persistBiometricOutcome recognises it: the only
+ * non-`processing` row from which a worker's late answer is still accepted,
+ * and only when that answer is adverse. A row that carried a staff note or
+ * rejection before the sweep is NOT one: a manual decision supersedes the
+ * worker's late answer, exactly as it does for a `processing` row.
+ */
+export const SWEPT_ATTEMPT_CONDITIONS = {
+  extractionStatus: "failed",
+  verified: false,
+  verificationNote: SWEEP_EXTRACTION_ERROR,
+  verificationRejectedAt: null,
+  verificationRejectedById: null,
+  biometricResult: { path: ["swept"], equals: true },
+} as const
+
+const CLIENT_KYC_SELECT = {
+  id: true,
+  idNumber: true,
+  firstName: true,
+  lastName: true,
+  dateOfBirth: true,
+  kycStatus: true,
+  kycVerifiedAt: true,
+  kycVerifiedById: true,
+  kycVerificationMethod: true,
+  kycManualRejectionActive: true,
+  kycManualRejectionAt: true,
+  kycManualRejectionById: true,
+  kycManualRejectionReason: true,
+  kycManualRejectionResolvedAt: true,
+  kycManualRejectionResolvedById: true,
+  kycManualRejectionResolutionReason: true,
+} as const
+
+function staleWhere(tenantId: string, now: Date) {
+  const cutoff = new Date(now.getTime() - SELFIE_PROCESSING_TIMEOUT_MS)
+  return {
+    tenantId,
+    docType: "SELFIE" as const,
+    deletedAt: null,
+    extractionStatus: "processing",
+    // A staff-rejected attempt (verificationNote set) is swept too: left
+    // `processing` it would block the in-person route for ever. Its note and
+    // rejecter are kept.
+    verified: false,
+    // extractionStartedAt is the lease clock; a row without one falls back to
+    // its creation time rather than being skipped for ever.
+    OR: [
+      { extractionStartedAt: { lt: cutoff } },
+      { extractionStartedAt: null, createdAt: { lt: cutoff } },
+    ],
+  }
+}
+
+/**
+ * Fails one stale attempt, re-projects the client's KYC from the evidence and
+ * audits both, in one transaction under the client evidence lock. The update
+ * repeats the whole staleness rule and the generation that was read, so an
+ * attempt whose worker finished (or was superseded) in between is left alone.
+ */
+export async function sweepStuckSelfie(
+  tenantId: string,
+  candidate: { id: string; clientId: string },
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    await lockAffordabilityClientEvidence(tx, { tenantId, clientId: candidate.clientId })
+    // The lease clock is the database's: extractionStartedAt is stamped from it
+    // (selfie-capture.server.ts), so neither the capturing host nor the cron
+    // host can age an attempt wrongly.
+    const now = await databaseNow(tx)
+
+    const where = { ...staleWhere(tenantId, now), id: candidate.id, clientId: candidate.clientId }
+    const attempt = await tx.clientDocument.findFirst({
+      where,
+      select: { id: true, extractionGeneration: true, extractionStartedAt: true, verificationNote: true },
+    } as never) as unknown as {
+      id: string
+      extractionGeneration: string | null
+      extractionStartedAt: Date | null
+      verificationNote: string | null
+    } | null
+    if (!attempt) return false
+
+    const clientBefore = await tx.client.findUnique({
+      where: { id: candidate.clientId, tenantId },
+      select: CLIENT_KYC_SELECT,
+    })
+    if (!clientBefore) return false
+
+    const extractionError = SWEEP_EXTRACTION_ERROR
+    const swept = await tx.clientDocument.updateMany({
+      where: { ...where, extractionGeneration: attempt.extractionGeneration },
+      data: {
+        extractionStatus: "failed",
+        extractionStartedAt: null,
+        extractionError,
+        validationMismatch: true,
+        validationScore: 0,
+        biometricMatchScore: null,
+        biometricLiveness: null,
+        biometricVerifiedAt: null,
+        biometricResult: {
+          biometricFailureReason: SWEPT_BIOMETRIC_FAILURE_REASON,
+          swept: true,
+          sweptAt: now.toISOString(),
+        },
+        verified: false,
+        verifiedAt: null,
+        verifiedById: null,
+        // verificationRejectedAt/ById are untouched, so a staff rejection stands.
+        verificationNote: attempt.verificationNote ?? extractionError,
+      },
+    } as never)
+    if (swept.count !== 1) return false
+
+    // Re-read: the document update fires the composite-KYC revoke trigger,
+    // which may already have demoted the client, so the pre-update read is
+    // stale for the projection and for the audit's "after".
+    const clientNow = await tx.client.findUnique({
+      where: { id: candidate.clientId, tenantId },
+      select: CLIENT_KYC_SELECT,
+    })
+    if (!clientNow) throw new Error("Client vanished while its selfie attempt was being swept")
+
+    const composite = await readCompositeKycState(
+      tx as unknown as CompositeKycReader,
+      {
+        tenantId,
+        clientId: candidate.clientId,
+        subject: clientNow,
+        existing: clientNow,
+        completion: { verifiedAt: now, verifiedById: null, method: "BIOMETRIC" },
+      },
+    )
+    // An older attempt swept behind a newer selfie says nothing about the
+    // client's current state, exactly as persistBiometricOutcome treats it.
+    const latestSelfie = composite.latestSelfieId === candidate.id
+    const clientAfter = latestSelfie
+      ? await tx.client.update({
+          where: { id: candidate.clientId, tenantId },
+          data: composite.state,
+          select: CLIENT_KYC_SELECT,
+        })
+      : clientNow
+
+    await logAuditStrict({
+      tenantId,
+      userEmail: "system@selfie-sweeper",
+      // Names what happened. An older attempt swept behind a newer selfie did
+      // not touch the client, so it is a document-level fact. The latest one
+      // re-projected the client: rejected if that ended FAILED, otherwise a
+      // status change.
+      action: !latestSelfie
+        ? AuditAction.BIOMETRIC_ATTEMPT_SWEPT
+        : clientAfter.kycStatus !== "FAILED"
+          ? AuditAction.KYC_STATUS_CHANGED
+          : AuditAction.KYC_REJECTED,
+      entity: "ClientDocument",
+      entityId: candidate.id,
+      oldValue: {
+        document: {
+          extractionStatus: "processing",
+          extractionGeneration: attempt.extractionGeneration,
+          extractionStartedAt: attempt.extractionStartedAt?.toISOString() ?? null,
+        },
+        clientKyc: clientKycAuditValue(clientBefore),
+      },
+      newValue: {
+        document: {
+          verified: false,
+          extractionStatus: "failed",
+          extractionError,
+          extractionGeneration: attempt.extractionGeneration,
+          biometricFailureReason: SWEPT_BIOMETRIC_FAILURE_REASON,
+          sweptAfterMs: SELFIE_PROCESSING_TIMEOUT_MS,
+          latestSelfie,
+        },
+        clientKyc: clientKycAuditValue(clientAfter),
+      },
+    }, tx)
+    return true
+  }, SWEEP_TRANSACTION)
+}
+
+/**
+ * Sweeps one tenant's stale selfie attempts; oldest first. A row that throws
+ * is logged and counted, and the rest are still swept: one poisoned row at the
+ * head of the queue must not starve the newer ones on every later run. The
+ * route answers non-2xx while `failed` is above zero.
+ */
+export async function sweepStuckSelfies(
+  tenantId: string,
+): Promise<{ swept: number; failed: number }> {
+  const now = await databaseNow(prisma)
+  const stale = await prisma.clientDocument.findMany({
+    where: staleWhere(tenantId, now),
+    select: { id: true, clientId: true },
+    orderBy: { createdAt: "asc" },
+    take: BATCH,
+  } as never) as unknown as Array<{ id: string; clientId: string }>
+  let swept = 0
+  let failed = 0
+  for (const attempt of stale) {
+    try {
+      if (await sweepStuckSelfie(tenantId, attempt)) swept++
+    } catch (error) {
+      failed++
+      console.error("[selfie-sweeper] failed to sweep attempt", {
+        tenantId,
+        documentId: attempt.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  return { swept, failed }
+}

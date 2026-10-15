@@ -7,6 +7,7 @@ import { AuditAction } from "@/lib/audit"
 import { clientKycAuditValue } from "@/lib/kyc/document-state"
 import { isSha256Digest, sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
 import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
 import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
 
@@ -130,9 +131,13 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     uncommittedStoragePath = storagePath
     const contentSha256 = sha256DocumentBytes(buffer)
     const extractionGeneration = randomUUID()
-    const extractionStartedAt = new Date()
     const outcome = await prisma.$transaction(async (tx) => {
       await lockAffordabilityClientEvidence(tx, { tenantId, clientId })
+      // The database clock, read under the client evidence lock. The app host's
+      // clock can run behind the one that stamped an in-person attestation,
+      // and the lease the sweeper ages this attempt by must share a clock with
+      // the sweeper.
+      const extractionStartedAt = await databaseNow(tx)
 
       // Re-check after taking the same evidence lock as deletion and payout.
       // The optimistic read above avoids storing a file in the common error
@@ -209,6 +214,10 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
           extractionStatus: "processing",
           extractionGeneration,
           extractionStartedAt,
+          // Same stamp: the column default is the app host's clock, and an
+          // attempt reading as submitted BEFORE an attestation it followed
+          // would not lapse it on an unknown outcome.
+          createdAt: extractionStartedAt,
         },
       } as never) as unknown as { id: string } & Record<string, unknown>
 

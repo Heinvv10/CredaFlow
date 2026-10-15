@@ -176,6 +176,13 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 14 jobs active")
+    // Fails selfie attempts stuck in `processing` past 15 minutes (a worker that
+    // died mid-VLM-call) so the client can retake (lib/kyc/selfie-sweeper.server.ts).
+    // Every 5 minutes: a stuck client waits at most 20.
+    cron.schedule("*/5 * * * *", () => callCron("/api/cron/sweep-stuck-selfies"), {
+      timezone: SAST,
+    })
+
+    console.log("[cron] scheduler registered — 15 jobs active")
   }
 }
