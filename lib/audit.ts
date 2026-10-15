@@ -585,6 +585,8 @@ export const AuditAction = {
   // A provider reported money moving on an attempt already over, and its resolution.
   PAYOUT_PROVIDER_CONFLICT: "PAYOUT_PROVIDER_CONFLICT",
   PAYOUT_PROVIDER_CONFLICT_RESOLVED: "PAYOUT_PROVIDER_CONFLICT_RESOLVED",
+  // A SUBMITTED/PROCESSING report on an attempt already over: says nothing about money.
+  PAYOUT_PROVIDER_REPORT_IGNORED: "PAYOUT_PROVIDER_REPORT_IGNORED",
   // Retries of a failed/returned payout and reversals of a disbursement whose
   // money never arrived (lib/payouts/retry.ts, lib/payouts/reversal.ts).
   PAYOUT_RETRY_REQUESTED: "PAYOUT_RETRY_REQUESTED",

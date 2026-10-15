@@ -7,7 +7,7 @@ import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome } from "./conflicts"
+import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome, type ReportOutcome } from "./conflicts"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
 import type { PayoutNotification, ProviderPayoutState } from "./types"
@@ -70,12 +70,14 @@ export async function applyProviderState(db: PayoutDb, args: {
   reason?: string
   source: "webhook" | "status_query"
   actor: Actor
-}): Promise<{ status: PayoutStatus; changed: boolean; conflict?: true }> {
+}): Promise<{ status: PayoutStatus; changed: boolean; conflict?: true; report?: ReportOutcome }> {
   const current = args.payout.status as PayoutStatus
   // Money reported moving on an attempt already over: never applied, never lost.
   if (CONFLICTABLE.includes(current) && args.state !== "FAILED") {
-    await recordProviderConflict(db, { tenantId: args.tenantId, payout: args.payout, state: args.state, reason: args.reason, source: args.source, actor: args.actor })
-    return { status: current, changed: false, conflict: true }
+    const report = await recordProviderConflict(db, { tenantId: args.tenantId, payout: args.payout, state: args.state, reason: args.reason, source: args.source, actor: args.actor })
+    // A stored (or re-opened) conflict blocks; a stale or dropped report is only audited.
+    const stored = report === "recorded" || report === "strengthened" || report === "reopened"
+    return { status: current, changed: false, ...(stored ? { conflict: true as const } : {}), report }
   }
   const to = nextFromProvider(current, args.state)
   if (!to) return { status: current, changed: false }

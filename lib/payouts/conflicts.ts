@@ -1,16 +1,28 @@
 /**
- * Provider conflicts: a provider (webhook or status query) reports PAID,
- * RETURNED, PROCESSING or SUBMITTED for an attempt that is already FAILED or
+ * Provider conflicts: a provider (webhook or status query) reports money
+ * moving — PAID or RETURNED — for an attempt that is already FAILED or
  * CANCELLED. The state machine will not apply it, but it must not vanish
  * either: the report is recorded on the attempt, audited, shown as a review
- * item, and blocks any retry or reversal of the loan (code and database)
- * until a second LOAN_ADMIN — not the disburser, requester or approver —
- * resolves it: "not_paid" (the provider was wrong; the attempt stays as it
- * was) or "paid" (the money did go out: the attempt becomes PAID at the value
- * date given). On a loan whose disbursement was already reversed (CANCELLED)
- * "paid" is refused, here and in the database: the loan is not reinstated, and
- * the money that went out is "recovery" — a PayoutRecoveryCase
- * (lib/payouts/recovery.ts) opened at the value date given.
+ * item, and blocks any retry, reversal or send on the loan (code and
+ * database) until a second LOAN_ADMIN — not the disburser, requester or
+ * approver — resolves it: "not_paid" (the provider was wrong; the attempt
+ * stays as it was) or "paid" (the money did go out: the attempt becomes PAID
+ * at the value date given). On a loan whose disbursement was already reversed
+ * (CANCELLED) "paid" is refused, here and in the database: the loan is not
+ * reinstated, and the money that went out is "recovery" — a
+ * PayoutRecoveryCase (lib/payouts/recovery.ts) opened at the value date given.
+ *
+ * Every report on an attempt already over is audited, with what became of it
+ * (breaker re-attack, PR #89 round 3):
+ *  - "stale": SUBMITTED/PROCESSING says nothing about money; never stored, so
+ *    it cannot mask a later PAID (PAYOUT_PROVIDER_REPORT_IGNORED);
+ *  - "recorded": the first PAID/RETURNED;
+ *  - "strengthened": a stronger report (PAID > RETURNED) replaces an
+ *    unresolved one;
+ *  - "reopened": a PAID/RETURNED after the conflict was resolved not paid
+ *    clears the resolution and blocks again;
+ *  - "dropped": weaker than the unresolved report, the attempt is no longer
+ *    over, or the money is already a recovery case.
  */
 import type { DisbursementPayout } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -23,6 +35,11 @@ import type { ProviderPayoutState } from "./types"
 /** Attempt states a later report may contradict. */
 export const CONFLICTABLE: readonly PayoutStatus[] = ["FAILED", "CANCELLED"]
 
+export type ReportOutcome = "stale" | "recorded" | "strengthened" | "reopened" | "dropped"
+
+const STRENGTH: Partial<Record<string, number>> = { PAID: 4, RETURNED: 3, PROCESSING: 2, SUBMITTED: 1 }
+const strength = (state: string | null) => (state ? STRENGTH[state] ?? 0 : 0)
+
 export async function recordProviderConflict(db: PayoutDb, args: {
   tenantId: string
   payout: Pick<DisbursementPayout, "id" | "status">
@@ -30,24 +47,47 @@ export async function recordProviderConflict(db: PayoutDb, args: {
   reason?: string
   source: string
   actor: Actor
-}): Promise<boolean> {
+}): Promise<ReportOutcome> {
   const now = new Date()
   const detail = `${args.source} reported ${args.state} after the attempt was ${args.payout.status}${args.reason ? `: ${args.reason}` : ""}`.slice(0, 500)
+  const audit = (tx: Parameters<Parameters<PayoutDb["$transaction"]>[0]>[0], outcome: ReportOutcome, extra: Record<string, unknown> = {}) => logAuditStrict({
+    tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
+    action: outcome === "stale" ? AuditAction.PAYOUT_PROVIDER_REPORT_IGNORED : AuditAction.PAYOUT_PROVIDER_CONFLICT,
+    entity: "DisbursementPayout", entityId: args.payout.id,
+    newValue: { status: args.payout.status, reported: args.state, source: args.source, detail, outcome, ...extra },
+  }, tx)
   return db.$transaction(async (tx) => {
+    if (args.state !== "PAID" && args.state !== "RETURNED") {
+      await audit(tx, "stale")
+      return "stale"
+    }
     // The loan lock first, like a retry approval or a claim to send.
     const owner = await tx.disbursementPayout.findFirst({ where: { id: args.payout.id, tenantId: args.tenantId }, select: { loanId: true } })
     if (owner) await lockLoanForPayout(tx, args.tenantId, owner.loanId)
-    const moved = await tx.disbursementPayout.updateMany({
-      where: { id: args.payout.id, tenantId: args.tenantId, status: { in: [...CONFLICTABLE] }, providerConflictAt: null },
-      data: { providerConflictState: args.state, providerConflictAt: now, providerConflictDetail: detail },
+    const row = await tx.disbursementPayout.findFirst({
+      where: { id: args.payout.id, tenantId: args.tenantId },
+      select: { status: true, providerConflictState: true, providerConflictAt: true, conflictResolvedAt: true, recoveryCase: { select: { id: true } } },
     })
-    if (moved.count !== 1) return false
-    await logAuditStrict({
-      tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
-      action: AuditAction.PAYOUT_PROVIDER_CONFLICT, entity: "DisbursementPayout", entityId: args.payout.id,
-      newValue: { status: args.payout.status, reported: args.state, source: args.source, detail },
-    }, tx)
-    return true
+    let outcome: ReportOutcome = "dropped"
+    let data: Record<string, unknown> | null = null
+    if (row && CONFLICTABLE.includes(row.status as PayoutStatus)) {
+      const reported = { providerConflictState: args.state, providerConflictAt: now, providerConflictDetail: detail }
+      if (!row.providerConflictAt) [outcome, data] = ["recorded", reported]
+      else if (!row.conflictResolvedAt) {
+        if (strength(args.state) > strength(row.providerConflictState)) [outcome, data] = ["strengthened", reported]
+      } else if (!row.recoveryCase) {
+        [outcome, data] = ["reopened", { ...reported, conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
+      }
+    }
+    if (data && row) {
+      const moved = await tx.disbursementPayout.updateMany({
+        where: { id: args.payout.id, tenantId: args.tenantId, status: row.status, providerConflictAt: row.providerConflictAt, conflictResolvedAt: row.conflictResolvedAt },
+        data,
+      })
+      if (moved.count !== 1) outcome = "dropped"
+    }
+    await audit(tx, outcome, { previous: row?.providerConflictState ?? null, previouslyResolved: Boolean(row?.conflictResolvedAt) })
+    return outcome
   })
 }
 

@@ -9,6 +9,7 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
+import { loadDoublePayoutRisks } from "@/lib/payouts/double-payout"
 import { formatZAR } from "@/lib/utils"
 
 export const metadata = { title: "Outstanding payouts — Disbursements" }
@@ -24,7 +25,7 @@ const fmt = (d: Date | null) => (d ? d.toLocaleString("en-ZA", { timeZone: "Afri
 export default async function OutstandingPayoutsPage() {
   await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
-  const [payouts, reversals, recoveries, debitOrders] = await Promise.all([
+  const [payouts, reversals, recoveries, debitOrders, doubles] = await Promise.all([
     prisma.disbursementPayout.findMany({
       // Unsettled, or settled but contradicted by a later provider report.
       where: { tenantId, OR: [{ status: { in: OPEN } }, { providerConflictAt: { not: null }, conflictResolvedAt: null }] },
@@ -46,6 +47,7 @@ export default async function OutstandingPayoutsPage() {
       orderBy: { decidedAt: "asc" },
       select: { id: true, loanId: true, decidedAt: true, loan: { select: { reference: true } } },
     }),
+    loadDoublePayoutRisks(prisma, tenantId),
   ])
 
   return (
@@ -80,6 +82,11 @@ export default async function OutstandingPayoutsPage() {
                   <TableCell>
                     <StatusPill tone={p.status === "NEEDS_REVIEW" || p.providerConflictState ? "danger" : "warning"}>{PAYOUT_STATUS_LABELS[p.status as PayoutStatus]}</StatusPill>
                     {p.providerConflictState && !p.conflictResolvedAt && <p className="mt-1 text-[11px] text-[var(--cf-danger)]">Provider now reports {p.providerConflictState}</p>}
+                    {doubles.filter((d) => d.payoutId === p.id).map((d) => (
+                      <p key={d.liveAttempt} className="mt-1 text-[11px] font-semibold text-[var(--cf-danger)]">
+                        Possible double payout: attempt #{d.liveAttempt} is {PAYOUT_STATUS_LABELS[d.liveStatus as PayoutStatus].toLowerCase()}
+                      </p>
+                    ))}
                   </TableCell>
                   <TableCell>{p.bankName} ••••{p.accountNumber.slice(-4)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatZAR(p.amountCents)}</TableCell>

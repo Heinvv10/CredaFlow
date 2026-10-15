@@ -2,8 +2,9 @@
  * Before a reversal is approved, every attempt the provider could still have
  * paid is checked against the rail, where the rail can be asked
  * (`capabilities.statusQuery`). The provider must say FAILED or RETURNED; a
- * PAID/PROCESSING/SUBMITTED answer is recorded as a provider conflict
- * (lib/payouts/conflicts.ts) and refuses the reversal, and an answer that
+ * PAID/PROCESSING/SUBMITTED answer refuses the reversal (a PAID one is also
+ * recorded as a provider conflict, lib/payouts/conflicts.ts; the others are
+ * audited as stale there), and an answer that
  * cannot be had refuses it too. Attempts on rails that cannot be asked rest
  * on how they ended: a provider-reported failure, or a staff confirm_failed
  * by someone other than the disburser, with this approval as the second
