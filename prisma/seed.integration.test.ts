@@ -419,8 +419,11 @@ suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
       WHERE table_schema = 'public' AND data_type IN ('text', 'character varying')`
     const hits: string[] = []
     for (const { table_name, column_name } of tables) {
+      // A word that starts with "acme" ("Acme Lending", "@acme-lending.example"),
+      // not any substring: a random cuid, TOTP secret or bcrypt hash can contain
+      // "acme" mid-string (this flaked on a MessageTemplate cuid, 2026-10-15).
       const [{ n }] = await prisma().$queryRawUnsafe<Array<{ n: bigint }>>(
-        `SELECT count(*) AS n FROM "${table_name}" WHERE "${column_name}" ILIKE '%acme%'`,
+        `SELECT count(*) AS n FROM "${table_name}" WHERE "${column_name}" ~* '\\macme'`,
       )
       if (n > BigInt(0)) hits.push(`${table_name}.${column_name}`)
     }
