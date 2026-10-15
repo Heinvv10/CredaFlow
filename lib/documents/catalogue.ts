@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import type { Client, Loan, LoanApplication, Tenant } from "@prisma/client"
 import { calculateLoan } from "@/lib/loan-calculator"
-import { certificatePaidToDate, certificateSettlement, loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { certificatePaidToDate, certificateSettlement, documentLoanFigures, loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { getLenderLogo } from "@/lib/config/lender-logo"
 import { generateCreditAgreementPdf } from "@/lib/pdf/creditAgreement"
@@ -305,12 +305,11 @@ async function certificateOfBalanceAdapter(ctx: SystemDocContext): Promise<Buffe
       startDate: loan.startDate,
       maturityDate: loan.maturityDate,
       principal: loan.principal,
-      totalRepayable: loan.totalRepayable,
       totalPaid: loan.totalPaid,
-      outstandingPrincipal: loan.outstandingPrincipal,
+      // Zero for a loan CANCELLED by a disbursement reversal (nothing owed).
+      ...documentLoanFigures(loan),
       // Charge-inclusive, as on the Section 129 notice.
       arrearsAmount: figures.arrearsIncludingCharges,
-      daysInArrears: loan.daysInArrears,
       interestRatePm: loan.interestRatePm,
       lastPaymentDate: loan.lastPaymentDate,
       lastPaymentAmount: loan.lastPaymentAmount,
@@ -356,15 +355,14 @@ async function statementAdapter(ctx: SystemDocContext): Promise<Buffer> {
       id: loan.id,
       reference: loan.reference,
       principal: loan.principal,
-      totalRepayable: loan.totalRepayable,
       totalPaid: loan.totalPaid,
-      outstandingPrincipal: loan.outstandingPrincipal,
       interestRatePm: loan.interestRatePm,
       interestModel: loan.interestModel,
       status: loan.status,
       startDate: loan.startDate,
       maturityDate: loan.maturityDate,
-      daysInArrears: loan.daysInArrears,
+      // Zero for a loan CANCELLED by a disbursement reversal (nothing owed).
+      ...documentLoanFigures(loan),
       // Charge-inclusive, as on the Section 129 notice.
       arrearsAmount: figures.arrearsIncludingCharges,
     },
