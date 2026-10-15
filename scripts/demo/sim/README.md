@@ -244,8 +244,9 @@ export DEMO_LENDER_LOGO=$DEMO_DATA_DIR/branding/fairscore-logo.png   # optional 
 scripts/demo/build-image.sh && scripts/demo/bake.sh && scripts/demo/restore.sh
 ```
 
-The sim stack (`credaflow-demo-sim`) is one per host and `bake.lock` lives in
-each `DEMO_DATA_DIR`, so never bake two lenders at once.
+The sim stack (`credaflow-demo-sim`) is one per host, so `bake.sh` also takes
+a host-wide lock (`~/.credaflow-demo-sim.lock`, or `DEMO_SIM_LOCK`): a second
+bake for any lender refuses while one runs.
 
 ## Modules
 

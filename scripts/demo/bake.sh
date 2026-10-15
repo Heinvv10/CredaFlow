@@ -25,6 +25,11 @@ set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 cd "$DEMO_ROOT"
 
+# The sim stack is one per host, whatever DEMO_DATA_DIR or DEMO_LENDER says: a
+# second bake would wipe it under the first. Taken first, so it fails in a second.
+exec 8>>"$SIM_LOCK"
+flock -n 8 || die "the sim stack is in use by another bake (lock $SIM_LOCK)"
+
 # Fail fast: the simulator is TypeScript, and a type error found after the
 # image build and stack bring-up wastes minutes.
 npm run -s demo:typecheck || die "demo:typecheck failed; nothing was started"

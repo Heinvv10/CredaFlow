@@ -7,6 +7,8 @@
 #                  logs/        cron logs (cron-run.sh)
 #                  logs/LAST_FAILURE-<job>, last-bake, last-restore  results (status.sh)
 #                  bake.lock, restore.lock, cron-run.lock  the jobs' flock files
+#   DEMO_SIM_LOCK  the host-wide sim stack lock bake.sh holds; default ~/.credaflow-demo-sim.lock.
+#                  One file for every DEMO_DATA_DIR: the sim stack is one per host.
 #                  runner.json  the runner's last update (update-runner.sh)
 #   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
 #   DEMO_RUNNER_DIR  the clean checkout cron runs from; default ~/Workspace/CredaFlow-demo-runner
@@ -29,6 +31,7 @@ LOG_DIR="$DEMO_DATA_DIR/logs"
 BAKE_LOCK="$DEMO_DATA_DIR/bake.lock"
 RESTORE_LOCK="$DEMO_DATA_DIR/restore.lock"
 CRON_RUN_LOCK="$DEMO_DATA_DIR/cron-run.lock"
+SIM_LOCK="${DEMO_SIM_LOCK:-$HOME/.credaflow-demo-sim.lock}"
 DEMO_RUNNER_DIR="${DEMO_RUNNER_DIR:-$HOME/Workspace/CredaFlow-demo-runner}"
 RUNNER_STATE="$DEMO_DATA_DIR/runner.json"
 export DEMO_DATA_DIR
