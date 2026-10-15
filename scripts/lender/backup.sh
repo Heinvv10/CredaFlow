@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Encrypted pg_dump of one lender's database.
+# Encrypted backup of one lender: its database and its uploads volume.
 #
 #   backup.sh <lender-dir> [--label NAME] [--keep N]
 #
@@ -7,6 +7,14 @@
 # format file (-Fc) piped straight into gpg (AES256, symmetric, passphrase in
 # secrets/backup.passphrase). Nothing unencrypted touches the disk. A sidecar
 # <file>.counts records row counts so restore.sh can verify a restore.
+# Beside it, <file>.uploads.tar.gpg is a tar of the uploads volume (the
+# ClientDocument files, themselves encrypted at rest when UPLOADS_ENC_KEY is
+# set) encrypted the same way, and <file>.files records its file count
+# (`files=none` when the stack has no uploads volume yet). The database is
+# dumped first, then the files: a document written in between is in the tar but
+# not the dump (harmless); one deleted in between is missing from both.
+# Restoring the uploads also needs UPLOADS_ENC_KEY from .env: copy it off the
+# host with the passphrase.
 # Afterwards the newest N backups are kept in each pool, pre-* (taken before
 # a migration or restore) and the rest (default BACKUP_KEEP in .env, else 14),
 # and older ones deleted. gpg is used because age is not assumed installed.
@@ -45,7 +53,7 @@ for n in 0 1 2 3 4 5; do
 done
 [ ! -e "$out" ] || die "$out already exists"
 
-trap 'rm -f "$out.partial" "$out.counts.partial"' EXIT
+trap 'rm -f "$out.partial" "$out.counts.partial" "$out.uploads.partial"' EXIT
 
 # The dump and the row counts come from ONE exported snapshot (lib.sh,
 # SNAPSHOT_DUMP_SH), so the sidecar matches the dump exactly even under writes.
@@ -67,10 +75,28 @@ unresolved="${unfinished#mig_unfinished=}"
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$out.partial" \
   | lcompose exec -T db pg_restore --list > /dev/null || die "backup failed its read-back check; discarded"
 
+# The uploads volume, read-only through a throwaway container of the database
+# image (present on every lender host, and it has tar). Same encryption and the
+# same read-back rule as the dump; the file count goes into the .files sidecar.
+vol="$(uploads_volume)"
+files=none
+if docker volume inspect "$vol" >/dev/null 2>&1; then
+  docker run --rm -v "$vol:/u:ro" "$UPLOADS_HELPER_IMAGE" tar -cf - -C /u . \
+    | gpg --batch --yes --quiet --pinentry-mode loopback --symmetric --cipher-algo AES256 --passphrase-file "$pass" -o "$out.uploads.partial"
+  listing="$(gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$out.uploads.partial" | tar -tf -)" \
+    || die "uploads archive failed its read-back check; discarded"
+  files="$(grep -vc '/$' <<<"$listing" || true)"
+else
+  note "no uploads volume ($vol) yet: database only"
+fi
+
 final="$out"
 [ -z "$unresolved" ] || final="$LENDER_DIR/backups/$SLUG-$stamp-unresolved${label:+-$label}.dump.gpg"
 mv "$out.partial" "$final"; mv "$out.counts.partial" "$final.counts"
+[ "$files" = none ] || mv "$out.uploads.partial" "$final.uploads.tar.gpg"
+printf 'files=%s\n' "$files" > "$final.files"
 out="$final"
+note "uploads: $files file(s)"
 note "backup written: $out ($(stat -c %s "$out") bytes)"
 if [ -n "$unresolved" ]; then
   printf '%s\n' "$unresolved" > "$out.unresolved"
@@ -102,7 +128,8 @@ prune_pool() {
     n=$((n + 1))
     [ "$n" -gt "$keep" ] || continue
     note "retention: removing $b"
-    rm -f -- "$LENDER_DIR/backups/$b" "$LENDER_DIR/backups/$b.counts" "$LENDER_DIR/backups/$b.unresolved"
+    rm -f -- "$LENDER_DIR/backups/$b" "$LENDER_DIR/backups/$b.counts" "$LENDER_DIR/backups/$b.unresolved" \
+      "$LENDER_DIR/backups/$b.uploads.tar.gpg" "$LENDER_DIR/backups/$b.files"
   done < <(find "$LENDER_DIR/backups" -maxdepth 1 -type f -name '*.dump.gpg' -print0 | sort -z -r)
 }
 prune_pool pre

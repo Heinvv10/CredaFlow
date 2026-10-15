@@ -1,7 +1,5 @@
 // app/api/insurance/policies/draft/route.ts
 import { NextResponse, type NextRequest } from "next/server"
-import { writeFile, mkdir } from "node:fs/promises"
-import path from "node:path"
 import { createHash } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -16,8 +14,7 @@ import type { PrismaClient } from "@prisma/client"
 import { InsurancePolicyType } from "@prisma/client"
 import { parseDecimalAmount, DECIMAL_12_2_MAX_CENTS } from "../../decimal-input"
 import { getLenderLogo } from "@/lib/config/lender-logo"
-
-const UPLOADS_ROOT = path.join(process.cwd(), "uploads", "disclosures")
+import { saveFileAt } from "@/lib/storage"
 const POLICY_TYPES = Object.values(InsurancePolicyType) as string[]
 
 export async function POST(req: NextRequest) {
@@ -165,12 +162,11 @@ export async function POST(req: NextRequest) {
       productId: productId ?? null,
     })
 
-    const tenantDir = path.join(UPLOADS_ROOT, tenant.id)
-    await mkdir(tenantDir, { recursive: true })
     // draftToken format is "<payload>.<sig>", so the on-disk filename contains
     // two dots, e.g. "abc123.xyz789.pdf". Task 7 reads by reconstructing this
-    // exact path — do not split on "." to derive a base name.
-    const filePath = path.join(tenantDir, `${draftToken}.pdf`)
+    // exact path — do not split on "." to derive a base name. Written through
+    // lib/storage, so encrypted at rest like every upload.
+    const storageRelativePath = `disclosures/${tenant.id}/${draftToken}.pdf`
 
     const pdfBuffer = await generateFaisDisclosurePdf({
       lender: lender.identity,
@@ -191,7 +187,7 @@ export async function POST(req: NextRequest) {
       policyDraft: { sumAssured, premiumAmount },
     })
 
-    await writeFile(filePath, pdfBuffer)
+    await saveFileAt(storageRelativePath, pdfBuffer)
     const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex")
 
     await logAudit({

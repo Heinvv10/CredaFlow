@@ -9,7 +9,7 @@ const { readFile, getTenantFromRequest } = vi.hoisted(() => ({
   getTenantFromRequest: vi.fn(),
 }))
 
-vi.mock("node:fs/promises", () => ({ readFile }))
+vi.mock("@/lib/storage", () => ({ readFile, storagePathAt: (rel: string) => `/uploads/${rel}` }))
 vi.mock("@/lib/prisma", () => ({
   prisma: { tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true }) } },
 }))
@@ -93,5 +93,34 @@ describe("GET /api/insurance/disclosures/[token]", () => {
     const res = await GET(req, { params: Promise.resolve({ token }) })
 
     expect(res.status).toBe(403)
+  })
+})
+
+// The PDFs are read through lib/storage (encrypted at rest). Only a missing
+// file falls through to the next naming scheme; an integrity failure is an error.
+describe("GET /api/insurance/disclosures/[token] through encrypted storage", () => {
+  const token = () => {
+    process.env.NEXTAUTH_SECRET = "test-secret-do-not-use-in-prod-1234567890abcdef"
+    return signDraftToken({ tenantId: "t1", clientId: "c1", advisorId: "u1", type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420, productId: "p1" })
+  }
+  const get = (t: string) => GET(new NextRequest(`http://localhost/api/insurance/disclosures/${t}`), { params: Promise.resolve({ token: t }) })
+  const missing = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" })
+
+  it("falls back to the legacy name only when the hashed one is missing, and 404s when neither exists", async () => {
+    const t = token()
+    readFile.mockRejectedValueOnce(missing()).mockResolvedValueOnce(Buffer.from("%PDF legacy"))
+    expect((await get(t)).status).toBe(200)
+    expect(readFile.mock.calls.map((c) => String(c[0]))).toEqual([
+      expect.stringMatching(/^\/uploads\/disclosures\/t1\/[0-9a-f]{64}\.pdf$/),
+      `/uploads/disclosures/t1/${t}.pdf`,
+    ])
+    readFile.mockReset().mockRejectedValue(missing())
+    expect((await get(t)).status).toBe(404)
+  })
+
+  it("does not skip past a file that fails its integrity check", async () => {
+    readFile.mockReset().mockRejectedValueOnce(Object.assign(new Error("encrypted file failed its integrity check"), { name: "StorageCryptoError" }))
+    await expect(get(token())).rejects.toThrow(/integrity/)
+    expect(readFile).toHaveBeenCalledOnce()
   })
 })

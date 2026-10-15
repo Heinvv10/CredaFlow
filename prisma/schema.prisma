@@ -90,6 +90,10 @@ model User {
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
   kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
+  apiKeysCreated               ApiKey[]                              @relation("ApiKeysCreatedBy")
+  apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
+  webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
+  webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
 
   @@unique([tenantId, id])
 }
@@ -201,6 +205,11 @@ model Tenant {
   suspiciousReportAccesses   SuspiciousReportAccess[]
   rmcpDocuments              RmcpDocument[]
   screeningBlocks            ScreeningBlock[]
+  apiKeys                    ApiKey[]
+  apiRequestLogs             ApiRequestLog[]
+  webhookEndpoints           WebhookEndpoint[]
+  webhookEvents              WebhookEvent[]
+  webhookDeliveries          WebhookDelivery[]
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -5454,4 +5463,157 @@ model LeaseTerminationQuote {
   @@unique([tenantId, taxInvoiceId])
   @@unique([tenantId, scheduleId])
   @@index([tenantId, loanId])
+}
+
+// ── Public lender API and outbound webhooks (lib/lender-api) ──────────────────
+
+// A tenant's API key. Only the SHA-256 of the full key is stored; `prefix` is
+// the public part shown in Settings and used to find the row. Scopes are
+// checked in code (lib/lender-api/scopes.ts) and by ApiKey_scopes_check. A key
+// is never deleted: revokedAt ends it, and its request log keeps pointing at it.
+model ApiKey {
+  id          String          @id @default(cuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name        String
+  prefix      String          @unique
+  keyHash     String          @unique
+  scopes      String[]
+  createdById String
+  createdBy   User            @relation("ApiKeysCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt   DateTime        @default(now())
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  revokedBy   User?           @relation("ApiKeysRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  requestLogs ApiRequestLog[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+}
+
+// One row per /api/v1 call, authenticated or not. tenantId and apiKeyId are
+// null when the bearer key matched no key.
+model ApiRequestLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  apiKeyId   String?
+  apiKey     ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: Restrict)
+  method     String
+  path       String
+  status     Int
+  ipAddress  String?
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
+// Where a tenant wants its events POSTed. The signing secret is sealed with
+// WEBHOOK_SECRET_KEY (lib/crypto/secret-box.ts) and shown once on creation.
+// Endpoints are disabled, never deleted, so the delivery log stays whole.
+model WebhookEndpoint {
+  id                  String            @id @default(cuid())
+  tenantId            String
+  tenant              Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  url                 String
+  description         String?
+  events              String[]
+  secretSealed        String
+  secretPrefix        String
+  active              Boolean           @default(true)
+  createdById         String
+  createdBy           User              @relation("WebhookEndpointsCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt           DateTime          @default(now())
+  disabledAt          DateTime?
+  disabledById        String?
+  disabledBy          User?             @relation("WebhookEndpointsDisabledBy", fields: [tenantId, disabledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Circuit breaker (lib/lender-api/webhooks/dispatch.ts): failed attempts in a
+  // row; at the threshold the endpoint is paused (its deliveries wait, PENDING)
+  // until an admin resumes it in Settings.
+  consecutiveFailures Int               @default(0)
+  pausedAt            DateTime?
+  pausedReason        String?
+  deliveries          WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, active])
+}
+
+// The outbox. Rows are written by database triggers (migration
+// 20261014150000_lender_api_webhooks) in the transaction of the change they
+// describe, and only while the tenant has an active endpoint subscribed to the
+// type. The webhook cron fans each out into WebhookDelivery rows.
+model WebhookEvent {
+  id           String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  type         String
+  entityId     String
+  data         Json
+  createdAt    DateTime          @default(now())
+  dispatchedAt DateTime?
+  deliveries   WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([dispatchedAt, createdAt])
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+// One event to one endpoint: the delivery log. attempts counts POSTs made;
+// nextAttemptAt doubles as the lease a running cron takes on the row.
+model WebhookDelivery {
+  id                 String                @id @default(cuid())
+  tenantId           String
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  endpointId         String
+  endpoint           WebhookEndpoint       @relation(fields: [tenantId, endpointId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  eventId            String
+  event              WebhookEvent          @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status             WebhookDeliveryStatus @default(PENDING)
+  attempts           Int                   @default(0)
+  nextAttemptAt      DateTime              @default(now())
+  lastAttemptAt      DateTime?
+  lastResponseStatus Int?
+  lastError          String?
+  deliveredAt        DateTime?
+  createdAt          DateTime              @default(now())
+
+  @@unique([endpointId, eventId])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+}
+
+// An outbox event a trigger could not write (migration
+// 20261014170000_webhook_breaker_outbox_guard): the write that fired it went
+// through, the event did not. /api/health warns while any are recent; the
+// retention cron prunes them. A log, not tenant data: no relation, so writing
+// it can never fail on one.
+model WebhookOutboxFailure {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  type      String
+  entityId  String
+  error     String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Last run of each in-process cron job (instrumentation.ts), read by /api/health.
+model CronHeartbeat {
+  job             String    @id
+  lastStartedAt   DateTime
+  lastFinishedAt  DateTime?
+  lastSucceededAt DateTime?
+  lastStatus      Int?
+  lastError       String?
 }

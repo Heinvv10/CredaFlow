@@ -13,4 +13,13 @@ describe("production image public assets", () => {
       dockerfile.indexOf("USER nextjs"),
     )
   })
+
+  it("copies Prisma migrations for the non-root runtime user", () => {
+    expect(dockerfile).toContain(
+      "COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma",
+    )
+    expect(dockerfile.indexOf("--chown=nextjs:nodejs /app/prisma")).toBeLessThan(
+      dockerfile.indexOf("USER nextjs"),
+    )
+  })
 })
