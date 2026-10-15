@@ -25,12 +25,12 @@ for `lib/credit-checks/`; categories and insights on read. Pipeline: `analyse.ts
   Other closings are printed (Standard Bank: opening + summary totals). A row lacking a
   balance its bank prints on every row is not read; with no closing, balances still check.
 - **A vision read is never tamper evidence**: its balance FAIL is MANUAL_REVIEW/UNVERIFIED_READ, never BALANCE_MISMATCH (a misread and a forgery look alike).
-- **Never call the vision reader or the label model inside a staff request**: `persist.ts`
-  `allowVlm: false`; model labels are asked only in its background queue, after a read.
+- **Never call the vision reader or the label model inside a staff request** (`persist.ts` `allowVlm: false`; labels only in its background queue).
 - **Bump `PARSER_VERSION`** when a reader's output changes for the same bytes, and
   `CATEGORISER_VERSION` when `categorise.ts`/`merchants.ts` do (checks' lists stay in policy.ts).
   Categories are computed on read; the one stored input is the model's label per masked debit key no
-  rule categorises (`model-labels.ts`; the read's own row, `modelCategories`), shown model-assigned.
+  rule categorises (`model-labels.ts`; the read's own row, `modelCategories`), shown model-assigned;
+  off (`MODEL_LABELS`) until a run passes the §6.4 gate (2026-10-15: 67.1–90.3%).
 - **FNB marks only credits** ("Cr"); unmarked is a debit / overdrawn. A row
   printing an amount that moves no money is `nonPosting` only when the balance
   confirms it: FNB "EDO Collection Attempt", ABSA "( PENDING )"/"DECLINED FEE".

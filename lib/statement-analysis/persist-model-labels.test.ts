@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
-import { labelPrompt, resetModelLabelBackoff } from "./model-labels"
+import { labelPrompt, resetModelLabelBackoff, MODEL_LABELS } from "./model-labels"
 import { ensureStatementAnalysis, MAX_WAITING_PER_TENANT, readStatementInBackground } from "./persist"
 
 vi.mock("@/lib/prisma", () => ({
@@ -53,6 +53,7 @@ beforeEach(() => {
   vi.mocked(readFile).mockResolvedValue(BYTES)
   update.mockResolvedValue({ count: 1 })
   resetModelLabelBackoff()
+    MODEL_LABELS.enabled = true
 })
 
 afterEach(() => {
@@ -63,7 +64,7 @@ afterEach(() => {
 
 describe("readStatementInBackground: model labels", () => {
   it("asks only for the debits no rule categorises, stores the labels on the tenant's row, then runs the callbacks", async () => {
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD", "2": "UNCATEGORISED"}}'))
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED"}}'))
     const order: string[] = []
     update.mockImplementation((async () => { order.push("stored"); return { count: 1 } }) as never)
     const onRead = vi.fn(async () => { order.push("onRead") })
@@ -77,7 +78,7 @@ describe("readStatementInBackground: model labels", () => {
     expect(sent).toBe(labelPrompt(["SYNTH ZOLA TRADING", "J SOAP"]))
     expect(update).toHaveBeenCalledWith({
       where: { id: "row-1", tenantId: TENANT },
-      data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p1", modelCategoriesAt: expect.any(Date) },
+      data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p2", modelCategoriesAt: expect.any(Date) },
     })
     expect(order).toEqual(["stored", "onRead", "onLabelled"])
   })
@@ -101,7 +102,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("a failed store does not skip the read's callbacks", async () => {
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH ZOLA TRADING": "FOOD"}}'))
     update.mockRejectedValueOnce(new Error("db down"))
     const onRead = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onRead })
@@ -109,7 +110,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("does not ask again for a read labelled by this model and prompt", async () => {
-    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "synthetic-model|labels-p1" }) as never)
+    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "synthetic-model|labels-p2" }) as never)
     const onRead = vi.fn().mockResolvedValue(undefined)
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onRead, onLabelled })
@@ -119,7 +120,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("asks again when the labels came from another model", async () => {
-    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "older-model|labels-p1" }) as never)
+    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "older-model|labels-p2" }) as never)
     fetchMock.mockResolvedValueOnce(answer('{"labels": {}}'))
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onLabelled })

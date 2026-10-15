@@ -116,7 +116,7 @@ function ModelAssigned({ data, used }: { data: Payload; used: Payload["statement
           rows no rule categorises stay uncategorised and are not counted as living spend.
         </p>
       )}
-      {noModel && <p>No local model is configured: rows no rule categorises stay uncategorised and are not counted as living spend.</p>}
+      {noModel && <p>Model labelling is off: rows no rule categorises stay uncategorised and are not counted as living spend.</p>}
     </div>
   )
 }

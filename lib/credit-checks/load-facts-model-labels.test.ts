@@ -27,7 +27,7 @@ vi.mock("@/lib/statement-analysis/persist", () => ({
 }))
 vi.mock("./recompute", () => ({ recomputeClientApplications: (...a: unknown[]) => recomputeClient(...a) }))
 
-import { resetModelLabelBackoff } from "@/lib/statement-analysis/model-labels"
+import { resetModelLabelBackoff, MODEL_LABELS } from "@/lib/statement-analysis/model-labels"
 import { loadApplicationFacts, statementSnapshot } from "./load-facts"
 
 const analysis = (over: Record<string, unknown> = {}) => ({
@@ -42,6 +42,7 @@ beforeEach(() => {
   vi.stubEnv("VLM_MODEL", "synthetic-model")
   ensure.mockResolvedValue({ state: "read", analysis: analysis() })
   resetModelLabelBackoff()
+    MODEL_LABELS.enabled = true
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -55,7 +56,7 @@ describe("loadApplicationFacts: model labels", () => {
   })
 
   it("passes stored labels through to the facts and queues nothing when they are current", async () => {
-    ensure.mockResolvedValue({ state: "read", analysis: analysis({ modelCategories: { "SYNTH ZOLA": "FOOD" }, modelCategoriesVersion: "synthetic-model|labels-p1" }) })
+    ensure.mockResolvedValue({ state: "read", analysis: analysis({ modelCategories: { "SYNTH ZOLA": "FOOD" }, modelCategoriesVersion: "synthetic-model|labels-p2" }) })
     const { facts } = (await loadApplicationFacts("t1", "app-1"))!
     expect(facts.statements[0].modelLabels).toEqual({ "SYNTH ZOLA": "FOOD" })
     expect(queueRead).not.toHaveBeenCalled()

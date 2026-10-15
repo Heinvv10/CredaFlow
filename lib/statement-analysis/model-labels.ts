@@ -21,8 +21,19 @@ import { getVlmConfig, parseVlmResponse } from "@/lib/vlm-extract"
 import { LIVING_CATEGORIES, type Category } from "./categories"
 import { VlmUnavailableError } from "./vlm-reader"
 
+/**
+ * Off: reads are not labelled. Measured 2026-10-15 (goal 2026-10-15 §3 A3) on
+ * the held-out corpus merchant keys, rules + model scored 90.3%, 67.1%, 67.1%
+ * over three runs against the 95% gate (rules alone 90.2%): the local model is
+ * not deterministic at temperature 0 and in two runs put a high-volume
+ * non-credit key in CREDIT_INSTALMENT. Labels would make the figures worse,
+ * so the background step stays off until a run passes the gate. (An object
+ * only so tests can turn it on.)
+ */
+export const MODEL_LABELS = { enabled: false }
+
 /** Bump when the prompt or the parsing changes what a key is labelled. */
-export const MODEL_LABEL_PROMPT_VERSION = "labels-p1"
+export const MODEL_LABEL_PROMPT_VERSION = "labels-p2"
 
 /**
  * What the model may answer. Not the income or own-transfer categories: it
@@ -33,7 +44,7 @@ export const MODEL_CATEGORIES: readonly Category[] = [
 ]
 
 /** Keys per request: short enough that one bad answer costs little. */
-export const LABEL_BATCH = 40
+export const LABEL_BATCH = 20
 const REQUEST_TIMEOUT_MS = 30_000
 /**
  * After the model could not be asked, nothing is asked (or queued) for this
@@ -72,11 +83,11 @@ export function modelLabelsVersion(model: string): string {
 
 /**
  * A read the model should label: read, and its labels missing or from another
- * model or prompt. False when no model is configured: nothing could label it.
+ * model or prompt. False when labelling is off or no model is configured.
  */
 export function needsModelLabels(a: { status: string; modelCategoriesVersion: string | null }): boolean {
   const config = getVlmConfig()
-  return !!config && Date.now() >= unavailableUntil && a.status === "READ" && a.modelCategoriesVersion !== modelLabelsVersion(config.model)
+  return MODEL_LABELS.enabled && !!config && Date.now() >= unavailableUntil && a.status === "READ" && a.modelCategoriesVersion !== modelLabelsVersion(config.model)
 }
 
 /** The stored labels: label key → category. */
@@ -112,22 +123,28 @@ CASH_WITHDRAWAL: ATM withdrawals, cash send, e-wallets, money vouchers
 SAVINGS_INVESTMENT: savings, investments, stokvels, unit trusts
 UNCATEGORISED: a person's name, a generic transfer or payment, a reference, or anything you are not sure of
 Use UNCATEGORISED unless the words clearly name a business or a service of that category.
-Return ONLY JSON, one entry per item number: {"labels": {"1": "CATEGORY", "2": "CATEGORY"}}
-Items (JSON array, item 1 first):
+Words that only say how the money moved are not a business: POS PURCHASE, CARD PURCHASE, INTERNET PAYMENT,
+PAYSHAP, EFT, DEBIT ORDER, TRANSFER, and card-machine or payment-app names such as YOCO, SNAPSCAN, ZAPPER or IKHOKHA.
+If nothing else in the item names a business, use UNCATEGORISED. A name, initials, a place or a single
+ordinary word on its own is UNCATEGORISED.
+Return ONLY JSON: an object with every item, copied exactly, as a key and its category as the value,
+for example {"labels": {"SHOPRITE SOWETO": "FOOD", "J SMITH": "UNCATEGORISED"}}.
+Items (JSON array):
 ${JSON.stringify(keys)}`
 }
 
 /**
- * The model's answer → a label per key. Garbage, a missing entry or a value
- * outside MODEL_CATEGORIES is UNCATEGORISED: the model answered, and a
- * deterministic (temperature 0) answer asked again would be the same.
+ * The model's answer → a label per key, matched by the key the model echoed
+ * (not by position, which a model can lose count of). Garbage, a missing
+ * entry or a value outside MODEL_CATEGORIES is UNCATEGORISED: the model
+ * answered, and a deterministic (temperature 0) answer asked again would be the same.
  */
 export function parseLabels(content: string, keys: string[]): ModelLabels {
   const raw = parseVlmResponse(content).labels
   const answers = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const out: ModelLabels = {}
-  keys.forEach((key, i) => {
-    const v = answers[String(i + 1)]
+  keys.forEach((key) => {
+    const v = Object.prototype.hasOwnProperty.call(answers, key) ? answers[key] : undefined
     const c = typeof v === "string" ? v.trim().toUpperCase() : ""
     out[key] = MODEL_CATEGORIES.includes(c as Category) ? (c as Category) : "UNCATEGORISED"
   })

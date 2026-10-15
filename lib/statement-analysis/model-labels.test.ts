@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { LABEL_BACKOFF_MS, LABEL_KEY_MAX, labelKey, labelKeys, labelPrompt, LABEL_BATCH, MODEL_CATEGORIES, MODEL_LABEL_PROMPT_VERSION, modelLabelFor, needsModelLabels, parseLabels, resetModelLabelBackoff } from "./model-labels"
+import { LABEL_BACKOFF_MS, LABEL_KEY_MAX, labelKey, labelKeys, labelPrompt, LABEL_BATCH, MODEL_CATEGORIES, MODEL_LABEL_PROMPT_VERSION, modelLabelFor, needsModelLabels, parseLabels, resetModelLabelBackoff, MODEL_LABELS } from "./model-labels"
 import { VlmUnavailableError } from "./vlm-reader"
 
 const answer = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 })
@@ -38,20 +38,20 @@ describe("modelLabelFor", () => {
 describe("parseLabels", () => {
   const keys = ["SYNTH GROCER", "T TESTER", "SYNTH BETS"]
 
-  it("maps item numbers to keys", () => {
-    expect(parseLabels('{"labels": {"1": "FOOD", "2": "UNCATEGORISED", "3": "GAMBLING"}}', keys))
+  it("matches answers to keys by the key echoed, whatever their order", () => {
+    expect(parseLabels('{"labels": {"SYNTH BETS": "GAMBLING", "SYNTH GROCER": "FOOD", "T TESTER": "UNCATEGORISED"}}', keys))
       .toEqual({ "SYNTH GROCER": "FOOD", "T TESTER": "UNCATEGORISED", "SYNTH BETS": "GAMBLING" })
   })
 
   it("turns off-enum, missing and garbage answers into UNCATEGORISED", () => {
-    expect(parseLabels('{"labels": {"1": "GROCERIES", "3": "SALARY_INCOME"}}', keys))
+    expect(parseLabels('{"labels": {"SYNTH GROCER": "GROCERIES", "SYNTH BETS": "SALARY_INCOME", "1": "FOOD"}}', keys))
       .toEqual({ "SYNTH GROCER": "UNCATEGORISED", "T TESTER": "UNCATEGORISED", "SYNTH BETS": "UNCATEGORISED" })
     expect(parseLabels("I think the first one is FOOD", keys)).toEqual(Object.fromEntries(keys.map((k) => [k, "UNCATEGORISED"])))
     expect(parseLabels('{"labels": ["FOOD", "FOOD", "FOOD"]}', keys)).toEqual(Object.fromEntries(keys.map((k) => [k, "UNCATEGORISED"])))
   })
 
   it("accepts fenced JSON and lower case", () => {
-    expect(parseLabels('```json\n{"labels": {"1": "food"}}\n```', ["SYNTH GROCER"])).toEqual({ "SYNTH GROCER": "FOOD" })
+    expect(parseLabels('```json\n{"labels": {"SYNTH GROCER": "food"}}\n```', ["SYNTH GROCER"])).toEqual({ "SYNTH GROCER": "FOOD" })
   })
 })
 
@@ -72,6 +72,7 @@ describe("labelKeys", () => {
     vi.stubGlobal("fetch", fetchMock)
     fetchMock.mockReset()
     resetModelLabelBackoff()
+    MODEL_LABELS.enabled = true
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -79,9 +80,9 @@ describe("labelKeys", () => {
   })
 
   it("asks at temperature 0 with the keys only, and returns labels with the model and prompt version", async () => {
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD", "2": "TRANSPORT"}}'))
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH FUEL": "TRANSPORT", "SYNTH GROCER": "FOOD"}}'))
     const r = await labelKeys(["SYNTH GROCER", "SYNTH FUEL", "SYNTH GROCER", ""])
-    expect(r).toEqual({ labels: { "SYNTH GROCER": "FOOD", "SYNTH FUEL": "TRANSPORT" }, version: "synthetic-model|labels-p1" })
+    expect(r).toEqual({ labels: { "SYNTH GROCER": "FOOD", "SYNTH FUEL": "TRANSPORT" }, version: "synthetic-model|labels-p2" })
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.temperature).toBe(0)
     expect(body.model).toBe("synthetic-model")
@@ -90,7 +91,7 @@ describe("labelKeys", () => {
 
   it("batches", async () => {
     const keys = Array.from({ length: LABEL_BATCH + 1 }, (_, i) => `SHOP ${i}`)
-    fetchMock.mockImplementation(async () => answer('{"labels": {"1": "FOOD"}}'))
+    fetchMock.mockImplementation(async () => answer('{"labels": {"SHOP 0": "FOOD"}}'))
     const r = await labelKeys(keys)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(Object.keys(r.labels)).toHaveLength(keys.length)
@@ -121,7 +122,7 @@ describe("labelKeys", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     now.mockReturnValue(1_000_000 + LABEL_BACKOFF_MS)
     expect(needsModelLabels(unlabelled)).toBe(true)
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH GROCER": "FOOD"}}'))
     expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
   })
 
@@ -130,7 +131,7 @@ describe("labelKeys", () => {
     fetchMock.mockResolvedValueOnce(new Response("maximum context length", { status }))
     expect((await labelKeys(["SYNTH HUGE"])).labels).toEqual({ "SYNTH HUGE": "UNCATEGORISED" })
     expect(needsModelLabels(unlabelled)).toBe(true)
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH GROCER": "FOOD"}}'))
     expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
   })
 
@@ -142,7 +143,7 @@ describe("labelKeys", () => {
 
   it("throws when any batch fails, so a partial set is never stored", async () => {
     const keys = Array.from({ length: LABEL_BATCH + 1 }, (_, i) => `SHOP ${i}`)
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}')).mockRejectedValueOnce(new TypeError("fetch failed"))
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH GROCER": "FOOD"}}')).mockRejectedValueOnce(new TypeError("fetch failed"))
     await expect(labelKeys(keys)).rejects.toBeInstanceOf(VlmUnavailableError)
   })
 })
@@ -151,6 +152,6 @@ describe("MODEL_LABEL_PROMPT_VERSION names the prompt", () => {
   // A changed prompt or category set changes stored labels' meaning: bump the version (reads are relabelled), then re-pin.
   it("is bumped whenever the prompt changes", () => {
     const hash = createHash("sha256").update(JSON.stringify([labelPrompt(["SYNTH"]), MODEL_CATEGORIES, LABEL_BATCH])).digest("hex").slice(0, 16)
-    expect({ version: MODEL_LABEL_PROMPT_VERSION, hash }).toEqual({ version: "labels-p1", hash: "c80c101003a77ff7" })
+    expect({ version: MODEL_LABEL_PROMPT_VERSION, hash }).toEqual({ version: "labels-p2", hash: "f1806e2a1068c5f5" })
   })
 })

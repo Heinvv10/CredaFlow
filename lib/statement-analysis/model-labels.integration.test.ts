@@ -17,6 +17,7 @@ import { loadApplicationFacts, statementSnapshot } from "@/lib/credit-checks/loa
 import { applicationStatementInsights } from "@/lib/credit-checks/statement-insights"
 import { syntheticStatement } from "./fixtures/dataset"
 import { buildCapitecStatement } from "./fixtures/synthetic"
+import { MODEL_LABELS } from "./model-labels"
 import { ensureStatementAnalysis, readStatementInBackground } from "./persist"
 
 const RUN = process.env.RUN_CREDIT_CHECKS_IT === "1"
@@ -27,7 +28,7 @@ suite("model labels against Postgres", () => {
   const tenants = [`tenant_labels_a_${token}`, `tenant_labels_b_${token}`]
   const id = (kind: string, t: number) => `${kind}_labels_${t}_${token}`
   const dir = mkdtempSync(join(tmpdir(), "cf-labels-it-"))
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"labels": {"1": "FOOD"}}' } }] }), { status: 200 }))
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"labels": {"SYNTH ZOLA TRADING": "FOOD"}}' } }] }), { status: 200 }))
 
   beforeAll(async () => {
     const statement = syntheticStatement({ bank: "CAPITEC", start: "2026-07-01" })
@@ -60,11 +61,13 @@ suite("model labels against Postgres", () => {
     vi.stubEnv("VLM_API_URL", "http://vlm.test")
     vi.stubEnv("VLM_MODEL", "synthetic-model")
     vi.stubGlobal("fetch", fetchMock)
+    MODEL_LABELS.enabled = true
   })
 
   afterAll(async () => {
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
+    MODEL_LABELS.enabled = false
     for (const tenantId of tenants) {
       await prisma.statementAnalysis.deleteMany({ where: { tenantId } })
       await prisma.clientDocument.deleteMany({ where: { tenantId } })
@@ -85,7 +88,7 @@ suite("model labels against Postgres", () => {
 
     const [a] = await prisma.statementAnalysis.findMany({ where: { tenantId: tenants[0] } })
     expect(a.modelCategories).toEqual({ "SYNTH ZOLA TRADING": "FOOD" })
-    expect(a.modelCategoriesVersion).toBe("synthetic-model|labels-p1")
+    expect(a.modelCategoriesVersion).toBe("synthetic-model|labels-p2")
     expect(a.modelCategoriesAt).toBeInstanceOf(Date)
     // The model saw the masked key alone.
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
