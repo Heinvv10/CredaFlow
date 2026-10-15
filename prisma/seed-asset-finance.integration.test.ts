@@ -263,7 +263,33 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(loan.assetFinanceDeal?.asset.lessorStatus).not.toBe("RETURNED_TO_STOCK")
   })
 
-  it("a second seed run leaves every lease count unchanged", async () => {
+  it("(e) takes the TLB through its legal matter and an s131 recovery to a shortfall, and lists the company lease's voluntary recovery", async () => {
+    const tlb = await fresh().recovery.findFirstOrThrow({
+      where: { route: "NCA_S131_ATTACHMENT" },
+      include: { legalMatter: { include: { steps: { orderBy: { stepDate: "asc" } } } }, sales: true, vatEvents: true, loan: true, asset: true, costs: true },
+    })
+    // R6,500 storage, deducted from the R400,000 price.
+    expect(tlb).toMatchObject({ status: "SHORTFALL_OPEN", surplusCents: 0, grossProceedsCents: 40_000_000, deductedCostsCents: 650_000, chargedCostsCents: 0, netProceedsCents: 39_350_000 })
+    expect(tlb.shortfallCents).toBe(tlb.settlementDueCents! - 39_350_000)
+    expect(tlb.costs).toMatchObject([{ type: "STORAGE", status: "APPROVED", grossCents: 650_000, recordedById: await userId("credit.officer"), approvedById: await userId("loan.admin.one") }])
+    expect(tlb.finalNoticePath).not.toBeNull()
+    expect(tlb.chargesFrozenUntil).not.toBeNull()
+    expect(tlb.legalMatter?.steps.map((step) => step.kind)).toEqual(["S129_SENT", "SUMMONS_ISSUED", "SUMMONS_SERVED", "JUDGMENT", "ATTACHMENT_ORDER", "ASSET_RECOVERED"])
+    expect(tlb.legalMatter?.attorneySupplierId).not.toBeNull()
+    expect(tlb.loan).toMatchObject({ status: "ACTIVE", collectionsStage: "ATTORNEY_REFERRED" })
+    expect(tlb.asset.lessorStatus).toBe("SOLD_IN_REMARKETING")
+    // Sold under the valuation, so the second admin approved it.
+    expect(tlb.sales).toHaveLength(1)
+    expect(tlb.sales[0]).toMatchObject({ status: "COMPLETED", belowValuation: true, createdById: await userId("credit.officer"), approvedById: await userId("loan.admin.one") })
+    expect(tlb.vatEvents.map((event) => event.kind)).toEqual(["REPOSSESSION_DEEMED_SUPPLY"])
+    const lease = await fresh().recovery.findFirstOrThrow({ where: { route: "NON_NCA_VOLUNTARY" }, include: { loan: true } })
+    expect(lease).toMatchObject({ status: "LISTED" })
+    expect(lease.loan.contractType).toBe("FULL_MAINTENANCE_LEASE")
+    expect(lease.valuationId).not.toBeNull()
+    expect(await fresh().recoveryCost.findMany({ where: { recoveryId: lease.id } })).toMatchObject([{ type: "STORAGE", status: "APPROVED", grossCents: 420_000 }])
+  })
+
+  it("a second seed run leaves every lease and recovery count unchanged", async () => {
     const snapshot = async () => ({
       leases: await fresh().loan.count({ where: { contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } }),
       leaseDeals: await fresh().assetFinanceDeal.count({ where: { contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } }),
@@ -283,9 +309,18 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       products: await fresh().loanProduct.count(),
       assets: await fresh().financedAsset.count(),
       audit: await fresh().auditLog.count(),
+      legalMatters: await fresh().legalMatter.count(),
+      legalSteps: await fresh().legalMatterStep.count(),
+      recoveries: await fresh().recovery.count(),
+      recoveryCosts: await fresh().recoveryCost.count(),
+      sales: await fresh().remarketingSale.count(),
+      vatEvents: await fresh().recoveryVatEvent.count(),
+      valuations: await fresh().assetValuation.count(),
+      suppliers: await fresh().supplier.count(),
+      section129Records: await fresh().complianceRecord.count({ where: { type: "SECTION_129_NOTICE" } }),
     })
     const before = await snapshot()
-    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 1, damageItems: 0, funds: 2 })
+    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 1, damageItems: 0, funds: 2, legalMatters: 1, legalSteps: 6, recoveries: 2, recoveryCosts: 2, sales: 1, vatEvents: 1, valuations: 2, section129Records: 1 })
     execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env: seedEnv, stdio: ["ignore", "pipe", "pipe"] })
     expect(await snapshot()).toEqual(before)
   }, 240_000)

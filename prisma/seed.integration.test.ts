@@ -184,7 +184,8 @@ suite("base demo seed on a fresh migrated database", () => {
       verifiedCount: 0,
       pendingCount: 10,
       clientDocumentCount: 2,
-      complianceRecordCount: 4,
+      // Four lifecycle records plus the synthetic section 129 notice of the recovered TLB's legal matter.
+      complianceRecordCount: 5,
       protectedLifecycleCount: 2,
       insurancePolicyCount: 1,
       nonInvalidEmailCount: 0,
