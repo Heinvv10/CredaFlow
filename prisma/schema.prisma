@@ -6222,12 +6222,18 @@ enum RecoveryCostType {
   OTHER
 }
 
+enum RecoveryCostStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum RecoveryCostTreatment {
   DEDUCT_FROM_PROCEEDS
   CHARGE_TO_ACCOUNT
 }
 
-// A cost of recovery, recorded already approved by a second person; immutable.
+// A cost of recovery: recorded PENDING, then approved or rejected once by a second person; immutable after.
 model RecoveryCost {
   id                 String                @id @default(cuid())
   tenantId           String
@@ -6247,10 +6253,12 @@ model RecoveryCost {
   legalStep          LegalMatterStep?      @relation(fields: [tenantId, legalStepId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   note               String?
   recordedById       String
-  approvedById       String
+  status             RecoveryCostStatus    @default(PENDING)
+  approvedById       String?
+  approvedAt         DateTime?
   createdAt          DateTime              @default(now())
   recordedBy         User                  @relation("RecoveryCostRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  approvedBy         User                  @relation("RecoveryCostApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy         User?                 @relation("RecoveryCostApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@index([tenantId, recoveryId])

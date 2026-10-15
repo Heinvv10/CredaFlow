@@ -33,10 +33,20 @@ export interface PathOptions {
   surrenderId?: string
 }
 
+/** A cost as it is recorded: PENDING, undecided (the second person decides it later). */
 export const costData = (fx: DealFixture, recoveryId: string, c: NonNullable<PathOptions["costs"]>[number]) => ({
   tenantId: fx.tenantId, recoveryId, type: c.type, netCents: c.grossCents, vatCents: 0, grossCents: c.grossCents, supplierInvoiceRef: `INV-${randomUUID().slice(0, 8)}`,
-  incurredOn: dbDate(today()), treatment: c.treatment, legalStepId: c.legalStepId ?? null, recordedById: fx.officer, approvedById: fx.adminA,
+  incurredOn: dbDate(today()), treatment: c.treatment, legalStepId: c.legalStepId ?? null, recordedById: fx.officer,
 })
+
+/** A cost recorded and then decided by a second person (APPROVED unless said otherwise). */
+export async function recordDecidedCost(
+  db: Pick<PrismaClient, "recoveryCost">, fx: DealFixture, recoveryId: string, c: NonNullable<PathOptions["costs"]>[number], decision: "APPROVED" | "REJECTED" = "APPROVED",
+  extra: Record<string, unknown> = {},
+) {
+  const cost = await db.recoveryCost.create({ data: { ...costData(fx, recoveryId, c), ...extra } })
+  return db.recoveryCost.update({ where: { id: cost.id }, data: { status: decision, approvedById: fx.adminA, approvedAt: new Date() } })
+}
 
 /** The highest current independent valuation of an asset (what the sale trigger recomputes). */
 export async function highestValuation(db: PrismaClient, tenantId: string, assetId: string): Promise<number> {
@@ -95,12 +105,12 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
     } else if (next === "LISTED") {
       await set({ status: next })
     } else if (next === "SOLD") {
-      for (const c of o.costs ?? []) await db.recoveryCost.create({ data: costData(fx, recoveryId, c) })
+      for (const c of o.costs ?? []) await recordDecidedCost(db, fx, recoveryId, c)
       const sale = await db.remarketingSale.create({ data: await saleData(db, fx, loan, recoveryId, o.priceCents ? { priceInclVatCents: o.priceCents, belowValuation: false } : {}) })
       await db.remarketingSale.update({ where: { id: sale.id }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: await saleInvoice(db, fx, sale.priceInclVatCents) } })
       await set({ status: next })
     } else if (next === "PROCEEDS_APPLIED") {
-      const costs = await db.recoveryCost.findMany({ where: { recoveryId } })
+      const costs = await db.recoveryCost.findMany({ where: { recoveryId, status: "APPROVED" } })
       const sum = (t: RecoveryCostTreatment) => costs.filter((c) => c.treatment === t).reduce((n, c) => n + c.grossCents, 0)
       const sale = await db.remarketingSale.findFirstOrThrow({ where: { recoveryId, status: "COMPLETED" } })
       const gross = sale.priceInclVatCents

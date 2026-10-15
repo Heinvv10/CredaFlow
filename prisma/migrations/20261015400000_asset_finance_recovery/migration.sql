@@ -27,6 +27,9 @@ CREATE TYPE "RecoveryStatus" AS ENUM ('RECOVERED', 'VALUED', 'VALUATION_NOTICE_I
 CREATE TYPE "RecoveryCostType" AS ENUM ('TOWING', 'STORAGE', 'VALUATION', 'REPAIRS', 'ADVERTISING', 'AUCTION_COMMISSION', 'SHERIFF', 'INSURANCE', 'LEGAL_TAXED', 'LEGAL_CONTRACTUAL', 'OTHER');
 
 -- CreateEnum
+CREATE TYPE "RecoveryCostStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
+-- CreateEnum
 CREATE TYPE "RecoveryCostTreatment" AS ENUM ('DEDUCT_FROM_PROCEEDS', 'CHARGE_TO_ACCOUNT');
 
 -- CreateEnum
@@ -153,7 +156,9 @@ CREATE TABLE "RecoveryCost" (
     "legalStepId" TEXT,
     "note" TEXT,
     "recordedById" TEXT NOT NULL,
-    "approvedById" TEXT NOT NULL,
+    "status" "RecoveryCostStatus" NOT NULL DEFAULT 'PENDING',
+    "approvedById" TEXT,
+    "approvedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "RecoveryCost_pkey" PRIMARY KEY ("id")
@@ -759,9 +764,13 @@ BEGIN
     IF NEW."settlementDueCents" IS NOT NULL AND NEW."grossProceedsCents" IS DISTINCT FROM sale_price THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The gross proceeds are the completed sale''s price';
     END IF;
+    IF EXISTS (SELECT 1 FROM "RecoveryCost" c WHERE c."recoveryId" = NEW."id" AND c."tenantId" = NEW."tenantId" AND c."status" = 'PENDING') THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Proceeds are applied once every cost is decided';
+    END IF;
+    -- only approved costs are deducted or charged; a rejected one is neither
     SELECT COALESCE(sum(c."grossCents") FILTER (WHERE c."treatment" = 'DEDUCT_FROM_PROCEEDS'), 0) AS deducted,
            COALESCE(sum(c."grossCents") FILTER (WHERE c."treatment" = 'CHARGE_TO_ACCOUNT'), 0) AS charged INTO costs
-      FROM "RecoveryCost" c WHERE c."recoveryId" = NEW."id" AND c."tenantId" = NEW."tenantId";
+      FROM "RecoveryCost" c WHERE c."recoveryId" = NEW."id" AND c."tenantId" = NEW."tenantId" AND c."status" = 'APPROVED';
     IF NEW."deductedCostsCents" <> costs.deducted OR NEW."chargedCostsCents" <> costs.charged THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The deducted and charged costs are the recovery''s recorded costs';
     END IF;
@@ -1063,7 +1072,11 @@ CREATE TRIGGER "RemarketingSale_sync_asset_status" AFTER INSERT OR UPDATE OF "st
 -- ---------------------------------------------------------------------------
 ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_amounts" CHECK ("netCents" >= 0 AND "vatCents" >= 0 AND "grossCents" = "netCents" + "vatCents" AND "grossCents" > 0);
 ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_invoice_ref" CHECK (length(btrim("supplierInvoiceRef")) > 0);
-ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_approver_differs" CHECK (length(btrim("recordedById")) > 0 AND "approvedById" <> "recordedById");
+-- Recorded PENDING; decided once, by someone other than whoever recorded it.
+ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_approver_differs" CHECK (length(btrim("recordedById")) > 0 AND ("approvedById" IS NULL OR "approvedById" <> "recordedById"));
+ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_status_columns" CHECK (
+  ("status" = 'PENDING' AND "approvedById" IS NULL AND "approvedAt" IS NULL)
+  OR ("status" IN ('APPROVED', 'REJECTED') AND "approvedById" IS NOT NULL AND "approvedAt" IS NOT NULL));
 
 CREATE OR REPLACE FUNCTION public."guardRecoveryCost"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -1072,8 +1085,21 @@ DECLARE
   config RECORD;
   today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
-  IF TG_OP <> 'INSERT' THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery cost is immutable';
+  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery cost is never deleted';
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    -- one decision, PENDING to APPROVED or REJECTED, by the approver and the time; nothing else changes
+    IF OLD."status" <> 'PENDING' THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A decided recovery cost is immutable';
+    END IF;
+    IF (to_jsonb(NEW) - ARRAY['status', 'approvedById', 'approvedAt']) IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'approvedById', 'approvedAt']) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A cost decision changes only its status, approver and time';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW."status" <> 'PENDING' OR NEW."approvedById" IS NOT NULL OR NEW."approvedAt" IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A cost is recorded PENDING, undecided';
   END IF;
   SELECT r."status"::TEXT AS status, r."route"::TEXT AS route, r."loanId" INTO rec
     FROM "Recovery" r WHERE r."id" = NEW."recoveryId" AND r."tenantId" = NEW."tenantId" FOR SHARE;

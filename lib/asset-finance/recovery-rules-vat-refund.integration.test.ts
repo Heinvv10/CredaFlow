@@ -266,7 +266,7 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
 
     it("refuses TRUNCATE of every guarded table by its own trigger", async () => {
       const messages: Record<string, RegExp> = {
-        LegalMatter: /legal matter is never deleted/, LegalMatterStep: /append-only/, Recovery: /recovery is never deleted/, RecoveryCost: /cost is immutable/,
+        LegalMatter: /legal matter is never deleted/, LegalMatterStep: /append-only/, Recovery: /recovery is never deleted/, RecoveryCost: /cost is never deleted/,
         RemarketingSale: /never deleted: cancel it/, RecoveryVatEvent: /VAT event is immutable/, RecoveryRefund: /refund is never deleted/,
       }
       for (const table of TABLES) {

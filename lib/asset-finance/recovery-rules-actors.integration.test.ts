@@ -52,7 +52,7 @@ const refund = (tx: Tx, over: Record<string, unknown> = {}) => tx.recoveryRefund
 const cost = (tx: Tx, over: Record<string, unknown>) => tx.recoveryCost.create({
   data: {
     tenantId: fx.tenantId, recoveryId: R.open.id, type: "TOWING", netCents: 100_000, vatCents: 15_000, grossCents: 115_000, supplierInvoiceRef: "INV-1", incurredOn: dbDate(today()),
-    treatment: "DEDUCT_FROM_PROCEEDS", recordedById: fx.officer, approvedById: fx.adminA, ...over,
+    treatment: "DEDUCT_FROM_PROCEEDS", recordedById: fx.officer, ...over,
   } as never,
 })
 
@@ -94,8 +94,12 @@ suite("slice 4a actor columns are foreign keys to the lender's users", () => {
 
   it("names the users who recorded and approved a cost", async () => {
     await refused("RecoveryCost", "recordedById", (tx) => cost(tx, { recordedById: GHOST }))
-    await refused("RecoveryCost", "approvedById", (tx) => cost(tx, { approvedById: GHOST }))
-    await refused("RecoveryCost", "approvedById", (tx) => cost(tx, { approvedById: foreignUser }))
+    const decide = (by: string) => async (tx: Tx) => {
+      const pending = await cost(tx, {})
+      await tx.recoveryCost.update({ where: { id: pending.id }, data: { status: "APPROVED", approvedById: by, approvedAt: new Date() } })
+    }
+    await refused("RecoveryCost", "approvedById", decide(GHOST))
+    await refused("RecoveryCost", "approvedById", decide(foreignUser))
   })
 
   it("names the users who created and approved a sale", async () => {

@@ -42,11 +42,14 @@ const R = {} as Record<"nca" | "non" | "sold" | "proc" | "gone", Rec>
 /** Steps of the NCA recovery's matter, and a step of another loan's matter. */
 const steps = {} as Record<"letter" | "judgment" | "settled" | "corrected" | "correction" | "foreign", string>
 let existingCost = ""
+let rejectedCost = ""
+const decide = (tx: Pick<PrismaClient, "recoveryCost">, id: string, status: "APPROVED" | "REJECTED", by = fx.adminA, over: Record<string, unknown> = {}) =>
+  tx.recoveryCost.update({ where: { id }, data: { status, approvedById: by, approvedAt: new Date(), ...over } })
 
 const cost = (tx: Pick<PrismaClient, "recoveryCost">, rec: Rec, over: Record<string, unknown> = {}) => tx.recoveryCost.create({
   data: {
     tenantId: fx.tenantId, recoveryId: rec.id, type: "TOWING", netCents: 100_000, vatCents: 15_000, grossCents: 115_000, supplierInvoiceRef: "INV-1", incurredOn: dbDate(today()),
-    treatment: "DEDUCT_FROM_PROCEEDS", recordedById: fx.officer, approvedById: fx.adminA, ...over,
+    treatment: "DEDUCT_FROM_PROCEEDS", recordedById: fx.officer, ...over,
   } as never,
 })
 const taxed = (tx: Tx, legalStepId: string | null, over: Record<string, unknown> = {}) =>
@@ -72,7 +75,8 @@ suite("slice 4a recovery cost database rules", () => {
     await advance(database(), fx, R.sold.loan, R.sold.id, "SOLD")
     await advance(database(), fx, R.proc.loan, R.proc.id, "PROCEEDS_APPLIED")
     await advance(database(), fx, R.gone.loan, R.gone.id, "WITHDRAWN")
-    existingCost = (await cost(database(), R.non)).id
+    existingCost = (await decide(database(), (await cost(database(), R.non)).id, "APPROVED")).id
+    rejectedCost = (await decide(database(), (await cost(database(), R.non)).id, "REJECTED")).id
   }, 300_000)
 
   afterAll(async () => {
@@ -80,10 +84,39 @@ suite("slice 4a recovery cost database rules", () => {
     await database().$disconnect()
   }, 120_000)
 
-  it("is immutable: never updated or deleted", async () => {
-    const rule = raiseOff(G, "A recovery cost is immutable")
-    await refuses(rule, /cost is immutable/, (tx) => tx.recoveryCost.update({ where: { id: existingCost }, data: { note: "edited" } }))
-    await refuses(raiseOff(G, "A recovery cost is immutable", PASS_DELETE), /cost is immutable/, (tx) => tx.recoveryCost.delete({ where: { id: existingCost } }))
+  describe("the two-step flow", () => {
+    it("is recorded PENDING and undecided", async () => {
+      await refuses(raiseOff(G, "A cost is recorded PENDING, undecided"), /recorded PENDING, undecided/,
+        (tx) => cost(tx, R.non, { status: "APPROVED", approvedById: fx.adminA, approvedAt: new Date() }))
+      await admits((tx) => cost(tx, R.non))
+    })
+
+    it("is decided once, approved or rejected, by a second person", async () => {
+      await admits(async (tx) => decide(tx, (await cost(tx, R.non)).id, "APPROVED"))
+      await admits(async (tx) => decide(tx, (await cost(tx, R.non)).id, "REJECTED"))
+      await refuses({ table: "RecoveryCost", constraint: "RecoveryCost_approver_differs" }, /RecoveryCost_approver_differs/, async (tx) => decide(tx, (await cost(tx, R.non)).id, "APPROVED", fx.officer))
+      await refuses({ table: "RecoveryCost", constraint: "RecoveryCost_status_columns" }, /RecoveryCost_status_columns/,
+        async (tx) => tx.recoveryCost.update({ where: { id: (await cost(tx, R.non)).id }, data: { status: "APPROVED" } }))
+      await refuses({ table: "RecoveryCost", constraint: "RecoveryCost_status_columns" }, /RecoveryCost_status_columns/,
+        async (tx) => tx.recoveryCost.update({ where: { id: (await cost(tx, R.non)).id }, data: { approvedById: fx.adminA, approvedAt: new Date() } }))
+    })
+
+    it("changes nothing but its status, approver and time when it is decided", async () => {
+      await refuses(raiseOff(G, "A cost decision changes only its status, approver and time"), /decision changes only its status, approver and time/,
+        async (tx) => decide(tx, (await cost(tx, R.non)).id, "APPROVED", fx.adminA, { grossCents: 1, netCents: 1, vatCents: 0 }))
+      await refuses(raiseOff(G, "A cost decision changes only its status, approver and time"), /decision changes only its status, approver and time/,
+        async (tx) => tx.recoveryCost.update({ where: { id: (await cost(tx, R.non)).id }, data: { note: "edited" } }))
+    })
+
+    it("is immutable once decided, and never deleted", async () => {
+      const rule = raiseOff(G, "A decided recovery cost is immutable")
+      await refuses(rule, /decided recovery cost is immutable/, (tx) => tx.recoveryCost.update({ where: { id: existingCost }, data: { note: "edited" } }),
+        [raiseOff(G, "A cost decision changes only its status, approver and time")])
+      await refuses(rule, /decided recovery cost is immutable/, (tx) => decide(tx, rejectedCost, "APPROVED"))
+      await refuses(rule, /decided recovery cost is immutable/, (tx) => tx.recoveryCost.update({ where: { id: existingCost }, data: { status: "REJECTED" } }))
+      await refuses(raiseOff(G, "A recovery cost is never deleted", PASS_DELETE), /cost is never deleted/, (tx) => tx.recoveryCost.delete({ where: { id: existingCost } }))
+      await refuses(raiseOff(G, "A recovery cost is never deleted", PASS_DELETE), /cost is never deleted/, async (tx) => tx.recoveryCost.delete({ where: { id: (await cost(tx, R.non)).id } }))
+    })
   })
 
   describe("when it is recorded", () => {
@@ -176,10 +209,6 @@ suite("slice 4a recovery cost database rules", () => {
 
     it("carries the supplier's invoice reference", async () => {
       await refuses({ table: "RecoveryCost", constraint: "RecoveryCost_invoice_ref" }, /RecoveryCost_invoice_ref/, (tx) => cost(tx, R.non, { supplierInvoiceRef: " " }))
-    })
-
-    it("is approved by someone other than whoever recorded it", async () => {
-      await refuses({ table: "RecoveryCost", constraint: "RecoveryCost_approver_differs" }, /RecoveryCost_approver_differs/, (tx) => cost(tx, R.non, { approvedById: fx.officer }))
     })
   })
 })

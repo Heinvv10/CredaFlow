@@ -18,10 +18,11 @@ import { PrismaClient, type RecoveryStatus } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { dbDate } from "./dates"
-import { advance, proceedsKey, type PathOptions } from "./recovery-path.integration-fixture"
+import { advance, costData, proceedsKey, type PathOptions } from "./recovery-path.integration-fixture"
 import {
   cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, newSurrender, recoveryFixtureTenantId, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
+import { attempt } from "./lease-servicing.integration-fixture"
 import { clauseOff, raiseOff, rules, triggersOff, triggersOn, type Tx } from "./recovery-rules.integration-fixture"
 
 // The deal fixture imports the real route handlers, which import the session helper.
@@ -158,6 +159,22 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
       })
       // the settlement is the lesser: a R800k settlement is credited R800k, not the R1.2m price
       await admits(proceeds(R.nonSold, { settlementDueCents: 80_000_000, shortfallCents: 0, surplusCents: 40_000_000 }, 80_000_000))
+    })
+
+    it("waits for every cost to be decided, and counts only the approved ones", async () => {
+      const record = (status?: "APPROVED" | "REJECTED") => async (tx: Tx) => {
+        const cost = await tx.recoveryCost.create({ data: costData(fx, R.nonSold.id, { type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 1_000_000 }) as never })
+        if (status) await tx.recoveryCost.update({ where: { id: cost.id }, data: { status, approvedById: fx.adminA, approvedAt: new Date() } })
+      }
+      await refuses(raiseOff(G, "Proceeds are applied once every cost is decided"), /once every cost is decided/, async (tx) => { await record()(tx); await proceeds(R.nonSold)(tx) })
+      // a rejected cost is neither deducted nor charged; an approved one is
+      await admits(async (tx) => { await record("REJECTED")(tx); await proceeds(R.nonSold)(tx) })
+      await admits(async (tx) => {
+        await record("APPROVED")(tx)
+        await proceeds(R.nonSold, { deductedCostsCents: 1_000_000, netProceedsCents: 119_000_000, shortfallCents: 31_000_000 }, 119_000_000)(tx)
+      })
+      const countRejected = clauseOff(G, `AND c."status" = 'APPROVED';`, ";")
+      expect(await attempt(database(), async (tx) => { await record("REJECTED")(tx); await proceeds(R.nonSold)(tx) }, countRejected)).toMatch(/recorded costs/)
     })
 
     it("takes as its gross proceeds the price of the completed sale", async () => {
