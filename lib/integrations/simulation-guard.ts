@@ -84,6 +84,15 @@ const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
     sandboxSafeValues: [],
   },
   /**
+   * PEP / sanctions screening (lib/screening/simulated-provider.ts). A
+   * simulated "clear" would wave a sanctioned person through, so it is refused
+   * on a deployed build unless listed in SIMULATED_INTEGRATIONS.
+   */
+  screening: {
+    sandboxEnvVar: null,
+    sandboxSafeValues: [],
+  },
+  /**
    * The simulated collection rail (lib/integrations/collections/simulated.ts).
    * Its PAID outcome books a receipt, so a deployed build may only run it when
    * the environment names it in SIMULATED_INTEGRATIONS (the demo stacks).

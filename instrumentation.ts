@@ -176,6 +176,14 @@ export async function register() {
       timezone: SAST,
     })
 
+    // PEP / sanctions re-screen of active clients whose latest run is older
+    // than SCREENING_MAX_AGE_DAYS (lib/screening/refresh.ts). Idle for tenants
+    // without TenantConfig.screeningProvider. Nightly, outside business hours,
+    // because each client is a provider call.
+    cron.schedule("15 2 * * *", () => callCron("/api/cron/screening-refresh"), {
+      timezone: SAST,
+    })
+
     // Fails selfie attempts stuck in `processing` past 15 minutes (a worker that
     // died mid-VLM-call) so the client can retake (lib/kyc/selfie-sweeper.server.ts).
     // Every 5 minutes: a stuck client waits at most 20.
@@ -195,6 +203,6 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 17 jobs active")
+    console.log("[cron] scheduler registered — 18 jobs active")
   }
 }

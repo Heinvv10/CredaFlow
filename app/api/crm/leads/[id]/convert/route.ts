@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { generateReference } from "@/lib/utils"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { AuditAction } from "@/lib/audit"
 import {
   ContactPromotionConflictError,
@@ -843,6 +844,8 @@ export async function POST(
         })
       }
 
+      // PEP / sanctions screening; never blocks or fails the conversion.
+      void screenOnSubmit({ tenantId: tenant.id, applicationId: result.application.id, actor: { id: guard.user.id, email: guard.user.email } })
       return NextResponse.json({
         clientId: result.client.id,
         applicationId: result.application.id,

@@ -3,6 +3,11 @@ import { Prisma } from "@prisma/client"
 import type { RegimeTx } from "./classification"
 import { decideDeal, parseDecideInput } from "./deal-decision"
 
+// The screening re-check's own rules are proven in lib/screening; here, only
+// that decideDeal obeys it on APPROVE.
+const { screeningAllows } = vi.hoisted(() => ({ screeningAllows: vi.fn() }))
+vi.mock("@/lib/screening/gate", () => ({ lockedBorrowerScreeningAllows: (...a: unknown[]) => screeningAllows(...a) }))
+
 const REASONS = ["Strong DSCR on audited AFS"]
 const actor = { tenantId: "tenant-1", userId: "admin-a", userEmail: "a@lender.test" }
 
@@ -27,6 +32,8 @@ const deal = (over: { status?: string; appStatus?: string; ncaRegime?: string; m
   financials: over.memo === false ? null : { dscr: new Prisma.Decimal("1.8"), gearing: new Prisma.Decimal("0.25") },
   affordabilityAssessment: over.assessment === null ? null : { affordable: over.assessment ?? true },
   application: {
+    clientId: null,
+    entityId: "entity-1",
     status: over.appStatus ?? "SUBMITTED",
     ncaRegime: over.ncaRegime ?? "NON_NCA",
     ncaClassificationRule: "JURISTIC_OVER_THRESHOLD",
@@ -59,7 +66,18 @@ describe("parseDecideInput: reasons are mandatory for every decision", () => {
 
 describe("decideDeal", () => {
   let fake: ReturnType<typeof fakeTx>
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    screeningAllows.mockResolvedValue(true)
+  })
+
+  it("APPROVE is refused when the borrower's screening blocks, re-read in the transaction before any write", async () => {
+    screeningAllows.mockResolvedValueOnce(false)
+    fake = fakeTx(deal())
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "screening_blocked" })
+    expect(screeningAllows).toHaveBeenCalledWith(fake.asTx, "tenant-1", { clientId: null, entityId: "entity-1" }, "admin-a")
+    expect(fake.tx.loanApplication.update).not.toHaveBeenCalled()
+  })
 
   it("APPROVE without a credit memo is refused and writes nothing", async () => {
     fake = fakeTx(deal({ memo: false }))

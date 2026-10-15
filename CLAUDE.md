@@ -252,6 +252,8 @@ Domain-specific rules live next to the code:
 - `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
 - `lib/bureau/.claude.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
+- `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
+- `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/collections-engine/.claude.md` — DebiCheck engine; scheme rules in one place
 - `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
 
