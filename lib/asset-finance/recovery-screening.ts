@@ -69,15 +69,28 @@ const REGISTRATION = /^(?:CK)?(\d{4})(\d{6})(\d{1,2})$/
 // are read as written, so "2098/12345/05" and "2098/012345/05" are one number.
 const REGISTRATION_WRITTEN = /^[^0-9A-Z]*(?:[A-Z]{1,8}[^0-9A-Z]*)?(\d{4})[^0-9A-Z]+(\d{1,6})[^0-9A-Z]+(\d{1,2})(?:[^0-9A-Z]*[A-Z]{1,8})?[^0-9A-Z]*$/
 
-/** The identifier as screening compares it: a CIPC number written with separators in canonical form; else label letters dropped from a numeric key, a CIPC digit run in canonical form. */
-export function canonicalIdentifier(value: string): string {
-  const written = REGISTRATION_WRITTEN.exec(fold(value).replace(/[a-z]/g, (letter) => letter.toUpperCase()))
-  if (written) return `${written[1]}${written[2].padStart(6, "0")}${Number(written[3])}`
+/** The identifier read as a run of letters and digits: label letters dropped from a numeric key, a CIPC digit run in canonical form. */
+export function plainIdentifier(value: string): string {
   let key = normaliseIdentifier(value)
   const bare = key.replace(/^[A-Z]{1,8}(?=\d)/, "").replace(/(?<=\d)[A-Z]{1,8}$/, "")
   if (/^\d{6,}$/.test(bare)) key = bare
   const registration = REGISTRATION.exec(key)
   return registration ? `${registration[1]}${registration[2]}${Number(registration[3])}` : key
+}
+
+/** The identifier as screening compares it: a CIPC number written with separators in canonical form; else the plain reading. */
+export function canonicalIdentifier(value: string): string {
+  const written = REGISTRATION_WRITTEN.exec(fold(value).replace(/[a-z]/g, (letter) => letter.toUpperCase()))
+  return written ? `${written[1]}${written[2].padStart(6, "0")}${Number(written[3])}` : plainIdentifier(value)
+}
+
+/**
+ * Both readings of an identifier, each non-empty one: the canonical form and the plain one. They differ when the
+ * separator reading parses (a registration number, or something shaped like one), and an identifier is matched
+ * on either, so a parse that goes one way never hides the other.
+ */
+export function candidateKeys(value: string): string[] {
+  return [...new Set([canonicalIdentifier(value), plainIdentifier(value)].filter((key) => key !== ""))]
 }
 
 /** A letter that stands for a digit when typed among digits: O/o for 0, l/I for 1. */
@@ -98,8 +111,7 @@ function digitText(value: string): string {
  */
 export function identifierKeys(value: string): string[] {
   const keys = new Set<string>()
-  const canonical = canonicalIdentifier(value)
-  if (canonical !== "") keys.add(canonical)
+  for (const key of candidateKeys(value)) keys.add(key)
   const text = digitText(value)
   const sources = [...(text.match(/[0-9]+/g) ?? []), text.replace(/[^0-9]/g, "")]
   for (const source of sources) {
@@ -186,14 +198,15 @@ function containsTokens(haystack: string[], needle: string[]): boolean {
 }
 
 /** Whether a run of whole words concatenates to the identifier (a registration number split by slashes or spaces). */
-function containsIdentifier(haystack: string[], identifier: string): boolean {
-  if (identifier === "") return false
+function containsIdentifier(haystack: string[], identifiers: Set<string>): boolean {
+  if (identifiers.size === 0) return false
+  const longest = Math.max(...[...identifiers].map((key) => key.length))
   for (let start = 0; start < haystack.length; start++) {
     let joined = ""
-    for (let end = start; end < haystack.length && joined.length < identifier.length + 3; end++) {
+    for (let end = start; end < haystack.length && joined.length < longest + 3; end++) {
       joined += haystack[end]
       // run together, or with the words as separators (a registration number's segments keep their padding)
-      if (canonicalIdentifier(joined) === identifier || canonicalIdentifier(haystack.slice(start, end + 1).join(" ")) === identifier) return true
+      if (candidateKeys(joined).some((key) => identifiers.has(key)) || candidateKeys(haystack.slice(start, end + 1).join(" ")).some((key) => identifiers.has(key))) return true
     }
   }
   return false
@@ -201,7 +214,7 @@ function containsIdentifier(haystack: string[], identifier: string): boolean {
 
 export function screenBuyer(buyer: ScreeningBuyer, candidates: ScreeningCandidates[]): ScreeningResult {
   const name = nameTokens(buyer.name)
-  const identifier = canonicalIdentifier(buyer.identifier)
+  const identifiers = new Set(candidateKeys(buyer.identifier))
   const keys = new Set(identifierKeys(buyer.identifier))
   const matches: ScreeningMatch[] = []
   for (const candidate of candidates) {
@@ -211,12 +224,11 @@ export function screenBuyer(buyer: ScreeningBuyer, candidates: ScreeningCandidat
       if (sameName(name, tokens) || (people.has(candidateName) && (probablyPerson(name, tokens) || joinedPerson(name, tokens)))) matches.push({ kind: candidate.kind, on: "NAME" })
     }
     for (const candidateIdentifier of candidate.identifiers) {
-      const known = canonicalIdentifier(candidateIdentifier)
-      if (known !== "" && keys.has(known)) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
+      if (candidateKeys(candidateIdentifier).some((known) => keys.has(known))) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
     }
     for (const text of candidate.freeText ?? []) {
       if (containsTokens(nameTokens(text), name)) matches.push({ kind: candidate.kind, on: "NAME" })
-      if (containsIdentifier(words(text), identifier)) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
+      if (containsIdentifier(words(text), identifiers)) matches.push({ kind: candidate.kind, on: "IDENTIFIER" })
     }
   }
   return { match: matches.length > 0, matches }

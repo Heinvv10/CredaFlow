@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { canonicalIdentifier, screenBuyer, type ScreeningCandidates } from "./recovery-screening"
+import { candidateKeys, canonicalIdentifier, screenBuyer, type ScreeningCandidates } from "./recovery-screening"
 
 // A CIPC registration number written with separators is read segment by
 // segment, so the padding of its middle segment is not significant; written as
@@ -31,6 +31,19 @@ describe("registration numbers written with separators", () => {
     expect(canonicalIdentifier("20981234 5605")).toBe("20981234565")
     expect(canonicalIdentifier("2098 123456 05")).toBe("20981234565")
     expect(canonicalIdentifier("2098/1234567/05")).toBe("2098123456705")
+  })
+
+  it("matches on either reading: the separator reading that parses never hides the plain one", () => {
+    // "2098/12345/05 (Pty)" reads as 2098/012345/5 by its segments and as the run 2098123450 5 by its digits
+    expect(candidateKeys("2098/12345/05 (Pty)").sort()).toEqual(["20980123455", "20981234505"])
+    expect(flagged("2098/12345/05 (Pty)", "2098/123450/5")).toBe(true)
+    expect(flagged("2098/123450/5", "2098/12345/05 (Pty)")).toBe(true)
+    expect(flagged("2098/12345/07 (Pty)", "2098/123450/5")).toBe(false)
+  })
+
+  it.each([["800101/500908/7"], ["8001 015009 08 7"], ["8001/015009/087"], ["8001-015009-08-7"], ["RSA 8001 015009 08 7"]])("an SA ID written as %s is that ID", (written) => {
+    expect(flagged(written, "8001015009087")).toBe(true)
+    expect(flagged("8001015009087", written)).toBe(true)
   })
 
   it("finds a registration number with unpadded segments in free text", () => {

@@ -76,13 +76,13 @@ suite("slice 4a related-party forcing on a remarketing sale", () => {
     it("forces relatedPartyMatch for a buyer carrying the borrower's ID number, however it is punctuated", async () => {
       const spaced = R.nca.loan.borrowerKey.replace(/(\d{6})(\d{4})(\d{3})/, "$1 $2 $3")
       expect(await forced(R.nca, spaced)).toBe(true)
-      expect(await forced(R.nca, spaced, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys))`, "false"))).toBe(false)
+      expect(await forced(R.nca, spaced, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierCandidates"(c."idNumber") && buyer_keys)`, "false"))).toBe(false)
     })
 
     it("forces it for a buyer carrying the borrowing company's registration number", async () => {
       const dashed = R.non.loan.borrowerKey.replaceAll("/", "-").toLowerCase()
       expect(await forced(R.non, dashed)).toBe(true)
-      expect(await forced(R.non, dashed, clauseOff("recoveryBuyerRelated", `public."recoveryIdentifierKey"(b."registrationNumber") = ANY (buyer_keys)`, "false"))).toBe(false)
+      expect(await forced(R.non, dashed, clauseOff("recoveryBuyerRelated", `public."recoveryIdentifierCandidates"(b."registrationNumber") && buyer_keys`, "false"))).toBe(false)
     })
 
     it("forces it for a buyer carrying a related client's ID number (any role)", async () => {
@@ -120,7 +120,7 @@ suite("slice 4a related-party forcing on a remarketing sale", () => {
       const id = R.nca.loan.borrowerKey
       const fields = [`${id}0`, `27${id}`, `7001015800084 / ${id}`, `${id.slice(0, 4)} ID ${id.slice(4)}`, id.replaceAll("0", "O").replaceAll("1", "l"), `RSA ${id} (SA ID)`]
       for (const field of fields) expect(await forced(R.nca, field), field).toBe(true)
-      const direct = clauseOff("recoveryBuyerRelated", `c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys)`,
+      const direct = clauseOff("recoveryBuyerRelated", `c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierCandidates"(c."idNumber") && buyer_keys`,
         `c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = public."recoveryIdentifierKey"(identifier)`)
       for (const field of fields.slice(0, 5)) expect(await forced(R.nca, field, direct), field).toBe(false)
       expect(await forced(R.nca, id, direct)).toBe(true) // equality is kept

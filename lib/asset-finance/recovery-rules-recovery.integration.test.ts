@@ -212,9 +212,9 @@ suite("slice 4a recovery database rules: opening a recovery", () => {
       expect(await asset(loans.w.assetId)).toBeNull()
     })
 
-    it("is refused to a recovery of an asset already returned to stock or sold", async () => {
-      await testSetup(database(), [`UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK' WHERE "id" = $1`, loans.non3.assetId])
-      await refuses(raiseOff("syncRecoveryAssetStatus", "The asset is already recovered, returned to stock or sold"), /already recovered, returned to stock or sold/,
+    it("is refused to a recovery of an asset already sold to the lessee (a returned asset may be recovered: see the re-lease suite)", async () => {
+      await testSetup(database(), [`UPDATE "FinancedAsset" SET "lessorStatus" = 'SOLD_TO_LESSEE' WHERE "id" = $1`, loans.non3.assetId])
+      await refuses(raiseOff("syncRecoveryAssetStatus", "The asset is already recovered or sold"), /already recovered or sold/,
         (tx) => insert(tx, loans.non3, "NON_NCA_VOLUNTARY"))
     })
 

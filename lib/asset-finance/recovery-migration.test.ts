@@ -129,7 +129,9 @@ describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
 
   it("compares identifiers across Unicode digit forms and registration numbers in one canonical form", () => {
     expect(baselineFunctionSql("recoveryAsciiDigits")).toContain(`normalize(COALESCE(value, ''), NFKC)`)
-    expect(baselineFunctionSql("recoveryIdentifierKey")).toContain(`'^(?:CK)?([0-9]{4})([0-9]{6})([0-9]{1,2})$'`)
+    expect(baselineFunctionSql("recoveryIdentifierPlainKey")).toContain(`'^(?:CK)?([0-9]{4})([0-9]{6})([0-9]{1,2})$'`)
+    expect(baselineFunctionSql("recoveryIdentifierCandidates")).toContain(`public."recoveryIdentifierPlainKey"(value)`)
+    expect(baselineFunctionSql("recoveryBuyerRelated")).toContain(`&& buyer_keys`)
   })
 
   it("requires two people for the surplus refund and for closing the surplus", () => {

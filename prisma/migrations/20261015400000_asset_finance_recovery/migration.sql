@@ -61,6 +61,9 @@ ALTER TYPE "AssetLessorStatus" ADD VALUE 'SOLD_IN_REMARKETING';
 -- AlterEnum
 ALTER TYPE "EntityDocumentType" ADD VALUE 'LEGAL_DOCUMENT';
 
+-- AlterEnum
+ALTER TYPE "LoanChargeType" ADD VALUE 'RECOVERY_COST';
+
 -- AlterTable
 ALTER TABLE "TenantConfig" ADD COLUMN     "nonNcaDemandPeriodDays" INTEGER NOT NULL DEFAULT 10,
 ADD COLUMN     "recoveryNcaDeductibleCostTypes" "RecoveryCostType"[] DEFAULT ARRAY['TOWING', 'STORAGE', 'VALUATION', 'REPAIRS', 'ADVERTISING', 'AUCTION_COMMISSION', 'SHERIFF', 'INSURANCE']::"RecoveryCostType"[],
@@ -109,6 +112,7 @@ CREATE TABLE "Recovery" (
     "assetId" TEXT NOT NULL,
     "route" "RecoveryRoute" NOT NULL,
     "status" "RecoveryStatus" NOT NULL DEFAULT 'RECOVERED',
+    "previousLessorStatus" "AssetLessorStatus",
     "surrenderRequestId" TEXT,
     "legalMatterId" TEXT,
     "recoveredOn" DATE NOT NULL,
@@ -476,20 +480,13 @@ $function$;
 --   4. a run of 11 or 12 digits (optionally CK first), ^(CK)?YYYY NNNNNN SS?$, is year + number + the suffix as a number
 --      ("CK2098100005 05" is "2098/100005/5", "/07" differs, a missing suffix does not match).
 -- UNTESTED: the forms of registration number are for the lender's compliance team to confirm.
-CREATE OR REPLACE FUNCTION public."recoveryIdentifierKey"(value TEXT)
+CREATE OR REPLACE FUNCTION public."recoveryIdentifierPlainKey"(value TEXT)
 RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $function$
 DECLARE
-  digits TEXT := public."recoveryAsciiDigits"(value);
-  k TEXT;
+  k TEXT := upper(regexp_replace(public."recoveryAsciiDigits"(value), '[^A-Za-z0-9]', '', 'g'));
   bare TEXT;
   registration TEXT[];
 BEGIN
-  registration := regexp_match(translate(digits, 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
-    '^[^0-9A-Z]*(?:[A-Z]{1,8}[^0-9A-Z]*)?([0-9]{4})[^0-9A-Z]+([0-9]{1,6})[^0-9A-Z]+([0-9]{1,2})(?:[^0-9A-Z]*[A-Z]{1,8})?[^0-9A-Z]*$');
-  IF registration IS NOT NULL THEN
-    RETURN registration[1] || lpad(registration[2], 6, '0') || (registration[3]::INTEGER)::TEXT;
-  END IF;
-  k := upper(regexp_replace(digits, '[^A-Za-z0-9]', '', 'g'));
   bare := regexp_replace(regexp_replace(k, '^[A-Z]{1,8}(?=[0-9])', ''), '(?<=[0-9])[A-Z]{1,8}$', '');
   IF bare ~ '^[0-9]{6,}$' THEN
     k := bare;
@@ -500,6 +497,28 @@ BEGIN
   END IF;
   RETURN k;
 END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public."recoveryIdentifierKey"(value TEXT)
+RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $function$
+DECLARE
+  registration TEXT[];
+BEGIN
+  registration := regexp_match(translate(public."recoveryAsciiDigits"(value), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+    '^[^0-9A-Z]*(?:[A-Z]{1,8}[^0-9A-Z]*)?([0-9]{4})[^0-9A-Z]+([0-9]{1,6})[^0-9A-Z]+([0-9]{1,2})(?:[^0-9A-Z]*[A-Z]{1,8})?[^0-9A-Z]*$');
+  IF registration IS NOT NULL THEN
+    RETURN registration[1] || lpad(registration[2], 6, '0') || (registration[3]::INTEGER)::TEXT;
+  END IF;
+  RETURN public."recoveryIdentifierPlainKey"(value);
+END;
+$function$;
+
+-- Both readings of an identifier, each non-empty one (the screening's candidateKeys): the key and the plain key differ
+-- when the separator reading parses, and a known identifier is matched on either, so a parse that goes one way
+-- never hides the other.
+CREATE OR REPLACE FUNCTION public."recoveryIdentifierCandidates"(value TEXT)
+RETURNS TEXT[] LANGUAGE sql IMMUTABLE AS $function$
+  SELECT ARRAY(SELECT k FROM unnest(ARRAY[public."recoveryIdentifierKey"(value), public."recoveryIdentifierPlainKey"(value)]) AS k WHERE k <> '' GROUP BY k ORDER BY k COLLATE "C");
 $function$;
 
 -- Everything a buyer's identifier field may hold, as keys to compare a known identifier against
@@ -519,14 +538,11 @@ DECLARE
   src TEXT;
   window_ TEXT;
   keys TEXT[] := ARRAY[]::TEXT[];
-  canonical TEXT := public."recoveryIdentifierKey"(identifier);
   written TEXT[];
   at INTEGER;
   len INTEGER;
 BEGIN
-  IF canonical <> '' THEN
-    keys := keys || canonical;
-  END IF;
+  keys := keys || public."recoveryIdentifierCandidates"(identifier);
   FOR piece IN SELECT m FROM regexp_matches(folded, '([0-9A-Z]+)|([^0-9A-Z]+)', 'g') AS m LOOP
     IF piece[1] IS NOT NULL AND piece[1] ~ '^[0-9OLI]+$' AND piece[1] ~ '[0-9]' THEN
       fixed := fixed || translate(piece[1], 'OLI', '011');
@@ -760,6 +776,12 @@ BEGIN
     IF NEW."recoveredOn" > today THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery is not dated in the future';
     END IF;
+    IF NEW."route" = 'NCA_S127_SURRENDER' AND NEW."surrenderRequestId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "SurrenderRequest" s
+        WHERE s."id" = NEW."surrenderRequestId" AND s."tenantId" = NEW."tenantId" AND s."status" IN ('REQUESTED', 'VALUED', 'VALUATION_NOTICE_ISSUED')) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s127 recovery follows a surrender that has not yet been credited or finally noticed';
+    END IF;
+    -- the asset's lessor status before the recovery: none, or the stock a lease returned (a re-leased asset is recovered too)
+    SELECT a."lessorStatus" INTO NEW."previousLessorStatus" FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId";
     IF NEW."surrenderRequestId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "SurrenderRequest" s
         WHERE s."id" = NEW."surrenderRequestId" AND s."tenantId" = NEW."tenantId" AND s."loanId" = NEW."loanId" AND s."assetId" = NEW."assetId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s127 recovery names the surrender of its own loan and asset';
@@ -959,7 +981,7 @@ RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
   IF OLD."lessorStatus" IS NOT NULL AND NEW."lessorStatus" IS NULL AND NOT (
       OLD."lessorStatus" = 'RECOVERED'
-      AND EXISTS (SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" = 'WITHDRAWN')
+      AND EXISTS (SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" = 'WITHDRAWN' AND r."previousLessorStatus" IS NULL)
       AND NOT EXISTS (SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" NOT IN ('CLOSED', 'WITHDRAWN'))) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A leased asset''s lessor status is not cleared';
   END IF;
@@ -974,11 +996,15 @@ BEGIN
   IF OLD."lessorStatus" = 'SOLD_IN_REMARKETING' AND NEW."lessorStatus" IS DISTINCT FROM OLD."lessorStatus" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An asset sold in remarketing is not the lender''s any more';
   END IF;
-  IF OLD."lessorStatus" = 'RECOVERED' AND NEW."lessorStatus" IN ('RETURNED_TO_STOCK', 'SOLD_TO_LESSEE') THEN
+  IF OLD."lessorStatus" = 'RECOVERED' AND NEW."lessorStatus" IN ('RETURNED_TO_STOCK', 'SOLD_TO_LESSEE') AND NOT (
+      NEW."lessorStatus" = 'RETURNED_TO_STOCK'
+      AND EXISTS (SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" = 'WITHDRAWN' AND r."previousLessorStatus" = 'RETURNED_TO_STOCK')
+      AND NOT EXISTS (SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" NOT IN ('CLOSED', 'WITHDRAWN'))) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovered asset leaves the lender only through its recovery';
   END IF;
-  IF NEW."lessorStatus" = 'RECOVERED' AND OLD."lessorStatus" IS DISTINCT FROM NEW."lessorStatus" AND (OLD."lessorStatus" IS NOT NULL OR NOT EXISTS (
-      SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" NOT IN ('CLOSED', 'WITHDRAWN'))) THEN
+  IF NEW."lessorStatus" = 'RECOVERED' AND OLD."lessorStatus" IS DISTINCT FROM NEW."lessorStatus" AND ((OLD."lessorStatus" IS NOT NULL AND OLD."lessorStatus" <> 'RETURNED_TO_STOCK') OR NOT EXISTS (
+      SELECT 1 FROM "Recovery" r WHERE r."assetId" = NEW."id" AND r."tenantId" = NEW."tenantId" AND r."status" NOT IN ('CLOSED', 'WITHDRAWN')
+        AND r."previousLessorStatus" IS NOT DISTINCT FROM OLD."lessorStatus")) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An asset is recovered by its open recovery';
   END IF;
   IF NEW."lessorStatus" = 'SOLD_IN_REMARKETING' AND OLD."lessorStatus" IS DISTINCT FROM NEW."lessorStatus" AND NOT (OLD."lessorStatus" = 'RECOVERED' AND EXISTS (
@@ -1019,13 +1045,17 @@ CREATE OR REPLACE FUNCTION public."syncRecoveryAssetStatus"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    -- from no status, or from the stock an earlier lease returned (and the asset was re-leased since)
     UPDATE "FinancedAsset" SET "lessorStatus" = 'RECOVERED', "lessorStatusAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = NEW."assetId" AND "tenantId" = NEW."tenantId" AND "lessorStatus" IS NULL;
+      WHERE "id" = NEW."assetId" AND "tenantId" = NEW."tenantId" AND ("lessorStatus" IS NULL OR "lessorStatus" = 'RETURNED_TO_STOCK')
+        AND "lessorStatus" IS NOT DISTINCT FROM NEW."previousLessorStatus";
     IF NOT FOUND THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The asset is already recovered, returned to stock or sold';
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The asset is already recovered or sold';
     END IF;
   ELSIF NEW."status" = 'WITHDRAWN' AND OLD."status" <> 'WITHDRAWN' THEN
-    UPDATE "FinancedAsset" SET "lessorStatus" = NULL, "lessorStatusAt" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+    -- withdrawing gives the asset back the status it had: none, or RETURNED_TO_STOCK
+    UPDATE "FinancedAsset" SET "lessorStatus" = NEW."previousLessorStatus", "lessorStatusAt" = CASE WHEN NEW."previousLessorStatus" IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END,
+        "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = NEW."assetId" AND "tenantId" = NEW."tenantId" AND "lessorStatus" = 'RECOVERED';
   END IF;
   RETURN NULL;
@@ -1073,10 +1103,10 @@ DECLARE
 BEGIN
   SELECT l."clientId", l."entityId" INTO loan_row FROM "Loan" l WHERE l."id" = for_loan_id AND l."tenantId" = tenant_id;
   RETURN cardinality(buyer_keys) > 0 AND (
-      EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys))
-      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = ANY (buyer_keys))
+      EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierCandidates"(c."idNumber") && buyer_keys)
+      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierCandidates"(b."registrationNumber") && buyer_keys)
       OR EXISTS (SELECT 1 FROM "EntityRelationship" er JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"
-        WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys)));
+        WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierCandidates"(c."idNumber") && buyer_keys));
 END;
 $function$;
 

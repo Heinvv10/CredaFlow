@@ -1938,6 +1938,8 @@ enum LoanChargeType {
   // NON_NCA (asset finance) only: the product's collection fee per missed
   // instalment (lib/asset-finance/non-nca-charges.ts). Never posted on an NCA loan.
   COLLECTION_FEE
+  // A recovery's approved CHARGE_TO_ACCOUNT cost, dated the proceeds date (lib/loan/charges-replay.ts); sourceId = the RecoveryCost id.
+  RECOVERY_COST
 }
 
 // A charge posted after a missed instalment. DERIVED: rewritten per loan on
@@ -6162,6 +6164,8 @@ model Recovery {
   asset                 FinancedAsset      @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   route                 RecoveryRoute
   status                RecoveryStatus     @default(RECOVERED)
+  // The asset's lessor status when the recovery opened (none, or RETURNED_TO_STOCK of an earlier lease), set by the trigger; withdrawing restores it.
+  previousLessorStatus  AssetLessorStatus?
   surrenderRequestId    String?            @unique
   surrenderRequest      SurrenderRequest?  @relation(fields: [tenantId, surrenderRequestId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   legalMatterId         String?

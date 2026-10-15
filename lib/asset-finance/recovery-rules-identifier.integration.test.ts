@@ -17,7 +17,7 @@
 import { PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { attempt } from "./lease-servicing.integration-fixture"
-import { canonicalIdentifier, identifierKeys } from "./recovery-screening"
+import { candidateKeys, canonicalIdentifier, identifierKeys } from "./recovery-screening"
 import { clauseOff } from "./recovery-rules.integration-fixture"
 
 // The fixtures import the real route handlers, which import the session helper.
@@ -64,7 +64,9 @@ const TABLE: [string, string][] = [
   ["registration, an odd split", "20981234 5605"], ["registration, short middle, no separators", "209801234505"], ["registration, 7-digit middle", "2098/1234567/05"],
   ["registration, short middle, fullwidth", "２０９８／１２３４５／０５"], ["registration, short middle, zero-width separators", "2098\u200b12345\u200b05"],
   ["registration, short middle, Arabic-Indic", asScript("2098/12345/05", 0x660)], ["registration, four groups", "2098/123456/05/1"], ["ID, dotted", "800101.5009.087"],
-  ["an ID spaced like a registration number", "8001 015009 08"], ["trust number", "IT 1234/2020"], ["CK without a number", "CK"], ["an older CIPC form", "CK2098/12345/05"],
+  ["an ID spaced like a registration number", "8001 015009 08"], ["an SA ID in registration-like groups", "800101/500908/7"],
+  ["an SA ID spaced in 4, 6, 2 and 1", "8001 015009 08 7"], ["an SA ID in 4, 6 and 3 with slashes", "8001/015009/087"], ["an SA ID in 4, 6, 2 and 1 with dashes", "8001-015009-08-7"],
+  ["a registration number whose parse reads another number", "2098/12345/05 (Pty)"], ["trust number", "IT 1234/2020"], ["CK without a number", "CK"], ["an older CIPC form", "CK2098/12345/05"],
 ]
 
 /** Round 2: an ID hidden in a longer field (R3a) and the registration forms inside one, as the tester wrote them. */
@@ -100,6 +102,29 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
       if (JSON.stringify(sql) !== JSON.stringify(ts)) disagree.push(`${label} ${JSON.stringify(value)}: sql ${JSON.stringify(sql)} / ts ${JSON.stringify(ts)}`)
     }
     expect(disagree).toEqual([])
+  })
+
+  it("gives every input the same candidate keys: the canonical key and the plain one, each non-empty", async () => {
+    const disagree: string[] = []
+    for (const [label, value] of [...TABLE, ...FIELDS]) {
+      let sql: string[] = []
+      const result = await attempt(database(), async (tx) => { sql = (await tx.$queryRawUnsafe<{ k: string[] }[]>(`SELECT public."recoveryIdentifierCandidates"($1) AS k`, value))[0].k })
+      expect(result).toBe("ok")
+      const ts = candidateKeys(value).sort()
+      if (JSON.stringify(sql) !== JSON.stringify(ts)) disagree.push(`${label} ${JSON.stringify(value)}: sql ${JSON.stringify(sql)} / ts ${JSON.stringify(ts)}`)
+    }
+    expect(disagree).toEqual([])
+  })
+
+  it("keeps both readings when the separator reading parses: 2098/12345/05 is 2098/012345/05 and also the run 2098123450 5", async () => {
+    const candidates = async (value: string, without?: Parameters<typeof attempt>[2]) => {
+      let out: string[] = []
+      expect(await attempt(database(), async (tx) => { out = (await tx.$queryRawUnsafe<{ k: string[] }[]>(`SELECT public."recoveryIdentifierCandidates"($1) AS k`, value))[0].k }, without)).toBe("ok")
+      return out
+    }
+    expect(await candidates("2098/12345/05 (Pty)")).toEqual(["20980123455", "20981234505"])
+    expect(await candidates("2098/12345/05 (Pty)", clauseOff("recoveryIdentifierCandidates", `, public."recoveryIdentifierPlainKey"(value)`))).toEqual(["20980123455"])
+    expect(await candidates("8001 015009 08 7")).toEqual(["8001015009087"])
   })
 
   it("makes the attacker's variants of an ID number and of a registration number one key each", async () => {
@@ -170,7 +195,7 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
     })
 
     it("dropping the letters around a numeric key", async () => {
-      expect(await sqlKey("id: 8001015009087", clauseOff("recoveryIdentifierKey", `    k := bare;`))).not.toBe(ID)
+      expect(await sqlKey("id: 8001015009087", clauseOff("recoveryIdentifierPlainKey", `    k := bare;`))).not.toBe(ID)
     })
 
     it("the segment-aware reading: the padding of the middle segment, the separators, a trailing label", async () => {
@@ -183,8 +208,8 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
 
     it("the digit-run registration form: the suffix as a number, and the year, number and suffix split", async () => {
       const digitRun = `RETURN registration[1] || registration[2] || (registration[3]::INTEGER)::TEXT;`
-      expect(await sqlKey("CK209812345605", clauseOff("recoveryIdentifierKey", digitRun, `RETURN registration[1] || registration[2] || registration[3];`))).not.toBe(REG)
-      expect(await sqlKey("CK209812345605", clauseOff("recoveryIdentifierKey", `'^(?:CK)?([0-9]{4})([0-9]{6})([0-9]{1,2})$'`, `'^$'`))).not.toBe(REG)
+      expect(await sqlKey("CK209812345605", clauseOff("recoveryIdentifierPlainKey", digitRun, `RETURN registration[1] || registration[2] || registration[3];`))).not.toBe(REG)
+      expect(await sqlKey("CK209812345605", clauseOff("recoveryIdentifierPlainKey", `'^(?:CK)?([0-9]{4})([0-9]{6})([0-9]{1,2})$'`, `'^$'`))).not.toBe(REG)
     })
   })
 })
