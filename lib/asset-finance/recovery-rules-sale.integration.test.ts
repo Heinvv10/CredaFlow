@@ -1,15 +1,13 @@
 /**
- * Slice 4a remarketing sale rules (migration 20261015400000), each proved as
- * in the lease suites: the attack is refused, and goes through with that one
- * statement, clause, CHECK or index taken out, inside a rolled-back
- * transaction. A sale is recorded on a LISTED recovery against a current
+ * Slice 4a remarketing sale rules (migration 20261015400000), each proved as in the lease
+ * suites: the attack is refused, and goes through with that one statement, clause, CHECK or
+ * index taken out, inside a rolled-back transaction. A sale is recorded on a LISTED recovery against a current
  * independent (not internal) valuation of the asset; the trigger recomputes
  * belowValuation against the highest such valuation; a buyer carrying the
- * borrower's or a related client's ID is forced to relatedPartyMatch; a sale
- * below valuation or to a related party completes only with a second approver;
+ * borrower's or a related client's ID is forced to relatedPartyMatch (its own
+ * suite); a sale below valuation or to a related party completes only with a second approver;
  * one COMPLETED sale per recovery; a completed or cancelled sale is immutable;
- * completing it marks the asset SOLD_IN_REMARKETING. The lender's sale policy
- * is UNTESTED against the law: these prove the rules as written.
+ * completing it marks the asset SOLD_IN_REMARKETING. The sale policy is UNTESTED against the law.
  *
  *   RUN_ASSET_FINANCE_RECOVERY_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/asset-finance/recovery-rules-sale.integration.test.ts
@@ -22,7 +20,6 @@ import { advance, saleData } from "./recovery-path.integration-fixture"
 import {
   cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, recoveryFixtureTenantId, saleInvoice, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
-import { attempt } from "./lease-servicing.integration-fixture"
 import { clauseOff, PASS_DELETE, raiseOff, rules, triggersOff, triggersOn, type Tx } from "./recovery-rules.integration-fixture"
 
 // The deal fixture imports the real route handlers, which import the session helper.
@@ -47,7 +44,6 @@ let completedSale = ""
 let cancelledSale = ""
 let invoice = ""
 let invoice90 = ""
-let directorId = ""
 
 const saleIn = async (tx: Tx, rec: Rec, over: Record<string, unknown> = {}) =>
   tx.remarketingSale.create({ data: { ...(await saleData(database(), fx, rec.loan, rec.id)), ...over } as never })
@@ -61,24 +57,12 @@ const listed = async (regime: "NCA" | "NON_NCA"): Promise<Rec> => {
   await advance(database(), fx, loan, id, "LISTED")
   return { loan, id }
 }
-/** What the trigger made of an insert, with `rule` taken out when given. */
-async function forced(rec: Rec, buyerIdentifier: string, rule?: Parameters<typeof attempt>[2]): Promise<boolean> {
-  let seen: boolean | undefined
-  const result = await attempt(database(), async (tx) => { seen = (await saleIn(tx, rec, { buyerIdentifier })).relatedPartyMatch }, rule)
-  expect(result).toBe("ok")
-  return seen as unknown as boolean
-}
-
 suite("slice 4a remarketing sale database rules", () => {
   beforeAll(async () => {
     fx = await createRecoveryFixture(database(), t)
     invoice = await saleInvoice(database(), fx)
     invoice90 = await saleInvoice(database(), fx, 90_000_000)
-    directorId = (await database().client.findUniqueOrThrow({ where: { id: fx.director } })).idNumber
     R.non = await listed("NON_NCA")
-    // a CIPC-shaped registration number (the fixture's is not), so the registration forms below can be tried
-    await database().businessEntity.update({ where: { id: R.non.loan.entityId as string }, data: { registrationNumber: "2098/123456/05" } })
-    R.non.loan.borrowerKey = "2098/123456/05"
     R.nca = await listed("NCA")
     R.done = await listed("NON_NCA")
     const unlistedLoan = await newLoan(database(), fx, "NON_NCA")
@@ -181,81 +165,6 @@ suite("slice 4a remarketing sale database rules", () => {
         await newHigher(tx, 130_000_000, "DEALER")
         await complete(tx, sale.id)
       })
-    })
-  })
-
-  describe("related parties", () => {
-    it("forces relatedPartyMatch for a buyer carrying the borrower's ID number, however it is punctuated", async () => {
-      const spaced = R.nca.loan.borrowerKey.replace(/(\d{6})(\d{4})(\d{3})/, "$1 $2 $3")
-      expect(await forced(R.nca, spaced)).toBe(true)
-      expect(await forced(R.nca, spaced, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)`, "false"))).toBe(false)
-    })
-
-    it("forces it for a buyer carrying the borrowing company's registration number", async () => {
-      const dashed = R.non.loan.borrowerKey.replaceAll("/", "-").toLowerCase()
-      expect(await forced(R.non, dashed)).toBe(true)
-      expect(await forced(R.non, dashed, clauseOff("recoveryBuyerRelated", `public."recoveryRegistrationKey"(b."registrationNumber") = public."recoveryRegistrationKey"(identifier)`, "false"))).toBe(false)
-    })
-
-    it("forces it for a buyer carrying a related client's ID number (any role)", async () => {
-      expect(await forced(R.non, directorId)).toBe(true)
-      expect(await forced(R.non, directorId, clauseOff("recoveryBuyerRelated", `JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"`, `JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId" AND false`))).toBe(false)
-    })
-
-    it("forces it across Unicode digit forms and registration number forms (fullwidth, Arabic-Indic, CK prefix, unpadded suffix)", async () => {
-      const toScript = (digits: string, zero: number) => [...digits].map((c) => /\d/.test(c) ? String.fromCodePoint(zero + Number(c)) : c).join("")
-      expect(await forced(R.nca, toScript(R.nca.loan.borrowerKey, 0xff10))).toBe(true)
-      expect(await forced(R.nca, toScript(R.nca.loan.borrowerKey, 0x660))).toBe(true)
-      expect(await forced(R.non, "CK2098/123456/5")).toBe(true)
-      expect(await forced(R.non, toScript("2098123456 05", 0x6f0))).toBe(true)
-      expect(await forced(R.non, "2098/123456/07")).toBe(false) // another suffix is another registration
-    })
-
-    it("leaves a stranger alone", async () => {
-      expect(await forced(R.non, "7001015800084")).toBe(false)
-      expect(await forced(R.nca, "7001015800084")).toBe(false)
-    })
-  })
-
-  describe("identifier keys (one SQL function; the screening mirrors it)", () => {
-    const ID = "8001015009087"
-    const REG = "209812345605"
-    const key = async (fn: string, value: string, without?: Parameters<typeof attempt>[2]): Promise<string> => {
-      let out = ""
-      const result = await attempt(database(), async (tx) => { out = (await tx.$queryRawUnsafe<{ k: string }[]>(`SELECT public."${fn}"($1) AS k`, value))[0].k }, without)
-      expect(result).toBe("ok")
-      return out
-    }
-    const asScript = (digits: string, zero: number) => [...digits].map((c) => String.fromCodePoint(zero + Number(c))).join("")
-
-    it("reads any Unicode decimal digit as its ASCII digit, and strips what is not a letter or digit", async () => {
-      const variants = [
-        asScript(ID, 0xff10), asScript(ID, 0x660), asScript(ID, 0x6f0), asScript(ID, 0x966), asScript(ID, 0xe50), asScript(ID, 0x1d7ce),
-        "⁸⁰⁰¹⁰¹⁵⁰⁰⁹⁰⁸⁷", `${ID}\u200b`, `'\t${ID.slice(0, 6)} ${ID.slice(6)}`, `${ID.slice(0, 6)}-${ID.slice(6)}`,
-      ]
-      for (const variant of variants) expect(await key("recoveryIdentifierKey", variant), JSON.stringify(variant)).toBe(ID)
-    })
-
-    it("normalises compatibility forms (NFKC), and maps the other scripts' digits by block", async () => {
-      const superscript = "⁸⁰⁰¹⁰¹⁵⁰⁰⁹⁰⁸⁷"
-      expect(await key("recoveryIdentifierKey", superscript, clauseOff("recoveryAsciiDigits", `normalize(COALESCE(value, ''), NFKC)`, `COALESCE(value, '')`))).not.toBe(ID)
-      expect(await key("recoveryIdentifierKey", asScript(ID, 0x660), clauseOff("recoveryAsciiDigits", `string_agg(d::TEXT, '' ORDER BY b, d)`, `string_agg('x', '' ORDER BY b, d)`))).not.toBe(ID)
-    })
-
-    it("puts a CIPC registration number in one form: any separators, a CK prefix, an unpadded suffix, any digit script", async () => {
-      const variants = ["2098/123456/05", "209812345605", "2098 / 123456 / 05", "2098/123456/5", "CK2098/123456/05", "ck 2098/123456/5", "２０９８／１２３４５６／０５", asScript("2098/123456/05".replaceAll("/", ""), 0x660), "20981234565"]
-      for (const variant of variants) expect(await key("recoveryRegistrationKey", variant), JSON.stringify(variant)).toBe(REG)
-      expect(await key("recoveryRegistrationKey", "2098/123456/07")).toBe("209812345607")
-      expect(await key("recoveryRegistrationKey", "IT 1234/2020")).toBe("IT12342020") // not a company number: its identifier key
-    })
-
-    it("each part of that form is a rule: the CK prefix, the suffix's leading zero, the digits-only form", async () => {
-      const ck = clauseOff("recoveryRegistrationKey", `v := regexp_replace(v, '^CK(?=[0-9])', '');`)
-      expect(await key("recoveryRegistrationKey", "CK2098/123456/05", ck)).not.toBe(REG)
-      const suffix = clauseOff("recoveryRegistrationKey", `lpad(ltrim(parts[3], '0'), 2, '0')`, `parts[3]`)
-      expect(await key("recoveryRegistrationKey", "2098/123456/5", suffix)).not.toBe(REG)
-      const digitsOnly = clauseOff("recoveryRegistrationKey", `parts := regexp_match(v, '^([0-9]{4})([0-9]{6})([0-9]{1,2})$');`)
-      expect(await key("recoveryRegistrationKey", "20981234565", digitsOnly)).not.toBe(REG)
     })
   })
 

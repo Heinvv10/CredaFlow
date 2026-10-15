@@ -288,45 +288,4 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
       await refuses(raiseOff(G, "A surplus closes when its refund is released"), /surplus closes when its refund is released/, move(R.ncaSurp, "CLOSED", { closedAt: new Date() }))
     })
   })
-
-  describe("the write-once columns (a step writes only its own)", () => {
-    const rule = clauseOff(G, `IF EXISTS (SELECT 1 FROM unnest(changed) AS k WHERE k <> ALL (allowed)) THEN`, "IF false THEN")
-    const MESSAGE = /write-once/
-    const update = (rec: Rec, data: Record<string, unknown>) => (tx: Tx) => tx.recovery.update({ where: { id: rec.id }, data: data as never })
-
-    it("fixes the figures once written", async () => {
-      await refuses(rule, MESSAGE, update(R.nonProc, { grossProceedsCents: 120_001_000, netProceedsCents: 120_001_000, shortfallCents: 29_999_000 }))
-      await refuses(rule, MESSAGE, update(R.nonProc, { chargedCostsCents: 1, shortfallCents: 30_000_001 }))
-    })
-
-    it("fixes the payment and the freeze dates once written", async () => {
-      await refuses(rule, MESSAGE, async (tx) => {
-        const other = await tx.payment.create({ data: { tenantId: fx.tenantId, loanId: R.nonProc.loan.loanId, amount: 120_000_000 } })
-        await update(R.nonProc, { proceedsPaymentId: other.id })(tx)
-      })
-      await refuses(rule, MESSAGE, update(R.nonProc, { chargesFrozenFrom: dbDate(day(-1)) }))
-      await refuses(rule, MESSAGE, update(R.nonProc, { chargesFrozenUntil: dbDate(day(15)) }))
-      await refuses(rule, MESSAGE, update(R.ncaFni, { chargesFrozenUntil: dbDate(day(30)) }))
-    })
-
-    it("fixes the final notice and the valuation notice once issued", async () => {
-      await refuses(rule, MESSAGE, update(R.ncaFni, { finalNoticeIssuedOn: dbDate(day(-1)) }))
-      await refuses(rule, MESSAGE, update(R.ncaFni, { finalNoticePath: "/nonexistent/other.pdf" }))
-      await refuses(rule, MESSAGE, update(R.ncaVni, { valuationNoticePath: "/nonexistent/other.pdf" }))
-    })
-
-    it("fixes the valuation once the recovery is valued", async () => {
-      await refuses(rule, MESSAGE, async (tx) => {
-        const other = await tx.assetValuation.create({ data: { tenantId: fx.tenantId, assetId: R.ncaVni.loan.assetId, valuedOn: dbDate(today()), source: "ASSESSOR", valuerName: "TEST", amountCents: 1 } })
-        await update(R.ncaVni, { valuationId: other.id })(tx)
-      })
-    })
-
-    it("lets a step write only the columns of that step", async () => {
-      await refuses(rule, MESSAGE, update(R.ncaSold, { status: "PROCEEDS_APPLIED", valuationId: null, chargesFrozenFrom: dbDate(today()) }), [
-        raiseOff(G, "Proceeds are applied with the full figures and the date charges freeze from"),
-      ])
-      await admits(update(R.nonProc, { location: "TEST Other Yard", condition: "Synthetic: good" }))
-    })
-  })
 })

@@ -464,32 +464,30 @@ RETURNS TEXT LANGUAGE sql IMMUTABLE AS $function$
     (SELECT string_agg(d::TEXT, '' ORDER BY b, d) FROM unnest(ARRAY[1632, 1776, 1984, 2406, 2534, 2662, 2790, 2918, 3046, 3174, 3302, 3430, 3558, 3664, 3792, 3872, 4160, 4240, 6112, 6160, 6470, 6608, 6784, 6800, 6992, 7088, 7232, 7248, 42528, 43216, 43264, 43472, 43504, 43600, 44016, 65296, 66720, 68912, 69734, 69872, 69942, 70096, 70384, 70736, 70864, 71248, 71360, 71472, 71904, 72016, 72784, 73040, 73120, 73552, 92768, 92864, 93008, 120782, 120792, 120802, 120812, 120822, 123200, 123632, 124144, 125264, 130032]) AS b, generate_series(0, 9) AS d));
 $function$;
 
--- An identifier compared as the screening compares it (lib/asset-finance/recovery-screening.ts):
--- Unicode-normalised, every non-alphanumeric stripped, upper case.
+-- An identifier as the screening compares it (lib/asset-finance/recovery-screening.ts canonicalIdentifier,
+-- the same rules):
+--   1. NFKC, every Unicode decimal digit as ASCII (recoveryAsciiDigits);
+--   2. only letters and digits, upper case;
+--   3. letters at the start or end of an otherwise all-digit key of 6 or more digits are dropped (a label such as "ID" or "Reg");
+--   4. a CIPC registration number, ^(CK)?YYYY NNNNNN SS?$ (11 or 12 digits), becomes year + number + the suffix as a number:
+--      "CK2098/100005/05" is "2098/100005/5", "/07" differs, a missing suffix does not match.
+-- UNTESTED: the forms of registration number are for the lender's compliance team to confirm.
 CREATE OR REPLACE FUNCTION public."recoveryIdentifierKey"(value TEXT)
-RETURNS TEXT LANGUAGE sql IMMUTABLE AS $function$
-  SELECT upper(regexp_replace(public."recoveryAsciiDigits"(value), '[^A-Za-z0-9]', '', 'g'));
-$function$;
-
--- A CIPC registration number in one form, YYYYNNNNNNSS (year, six-digit number, two-digit suffix):
--- a CK prefix, separators and spaces dropped, the suffix compared without its leading zero
--- ("2098/100000/5" is "2098/100000/05"). Anything that is not a registration number is its identifier key.
--- UNTESTED: the registration number forms are for the lender's compliance team to confirm.
-CREATE OR REPLACE FUNCTION public."recoveryRegistrationKey"(value TEXT)
 RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $function$
 DECLARE
-  v TEXT := regexp_replace(upper(public."recoveryAsciiDigits"(value)), '\s', '', 'g');
-  parts TEXT[];
+  k TEXT := upper(regexp_replace(public."recoveryAsciiDigits"(value), '[^A-Za-z0-9]', '', 'g'));
+  bare TEXT;
+  registration TEXT[];
 BEGIN
-  v := regexp_replace(v, '^CK(?=[0-9])', '');
-  parts := regexp_match(v, '^([0-9]{4})[^0-9A-Z]([0-9]{1,6})[^0-9A-Z]([0-9]{1,2})$');
-  IF parts IS NULL THEN
-    parts := regexp_match(v, '^([0-9]{4})([0-9]{6})([0-9]{1,2})$');
+  bare := regexp_replace(regexp_replace(k, '^[A-Z]{1,8}(?=[0-9])', ''), '(?<=[0-9])[A-Z]{1,8}$', '');
+  IF bare ~ '^[0-9]{6,}$' THEN
+    k := bare;
   END IF;
-  IF parts IS NULL THEN
-    RETURN public."recoveryIdentifierKey"(value);
+  registration := regexp_match(k, '^(?:CK)?([0-9]{4})([0-9]{6})([0-9]{1,2})$');
+  IF registration IS NOT NULL THEN
+    RETURN registration[1] || registration[2] || (registration[3]::INTEGER)::TEXT;
   END IF;
-  RETURN parts[1] || lpad(parts[2], 6, '0') || lpad(ltrim(parts[3], '0'), 2, '0');
+  RETURN k;
 END;
 $function$;
 
@@ -1011,7 +1009,7 @@ BEGIN
   SELECT l."clientId", l."entityId" INTO loan_row FROM "Loan" l WHERE l."id" = for_loan_id AND l."tenantId" = tenant_id;
   RETURN buyer_key <> '' AND (
       EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)
-      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryRegistrationKey"(b."registrationNumber") = public."recoveryRegistrationKey"(identifier))
+      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)
       OR EXISTS (SELECT 1 FROM "EntityRelationship" er JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"
         WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key));
 END;
