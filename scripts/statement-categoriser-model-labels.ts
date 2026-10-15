@@ -18,7 +18,7 @@
  * no demo bake is running before starting it.
  */
 import { readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { loadCorpus } from "@/lib/statement-analysis/accuracy/run"
 import { analyseStatement } from "@/lib/statement-analysis/analyse"
 import { categorise } from "@/lib/statement-analysis/categorise"
@@ -61,7 +61,7 @@ async function main() {
   if (!out || (mode !== "keys" && mode !== "corpus")) throw new ScriptError("usage: statement-categoriser-model-labels.ts keys <keys.tsv> <out.tsv> [--all] | corpus <out.tsv>")
   // Corpus-derived labels never enter the repository.
   const inside = relative(realpathSync(process.cwd()), realpathSync(dirname(resolve(out))))
-  if (!inside.startsWith("..") && !isAbsolute(inside)) throw new ScriptError("write the labels outside the repository")
+  if (inside !== ".." && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)) throw new ScriptError("write the labels outside the repository")
   let keys: string[]
   if (mode === "keys") {
     const all = readFileSync(a, "utf8").trim().split("\n").map((l) => l.split("\t")[0]).filter(Boolean)

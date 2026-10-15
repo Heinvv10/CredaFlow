@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { LABEL_BACKOFF_MS, labelKey, labelKeys, labelPrompt, LABEL_BATCH, MODEL_CATEGORIES, MODEL_LABEL_PROMPT_VERSION, modelLabelFor, needsModelLabels, parseLabels, resetModelLabelBackoff } from "./model-labels"
+import { LABEL_BACKOFF_MS, LABEL_KEY_MAX, labelKey, labelKeys, labelPrompt, LABEL_BATCH, MODEL_CATEGORIES, MODEL_LABEL_PROMPT_VERSION, modelLabelFor, needsModelLabels, parseLabels, resetModelLabelBackoff } from "./model-labels"
 import { VlmUnavailableError } from "./vlm-reader"
 
 const answer = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 })
@@ -9,6 +9,10 @@ describe("labelKey", () => {
   it("is the masked counterparty key: three words, no digits, no amounts", () => {
     expect(labelKey("Card Purchase: SYNTH GROCER 4411 SOWETO ZA")).toBe("SYNTH GROCER SOWETO")
     expect(labelKey("PAYMENT TO REF 123456")).toBe("PAYMENT TO REF")
+  })
+
+  it("is bounded", () => {
+    expect(labelKey(`Card Purchase: ${"Z".repeat(60_000)}`)).toHaveLength(LABEL_KEY_MAX)
   })
 })
 
@@ -119,6 +123,21 @@ describe("labelKeys", () => {
     expect(needsModelLabels(unlabelled)).toBe(true)
     fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
     expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
+  })
+
+  it("a request the model refuses (400) leaves that batch UNCATEGORISED and backs nothing off", async () => {
+    const unlabelled = { status: "READ", modelCategoriesVersion: null }
+    fetchMock.mockResolvedValueOnce(new Response("maximum context length", { status: 400 }))
+    expect((await labelKeys(["SYNTH HUGE"])).labels).toEqual({ "SYNTH HUGE": "UNCATEGORISED" })
+    expect(needsModelLabels(unlabelled)).toBe(true)
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
+    expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
+  })
+
+  it.each([408, 429, 503])("a %s is the model being unavailable: back off", async (status) => {
+    fetchMock.mockResolvedValueOnce(new Response("busy", { status }))
+    await expect(labelKeys(["SYNTH GROCER"])).rejects.toBeInstanceOf(VlmUnavailableError)
+    expect(needsModelLabels({ status: "READ", modelCategoriesVersion: null })).toBe(false)
   })
 
   it("throws when any batch fails, so a partial set is never stored", async () => {

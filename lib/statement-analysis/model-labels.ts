@@ -55,8 +55,12 @@ export function resetModelLabelBackoff(): void {
 
 /** The label key of a description: what the model sees and what its label is stored under. */
 export function labelKey(description: string): string {
-  return counterpartyKey(description).replace(/\d/g, "9")
+  // Bounded, so no one row can make a request the model must refuse.
+  return counterpartyKey(description).replace(/\d/g, "9").slice(0, LABEL_KEY_MAX)
 }
+
+/** Longest label key: three words of any real merchant name fit easily. */
+export const LABEL_KEY_MAX = 80
 
 /** Model and prompt: what a stored set of labels came from. */
 export function modelLabelsVersion(model: string): string {
@@ -155,6 +159,13 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
       })
     } catch (err) {
       throw unavailable(`VLM request failed: ${err instanceof Error ? err.name : "unknown"}`)
+    }
+    // A request the model refuses (a 4xx other than timeout or rate limit) is
+    // this batch's problem, not the model's: its keys stay UNCATEGORISED and no
+    // other read is held back.
+    if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+      Object.assign(labels, parseLabels("", batch))
+      continue
     }
     if (!res.ok) throw unavailable(`VLM responded ${res.status}`)
     let body: string
