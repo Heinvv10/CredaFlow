@@ -5143,14 +5143,16 @@ enum PayoutRecoveryStatus {
   OPEN
   ESCALATED
   RECOVERED
+  UNRECOVERABLE
 }
 
 // A provider paid out on a loan whose disbursement had already been reversed
 // (lib/payouts/recovery.ts). The loan stays CANCELLED; the money sits in
 // payout clearing until it comes back. One case per payout attempt; the
 // database guard fixes the opening facts and the order OPEN -> ESCALATED ->
-// RECOVERED (or OPEN -> RECOVERED), each step by someone other than the
-// people who made or approved the payout.
+// RECOVERED or UNRECOVERABLE (either also straight from OPEN), each step by
+// someone other than the people who made or approved the payout. RECOVERED
+// is the full amount only; UNRECOVERABLE writes the money off to bad debts.
 model PayoutRecoveryCase {
   id                String               @id @default(cuid())
   tenantId          String
@@ -5172,6 +5174,11 @@ model PayoutRecoveryCase {
   recoveredById     String?
   recoveryNote      String?
   recoveryReference String?
+  // The amount staff entered as recovered: always the case's amount.
+  recoveredAmountCents Int?
+  unrecoverableAt   DateTime?
+  unrecoverableById String?
+  unrecoverableNote String?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 

@@ -18,7 +18,7 @@ import { prisma } from "@/lib/prisma"
 import { loadSourceLoans } from "@/lib/accounting/store"
 import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createDisbursementPayout } from "./disbursement"
-import { escalateRecovery, recordRecoveredFunds } from "./recovery"
+import { closeRecoveryUnrecoverable, escalateRecovery, recordRecoveredFunds } from "./recovery"
 import { applyProviderState, resolvePayout } from "./resolve"
 import { acknowledgeDebitOrderCancelled, decideDisbursementReversal, requestDisbursementReversal } from "./reversal"
 import { loadPayoutView } from "./view"
@@ -96,7 +96,7 @@ suite.sequential("money paid out on a reversed loan (real Postgres)", () => {
     const view = await loadPayoutView(tenant.tenantId, loan.loanId, "CANCELLED")
     expect(view?.recoveries).toEqual([expect.objectContaining({ id: opened.id, status: "OPEN", amountCents: 200_000 })])
     const sources = await loadSourceLoans(prisma, tenant.tenantId, new Date())
-    expect(sources.find((l) => l.id === loan.loanId)?.recoveries).toEqual([{ id: opened.id, attempt: 1, amountCents: 200_000, paidAt: leftOn, recoveredAt: null }])
+    expect(sources.find((l) => l.id === loan.loanId)?.recoveries).toEqual([{ id: opened.id, attempt: 1, amountCents: 200_000, paidAt: leftOn, recoveredAt: null, unrecoverableAt: null }])
     // The database refuses a case the resolution did not open.
     await refused(db.payoutRecoveryCase.create({ data: { tenantId: tenant.tenantId, loanId: loan.loanId, payoutId: loan.payoutId, amountCents: 200_000, paidAt: leftOn, openedById: resolver().id, openNote: "again" } }), /Unique constraint|payoutId/)
   })
@@ -123,13 +123,16 @@ suite.sequential("money paid out on a reversed loan (real Postgres)", () => {
     await resolve(loan.payoutId, "recovery", resolver(), new Date("2026-10-08T10:00:00+02:00"))
     const c = await db.payoutRecoveryCase.findUniqueOrThrow({ where: { payoutId: loan.payoutId } })
     const escalate = (actor: ReturnType<typeof user>) => escalateRecovery(prisma, { tenantId: tenant.tenantId, caseId: c.id, note: "Recipient bank will not return it", actor })
-    const recover = (actor: ReturnType<typeof user>, recoveredAt: Date) => recordRecoveredFunds(prisma, { tenantId: tenant.tenantId, caseId: c.id, recoveredAt, note: "Recalled by the bank", reference: "RCL-1", actor })
+    const recover = (actor: ReturnType<typeof user>, recoveredAt: Date, amountCents = 200_000) => recordRecoveredFunds(prisma, { tenantId: tenant.tenantId, caseId: c.id, recoveredAt, amountCents, note: "Recalled by the bank", reference: "RCL-1", actor })
     expect(await escalate(disburser())).toMatchObject({ ok: false, status: 403 })
     expect(await escalate(checker())).toMatchObject({ ok: true, status: "ESCALATED" })
     expect(await escalate(checker())).toMatchObject({ ok: false, status: 409 })
     expect(await recover(checker(), new Date("2026-10-01T10:00:00+02:00"))).toMatchObject({ ok: false, status: 422 })
     const back = new Date("2026-10-20T10:00:00+02:00")
+    // Only the full amount: a part is escalated, not recorded.
+    expect(await recover(checker(), back, 150_000)).toMatchObject({ ok: false, status: 422, error: expect.stringContaining("escalate") })
     expect(await recover(checker(), back)).toMatchObject({ ok: true, status: "RECOVERED" })
+    expect(await db.payoutRecoveryCase.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ recoveredAmountCents: 200_000 })
     expect(await recover(checker(), back)).toMatchObject({ ok: false, status: 409 })
     expect(await db.auditLog.count({ where: { entityId: c.id, action: { in: ["PAYOUT_RECOVERY_ESCALATED", "PAYOUT_RECOVERY_RECORDED"] } } })).toBe(2)
     expect((await loadSourceLoans(prisma, tenant.tenantId, new Date())).find((l) => l.id === loan.loanId)?.recoveries[0]).toMatchObject({ recoveredAt: back })
@@ -144,9 +147,33 @@ suite.sequential("money paid out on a reversed loan (real Postgres)", () => {
     await reportPaid(loan.payoutId)
     await resolve(loan.payoutId, "recovery")
     const c = await db.payoutRecoveryCase.findUniqueOrThrow({ where: { payoutId: loan.payoutId } })
-    await refused(db.payoutRecoveryCase.update({ where: { id: c.id }, data: { status: "RECOVERED", recoveredAt: new Date(), recoveredById: disburser().id, recoveryNote: "self-cleared" } }), /other than the people who made or approved/)
+    await refused(db.payoutRecoveryCase.update({ where: { id: c.id }, data: { status: "RECOVERED", recoveredAt: new Date(), recoveredById: disburser().id, recoveryNote: "self-cleared", recoveredAmountCents: 200_000 } }), /other than the people who made or approved/)
     await refused(db.payoutRecoveryCase.update({ where: { id: c.id }, data: { amountCents: 1 } }), /opening facts|opened on never change/)
     await refused(db.payoutRecoveryCase.update({ where: { id: c.id }, data: { status: "OPEN", escalationNote: "x" } }), /OPEN -> ESCALATED/)
+    await refused(db.payoutRecoveryCase.update({ where: { id: c.id }, data: { status: "RECOVERED", recoveredAt: new Date(), recoveredById: checker().id, recoveryNote: "only part came back", recoveredAmountCents: 150_000 } }), /full amount/)
+  })
+
+  it("closes a case as unrecoverable: a second person, audited, final, and written off to bad debts", async () => {
+    const loan = await reversedLoan()
+    await reportPaid(loan.payoutId)
+    await resolve(loan.payoutId, "recovery")
+    const c = await db.payoutRecoveryCase.findUniqueOrThrow({ where: { payoutId: loan.payoutId } })
+    const close = (actor: ReturnType<typeof user>) => closeRecoveryUnrecoverable(prisma, { tenantId: tenant.tenantId, caseId: c.id, note: "Recipient account closed; bank cannot recall", actor })
+    expect(await close(disburser())).toMatchObject({ ok: false, status: 403 })
+    expect(await close(checker())).toMatchObject({ ok: true, status: "UNRECOVERABLE" })
+    expect(await close(checker())).toMatchObject({ ok: false, status: 409 })
+    expect(await recordRecoveredFunds(prisma, { tenantId: tenant.tenantId, caseId: c.id, recoveredAt: new Date(), amountCents: 200_000, note: "came back after all", reference: null, actor: checker() })).toMatchObject({ ok: false, status: 409, error: "This case is closed as unrecoverable" })
+    expect(await db.auditLog.count({ where: { entityId: c.id, action: "PAYOUT_RECOVERY_UNRECOVERABLE" } })).toBe(1)
+    const closed = await db.payoutRecoveryCase.findUniqueOrThrow({ where: { id: c.id } })
+    expect(closed).toMatchObject({ status: "UNRECOVERABLE", unrecoverableById: checker().id })
+    expect((await loadSourceLoans(prisma, tenant.tenantId, new Date())).find((l) => l.id === loan.loanId)?.recoveries[0]).toMatchObject({ unrecoverableAt: closed.unrecoverableAt, recoveredAt: null })
+    // The database: final, and never by the payout's makers.
+    await refused(db.payoutRecoveryCase.update({ where: { id: c.id }, data: { status: "RECOVERED", recoveredAt: new Date(), recoveredById: checker().id, recoveryNote: "x x x x x", recoveredAmountCents: 200_000 } }), /closed/)
+    const other = await reversedLoan()
+    await reportPaid(other.payoutId)
+    await resolve(other.payoutId, "recovery")
+    const o = await db.payoutRecoveryCase.findUniqueOrThrow({ where: { payoutId: other.payoutId } })
+    await refused(db.payoutRecoveryCase.update({ where: { id: o.id }, data: { status: "UNRECOVERABLE", unrecoverableAt: new Date(), unrecoverableById: disburser().id, unrecoverableNote: "self-closed" } }), /other than the people who made or approved/)
   })
 
   it("keeps the debit-order cancellation as a task until acknowledged, once, and only after approval", async () => {

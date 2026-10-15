@@ -37,10 +37,10 @@ Provider payouts of consumer disbursements behind `payoutsEngineEnabled`
   person resolves them (`lib/payouts/conflicts.ts`). A reversal asks the rail
   first where it can (`lib/payouts/reversal-rail.ts`).
 - **A reversed loan is never reinstated.** A late PAID report on it opens a
-  recovery case (`lib/payouts/recovery.ts`), never a PAID attempt (DB too);
-  its by-hand debit-order cancellation stays a staff task until acknowledged.
-- **The loan is booked at disburse, as before.** The payout is tracked beside
-  it, never gating DISBURSED (reasons: `lib/payouts/disbursement.ts`).
+  recovery case (`lib/payouts/recovery.ts`: full amount back, or closed
+  unrecoverable), never a PAID attempt (DB too); its by-hand debit-order
+  cancellation stays a staff task until acknowledged.
+- **Booked at disburse, as before**; the payout never gates DISBURSED.
 - **The state machine is DB-enforced** (`guardDisbursementPayout`, latest in
   the 20261015200000 migration); `lib/payouts/state.ts` mirrors it.
 - **Adapters translate, nothing more.** Netcash wraps `disburseFunds`; only its

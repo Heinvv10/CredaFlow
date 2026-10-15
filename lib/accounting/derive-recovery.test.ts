@@ -12,12 +12,12 @@ const OCT = parsePeriodKey("2026-10")!
 const NOV = parsePeriodKey("2026-11")!
 const accounts = defaultAccounts()
 const failed = { id: "po-1", attempt: 1, amountCents: 200_000, paidAt: null, returnedAt: null }
-const reversed = (recoveredAt: Date | null = null, withCase = true) => loan({
+const reversed = (recoveredAt: Date | null = null, withCase = true, unrecoverableAt: Date | null = null) => loan({
   status: "CANCELLED", closedAt: at("2026-10-05"), reversedAt: at("2026-10-05"), payouts: [failed],
-  recoveries: withCase ? [{ id: "rc-1", attempt: 1, amountCents: 200_000, paidAt: at("2026-10-08"), recoveredAt }] : [],
+  recoveries: withCase ? [{ id: "rc-1", attempt: 1, amountCents: 200_000, paidAt: at("2026-10-08"), recoveredAt, unrecoverableAt }] : [],
 })
 const totals = (state: ReturnType<typeof ledger>) => {
-  const out = { LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: 0 }
+  const out = { LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: 0, BAD_DEBT_EXPENSE: 0 }
   for (const v of state.posted.values()) for (const k of Object.keys(out) as Array<keyof typeof out>) out[k] += v[k] ?? 0
   return out
 }
@@ -31,7 +31,7 @@ describe("money paid out on a reversed loan", () => {
     expect(byType(oct, "PAYOUT_PAID")[0]).toMatchObject({ eventKey: "recovery:rc-1", postingDate: "2026-10-08", loanId: "loan-1" })
     expect(net(byType(oct, "PAYOUT_PAID"))).toEqual({ PAYOUT_CLEARING: 200_000, BANK: -200_000 })
     // The reversal stands: nothing on the loan book.
-    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 200_000, BANK: -200_000 })
+    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 200_000, BANK: -200_000, BAD_DEBT_EXPENSE: 0 })
 
     // Escalated, not yet back: nothing more is posted.
     const novOpen = runWith(accounts, null, [reversed()], NOV, ledger())
@@ -45,13 +45,24 @@ describe("money paid out on a reversed loan", () => {
     const nov = runWith(accounts, null, [reversed(at("2026-11-03"))], NOV, state)
     expect(byType(nov, "PAYOUT_RECOVERED")[0]).toMatchObject({ eventKey: "recovery:rc-1@2026-11", postingDate: "2026-11-03" })
     expect(net(nov)).toEqual({ BANK: 200_000, PAYOUT_CLEARING: -200_000 })
-    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: 0 })
+    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: 0, BAD_DEBT_EXPENSE: 0 })
+  })
+
+  it("writes it off to bad debts on the day it is closed as unrecoverable, leaving the bank credit standing", () => {
+    const state = ledger()
+    runWith(accounts, null, [loan({ payouts: [failed] })], AUG, state)
+    runWith(accounts, null, [reversed()], OCT, state)
+    const nov = runWith(accounts, null, [reversed(null, true, at("2026-11-12"))], NOV, state)
+    expect(byType(nov, "WRITE_OFF")).toHaveLength(1)
+    expect(byType(nov, "WRITE_OFF")[0]).toMatchObject({ eventKey: "recovery:rc-1:unrecoverable", postingDate: "2026-11-12" })
+    expect(net(nov)).toEqual({ BAD_DEBT_EXPENSE: 200_000, PAYOUT_CLEARING: -200_000 })
+    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: -200_000, BAD_DEBT_EXPENSE: 200_000 })
   })
 
   it("posts nothing for a reversed loan without a recovery case", () => {
     const state = ledger()
     runWith(accounts, null, [loan({ payouts: [failed] })], AUG, state)
     runWith(accounts, null, [reversed(null, false)], OCT, state)
-    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: 0 })
+    expect(totals(state)).toEqual({ LOAN_BOOK: 0, PAYOUT_CLEARING: 0, BANK: 0, BAD_DEBT_EXPENSE: 0 })
   })
 })

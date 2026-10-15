@@ -156,15 +156,18 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
             Download Statement
           </button>
         </a>
-        <Link href="/portal/payment">
-          <button
-            className="flex items-center gap-2 px-5 py-2.5 rounded-md border font-semibold text-sm"
-            style={{ borderColor: "#4338CA", color: "#4338CA" }}
-          >
-            <CreditCard className="h-4 w-4" />
-            Make a Payment
-          </button>
-        </Link>
+        {/* Nothing is owed on a reversed loan: no way to pay it. */}
+        {!cancelled && (
+          <Link href="/portal/payment">
+            <button
+              className="flex items-center gap-2 px-5 py-2.5 rounded-md border font-semibold text-sm"
+              style={{ borderColor: "#4338CA", color: "#4338CA" }}
+            >
+              <CreditCard className="h-4 w-4" />
+              Make a Payment
+            </button>
+          </Link>
+        )}
       </div>
 
       {/* Tabs — Repayment Schedule + Payment History */}

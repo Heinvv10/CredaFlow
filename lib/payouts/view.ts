@@ -23,12 +23,13 @@ export interface PayoutAttemptView {
 export interface RecoveryView {
   id: string
   attempt: number
-  status: "OPEN" | "ESCALATED" | "RECOVERED"
+  status: "OPEN" | "ESCALATED" | "RECOVERED" | "UNRECOVERABLE"
   amountCents: number
   paidAt: string
   openNote: string
   escalationNote: string | null
   recoveredAt: string | null
+  unrecoverableAt: string | null
 }
 
 export interface PayoutView {
@@ -86,6 +87,7 @@ export async function loadPayoutView(tenantId: string, loanId: string, loanStatu
     recoveries: recoveries.map((r) => ({
       id: r.id, attempt: r.payout.attempt, status: r.status, amountCents: r.amountCents, paidAt: r.paidAt.toISOString(),
       openNote: r.openNote, escalationNote: r.escalationNote, recoveredAt: r.recoveredAt?.toISOString() ?? null,
+      unrecoverableAt: r.unrecoverableAt?.toISOString() ?? null,
     })),
   }
 }

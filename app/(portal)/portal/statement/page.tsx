@@ -19,6 +19,7 @@ import { formatDate, formatZAR } from "@/lib/utils"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { methodLabelWithReversal, reversalDetailLine } from "@/lib/payments/reversal-label"
 import { displayPaymentMethod } from "@/lib/payments/waiver"
+import { documentLoanFigures, owesNothing } from "@/lib/loan/charges-summary"
 
 export default async function StatementPage() {
   const session = await auth()
@@ -90,18 +91,19 @@ export default async function StatementPage() {
                 </div>
               }
             >
-              <div className="mb-4 rounded-lg border border-[rgba(79,70,229,0.28)] bg-[rgba(79,70,229,0.06)] px-4 py-3">
+              {/* A reversed loan owes nothing: no payment reference, no way to pay. */}
+              {!owesNothing(loan) && <div className="mb-4 rounded-lg border border-[rgba(79,70,229,0.28)] bg-[rgba(79,70,229,0.06)] px-4 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Payment Reference</p>
                 <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--cf-brand)]">{loan.reference}</p>
                 <p className="mt-1 text-[11px] text-[var(--cf-text-muted)]">
                   Quote this reference on every payment or deposit so it is allocated to this loan.
                 </p>
-              </div>
+              </div>}
 
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Outstanding</p>
-                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(loan.outstandingPrincipal)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(documentLoanFigures(loan).outstandingPrincipal)}</p>
                 </div>
                 <div className="rounded-lg border border-[rgba(63,191,127,0.24)] bg-[rgba(63,191,127,0.08)] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Total Paid</p>
@@ -109,7 +111,7 @@ export default async function StatementPage() {
                 </div>
                 <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">Total Repayable</p>
-                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(loan.totalRepayable)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--cf-text)]">{formatZAR(documentLoanFigures(loan).totalRepayable)}</p>
                 </div>
               </div>
 
@@ -118,7 +120,7 @@ export default async function StatementPage() {
                   icon={CreditCard}
                   title="No payments recorded yet"
                   description="Payment history will appear here once a repayment is captured or confirmed."
-                  action={{ label: "Make Payment", href: "/portal/payment" }}
+                  action={owesNothing(loan) ? undefined : { label: "Make Payment", href: "/portal/payment" }}
                 />
               ) : (
                 <Table>

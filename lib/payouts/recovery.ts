@@ -7,11 +7,14 @@
  * shows the money in payout clearing (Dr clearing / Cr bank at the value date
  * it left) until the case records it recovered (lib/accounting/sources.ts).
  *
- * A case goes OPEN -> RECOVERED (the full amount came back), or OPEN ->
- * ESCALATED (it is not coming back by itself: a partial recovery, a recipient
- * who will not return it) -> RECOVERED. Each step is audited and taken by a
- * LOAN_ADMIN who neither made nor approved the payout; the database repeats
- * the order and the maker-checker rule (guardPayoutRecoveryCase).
+ * A case goes OPEN -> RECOVERED (the full amount came back: staff enter the
+ * amount and it must equal the case's), or OPEN -> ESCALATED (it is not
+ * coming back by itself: a partial recovery, a recipient who will not return
+ * it) -> RECOVERED; from OPEN or ESCALATED it may instead be closed
+ * UNRECOVERABLE, which the accounting export writes off to bad debts that
+ * day. Each step is audited and taken by a LOAN_ADMIN who neither made nor
+ * approved the payout; the database repeats the order, the full-amount rule
+ * and the maker-checker rule (guardPayoutRecoveryCase).
  */
 import type { DisbursementPayout, PayoutRecoveryCase } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -69,7 +72,7 @@ async function moveCase(db: RecoveryDb, args: {
   c: CaseWithPayout
   from: PayoutRecoveryCase["status"][]
   data: Partial<PayoutRecoveryCase>
-  action: (typeof AuditAction)["PAYOUT_RECOVERY_ESCALATED" | "PAYOUT_RECOVERY_RECORDED"]
+  action: (typeof AuditAction)["PAYOUT_RECOVERY_ESCALATED" | "PAYOUT_RECOVERY_RECORDED" | "PAYOUT_RECOVERY_UNRECOVERABLE"]
   detail: Record<string, unknown>
   actor: Actor & { id: string }
 }): Promise<RecoveryResult> {
@@ -94,25 +97,32 @@ async function moveCase(db: RecoveryDb, args: {
   }
 }
 
-/** The full amount came back to the lender's bank on `recoveredAt` (a value date). */
+const CLOSED: readonly PayoutRecoveryCase["status"][] = ["RECOVERED", "UNRECOVERABLE"]
+const closedError = (s: PayoutRecoveryCase["status"]) => s === "RECOVERED" ? "This money is already recorded as recovered" : "This case is closed as unrecoverable"
+
+/** The full amount, as entered by staff, came back to the lender's bank on `recoveredAt` (a value date). */
 export async function recordRecoveredFunds(db: RecoveryDb, args: {
   tenantId: string
   caseId: string
   recoveredAt: Date
+  amountCents: number
   note: string
   reference: string | null
   actor: Actor & { id: string }
 }): Promise<RecoveryResult> {
   const c = await loadCase(db, args.tenantId, args.caseId)
   if (!c) return { ok: false, status: 404, error: "Recovery case not found" }
-  if (c.status === "RECOVERED") return { ok: false, status: 409, error: "This money is already recorded as recovered" }
+  if (CLOSED.includes(c.status)) return { ok: false, status: 409, error: closedError(c.status) }
   const refused = await makerCheckerRefusal(db, args.tenantId, c, "record_recovery", args.actor)
   if (refused) return refused
+  if (args.amountCents !== c.amountCents) {
+    return { ok: false, status: 422, error: `Only the full ${(c.amountCents / 100).toFixed(2)} is recorded as recovered; if less came back, escalate the case` }
+  }
   if (args.recoveredAt.getTime() < c.paidAt.getTime()) return { ok: false, status: 422, error: "The funds cannot come back before they left" }
   return moveCase(db, {
     tenantId: args.tenantId, c, from: ["OPEN", "ESCALATED"], actor: args.actor, action: AuditAction.PAYOUT_RECOVERY_RECORDED,
-    data: { status: "RECOVERED", recoveredAt: args.recoveredAt, recoveredById: args.actor.id, recoveryNote: args.note, recoveryReference: args.reference },
-    detail: { amountCents: c.amountCents, recoveredAt: args.recoveredAt.toISOString(), note: args.note, reference: args.reference },
+    data: { status: "RECOVERED", recoveredAt: args.recoveredAt, recoveredById: args.actor.id, recoveryNote: args.note, recoveryReference: args.reference, recoveredAmountCents: args.amountCents },
+    detail: { amountCents: args.amountCents, recoveredAt: args.recoveredAt.toISOString(), note: args.note, reference: args.reference },
   })
 }
 
@@ -125,12 +135,31 @@ export async function escalateRecovery(db: RecoveryDb, args: {
 }): Promise<RecoveryResult> {
   const c = await loadCase(db, args.tenantId, args.caseId)
   if (!c) return { ok: false, status: 404, error: "Recovery case not found" }
-  if (c.status !== "OPEN") return { ok: false, status: 409, error: c.status === "ESCALATED" ? "This recovery is already escalated" : "This money is already recorded as recovered" }
+  if (c.status !== "OPEN") return { ok: false, status: 409, error: c.status === "ESCALATED" ? "This recovery is already escalated" : closedError(c.status) }
   const refused = await makerCheckerRefusal(db, args.tenantId, c, "escalate_recovery", args.actor)
   if (refused) return refused
   return moveCase(db, {
     tenantId: args.tenantId, c, from: ["OPEN"], actor: args.actor, action: AuditAction.PAYOUT_RECOVERY_ESCALATED,
     data: { status: "ESCALATED", escalatedAt: new Date(), escalatedById: args.actor.id, escalationNote: args.note },
     detail: { note: args.note },
+  })
+}
+
+/** The money is not coming back: the case closes, and the export writes it off to bad debts today. */
+export async function closeRecoveryUnrecoverable(db: RecoveryDb, args: {
+  tenantId: string
+  caseId: string
+  note: string
+  actor: Actor & { id: string }
+}): Promise<RecoveryResult> {
+  const c = await loadCase(db, args.tenantId, args.caseId)
+  if (!c) return { ok: false, status: 404, error: "Recovery case not found" }
+  if (CLOSED.includes(c.status)) return { ok: false, status: 409, error: closedError(c.status) }
+  const refused = await makerCheckerRefusal(db, args.tenantId, c, "close_unrecoverable", args.actor)
+  if (refused) return refused
+  return moveCase(db, {
+    tenantId: args.tenantId, c, from: ["OPEN", "ESCALATED"], actor: args.actor, action: AuditAction.PAYOUT_RECOVERY_UNRECOVERABLE,
+    data: { status: "UNRECOVERABLE", unrecoverableAt: new Date(), unrecoverableById: args.actor.id, unrecoverableNote: args.note },
+    detail: { amountCents: c.amountCents, note: args.note },
   })
 }

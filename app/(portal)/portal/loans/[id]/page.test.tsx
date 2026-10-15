@@ -62,5 +62,12 @@ describe("portal loan page", () => {
     const row = html.slice(html.indexOf("<tbody>"))
     expect(row).toContain("CANCELLED")
     expect(row).toMatch(/R\s?0[.,]00/)
+    expect(html).not.toContain("/portal/payment")
+    expect(html).not.toContain("Make a Payment")
+  })
+
+  it("offers a payment on a loan that is owed", async () => {
+    portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
+    expect(await render()).toContain("/portal/payment")
   })
 })

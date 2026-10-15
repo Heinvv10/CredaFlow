@@ -16,7 +16,8 @@ const day = (iso: string) => new Date(iso).toLocaleDateString("en-ZA", { timeZon
  * What an approved disbursement reversal leaves for staff: cancelling the
  * debit order by hand (no mandate register on this build) until someone
  * acknowledges it, and any money a provider paid out on the loan afterwards
- * (a recovery case: record it recovered, or escalate it).
+ * (a recovery case: record it recovered, escalate it, or close it as
+ * unrecoverable).
  */
 export function ReversedLoanTasks({ view, canAct }: { view: PayoutView; canAct: boolean }) {
   const reversal = view.reversal?.status === "APPROVED" ? view.reversal : null
@@ -71,10 +72,19 @@ function RecoveryCase({ loanId, recovery: r, canAct }: { loanId: string; recover
   const [note, setNote] = useState("")
   const [reference, setReference] = useState("")
   const [backOn, setBackOn] = useState("")
+  const [amount, setAmount] = useState("")
+  const amountCents = Math.round(Number(amount.replace(/[\s,]/g, "")) * 100)
   if (r.status === "RECOVERED") {
     return (
       <p className="text-xs text-[var(--cf-text-muted)]">
         {formatZAR(r.amountCents)} paid out after the reversal (attempt {r.attempt}) was recovered on {r.recoveredAt ? day(r.recoveredAt) : "—"}.
+      </p>
+    )
+  }
+  if (r.status === "UNRECOVERABLE") {
+    return (
+      <p className="text-xs text-[var(--cf-text-muted)]">
+        {formatZAR(r.amountCents)} paid out after the reversal (attempt {r.attempt}) was closed as unrecoverable on {r.unrecoverableAt ? day(r.unrecoverableAt) : "—"} and written off to bad debts.
       </p>
     )
   }
@@ -96,13 +106,19 @@ function RecoveryCase({ loanId, recovery: r, canAct }: { loanId: string; recover
               Date the full amount came back
               <Input type="date" aria-label="Date the funds came back" value={backOn} onChange={(e) => setBackOn(e.target.value)} className="mt-1 w-44" />
             </label>
+            <label className="text-xs">
+              Amount that came back (R)
+              <Input inputMode="decimal" aria-label="Amount that came back" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-36" />
+            </label>
             <Input placeholder="Bank reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} className="w-56" />
           </div>
+          <p className="text-xs">Only the full {formatZAR(r.amountCents)} is recorded as recovered; if less came back, escalate.</p>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={busy || note.trim().length < 5 || !backOn} onClick={() => act({ action: "record_recovery", caseId: r.id, recoveredAt: backOn, note, reference })}>Record recovered funds</Button>
+            <Button size="sm" disabled={busy || note.trim().length < 5 || !backOn || !(amountCents > 0)} onClick={() => act({ action: "record_recovery", caseId: r.id, recoveredAt: backOn, amountCents, note, reference })}>Record recovered funds</Button>
             {r.status === "OPEN" && (
               <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "escalate_recovery", caseId: r.id, note })}>Escalate</Button>
             )}
+            <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "close_unrecoverable", caseId: r.id, note })}>Close as unrecoverable</Button>
           </div>
           {message && <p className="text-sm" role="status">{message}</p>}
         </div>

@@ -32,6 +32,7 @@ import {
   projectPortalLoanOverview,
 } from "@/lib/portal/loan-overview"
 import { sastHour } from "@/lib/date/sast"
+import { owesNothing } from "@/lib/loan/charges-summary"
 
 async function getPortalData(email: string) {
   const tenantId = await getPortalTenantId()
@@ -236,7 +237,8 @@ export default async function ClientPortalPage() {
       <DataPanel title="Quick Actions" description="Secure shortcuts for the next client task.">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {[
-            { icon: CreditCard, label: "Make Payment", href: "/portal/payment" },
+            // No shortcut to pay when every loan was reversed (nothing is owed).
+            ...(data.loans.length > 0 && data.loans.every(owesNothing) ? [] : [{ icon: CreditCard, label: "Make Payment", href: "/portal/payment" }]),
             { icon: Calendar, label: "View Schedule", href: primaryLoan ? `/portal/loans/${primaryLoan.id}` : "/portal/loans" },
             {
               icon: Download,
