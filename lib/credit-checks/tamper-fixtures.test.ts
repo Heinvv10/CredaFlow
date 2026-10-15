@@ -48,7 +48,7 @@ const doctored: Array<[string, (bank: Bank) => Promise<Uint8Array>, string[]]> =
     (bank) => build(bank, { createdAt: new Date("2026-10-01T08:00:00Z"), modifiedAt: new Date("2026-10-03T10:00:00Z") }), ["MODIFIED_AFTER_CREATION"]],
 ]
 
-/** Appends the trailer-only save Word's "hybrid-xref" writes: no object, no xref entry. */
+/** Appends the trailer-only save Word's "hybrid-xref" writes: no object, no xref entry, the previous trailer repeated. */
 function withWordHybridTail(original: Uint8Array): Uint8Array {
   const base = Buffer.from(original)
   const tail = base.subarray(base.lastIndexOf("trailer")).toString("latin1")
@@ -58,7 +58,7 @@ function withWordHybridTail(original: Uint8Array): Uint8Array {
   const info = /\/Info (\d+ \d+ R)/.exec(tail)![1]
   const xref = base.length + 2
   return Buffer.concat([base, Buffer.from(
-    `\r\nxref\r\n0 0\r\ntrailer\r\n<</Size ${size}/Root ${root}/Info ${info}/ID[<0A1B2C><0A1B2C>] /Prev ${prev}>>\r\nstartxref\r\n${xref}\r\n%%EOF`, "latin1")])
+    `\r\nxref\r\n0 0\r\ntrailer\r\n<</Size ${size}/Root ${root}/Info ${info} /Prev ${prev}>>\r\nstartxref\r\n${xref}\r\n%%EOF`, "latin1")])
 }
 
 describe.each(BANKS)("%s doctored fixtures", (bank) => {

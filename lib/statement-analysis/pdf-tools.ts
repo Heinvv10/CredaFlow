@@ -113,22 +113,71 @@ export async function readPdf(bytes: Buffer): Promise<PdfContent> {
   })
 }
 
-const W = "[\\0\\t\\n\\f\\r ]"
-/**
- * A save that adds no object and no xref entry, only a trailer: Word's
- * "hybrid-xref" save appends one (`xref 0 0`) to every file. Everything it can
- * name is already in the bytes before it, so it cannot change what the file
- * shows. Matched whole against a fixed grammar — the trailer holds only names,
- * numbers, references and hex strings, so no object hides in it for a rebuilt
- * xref to find — and the only entry allowed is object 0's free-list head:
- * freeing any other object deletes it.
- */
-const INERT_SAVE = new RegExp(
-  `^${W}*xref${W}+(?:(?:\\d+ +0|0 +1${W}+0000000000 65535 f)${W}+)*trailer${W}*` +
-    `<<(?:${W}|/[A-Za-z0-9]+(?![A-Za-z0-9])|\\d+(?!\\d)|R|\\[|\\]|<[0-9A-Fa-f]*>)*>>${W}*startxref${W}+\\d+${W}+%%EOF$`,
+const PDF_SPACE = "[\\0\\t\\n\\f\\r ]"
+/** A trailer dictionary through %%EOF: only names, integers, references and hex strings, so no object hides in it. */
+const TRAILER_TO_EOF =
+  `trailer${PDF_SPACE}*<<((?:${PDF_SPACE}|/[A-Za-z0-9]+(?![A-Za-z0-9])|\\d+(?!\\d)|R|\\[|\\]|<[0-9A-Fa-f]*>)*)>>` +
+  `${PDF_SPACE}*startxref${PDF_SPACE}+(\\d+)${PDF_SPACE}+%%EOF$`
+/** A save of only a trailer: xref subsections with no entry but object 0's free-list head (freeing any other deletes it). */
+const TRAILER_ONLY_SAVE = new RegExp(
+  `^(${PDF_SPACE}*)xref${PDF_SPACE}+(?:(?:\\d+ +0|0 +1${PDF_SPACE}+0000000000 65535 f)${PDF_SPACE}+)*${TRAILER_TO_EOF}`,
 )
-/** Word's is under 200 bytes; a longer section is counted without being matched. */
-const INERT_SAVE_MAX_BYTES = 2048
+const PREVIOUS_TRAILER = new RegExp(`^${TRAILER_TO_EOF}`)
+const TRAILER_ENTRY = new RegExp(
+  `${PDF_SPACE}*/([A-Za-z0-9]+)${PDF_SPACE}*(\\d+${PDF_SPACE}+\\d+${PDF_SPACE}+R|\\d+|\\[(?:${PDF_SPACE}|<[0-9A-Fa-f]*>)*\\])${PDF_SPACE}*`,
+  "y",
+)
+/** Repeated from the previous trailer byte for byte: any change re-points the document, shrinks it or encrypts it. */
+const REPEATED_KEYS = ["Root", "Info", "ID", "Size", "Encrypt"]
+const NO_OP_KEYS = new Set([...REPEATED_KEYS, "Prev", "XRefStm"])
+const XREF_STREAM_TYPE = new RegExp(`/Type${PDF_SPACE}*/XRef(?![A-Za-z0-9])`, "g")
+/** Word's is under 200 bytes; a longer section, or previous trailer, is counted without being matched. */
+const NO_OP_SAVE_MAX_BYTES = 2048
+
+/** Key → value text of a trailer of name/value pairs; null for anything else or a repeated key. */
+function trailerEntries(body: string): Map<string, string> | null {
+  const entries = new Map<string, string>()
+  TRAILER_ENTRY.lastIndex = 0
+  while (TRAILER_ENTRY.lastIndex < body.length) {
+    const m = TRAILER_ENTRY.exec(body)
+    if (!m || entries.has(m[1])) return null
+    entries.set(m[1], m[2])
+  }
+  return entries
+}
+
+/** Whether `offset` starts the original save's only /Type /XRef stream object. */
+function isOriginalsXrefStream(bytes: Buffer, offset: number, originalEnd: number): boolean {
+  const types = [...bytes.subarray(0, originalEnd).toString("latin1").matchAll(XREF_STREAM_TYPE)]
+  if (types.length !== 1 || offset >= originalEnd) return false
+  const head = bytes.subarray(offset, Math.min(originalEnd, offset + 1024)).toString("latin1")
+  const at = types[0].index - offset
+  return new RegExp(`^\\d+${PDF_SPACE}+\\d+${PDF_SPACE}+obj${PDF_SPACE}*<<`).test(head) && at > 0 && at < head.length &&
+    !/stream|endobj/.test(head.slice(0, at))
+}
+
+/**
+ * Whether the save in [start, end) is a no-op against the one before it, which
+ * began at `prevStart`. Word's "hybrid-xref" save appends one to every file:
+ * no object, no xref entry, the previous trailer's /Root, /Info, /ID, /Size
+ * and /Encrypt repeated, /Prev at the previous xref, its startxref at its own
+ * xref, and /XRefStm (if any) the previous one or the original's xref stream.
+ * Nothing a reader resolves through it differs from the save before it.
+ */
+function isNoOpSave(bytes: Buffer, prevStart: number, start: number, end: number, originalEnd: number): boolean {
+  if (end - start > NO_OP_SAVE_MAX_BYTES) return false
+  const save = TRAILER_ONLY_SAVE.exec(bytes.subarray(start, end).toString("latin1"))
+  const t = bytes.lastIndexOf("trailer", start - 1)
+  if (!save || t < prevStart || start - t > NO_OP_SAVE_MAX_BYTES) return false
+  const previous = PREVIOUS_TRAILER.exec(bytes.subarray(t, start).toString("latin1"))
+  const entries = trailerEntries(save[2])
+  const before = previous && trailerEntries(previous[1])
+  if (!previous || !entries || !before || [...entries.keys()].some((k) => !NO_OP_KEYS.has(k))) return false
+  if (REPEATED_KEYS.some((k) => entries.get(k) !== before.get(k))) return false
+  if (Number(entries.get("Prev")) !== Number(previous[2]) || Number(save[3]) !== start + save[1].length) return false
+  const xrefStm = entries.get("XRefStm")
+  return xrefStm === undefined || xrefStm === before.get("XRefStm") || isOriginalsXrefStream(bytes, Number(xrefStm), originalEnd)
+}
 
 /**
  * Revisions appended after the original save. Each save ends with %%EOF and a
@@ -137,7 +186,7 @@ const INERT_SAVE_MAX_BYTES = 2048
  * appended revision that omits its %%EOF. Linearized
  * means its FIRST object is the linearization dictionary — not merely that the
  * word appears early, which a comment could fake to hide one appended save.
- * A save that ends in %%EOF and matches INERT_SAVE is not counted.
+ * A save that ends in %%EOF and is a no-op (isNoOpSave) is not counted.
  */
 export function countIncrementalUpdates(bytes: Buffer): number {
   const count = (marker: string) => {
@@ -145,12 +194,15 @@ export function countIncrementalUpdates(bytes: Buffer): number {
     for (let i = bytes.indexOf(marker); i >= 0; i = bytes.indexOf(marker, i + marker.length)) n++
     return n
   }
-  let inert = 0
-  for (let start = 0, i = bytes.indexOf("%%EOF"); i >= 0; start = i + 5, i = bytes.indexOf("%%EOF", start)) {
-    if (i + 5 - start <= INERT_SAVE_MAX_BYTES && INERT_SAVE.test(bytes.subarray(start, i + 5).toString("latin1"))) inert++
-  }
-  const saves = Math.max(count("%%EOF"), count("startxref"))
   const head = bytes.subarray(0, 2048).toString("latin1")
   const linearized = /^%PDF-\d\.\d[^\n\r]*[\r\n]+(?:%[^\r\n]*[\r\n]+)*\s*\d+\s+0\s+obj\s*<<\s*\/Linearized\b/.test(head)
-  return Math.max(0, saves - 1 - (linearized ? 1 : 0) - inert)
+  const eofEnds: number[] = []
+  for (let i = bytes.indexOf("%%EOF"); i >= 0; i = bytes.indexOf("%%EOF", i + 5)) eofEnds.push(i + 5)
+  const originalEnd = eofEnds[linearized ? 1 : 0] ?? bytes.length
+  let noOp = 0
+  for (let k = 1; k < eofEnds.length; k++) {
+    if (isNoOpSave(bytes, k >= 2 ? eofEnds[k - 2] : 0, eofEnds[k - 1], eofEnds[k], originalEnd)) noOp++
+  }
+  const saves = Math.max(eofEnds.length, count("startxref"))
+  return Math.max(0, saves - 1 - (linearized ? 1 : 0) - noOp)
 }
