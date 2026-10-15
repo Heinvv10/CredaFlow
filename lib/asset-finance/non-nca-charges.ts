@@ -1,6 +1,7 @@
 import { allocateReceipt } from "@/lib/loan/receipt-allocation"
 import { sastCalendarDay } from "@/lib/loan/settlement"
 import { isLastDayOfMonth, isoDay } from "@/lib/loan/day-number"
+import { withoutPausedDays } from "@/lib/loan/charge-pauses"
 import {
   emptyResult,
   type ChargePosting,
@@ -41,6 +42,12 @@ import {
 //    no fee means no collection fee.
 //  - `accrueUntil` (write-off, cancellation, closing): nothing accrues or posts
 //    on or after it; receipts are still allocated.
+//  - `recoveryCosts` (a repossession's costs charged to the account): one fee
+//    posting each, dated the day the sale proceeds were applied, ignoring the
+//    freeze, uncapped, and skipped once that day's receipts have settled the loan.
+//  - `pauses` (a recovery's charge freeze): nothing accrues or posts on a paused
+//    day, a collection fee falling on one is not charged later, and accrual
+//    resumes after it; receipts are still allocated.
 
 export interface NonNcaArrearsTerms {
   /** Loan.nonNcaDefaultInterestMargin (the deal's signed term, copied at booking; charges-replay nonNcaArrearsTerms): annual decimal over the contract rate; null = no default interest */
@@ -69,7 +76,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   const endDay = sastCalendarDay(input.asOf)
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
-  const chargeable = (day: number) => day >= accrueFromDay && day < untilDay
+  const chargeable = withoutPausedDays((day) => day >= accrueFromDay && day < untilDay, input.pauses)
   const rates = (input.contractRateHistory ?? [])
     .map((rate) => ({ day: sastCalendarDay(rate.effectiveDate), annualRate: rate.annualRate }))
     .sort((a, b) => a.day - b.day)
@@ -88,6 +95,13 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     .map((r, index) => ({ ...r, index, at: r.receivedAt.getTime(), day: Math.min(endDay, sastCalendarDay(r.receivedAt)) }))
     .sort((a, b) => a.day - b.day || a.at - b.at || a.index - b.index)
 
+  // A recovery's charged costs, each dated the day its proceeds were applied (see DefaultChargeInput.recoveryCosts).
+  const costs = (input.recoveryCosts ?? [])
+    .map((cost, index) => ({ ...cost, index, day: sastCalendarDay(cost.date) }))
+    .filter((cost) => cost.day <= endDay)
+    .sort((a, b) => a.day - b.day || a.index - b.index)
+  const scheduleTotal = rows.reduce((sum, row) => sum + row.totalDue, 0)
+
   const postings: ChargePosting[] = []
   const splits: ReceiptSplit[] = []
   let interestExact = 0
@@ -100,6 +114,14 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   const paid = rows.map(() => 0)
   const completedBy: Array<string | null> = rows.map(() => null)
 
+  /** Outside the freeze, no cap (NON_NCA), and never on a loan the day's receipts settled: a closed loan is not re-opened. */
+  function postRecoveryCost(day: number, amount: number, sourceId: string) {
+    if (day < accrueFromDay || day >= untilDay || amount <= 0) return
+    if (pool >= scheduleTotal && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
+    feesAccrued += amount
+    postings.push({ type: "RECOVERY_COST", day: isoDay(day), amount, sourceId })
+  }
+
   function postInterestTo(day: number) {
     const amount = Math.round(interestExact) - interestPosted
     if (amount <= 0) return
@@ -107,8 +129,9 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     postings.push({ type: "DEFAULT_INTEREST", day: isoDay(day), amount })
   }
 
-  const firstDay = Math.min(rows[0].dueDay, ...receipts.map((receipt) => receipt.day))
+  const firstDay = Math.min(rows[0].dueDay, ...receipts.map((receipt) => receipt.day), ...costs.map((cost) => cost.day))
   let next = 0
+  let nextCost = 0
   for (let day = firstDay; day <= endDay; day++) {
     // 1. The day's receipts, in time order.
     for (; next < receipts.length && receipts[next].day === day; next++) {
@@ -127,6 +150,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
         receiptId: receipt.id, toDefaultInterest: split.toDefaultInterest, toFees: split.toFees, toSchedule: split.toSchedule,
       })
     }
+    for (; nextCost < costs.length && costs[nextCost].day === day; nextCost++) postRecoveryCost(day, costs[nextCost].amount, costs[nextCost].id)
     if (day >= endDay) break
 
     // 2. End of a completed day: a collection fee per instalment missed the

@@ -194,6 +194,7 @@ model Loan {
   leaseExpiryNotice          LeaseExpiryNotice?
   leaseRentals               LeaseRental[]
   leaseTerminationQuotes     LeaseTerminationQuote[]
+  legalMatters               LegalMatter[]
   maintenanceFund            MaintenanceFund?
   meterReadings              AssetMeterReading[]
   notes                      LoanNote[]
@@ -201,6 +202,7 @@ model Loan {
   paymentPlan                PaymentPlan?
   payments                   Payment[]
   payoutRecoveryCases        PayoutRecoveryCase[]
+  recoveries                 Recovery[]
   repaymentSchedule          RepaymentSchedule[]
   stitchPayments             StitchPaymentRequest[]
   surrenderRequests          SurrenderRequest[]
@@ -221,6 +223,8 @@ enum LoanChargeType {
   // NON_NCA (asset finance) only: the product's collection fee per missed
   // instalment (lib/asset-finance/non-nca-charges.ts). Never posted on an NCA loan.
   COLLECTION_FEE
+  // A recovery's approved CHARGE_TO_ACCOUNT cost, dated the proceeds date (lib/loan/charges-replay.ts); sourceId = the RecoveryCost id.
+  RECOVERY_COST
 }
 
 // A charge posted after a missed instalment. DERIVED: rewritten per loan on
@@ -337,11 +341,13 @@ model Payment {
   parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
-  cashThresholdReport   CashThresholdReport?
-  collectionResults     CollectionResult[]
-  excessPayments        Payment[]              @relation("PaymentOverpayment")
-  surrenderProceeds     SurrenderRequest[]     @relation("SurrenderProceedsPayment")
-  suspiciousReportCases SuspiciousReportCase[]
+  cashThresholdReport     CashThresholdReport?
+  collectionResults       CollectionResult[]
+  excessPayments          Payment[]              @relation("PaymentOverpayment")
+  recoveryProceeds        Recovery?              @relation("RecoveryProceedsPayment")
+  remarketingSaleProceeds RemarketingSale[]      @relation("RemarketingSaleProceeds")
+  surrenderProceeds       SurrenderRequest[]     @relation("SurrenderProceedsPayment")
+  suspiciousReportCases   SuspiciousReportCase[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])

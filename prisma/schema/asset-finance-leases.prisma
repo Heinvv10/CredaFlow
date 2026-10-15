@@ -89,6 +89,10 @@ enum LeaseEndOrigin {
 enum AssetLessorStatus {
   RETURNED_TO_STOCK
   SOLD_TO_LESSEE
+  // Slice 4 (recovery): set and cleared by the database with the asset's
+  // recovery and its completed remarketing sale (migration 20261015400000).
+  RECOVERED
+  SOLD_IN_REMARKETING
 }
 
 enum LeaseTerminationStatus {
@@ -200,8 +204,9 @@ model AssetMeterReading {
   createdAt          DateTime           @default(now())
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
-  claims    MaintenanceClaim[]
-  endOfTerm LeaseEndOfTerm?
+  claims     MaintenanceClaim[]
+  endOfTerm  LeaseEndOfTerm?
+  recoveries Recovery[]
 
   @@unique([tenantId, id])
   @@index([tenantId, assetId, unit, readingDate])

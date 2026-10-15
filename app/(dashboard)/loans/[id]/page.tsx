@@ -28,6 +28,7 @@ import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanVie
 import { hasClientBorrower } from "@/lib/borrower"
 import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { AssetLoanRecoveryPanels, hasRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
 import { loadPayoutView } from "@/lib/payouts/view"
 
@@ -74,6 +75,7 @@ export default async function LoanDetailPage(
         userId={session?.user?.id ?? ""}
         canManageLease={role ? canDo(role, "manage_asset_finance") : false}
         canDecideLease={role ? canDo(role, "decide_asset_finance") : false}
+        canRecordPayment={role ? canDo(role, "record_payment") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
       />
@@ -345,6 +347,18 @@ export default async function LoanDetailPage(
           </DataPanel>
         </div>
       </div>
+
+      {/* A sole proprietor's instalment sale is a client's loan but still an asset: court action and recovery apply. */}
+      {hasRecoveryPanels(loan) && (
+        <AssetLoanRecoveryPanels
+          tenantId={tenantId}
+          loanId={loan.id}
+          userId={session?.user?.id ?? ""}
+          canManage={session?.user?.role ? canDo(session.user.role, "manage_asset_finance") : false}
+          canDecide={session?.user?.role ? canDo(session.user.role, "decide_asset_finance") : false}
+          canRecordPayment={session?.user?.role ? canDo(session.user.role, "record_payment") : false}
+        />
+      )}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">
         <LoanNotes loanId={loan.id} />

@@ -3,7 +3,7 @@
  * server ever existed — so nothing was submitted and the send is safe to record
  * as not sent (and to retry) instead of holding it for manual reconciliation.
  *
- * `code` and `command` cannot tell us this. Measured against nodemailer 9: a
+ * `code` and `command` cannot tell us this. Measured against nodemailer 9 and 10: a
  * server that resets or drops the connection AFTER the message body was sent
  * reports `code: "ESOCKET"`/`"ECONNECTION"`/`"ETIMEDOUT"` with `command: "CONN"`
  * — exactly what a refused connection reports. Only these prove the phase:

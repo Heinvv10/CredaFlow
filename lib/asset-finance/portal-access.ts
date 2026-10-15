@@ -105,13 +105,22 @@ export async function requirePortalEntityAccess(
  * lender: only the surety whose signer row binds it (DealSigner.scanDocumentId
  * → DealSigner.clientId) sees it, never the entity's other directors or
  * signatories. A scan no signer row binds (one replaced before it was
- * confirmed) is shown to nobody in the portal. Staff are unaffected.
+ * confirmed) is shown to nobody in the portal. Legal-matter evidence
+ * (LEGAL_DOCUMENT: the lender's court papers and attorney correspondence) and
+ * a surplus refund's bank-verification document are staff-only. Staff are
+ * unaffected.
  */
 export function portalVisibleEntityDocumentWhere(clientId: string): Prisma.EntityDocumentWhereInput {
   return {
-    OR: [
-      { docType: { not: "SIGNED_SURETYSHIP" } },
-      { signerScans: { some: { clientId, document: "SURETYSHIP" } } },
+    AND: [
+      {
+        OR: [
+          { docType: { not: "SIGNED_SURETYSHIP" } },
+          { signerScans: { some: { clientId, document: "SURETYSHIP" } } },
+        ],
+      },
+      { docType: { not: "LEGAL_DOCUMENT" } },
+      { recoveryRefunds: { none: {} } },
     ],
   }
 }

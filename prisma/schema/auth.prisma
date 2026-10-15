@@ -70,6 +70,8 @@ model User {
   fitAndProper                 FitAndProper?
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
   kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
+  legalMattersCreated          LegalMatter[]                         @relation("LegalMatterCreatedBy")
+  legalMatterStepsRecorded     LegalMatterStep[]                     @relation("LegalMatterStepRecordedBy")
   loginLogs                    LoginLog[]
   manualProgress               ManualProgress[]
   mentionedIn                  MessageMention[]
@@ -86,8 +88,18 @@ model User {
   payoutsCancelled             Payout[]                              @relation("PayoutsCancelledBy")
   payoutsCreated               Payout[]                              @relation("PayoutsCreatedBy")
   payoutsReleased              Payout[]                              @relation("PayoutsReleasedBy")
+  recoveriesCreated            Recovery[]                            @relation("RecoveryCreatedBy")
+  recoveryCostsApproved        RecoveryCost[]                        @relation("RecoveryCostApprovedBy")
+  recoveryCostsRecorded        RecoveryCost[]                        @relation("RecoveryCostRecordedBy")
+  recoveryRefundsApproved      RecoveryRefund[]                      @relation("RecoveryRefundApprovedBy")
+  recoveryRefundsBankVerified  RecoveryRefund[]                      @relation("RecoveryRefundBankVerifiedBy")
+  recoveryRefundsCreated       RecoveryRefund[]                      @relation("RecoveryRefundCreatedBy")
+  recoveryRefundsReleased      RecoveryRefund[]                      @relation("RecoveryRefundReleasedBy")
+  recoveryVatEventsRecorded    RecoveryVatEvent[]                    @relation("RecoveryVatEventRecordedBy")
   referenceRatesDecided        ReferenceRate[]                       @relation("ReferenceRatesDecided")
   referenceRatesRequested      ReferenceRate[]                       @relation("ReferenceRatesRequested")
+  remarketingSalesApproved     RemarketingSale[]                     @relation("RemarketingSaleApprovedBy")
+  remarketingSalesCreated      RemarketingSale[]                     @relation("RemarketingSaleCreatedBy")
   selfieCaptureTokensIssued    SelfieCaptureToken[]                  @relation("SelfieCaptureTokensIssuedBy")
   sessions                     Session[]
   supplierAccountsDecided      SupplierBankAccount[]                 @relation("SupplierAccountDecidedBy")

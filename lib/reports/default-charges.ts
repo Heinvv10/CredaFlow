@@ -78,9 +78,12 @@ export function defaultChargesByMonth(input: DefaultChargesInput): { rows: Defau
 
   for (const c of input.charges) {
     add(c.productId, c.day, (m) => {
-      if (c.type === "DEFAULT_INTEREST") m.interest += c.amount
-      else if (c.type === "SERVICE_FEE" || c.type === "COLLECTION_FEE") m.fees += c.amount
-      else m.letters += c.amount
+      switch (c.type) {
+        case "DEFAULT_INTEREST": m.interest += c.amount; break
+        case "SERVICE_FEE": case "COLLECTION_FEE": case "RECOVERY_COST": m.fees += c.amount; break
+        case "DEFAULT_ADMIN": m.letters += c.amount; break
+        default: c.type satisfies never
+      }
       m.accrued += c.amount
     })
   }

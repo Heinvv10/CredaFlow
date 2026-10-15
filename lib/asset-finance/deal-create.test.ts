@@ -29,7 +29,7 @@ function fakeTx() {
     },
     financedAsset: {
       findFirst: vi.fn(async () => ({
-        cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000, releasedAt: null as Date | null,
+        cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000, releasedAt: null as Date | null, lessorStatus: null as string | null,
         make: "TEST", model: "EX-1", serialNumber: "TEST0000000000001",
       })),
     },
@@ -98,6 +98,12 @@ describe("createDeal", () => {
     const asset = await fake.tx.financedAsset.findFirst()
     fake.tx.financedAsset.findFirst.mockResolvedValue({ ...asset, releasedAt: new Date() })
     expect(await run(fake.asTx)).toMatchObject({ kind: "refused", status: 409 })
+  })
+
+  it.each(["RECOVERED", "SOLD_IN_REMARKETING"])("refuses an asset whose lessor status is %s (409)", async (lessorStatus) => {
+    const asset = await fake.tx.financedAsset.findFirst()
+    fake.tx.financedAsset.findFirst.mockResolvedValue({ ...asset, lessorStatus })
+    expect(await run(fake.asTx)).toMatchObject({ kind: "refused", status: 409, error: expect.stringMatching(/recovery|remarketing/) })
   })
 
   it.each([

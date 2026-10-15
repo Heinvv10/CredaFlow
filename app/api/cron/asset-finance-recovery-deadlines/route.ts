@@ -1,0 +1,19 @@
+import { NextRequest, NextResponse } from "next/server"
+import { verifyCronSecret } from "@/lib/cron-auth"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { runRecoveryDeadlineSweep } from "@/lib/asset-finance/recovery-freeze-deadline"
+
+/**
+ * Daily: for each shortfall recovery whose charge freeze has ended, move the
+ * loan on toward collections (never backwards, never a write-off), bell the
+ * recovery's creator and audit it, once (lib/asset-finance/recovery-freeze-deadline.ts).
+ * Safe to run any number of times a day. Answers 503 with the counts when any
+ * recovery failed.
+ */
+export async function GET(req: NextRequest) {
+  const denied = verifyCronSecret(req)
+  if (denied) return denied
+
+  const run = await runRecoveryDeadlineSweep(sastCalendarDate(new Date()))
+  return NextResponse.json(run, { status: run.ok ? 200 : 503 })
+}
