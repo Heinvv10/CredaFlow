@@ -31,6 +31,10 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!hasClientBorrower(loan)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
+    // An operating or full-maintenance lease is not a credit agreement: no NCA documents.
+    if (loan.contractType === "OPERATING_LEASE" || loan.contractType === "FULL_MAINTENANCE_LEASE") {
+      return NextResponse.json({ error: "A lease is not a credit agreement: it has no certificate of balance; use the lease statement" }, { status: 409 })
+    }
 
     const lender = await lenderIdentityOrRefusal(tenant.id)
     if (lender.refusal) return lender.refusal

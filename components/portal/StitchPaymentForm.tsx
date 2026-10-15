@@ -15,6 +15,8 @@ export interface LoanOption {
   paymentDefault: number
   /** default charges included in the amounts above */
   chargeLines: Array<{ label: string; amount: number }>
+  /** An operating or full-maintenance lease: the figure is the rentals outstanding, not a settlement. */
+  lease?: boolean
 }
 
 interface Props {
@@ -72,7 +74,7 @@ export function StitchPaymentForm({ loans }: Props) {
           res.status === 422
           && typeof json.maxAmountCents === "number"
         ) {
-          setError(t("exceedsSettlement", { amount: formatZAR(json.maxAmountCents) }))
+          setError(t(selectedLoan?.lease ? "exceedsRentals" : "exceedsSettlement", { amount: formatZAR(json.maxAmountCents) }))
           return
         }
         // Never surface the raw API/provider error body to the client — a
@@ -117,7 +119,7 @@ export function StitchPaymentForm({ loans }: Props) {
           >
             {loans.map((l) => (
               <option key={l.id} value={l.id}>
-                {t("loanOption", { reference: l.reference, amount: formatZAR(l.settlementAmount) })}
+                {t(l.lease ? "loanOptionLease" : "loanOption", { reference: l.reference, amount: formatZAR(l.settlementAmount) })}
               </option>
             ))}
           </select>
@@ -127,7 +129,7 @@ export function StitchPaymentForm({ loans }: Props) {
       {selectedLoan && (
         <div className="mb-4 text-sm text-gray-600 flex flex-wrap gap-4">
           <span>
-            {t("currentSettlement")}{" "}
+            {t(selectedLoan.lease ? "rentalsOutstanding" : "currentSettlement")}{" "}
             <strong className="text-gray-900">
               {formatZAR(selectedLoan.settlementAmount)}
             </strong>

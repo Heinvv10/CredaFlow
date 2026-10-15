@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { generateReference } from "@/lib/utils"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { AuditAction } from "@/lib/audit"
 import {
   ContactPromotionConflictError,
@@ -513,6 +514,8 @@ export async function POST(
               employmentStatus: data.employmentStatus || null,
               employerName: data.employerName || null,
               monthlyIncome: incomeCents,
+              // No monthlyExpensesDeclaredAt: with income above 0 an R0 is refused (MLE 422 above) and any
+              // figure above 0 already counts as declared; at R0 income the form's prefilled "0" is not explicit.
               monthlyExpenses: expensesCents,
               referredFromId: leadId,
               expenseBreakdown: {
@@ -841,6 +844,8 @@ export async function POST(
         })
       }
 
+      // PEP / sanctions screening; never blocks or fails the conversion.
+      void screenOnSubmit({ tenantId: tenant.id, applicationId: result.application.id, actor: { id: guard.user.id, email: guard.user.email } })
       return NextResponse.json({
         clientId: result.client.id,
         applicationId: result.application.id,

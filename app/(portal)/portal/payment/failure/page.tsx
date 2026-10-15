@@ -9,7 +9,7 @@ import { getT } from "@/lib/i18n/server"
 export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: "Payment Failed",
+  title: "Payment not confirmed",
 }
 
 export default async function PaymentFailurePage() {
@@ -18,17 +18,17 @@ export default async function PaymentFailurePage() {
   return (
     <div className="max-w-md mx-auto px-6 py-16 text-center">
       <XCircle className="h-16 w-16 mx-auto mb-6" style={{ color: "#DC2626" }} />
-      <h1 className="text-2xl font-bold text-gray-900 mb-3">{t("failedTitle")}</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-3">{t("notConfirmedTitle")}</h1>
       <p className="text-gray-600 leading-relaxed mb-8">
-        {t("failedBody")}
+        {t("notConfirmedBody")}
       </p>
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
         <Link
-          href="/portal/payment"
+          href="/portal/loans"
           className="inline-block px-6 py-3 rounded-lg font-semibold text-white text-sm"
           style={{ backgroundColor: "#4F46E5" }}
         >
-          {t("tryAgain")}
+          {t("backToMyLoans")}
         </Link>
         <a
           href={`mailto:${identity.publicEmail}`}
@@ -37,6 +37,9 @@ export default async function PaymentFailurePage() {
           {t("contactSupport")}
         </a>
       </div>
+      <p className="text-sm mt-6">
+        <Link href="/portal/payment" className="text-gray-500 underline hover:text-gray-700">{t("makeNewPayment")}</Link>
+      </p>
       <p className="text-[11px] text-gray-400 mt-6">
         {t("failedContact", { email: identity.publicEmail, phone: identity.publicPhone })}
       </p>

@@ -258,6 +258,8 @@ Domain-specific rules live next to the code:
 - `lib/bureau/AGENTS.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/AGENTS.md` — bureau files; statuses are sent once
 - `lib/i18n/AGENTS.md` — borrower languages; legal text and money stay English
+- `lib/screening/AGENTS.md` — PEP/sanctions screening; a sanctions match is never cleared
+- `lib/fic/AGENTS.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
 - `lib/kyc/AGENTS.md` — failed-selfie override policy and database enforcement
 
 When you discover a rule that only applies inside one of these modules, add it

@@ -121,6 +121,14 @@ describe("tenant-scope — ALS primitives", () => {
       "Payout",
       // Dual-approval KYC override requests — non-null tenantId.
       "KycOverrideRequest",
+      // PEP / sanctions screening and FIC registers — non-null tenantId.
+      "ScreeningCheck",
+      "CashThresholdReport",
+      "SuspiciousReportCase",
+      "SuspiciousReportAccess",
+      "RmcpDocument",
+      // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
+      "LeaseRental",
     ])
   })
 

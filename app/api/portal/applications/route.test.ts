@@ -72,6 +72,8 @@ vi.mock("@/lib/utils", () => ({ generateReference: () => "APP-TEST-0001" }))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (...a: unknown[]) => triggerNotification(...a),
 }))
+const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
+vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
 vi.mock("@/lib/audit", () => ({
   logAudit: (...a: unknown[]) => logAudit(...a),
   AuditAction: {
@@ -394,6 +396,7 @@ describe("POST /api/portal/applications", () => {
       }),
     }))
     expect(triggerNotification).not.toHaveBeenCalled()
+    expect(screenOnSubmitMock).not.toHaveBeenCalled()
   })
 
   it("the CREATE cap is enforced on a genuine create — 429 blocks the create", async () => {
@@ -427,6 +430,8 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ creditLifeElection: "DECLINED" }),
     }))
+    // A6: PEP / sanctions screening starts once the portal submission committed; no staff actor.
+    expect(screenOnSubmitMock).toHaveBeenCalledWith(expect.objectContaining({ actor: null }))
   })
 
   it("409s when cover becomes available between the client's screen and the transaction", async () => {

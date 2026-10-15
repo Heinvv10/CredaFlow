@@ -48,9 +48,26 @@ const doctored: Array<[string, (bank: Bank) => Promise<Uint8Array>, string[]]> =
     (bank) => build(bank, { createdAt: new Date("2026-10-01T08:00:00Z"), modifiedAt: new Date("2026-10-03T10:00:00Z") }), ["MODIFIED_AFTER_CREATION"]],
 ]
 
+/** Appends the trailer-only save Word's "hybrid-xref" writes: no object, no xref entry, the previous trailer repeated. */
+function withWordHybridTail(original: Uint8Array): Uint8Array {
+  const base = Buffer.from(original)
+  const tail = base.subarray(base.lastIndexOf("trailer")).toString("latin1")
+  const prev = /startxref\s+(\d+)/.exec(tail)![1]
+  const size = /\/Size (\d+)/.exec(tail)![1]
+  const root = /\/Root (\d+ \d+ R)/.exec(tail)![1]
+  const info = /\/Info (\d+ \d+ R)/.exec(tail)![1]
+  const xref = base.length + 2
+  return Buffer.concat([base, Buffer.from(
+    `\r\nxref\r\n0 0\r\ntrailer\r\n<</Size ${size}/Root ${root}/Info ${info} /Prev ${prev}>>\r\nstartxref\r\n${xref}\r\n%%EOF`, "latin1")])
+}
+
 describe.each(BANKS)("%s doctored fixtures", (bank) => {
   it("the untouched original raises no authenticity flag", async () => {
     expect(await authenticityCodes(await build(bank))).toEqual([])
+  })
+
+  it("the original with Word's trailer-only save appended raises no authenticity flag", async () => {
+    expect(await authenticityCodes(withWordHybridTail(await build(bank)))).toEqual([])
   })
 
   it.each(doctored)("%s raises a DOCUMENT_AUTHENTICITY flag", async (_label, make, expected) => {

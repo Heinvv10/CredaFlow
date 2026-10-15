@@ -42,6 +42,8 @@ vi.mock("@/lib/utils", () => ({ generateReference: () => "APP-LOCKED" }))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (...args: unknown[]) => triggerNotificationMock(...args),
 }))
+const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
+vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
 
 import { POST } from "./route"
 
@@ -133,6 +135,8 @@ describe("POST /api/applications", () => {
         entityId: "application-1",
       }),
     })
+    // A6: PEP / sanctions screening is started once the submission committed.
+    expect(screenOnSubmitMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-1", applicationId: "application-1" }))
   })
 
   it("does not create when locked preparation fails", async () => {

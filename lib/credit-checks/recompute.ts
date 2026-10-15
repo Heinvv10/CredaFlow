@@ -9,7 +9,8 @@
  *   - a SUPERSEDED flag raised again     → OPEN again
  *   - an OPEN flag no longer raised      → SUPERSEDED only when the evidence it
  *     complained of being absent arrived, or the statement it could not read
- *     has been read (maySupersede). Otherwise it stays OPEN: a deleted
+ *     has been read, or (one finding per application) its successor is
+ *     raised (maySupersede). Otherwise it stays OPEN: a deleted
  *     statement, an edited client record or a parser change must not make a
  *     finding disappear without an officer clearing it.
  *
@@ -42,6 +43,8 @@ export interface RecomputeResult {
   payslipSnapshot?: string[]
   statementSnapshot?: string[]
   evidenceSince?: Date
+  /** The declared monthly expenses the checks compared with (`declaredExpenses`). */
+  declaredExpensesCents?: number | null
 }
 
 function listFlags(tenantId: string, applicationId: string, db: Pick<typeof prisma, "applicationCheckFlag"> = prisma) {
@@ -55,9 +58,15 @@ function listFlags(tenantId: string, applicationId: string, db: Pick<typeof pris
 const SUPERSEDES_ON_ARRIVAL = new Set(["NO_STATEMENT", "NO_PAYSLIP"])
 /** Codes about a statement not yet read: they go once that statement is read, not if it is deleted. */
 const SUPERSEDES_ON_READ = new Set(["NOT_READ", "NOT_READ_NO_CONSENT"])
+/**
+ * Codes an application carries one of at a time: a new declaration or
+ * statement set raises a successor, which replaces the older finding.
+ */
+const SUPERSEDES_ON_SUCCESSOR = new Set(["LIVING_SPEND_ABOVE_DECLARED"])
 
-export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts): boolean {
+export function maySupersede(flag: ApplicationCheckFlag, facts: ApplicationFacts, raisedCodes: ReadonlySet<string> = new Set()): boolean {
   if (SUPERSEDES_ON_ARRIVAL.has(flag.code)) return true
+  if (SUPERSEDES_ON_SUCCESSOR.has(flag.code)) return raisedCodes.has(flag.code)
   const e = (flag.evidence ?? {}) as { documentId?: unknown; payslipDocumentId?: unknown }
   // A payslip that could not be read goes once it has been extracted.
   if (flag.code === "PAYSLIP_NOT_READ") return typeof e.payslipDocumentId === "string" && facts.extractedPayslipIds.includes(e.payslipDocumentId)
@@ -95,6 +104,7 @@ export async function recomputeApplicationFlags(
     const candidates = runChecks(loaded.facts)
     const existing = new Map((await listFlags(tenantId, applicationId, tx)).map((f) => [f.fingerprint, f]))
     const raisedNow = new Set<string>()
+    const raisedCodes = new Set(candidates.map((c) => c.code))
     const changed = { raised: [] as string[], reopened: [] as string[], superseded: [] as string[] }
     const label = (f: { id: string; code: string }) => `${f.code}:${f.id}`
 
@@ -118,7 +128,7 @@ export async function recomputeApplicationFlags(
       }
     }
     for (const prior of existing.values()) {
-      if (prior.status !== "OPEN" || raisedNow.has(prior.fingerprint) || !maySupersede(prior, loaded.facts)) continue
+      if (prior.status !== "OPEN" || raisedNow.has(prior.fingerprint) || !maySupersede(prior, loaded.facts, raisedCodes)) continue
       const { count } = await tx.applicationCheckFlag.updateMany({
         where: { id: prior.id, tenantId, status: "OPEN" },
         data: { status: "SUPERSEDED" },
@@ -138,7 +148,7 @@ export async function recomputeApplicationFlags(
         newValue: { ...changed, open: flags.filter((f) => f.status === "OPEN").length },
       }, tx)
     }
-    return { recomputed: true, flags, evidenceAsOf, payslipSnapshot: loaded.payslipSnapshot, statementSnapshot: loaded.statementSnapshot, evidenceSince: loaded.since }
+    return { recomputed: true, flags, evidenceAsOf, payslipSnapshot: loaded.payslipSnapshot, statementSnapshot: loaded.statementSnapshot, evidenceSince: loaded.since, declaredExpensesCents: loaded.facts.declaredExpensesCents ?? null }
   }, { timeout: 30_000 })
 }
 

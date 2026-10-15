@@ -1,44 +1,26 @@
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { formatZAR } from "@/lib/utils"
 import Link from "next/link"
 import { Download, CreditCard } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
-import { getPortalTenantId } from "@/lib/session-tenant"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
+import { getPortalLoan } from "./portal-loan"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
 import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
 import type { Locale } from "@/lib/i18n/locales"
+import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
+import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { loadPortalLease } from "@/lib/asset-finance/portal-lease"
 
 interface PageProps {
   params: Promise<{ id: string }>
-}
-
-async function getPortalLoan(loanId: string, email: string) {
-  const tenantId = await getPortalTenantId()
-
-  const client = await prisma.client.findFirst({ where: { email, tenantId } })
-  if (!client) return null
-
-  const loan = await prisma.loan.findFirst({
-    where: { id: loanId, tenantId },
-    include: {
-      product: { select: { name: true } },
-      repaymentSchedule: { orderBy: { installmentNo: "asc" } },
-      payments: { orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }] },
-      surrenderRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true } },
-    },
-  })
-
-  if (!loan || loan.clientId !== client.id) return null
-  return loan
 }
 
 export default async function PortalLoanDetailPage({ params }: PageProps) {
@@ -51,6 +33,13 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   const locale = await getLocale()
   const t = createTranslator(locale, "portalLoans")
   const l = createTranslator(locale, "portalLabels")
+
+  if (isLeaseContract(loan.contractType)) {
+    // A sole proprietor's lease: rentals, not a loan. The lease gate decides who may see it.
+    const lease = loan.clientId ? await loadPortalLease(loan.tenantId, loan.clientId, loan.id) : null
+    if (!lease) redirect("/portal")
+    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} />
+  }
 
   const nextPayment = loan.repaymentSchedule.find(
     s => s.status === "PENDING" || s.status === "PARTIAL"

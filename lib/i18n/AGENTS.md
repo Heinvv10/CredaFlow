@@ -8,8 +8,9 @@
 
 ## Purpose
 Borrower-facing languages (en, af, zu, xh) for the public website, the client
-portal and borrower comms. The staff app, the NCA documents (`lib/pdf`) and
-legal / consent text stay English.
+portal and borrower comms. The staff app, the NCA documents (`lib/pdf`),
+legal / consent text and, for now, the portal lease pages
+(`components/portal/lease/`) stay English.
 
 ## Critical Rules
 - **English is the source of truth.** `messages/en/*.ts` defines every key and
@@ -28,9 +29,8 @@ legal / consent text stay English.
 - **English output must not change.** Comms English is pinned by digest
   (`lib/email/templates/english-pinned.test.ts`); product copy and WhatsApp text
   have equality tests against their original sources.
-- **Money stays `formatZAR` in every language** (matches the PDFs). Dates for
-  af/zu/xh go through `format.ts` (CLDR tables, not runtime Intl: Chrome has no
-  zu/xh data and would fail hydration).
+- **Money stays `formatZAR`** (matches the PDFs). af/zu/xh dates go through
+  `format.ts` (CLDR tables: Chrome has no zu/xh Intl data; hydration fails).
 - **No locale in the URL.** `server.ts` resolves cookie → client profile →
   Accept-Language, only within the tenant's enabled languages.
 - **Client components use `useT(ns)`**; the namespace must be listed in
