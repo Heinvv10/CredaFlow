@@ -1,4 +1,5 @@
 import {
+  adverseFaceVerdict,
   biometricSubjectFingerprint,
   type BiometricEvidenceAssessment,
   type BiometricSubjectClient,
@@ -263,16 +264,33 @@ export function matchesBlockingSelfie(row: {
  */
 export const ID_PORTRAIT_REFUSAL_CONDITIONS: {
   docType: "SELFIE"
-  biometricResult: { path: ["biometricFailureReason"]; equals: "id_document_portrait_invalid" }
+  OR: [
+    { biometricResult: { path: ["biometricFailureReason"]; equals: "id_document_portrait_invalid" } },
+    { biometricResult: { path: ["workerFailureReason"]; equals: "id_document_portrait_invalid" } },
+  ]
 } = {
   docType: "SELFIE",
-  biometricResult: { path: ["biometricFailureReason"], equals: "id_document_portrait_invalid" },
+  // workerFailureReason: the reason the worker gave, kept when the ID/subject
+  // binding replaced the recorded one with subject_identity_changed. A refusal
+  // of an ID's portrait is a fact about that ID copy and must survive it.
+  OR: [
+    { biometricResult: { path: ["biometricFailureReason"], equals: "id_document_portrait_invalid" } },
+    { biometricResult: { path: ["workerFailureReason"], equals: "id_document_portrait_invalid" } },
+  ],
+}
+
+const PORTRAIT_INVALID = "id_document_portrait_invalid"
+
+/** Whether a stored result refused the ID portrait, by the recorded or the worker's own reason. */
+function refusedIdPortrait(result: Record<string, unknown> | null): result is Record<string, unknown> {
+  return result !== null &&
+    (result.biometricFailureReason === PORTRAIT_INVALID || result.workerFailureReason === PORTRAIT_INVALID)
 }
 
 /** The same predicate, against a row already in memory (the readiness board). */
 export function matchesIdPortraitRefusal(row: { docType?: string; biometricResult: unknown }): boolean {
   if (row.docType !== undefined && row.docType !== ID_PORTRAIT_REFUSAL_CONDITIONS.docType) return false
-  return jsonRecord(row.biometricResult)?.biometricFailureReason === "id_document_portrait_invalid"
+  return refusedIdPortrait(jsonRecord(row.biometricResult))
 }
 
 /**
@@ -303,7 +321,7 @@ export function idDocumentPortraitRefused(
 ): boolean {
   return attempts.some((attempt) => {
     const result = jsonRecord(attempt.biometricResult)
-    if (!result || result.biometricFailureReason !== "id_document_portrait_invalid") return false
+    if (!refusedIdPortrait(result)) return false
     const namedId = typeof result.idDocumentId === "string" ? result.idDocumentId : null
     const namedSha = typeof result.idDocumentSha256 === "string" ? result.idDocumentSha256 : null
     return (namedId === null && namedSha === null)
@@ -312,13 +330,124 @@ export function idDocumentPortraitRefused(
   })
 }
 
+/** biometricResult.verdictRecordedAt: fixed-format ISO, so text order is time order. */
+const VERDICT_RECORDED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
+/**
+ * Whether ANY selfie attempt (deleted or not, latest or not) carries an adverse
+ * face verdict recorded after the attestation was completed, against the ID
+ * copy the attestation is bound to. Staff attested without seeing that
+ * verdict, so it lapses the attestation, and a later benign-failing retake
+ * must not bury it. Three things do not count: a verdict recorded strictly
+ * before it (staff could see it; the same millisecond cannot be ordered and
+ * counts as after), a stale answer naming another ID copy (one naming no copy
+ * at all counts: fail closed), and a row without the stamp (written before the
+ * stamp existed).
+ *
+ * `attempts` are the rows of PRIOR_FAILED_ATTEMPT_CONDITIONS: the SQL repeats
+ * that status filter. Mirrors the `verdict` NOT EXISTS in
+ * subject_has_in_person_kyc_verification (migration
+ * 20261014120000_in_person_lapse_on_adverse_verdict).
+ */
+export function adverseVerdictRecordedAfter(
+  attempts: readonly { biometricResult: unknown }[],
+  attestationCompletedAt: Date,
+  idDocument: { id: string },
+): boolean {
+  const completedAt = attestationCompletedAt.toISOString()
+  return attempts.some((attempt) => {
+    const result = jsonRecord(attempt.biometricResult)
+    if (!result) return false
+    const recordedAt = result.verdictRecordedAt
+    if (typeof recordedAt !== "string" || !VERDICT_RECORDED_AT.test(recordedAt)) return false
+    if (recordedAt < completedAt) return false
+    if (typeof result.idDocumentId === "string" && result.idDocumentId !== idDocument.id) return false
+    return adverseFaceVerdict(result)
+  })
+}
+
+/** The failure reason of an attempt whose outcome was never recorded (swept, or unrecorded). */
+const UNKNOWN_OUTCOME_REASON = "biometric_outcome_not_recorded"
+
+/**
+ * Whether ANY selfie attempt (deleted or not, latest or not) submitted after
+ * the attestation has an unknown outcome. Any of:
+ *  - it ended biometric_outcome_not_recorded;
+ *  - the sweeper failed it (`sweptAt`, kept when a late answer replaced the
+ *    reason);
+ *  - it was DELETED while still pending or processing: neither the sweeper nor
+ *    the worker's write touches a deleted row, so it never gets a reason, and
+ *    it no longer blocks the route either. Its verdict is lost the same way
+ *    (biometric-evidence.ts already treats such an attempt as adverse).
+ * The lost verdict could have been a mismatch, so it fails closed and lapses
+ * the attestation.
+ *
+ * Mirrors the `unknown_outcome` NOT EXISTS in the same SQL function.
+ */
+export function unknownOutcomeAfterAttestation(
+  attempts: readonly {
+    biometricResult: unknown
+    createdAt: Date
+    deletedAt: Date | null
+    extractionStatus: string | null
+  }[],
+  attestationCompletedAt: Date,
+): boolean {
+  return attempts.some((attempt) => {
+    const result = jsonRecord(attempt.biometricResult)
+    // The reason, or the sweeper's lasting marker: a late answer replaces the
+    // reason with the real one, but a selfie that was lost and swept stays
+    // lost for this rule, whatever arrives later.
+    const unknown = result?.biometricFailureReason === UNKNOWN_OUTCOME_REASON ||
+      typeof result?.sweptAt === "string" ||
+      (attempt.deletedAt instanceof Date &&
+        (attempt.extractionStatus === "pending" || attempt.extractionStatus === "processing"))
+    return unknown && attempt.createdAt.getTime() >= attestationCompletedAt.getTime()
+  })
+}
+
+/**
+ * The idempotency key of an in-person attestation, shared by the direct route
+ * and the dual-approval grant so both agree on what "the same attestation" is.
+ *
+ * Keyed to the exact circumstances attested to, so one identity + ID pair
+ * cannot stack duplicate attestations. The newest selfie attempt is one of
+ * them: an attestation from before a later attempt no longer counts once that
+ * attempt is released (selfieBlocksInPersonVerification), so staff must be
+ * able to attest afresh after it. So is the time its verdict was recorded: an
+ * adverse verdict landing after an attestation lapses it
+ * (adverseVerdictRecordedAfter), and the fresh attestation over that same
+ * attempt must not hit the old key. The stamp is absent on rows written before
+ * it existed, so their keys are unchanged.
+ */
+export function inPersonAttestationIdempotencyKey(args: {
+  clientId: string
+  idDocument: { id: string; contentSha256: string }
+  subjectFingerprint: string
+  latestAttempt: { id: string; biometricResult: unknown } | null
+}): string {
+  const verdictRecordedAt = jsonRecord(args.latestAttempt?.biometricResult)?.verdictRecordedAt
+  return [
+    "kyc-in-person",
+    args.clientId,
+    args.idDocument.id,
+    args.idDocument.contentSha256,
+    args.subjectFingerprint,
+    args.latestAttempt?.id ?? "no-selfie",
+    ...(typeof verdictRecordedAt === "string" ? [verdictRecordedAt] : []),
+  ].join(":")
+}
+
 /**
  * Valid only while the exact circumstances the approver attested to still hold.
  *
  * A live biometric attempt — processing or passed — takes this out of scope:
  * the biometric rules govern it. A failed or deleted attempt does not. A
  * replaced ID, an unverified or deleted ID, or an edited identity all lapse
- * it, so this can never become a standing "this client is exempt" flag.
+ * it, so this can never become a standing "this client is exempt" flag. So
+ * does an adverse face verdict recorded after the attestation, or a selfie
+ * attempt submitted after it whose outcome is unknown: the client must be
+ * re-verified (a new attestation completed after it, or a selfie that passes).
  */
 export function currentInPersonKycVerification(
   record: InPersonKycVerificationRecord | null,
@@ -330,6 +459,17 @@ export function currentInPersonKycVerification(
     biometricAssessment: BiometricEvidenceAssessment
     /** Selfie attempts matching ID_PORTRAIT_REFUSAL_CONDITIONS. */
     portraitRefusals: readonly { biometricResult: unknown }[]
+    /**
+     * Every selfie attempt matching PRIOR_FAILED_ATTEMPT_CONDITIONS, deleted
+     * or not, with its creation time. Required, not optional: omitting it
+     * would silently disable both lapse rules.
+     */
+    selfieAttempts: readonly {
+      biometricResult: unknown
+      createdAt: Date
+      deletedAt: Date | null
+      extractionStatus: string | null
+    }[]
   },
 ): InPersonKycVerificationEvidence | null {
   if (
@@ -354,6 +494,12 @@ export function currentInPersonKycVerification(
     evidence.idDocumentSha256 !== args.idDocument.contentSha256 ||
     evidence.subjectFingerprint !== biometricSubjectFingerprint(args.subject) ||
     evidence.approvedAt !== record.completedAt.toISOString()
+  ) {
+    return null
+  }
+  if (
+    adverseVerdictRecordedAfter(args.selfieAttempts, record.completedAt, args.idDocument) ||
+    unknownOutcomeAfterAttestation(args.selfieAttempts, record.completedAt)
   ) {
     return null
   }

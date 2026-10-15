@@ -256,6 +256,7 @@ function input(overrides: Overrides = {}): ReadinessInput {
       underDebtReview: false,
       hasJudgement: false,
       hasNotice: false,
+      obligations: { totalMonthly: 0 },
     },
     // 480 is the Sigma floor; below it the gate demands calibration whatever
     // the consumer scored. The route's own 450 fallback is under it.

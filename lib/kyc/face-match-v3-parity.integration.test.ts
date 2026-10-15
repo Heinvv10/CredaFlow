@@ -199,7 +199,9 @@ const cases: Case[] = [
   },
   {
     name: "bound to the newest verified copy while a newer one awaits verification",
-    expected: true,
+    // A newer unreviewed copy outweighs the verified one in both layers
+    // (subject_has_pending_id_replacement, pendingIdReplacement).
+    expected: false,
     before: (ids) => [newerIdCopy(ids, "newer_unverified", false, "b".repeat(64))],
   },
   {

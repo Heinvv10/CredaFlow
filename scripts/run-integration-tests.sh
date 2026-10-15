@@ -111,6 +111,31 @@ if [[ "${ALLOW_REMOTE_TEST_DB:-}" != "1" ]]; then
   fi
 fi
 
+# Same-machine guard. Many sessions share this host and start throwaway
+# containers with one password; when a session's `docker run -p` loses the port
+# race and its script carries on, it migrates and tests ANOTHER session's
+# database. scripts/it-db.sh starts a container on a free port and exports
+# IT_CONTAINER; the container must really own the URL's port (the check lives in
+# `it-db.sh check`, which the recipe also runs before `prisma migrate deploy`).
+# IT_CONTAINER unset on a local host is refused, except under CI=true (GitHub
+# Actions service container) or with REQUIRE_IT_CONTAINER=0 (explicit opt-out).
+# Compose hosts (`db`, `postgres`) are not checked.
+# Tested by scripts/__tests__/run-integration-tests-container-guard.test.ts.
+GUARD_HOST="$(database_host "$DATABASE_URL" || true)"
+if [[ "$GUARD_HOST" =~ ^(localhost|127\.0\.0\.1|\[::1\])$ ]]; then
+  if [[ -n "${IT_CONTAINER:-}" ]]; then
+    bash "$ROOT/scripts/it-db.sh" check
+  elif [[ "${CI:-}" == "true" || "${REQUIRE_IT_CONTAINER:-}" == "0" ]]; then
+    echo ">> note: IT_CONTAINER unset; local DATABASE_URL not verified as yours (CI=true or REQUIRE_IT_CONTAINER=0)" >&2
+  else
+    echo "!! DATABASE_URL is local but IT_CONTAINER is unset, so nothing proves this database" >&2
+    echo "!! is yours; another session may own that port. Refusing. Use:" >&2
+    echo "!!   eval \"\$(bash scripts/it-db.sh up cf-it-<unique>)\"" >&2
+    echo "!! (CI=true or REQUIRE_IT_CONTAINER=0 opts out.)" >&2
+    exit 1
+  fi
+fi
+
 if [[ "${1:-}" == "--check-database-url" ]]; then
   echo ">> DATABASE_URL host accepted"
   exit 0

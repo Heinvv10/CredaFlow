@@ -3,7 +3,7 @@ import { revalidateTag } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { CredentialInputError, sealCredential, withMaskedCredentials } from "@/lib/integrations/tenant-credentials"
+import { CredentialInputError, redactTenantCredentials, sealCredential } from "@/lib/integrations/tenant-credentials"
 import { cleanAddressLine } from "@/lib/bureau-submission/clean"
 import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
@@ -45,7 +45,7 @@ export async function GET(
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 })
   }
 
-  return NextResponse.json(withMaskedCredentials(tenant))
+  return NextResponse.json(redactTenantCredentials(tenant))
 }
 
 // Sealed on write (lib/integrations/tenant-credentials.ts); null clears one.
@@ -191,7 +191,7 @@ export async function PATCH(
   }
   if (bureauKeys.length === 0 && colourKeys.length === 0 && credentialKeys.length === 0) {
     const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
-    return NextResponse.json(withMaskedCredentials(updated))
+    return NextResponse.json(redactTenantCredentials(updated))
   }
 
   // The change and its audit rows commit together, or neither does.
@@ -269,5 +269,5 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json(withMaskedCredentials(updated))
+  return NextResponse.json(redactTenantCredentials(updated))
 }

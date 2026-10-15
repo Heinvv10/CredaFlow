@@ -69,6 +69,12 @@ const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
     sandboxEnvVar: null,
     sandboxSafeValues: [],
   },
+  /** The fixture bureau (lib/bureau/providers/simulated.ts). Every report it
+   *  returns is fabricated, so it exists only where this guard permits it. */
+  "simulated-bureau": {
+    sandboxEnvVar: null,
+    sandboxSafeValues: [],
+  },
   netcash: {
     sandboxEnvVar: null,
     sandboxSafeValues: [],

@@ -231,23 +231,33 @@ export async function DELETE(req: Request, { params }: RouteParams) {
               preserveVerifiedProvenance: true,
             },
           )
-          clientAfter = await tx.client.update({
-            where: { id: current.clientId, tenantId: tenant.id },
-            data: compositeKyc.state,
-            select: {
-              kycStatus: true,
-              kycVerifiedAt: true,
-              kycVerifiedById: true,
-              kycVerificationMethod: true,
-              kycManualRejectionActive: true,
-              kycManualRejectionAt: true,
-              kycManualRejectionById: true,
-              kycManualRejectionReason: true,
-              kycManualRejectionResolvedAt: true,
-              kycManualRejectionResolvedById: true,
-              kycManualRejectionResolutionReason: true,
-            },
-          })
+          // A client's delete may only LOWER the stored status. Deleting a
+          // pending replacement ID would otherwise re-derive VERIFIED on the
+          // older copy and promote the client with no verifier on record;
+          // restoring VERIFIED is a staff verification's job.
+          const clientPromotion =
+            caller.type === "client" &&
+            compositeKyc.state.kycStatus === "VERIFIED" &&
+            clientBefore.kycStatus !== "VERIFIED"
+          if (!clientPromotion) {
+            clientAfter = await tx.client.update({
+              where: { id: current.clientId, tenantId: tenant.id },
+              data: compositeKyc.state,
+              select: {
+                kycStatus: true,
+                kycVerifiedAt: true,
+                kycVerifiedById: true,
+                kycVerificationMethod: true,
+                kycManualRejectionActive: true,
+                kycManualRejectionAt: true,
+                kycManualRejectionById: true,
+                kycManualRejectionReason: true,
+                kycManualRejectionResolvedAt: true,
+                kycManualRejectionResolvedById: true,
+                kycManualRejectionResolutionReason: true,
+              },
+            })
+          }
         }
 
         await tx.auditLog.create({

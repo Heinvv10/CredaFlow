@@ -13,7 +13,7 @@ import {
   type StoredCreditLifeDisclosure,
 } from "@/lib/insurance/credit-life-election.server"
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
-import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
+import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import {
   verifyStoredProviderCountersign,
   type StoredProviderCountersign,
@@ -79,6 +79,7 @@ export interface ReadinessBureauCheck {
   hasNotice: boolean
   /** Carries the `simulated` marker the bureau gate reads. */
   obligations?: unknown
+  provider?: string
 }
 
 /** The client columns the payout bank tuple is built from. */
@@ -237,7 +238,7 @@ function approvalBlockers(input: ReadinessInput): string[] {
     return ["Bureau reports deceased"]
   }
   // Not overridable: a reasoned override cannot approve on fabricated evidence.
-  if (simulatedBureauBlock(isSimulatedBureauCheck(input.bureau?.obligations)).blocked) {
+  if (simulatedBureauBlock(input.bureau).blocked) {
     return ["Bureau check is simulated"]
   }
   if (!input.bureau) {

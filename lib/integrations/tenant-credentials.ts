@@ -18,6 +18,7 @@
  */
 import { prisma } from "@/lib/prisma"
 import { isSealed, openSecret, sealSecret } from "@/lib/crypto/secret-box"
+import { redactTenantBureauCredentials } from "@/lib/bureau/credentials"
 
 const KEY_ENV = "WABA_ENC_KEY"
 
@@ -81,9 +82,19 @@ export function maskConfigCredentials<T extends Record<string, unknown>>(config:
   return masked as T
 }
 
-/** A Tenant row with its config, as an API may return it. */
+/** A Tenant row with its config, provider credential columns masked. */
 export function withMaskedCredentials<T extends { config: Record<string, unknown> | null }>(tenant: T): T {
   return { ...tenant, config: tenant.config && maskConfigCredentials(tenant.config) }
+}
+
+/**
+ * A Tenant row with its config as an API may return it: every credential
+ * column masked, and the sealed bureau-credentials bag replaced by whether
+ * one is stored (lib/bureau/credentials.ts). Every response that returns a
+ * whole TenantConfig goes through this.
+ */
+export function redactTenantCredentials<T extends { config: (Record<string, unknown> & { bureauCredentials: string | null }) | null }>(tenant: T) {
+  return redactTenantBureauCredentials(withMaskedCredentials(tenant))
 }
 
 /** Splits an "id:secret" pair at the FIRST colon, so a secret may contain colons. */

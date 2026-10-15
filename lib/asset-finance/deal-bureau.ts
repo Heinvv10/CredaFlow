@@ -6,32 +6,36 @@
  * bureau-review.ts) only stores a result while the application is
  * UNDER_REVIEW for that same client in the current bureauReviewGeneration:
  * an entity application has no clientId, so every director's result would
- * be discarded as "stale". This module makes the SAME provider call
- * (getCreditReport(buildExperianEnquiryInput(...)), the live Experian path),
- * applies the SAME POPIA consent rule, and stores the same rows: a
- * CreditBureauCheck for a result and a CREDIT_BUREAU_CHECK ComplianceRecord
- * for every attempt, both keyed to the deal's application. Keep the consent
- * rule identical to bureau-review.ts.
+ * be discarded as "stale". This module runs the SAME enquiry (runBureauEnquiry
+ * over the tenant's bureau order, approval bureaus only — lib/bureau),
+ * applies the SAME POPIA consent rule, and stores the same rows: one
+ * CreditBureauCheck per bureau attempt (bureauCheckRow, so a simulated report
+ * keeps its marker) and a CREDIT_BUREAU_CHECK ComplianceRecord per run, both
+ * keyed to the deal's application. Keep the consent rule identical to
+ * bureau-review.ts. A person's stored check is reused for the tenant's bureau
+ * freshness window (TenantConfig.bureauMaxAgeDays): inside it, a report is
+ * current, and a new enquiry would only mark their credit record again.
  *
  * A JURISTIC trustee (a company acting as trustee) is not a natural person
  * and gets no consumer check; it is listed as skipped.
  */
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { bureauCheckMatchesSubject, bureauSubjectFingerprint, type BureauSubjectClient } from "@/lib/compliance/bureau-subject"
-import { getCreditReport } from "@/lib/integrations/experian"
-import { buildExperianEnquiryInput } from "@/lib/integrations/experian-input"
+import { bureauSubjectFingerprint, type BureauSubjectClient } from "@/lib/compliance/bureau-subject"
+import { isApprovalBureau } from "@/lib/compliance/bureau"
+import { openBureauCredentials, type BureauCredentialMap } from "@/lib/bureau/credentials"
+import { runBureauEnquiry } from "@/lib/bureau/enquiry"
+import { bureauCheckRow } from "@/lib/bureau/persist"
+import { DAY_MS, dealBureauConfig, type DealBureauConfig } from "./deal-bureau-window"
 
 /**
- * "recent": a check stored for this application within RECHECK_WINDOW_DAYS;
+ * "recent": a check stored for this application within the tenant's window;
  * "busy": a concurrent request held this person's check for longer than
  * LOCK_WAIT_MS. Neither made an enquiry.
  */
 export type DealBureauOutcome = "stored" | "skipped" | "failed" | "recent" | "busy"
 
-/** A person checked for this application this recently is not checked again unless the run is forced. */
-export const RECHECK_WINDOW_DAYS = 30
-const DAY_MS = 24 * 60 * 60 * 1000
+export { dealRecheckWindowDays, recentlyCheckedClientIds } from "./deal-bureau-window"
 
 export interface DealBureauSubject {
   clientId: string
@@ -39,7 +43,6 @@ export interface DealBureauSubject {
   trusteeKind: "NATURAL" | "JURISTIC" | null
 }
 
-const PROVIDER = "experian"
 // The enquiry runs inside the transaction that holds the per-person lock.
 // The wait for that lock is bounded (polled, LOCK_WAIT_MS), so the
 // transaction's budget is the wait, the provider's own timeout
@@ -51,12 +54,13 @@ const LOCK_POLL_MS = 100
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 type BureauDb = Pick<Tx, "client" | "complianceRecord" | "creditBureauCheck">
 
+/** `data.provider` names the bureau: the one asked, or the tenant's primary when none was. */
 async function recordAttempt(
   db: BureauDb,
   tenantId: string,
   applicationId: string,
   status: "ACKNOWLEDGED" | "PENDING",
-  data: Prisma.InputJsonObject,
+  data: Prisma.InputJsonObject & { provider: string },
 ): Promise<void> {
   await db.complianceRecord.create({
     data: {
@@ -65,7 +69,7 @@ async function recordAttempt(
       status,
       referenceId: applicationId,
       completedAt: status === "ACKNOWLEDGED" ? new Date() : null,
-      data: { provider: PROVIDER, assetFinance: true, ...data },
+      data: { assetFinance: true, ...data },
     },
   })
 }
@@ -81,48 +85,14 @@ export async function dealBureauSubjects(tenantId: string, entityId: string): Pr
 }
 
 /**
- * Of `clientIds`, those with a successful check stored for this application
- * within the last RECHECK_WINDOW_DAYS. Each consumer enquiry leaves a footprint
- * on the person's credit record, so a re-run inside the window needs `force`.
- */
-export async function recentlyCheckedClientIds(
-  tenantId: string,
-  applicationId: string,
-  clientIds: string[],
-  now: Date = new Date(),
-): Promise<Set<string>> {
-  if (clientIds.length === 0) return new Set()
-  const [rows, clients] = await Promise.all([
-    prisma.creditBureauCheck.findMany({
-      where: {
-        tenantId, applicationId, clientId: { in: clientIds }, ok: true,
-        createdAt: { gte: new Date(now.getTime() - RECHECK_WINDOW_DAYS * DAY_MS) },
-      },
-      select: { clientId: true, subjectFingerprint: true },
-    }),
-    prisma.client.findMany({
-      where: { tenantId, id: { in: clientIds } },
-      select: { id: true, idNumber: true, firstName: true, lastName: true, gender: true, dateOfBirth: true },
-    }),
-  ])
-  const current = new Map(clients.map((client) => [client.id, client]))
-  return new Set(rows
-    .filter((row) => {
-      const client = current.get(row.clientId)
-      return client ? bureauCheckMatchesSubject(row, client) : false
-    })
-    .map((row) => row.clientId))
-}
-
-/**
  * One person's check for this application. Concurrent requests for the same
  * (application, person) queue on a transaction-scoped advisory lock held
  * across the stored-check lookup, the enquiry and its rows, so two requests
  * make one enquiry: the second sees the first's stored check and answers
  * "recent". The wait for the lock is bounded: after LOCK_WAIT_MS the request
- * answers "busy" without enquiring. Without `force` a check stored in the
- * last RECHECK_WINDOW_DAYS is recent; with it, only one stored since this
- * request started (`startedAt`, i.e. by a concurrent request).
+ * answers "busy" without enquiring. Without `force` a check stored inside the
+ * tenant's window is recent; with it, only one stored since this request
+ * started (`startedAt`, i.e. by a concurrent request).
  *
  * An enquiry that was made is always recorded: it is on the person's credit
  * record whatever happens to its rows. If the transaction fails once the
@@ -137,11 +107,13 @@ export async function runDealBureauCheck(
   opts: { force: boolean; startedAt: Date },
 ): Promise<DealBureauOutcome> {
   const { clientId } = subject
+  const bureau = await dealBureauConfig(tenantId)
+  const primary = bureau.order[0]
   if (subject.trusteeKind === "JURISTIC") {
-    await recordAttempt(prisma, tenantId, applicationId, "ACKNOWLEDGED", { clientId, outcome: "skipped", reason: "JURISTIC_TRUSTEE" })
+    await recordAttempt(prisma, tenantId, applicationId, "ACKNOWLEDGED", { provider: primary, clientId, outcome: "skipped", reason: "JURISTIC_TRUSTEE" })
     return "skipped"
   }
-  const since = opts.force ? opts.startedAt : new Date(opts.startedAt.getTime() - RECHECK_WINDOW_DAYS * DAY_MS)
+  const since = opts.force ? opts.startedAt : new Date(opts.startedAt.getTime() - bureau.windowDays * DAY_MS)
   const enquiry: Enquiry = { made: false }
   try {
     return await prisma.$transaction(async (tx) => {
@@ -154,17 +126,19 @@ export async function runDealBureauCheck(
       const stored = await tx.creditBureauCheck.count({
         where: { tenantId, applicationId, clientId, subjectFingerprint, ok: true, createdAt: { gte: since } },
       })
-      return stored > 0 ? "recent" : enquire(tx, tenantId, applicationId, clientId, enquiry)
+      return stored > 0 ? "recent" : enquire(tx, tenantId, applicationId, clientId, enquiry, bureau)
     }, { timeout: ENQUIRY_TRANSACTION_MS })
   } catch (error) {
-    if (enquiry.made) await recordUnstoredEnquiry(tenantId, applicationId, clientId, error)
+    if (enquiry.made) await recordUnstoredEnquiry(tenantId, applicationId, clientId, enquiry.provider ?? primary, error)
     throw error
   }
 }
 
-/** Set once the provider call begins: from then on the enquiry may be on the person's credit record. */
+/** Set once a provider call begins: from then on the enquiry may be on the person's credit record. */
 interface Enquiry {
   made: boolean
+  /** The bureau most recently asked. */
+  provider?: string
 }
 
 /** The transaction-scoped advisory lock on `key`, polled for at most LOCK_WAIT_MS; false if it stayed held. */
@@ -185,11 +159,12 @@ async function lockPerson(tx: Tx, key: string): Promise<boolean> {
  * it (the shape of the in-transaction failure record, plus enquiryMade). If
  * even this write fails, both errors are surfaced.
  */
-async function recordUnstoredEnquiry(tenantId: string, applicationId: string, clientId: string, error: unknown): Promise<void> {
+async function recordUnstoredEnquiry(tenantId: string, applicationId: string, clientId: string, provider: string, error: unknown): Promise<void> {
   // jsonb refuses U+0000; the message is a diagnostic, so it is also capped.
   const reason = (error instanceof Error ? error.message : String(error)).replaceAll("\u0000", "").slice(0, 500)
   try {
     await recordAttempt(prisma, tenantId, applicationId, "PENDING", {
+      provider,
       clientId,
       outcome: "failed",
       enquiryMade: true,
@@ -201,12 +176,15 @@ async function recordUnstoredEnquiry(tenantId: string, applicationId: string, cl
 }
 
 /**
- * The enquiry and its rows, in the caller's transaction. A lookup or provider
- * failure is recorded as a failed attempt; a failure to store the result
- * rolls the transaction back and propagates (runDealBureauCheck then records
- * the attempt outside it).
+ * The enquiry and its rows, in the caller's transaction. A lookup failure or
+ * a bureau refusal is recorded; a failure to store the result rolls the
+ * transaction back and propagates (runDealBureauCheck then records the
+ * attempt outside it).
  */
-async function enquire(db: BureauDb, tenantId: string, applicationId: string, clientId: string, enquiry: Enquiry): Promise<DealBureauOutcome> {
+async function enquire(
+  db: BureauDb, tenantId: string, applicationId: string, clientId: string, enquiry: Enquiry, bureau: DealBureauConfig,
+): Promise<DealBureauOutcome> {
+  const primary = bureau.order[0]
   const client = await db.client.findFirst({
     where: { id: clientId, tenantId },
     select: {
@@ -216,11 +194,11 @@ async function enquire(db: BureauDb, tenantId: string, applicationId: string, cl
       gender: true,
       dateOfBirth: true,
       popiaConsentGiven: true,
-      consent: { select: { creditBureauEnquiry: true, withdrawnAt: true } },
+      consent: { select: { id: true, creditBureauEnquiry: true, withdrawnAt: true } },
     },
   })
   if (!client) {
-    await recordAttempt(db, tenantId, applicationId, "PENDING", { clientId, outcome: "failed", error: "client not found" })
+    await recordAttempt(db, tenantId, applicationId, "PENDING", { provider: primary, clientId, outcome: "failed", error: "client not found" })
     return "failed"
   }
   // POPIA gate, as lib/compliance/bureau-review.ts: granular consent is
@@ -229,7 +207,7 @@ async function enquire(db: BureauDb, tenantId: string, applicationId: string, cl
   const consentGranted = granular ? granular.creditBureauEnquiry && granular.withdrawnAt === null : client.popiaConsentGiven
   if (!consentGranted) {
     const reason = granular ? (granular.withdrawnAt ? "CONSENT_WITHDRAWN" : "CONSENT_REFUSED") : "CONSENT_MISSING"
-    await recordAttempt(db, tenantId, applicationId, "ACKNOWLEDGED", { clientId, outcome: "skipped", skipped: true, reason })
+    await recordAttempt(db, tenantId, applicationId, "ACKNOWLEDGED", { provider: primary, clientId, outcome: "skipped", skipped: true, reason })
     return "skipped"
   }
 
@@ -240,66 +218,56 @@ async function enquire(db: BureauDb, tenantId: string, applicationId: string, cl
     gender: client.gender,
     dateOfBirth: client.dateOfBirth,
   }
-  let result: Awaited<ReturnType<typeof getCreditReport>>
-  enquiry.made = true
-  try {
-    result = await getCreditReport(
-      buildExperianEnquiryInput({
-        ...identity,
-        gender: client.gender === "MALE" ? "M" : client.gender === "FEMALE" ? "F" : null,
-        consentGranted: true,
-        applicationId,
-      }),
+  let credentials: BureauCredentialMap | null = null
+  const run = await runBureauEnquiry({
+    request: {
       tenantId,
-    )
-  } catch (error) {
-    await recordAttempt(db, tenantId, applicationId, "PENDING", {
-      clientId,
-      outcome: "failed",
-      error: error instanceof Error ? error.message : "bureau check failed",
-    })
-    return "failed"
-  }
-  await db.creditBureauCheck.create({
-    data: {
-      tenantId,
-      clientId,
-      applicationId,
-      subjectFingerprint: bureauSubjectFingerprint({ id: clientId, ...identity }),
-      provider: PROVIDER,
-      score: result.score ?? null,
-      riskGrade: result.riskGrade ?? null,
-      adverseInfo: result.adverseInfo ?? [],
-      hasAdverse: (result.adverseInfo?.length ?? 0) > 0,
-      deceased: result.deceased ?? false,
-      underDebtReview: result.underDebtReview ?? false,
-      hasJudgement: result.hasJudgement ?? false,
-      hasNotice: result.hasNotice ?? false,
-      unscoreable: result.unscoreable ?? false,
-      declineReasons: result.declineReasons ?? [],
-      ok: result.ok,
-      errorMessage: result.error ?? null,
+      consumer: { ...identity, gender: client.gender === "MALE" ? "M" : client.gender === "FEMALE" ? "F" : null },
+      purpose: "AFFORDABILITY_ASSESSMENT",
+      consent: { reference: granular ? `ClientConsent:${granular.id}` : `Client.popiaConsentGiven:${clientId}` },
+      reference: applicationId,
+    },
+    order: bureau.order,
+    credentialsFor: (providerId) => {
+      credentials ??= openBureauCredentials(bureau.credentials)
+      return credentials[providerId] ?? null
+    },
+    // A director's report feeds the deal decision: approval bureaus only.
+    eligible: isApprovalBureau,
+    beforeAttempt: async () => {
+      enquiry.made = true
+      return true
     },
   })
+  const subjectFingerprint = bureauSubjectFingerprint({ id: clientId, ...identity })
+  for (const attempt of run.attempts) {
+    if (attempt.status !== "SKIPPED_NOT_APPROVABLE") enquiry.provider = attempt.provider
+    await db.creditBureauCheck.create({
+      data: bureauCheckRow({ tenantId, clientId, applicationId, reviewGeneration: null, subjectFingerprint }, attempt),
+    })
+  }
+  const report = run.report?.report ?? null
+  const last = run.attempts.findLast((a) => a.status !== "SKIPPED_NOT_APPROVABLE") ?? run.attempts[run.attempts.length - 1]
   await db.complianceRecord.create({
     data: {
       tenantId,
       type: "CREDIT_BUREAU_CHECK",
-      status: result.ok ? "COMPLETED" : "PENDING",
+      status: report ? "COMPLETED" : "PENDING",
       referenceId: applicationId,
-      completedAt: result.ok ? new Date() : null,
+      completedAt: report ? new Date() : null,
       data: {
-        provider: PROVIDER,
+        provider: last.provider,
         assetFinance: true,
         clientId,
-        // This attempt's result is the CreditBureauCheck row above.
+        // This run's results are the CreditBureauCheck rows above.
         withCheck: true,
-        outcome: result.ok ? "stored" : "failed",
-        score: result.score ?? null,
-        riskGrade: result.riskGrade ?? null,
-        error: result.error ?? null,
+        outcome: report ? "stored" : "failed",
+        score: report?.score?.value ?? null,
+        riskGrade: report?.score?.riskGrade ?? null,
+        error: last.status === "OK" ? null : last.error,
+        attempts: run.attempts.map((a) => ({ attempt: a.attempt, provider: a.provider, status: a.status })),
       },
     },
   })
-  return result.ok ? "stored" : "failed"
+  return report ? "stored" : "failed"
 }

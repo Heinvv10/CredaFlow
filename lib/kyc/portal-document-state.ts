@@ -33,6 +33,7 @@ const portalClientDocumentSelect = {
   verifiedById: true,
   verificationNote: true,
   verificationRejectedById: true,
+  verificationRejectedAt: true,
   createdAt: true,
 } satisfies Prisma.ClientDocumentSelect
 
