@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { deriveCompositeKycState } from "./document-state"
 
+const verifiedIdSha = "a".repeat(64)
+
 const verifiedCoreDocuments = [
   "ID_COPY",
   "PROOF_OF_ADDRESS",
@@ -13,6 +15,7 @@ const verifiedCoreDocuments = [
   verificationNote: null,
   verificationRejectedById: null as string | null,
   createdAt: new Date(Date.UTC(2026, 6, 20, 0, index)),
+  contentSha256: docType === "ID_COPY" ? verifiedIdSha : "b".repeat(64),
 }))
 
 const verifiedProjection = {
@@ -29,6 +32,7 @@ const replacement = {
   verificationNote: null,
   verificationRejectedById: null as string | null,
   createdAt: new Date(Date.UTC(2026, 6, 21, 0, 0)),
+  contentSha256: "f".repeat(64),
 }
 
 function derive(extra: (typeof replacement)[]) {
@@ -65,6 +69,14 @@ describe("composite KYC state: a replacement ID copy awaiting review", () => {
         state: expect.objectContaining({ kycStatus: "VERIFIED" }),
       }),
     )
+  })
+
+  it("stays VERIFIED when the newer copy is a byte-identical re-upload", () => {
+    expect(derive([{ ...replacement, contentSha256: verifiedIdSha }])).toEqual(expect.objectContaining({
+      ok: true,
+      missingCoreDocuments: [],
+      state: expect.objectContaining({ kycStatus: "VERIFIED", kycVerifiedById: "officer-1" }),
+    }))
   })
 
   it("verifies again once the newer copy is verified", () => {

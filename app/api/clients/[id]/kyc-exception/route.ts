@@ -149,6 +149,7 @@ export async function POST(
                 verified: true,
                 verificationNote: true,
                 createdAt: true,
+                contentSha256: true,
                 verificationRejectedAt: true,
                 verificationRejectedById: true,
               },

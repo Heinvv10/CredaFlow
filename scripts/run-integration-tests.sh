@@ -188,7 +188,7 @@ fi
 
 GATED=(); SKIPPED=()
 for f in "${ALL[@]}"; do
-  if printf '%s\n' "${BASE[@]:-}" | grep -qxF "$f"; then SKIPPED+=("$f"); else GATED+=("$f"); fi
+  if printf '%s\n' "${BASE[@]:-}" | grep -xF "$f" >/dev/null; then SKIPPED+=("$f"); else GATED+=("$f"); fi
 done
 
 # Every suite opts in through its own variable; enable them all, except the opt-in ones.

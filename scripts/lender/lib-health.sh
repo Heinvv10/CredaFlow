@@ -95,7 +95,7 @@ wait_stack_health() {
 port_is_ours() {
   local id
   for id in $(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter status=running --filter status=restarting); do
-    docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$id" | tr ' ' '\n' | grep -qx "$1" && return 0
+    docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$id" | tr ' ' '\n' | grep -x "$1" >/dev/null && return 0
   done
   return 1
 }

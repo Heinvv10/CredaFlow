@@ -156,6 +156,13 @@ export function SelfieKycTab({
   const [uploadDone, setUploadDone] = useState(false)
   const [updatingKyc, setUpdatingKyc] = useState(false)
   const [kycStatus, setKycStatus] = useState<KycStatus>(currentKycStatus)
+  // A sibling can change the stored status and router.refresh() (Re-verify ID
+  // on the KYC checklist): take the refreshed server value when it changes.
+  const [serverKycStatus, setServerKycStatus] = useState<KycStatus>(currentKycStatus)
+  if (currentKycStatus !== serverKycStatus) {
+    setServerKycStatus(currentKycStatus)
+    setKycStatus(currentKycStatus)
+  }
   const [manualRejectionActive, setManualRejectionActive] = useState(
     currentManualRejectionActive,
   )
