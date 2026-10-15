@@ -545,6 +545,10 @@ export const AuditAction = {
   // payout, application and asset with it. Refusals are audited too.
   ASSET_DEAL_CANCELLED: "ASSET_DEAL_CANCELLED",
   ASSET_DEAL_CANCEL_REFUSED: "ASSET_DEAL_CANCEL_REFUSED",
+  // Operating and full-maintenance leases (slice 3): per-rental tax invoices
+  // (lib/asset-finance/lease-invoices.ts), and a refusal the receipt path left.
+  LEASE_RENTAL_INVOICED: "LEASE_RENTAL_INVOICED",
+  LEASE_INVOICE_REFUSED: "LEASE_INVOICE_REFUSED",
   // A surety or signatory deactivation refused while the entity has an
   // approved deal (its signer set is fixed).
   ENTITY_RELATIONSHIP_CHANGE_REFUSED: "ENTITY_RELATIONSHIP_CHANGE_REFUSED",

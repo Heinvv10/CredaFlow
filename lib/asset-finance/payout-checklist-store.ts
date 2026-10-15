@@ -28,7 +28,7 @@ const SIGNING_DOCUMENT: Partial<Record<PayoutChecklistItemKind, DealDocumentKind
 }
 
 const ASSET_SELECT = {
-  serialNumber: true, vin: true, registrationNumber: true, natisTitleholder: true, trackerId: true, lenderNotedConfirmed: true,
+  serialNumber: true, vin: true, registrationNumber: true, natisTitleholder: true, natisOwner: true, trackerId: true, lenderNotedConfirmed: true,
 } as const
 
 /**
@@ -113,7 +113,7 @@ export async function confirmChecklistItem(
 
     const deal = await tx.assetFinanceDeal.findFirstOrThrow({
       where: { id: dealId, tenantId },
-      select: { supplierId: true, asset: { select: ASSET_SELECT } },
+      select: { supplierId: true, contractType: true, asset: { select: ASSET_SELECT } },
     })
     const evidence = await evidenceProblem(tx, tenantId, dealId, item, input.evidenceDocumentId)
     if (evidence) return evidence
@@ -130,7 +130,7 @@ export async function confirmChecklistItem(
       if (!account) return refused("no_approved_account", "The supplier has no APPROVED bank account")
     }
     const lenderName = item === "NATIS_TITLEHOLDER" ? (await getLenderIdentity(tenantId)).legalName : null
-    const blocker = assetBlocker(item, deal.asset, lenderName)
+    const blocker = assetBlocker(item, deal.asset, lenderName, deal.contractType === "OPERATING_LEASE" || deal.contractType === "FULL_MAINTENANCE_LEASE")
     if (blocker) return refused("asset_not_ready", blocker)
 
     const confirmedAt = new Date()

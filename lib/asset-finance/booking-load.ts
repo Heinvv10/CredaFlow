@@ -3,11 +3,13 @@
  * asset FOR UPDATE, in that order, and load what booking writes from. Refuses
  * a deal that is not ready: not CONTRACTED, application not APPROVED and
  * NON_NCA, payout not APPROVED or its account no longer APPROVED, or a
- * contract type slice 1 does not book.
+ * contract type asset finance does not book. A lease (operating or
+ * full-maintenance) is NON_NCA for an entity or a sole proprietor alike.
  */
 import { Prisma } from "@prisma/client"
 import type { SigningTx } from "./signing-prepare"
 import { DEAL_STRUCTURE_SELECT } from "./deal-terms"
+import { isLeaseContract } from "./lease-input"
 
 export interface BookingRefusal {
   kind: "refused"
@@ -22,6 +24,8 @@ const BOOKING_SELECT = {
   id: true,
   status: true,
   contractType: true,
+  cpaApplies: true,
+  cpaRule: true,
   plannedStartDate: true,
   signedBaseInstalmentCents: true,
   signedResultingRate: true,
@@ -88,11 +92,12 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
 
   const deal = await tx.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: BOOKING_SELECT })
   if (!deal) return { kind: "not_found" }
-  if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE") return refuse("contract_type", `Asset finance cannot book ${deal.contractType}`)
+  const lease = isLeaseContract(deal.contractType)
+  if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE" && !lease) return refuse("contract_type", `Asset finance cannot book ${deal.contractType}`)
   if (deal.application.status !== "APPROVED" || !deal.application.ncaRegime) {
     return refuse("application_not_ready", `The application must be APPROVED and classified (it is ${deal.application.status}, ${deal.application.ncaRegime ?? "unclassified"})`)
   }
-  if (deal.application.ncaRegime === "NON_NCA" && !deal.entity) {
+  if (deal.application.ncaRegime === "NON_NCA" && !deal.entity && !lease) {
     return refuse("borrower_mismatch", "A NON_NCA asset deal must have an entity borrower")
   }
   if (deal.application.ncaRegime === "NCA" && (!deal.application.agreementDocumentId || !deal.application.agreementCountersignedAt)) {

@@ -26,7 +26,7 @@ export function rateDescription(p: DealDocumentData["pricing"]): string {
   return `${label} ${sign} ${percentPdf(new Prisma.Decimal(margin).abs().toString())}, linked to ${label} (${reference}): ${percentPdf(p.annualRate)} a year (nominal)`
 }
 
-export function lenderLetterhead(w: DealDocumentWriter, data: DealDocumentData): void {
+export function lenderLetterhead(w: DealDocumentWriter, data: Pick<DealDocumentData, "lender">): void {
   const l = data.lender
   w.letterhead(l.legalName, [
     `${l.tradingName !== l.legalName ? `Trading as ${l.tradingName} · ` : ""}Registration No ${l.companyRegNumber} · NCR ${l.ncrNumber}`,
@@ -34,7 +34,7 @@ export function lenderLetterhead(w: DealDocumentWriter, data: DealDocumentData):
   ])
 }
 
-export function lenderRows(data: DealDocumentData): [string, string][] {
+export function lenderRows(data: Pick<DealDocumentData, "lender">): [string, string][] {
   const l = data.lender
   return [
     ["Name", l.legalName],
@@ -63,7 +63,7 @@ export function assetSummary(data: DealDocumentData): string {
   return `${a.year} ${a.make} ${a.model}, serial ${a.serialNumber}${a.vin ? `, VIN ${a.vin}` : ""}`
 }
 
-export function assetRows(data: DealDocumentData): [string, string][] {
+export function assetRows(data: Pick<DealDocumentData, "asset">): [string, string][] {
   const a = data.asset
   const rows: [string, string][] = [
     ["Class", a.classLabel],
@@ -77,7 +77,7 @@ export function assetRows(data: DealDocumentData): [string, string][] {
   return rows
 }
 
-export function supplierRows(data: DealDocumentData): [string, string][] {
+export function supplierRows(data: Pick<DealDocumentData, "supplier">): [string, string][] {
   const s = data.supplier
   const rows: [string, string][] = [["Supplier", s.name]]
   if (s.registrationNumber) rows.push(["Registration number", s.registrationNumber])

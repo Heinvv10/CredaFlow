@@ -76,9 +76,15 @@ export async function findPortalLoanEntity(tenantId: string, loanId: string): Pr
   return loan?.entityId ?? null
 }
 
-/** The loan's inception tax invoice (the first issued against it), if any. */
+/**
+ * The loan's inception tax invoice (the first issued against it), if any. A
+ * lease has none: its invoices are per rental (lib/asset-finance/lease-invoices.ts).
+ */
 export async function findLoanTaxInvoiceId(tenantId: string, loanId: string): Promise<string | null> {
-  const invoice = await prisma.taxInvoice.findFirst({ where: { tenantId, loanId }, orderBy: { number: "asc" }, select: { id: true } })
+  const invoice = await prisma.taxInvoice.findFirst({
+    where: { tenantId, loanId, loan: { contractType: { notIn: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } },
+    orderBy: { number: "asc" }, select: { id: true },
+  })
   return invoice?.id ?? null
 }
 
@@ -126,7 +132,8 @@ export async function loadPortalContract(
       select: { basis: true, margin: true, resultingRate: true, effectiveDate: true },
     })),
     prisma.taxInvoice.findFirst({
-      where: { tenantId, loanId },
+      // The inception invoice: a lease has none (its invoices are per rental).
+      where: { tenantId, loanId, loan: { contractType: { notIn: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } } },
       orderBy: { number: "asc" },
       select: { id: true, invoiceNumber: true, issueDate: true, totalInclVatCents: true },
     }),
