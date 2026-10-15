@@ -16,8 +16,9 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
   source should have posted by a date; `lib/accounting/derive.ts` posts the
   difference from the ledger. A later change is an adjustment in the next open
   month, never an edit of a closed one. `(tenantId, eventKey)` is unique.
-- **One loan-book receivable**; income when due; receipts credit it whole
-  (no receipt principal/interest split exists to export).
+- **One receivable per contract** (`RECEIVABLE_ROLES`: loan book, instalment/finance-lease
+  debtors, lease debtors); income when due; receipts credit it whole (no receipt
+  principal/interest split exists to export).
 - **A month may close only** once ended, after an ADMIN confirmed the mapping
   (any mapping change withdraws it), in order from `AccountingSettings.goLiveMonth`,
   and when every loan's journal book ties to `lib/accounting/reconcile.ts`
@@ -45,7 +46,13 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
   must be mapped (Xero refuses manual journals to bank accounts). Tokens move
   to W0's tenant-credentials store once W0 lands; until then they are sealed
   in `XeroConnection` under `WABA_ENC_KEY`.
-- Consumer loans only (`contractType LOAN`); asset finance is not exported yet.
+- **Asset finance** (`sources-asset-finance.ts`, `sources-recovery.ts`) never goes through the
+  consumer sources: F at inception, then each row's accrued interest `B(next)-B(this)+totalDue`
+  (the balloon posts nothing); leases per tax invoice (end-of-term and termination invoices are
+  schedule rows, so they sit on the receivable); a recovery (`af-recovery:<id>:` keys) clears through
+  `RECOVERY_CLEARING` to nil. An instalment sale posts when its payout is released. `reconcile-controls.ts` refuses a close (`AF_CONTROL_FAILED`); a lease with a deposit or
+  trade-in is `AF_SOURCE_UNSUPPORTED`. The new roles need the mapping confirmed again. A contract
+  that predates the first open month posts there, dated by origin. `// UNTESTED: tax|accounting`.
 
 ## Key Files
 | File | Purpose |

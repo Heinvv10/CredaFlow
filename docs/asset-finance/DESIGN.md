@@ -320,6 +320,49 @@ NCA freeze is open-ended between proceeds and the final notice; the
 cost-type allow-lists, deadlines and VAT treatment await legal and tax
 sign-off. 4b (journals, IsaFlow push) waits for PR #89.
 
+## Slice 4b: asset-finance journals (built; accounting and tax to confirm)
+
+Asset-finance contracts export through the accounting engine (`lib/accounting/`), never the consumer
+sources. Sources: instalment sale and finance lease (financed amount at inception, then the interest
+each row accrues, capitalised interest included, the balloon posts nothing), leases per tax invoice
+(rentals, end-of-term and termination invoices, credit notes), the maintenance fund, and a
+repossession through `RECOVERY_CLEARING` to nil. Every month ties to independent SQL and six controls
+(VAT in and out, recovery clearing and result, refund payable, fund liability); a control that
+differs refuses the close. Hand-worked acceptance deals are in
+`lib/asset-finance/__fixtures__/acceptance-journal-*.ts` (`CLIENT_JOURNAL_DEALS` empty until the
+client's accountant supplies signed journals). Browser evidence: `evidence/slice4b/`.
+
+**UNTESTED: tax / accounting. Each needs the lender's accountant or tax adviser before go-live:**
+
+- **Maintenance-claim input VAT is not posted.** A paid claim credits bank for its amount excluding
+  VAT (`MaintenanceClaim.amountExclVatCents`); the supplier's VAT on it is neither claimed nor
+  accounted for.
+- **Charged-cost VAT.** A recovery cost charged to the account claims its input VAT, and the
+  recharge to the borrower is the gross amount with no output VAT, so the VAT portion lands in
+  profit and loss (via the recharge contra account).
+- Input VAT claimed at inception on the dealer's invoice; interest recognised as it falls due (no
+  deferred finance income); the recovery-result account (output VAT less the input VAT claimed on
+  repossession and on deducted costs); the split of a credit note between rental, maintenance and
+  asset-sale income, and that a credited maintenance contribution stays in the lessee's fund; the
+  sale's cash taken in on the completion day; the lease asset's net book value is derecognised in
+  the fixed-asset register, not posted.
+- **Not exported yet (refuses the close):** a lease with a deposit or trade-in, and a credit note
+  against an instalment sale's inception invoice or a repossession sale's invoice.
+- A credit note adjusts the ledger's lease debtors but not the loan's schedule: staff settle the
+  schedule balance separately.
+- **Input VAT on a dealer that is not a VAT vendor.** The instalment-sale and finance-lease input VAT
+  control reads the inception invoice's VAT, the same figure the journal posts, so it checks the date
+  (posted once, when the supplier payout is released), not the dealer's own VAT. Whether the lender may
+  claim that input VAT at all (for example from a non-vendor dealer) is the accountant's call.
+- **VAT history carried in at go-live.** The opening entry carries the input and output VAT balances of
+  every contract booked before go-live. The accountant clears what was already submitted to SARS before
+  go-live against the legacy ledger; the export does not know what was submitted.
+- **No fee-VAT split on asset finance.** A VAT-inclusive fee account (a lender's setting) splits VAT out
+  of consumer fees only. An asset-finance contract's financed fees and default charges post gross: its
+  VAT is the VAT of its tax invoices, which the VAT control reads. Whether VAT is due on a financed fee
+  is for the tax adviser.
+- A billed maintenance deficit credits the lessee's fund liability (it settles the fund) and not income.
+
 ## Acceptance (every slice)
 
 - 10–20 past client deals, anonymised to synthetic data, reproduce the

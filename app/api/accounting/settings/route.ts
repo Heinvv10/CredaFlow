@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { ASSET_FINANCE_ROLES } from "@/lib/accounting/accounts"
 import { parsePeriodKey } from "@/lib/accounting/period"
-import { readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
+import { lockAccounting, readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
 import { loadAccountMap, loadSettings } from "@/lib/accounting/store"
 
 // Accounting export settings (lib/accounting). GET: LOAN_ADMIN.
@@ -31,13 +32,13 @@ export async function PUT(req: NextRequest) {
     if (refusal) return refusal
     const read = await readJson(req)
     if (!read.ok) return read.response
-    const body = (read.body ?? {}) as Record<string, unknown>
+    if (typeof read.body !== "object" || read.body === null || Array.isArray(read.body)) {
+      return NextResponse.json({ error: "The body must be a JSON object." }, { status: 400 })
+    }
+    const body = read.body as Record<string, unknown>
     const data: { goLiveMonth?: string | null; vatRegistered?: boolean; vatRateBps?: number } = {}
     if ("goLiveMonth" in body) {
       if (body.goLiveMonth !== null && !parsePeriodKey(body.goLiveMonth)) return NextResponse.json({ error: "goLiveMonth must be yyyy-mm" }, { status: 400 })
-      if (await prisma.accountingExportBatch.count({ where: { tenantId: tenant.id } })) {
-        return NextResponse.json({ error: "The go-live month is fixed once a month has closed" }, { status: 409 })
-      }
       data.goLiveMonth = body.goLiveMonth as string | null
     }
     if ("vatRegistered" in body) {
@@ -50,7 +51,10 @@ export async function PUT(req: NextRequest) {
       }
       data.vatRateBps = body.vatRateBps as number
     }
-    await prisma.$transaction(async (tx) => {
+    const done = await prisma.$transaction(async (tx) => {
+      // Under the close lock: the count of closed months is still true when the go-live month is written.
+      await lockAccounting(tx, tenant.id)
+      if ("goLiveMonth" in data && (await tx.accountingExportBatch.count({ where: { tenantId: tenant.id } })) > 0) return false
       const before = await tx.accountingSettings.findUnique({ where: { tenantId: tenant.id } })
       await tx.accountingSettings.upsert({ where: { tenantId: tenant.id }, create: { tenantId: tenant.id, ...data, updatedById: guard.user.id }, update: { ...data, updatedById: guard.user.id } })
       await logAuditStrict({
@@ -59,7 +63,9 @@ export async function PUT(req: NextRequest) {
         oldValue: before ? { goLiveMonth: before.goLiveMonth, vatRegistered: before.vatRegistered, vatRateBps: before.vatRateBps } : null,
         newValue: data,
       }, tx)
+      return true
     })
+    if (!done) return NextResponse.json({ error: "The go-live month is fixed once a month has closed" }, { status: 409 })
     return NextResponse.json(await view(tenant.id))
   })
 }
@@ -75,13 +81,15 @@ export async function POST(req: NextRequest) {
     if ((read.body as { action?: unknown } | null)?.action !== "confirm_mapping") {
       return NextResponse.json({ error: "action must be confirm_mapping" }, { status: 400 })
     }
-    const map = await loadAccountMap(prisma, tenant.id)
     const now = new Date()
     await prisma.$transaction(async (tx) => {
+      // Under the lock the mapping PUT takes too: what is confirmed is the mapping as it is when the confirmation is written.
+      await lockAccounting(tx, tenant.id)
+      const map = await loadAccountMap(tx, tenant.id)
       await tx.accountingSettings.upsert({
         where: { tenantId: tenant.id },
-        create: { tenantId: tenant.id, mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, updatedById: guard.user.id },
-        update: { mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, updatedById: guard.user.id },
+        create: { tenantId: tenant.id, mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], updatedById: guard.user.id },
+        update: { mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], updatedById: guard.user.id },
       })
       await logAuditStrict({
         tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, action: AuditAction.ACCOUNTING_MAPPING_CONFIRMED,

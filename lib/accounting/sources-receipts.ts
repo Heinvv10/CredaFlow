@@ -6,6 +6,7 @@
  */
 import type { AccountRole } from "./accounts"
 import { addTo, before, type DesiredSource, type SourceLoan, type SourcePayment, type Vector } from "./source-types"
+import { receivableOf } from "./sources-shared"
 
 function receiptVector(loan: SourceLoan, p: SourcePayment, asOf: Date, writeOff: Date | null): Vector {
   const vector: Vector = {}
@@ -18,8 +19,10 @@ function receiptVector(loan: SourceLoan, p: SourcePayment, asOf: Date, writeOff:
   if (received && !reversed && status !== "REFUNDED") {
     const credit: AccountRole = status === "UNAPPLIED"
       ? "UNALLOCATED_RECEIPTS"
-      : writeOff && writeOff.getTime() <= p.receivedAt.getTime() ? "BAD_DEBT_RECOVERY" : "LOAN_BOOK"
-    addTo(vector, p.paymentMethod === "WAIVER" ? "WAIVER_EXPENSE" : "BANK", p.amount)
+      : writeOff && writeOff.getTime() <= p.receivedAt.getTime() ? "BAD_DEBT_RECOVERY" : receivableOf(loan)
+    // A recovery's proceeds came in as cash with the sale (RECOVERY_CLEARING already holds them), so the receipt only moves them.
+    const debit: AccountRole = p.paymentMethod === "WAIVER" ? "WAIVER_EXPENSE" : p.recoveryProceeds ? "RECOVERY_CLEARING" : "BANK"
+    addTo(vector, debit, p.amount)
     addTo(vector, credit, -p.amount)
   }
   return vector

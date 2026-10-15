@@ -38,6 +38,14 @@ export function storedLinesOf(entries: DerivedEntry[]): StoredLine[] {
   })))
 }
 
+const MAX_CLOSE_ATTEMPTS = 3
+
+/** A write conflict under REPEATABLE READ: Prisma's P2034, or the raw query's P2010 carrying SQLSTATE 40001. */
+function isSerializationFailure(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
+  return error.code === "P2034" || (error.code === "P2010" && (error.meta as { code?: string } | undefined)?.code === "40001")
+}
+
 export async function closePeriod(db: GenerateDb, args: {
   tenantId: string
   periodKey: string
@@ -47,9 +55,29 @@ export async function closePeriod(db: GenerateDb, args: {
 }): Promise<{ batchId: string; created: boolean }> {
   const period = requirePeriod(args.periodKey)
   const existingOf = () => db.accountingExportBatch.findFirst({ where: { tenantId: args.tenantId, periodKey: period.key }, select: { id: true } })
-  try {
-    return await db.$transaction(async (tx) => {
+  // A close queued behind a settings or mapping write was snapshotted before it waited: it retries on a fresh snapshot.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await closeOnce()
+    } catch (error) {
+      // A concurrent close of the same month won (its snapshot predates ours):
+      // that month is closed, which is what was asked for.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2002" || isSerializationFailure(error))) {
+        const won = await existingOf()
+        if (won) return { batchId: won.id, created: false }
+        if (isSerializationFailure(error) && attempt < MAX_CLOSE_ATTEMPTS) continue
+        if (isSerializationFailure(error)) throw new AccountingPeriodError("CONCURRENT_CHANGE", "The accounting settings changed again while the month was closing: try again")
+      }
+      throw error
+    }
+  }
+
+  async function closeOnce(): Promise<{ batchId: string; created: boolean }> {
+    return db.$transaction(async (tx) => {
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`accounting-export:${args.tenantId}`}))`)
+      // REPEATABLE READ fixed this snapshot before the lock wait. Every settings and mapping write updates this row under the same lock, so
+      // locking it now fails with a serialization error (40001) when one committed meanwhile, instead of planning from stale settings.
+      await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "AccountingSettings" WHERE "tenantId" = ${args.tenantId} FOR UPDATE`)
       const existing = await tx.accountingExportBatch.findFirst({ where: { tenantId: args.tenantId, periodKey: period.key }, select: { id: true } })
       if (existing) return { batchId: existing.id, created: false }
       const plan = await planPeriod(tx, args.tenantId, period, args.now ?? new Date())
@@ -106,13 +134,5 @@ export async function closePeriod(db: GenerateDb, args: {
       await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
       return { batchId, created: true }
     }, { timeout: 120_000, maxWait: 10_000, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
-  } catch (error) {
-    // A concurrent close of the same month won (its snapshot predates ours):
-    // that month is closed, which is what was asked for.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2002" || error.code === "P2034")) {
-      const won = await existingOf()
-      if (won) return { batchId: won.id, created: false }
-    }
-    throw error
   }
 }

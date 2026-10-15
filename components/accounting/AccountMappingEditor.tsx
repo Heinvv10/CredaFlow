@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ASSET_FINANCE_ROLES } from "@/lib/accounting/accounts"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 interface Mapping {
@@ -73,7 +74,16 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
-            <TableRow key={r.role}>
+            <Fragment key={r.role}>
+            {r.role === ASSET_FINANCE_ROLES[0] && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <p className="font-medium text-[var(--cf-text)]">Asset finance</p>
+                  <p className="text-[11px] text-[var(--cf-text-muted)]">Instalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.</p>
+                </TableCell>
+              </TableRow>
+            )}
+            <TableRow>
               <TableCell>
                 <p className="font-medium text-[var(--cf-text)]">{r.role.replaceAll("_", " ").toLowerCase()}</p>
                 <p className="text-[11px] text-[var(--cf-text-muted)]">{r.description}</p>
@@ -85,7 +95,7 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
                 <Input aria-label={`${r.role} account name`} value={r.name} disabled={!canEdit} onChange={(e) => update(r.role, { name: e.target.value })} />
               </TableCell>
               <TableCell>
-                <Input aria-label={`${r.role} tax code`} value={r.taxCode ?? ""} disabled={!canEdit} placeholder="none" onChange={(e) => update(r.role, { taxCode: e.target.value || null })} className="w-28" />
+                <Input aria-label={`${r.role} tax code`} value={r.taxCode ?? ""} disabled={!canEdit || ASSET_FINANCE_ROLES.includes(r.role as never)} placeholder="none" onChange={(e) => update(r.role, { taxCode: e.target.value || null })} className="w-28" />
               </TableCell>
               <TableCell>
                 {(r.role === "FEE_INCOME" || r.role === "DEFAULT_FEE_INCOME") && (
@@ -93,6 +103,7 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
                 )}
               </TableCell>
             </TableRow>
+            </Fragment>
           ))}
         </TableBody>
       </Table>

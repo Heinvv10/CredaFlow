@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatZAR } from "@/lib/utils"
+import { ControlsList, RefusalNotice, type ControlRow } from "./AccountingChecks"
 import { AccountingHistory, type Batch } from "./AccountingHistory"
 
 interface Preview {
@@ -22,6 +23,7 @@ interface Preview {
   accounts: Array<{ role: string; accountCode: string; name: string; debitCents: number; creditCents: number }>
   events: Record<string, number>
   refusal: { code: string; message: string } | null
+  controls?: ControlRow[]
   reconciliation: { journalTotalCents: number; bookTotalCents: number; mismatches: Array<{ loanId: string; reference: string; journalCents: number; bookCents: number }> } | null
 }
 
@@ -101,7 +103,8 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
                 )}
               </div>
             )}
-            {preview.refusal && !preview.closed && <InfoStrip variant="warning">Cannot close yet: {preview.refusal.message}</InfoStrip>}
+            {preview.controls && <ControlsList controls={preview.controls} />}
+            {preview.refusal && !preview.closed && <RefusalNotice refusal={preview.refusal} />}
             {preview.accounts.length > 0 ? (
               <Table>
                 <TableHeader>
