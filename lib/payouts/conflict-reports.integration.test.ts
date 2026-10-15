@@ -130,7 +130,7 @@ suite.sequential("provider reports on an attempt already over (real Postgres)", 
     const clear = { conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }
     await refused(db.disbursementPayout.update({ where: { id: loan.payoutId }, data: clear }), /terms never change/)
     await refused(db.disbursementPayout.update({ where: { id: loan.payoutId }, data: { ...clear, providerConflictState: "PROCESSING", providerConflictAt: new Date(), providerConflictDetail: "x" } }), /terms never change/)
-    await db.disbursementPayout.update({ where: { id: loan.payoutId }, data: { ...clear, providerConflictAt: new Date(resolved.conflictResolvedAt!.getTime() + 1000), providerConflictDetail: "webhook reported PAID again" } })
+    await db.disbursementPayout.update({ where: { id: loan.payoutId }, data: { ...clear, providerConflictAt: new Date(resolved.conflictResolvedAt!.getTime() + 1000), providerConflictEventAt: new Date(resolved.conflictResolvedAt!.getTime() + 1000), providerConflictDetail: "webhook reported PAID again" } })
     expect(await row(loan.payoutId)).toMatchObject({ conflictResolvedAt: null, providerConflictState: "PAID" })
   })
 

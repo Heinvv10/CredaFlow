@@ -15,6 +15,10 @@ import { formatZAR } from "@/lib/utils"
 export const metadata = { title: "Outstanding payouts — Disbursements" }
 
 const OPEN: PayoutStatus[] = ["PENDING", "SUBMITTING", "SUBMITTED", "PROCESSING", "NEEDS_REVIEW", "AWAITING_APPROVAL"]
+/** The instant `n` days before now (a query bound, not render state). */
+function daysAgo(n: number): Date {
+  return new Date(Date.now() - n * 86_400_000)
+}
 const fmt = (d: Date | null) => (d ? d.toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" }) : "—")
 
 /**
@@ -25,7 +29,7 @@ const fmt = (d: Date | null) => (d ? d.toLocaleString("en-ZA", { timeZone: "Afri
 export default async function OutstandingPayoutsPage() {
   await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
-  const [payouts, reversals, recoveries, debitOrders, doubles] = await Promise.all([
+  const [payouts, reversals, recoveries, debitOrders, doubles, rejected] = await Promise.all([
     prisma.disbursementPayout.findMany({
       // Unsettled, or settled but contradicted by a later provider report.
       where: { tenantId, OR: [{ status: { in: OPEN } }, { providerConflictAt: { not: null }, conflictResolvedAt: null }] },
@@ -48,7 +52,16 @@ export default async function OutstandingPayoutsPage() {
       select: { id: true, loanId: true, decidedAt: true, loan: { select: { reference: true } } },
     }),
     loadDoublePayoutRisks(prisma, tenantId),
+    // Provider reports the database refused to record (lib/payouts/conflicts.ts): someone must look.
+    prisma.auditLog.findMany({
+      where: { tenantId, action: "PAYOUT_PROVIDER_REPORT_REJECTED", createdAt: { gte: daysAgo(30) } },
+      orderBy: { createdAt: "desc" }, take: 50, select: { id: true, entityId: true, createdAt: true, newValue: true },
+    }),
   ])
+  const rejectedLoans = new Map((await prisma.disbursementPayout.findMany({
+    where: { tenantId, id: { in: rejected.map((r) => r.entityId ?? "") } },
+    select: { id: true, attempt: true, loanId: true, loan: { select: { reference: true } } },
+  })).map((p) => [p.id, p]))
 
   return (
     <div className="space-y-6 px-4 py-5 lg:px-8 lg:py-7">
@@ -97,6 +110,22 @@ export default async function OutstandingPayoutsPage() {
           </Table>
         )}
       </DataPanel>
+      {rejected.length > 0 && (
+        <DataPanel title="Provider reports refused (last 30 days)" description="A provider report the system could not record. Nothing changed; check the provider's report and the loan by hand.">
+          <ul className="space-y-2 text-sm">
+            {rejected.map((r) => {
+              const p = rejectedLoans.get(r.entityId ?? "")
+              const v = (r.newValue ?? {}) as { reported?: string; reason?: string }
+              return (
+                <li key={r.id}>
+                  {p ? <Link href={`/loans/${p.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{p.loan.reference}</Link> : r.entityId}
+                  <span className="text-[var(--cf-danger)]"> · attempt #{p?.attempt ?? "?"} reported {v.reported ?? "?"} on {fmt(r.createdAt)} · {v.reason ?? "refused"}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </DataPanel>
+      )}
       <DataPanel title="Reversed loans: staff tasks" description="Money paid out after a reversal, to recover; debit orders to cancel by hand. Act on the loan page.">
         {recoveries.length === 0 && debitOrders.length === 0 ? (
           <p className="text-sm text-[var(--cf-text-muted)]">None.</p>

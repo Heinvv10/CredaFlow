@@ -53,6 +53,9 @@ export interface PayoutNotification {
   idempotencyKey: string | null
   state: ProviderPayoutState
   reason?: string
+  /** The provider's event id (a redelivery repeats it) and the time it says the event happened. */
+  eventId?: string | null
+  occurredAt?: Date | null
 }
 
 export interface PayoutProviderCapabilities {

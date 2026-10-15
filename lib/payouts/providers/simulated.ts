@@ -17,7 +17,7 @@
  * signed more than five minutes from now is refused, so a captured one cannot
  * be replayed later.
  */
-import { createHmac, timingSafeEqual } from "node:crypto"
+import { createHash, createHmac, timingSafeEqual } from "node:crypto"
 import { assertSimulationAllowed, isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import type { PayoutNotification, PayoutProvider, ProviderPayoutState } from "../types"
 
@@ -72,9 +72,13 @@ export const simulatedPayouts: PayoutProvider = {
     } catch {
       return null
     }
-    const { providerReference, idempotencyKey, state, reason } = (body ?? {}) as Record<string, unknown>
+    const { providerReference, idempotencyKey, state, reason, eventId, occurredAt } = (body ?? {}) as Record<string, unknown>
     if (!STATES.includes(state as ProviderPayoutState)) return null
+    const at = typeof occurredAt === "string" ? new Date(occurredAt) : null
     return {
+      // A redelivery repeats the body, so without an id of its own the body's hash is the event id.
+      eventId: typeof eventId === "string" && eventId ? eventId.slice(0, 200) : createHash("sha256").update(rawBody).digest("hex"),
+      occurredAt: at && !Number.isNaN(at.getTime()) ? at : null,
       providerReference: typeof providerReference === "string" ? providerReference : null,
       idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : null,
       state: state as ProviderPayoutState,

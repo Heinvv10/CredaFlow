@@ -5082,6 +5082,10 @@ model DisbursementPayout {
   providerConflictState  String?
   providerConflictAt     DateTime?
   providerConflictDetail String?
+  // The provider's id and time of the event behind the conflict (time capped
+  // at receipt): a replay never reopens a resolution (lib/payouts/conflicts.ts).
+  providerConflictEventId String?
+  providerConflictEventAt DateTime?
   conflictResolvedById   String?
   conflictResolvedAt     DateTime?
   conflictResolutionNote String?
@@ -5106,6 +5110,7 @@ model DisbursementPayout {
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
   recoveryCase      PayoutRecoveryCase?
+  providerEvents    PayoutProviderEvent[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([applicationId, attempt])
@@ -5141,6 +5146,24 @@ model DisbursementReversal {
   debitOrderCancelAckById String?
 
   @@index([tenantId, loanId])
+}
+
+// Each provider event about an attempt already over, kept once per attempt
+// (unique eventId), append-only: an exact redelivery is audited as a
+// duplicate and changes nothing (lib/payouts/conflicts.ts).
+model PayoutProviderEvent {
+  id         String             @id @default(cuid())
+  tenantId   String
+  payoutId   String
+  payout     DisbursementPayout @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  eventId    String
+  state      String
+  eventAt    DateTime?
+  source     String
+  receivedAt DateTime           @default(now())
+
+  @@unique([payoutId, eventId])
+  @@index([tenantId])
 }
 
 enum PayoutRecoveryStatus {

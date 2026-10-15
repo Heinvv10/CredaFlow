@@ -24,13 +24,23 @@
  *    or recovered, and nothing overwrites it);
  *  - "reopened": a PAID/RETURNED after the conflict was resolved not paid
  *    clears the resolution and blocks again;
+ *  - "duplicate": the provider's event id was seen before for this attempt
+ *    (a redelivery or replay); nothing changes;
+ *  - "rejected": the database refused it (a rule the code did not foresee):
+ *    nothing is stored, not even the event, so a redelivery is tried again;
+ *    audited (PAYOUT_PROVIDER_REPORT_REJECTED), logged and listed on the
+ *    outstanding-payouts queue, never thrown at a webhook;
  *  - "dropped": weaker than the unresolved report, the attempt is no longer
- *    over, or the money is already a recovery case.
+ *    over, the money is already a recovery case, or (after a resolution) the
+ *    event is not newer than the decision.
+ *
+ * Reports are ordered by the provider's own event time, capped at receipt;
+ * receipt and resolution times come from the database clock (dbClock).
  */
 import type { DisbursementPayout } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { Actor, PayoutDb } from "./dispatch"
-import { lockLoanForPayout, raceRefusal } from "./loan-lock"
+import { dbClock, lockLoanForPayout, raceRefusal } from "./loan-lock"
 import { openRecoveryCase } from "./recovery"
 import type { PayoutStatus } from "./state"
 import type { ProviderPayoutState } from "./types"
@@ -38,7 +48,9 @@ import type { ProviderPayoutState } from "./types"
 /** Attempt states a later report may contradict. */
 export const CONFLICTABLE: readonly PayoutStatus[] = ["FAILED", "CANCELLED"]
 
-export type ReportOutcome = "stale" | "recorded" | "strengthened" | "returned_after_paid" | "reopened" | "dropped"
+export type ReportOutcome = "stale" | "duplicate" | "recorded" | "strengthened" | "returned_after_paid" | "reopened" | "dropped" | "rejected"
+/** The provider's event behind a report: its id (a redelivery repeats it) and when it says it happened. */
+export interface ProviderEvent { id: string | null; at: Date | null }
 
 /** Paid, then returned: the money went and came back. */
 export const PAID_THEN_RETURNED = "PAID_THEN_RETURNED"
@@ -52,6 +64,7 @@ export async function recordProviderConflict(db: PayoutDb, args: {
   reason?: string
   source: string
   actor: Actor
+  event?: ProviderEvent
 }): Promise<ReportOutcome> {
   const detail = `${args.source} reported ${args.state} after the attempt was ${args.payout.status}${args.reason ? `: ${args.reason}` : ""}`.slice(0, 500)
   const audit = (tx: Parameters<Parameters<PayoutDb["$transaction"]>[0]>[0], outcome: ReportOutcome, extra: Record<string, unknown> = {}) => logAuditStrict({
@@ -60,14 +73,46 @@ export async function recordProviderConflict(db: PayoutDb, args: {
     entity: "DisbursementPayout", entityId: args.payout.id,
     newValue: { status: args.payout.status, reported: args.state, source: args.source, detail, outcome, ...extra },
   }, tx)
+  try {
+    return await recordInTx(db, args, detail, audit)
+  } catch (error) {
+    const reason = error instanceof Error ? /(Payout guard: [^\n"]+)/.exec(error.message)?.[1]?.replace(/\\+$/, "") : undefined
+    if (!reason) throw error
+    console.error("Provider report refused by the payout guard:", args.payout.id, args.state)
+    await logAuditStrict({
+      tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
+      action: AuditAction.PAYOUT_PROVIDER_REPORT_REJECTED, entity: "DisbursementPayout", entityId: args.payout.id,
+      newValue: { reported: args.state, source: args.source, detail, eventId: args.event?.id ?? null, reason },
+    }, db)
+    return "rejected"
+  }
+}
+
+type Audit = (tx: Parameters<Parameters<PayoutDb["$transaction"]>[0]>[0], outcome: ReportOutcome, extra?: Record<string, unknown>) => Promise<unknown>
+
+async function recordInTx(db: PayoutDb, args: Parameters<typeof recordProviderConflict>[1], detail: string, audit: Audit): Promise<ReportOutcome> {
   return db.$transaction(async (tx) => {
-    if (args.state !== "PAID" && args.state !== "RETURNED") {
-      await audit(tx, "stale")
-      return "stale"
-    }
     // The loan lock first, like a retry approval or a claim to send.
     const owner = await tx.disbursementPayout.findFirst({ where: { id: args.payout.id, tenantId: args.tenantId }, select: { loanId: true } })
     if (owner) await lockLoanForPayout(tx, args.tenantId, owner.loanId)
+    const receivedAt = await dbClock(tx)
+    // The provider's event time, never later than receipt (a skewed or forged future time cannot win).
+    const eventAt = args.event?.at && args.event.at.getTime() < receivedAt.getTime() ? args.event.at : receivedAt
+    const eventId = args.event?.id ?? null
+    if (eventId && owner) {
+      const kept = await tx.payoutProviderEvent.createMany({
+        data: [{ tenantId: args.tenantId, payoutId: args.payout.id, eventId, state: args.state, eventAt: args.event?.at ?? null, source: args.source }],
+        skipDuplicates: true,
+      })
+      if (kept.count === 0) {
+        await audit(tx, "duplicate", { eventId })
+        return "duplicate"
+      }
+    }
+    if (args.state !== "PAID" && args.state !== "RETURNED") {
+      await audit(tx, "stale", { eventId })
+      return "stale"
+    }
     const row = await tx.disbursementPayout.findFirst({
       where: { id: args.payout.id, tenantId: args.tenantId },
       select: { status: true, providerConflictState: true, providerConflictAt: true, conflictResolvedAt: true, recoveryCase: { select: { id: true } } },
@@ -76,13 +121,13 @@ export async function recordProviderConflict(db: PayoutDb, args: {
     let data: Record<string, unknown> | null = null
     if (row && CONFLICTABLE.includes(row.status as PayoutStatus)) {
       // Stamped under the loan lock: after any resolution that committed while this report waited.
-      const reported = { providerConflictState: args.state, providerConflictAt: new Date(), providerConflictDetail: detail }
+      const reported = { providerConflictState: args.state, providerConflictAt: receivedAt, providerConflictDetail: detail, providerConflictEventId: eventId, providerConflictEventAt: eventAt }
       if (!row.providerConflictAt) [outcome, data] = ["recorded", reported]
       else if (!row.conflictResolvedAt) {
         if (row.providerConflictState === "PAID" && args.state === "RETURNED") {
           [outcome, data] = ["returned_after_paid", { ...reported, providerConflictState: PAID_THEN_RETURNED, providerConflictDetail: `${detail} (after reporting it PAID)`.slice(0, 500) }]
         } else if (strength(args.state) > strength(row.providerConflictState)) [outcome, data] = ["strengthened", reported]
-      } else if (!row.recoveryCase) {
+      } else if (!row.recoveryCase && eventAt.getTime() > row.conflictResolvedAt.getTime()) {
         [outcome, data] = ["reopened", { ...reported, conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
       }
     }
@@ -93,7 +138,7 @@ export async function recordProviderConflict(db: PayoutDb, args: {
       })
       if (moved.count !== 1) outcome = "dropped"
     }
-    await audit(tx, outcome, { previous: row?.providerConflictState ?? null, previouslyResolved: Boolean(row?.conflictResolvedAt) })
+    await audit(tx, outcome, { previous: row?.providerConflictState ?? null, previouslyResolved: Boolean(row?.conflictResolvedAt), eventId, eventAt: eventAt.toISOString() })
     return outcome
   })
 }
@@ -152,6 +197,8 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
   try {
   return await db.$transaction(async (tx) => {
     const locked = await lockLoanForPayout(tx, args.tenantId, p.loanId)
+    // The database's clock, like report receipt: a later report must be newer than this.
+    const resolvedAt = await dbClock(tx)
     // Re-read under the lock: a reversal approved meanwhile changes the answer.
     if (args.outcome === "paid" && locked?.status === "CANCELLED") return { ok: false as const, status: 409, error: REVERSED_PAID }
     if (args.outcome === "recovery" && locked?.status !== "CANCELLED") return { ok: false as const, status: 409, error: NOT_REVERSED }
@@ -159,7 +206,7 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
       // Pinned to the report decided on, under the loan lock every report write also takes.
       where: { id: p.id, tenantId: args.tenantId, status: p.status, conflictResolvedAt: null, providerConflictState: seen.state, providerConflictAt: seen.at },
       data: {
-        conflictResolvedAt: now, conflictResolvedById: args.actor.id, conflictResolutionNote: args.note,
+        conflictResolvedAt: resolvedAt, conflictResolvedById: args.actor.id, conflictResolutionNote: args.note,
         ...(args.outcome === "paid" ? { status: "PAID", paidAt: args.paidAt ?? now, resolvedAt: now } : {}),
       },
     })

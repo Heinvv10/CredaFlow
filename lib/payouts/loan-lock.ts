@@ -48,3 +48,13 @@ export function raceRefusal(error: unknown): { ok: false; status: 409; error: st
   }
   return null
 }
+
+/**
+ * The database's clock. Report receipt and resolution times are compared
+ * with each other (a report newer than a resolution reopens it), so both come
+ * from one clock, not from whichever app server handled the request.
+ */
+export async function dbClock(tx: Tx): Promise<Date> {
+  const rows = await tx.$queryRaw<Array<{ now: Date }>>(Prisma.sql`SELECT clock_timestamp() AS "now"`)
+  return rows[0].now
+}

@@ -7,7 +7,7 @@ import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome, type ReportOutcome, type SeenConflict } from "./conflicts"
+import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome, type ProviderEvent, type ReportOutcome, type SeenConflict } from "./conflicts"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
 import type { PayoutNotification, ProviderPayoutState } from "./types"
@@ -83,11 +83,13 @@ export async function applyProviderState(db: PayoutDb, args: {
   reason?: string
   source: "webhook" | "status_query"
   actor: Actor
+  /** The provider's event (webhook id and time); none for a status query. */
+  event?: ProviderEvent
 }): Promise<{ status: PayoutStatus; changed: boolean; conflict?: true; report?: ReportOutcome }> {
   const current = args.payout.status as PayoutStatus
   // Money reported moving on an attempt already over: never applied, never lost.
   if (CONFLICTABLE.includes(current) && args.state !== "FAILED") {
-    const report = await recordProviderConflict(db, { tenantId: args.tenantId, payout: args.payout, state: args.state, reason: args.reason, source: args.source, actor: args.actor })
+    const report = await recordProviderConflict(db, { tenantId: args.tenantId, payout: args.payout, state: args.state, reason: args.reason, source: args.source, actor: args.actor, event: args.event })
     // A stored (or re-opened) conflict blocks; a stale or dropped report is only audited.
     const stored = report === "recorded" || report === "strengthened" || report === "returned_after_paid" || report === "reopened"
     return { status: current, changed: false, ...(stored ? { conflict: true as const } : {}), report }
@@ -107,7 +109,7 @@ export async function ingestNotification(db: PayoutDb, args: {
   tenantId: string
   providerId: string
   notification: PayoutNotification
-}): Promise<{ matched: boolean; status?: PayoutStatus; changed?: boolean }> {
+}): Promise<{ matched: boolean; status?: PayoutStatus; changed?: boolean; report?: ReportOutcome }> {
   const { notification: n } = args
   if (!n.idempotencyKey && !n.providerReference) return { matched: false }
   const payout = await db.disbursementPayout.findFirst({
@@ -126,6 +128,7 @@ export async function ingestNotification(db: PayoutDb, args: {
   const out = await applyProviderState(db, {
     tenantId: args.tenantId, payout, state: n.state, reason: n.reason, source: "webhook",
     actor: { id: null, email: `webhook:${args.providerId}` },
+    event: { id: n.eventId ?? null, at: n.occurredAt ?? null },
   })
   return { matched: true, ...out }
 }
