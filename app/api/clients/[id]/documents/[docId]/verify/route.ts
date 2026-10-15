@@ -249,11 +249,21 @@ export async function PATCH(
             clientId,
             subject: clientCheck,
             existing: clientCheck,
-            completion: {
-              verifiedAt: verificationTime,
-              verifiedById: guard.user.id,
-              method: doc.docType === "SELFIE" ? "BIOMETRIC" : "PHYSICAL",
-            },
+            ...(verified
+              ? {
+                  completion: {
+                    verifiedAt: verificationTime,
+                    verifiedById: guard.user.id,
+                    method: doc.docType === "SELFIE" ? "BIOMETRIC" as const : "PHYSICAL" as const,
+                  },
+                }
+              // A refusal verifies nobody. If refusing a pending replacement
+              // ID lets the client stand on the evidence it already had, the
+              // provenance is that evidence's: the stored one when coherent,
+              // otherwise the passed selfie (BIOMETRIC, no verifier), or the
+              // attestation's own officer for in-person / exception. The
+              // refusing officer is never recorded as the verifier.
+              : { preserveVerifiedProvenance: true }),
           },
         )
         const updatedClient = await tx.client.update({
