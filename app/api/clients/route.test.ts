@@ -263,3 +263,33 @@ describe("POST /api/clients — phone/email already held by another contact", ()
     })
   })
 })
+
+describe("POST /api/clients — whether expenses were declared", () => {
+  /** The Client.create data the route builds for this expense breakdown. */
+  const createdWith = async (expenseBreakdown: Record<string, string>) => {
+    const create = vi.fn(async () => { throw new Error("stop after create") })
+    transactionMock.mockImplementationOnce(async (fn: (tx: unknown) => unknown) => fn({ client: { create } }))
+    const res = await POST(new NextRequest("http://x/api/clients", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body(), expenseBreakdown }),
+    }))
+    expect(res.status).toBe(500)
+    return (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data
+  }
+  const blank = { housing: "", transport: "", food: "", education: "", insurance: "", clothing: "", medical: "", entertainment: "", other: "" }
+  const justification = "Lives with family who cover the household costs."
+
+  it("records the capture when staff entered any figure, an explicit R0 included", async () => {
+    const r0 = await createdWith({ ...blank, other: "0", belowMleJustification: justification })
+    expect(r0.monthlyExpenses).toBe(0)
+    expect(r0.monthlyExpensesDeclaredAt).toBeInstanceOf(Date)
+    expect((await createdWith(body().expenseBreakdown)).monthlyExpensesDeclaredAt).toBeInstanceOf(Date)
+  })
+
+  it("does not when every expense field was left blank", async () => {
+    const none = await createdWith({ ...blank, belowMleJustification: justification })
+    expect(none.monthlyExpenses).toBe(0)
+    expect(none.monthlyExpensesDeclaredAt).toBeNull()
+  })
+})

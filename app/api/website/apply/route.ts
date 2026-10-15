@@ -873,6 +873,8 @@ export async function POST(req: NextRequest) {
                       employerName: employerName || null,
                       monthlyIncome: declaredIncomeCents,
                       monthlyExpenses: declaredExpensesCents,
+                      // An explicit R0 is a declaration; the column's 0 is not.
+                      monthlyExpensesDeclaredAt: declaredExpensesProvided ? new Date() : null,
                       expenseBreakdown: {
                         create: {
                           housing: 0, transport: 0, food: 0, education: 0,

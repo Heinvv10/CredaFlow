@@ -830,6 +830,12 @@ export async function PUT(
               : hasKey("monthlyExpenses")
                 ? { monthlyExpenses: effectiveMonthlyExpenses }
                 : {}),
+            // Staff changed the expenses, to R0 included: a declaration. The
+            // form sends every field on every save (a blank as 0), so an
+            // unchanged figure says nothing about whether one was declared.
+            ...(effectiveMonthlyExpenses !== previous.monthlyExpenses && {
+              monthlyExpensesDeclaredAt: new Date(),
+            }),
             ...(hasKey("incomeSourceType") && { incomeSourceType: data.incomeSourceType }),
             ...(hasKey("employmentStartDate") && {
               employmentStartDate: data.employmentStartDate ? new Date(data.employmentStartDate) : null,

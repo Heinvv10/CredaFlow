@@ -42,7 +42,7 @@ import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
-import { payslipStateKey, statementSnapshot } from "@/lib/credit-checks/load-facts"
+import { declaredExpenses, payslipStateKey, statementSnapshot } from "@/lib/credit-checks/load-facts"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
@@ -1179,6 +1179,16 @@ export async function POST(
             if (newEvidence > 0 || payslipsChanged || statementsChanged) {
               return { ok: false as const, reason: "checks_stale" as const }
             }
+            // The declared expenses the checks compared the statements with:
+            // an edit since then (an explicit R0 included) has not been checked.
+            // The Client row is held FOR SHARE by verifyLockedApprovalCandidate.
+            const expensesNow = await tx.client.findFirst({
+              where: { id: clientId, tenantId: tenant.id },
+              select: { monthlyExpenses: true, monthlyExpensesDeclaredAt: true },
+            })
+            if (!expensesNow || declaredExpenses(expensesNow) !== (checks?.declaredExpensesCents ?? null)) {
+              return { ok: false as const, reason: "checks_stale_expenses" as const }
+            }
             const approved = await tx.loanApplication.updateMany({
               where: {
                 id,
@@ -1367,6 +1377,12 @@ export async function POST(
           if (approvalWrite.reason === "checks_stale") {
             return NextResponse.json(
               { error: "Statements or payslips changed while approving (one arrived, was deleted, or finished extracting). Refresh Credit checks and review them first." },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "checks_stale_expenses") {
+            return NextResponse.json(
+              { error: "The client's declared expenses changed while approving. Refresh Credit checks and review them first." },
               { status: 409 },
             )
           }

@@ -433,6 +433,9 @@ model Client {
   employerName                       String?
   monthlyIncome                      Int                      @default(0)
   monthlyExpenses                    Int                      @default(0)
+  // Set when monthlyExpenses was captured from the client or staff, so a
+  // declared R0 differs from the column's default (lib/credit-checks/load-facts.ts).
+  monthlyExpensesDeclaredAt          DateTime?
   bankName                           String?
   bankAccountNumber                  String?
   bankBranchCode                     String?
