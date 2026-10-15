@@ -254,6 +254,7 @@ Domain-specific rules live next to the code:
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
 - `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
 - `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
+- `lib/lender-api/.claude.md` — the `/api/v1` lender API and outbound webhooks
 - `lib/collections-engine/.claude.md` — DebiCheck engine; scheme rules in one place
 - `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
 

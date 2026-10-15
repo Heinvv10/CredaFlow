@@ -127,6 +127,13 @@ describe("tenant-scope — ALS primitives", () => {
       "SuspiciousReportCase",
       "SuspiciousReportAccess",
       "RmcpDocument",
+      // Lender API keys and outbound webhooks — non-null tenantId. The key
+      // lookup by prefix and the webhook cron's cross-tenant scans run in
+      // withoutTenantScope; ApiRequestLog has a nullable tenantId and is not listed.
+      "ApiKey",
+      "WebhookEndpoint",
+      "WebhookEvent",
+      "WebhookDelivery",
       // Collections engine (lib/collections-engine). Non-null tenantId, passed
       // explicitly on every query: the crons run outside a request frame.
       "DebitMandate",

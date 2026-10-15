@@ -152,6 +152,40 @@ lcompose() {
   fi
 }
 
+# The uploads volume compose creates for this project (the `uploads` volume of
+# docker-compose.lender.yml), and the image that tars it: the database image,
+# which every lender host already has and which carries tar.
+uploads_volume() { echo "${PROJECT:?}_uploads"; }
+UPLOADS_HELPER_IMAGE=postgres:16-alpine
+
+# RESTORE_UPLOADS_SH — runs INSIDE a helper container (busybox sh) with the
+# volume at /u, a tar on stdin, env TS and EXPECT (restore-uploads). Unpacks into
+# /u/.restore-$TS and counts the files; only if the count is EXPECT does it move
+# the live entries into /u/.pre-restore-$TS and the restored ones into place.
+# Earlier .restore-*/.pre-restore-* directories are left where they are. Prints
+# the count. tar runs as root, so files keep the owner recorded in the archive.
+RESTORE_UPLOADS_SH="$(cat <<'SH'
+set -eu
+stage="/u/.restore-$TS"; old="/u/.pre-restore-$TS"
+mkdir "$stage"
+tar -xf - -C "$stage"
+n="$(find "$stage" -type f | wc -l | tr -d ' ')"
+if [ "$n" != "$EXPECT" ]; then rm -rf "$stage"; echo "restored $n file(s), expected $EXPECT" >&2; exit 1; fi
+mkdir "$old"
+for e in /u/* /u/.[!.]*; do
+  [ -e "$e" ] || continue
+  case "${e#/u/}" in .restore-*|.pre-restore-*) continue ;; esac
+  mv "$e" "$old/"
+done
+for e in "$stage"/* "$stage"/.[!.]*; do
+  [ -e "$e" ] || continue
+  mv "$e" /u/
+done
+rmdir "$stage"
+echo "$n"
+SH
+)"
+
 # psql_db DB SQL — one query in database DB, inside the db container as its own
 # superuser over the local socket (no password crosses the host shell).
 psql_db() { lcompose exec -T db psql -v ON_ERROR_STOP=1 -qAt -U "$PGUSER" -d "$1" -c "$2"; }

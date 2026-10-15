@@ -49,7 +49,8 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 }))
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole }))
 vi.mock("@/lib/audit", () => ({ logAudit, AuditAction: new Proxy({}, { get: (_t, k) => String(k) }) }))
-vi.mock("node:fs/promises", () => ({ writeFile, mkdir }))
+// The route writes through lib/storage (encrypted at rest); the mock records what it was asked to write.
+vi.mock("@/lib/storage", () => ({ saveFileAt: (rel: string, buf: Buffer) => writeFile(rel, buf) }))
 vi.mock("@/lib/pdf/faisDisclosure", () => ({ generateFaisDisclosurePdf: generatePdf }))
 
 import path from "node:path"
