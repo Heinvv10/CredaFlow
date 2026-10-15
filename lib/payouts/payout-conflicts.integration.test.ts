@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma"
 import { avsSubjectFingerprint } from "@/lib/compliance/avs-subject"
 import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createDisbursementPayout } from "./disbursement"
+import { dispatchPayout } from "./dispatch"
 import { applyProviderState, resolvePayout } from "./resolve"
 import { decidePayoutRetry, requestPayoutRetry } from "./retry"
 import { decideDisbursementReversal, requestDisbursementReversal } from "./reversal"
@@ -32,6 +33,7 @@ const user = (suffix: string) => ({ id: `${tenant.userId}${suffix}`, email: `${t
 const disburser = () => user("")
 const requester = () => user("-req")
 const checker = () => user("-chk")
+const resolver = () => user("-res")
 
 async function refused(work: Promise<unknown>, message: RegExp) {
   const error = await work.then(() => null, (e: unknown) => e)
@@ -69,7 +71,7 @@ suite.sequential("payout conflicts and races (real Postgres)", () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
     await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { payoutsEngineEnabled: true, payoutProvider: "simulated" } })
-    for (const u of [requester(), checker()]) await db.user.create({ data: { id: u.id, tenantId: tenant.tenantId, email: u.email, password: "x", role: "LOAN_ADMIN" } })
+    for (const u of [requester(), checker(), resolver()]) await db.user.create({ data: { id: u.id, tenantId: tenant.tenantId, email: u.email, password: "x", role: "LOAN_ADMIN" } })
   })
   afterAll(async () => { await db.$disconnect() })
 
@@ -138,5 +140,64 @@ suite.sequential("payout conflicts and races (real Postgres)", () => {
     await db.disbursementPayout.update({ where: { id: retryId }, data: { status: "NEEDS_REVIEW" } })
     expect(await resolvePayout(prisma, { tenantId: tenant.tenantId, payoutId: retryId, actor: checker(), request: { action: "confirm_paid", note: "I approved it, and it paid" } })).toMatchObject({ ok: false, status: 403 })
     await refused(db.disbursementPayout.update({ where: { id: retryId }, data: { status: "PAID", paidAt: new Date(), resolvedById: checker().id, resolutionNote: "self" } }), /approver cannot settle/)
+  })
+
+  // ── Double disbursement through a late provider report (scan, round 2) ──
+
+  /** Attempt 2 of a failed loan, approved and waiting to send (PENDING). */
+  async function approvedRetry(tail = "1111") {
+    const loan = await failedLoan(tail)
+    const req = await requestPayoutRetry(prisma, { tenantId: tenant.tenantId, loanId: loan.loanId, actor: requester() })
+    const retryId = (req as { payoutId: string }).payoutId
+    expect(await decidePayoutRetry(prisma, { tenantId: tenant.tenantId, payoutId: retryId, approve: true, note: "ok", actor: checker() })).toMatchObject({ ok: true, status: "PENDING" })
+    return { ...loan, retryId }
+  }
+  const reportPaid = async (payoutId: string) => applyProviderState(prisma, {
+    tenantId: tenant.tenantId, payout: await db.disbursementPayout.findUniqueOrThrow({ where: { id: payoutId } }), state: "PAID", source: "webhook", actor: { id: null, email: "webhook:simulated" },
+  })
+  const settle = async (id: string, to: "PAID" | "FAILED") => {
+    await db.disbursementPayout.update({ where: { id }, data: { status: "SUBMITTING", submittedAt: new Date() } })
+    await db.disbursementPayout.update({ where: { id }, data: to === "PAID" ? { status: "PAID", paidAt: new Date() } : { status: "FAILED" } })
+  }
+
+  it("never sends an approved retry once a provider reports the earlier attempt paid: code and database", async () => {
+    const loan = await approvedRetry()
+    expect(await reportPaid(loan.payoutId)).toMatchObject({ conflict: true })
+    expect(await dispatchPayout(prisma, { tenantId: tenant.tenantId, payoutId: loan.retryId, actor: checker() })).toMatchObject({ kind: "not_sendable" })
+    await refused(db.disbursementPayout.update({ where: { id: loan.retryId }, data: { status: "SUBMITTING", submittedAt: new Date() } }), /resolve that first/)
+    expect((await db.disbursementPayout.findUniqueOrThrow({ where: { id: loan.retryId } })).status).toBe("PENDING")
+  })
+
+  it("refuses an approval of a retry once a provider reports the earlier attempt paid, in the database too", async () => {
+    const loan = await failedLoan()
+    const req = await requestPayoutRetry(prisma, { tenantId: tenant.tenantId, loanId: loan.loanId, actor: requester() })
+    const retryId = (req as { payoutId: string }).payoutId
+    await reportPaid(loan.payoutId)
+    expect(await decidePayoutRetry(prisma, { tenantId: tenant.tenantId, payoutId: retryId, approve: true, note: "ok", actor: checker() })).toMatchObject({ ok: false, status: 409 })
+    await refused(db.disbursementPayout.update({ where: { id: retryId }, data: { status: "PENDING", approvedById: checker().id, approvedAt: new Date() } }), /resolve that first/)
+  })
+
+  it("will not resolve a late PAID report as paid while another attempt is paid: both payouts can never stand", async () => {
+    const loan = await approvedRetry()
+    await settle(loan.retryId, "PAID")
+    await reportPaid(loan.payoutId)
+    const out = await resolvePayout(prisma, { tenantId: tenant.tenantId, payoutId: loan.payoutId, actor: checker(), request: { action: "resolve_conflict", outcome: "paid", note: "Bank shows both went out" } })
+    expect(out).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("another attempt") })
+    expect((await db.disbursementPayout.findUniqueOrThrow({ where: { id: loan.payoutId } })).status).toBe("FAILED")
+    await refused(db.disbursementPayout.update({ where: { id: loan.payoutId }, data: { status: "PAID", paidAt: new Date(), conflictResolvedAt: new Date(), conflictResolvedById: checker().id, conflictResolutionNote: "x" } }), /Unique constraint|unique|another attempt/i)
+  })
+
+  it("resolves two late reports on two failed attempts as paid for one of them at most", async () => {
+    const loan = await approvedRetry()
+    await settle(loan.retryId, "FAILED")
+    await reportPaid(loan.payoutId)
+    await reportPaid(loan.retryId)
+    // Not the checker: it approved attempt 2, so it may not resolve it.
+    const resolve = (id: string) => resolvePayout(prisma, { tenantId: tenant.tenantId, payoutId: id, actor: resolver(), request: { action: "resolve_conflict", outcome: "paid", note: "Bank shows it went out" } })
+    expect(await resolve(loan.payoutId)).toMatchObject({ ok: true, status: "PAID" })
+    expect(await resolve(loan.retryId)).toMatchObject({ ok: false, status: 409 })
+    expect(await db.disbursementPayout.count({ where: { loanId: loan.loanId, status: "PAID" } })).toBe(1)
+    // And a PAID earlier attempt forbids any new retry, whatever the latest attempt says.
+    expect(await requestPayoutRetry(prisma, { tenantId: tenant.tenantId, loanId: loan.loanId, actor: requester() })).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("paid") })
   })
 })

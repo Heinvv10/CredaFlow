@@ -59,7 +59,7 @@ export function fakePayoutDb(rows: DisbursementPayout[], engineOn = true) {
     auditLog,
     tenantConfig,
     loan,
-    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({ disbursementPayout: table, auditLog }),
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({ disbursementPayout: table, auditLog, $queryRaw: async () => [{ status: "ACTIVE" }] }),
   }
   return { db: db as unknown as PayoutDb, rows, audits }
 }

@@ -12,6 +12,7 @@
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
+import { lockLoanForPayout } from "./loan-lock"
 import { getPayoutProvider } from "./registry"
 import { canTransition, isSettled, statusAfterSend, type PayoutStatus } from "./state"
 import type { InitiateResult, PayoutProvider } from "./types"
@@ -41,9 +42,12 @@ export async function transitionPayout(db: PayoutDb, args: {
   actor: Actor
   source: string
   detail?: Record<string, unknown>
+  /** Take the loan lock first (lib/payouts/loan-lock.ts): the claim to send serialises with retries, reversals and conflict reports. */
+  lockLoanId?: string
 }): Promise<boolean> {
   if (!canTransition(args.from, args.to)) return false
   return db.$transaction(async (tx) => {
+    if (args.lockLoanId) await lockLoanForPayout(tx, args.tenantId, args.lockLoanId)
     const now = new Date()
     const moved = await tx.disbursementPayout.updateMany({
       where: { id: args.payoutId, tenantId: args.tenantId, status: args.from },
@@ -91,6 +95,10 @@ export async function dispatchPayout(db: PayoutDb, args: { tenantId: string; pay
   if (loan?.status !== "ACTIVE" && loan?.status !== "DEFAULTED") {
     return { kind: "not_sendable", reason: "The loan is no longer active; nothing was sent" }
   }
+  const conflict = await db.disbursementPayout.findFirst({ where: { tenantId: args.tenantId, loanId: payout.loanId, providerConflictAt: { not: null }, conflictResolvedAt: null }, select: { id: true } })
+  if (conflict) {
+    return { kind: "not_sendable", reason: "A provider reported money moving on an earlier attempt; resolve that before anything is sent" }
+  }
 
   // Resolve the channel BEFORE claiming: a misconfigured channel leaves the
   // payout PENDING (never sent) for a person to send once it is fixed.
@@ -104,6 +112,11 @@ export async function dispatchPayout(db: PayoutDb, args: { tenantId: string; pay
   const claimed = await transitionPayout(db, {
     tenantId: args.tenantId, payoutId: payout.id, from: "PENDING", to: "SUBMITTING",
     data: { submittedAt: new Date() }, actor: args.actor, source: "dispatch", detail: { provider: provider.id },
+    lockLoanId: payout.loanId,
+  }).catch((error: unknown) => {
+    // The payout guard refused the claim (a conflict reported in between): nothing sent.
+    if (error instanceof Error && /Payout guard:/.test(error.message)) return false
+    throw error
   })
   if (!claimed) return { kind: "not_claimed", status: null }
 

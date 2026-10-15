@@ -12,6 +12,7 @@
 import type { DisbursementPayout } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { Actor, PayoutDb } from "./dispatch"
+import { lockLoanForPayout, raceRefusal } from "./loan-lock"
 import type { PayoutStatus } from "./state"
 import type { ProviderPayoutState } from "./types"
 
@@ -29,6 +30,9 @@ export async function recordProviderConflict(db: PayoutDb, args: {
   const now = new Date()
   const detail = `${args.source} reported ${args.state} after the attempt was ${args.payout.status}${args.reason ? `: ${args.reason}` : ""}`.slice(0, 500)
   return db.$transaction(async (tx) => {
+    // The loan lock first, like a retry approval or a claim to send.
+    const owner = await tx.disbursementPayout.findFirst({ where: { id: args.payout.id, tenantId: args.tenantId }, select: { loanId: true } })
+    if (owner) await lockLoanForPayout(tx, args.tenantId, owner.loanId)
     const moved = await tx.disbursementPayout.updateMany({
       where: { id: args.payout.id, tenantId: args.tenantId, status: { in: [...CONFLICTABLE] }, providerConflictAt: null },
       data: { providerConflictState: args.state, providerConflictAt: now, providerConflictDetail: detail },
@@ -66,9 +70,20 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
   if (args.outcome === "paid" && p.providerConflictState !== "PAID") {
     return { ok: false, status: 422, error: "The provider did not report this attempt paid" }
   }
+  if (args.outcome === "paid") {
+    const other = await db.disbursementPayout.findFirst({
+      where: { tenantId: args.tenantId, applicationId: p.applicationId, id: { not: p.id }, status: { notIn: ["FAILED", "RETURNED", "CANCELLED"] } },
+      select: { attempt: true, status: true },
+    })
+    if (other) {
+      return { ok: false, status: 409, error: `Attempt ${other.attempt} is ${other.status}: if this one paid too, another attempt sent the money twice; recover it (returned) before resolving this as paid` }
+    }
+  }
   const now = new Date()
   const to: PayoutStatus = args.outcome === "paid" ? "PAID" : (p.status as PayoutStatus)
-  return db.$transaction(async (tx) => {
+  try {
+  return await db.$transaction(async (tx) => {
+    await lockLoanForPayout(tx, args.tenantId, p.loanId)
     const moved = await tx.disbursementPayout.updateMany({
       where: { id: p.id, tenantId: args.tenantId, status: p.status, conflictResolvedAt: null },
       data: {
@@ -85,4 +100,9 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
     }, tx)
     return { ok: true as const, status: to }
   })
+  } catch (error) {
+    const refusal = raceRefusal(error)
+    if (refusal) return { ...refusal, error: `Another attempt of this payout is paid or in flight. ${refusal.error}` }
+    throw error
+  }
 }

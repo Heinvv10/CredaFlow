@@ -43,6 +43,8 @@ export async function requestPayoutRetry(db: RetryDb, args: { tenantId: string; 
   if (!last || !isOver(last.status as PayoutStatus)) {
     return { ok: false, status: 409, error: "Only a failed, returned or rejected payout can be retried" }
   }
+  const paidEarlier = await db.disbursementPayout.findFirst({ where: { tenantId: args.tenantId, loanId: loan.id, status: { notIn: ["FAILED", "RETURNED", "CANCELLED"] } }, select: { attempt: true } })
+  if (paidEarlier) return { ok: false, status: 409, error: `Attempt ${paidEarlier.attempt} was paid or is in flight; the loan cannot be paid out again` }
   const openReversal = await db.disbursementReversal.findFirst({ where: { tenantId: args.tenantId, loanId: loan.id, status: { not: "REJECTED" } }, select: { id: true } })
   if (openReversal) return { ok: false, status: 409, error: "A reversal of this disbursement is open; decide it first" }
   const conflict = await db.disbursementPayout.findFirst({ where: { tenantId: args.tenantId, loanId: loan.id, providerConflictAt: { not: null }, conflictResolvedAt: null }, select: { id: true } })
