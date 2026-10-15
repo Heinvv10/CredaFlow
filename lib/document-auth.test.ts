@@ -113,6 +113,14 @@ describe("getDocumentCaller — tenant", () => {
     expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b" })
     expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
   })
+
+  it("resolves an ADMIN session as staff, not as a missing portal client", async () => {
+    authMock.mockResolvedValue({ user: { id: "u2", email: "a@acme-lending.example", role: "ADMIN", tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue({ id: "u2", role: "ADMIN", tenantId: "tenant-b" })
+
+    expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u2", role: "ADMIN", tenantId: "tenant-b" })
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
 })
 
 describe("logDocumentContentAccess", () => {
