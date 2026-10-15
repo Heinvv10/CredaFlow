@@ -6,6 +6,7 @@
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import type { AppStatus, StatementAnalysis } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { needsModelLabels } from "@/lib/statement-analysis/model-labels"
 import { ensureStatementAnalysis, readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { PARSER_VERSION } from "@/lib/statement-analysis/analyse"
 import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/lib/statement-analysis/types"
@@ -39,6 +40,7 @@ export function statementFacts(documentId: string, a: StatementAnalysis): Statem
     read,
     balanceCheck: a.balanceCheck,
     authenticity: a.authenticity as unknown as AuthenticityFacts,
+    modelLabels: a.modelCategories,
   }
 }
 
@@ -209,8 +211,17 @@ export async function loadApplicationFacts(
       continue
     }
     const r = await ensureStatementAnalysis({ tenantId, documentId: doc.id, allowVlm: false, persistedOnly: opts.persistedOnly, db: opts.persistedOnly ? opts.db : undefined })
-    if (r.state === "read") statements.push(statementFacts(doc.id, r.analysis))
-    else if (r.state === "pending") {
+    if (r.state === "read") {
+      statements.push(statementFacts(doc.id, r.analysis))
+      // A read the model has not labelled — it was down, or the read came
+      // before the labels did — is labelled in the background, and the
+      // client's checks recomputed once it is.
+      if (!opts.persistedOnly && needsModelLabels(r.analysis)) {
+        readStatementInBackground(tenantId, doc.id, {
+          onLabelled: async () => (await import("./recompute")).recomputeClientApplications(tenantId, app.clientId),
+        })
+      }
+    } else if (r.state === "pending") {
       const reason = r.reason === "file_missing" || r.reason === "reader_unavailable" ? r.reason : opts.pendingReasons?.get(doc.id) ?? "vlm"
       statements.push(pending(doc.id, reason))
       // A read the vision model has not done yet — the model was down, or the

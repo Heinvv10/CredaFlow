@@ -69,6 +69,47 @@ function Living({ data }: { data: Payload }) {
   )
 }
 
+/** Rows the local model categorised (no rule did): totals, and the rows for the officer to check. */
+function ModelAssigned({ data, used }: { data: Payload; used: Payload["statements"] }) {
+  const m = data.modelAssigned
+  const unlabelled = used.filter((s) => !s.modelLabelled).length
+  if (m.rowCount === 0 && unlabelled === 0) return null
+  return (
+    <div data-testid="statement-model-assigned" className="mt-4 rounded-md border border-[var(--cf-border-subtle)] p-3 text-xs text-[var(--cf-text-secondary)]">
+      {m.rowCount > 0 && (
+        <details>
+          <summary className="cursor-pointer">
+            <span className="font-semibold text-[var(--cf-text)]">Model-assigned: </span>
+            {m.rowCount} row{m.rowCount === 1 ? "" : "s"} ({formatCents(m.debitCents)} out, about {formatCents(m.livingMonthlyCents)} a month of the living spend)
+            were categorised by the local model, not a rule. Check them.
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full">
+              <tbody>
+                {m.rows.map((r, i) => (
+                  <tr key={i} className="border-t border-[var(--cf-border-subtle)]">
+                    <td className="py-1 pr-3 whitespace-nowrap">{r.date}</td>
+                    <td className="py-1 pr-3 break-all">{r.description}</td>
+                    <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(-r.amountCents)}</td>
+                    <td className="py-1 whitespace-nowrap">{LABEL[r.category]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {m.rowCount > m.rows.length && <p className="mt-1">First {m.rows.length} of {m.rowCount} rows; the export lists them all.</p>}
+          </div>
+        </details>
+      )}
+      {unlabelled > 0 && (
+        <p className={m.rowCount > 0 ? "mt-2" : ""}>
+          The model has not labelled {unlabelled} statement{unlabelled === 1 ? "" : "s"} (it was unavailable or has not run yet):
+          rows no rule categorises stay uncategorised and are not counted as living spend.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function Months({ data }: { data: Payload }) {
   return (
     <div className="mt-4 overflow-x-auto">
@@ -161,6 +202,7 @@ export function StatementInsightsPanel({ applicationId }: { applicationId: strin
             <Figure label="Uncategorised spend" value={data.uncategorisedShare === null ? "—" : `${Math.round(data.uncategorisedShare * 100)}%`} />
           </div>
           <Living data={data} />
+          <ModelAssigned data={data} used={used} />
           <Months data={data} />
           {data.statements.length > used.length && (
             <p className="mt-3 text-xs text-[var(--cf-text-muted)]">

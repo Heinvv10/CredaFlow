@@ -12,6 +12,7 @@ import { readFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { analyseStatement, PARSER_VERSION, type StatementAnalysisResult } from "./analyse"
+import { labelRead } from "./label-read"
 import { VlmUnavailableError } from "./vlm-reader"
 
 export interface EnsureOptions {
@@ -197,6 +198,8 @@ interface ReadRequest {
   retryFailed?: boolean
   actorUserId?: string
   onRead?: () => Promise<unknown>
+  /** Runs only when model labels were stored by this run (a read already labelled, or a model down, runs nothing). */
+  onLabelled?: () => Promise<unknown>
 }
 
 /**
@@ -205,7 +208,7 @@ interface ReadRequest {
  * being read runs once that read is done. Callbacks run only after a read is
  * stored; a read left pending is re-queued when its application is next loaded.
  */
-const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>> }>()
+const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>>; onLabelled: Array<() => Promise<unknown>> }>()
 const running = new Set<string>()
 
 /**
@@ -217,9 +220,10 @@ const running = new Set<string>()
 export const MAX_WAITING_PER_TENANT = 20
 
 function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
-  const w = waiting.get(documentId) ?? { tenantId, onReads: [] }
+  const w = waiting.get(documentId) ?? { tenantId, onReads: [], onLabelled: [] }
   if (opts.retryFailed) w.retry = opts.actorUserId ?? null
   if (opts.onRead) w.onReads.push(opts.onRead)
+  if (opts.onLabelled) w.onLabelled.push(opts.onLabelled)
   waiting.set(documentId, w)
 }
 
@@ -256,9 +260,11 @@ function schedule(documentId: string): void {
         retryFailed: w.retry !== undefined, actorUserId: w.retry ?? undefined,
       })
       if (r.state !== "read") return
+      // Labelled before the callbacks run, so the checks they recompute see the labels.
+      const labelled = await labelRead(w.tenantId, r.analysis)
       // Each callback on its own: one failing must not skip the others, nor be
       // reported as a failed read.
-      for (const onRead of w.onReads) {
+      for (const onRead of [...w.onReads, ...(labelled ? w.onLabelled : [])]) {
         try {
           await onRead()
         } catch (err) {

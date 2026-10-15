@@ -2,13 +2,15 @@
  * Financial-health figures from a client's read statements: money in and out
  * per month, balances, how regular the salary is, spend by category, and
  * living spend against the client's declared monthly expenses. A pure
- * function of the stored reads, the client's name and declared expenses,
- * computed on every request (categories are never stored).
+ * function of the stored reads (with their model labels), the client's name
+ * and declared expenses, computed on every request (categories are never
+ * stored; a model label is, as the model's answer, model-labels.ts).
  *
  * Only statements that pass the balance check count: an unreconciled read may
  * have dropped or misread rows, and spend from it would be a guess. Two
  * statements of one account that overlap count each day once.
  */
+import { createHash } from "node:crypto"
 import { EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
 import { MONTH_DAYS } from "./categories"
 import { categorise, CATEGORISER_VERSION, isLiving, type Category, type LivingCategory } from "./categorise"
@@ -20,6 +22,8 @@ export interface InsightStatement {
   bank: string | null
   balanceCheck: string | null
   read: StatementRead
+  /** StatementAnalysis.modelCategories: null when the model has not labelled this read. */
+  modelLabels?: unknown
 }
 
 export interface StatementSummary {
@@ -31,7 +35,21 @@ export interface StatementSummary {
   used: boolean
   averageBalanceCents: number | null
   lowestBalanceCents: number | null
+  /** The model has labelled this read's rows the rules left uncategorised. */
+  modelLabelled: boolean
 }
+
+/** A debit the model categorised (no rule did): listed so an officer can check it. */
+export interface ModelAssignedRow {
+  documentId: string
+  date: string
+  description: string
+  amountCents: number
+  category: Category
+}
+
+/** Rows listed in full; the totals always count every one. */
+export const MODEL_ROWS_LISTED = 200
 
 export interface MonthFigures {
   month: string
@@ -60,6 +78,15 @@ export interface Insights {
   }
   declaredCents: number | null
   gapCents: number | null
+  /** What the model, not a rule, categorised, over the counted rows. */
+  modelAssigned: {
+    debitCents: number
+    livingMonthlyCents: number
+    rowCount: number
+    rows: ModelAssignedRow[]
+    /** Identifies every model-assigned row and its category; null when there are none. */
+    digest: string | null
+  }
 }
 
 const dayMs = 86_400_000
@@ -106,17 +133,19 @@ function unionDays(periods: Array<[string, string]>): number {
   return total
 }
 
+interface CountedRow { t: StatementTransaction; s: InsightStatement }
+
 /** The used statements' rows, each account's days counted once (a later statement adds only days after the earlier). */
-function distinctRows(used: InsightStatement[]): StatementTransaction[] {
+function distinctRows(used: InsightStatement[]): CountedRow[] {
   const coveredTo = new Map<string, string>()
-  const rows: StatementTransaction[] = []
+  const rows: CountedRow[] = []
   for (const s of [...used].sort((a, b) => (period(a.read)?.[0] ?? "").localeCompare(period(b.read)?.[0] ?? ""))) {
     // Without the account number each statement is its own account: two accounts
     // merged would drop real spend (a missed referral); an overlap counted twice
     // only over-refers, which an officer clears.
     const account = `${s.bank}|${s.read.accountNumberLast4 ?? s.documentId}`
     const after = coveredTo.get(account)
-    rows.push(...s.read.transactions.filter((t) => !t.nonPosting && (!after || t.date > after)))
+    rows.push(...s.read.transactions.filter((t) => !t.nonPosting && (!after || t.date > after)).map((t) => ({ t, s })))
     const end = period(s.read)?.[1]
     if (end && (!after || end > after)) coveredTo.set(account, end)
   }
@@ -135,10 +164,23 @@ export function computeInsights(
   const months = new Map<string, MonthFigures>()
   const spend: Partial<Record<Category, number>> = {}
   let debitTotal = 0
-  for (const t of distinctRows(used)) {
+  const modelAssigned: Insights["modelAssigned"] = { debitCents: 0, livingMonthlyCents: 0, rowCount: 0, rows: [], digest: null }
+  let modelLiving = 0
+  const modelPrints: string[] = []
+  const rows = distinctRows(used)
+  for (const { t, s } of rows) {
     const key = t.date.slice(0, 7)
     const m = months.get(key) ?? { month: key, inCents: 0, outCents: 0, byCategory: {}, salaryCredits: 0 }
-    const { category } = categorise(t, { clientName: ctx.clientName })
+    const { category, modelAssigned: byModel } = categorise(t, { clientName: ctx.clientName, modelLabels: s.modelLabels })
+    if (byModel) {
+      modelAssigned.debitCents -= t.amountCents
+      modelAssigned.rowCount++
+      if (isLiving(category)) modelLiving -= t.amountCents
+      modelPrints.push(JSON.stringify([s.documentId, t.date, t.description, t.amountCents, category]))
+      if (modelAssigned.rows.length < MODEL_ROWS_LISTED) {
+        modelAssigned.rows.push({ documentId: s.documentId, date: t.date, description: t.description, amountCents: t.amountCents, category })
+      }
+    }
     if (t.amountCents > 0) {
       m.inCents += t.amountCents
       if (category === "SALARY_INCOME") m.salaryCredits++
@@ -157,7 +199,10 @@ export function computeInsights(
     else living.excludedMonthlyCents[c] = monthly(v)
   }
   living.monthlyCents = monthly(Object.entries(spend).reduce((sum, [c, v]) => sum + (isLiving(c as Category) ? v : 0), 0))
-  const payDays = distinctRows(used)
+  modelAssigned.livingMonthlyCents = monthly(modelLiving)
+  if (modelPrints.length) modelAssigned.digest = createHash("sha256").update(modelPrints.sort().join("\n")).digest("hex").slice(0, 16)
+  const payDays = rows
+    .map(({ t }) => t)
     .filter((t) => t.amountCents > 0 && categorise(t, { clientName: ctx.clientName }).category === "SALARY_INCOME")
     .reduce((firsts, t) => firsts.set(t.date.slice(0, 7), Math.min(firsts.get(t.date.slice(0, 7)) ?? 31, Number(t.date.slice(8, 10)))), new Map<string, number>())
   const salaryDays = [...payDays.values()]
@@ -166,7 +211,7 @@ export function computeInsights(
     categoriserVersion: CATEGORISER_VERSION,
     statements: statements.map((s) => {
       const b = balances(s.read)
-      return { documentId: s.documentId, bank: s.bank, periodStart: s.read.periodStart, periodEnd: s.read.periodEnd, used: s.balanceCheck === "PASS", averageBalanceCents: b.average, lowestBalanceCents: b.lowest }
+      return { documentId: s.documentId, bank: s.bank, periodStart: s.read.periodStart, periodEnd: s.read.periodEnd, used: s.balanceCheck === "PASS", averageBalanceCents: b.average, lowestBalanceCents: b.lowest, modelLabelled: s.modelLabels != null }
     }),
     coverageDays,
     enoughCoverage: coverageDays >= EXPENSE_MIN_COVERAGE_DAYS,
@@ -177,5 +222,6 @@ export function computeInsights(
     declaredCents: declared,
     // Under four weeks there is no month to compare: no gap.
     gapCents: declared === null || coverageDays < EXPENSE_MIN_COVERAGE_DAYS ? null : living.monthlyCents - declared,
+    modelAssigned,
   }
 }

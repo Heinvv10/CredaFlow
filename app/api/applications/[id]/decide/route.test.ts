@@ -634,7 +634,7 @@ it("compares new evidence with the time and payslips the recompute actually read
     tenantId: "t1", clientId: expect.any(String), docType: { in: ["BANK_STATEMENT", "PAYSLIP"] },
     OR: [{ createdAt: { gt: evidenceAsOf } }, { deletedAt: { gt: evidenceAsOf } }],
   } })
-  expect(txAnalysisCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", createdAt: { gt: evidenceAsOf }, clientDocument: { clientId: expect.any(String) } } })
+  expect(txAnalysisCountMock).toHaveBeenCalledWith({ where: { tenantId: "t1", OR: [{ createdAt: { gt: evidenceAsOf } }, { modelCategoriesAt: { gt: evidenceAsOf } }], clientDocument: { clientId: expect.any(String) } } })
   expect(txPayslipFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
     where: { tenantId: "t1", clientId: expect.any(String), docType: "PAYSLIP", deletedAt: null, createdAt: { gte: evidenceSince } },
   }))
