@@ -73,11 +73,13 @@ export async function POST(req: NextRequest) {
         other: toCents(expenseBreakdownInputs.other),
       }
       const monthlyExpensesCents = sumExpenseBreakdown(breakdownCents)
-      // A figure typed in any field, "0" included, is a declaration; all
-      // blank is expenses not captured (both sum to 0).
-      const expensesDeclared = Object.keys(breakdownCents).some(
-        (k) => expenseBreakdownInputs[k as keyof typeof breakdownCents].trim() !== "",
-      )
+      // A figure typed in any field, "0" included, or a Regulation 23A
+      // justification for expenses this low is a declaration; all blank and
+      // unjustified is expenses not captured (both sum to 0).
+      const expensesDeclared = expenseBreakdownInputs.belowMleJustification.trim() !== "" ||
+        Object.keys(breakdownCents).some(
+          (k) => expenseBreakdownInputs[k as keyof typeof breakdownCents].trim() !== "",
+        )
 
       const debtObligationsRaw: DebtObligationInput[] = Array.isArray(data.debtObligations)
         ? data.debtObligations.map((row: Record<string, unknown>, i: number) => ({

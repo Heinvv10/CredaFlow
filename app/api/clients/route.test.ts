@@ -265,14 +265,14 @@ describe("POST /api/clients — phone/email already held by another contact", ()
 })
 
 describe("POST /api/clients — whether expenses were declared", () => {
-  /** The Client.create data the route builds for this expense breakdown. */
-  const createdWith = async (expenseBreakdown: Record<string, string>) => {
+  /** The Client.create data the route builds for this request. */
+  const createdWith = async (expenseBreakdown: Record<string, string>, over: Record<string, unknown> = {}) => {
     const create = vi.fn(async () => { throw new Error("stop after create") })
     transactionMock.mockImplementationOnce(async (fn: (tx: unknown) => unknown) => fn({ client: { create } }))
     const res = await POST(new NextRequest("http://x/api/clients", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body(), expenseBreakdown }),
+      body: JSON.stringify({ ...body(), ...over, expenseBreakdown }),
     }))
     expect(res.status).toBe(500)
     return (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data
@@ -287,8 +287,15 @@ describe("POST /api/clients — whether expenses were declared", () => {
     expect((await createdWith(body().expenseBreakdown)).monthlyExpensesDeclaredAt).toBeInstanceOf(Date)
   })
 
-  it("does not when every expense field was left blank", async () => {
-    const none = await createdWith({ ...blank, belowMleJustification: justification })
+  it("records it when staff left every field blank but justified expenses below the Regulation 23A minimum", async () => {
+    const justified = await createdWith({ ...blank, belowMleJustification: justification })
+    expect(justified.monthlyExpenses).toBe(0)
+    expect(justified.monthlyExpensesDeclaredAt).toBeInstanceOf(Date)
+  })
+
+  it("does not when every expense field was left blank and nothing was justified", async () => {
+    // No income, so no justification is asked for.
+    const none = await createdWith({ ...blank, belowMleJustification: "" }, { grossMonthlyIncome: "", monthlyIncome: "0" })
     expect(none.monthlyExpenses).toBe(0)
     expect(none.monthlyExpensesDeclaredAt).toBeNull()
   })

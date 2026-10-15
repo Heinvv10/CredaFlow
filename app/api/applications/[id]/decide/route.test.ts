@@ -709,6 +709,18 @@ it("refuses an approval when the declared expenses changed since the checks comp
   expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
 })
 
+it("calls an approval whose recompute returned nothing stale, not an expense change", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  txClientFindFirstMock.mockResolvedValue({ monthlyExpenses: 300_000, monthlyExpensesDeclaredAt: null })
+  for (const checks of [null, { recomputed: false, flags: [] }]) {
+    recomputeApplicationFlagsMock.mockResolvedValueOnce(checks)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status, JSON.stringify(checks)).toBe(409)
+    expect((await res.json()).error).toContain("Statements or payslips changed while approving")
+  }
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
+})
+
 it("409s when the open-check-flags trigger refuses the approval write", async () => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
   txUpdateManyMock.mockRejectedValueOnce(new Error(

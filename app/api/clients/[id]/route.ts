@@ -458,6 +458,7 @@ export async function PUT(
             grossMonthlyIncome: true,
             monthlyIncome: true,
             monthlyExpenses: true,
+            monthlyExpensesDeclaredAt: true,
             bankName: true,
             bankAccountNumber: true,
             bankBranchCode: true,
@@ -830,10 +831,12 @@ export async function PUT(
               : hasKey("monthlyExpenses")
                 ? { monthlyExpenses: effectiveMonthlyExpenses }
                 : {}),
-            // Staff changed the expenses, to R0 included: a declaration. The
+            // A declaration: staff changed the expenses (to R0 included), or
+            // gave the Regulation 23A justification for expenses this low. The
             // form sends every field on every save (a blank as 0), so an
-            // unchanged figure says nothing about whether one was declared.
-            ...(effectiveMonthlyExpenses !== previous.monthlyExpenses && {
+            // unchanged figure alone says nothing about whether one was declared.
+            ...((effectiveMonthlyExpenses !== previous.monthlyExpenses ||
+              (breakdownKeyPresent && previous.monthlyExpensesDeclaredAt === null && effectiveJustification !== "")) && {
               monthlyExpensesDeclaredAt: new Date(),
             }),
             ...(hasKey("incomeSourceType") && { incomeSourceType: data.incomeSourceType }),

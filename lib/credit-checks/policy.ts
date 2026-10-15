@@ -141,7 +141,13 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * the older OPEN finding (recompute.ts), the decide route refuses an approval
  * whose declared expenses changed since the checks ran, and an explicit R0
  * declaration flags while expenses never captured do not
- * (load-facts.ts declaredExpenses). What is left before turning this on: pass the gate.
+ * (load-facts.ts declaredExpenses: a stored 0 counts only with
+ * Client.monthlyExpensesDeclaredAt). R0 is recorded from the website apply
+ * form (new client, expenses sent), the staff wizard (a figure typed or a
+ * below-minimum justification) and the staff edit (total changed, or that
+ * justification given). CRM lead convert records none: it refuses R0 when
+ * income is above 0, and at R0 income its prefilled "0" is not explicit.
+ * What is left before turning this on: pass the gate.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 

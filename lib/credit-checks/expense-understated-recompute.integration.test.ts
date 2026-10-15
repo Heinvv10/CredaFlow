@@ -103,6 +103,7 @@ suite("EXPENSE_UNDERSTATED recompute against Postgres", () => {
     expect(rest).toEqual([])
     expect(first).toMatchObject({ id: older.id, status: "SUPERSEDED" })
     expect(second).toMatchObject({ status: "OPEN", evidence: expect.objectContaining({ declaredCents: 10_000 }) })
+    expect((await livingFlags()).filter((f) => f.status === "OPEN").map((f) => f.id)).toEqual([second.id])
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { tenantId, action: "CREDIT_CHECKS_RECOMPUTED", entityId: appId }, orderBy: { createdAt: "desc" } })
     expect(audit.newValue).toMatchObject({ raised: [`${CODE}:${second.id}`], superseded: [`${CODE}:${older.id}`] })
   })
@@ -114,6 +115,7 @@ suite("EXPENSE_UNDERSTATED recompute against Postgres", () => {
     const byId = new Map((await livingFlags()).map((f) => [f.id, f.status]))
     expect(byId.get(r0.id)).toBe("OPEN")
     expect(byId.get(r100.id)).toBe("SUPERSEDED")
+    expect((await livingFlags()).filter((f) => f.status === "OPEN").map((f) => f.id)).toEqual([r0.id])
   })
 
   it("never touches a cleared finding: a successor is raised beside it", async () => {
@@ -122,10 +124,12 @@ suite("EXPENSE_UNDERSTATED recompute against Postgres", () => {
       where: { id: open.id, tenantId },
       data: { status: "CLEARED", clearedById: userId, clearedAt: new Date(), clearReason: "Spouse pays the household costs; confirmed." },
     })
+    const cleared = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { id: open.id, tenantId } })
     await declare(20_000, new Date())
     await recomputeApplicationFlags(tenantId, appId, { userId })
     const flags = await livingFlags()
-    expect(flags.find((f) => f.id === open.id)?.status).toBe("CLEARED")
+    // The cleared row is exactly as the officer left it: not superseded, not refreshed.
+    expect(flags.find((f) => f.id === open.id)).toEqual(cleared)
     expect(flags.filter((f) => f.status === "OPEN").map((f) => (f.evidence as { declaredCents: number }).declaredCents)).toEqual([20_000])
   })
 

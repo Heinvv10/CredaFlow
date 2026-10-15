@@ -1176,7 +1176,9 @@ export async function POST(
             const statementsNow = await statementSnapshot(tx, { tenantId: tenant.id, clientId, since: checks?.evidenceSince ?? new Date(0) })
             const seenStatements = [...(checks?.statementSnapshot ?? [])].sort()
             const statementsChanged = statementsNow.join("|") !== seenStatements.join("|")
-            if (newEvidence > 0 || payslipsChanged || statementsChanged) {
+            // No recompute ran (nothing returned, or the application had left
+            // review): nothing was checked, whatever the evidence counts say.
+            if (!checks?.recomputed || newEvidence > 0 || payslipsChanged || statementsChanged) {
               return { ok: false as const, reason: "checks_stale" as const }
             }
             // The declared expenses the checks compared the statements with:
@@ -1186,7 +1188,7 @@ export async function POST(
               where: { id: clientId, tenantId: tenant.id },
               select: { monthlyExpenses: true, monthlyExpensesDeclaredAt: true },
             })
-            if (!expensesNow || declaredExpenses(expensesNow) !== (checks?.declaredExpensesCents ?? null)) {
+            if (!expensesNow || declaredExpenses(expensesNow) !== (checks.declaredExpensesCents ?? null)) {
               return { ok: false as const, reason: "checks_stale_expenses" as const }
             }
             const approved = await tx.loanApplication.updateMany({
