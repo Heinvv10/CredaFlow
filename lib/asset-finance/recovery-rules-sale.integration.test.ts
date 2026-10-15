@@ -46,12 +46,15 @@ let pendingSale = ""
 let completedSale = ""
 let cancelledSale = ""
 let invoice = ""
+let invoice90 = ""
 let directorId = ""
 
 const saleIn = async (tx: Tx, rec: Rec, over: Record<string, unknown> = {}) =>
   tx.remarketingSale.create({ data: { ...(await saleData(database(), fx, rec.loan, rec.id)), ...over } as never })
 const complete = (tx: Tx, id: string, over: Record<string, unknown> = {}) =>
   tx.remarketingSale.update({ where: { id }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: invoice, ...over } })
+/** Approval is its own step, before the one that completes the sale. */
+const approve = (tx: Tx, id: string, by: string) => tx.remarketingSale.update({ where: { id }, data: { approvedById: by, approvedAt: new Date() } })
 const listed = async (regime: "NCA" | "NON_NCA"): Promise<Rec> => {
   const loan = await newLoan(database(), fx, regime)
   const id = await newRecovery(database(), fx, loan, regime === "NCA" ? "NCA_S131_ATTACHMENT" : "NON_NCA_VOLUNTARY", regime === "NCA" ? { legalMatterId: await courtMatter(database(), fx, loan) } : {})
@@ -70,6 +73,7 @@ suite("slice 4a remarketing sale database rules", () => {
   beforeAll(async () => {
     fx = await createRecoveryFixture(database(), t)
     invoice = await saleInvoice(database(), fx)
+    invoice90 = await saleInvoice(database(), fx, 90_000_000)
     directorId = (await database().client.findUniqueOrThrow({ where: { id: fx.director } })).idNumber
     R.non = await listed("NON_NCA")
     R.nca = await listed("NCA")
@@ -181,18 +185,18 @@ suite("slice 4a remarketing sale database rules", () => {
     it("forces relatedPartyMatch for a buyer carrying the borrower's ID number, however it is punctuated", async () => {
       const spaced = R.nca.loan.borrowerKey.replace(/(\d{6})(\d{4})(\d{3})/, "$1 $2 $3")
       expect(await forced(R.nca, spaced)).toBe(true)
-      expect(await forced(R.nca, spaced, clauseOff(G, `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = NEW."tenantId" AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)`, "false"))).toBe(false)
+      expect(await forced(R.nca, spaced, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)`, "false"))).toBe(false)
     })
 
     it("forces it for a buyer carrying the borrowing company's registration number", async () => {
       const dashed = R.non.loan.borrowerKey.replaceAll("/", "-").toLowerCase()
       expect(await forced(R.non, dashed)).toBe(true)
-      expect(await forced(R.non, dashed, clauseOff(G, `EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = NEW."tenantId" AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)`, "false"))).toBe(false)
+      expect(await forced(R.non, dashed, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)`, "false"))).toBe(false)
     })
 
     it("forces it for a buyer carrying a related client's ID number (any role)", async () => {
       expect(await forced(R.non, directorId)).toBe(true)
-      expect(await forced(R.non, directorId, clauseOff(G, `JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"`, `JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId" AND false`))).toBe(false)
+      expect(await forced(R.non, directorId, clauseOff("recoveryBuyerRelated", `JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"`, `JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId" AND false`))).toBe(false)
     })
 
     it("leaves a stranger alone", async () => {
@@ -206,30 +210,64 @@ suite("slice 4a remarketing sale database rules", () => {
     const message = /RemarketingSale_second_approver/
     const related = (tx: Tx) => saleIn(tx, R.nca, { buyerIdentifier: R.nca.loan.borrowerKey })
     const below = (tx: Tx) => saleIn(tx, R.non, { priceInclVatCents: 90_000_000, belowValuation: true, belowValuationReason: "Auction reserve not met on the day" })
+    const completeBelow = (tx: Tx, id: string) => complete(tx, id, { taxInvoiceId: invoice90 })
 
     it("is needed to complete a sale to a related party, or one below valuation", async () => {
       await refuses(check, message, async (tx) => complete(tx, (await related(tx)).id))
-      await refuses(check, message, async (tx) => complete(tx, (await below(tx)).id))
+      await refuses(check, message, async (tx) => completeBelow(tx, (await below(tx)).id))
     })
 
     it("is someone other than the sale's creator", async () => {
-      await refuses(check, message, async (tx) => complete(tx, (await related(tx)).id, { approvedById: fx.officer, approvedAt: new Date() }))
-      await refuses(check, message, async (tx) => complete(tx, (await below(tx)).id, { approvedById: fx.officer, approvedAt: new Date() }))
+      await refuses(check, message, async (tx) => { const id = (await related(tx)).id; await approve(tx, id, fx.officer); await complete(tx, id) })
+      await refuses(check, message, async (tx) => { const id = (await below(tx)).id; await approve(tx, id, fx.officer); await completeBelow(tx, id) })
     })
 
     it("lets a different approver complete it, and a plain sale need none", async () => {
-      await admits(async (tx) => complete(tx, (await related(tx)).id, { approvedById: fx.adminB, approvedAt: new Date() }))
-      await admits(async (tx) => complete(tx, (await below(tx)).id, { approvedById: fx.adminB, approvedAt: new Date() }))
+      await admits(async (tx) => { const id = (await related(tx)).id; await approve(tx, id, fx.adminB); await complete(tx, id) })
+      await admits(async (tx) => { const id = (await below(tx)).id; await approve(tx, id, fx.adminB); await completeBelow(tx, id) })
       await admits(async (tx) => complete(tx, (await saleIn(tx, R.non)).id))
-      await admits(async (tx) => tx.remarketingSale.update({ where: { id: pendingSale }, data: { approvedById: fx.adminB, approvedAt: new Date() } }))
+      await admits((tx) => approve(tx, pendingSale, fx.adminB))
+    })
+
+    it("is given in a step of its own, written once, and not in the step that completes the sale", async () => {
+      await refuses(raiseOff(G, "A sale's approval is written once"), /approval is written once/, async (tx) => {
+        const id = (await saleIn(tx, R.non)).id
+        await approve(tx, id, fx.adminB)
+        await approve(tx, id, fx.adminA)
+      })
+      await refuses(raiseOff(G, "A sale is approved before the step that completes it"), /approved before the step that completes it/, async (tx) => {
+        const id = (await saleIn(tx, R.non)).id
+        await complete(tx, id, { approvedById: fx.adminB, approvedAt: new Date() })
+      })
     })
   })
 
   describe("completion", () => {
     it("records when it completed and the tax invoice (CHECK RemarketingSale_completed_columns)", async () => {
       const check = { table: "RemarketingSale", constraint: "RemarketingSale_completed_columns" }
-      await refuses(check, /RemarketingSale_completed_columns/, (tx) => tx.remarketingSale.update({ where: { id: pendingSale }, data: { status: "COMPLETED", completedAt: new Date() } }))
+      await refuses(check, /RemarketingSale_completed_columns/, (tx) => tx.remarketingSale.update({ where: { id: pendingSale }, data: { status: "COMPLETED", completedAt: new Date() } }),
+        [raiseOff(G, "A sale's tax invoice is for its price, issued to the buyer outside the loan")])
       await refuses(check, /RemarketingSale_completed_columns/, (tx) => tx.remarketingSale.update({ where: { id: pendingSale }, data: { completedAt: new Date() } }))
+    })
+
+    it("carries a tax invoice for its price, issued to the buyer outside the loan", async () => {
+      const rule = raiseOff(G, "A sale's tax invoice is for its price, issued to the buyer outside the loan")
+      const message = /tax invoice is for its price, issued to the buyer outside the loan/
+      const wrongTotal = await saleInvoice(database(), fx, 100_000_000)
+      const loanBound = await saleInvoice(database(), fx, 120_000_000, R.non.loan.loanId)
+      await refuses(rule, message, async (tx) => complete(tx, (await saleIn(tx, R.non)).id, { taxInvoiceId: wrongTotal }))
+      await refuses(rule, message, async (tx) => complete(tx, (await saleIn(tx, R.non)).id, { taxInvoiceId: loanBound }))
+    })
+
+    it("completes only if the buyer has not become a related party since the sale was recorded", async () => {
+      await refuses(raiseOff(G, "A buyer who is now a related party needs the sale re-recorded"), /now a related party needs the sale re-recorded/, async (tx) => {
+        const id = (await saleIn(tx, R.non, { buyerIdentifier: "6001015800086" })).id
+        const stranger = await tx.client.create({
+          data: { tenantId: fx.tenantId, firstName: "TEST", lastName: "Newdirector", email: `new-${randomUUID().slice(0, 8)}@client.invalid`, phone: `0009${randomUUID().slice(0, 6)}`, idNumber: "6001015800086", popiaConsentGiven: true },
+        })
+        await tx.entityRelationship.create({ data: { tenantId: fx.tenantId, entityId: R.non.loan.entityId!, clientId: stranger.id, role: "DIRECTOR" } })
+        await complete(tx, id)
+      })
     })
 
     it("is one COMPLETED sale per recovery", async () => {
@@ -288,12 +326,12 @@ async function newHigher(tx: Tx, amountCents: number, source: "ASSESSOR" | "DEAL
 }
 
 /** A second tax invoice (one per sale), through test setup. */
-async function invoiceFor(tx: Tx): Promise<string> {
+async function invoiceFor(tx: Tx, totalCents = 120_000_000): Promise<string> {
   const id = `inv_rcv_${randomUUID().replaceAll("-", "").slice(0, 12)}`
   await triggersOff(tx)
   await tx.$executeRawUnsafe(`INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "supplierName", "supplierAddress", "supplierVatNumber",
     "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents")
-    VALUES ('${id}', '${fx.tenantId}', ${Math.floor(Math.random() * 1_000_000_000) + 1}, 'INV-X', CURRENT_DATE, CURRENT_DATE, 'TEST', 'A', '4000000001', 'B', 'C', 0.15, 1, 0, 1)`)
+    VALUES ('${id}', '${fx.tenantId}', ${Math.floor(Math.random() * 1_000_000_000) + 1}, 'INV-X', CURRENT_DATE, CURRENT_DATE, 'TEST', 'A', '4000000001', 'B', 'C', 0.15, ${totalCents - Math.floor((totalCents * 15) / 115)}, ${Math.floor((totalCents * 15) / 115)}, ${totalCents})`)
   await triggersOn(tx)
   return id
 }

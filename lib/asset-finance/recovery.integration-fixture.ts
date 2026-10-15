@@ -108,10 +108,15 @@ export async function newValuation(
   })).id
 }
 
-/** A completed (or other-status) section 129 notice record of a loan. */
-export async function s129Record(db: PrismaClient, fx: DealFixture, loanId: string, status: "COMPLETED" | "PENDING" = "COMPLETED"): Promise<string> {
+/** A section 129 notice record of a loan: completed `completedDaysAgo` days ago (today by default), or still pending. */
+export async function s129Record(
+  db: PrismaClient, fx: DealFixture, loanId: string, status: "COMPLETED" | "PENDING" = "COMPLETED", completedDaysAgo = 0,
+): Promise<string> {
   return (await db.complianceRecord.create({
-    data: { tenantId: fx.tenantId, type: "SECTION_129_NOTICE", referenceId: loanId, status, completedAt: status === "COMPLETED" ? new Date() : null },
+    data: {
+      tenantId: fx.tenantId, type: "SECTION_129_NOTICE", referenceId: loanId, status,
+      completedAt: new Date(Date.now() - completedDaysAgo * 86_400_000),
+    },
   })).id
 }
 
@@ -166,16 +171,16 @@ export async function legalDocument(db: PrismaClient, fx: DealFixture, docType: 
   })).id
 }
 
-/** A tax invoice for a sale (triggers off: numbering and the VAT-rate rule are not under test here). */
-export async function saleInvoice(db: PrismaClient, fx: DealFixture): Promise<string> {
+/** A tax invoice for a sale, to the buyer outside any loan (triggers off: numbering and the VAT-rate rule are not under test here). */
+export async function saleInvoice(db: PrismaClient, fx: DealFixture, totalInclVatCents = 120_000_000, loanId: string | null = null): Promise<string> {
   const id = `inv_rcv_${randomUUID().replaceAll("-", "").slice(0, 12)}`
   const number = Math.floor(Math.random() * 1_000_000_000) + 1
   await testSetup(db, [
     `INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "supplierName", "supplierAddress", "supplierVatNumber",
-       "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents")
+       "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents", "loanId")
      VALUES ($1, $2, $3, $4, CURRENT_DATE, CURRENT_DATE, 'TEST Asset Credit (Pty) Ltd', '1 Synthetic Road', '4000000001', 'TEST Buyer', '2 Buyer Street', 0.15,
-       104347826, 15652174, 120000000)`,
-    id, fx.tenantId, number, `INV-${number}`,
+       $5::int - $5::int * 15 / 115, $5::int * 15 / 115, $5::int, $6)`,
+    id, fx.tenantId, number, `INV-${number}`, totalInclVatCents, loanId,
   ])
   return id
 }

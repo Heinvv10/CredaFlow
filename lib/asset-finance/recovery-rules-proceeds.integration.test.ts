@@ -18,7 +18,7 @@ import { PrismaClient, type RecoveryStatus } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { dbDate } from "./dates"
-import { advance, type PathOptions } from "./recovery-path.integration-fixture"
+import { advance, proceedsKey, type PathOptions } from "./recovery-path.integration-fixture"
 import {
   cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, newSurrender, recoveryFixtureTenantId, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
@@ -55,8 +55,12 @@ async function ladder(nca: boolean, to: RecoveryStatus, o: PathOptions = {}, s12
 }
 
 /** The proceeds of a sale at R1.2m against a R1.5m settlement (shortfall R300k), a real payment of the lesser amount, unless `over` says otherwise. */
-const proceeds = (rec: Rec, over: Record<string, unknown> = {}, paymentCents: number | null = 120_000_000, from = today(), until: string | null | undefined = undefined) => async (tx: Tx) => {
-  const payment = paymentCents === null ? null : await tx.payment.create({ data: { tenantId: fx.tenantId, loanId: rec.loan.loanId, amount: paymentCents, capturedBy: fx.officer } })
+const proceeds = (
+  rec: Rec, over: Record<string, unknown> = {}, paymentCents: number | null = 120_000_000, from = today(), until: string | null | undefined = undefined, payment_: Record<string, unknown> = {},
+) => async (tx: Tx) => {
+  const payment = paymentCents === null ? null : await tx.payment.create({
+    data: { tenantId: fx.tenantId, loanId: rec.loan.loanId, amount: paymentCents, capturedBy: fx.officer, idempotencyKey: proceedsKey(rec.id), ...payment_ } as never,
+  })
   const nonNca = rec.loan.regime === "NON_NCA"
   const frozenUntil = until === undefined ? (nonNca ? addDays(from, 10) : null) : until
   await tx.recovery.update({
@@ -75,6 +79,12 @@ const finalNotice = (rec: Rec, over: Record<string, unknown> = {}) => (tx: Tx) =
     chargesFrozenUntil: dbDate(addSouthAfricanBusinessDays(today(), 10)), ...over,
   } as never,
 })
+/** The loan settled in full, as the receipt does (applyManualReceipt completes a loan paid in full); test setup only. */
+const settled = (rec: Rec) => async (tx: Tx) => {
+  await triggersOff(tx)
+  await tx.$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = '${rec.loan.loanId}'`)
+  await triggersOn(tx)
+}
 const move = (rec: Rec, status: RecoveryStatus, over: Record<string, unknown> = {}) => (tx: Tx) => tx.recovery.update({ where: { id: rec.id }, data: { status, ...over } })
 
 suite("slice 4a recovery database rules: proceeds, final notice, end states", () => {
@@ -116,7 +126,7 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
   })
 
   describe("SOLD to PROCEEDS_APPLIED", () => {
-    it("carries the full figures and the day charges freeze from (not in the future, not before the recovery)", async () => {
+    it("carries the full figures and freezes charges from today, the day the proceeds are applied", async () => {
       const rule = raiseOff(G, "Proceeds are applied with the full figures and the date charges freeze from")
       const message = /full figures and the date charges freeze from/
       await refuses(rule, message, move(R.ncaSold, "PROCEEDS_APPLIED", { chargesFrozenFrom: dbDate(today()) }))
@@ -150,6 +160,20 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
       await admits(proceeds(R.nonSold, { settlementDueCents: 80_000_000, shortfallCents: 0, surplusCents: 40_000_000 }, 80_000_000))
     })
 
+    it("takes as its gross proceeds the price of the completed sale", async () => {
+      await refuses(raiseOff(G, "The gross proceeds are the completed sale's price"), /gross proceeds are the completed sale's price/,
+        proceeds(R.nonSold, { grossProceedsCents: 119_000_000, netProceedsCents: 119_000_000, shortfallCents: 31_000_000 }, 119_000_000))
+    })
+
+    it("credits this recovery's own receipt (by its idempotency key), received on or after the day the sale completed", async () => {
+      const message = /lesser of the net proceeds and the settlement/
+      const key = clauseOff(G, `AND p."idempotencyKey" = 'asset-recovery:' || NEW."id" || ':proceeds'`)
+      await refuses(key, message, proceeds(R.nonSold, {}, 120_000_000, today(), undefined, { idempotencyKey: "asset-recovery:another:proceeds" }))
+      await refuses(key, message, proceeds(R.nonSold, {}, 120_000_000, today(), undefined, { idempotencyKey: null }))
+      const received = clauseOff(G, `AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date >= sale_day`)
+      await refuses(received, message, proceeds(R.nonSold, {}, 120_000_000, today(), undefined, { receivedAt: new Date(Date.now() - 3 * 86_400_000) }))
+    })
+
     it("credits no receipt when nothing is owed", async () => {
       await refuses(raiseOff(G, "No receipt is credited when the net proceeds or the settlement is nil"), /No receipt is credited when the net proceeds or the settlement is nil/,
         proceeds(R.nonSold, { settlementDueCents: 0, shortfallCents: 0, surplusCents: 120_000_000 }, 120_000_000))
@@ -179,7 +203,7 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
   })
 
   describe("PROCEEDS_APPLIED to FINAL_NOTICE_ISSUED", () => {
-    it("is dated from the proceeds to today", async () => {
+    it("is dated today, the day it is issued", async () => {
       const rule = raiseOff(G, "The final notice is dated from the proceeds to today")
       const message = /final notice is dated from the proceeds to today/
       await refuses(rule, message, finalNotice(R.ncaProc, { finalNoticeIssuedOn: dbDate(day(1)), chargesFrozenUntil: dbDate(addSouthAfricanBusinessDays(day(1), 10)) }))
@@ -214,9 +238,14 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
     })
 
     it("holds a surplus only for a positive surplus", async () => {
-      await refuses(raiseOff(G, "A surplus is held for a positive surplus"), /surplus is held for a positive surplus/, move(R.ncaFni, "SURPLUS_HELD"))
-      await admits(move(R.ncaFniS, "SURPLUS_HELD"))
-      await admits(move(R.nonProcS, "SURPLUS_HELD"))
+      await refuses(raiseOff(G, "A surplus is held for a positive surplus"), /surplus is held for a positive surplus/, async (tx) => { await settled(R.ncaFni)(tx); await move(R.ncaFni, "SURPLUS_HELD")(tx) })
+      await admits(async (tx) => { await settled(R.ncaFniS)(tx); await move(R.ncaFniS, "SURPLUS_HELD")(tx) })
+      await admits(async (tx) => { await settled(R.nonProcS)(tx); await move(R.nonProcS, "SURPLUS_HELD")(tx) })
+    })
+
+    it("holds a surplus only once the loan is settled (the receipt completes a loan paid in full)", async () => {
+      await refuses(raiseOff(G, "A surplus is held only once the loan is settled"), /surplus is held only once the loan is settled/, move(R.ncaFniS, "SURPLUS_HELD"))
+      await refuses(raiseOff(G, "A surplus is held only once the loan is settled"), /surplus is held only once the loan is settled/, move(R.nonProcS, "SURPLUS_HELD"))
     })
 
     it("closes straight from the proceeds only with nothing owed either way", async () => {

@@ -115,8 +115,18 @@ suite("slice 4a recovery cost database rules", () => {
       await admits((tx) => cost(tx, R.nca, { type: "TOWING" }))
       await admits((tx) => cost(tx, R.nca, { type: "AUCTION_COMMISSION" }))
       const allow = (types: RecoveryCostType[]) => (tx: Tx) => tx.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { recoveryNcaDeductibleCostTypes: { set: types } } })
-      await admits(async (tx) => { await allow(["OTHER"])(tx); await cost(tx, R.nca, { type: "OTHER" }) }) // the allow-list is the lender's setting
+      await admits(async (tx) => { await allow(["STORAGE"])(tx); await cost(tx, R.nca, { type: "STORAGE" }) }) // the allow-list is the lender's setting
+      await refuses(rule, message, async (tx) => { await allow(["STORAGE"])(tx); await cost(tx, R.nca, { type: "TOWING" }) })
       await refuses(rule, message, async (tx) => { await allow([])(tx); await cost(tx, R.nca, { type: "TOWING" }) })
+    })
+
+    it("can never be configured to deduct contractual or untaxed legal costs, or other costs (CHECK TenantConfig_recovery_nca_deductible)", async () => {
+      const check = { table: "TenantConfig", constraint: "TenantConfig_recovery_nca_deductible" }
+      for (const type of ["LEGAL_TAXED", "LEGAL_CONTRACTUAL", "OTHER"] as RecoveryCostType[]) {
+        await refuses(check, /TenantConfig_recovery_nca_deductible/, (tx) =>
+          tx.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { recoveryNcaDeductibleCostTypes: { set: ["TOWING", type] } } }))
+      }
+      await admits((tx) => tx.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { recoveryNcaDeductibleCostTypes: { set: ["TOWING", "SHERIFF"] } } }))
     })
 
     it("charges to the account only taxed legal costs", async () => {

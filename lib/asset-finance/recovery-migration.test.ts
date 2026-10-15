@@ -91,6 +91,9 @@ describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
     expect(sale).toContain(`IF NEW."belowValuation" IS DISTINCT FROM (NEW."priceInclVatCents" < highest) THEN`)
     expect(sale).toContain(`"leasePurchaseValuationMaxAgeDays"`)
     expect(sale).toContain(`NEW."relatedPartyMatch" := true;`)
+    expect(sale).toContain(`public."recoveryBuyerRelated"(NEW."tenantId", rec."loanId", NEW."buyerIdentifier")`)
+    expect(sale).toContain(`'A sale''s approval is written once'`)
+    expect(baselineFunctionSql("recoveryBuyerRelated")).toContain(`"EntityRelationship"`)
     expect(baselineConstraintSql("RemarketingSale_second_approver")).toContain(`"approvedById" IS NOT NULL AND "approvedById" <> "createdById"`)
   })
 
@@ -105,6 +108,17 @@ describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
   it("claims input tax on a deemed supply by the tax fraction, half-up, and none on a lessor resale", () => {
     expect(baselineConstraintSql("RecoveryVatEvent_input_tax_formula")).toContain(`(2::BIGINT * "deemedSupplyValueCents" * "vatRateTenThousandths" + (10000 + "vatRateTenThousandths")) / (2 * (10000 + "vatRateTenThousandths"))`)
     expect(baselineConstraintSql("RecoveryVatEvent_resale_no_deemed_supply")).toContain(`"deemedSupplyValueCents" = 0 AND "inputTaxClaimCents" = 0`)
+  })
+
+  it("names its actors with composite (tenantId, id) foreign keys to User", () => {
+    const columns = [
+      ["LegalMatter", "createdById"], ["LegalMatterStep", "recordedById"], ["Recovery", "createdById"], ["RecoveryCost", "recordedById"], ["RecoveryCost", "approvedById"],
+      ["RemarketingSale", "createdById"], ["RemarketingSale", "approvedById"], ["RecoveryVatEvent", "recordedById"], ["RecoveryRefund", "createdById"],
+      ["RecoveryRefund", "approvedById"], ["RecoveryRefund", "bankVerifiedById"], ["RecoveryRefund", "releasedById"],
+    ]
+    for (const [table, column] of columns) {
+      expect(baselineConstraintSql(`${table}_tenantId_${column}_fkey`)).toContain(`FOREIGN KEY ("tenantId", "${column}") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT`)
+    }
   })
 
   it("requires two people for the surplus refund and for closing the surplus", () => {

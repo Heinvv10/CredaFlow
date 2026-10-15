@@ -308,6 +308,9 @@ ALTER TABLE "LegalMatter" ADD CONSTRAINT "LegalMatter_tenantId_loanId_fkey" FORE
 ALTER TABLE "LegalMatter" ADD CONSTRAINT "LegalMatter_tenantId_attorneySupplierId_fkey" FOREIGN KEY ("tenantId", "attorneySupplierId") REFERENCES "Supplier"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
+ALTER TABLE "LegalMatter" ADD CONSTRAINT "LegalMatter_tenantId_createdById_fkey" FOREIGN KEY ("tenantId", "createdById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE "LegalMatterStep" ADD CONSTRAINT "LegalMatterStep_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -321,6 +324,9 @@ ALTER TABLE "LegalMatterStep" ADD CONSTRAINT "LegalMatterStep_tenantId_correctsS
 
 -- AddForeignKey
 ALTER TABLE "LegalMatterStep" ADD CONSTRAINT "LegalMatterStep_tenantId_evidenceDocumentId_fkey" FOREIGN KEY ("tenantId", "evidenceDocumentId") REFERENCES "EntityDocument"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "LegalMatterStep" ADD CONSTRAINT "LegalMatterStep_tenantId_recordedById_fkey" FOREIGN KEY ("tenantId", "recordedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -347,6 +353,9 @@ ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_valuationId_fkey" FOREIGN KEY ("
 ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_tenantId_proceedsPaymentId_fkey" FOREIGN KEY ("tenantId", "proceedsPaymentId") REFERENCES "Payment"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
+ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_tenantId_createdById_fkey" FOREIGN KEY ("tenantId", "createdById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -357,6 +366,12 @@ ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_tenantId_supplierId_fkey
 
 -- AddForeignKey
 ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_tenantId_legalStepId_fkey" FOREIGN KEY ("tenantId", "legalStepId") REFERENCES "LegalMatterStep"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_tenantId_recordedById_fkey" FOREIGN KEY ("tenantId", "recordedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RecoveryCost" ADD CONSTRAINT "RecoveryCost_tenantId_approvedById_fkey" FOREIGN KEY ("tenantId", "approvedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -374,10 +389,19 @@ ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_tenantId_taxInvoic
 ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_tenantId_proceedsPaymentId_fkey" FOREIGN KEY ("tenantId", "proceedsPaymentId") REFERENCES "Payment"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
+ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_tenantId_createdById_fkey" FOREIGN KEY ("tenantId", "createdById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_tenantId_approvedById_fkey" FOREIGN KEY ("tenantId", "approvedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_tenantId_recoveryId_fkey" FOREIGN KEY ("tenantId", "recoveryId") REFERENCES "Recovery"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_tenantId_recordedById_fkey" FOREIGN KEY ("tenantId", "recordedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -388,6 +412,17 @@ ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_recoveryId_
 -- AddForeignKey
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_bankVerificationDocumentId_fkey" FOREIGN KEY ("tenantId", "bankVerificationDocumentId") REFERENCES "EntityDocument"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
+-- AddForeignKey
+ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_createdById_fkey" FOREIGN KEY ("tenantId", "createdById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_approvedById_fkey" FOREIGN KEY ("tenantId", "approvedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_bankVerifiedById_fkey" FOREIGN KEY ("tenantId", "bankVerifiedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_tenantId_releasedById_fkey" FOREIGN KEY ("tenantId", "releasedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- ===========================================================================
 -- Hand-written rules (Prisma does not diff these). Errors are 23514.
@@ -425,6 +460,9 @@ $function$;
 -- Settings
 -- ---------------------------------------------------------------------------
 ALTER TABLE "TenantConfig" ADD CONSTRAINT "TenantConfig_recovery_settings" CHECK ("nonNcaDemandPeriodDays" BETWEEN 1 AND 90);
+-- UNTESTED: contractual and untaxed legal costs and unspecified costs are never deducted from an NCA recovery's proceeds, whatever the lender configures.
+ALTER TABLE "TenantConfig" ADD CONSTRAINT "TenantConfig_recovery_nca_deductible" CHECK (
+  NOT ("recoveryNcaDeductibleCostTypes" && ARRAY['LEGAL_TAXED', 'LEGAL_CONTRACTUAL', 'OTHER']::"RecoveryCostType"[]));
 
 -- ---------------------------------------------------------------------------
 -- Legal matter
@@ -484,6 +522,9 @@ $function$;
 
 ALTER TABLE "LegalMatterStep" ADD CONSTRAINT "LegalMatterStep_s129_record_only" CHECK ("section129RecordId" IS NULL OR "kind" = 'S129_SENT');
 ALTER TABLE "LegalMatterStep" ADD CONSTRAINT "LegalMatterStep_recorder" CHECK (length(btrim("recordedById")) > 0);
+-- A section 129 notice record backs one step (a correcting step may name it again).
+CREATE UNIQUE INDEX "LegalMatterStep_section129_record_once" ON "LegalMatterStep"("tenantId", "section129RecordId")
+  WHERE "section129RecordId" IS NOT NULL AND "correctsStepId" IS NULL;
 
 CREATE OR REPLACE FUNCTION public."guardLegalMatterStep"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -495,7 +536,7 @@ BEGIN
   IF TG_OP <> 'INSERT' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A legal matter step is append-only: correct it with a new step';
   END IF;
-  SELECT m."loanId", m."status"::TEXT AS status INTO matter
+  SELECT m."loanId", m."status"::TEXT AS status, m."createdAt" INTO matter
     FROM "LegalMatter" m WHERE m."id" = NEW."matterId" AND m."tenantId" = NEW."tenantId" FOR SHARE;
   IF NOT FOUND OR matter.status <> 'OPEN' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A step is recorded on an open legal matter';
@@ -518,7 +559,11 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A section 129 notice belongs to an NCA loan';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM "ComplianceRecord" c WHERE c."id" = NEW."section129RecordId" AND c."tenantId" = NEW."tenantId"
-        AND c."referenceId" = matter."loanId" AND c."type" = 'SECTION_129_NOTICE' AND c."status" = 'COMPLETED') THEN
+        AND c."referenceId" = matter."loanId" AND c."type" = 'SECTION_129_NOTICE' AND c."status" = 'COMPLETED'
+        -- the notice was sent (completed) on or before the step's date, in SAST
+        AND (c."completedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= NEW."stepDate"
+        -- UNTESTED: a notice is for the current default; read here as completed within a year before the matter opened
+        AND c."completedAt" >= matter."createdAt" - INTERVAL '365 days') THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A section 129 step names this loan''s completed section 129 notice record';
     END IF;
   END IF;
@@ -586,6 +631,8 @@ DECLARE
   changed TEXT[];
   expected_receipt INTEGER;
   receipt_total INTEGER;
+  sale_price INTEGER;
+  sale_day DATE;
   today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
   IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
@@ -599,6 +646,10 @@ BEGIN
   END IF;
   IF nca <> (loan_row.regime = 'NCA') THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The recovery route must match the loan''s NCA regime';
+  END IF;
+  IF NEW."meterReadingId" IS NOT NULL AND (TG_OP = 'INSERT' OR NEW."meterReadingId" IS DISTINCT FROM OLD."meterReadingId") AND NOT EXISTS (
+      SELECT 1 FROM "AssetMeterReading" r WHERE r."id" = NEW."meterReadingId" AND r."tenantId" = NEW."tenantId" AND r."assetId" = NEW."assetId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery''s meter reading is its own asset''s';
   END IF;
 
   IF TG_OP = 'INSERT' THEN
@@ -617,10 +668,14 @@ BEGIN
         WHERE m."id" = NEW."legalMatterId" AND m."tenantId" = NEW."tenantId" AND m."loanId" = NEW."loanId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery''s legal matter is its own loan''s';
     END IF;
-    IF NEW."route" = 'NCA_S131_ATTACHMENT' AND NOT public."legalMatterHasStep"(NEW."tenantId", NEW."legalMatterId", 'ATTACHMENT_ORDER') THEN
+    IF NEW."legalMatterId" IS NOT NULL AND EXISTS (SELECT 1 FROM "LegalMatter" m
+        WHERE m."id" = NEW."legalMatterId" AND m."tenantId" = NEW."tenantId" AND m."status" <> 'OPEN') THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery stands on an open legal matter';
+    END IF;
+    IF NEW."route" = 'NCA_S131_ATTACHMENT' AND NOT public."legalMatterHasStep"(NEW."tenantId", NEW."legalMatterId", 'ATTACHMENT_ORDER', NEW."recoveredOn") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s131 recovery needs the legal matter''s attachment order';
     END IF;
-    IF NEW."route" = 'NON_NCA_COURT_ORDER' AND NOT public."legalMatterHasStep"(NEW."tenantId", NEW."legalMatterId", 'JUDGMENT') THEN
+    IF NEW."route" = 'NON_NCA_COURT_ORDER' AND NOT public."legalMatterHasStep"(NEW."tenantId", NEW."legalMatterId", 'JUDGMENT', NEW."recoveredOn") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A NON_NCA court-order recovery needs the legal matter''s judgment';
     END IF;
     RETURN NEW;
@@ -695,8 +750,14 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery is sold by a completed remarketing sale';
     END IF;
   ELSIF step = 'SOLD>PROCEEDS_APPLIED' THEN
-    IF NEW."settlementDueCents" IS NULL OR NEW."chargesFrozenFrom" IS NULL OR NEW."chargesFrozenFrom" < NEW."recoveredOn" OR NEW."chargesFrozenFrom" > today THEN
+    -- Charges freeze from the day the proceeds are applied: the caller does not choose the date.
+    IF NEW."settlementDueCents" IS NULL OR NEW."chargesFrozenFrom" IS DISTINCT FROM today THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Proceeds are applied with the full figures and the date charges freeze from';
+    END IF;
+    SELECT s."priceInclVatCents", (s."completedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date INTO sale_price, sale_day
+      FROM "RemarketingSale" s WHERE s."recoveryId" = NEW."id" AND s."tenantId" = NEW."tenantId" AND s."status" = 'COMPLETED';
+    IF NEW."settlementDueCents" IS NOT NULL AND NEW."grossProceedsCents" IS DISTINCT FROM sale_price THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The gross proceeds are the completed sale''s price';
     END IF;
     SELECT COALESCE(sum(c."grossCents") FILTER (WHERE c."treatment" = 'DEDUCT_FROM_PROCEEDS'), 0) AS deducted,
            COALESCE(sum(c."grossCents") FILTER (WHERE c."treatment" = 'CHARGE_TO_ACCOUNT'), 0) AS charged INTO costs
@@ -707,7 +768,10 @@ BEGIN
     expected_receipt := LEAST(NEW."netProceedsCents", NEW."settlementDueCents");
     IF expected_receipt > 0 THEN
       SELECT p."amount" + COALESCE((SELECT sum(child."amount") FROM "Payment" child WHERE child."parentPaymentId" = p."id" AND NOT child."reversed"), 0) INTO receipt_total
-        FROM "Payment" p WHERE p."id" = NEW."proceedsPaymentId" AND p."tenantId" = NEW."tenantId" AND p."loanId" = NEW."loanId" AND NOT p."reversed";
+        FROM "Payment" p WHERE p."id" = NEW."proceedsPaymentId" AND p."tenantId" = NEW."tenantId" AND p."loanId" = NEW."loanId" AND NOT p."reversed"
+          -- the receipt of this recovery's proceeds (its idempotency key), received on or after the day the sale completed
+          AND p."idempotencyKey" = 'asset-recovery:' || NEW."id" || ':proceeds'
+          AND (p."receivedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date >= sale_day;
       IF receipt_total IS DISTINCT FROM expected_receipt THEN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The proceeds receipt is the lesser of the net proceeds and the settlement, credited to this loan';
       END IF;
@@ -727,7 +791,7 @@ BEGIN
     END IF;
   -- UNTESTED: s127(8) read as 10 SA business days after the final notice.
   ELSIF step = 'PROCEEDS_APPLIED>FINAL_NOTICE_ISSUED' THEN
-    IF NEW."finalNoticeIssuedOn" IS NULL OR NEW."finalNoticeIssuedOn" > today OR NEW."finalNoticeIssuedOn" < OLD."chargesFrozenFrom" THEN
+    IF NEW."finalNoticeIssuedOn" IS DISTINCT FROM today THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The final notice is dated from the proceeds to today';
     END IF;
     IF NEW."chargesFrozenUntil" IS DISTINCT FROM public."recoveryAddBusinessDays"(NEW."finalNoticeIssuedOn", 10) THEN
@@ -747,6 +811,10 @@ BEGIN
   ELSIF step IN ('FINAL_NOTICE_ISSUED>SURPLUS_HELD', 'PROCEEDS_APPLIED>SURPLUS_HELD') THEN
     IF NEW."surplusCents" <= 0 THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A surplus is held for a positive surplus';
+    END IF;
+    -- the debtor's account is settled (the receipt paid it in full) before any surplus is held for refund
+    IF loan_row.status <> 'COMPLETED' THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A surplus is held only once the loan is settled';
     END IF;
   ELSIF step IN ('FINAL_NOTICE_ISSUED>CLOSED', 'PROCEEDS_APPLIED>CLOSED') THEN
     IF NEW."shortfallCents" <> 0 OR NEW."surplusCents" <> 0 THEN
@@ -892,14 +960,28 @@ ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_completed_columns"
 ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_second_approver" CHECK (
   "status" <> 'COMPLETED' OR NOT ("belowValuation" OR "relatedPartyMatch") OR ("approvedById" IS NOT NULL AND "approvedById" <> "createdById"));
 
+-- A buyer whose ID or registration number is the borrower's, or a related client's (any role).
+CREATE OR REPLACE FUNCTION public."recoveryBuyerRelated"(tenant_id TEXT, for_loan_id TEXT, identifier TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql STABLE AS $function$
+DECLARE
+  loan_row RECORD;
+  buyer_key TEXT := public."recoveryIdentifierKey"(identifier);
+BEGIN
+  SELECT l."clientId", l."entityId" INTO loan_row FROM "Loan" l WHERE l."id" = for_loan_id AND l."tenantId" = tenant_id;
+  RETURN buyer_key <> '' AND (
+      EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)
+      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)
+      OR EXISTS (SELECT 1 FROM "EntityRelationship" er JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"
+        WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key));
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public."guardRemarketingSale"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   rec RECORD;
-  loan_row RECORD;
   max_age INTEGER;
   highest INTEGER;
-  buyer_key TEXT;
   today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
   IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
@@ -916,6 +998,13 @@ BEGIN
     IF (to_jsonb(NEW) - ARRAY['status', 'approvedById', 'approvedAt', 'completedAt', 'taxInvoiceId'])
       IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'approvedById', 'approvedAt', 'completedAt', 'taxInvoiceId']) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A pending sale changes only its approval, completion and invoice';
+    END IF;
+    -- Approval is its own earlier step, written once; the step that completes a sale does not approve it.
+    IF OLD."approvedById" IS NOT NULL AND (NEW."approvedById" IS DISTINCT FROM OLD."approvedById" OR NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A sale''s approval is written once';
+    END IF;
+    IF NEW."status" = 'COMPLETED' AND (NEW."approvedById" IS DISTINCT FROM OLD."approvedById" OR NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A sale is approved before the step that completes it';
     END IF;
     IF NEW."status" <> 'COMPLETED' THEN
       RETURN NEW;
@@ -941,6 +1030,13 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'belowValuation is whether the price is under the highest current independent valuation';
   END IF;
   IF TG_OP = 'UPDATE' THEN
+    IF NOT EXISTS (SELECT 1 FROM "TaxInvoice" i WHERE i."id" = NEW."taxInvoiceId" AND i."tenantId" = NEW."tenantId" AND i."loanId" IS NULL
+        AND i."totalInclVatCents" = NEW."priceInclVatCents") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A sale''s tax invoice is for its price, issued to the buyer outside the loan';
+    END IF;
+    IF NOT NEW."relatedPartyMatch" AND public."recoveryBuyerRelated"(NEW."tenantId", rec."loanId", NEW."buyerIdentifier") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A buyer who is now a related party needs the sale re-recorded';
+    END IF;
     RETURN NEW;
   END IF;
 
@@ -949,13 +1045,7 @@ BEGIN
   END IF;
   -- The database cannot see hidden relationships, but a buyer who carries the borrower's, or a
   -- related client's, ID or registration number is a related party whatever the screening says.
-  SELECT l."clientId", l."entityId" INTO loan_row FROM "Loan" l WHERE l."id" = rec."loanId" AND l."tenantId" = NEW."tenantId";
-  buyer_key := public."recoveryIdentifierKey"(NEW."buyerIdentifier");
-  IF buyer_key <> '' AND (
-      EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = NEW."tenantId" AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)
-      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = NEW."tenantId" AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)
-      OR EXISTS (SELECT 1 FROM "EntityRelationship" er JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"
-        WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = NEW."tenantId" AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)) THEN
+  IF public."recoveryBuyerRelated"(NEW."tenantId", rec."loanId", NEW."buyerIdentifier") THEN
     NEW."relatedPartyMatch" := true;
   END IF;
   RETURN NEW;
@@ -1030,7 +1120,7 @@ CREATE TRIGGER "RecoveryCost_no_truncate" BEFORE TRUNCATE ON "RecoveryCost"
 ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_amounts" CHECK (
   "deemedSupplyValueCents" >= 0 AND "inputTaxClaimCents" >= 0 AND "outputTaxCents" >= 0
   AND "vatRateTenThousandths" BETWEEN 1 AND 5000 AND length(btrim("basis")) >= 3 AND length(btrim("recordedById")) > 0);
-ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_vendor_number" CHECK ("debtorVatVendor" OR "debtorVatNumber" IS NULL);
+ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_vendor_number" CHECK ("debtorVatVendor" = ("debtorVatNumber" IS NOT NULL));
 -- A lessor resale is no deemed supply: nothing deemed, no input tax claimed.
 ALTER TABLE "RecoveryVatEvent" ADD CONSTRAINT "RecoveryVatEvent_resale_no_deemed_supply" CHECK ("kind" <> 'LESSOR_RESALE' OR ("deemedSupplyValueCents" = 0 AND "inputTaxClaimCents" = 0));
 -- Input tax = value x rate / (10000 + rate), half-up (s8(10), s10(10), s16(3)).
@@ -1041,13 +1131,14 @@ CREATE OR REPLACE FUNCTION public."guardRecoveryVatEvent"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   rec RECORD;
-  contract TEXT;
 BEGIN
   IF TG_OP <> 'INSERT' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery VAT event is immutable';
   END IF;
-  SELECT r."status"::TEXT AS status, l."contractType"::TEXT AS contract_type INTO rec
+  SELECT r."status"::TEXT AS status, r."recoveredOn", l."contractType"::TEXT AS contract_type, a."cashPriceExclVatCents" + a."vatCents" AS asset_price,
+      (SELECT s."priceInclVatCents" FROM "RemarketingSale" s WHERE s."recoveryId" = r."id" AND s."tenantId" = r."tenantId" AND s."status" = 'COMPLETED') AS sale_price INTO rec
     FROM "Recovery" r JOIN "Loan" l ON l."id" = r."loanId" AND l."tenantId" = r."tenantId"
+      JOIN "FinancedAsset" a ON a."id" = r."assetId" AND a."tenantId" = r."tenantId"
     WHERE r."id" = NEW."recoveryId" AND r."tenantId" = NEW."tenantId" FOR SHARE OF r;
   IF NOT FOUND OR rec.status = 'WITHDRAWN' OR rec.contract_type IS DISTINCT FROM NEW."dealContractType"::TEXT THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A VAT event belongs to a live recovery and records its loan''s contract type';
@@ -1057,6 +1148,21 @@ BEGIN
   END IF;
   IF NEW."eventDate" > (now() AT TIME ZONE 'Africa/Johannesburg')::date THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A VAT event is not dated in the future';
+  END IF;
+  IF NEW."eventDate" < rec."recoveredOn" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A VAT event is not dated before the recovery';
+  END IF;
+  IF NEW."kind" = 'REPOSSESSION_DEEMED_SUPPLY' AND NEW."deemedSupplyValueCents" > rec.asset_price THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A deemed supply is capped at the asset''s cash price including VAT';
+  END IF;
+  IF NEW."kind" = 'LESSOR_RESALE' THEN
+    IF rec.sale_price IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lessor resale is recorded once the sale is complete';
+    END IF;
+    -- UNTESTED: output tax on the resale price, the tax fraction half-up (VAT Act s7, s64).
+    IF NEW."outputTaxCents" IS DISTINCT FROM (2::BIGINT * rec.sale_price * NEW."vatRateTenThousandths" + (10000 + NEW."vatRateTenThousandths")) / (2 * (10000 + NEW."vatRateTenThousandths")) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A lessor resale''s output tax is the sale price''s tax fraction';
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -1072,6 +1178,8 @@ CREATE TRIGGER "RecoveryVatEvent_no_truncate" BEFORE TRUNCATE ON "RecoveryVatEve
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_shape" CHECK ("amountCents" > 0 AND length(btrim("accountHolder")) > 0 AND length(btrim("bankName")) > 0
   AND length(btrim("branchCode")) > 0 AND length(btrim("accountNumber")) > 0 AND length(btrim("bankVerifiedById")) > 0 AND length(btrim("createdById")) > 0);
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_approver_differs" CHECK ("approvedById" IS NULL OR "approvedById" <> "createdById");
+-- Three people: whoever creates, whoever approves and whoever releases.
+ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_releaser_differs" CHECK ("releasedById" IS NULL OR "releasedById" <> "approvedById");
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_status_columns" CHECK (
   ("status" = 'PENDING_APPROVAL' AND "approvedById" IS NULL AND "releasedById" IS NULL AND "releasedAt" IS NULL)
   OR ("status" = 'APPROVED' AND "approvedById" IS NOT NULL AND "releasedById" IS NULL AND "releasedAt" IS NULL)
@@ -1102,6 +1210,9 @@ BEGIN
   END IF;
   IF (OLD."status", NEW."status") NOT IN (('PENDING_APPROVAL', 'APPROVED'), ('APPROVED', 'RELEASED')) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is approved, then released, once each';
+  END IF;
+  IF OLD."status" = 'APPROVED' AND NEW."approvedById" IS DISTINCT FROM OLD."approvedById" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is released on the approval it was given';
   END IF;
   RETURN NEW;
 END;

@@ -144,6 +144,38 @@ suite("slice 4a recovery database rules: opening a recovery", () => {
     })
   })
 
+  describe("what a recovery stands on at the day it opens", () => {
+    it("stands on an open legal matter", async () => {
+      const rule = raiseOff(G, "A recovery stands on an open legal matter")
+      const closed = async (tx: Tx) => {
+        const matterId = await matterOf(tx, loans.nca1, "JUDGMENT", "ATTACHMENT_ORDER")
+        await tx.legalMatter.update({ where: { id: matterId }, data: { status: "CLOSED", closedAt: new Date() } })
+        return matterId
+      }
+      await refuses(rule, /stands on an open legal matter/, async (tx) => insert(tx, loans.nca1, "NCA_S131_ATTACHMENT", { legalMatterId: await closed(tx) }))
+    })
+
+    it("follows the attachment order or judgment: dated on or before the day it was recovered", async () => {
+      const orderRule = clauseOff(G, `'ATTACHMENT_ORDER', NEW."recoveredOn")`, `'ATTACHMENT_ORDER')`)
+      await refuses(orderRule, /needs the legal matter's attachment order/, async (tx) =>
+        insert(tx, loans.nca1, "NCA_S131_ATTACHMENT", { recoveredOn: dbDate(day(-1)), legalMatterId: await matterOf(tx, loans.nca1, "JUDGMENT", "ATTACHMENT_ORDER") }))
+      const judgmentRule = clauseOff(G, `'JUDGMENT', NEW."recoveredOn")`, `'JUDGMENT')`)
+      await refuses(judgmentRule, /needs the legal matter's judgment/, async (tx) =>
+        insert(tx, loans.non1, "NON_NCA_COURT_ORDER", { recoveredOn: dbDate(day(-1)), legalMatterId: await matterOf(tx, loans.non1, "JUDGMENT") }))
+    })
+
+    it("names a meter reading of its own asset, at opening and after", async () => {
+      const rule = raiseOff(G, "A recovery's meter reading is its own asset's")
+      const reading = async (tx: Tx, assetId: string) => (await tx.assetMeterReading.create({
+        data: { tenantId: fx.tenantId, assetId, readingDate: dbDate(today()), value: 1200, unit: "HOURS", source: "STAFF" },
+      })).id
+      await refuses(rule, /meter reading is its own asset's/, async (tx) => insert(tx, loans.non1, "NON_NCA_VOLUNTARY", { meterReadingId: await reading(tx, loans.non2.assetId) }))
+      await refuses(rule, /meter reading is its own asset's/, async (tx) =>
+        tx.recovery.update({ where: { id: recoveries.b }, data: { meterReadingId: await reading(tx, loans.non2.assetId) } }))
+      await admits(async (tx) => insert(tx, loans.non1, "NON_NCA_VOLUNTARY", { meterReadingId: await reading(tx, loans.non1.assetId) }))
+    })
+  })
+
   it("is one open recovery per loan: a second is refused until the first is closed or withdrawn", async () => {
     const second = async (tx: Tx) => {
       await triggersOff(tx) // the first recovery without its asset-status side effect, so only the index can refuse the second

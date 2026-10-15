@@ -146,7 +146,8 @@ suite("slice 4a recovery database rules: the status matrix", () => {
       const rule = raiseOff(G, "An NCA recovery gives its final notice before the shortfall or surplus is opened")
       const message = /gives its final notice before the shortfall or surplus is opened/
       await refuses(rule, message, move("nca", "PROCEEDS_APPLIED", "SHORTFALL_OPEN"), [raiseOff(G, "A shortfall is open for a positive shortfall with its freeze end set")])
-      await refuses(rule, message, move("nca", "PROCEEDS_APPLIED", "SURPLUS_HELD"), [raiseOff(G, "A surplus is held for a positive surplus")])
+      await refuses(rule, message, move("nca", "PROCEEDS_APPLIED", "SURPLUS_HELD"),
+        [raiseOff(G, "A surplus is held for a positive surplus"), raiseOff(G, "A surplus is held only once the loan is settled")])
       await refuses(rule, message, (tx) => tx.recovery.update({ where: { id: at.nca.PROCEEDS_APPLIED!.id }, data: { status: "CLOSED", closedAt: new Date() } }),
         [raiseOff(G, "A recovery closes straight from its proceeds only with no shortfall and no surplus")])
     })

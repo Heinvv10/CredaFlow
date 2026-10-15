@@ -39,7 +39,7 @@ const { refuses, admits } = rules(database)
 let fx: RecoveryFixture
 interface Rec { loan: RecoveryLoan; id: string }
 /** vatDone: an instalment sale that already has its (committed) deemed-supply event. */
-const R = {} as Record<"sale" | "vatDone" | "finance" | "operating" | "gone" | "surplus" | "listed", Rec>
+const R = {} as Record<"sale" | "sold" | "vatDone" | "finance" | "operating" | "operatingBare" | "gone" | "surplus" | "listed", Rec>
 let bankDocument = ""
 
 // R115 000 incl. VAT at 15%: input tax R15 000.
@@ -49,8 +49,9 @@ const vat = (tx: Pick<PrismaClient, "recoveryVatEvent">, rec: Rec, over: Record<
     deemedSupplyValueCents: 11_500_000, inputTaxClaimCents: 1_500_000, outputTaxCents: 0, vatRateTenThousandths: 1500, basis: "Synthetic s8(10) basis", recordedById: fx.officer, ...over,
   } as never,
 })
-const resale = (tx: Tx, over: Record<string, unknown> = {}) =>
-  vat(tx, R.operating, { kind: "LESSOR_RESALE", dealContractType: "OPERATING_LEASE", deemedSupplyValueCents: 0, inputTaxClaimCents: 0, outputTaxCents: 1_500_000, ...over })
+// The sale was R1 200 000 incl. VAT at 15%: output tax 120 000 000 x 1500 / 11500 = 15 652 173.9, half-up 15 652 174.
+const resale = (tx: Tx, over: Record<string, unknown> = {}, rec: Rec = R.operating) =>
+  vat(tx, rec, { kind: "LESSOR_RESALE", dealContractType: "OPERATING_LEASE", deemedSupplyValueCents: 0, inputTaxClaimCents: 0, outputTaxCents: 15_652_174, ...over })
 
 const refund = (tx: Pick<PrismaClient, "recoveryRefund">, over: Record<string, unknown> = {}) => tx.recoveryRefund.create({
   data: {
@@ -64,11 +65,13 @@ const close = (tx: Tx) => tx.recovery.update({ where: { id: R.surplus.id }, data
 suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
   beforeAll(async () => {
     fx = await createRecoveryFixture(database(), t)
-    for (const [name, contractType] of [["sale", "INSTALMENT_SALE"], ["vatDone", "INSTALMENT_SALE"], ["finance", "FINANCE_LEASE"], ["operating", "OPERATING_LEASE"], ["gone", "INSTALMENT_SALE"]] as const) {
+    for (const [name, contractType] of [["sale", "INSTALMENT_SALE"], ["vatDone", "INSTALMENT_SALE"], ["finance", "FINANCE_LEASE"], ["operatingBare", "OPERATING_LEASE"], ["gone", "INSTALMENT_SALE"]] as const) {
       const loan = await newLoan(database(), fx, "NON_NCA", contractType)
       R[name] = { loan, id: await newRecovery(database(), fx, loan, "NON_NCA_VOLUNTARY") }
     }
     await database().recovery.update({ where: { id: R.gone.id }, data: { status: "WITHDRAWN", withdrawnReason: "Debtor paid the arrears in full", closedAt: new Date() } })
+    R.sold = await ladderRecovery(database(), fx, false, "SOLD") // an instalment sale resold: not a lessor's resale
+    R.operating = await ladderRecovery(database(), fx, false, "SOLD", {}, false, "OPERATING_LEASE") // a lease asset resold: the sale is complete
     R.surplus = await ladderRecovery(database(), fx, true, "SURPLUS_HELD", { settlementCents: 80_000_000 })
     R.listed = await ladderRecovery(database(), fx, false, "LISTED")
     bankDocument = await legalDocument(database(), fx, "OTHER")
@@ -98,12 +101,31 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
       const rule = raiseOff("guardRecoveryVatEvent", "A deemed supply belongs to an instalment sale or finance lease, a lessor resale to an operating or maintenance lease")
       const message = /deemed supply belongs to an instalment sale or finance lease/
       await refuses(rule, message, (tx) => vat(tx, R.operating, { dealContractType: "OPERATING_LEASE" }))
-      await refuses(rule, message, (tx) => vat(tx, R.sale, { kind: "LESSOR_RESALE", deemedSupplyValueCents: 0, inputTaxClaimCents: 0, outputTaxCents: 1_500_000 }))
+      await refuses(rule, message, (tx) => vat(tx, R.sold, { kind: "LESSOR_RESALE", deemedSupplyValueCents: 0, inputTaxClaimCents: 0, outputTaxCents: 15_652_174 }))
       await admits((tx) => resale(tx))
     })
 
     it("is not dated in the future", async () => {
       await refuses(raiseOff("guardRecoveryVatEvent", "A VAT event is not dated in the future"), /VAT event is not dated in the future/, (tx) => vat(tx, R.sale, { eventDate: dbDate(day(1)) }))
+    })
+
+    it("is dated on or after the day the asset was recovered", async () => {
+      await refuses(raiseOff("guardRecoveryVatEvent", "A VAT event is not dated before the recovery"), /not dated before the recovery/, (tx) => vat(tx, R.sale, { eventDate: dbDate(day(-1)) }))
+    })
+
+    it("deems a supply of no more than the asset's cash price including VAT", async () => {
+      const rule = raiseOff("guardRecoveryVatEvent", "A deemed supply is capped at the asset's cash price including VAT")
+      await refuses(rule, /capped at the asset's cash price including VAT/, (tx) => vat(tx, R.sale, { deemedSupplyValueCents: 172_500_001, inputTaxClaimCents: 22_500_000 }))
+      await admits((tx) => vat(tx, R.sale, { deemedSupplyValueCents: 172_500_000, inputTaxClaimCents: 22_500_000 }))
+    })
+
+    it("records a lessor resale once the sale is complete, with output tax the sale price's tax fraction, half-up", async () => {
+      const completeRule = raiseOff("guardRecoveryVatEvent", "A lessor resale is recorded once the sale is complete")
+      await refuses(completeRule, /resale is recorded once the sale is complete/, (tx) => resale(tx, {}, R.operatingBare),
+        [raiseOff("guardRecoveryVatEvent", "A lessor resale's output tax is the sale price's tax fraction")])
+      const taxRule = raiseOff("guardRecoveryVatEvent", "A lessor resale's output tax is the sale price's tax fraction")
+      await refuses(taxRule, /output tax is the sale price's tax fraction/, (tx) => resale(tx, { outputTaxCents: 15_652_173 }))
+      await refuses(taxRule, /output tax is the sale price's tax fraction/, (tx) => resale(tx, { outputTaxCents: 0 }))
     })
 
     it("claims input tax = value x rate / (10000 + rate), half-up, on a deemed supply", async () => {
@@ -126,6 +148,7 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
       await refuses(amounts, /RecoveryVatEvent_amounts/, (tx) => vat(tx, R.sale, { vatRateTenThousandths: 0, inputTaxClaimCents: 0 }))
       await refuses(amounts, /RecoveryVatEvent_amounts/, (tx) => vat(tx, R.sale, { basis: " " }))
       await refuses({ table: "RecoveryVatEvent", constraint: "RecoveryVatEvent_vendor_number" }, /RecoveryVatEvent_vendor_number/, (tx) => vat(tx, R.sale, { debtorVatVendor: false, debtorVatNumber: "4000000099" }))
+      await refuses({ table: "RecoveryVatEvent", constraint: "RecoveryVatEvent_vendor_number" }, /RecoveryVatEvent_vendor_number/, (tx) => vat(tx, R.sale, { debtorVatVendor: true, debtorVatNumber: null }))
     })
   })
 
@@ -152,8 +175,9 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
       const rule = raiseOff(G, "A refund is approved, then released, once each")
       const message = /approved, then released, once each/
       const approved = async (tx: Tx) => { const r = await refund(tx); await tx.recoveryRefund.update({ where: { id: r.id }, data: { status: "APPROVED", approvedById: fx.adminB } }); return r.id }
-      await refuses(rule, message, async (tx) => tx.recoveryRefund.update({ where: { id: (await refund(tx)).id }, data: { status: "RELEASED", approvedById: fx.adminB, releasedById: fx.adminB, releasedAt: new Date() } }))
-      await refuses(rule, message, async (tx) => tx.recoveryRefund.update({ where: { id: await approved(tx) }, data: { status: "PENDING_APPROVAL", approvedById: null } }))
+      await refuses(rule, message, async (tx) => tx.recoveryRefund.update({ where: { id: (await refund(tx)).id }, data: { status: "RELEASED", approvedById: fx.adminB, releasedById: fx.adminA, releasedAt: new Date() } }))
+      await refuses(rule, message, async (tx) => tx.recoveryRefund.update({ where: { id: await approved(tx) }, data: { status: "PENDING_APPROVAL", approvedById: null } }),
+        [raiseOff(G, "A refund is released on the approval it was given")])
       await refuses(raiseOff(G, "A recovery refund is never deleted", PASS_DELETE), /refund is never deleted/, async (tx) => tx.recoveryRefund.delete({ where: { id: await approved(tx) } }))
     })
 
@@ -162,8 +186,23 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
       await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_approver_differs" }, /RecoveryRefund_approver_differs/, approveBy(fx.officer))
       await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_status_columns" }, /RecoveryRefund_status_columns/,
         async (tx) => tx.recoveryRefund.update({ where: { id: (await refund(tx)).id }, data: { status: "APPROVED" } }))
+      await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_status_columns" }, /RecoveryRefund_status_columns/,
+        async (tx) => tx.recoveryRefund.update({ where: { id: (await refund(tx)).id }, data: { status: "APPROVED", approvedById: fx.adminB, releasedById: fx.adminA } }))
       await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_shape" }, /RecoveryRefund_shape/, (tx) => refund(tx, { accountHolder: " " }))
       await admits(approveBy(fx.adminB))
+    })
+
+    it("is released by a third person on the approval it was given", async () => {
+      const approved = async (tx: Tx) => {
+        const r = await refund(tx)
+        await tx.recoveryRefund.update({ where: { id: r.id }, data: { status: "APPROVED", approvedById: fx.adminB } })
+        return r.id
+      }
+      const release = (id: string, by: string, over: Record<string, unknown> = {}) => (tx: Tx) =>
+        tx.recoveryRefund.update({ where: { id }, data: { status: "RELEASED", releasedById: by, releasedAt: new Date(), ...over } })
+      await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_releaser_differs" }, /RecoveryRefund_releaser_differs/, async (tx) => release(await approved(tx), fx.adminB)(tx))
+      await refuses(raiseOff(G, "A refund is released on the approval it was given"), /released on the approval it was given/, async (tx) => release(await approved(tx), fx.officer, { approvedById: fx.adminA })(tx))
+      await admits(async (tx) => release(await approved(tx), fx.adminA)(tx))
     })
 
     it("is one per recovery", async () => {

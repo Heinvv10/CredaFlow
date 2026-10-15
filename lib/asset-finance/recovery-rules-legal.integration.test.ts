@@ -40,7 +40,7 @@ let fx: RecoveryFixture
 /** matterA/nonMatter: empty matters; other: a matter with a letter of demand; closed: a closed matter without steps. */
 const loans = {} as Record<"nca" | "other" | "closed" | "free" | "non", RecoveryLoan>
 const matters = {} as Record<"nca" | "other" | "closed" | "non", string>
-const records = {} as { nca: string; non: string; other: string; pending: string }
+const records = {} as { nca: string; non: string; other: string; pending: string; fresh: string; old: string }
 let otherStep = ""
 /** The last business day (T), the latest S129 date that has matured on T (matured), and the first that has not (short). */
 let boundary: { t: string; matured: string; short: string }
@@ -60,10 +60,13 @@ suite("slice 4a legal matter database rules", () => {
     }
     for (const name of ["nca", "other", "closed", "non"] as const) matters[name] = await newMatter(database(), fx, loans[name].loanId)
     await database().legalMatter.update({ where: { id: matters.closed }, data: { status: "CLOSED", closedAt: new Date() } })
-    records.nca = await s129Record(database(), fx, loans.nca.loanId)
-    records.non = await s129Record(database(), fx, loans.non.loanId)
-    records.other = await s129Record(database(), fx, loans.other.loanId)
-    records.pending = await s129Record(database(), fx, loans.nca.loanId, "PENDING")
+    // notices sent 60 days ago, so steps dated within the boundary window (the last 40 days) follow them
+    records.nca = await s129Record(database(), fx, loans.nca.loanId, "COMPLETED", 60)
+    records.non = await s129Record(database(), fx, loans.non.loanId, "COMPLETED", 60)
+    records.other = await s129Record(database(), fx, loans.other.loanId, "COMPLETED", 60)
+    records.pending = await s129Record(database(), fx, loans.nca.loanId, "PENDING", 60)
+    records.fresh = await s129Record(database(), fx, loans.nca.loanId) // sent today
+    records.old = await s129Record(database(), fx, loans.nca.loanId, "COMPLETED", 400) // sent before the matter, by more than a year
     otherStep = await addStep(database(), fx, matters.other, "LETTER_OF_DEMAND")
     const [row] = await database().$queryRaw<{ t: Date; matured: Date; short: Date }[]>`
       WITH days AS (SELECT g::date AS d FROM generate_series((now() AT TIME ZONE 'Africa/Johannesburg')::date - 40, (now() AT TIME ZONE 'Africa/Johannesburg')::date, interval '1 day') g),
@@ -166,6 +169,31 @@ suite("slice 4a legal matter database rules", () => {
       // each condition on its own: the loan, and the record being completed
       await refuses(clauseOff(G, `AND c."referenceId" = matter."loanId" `), message, (tx) => s129(tx, matters.nca, records.other, today()))
       await refuses(clauseOff(G, `AND c."status" = 'COMPLETED'`), message, (tx) => s129(tx, matters.nca, records.pending, today()))
+    })
+  })
+
+  describe("section 129 timing", () => {
+    it("is dated on or after the day the notice was sent (SAST)", async () => {
+      const rule = clauseOff(G, `AND (c."completedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= NEW."stepDate"`)
+      const message = /names this loan's completed section 129 notice record/
+      await refuses(rule, message, (tx) => s129(tx, matters.nca, records.fresh, day(-1)))
+      await admits((tx) => s129(tx, matters.nca, records.fresh, today()))
+    })
+
+    it("names a notice no more than a year older than the matter", async () => {
+      await refuses(clauseOff(G, `AND c."completedAt" >= matter."createdAt" - INTERVAL '365 days'`), /names this loan's completed section 129 notice record/,
+        (tx) => s129(tx, matters.nca, records.old, today()))
+    })
+
+    it("backs one step: a record is not used twice (a correcting step may name it again)", async () => {
+      await refuses({ index: "LegalMatterStep_section129_record_once" }, /Unique constraint|LegalMatterStep_section129_record_once/, async (tx) => {
+        await s129(tx, matters.nca, records.nca, today())
+        await s129(tx, matters.nca, records.nca, today())
+      })
+      await admits(async (tx) => {
+        const first = await s129(tx, matters.nca, records.nca, today())
+        await s129(tx, matters.nca, records.nca, today(), { correctsStepId: first.id })
+      })
     })
   })
 

@@ -9,7 +9,7 @@
  * their suites). Every value is synthetic. Not a test file.
  */
 import { randomUUID } from "node:crypto"
-import type { PrismaClient, RecoveryCostTreatment, RecoveryCostType, RecoveryStatus } from "@prisma/client"
+import type { ContractType, PrismaClient, RecoveryCostTreatment, RecoveryCostType, RecoveryStatus } from "@prisma/client"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { dbDate } from "./dates"
 import { testSetup } from "./lease-servicing.integration-fixture"
@@ -19,6 +19,9 @@ import { courtMatter, newLoan, newRecovery, newSurrender, newValuation, saleInvo
 const NCA_ORDER: RecoveryStatus[] = ["RECOVERED", "VALUED", "VALUATION_NOTICE_ISSUED", "LISTED", "SOLD", "PROCEEDS_APPLIED", "FINAL_NOTICE_ISSUED"]
 const NON_NCA_ORDER: RecoveryStatus[] = ["RECOVERED", "VALUED", "LISTED", "SOLD", "PROCEEDS_APPLIED"]
 const SHA = "a".repeat(64)
+
+/** The idempotency key the proceeds receipt of a recovery carries. */
+export const proceedsKey = (recoveryId: string) => `asset-recovery:${recoveryId}:proceeds`
 
 export interface PathOptions {
   priceCents?: number
@@ -55,9 +58,9 @@ export async function saleData(db: PrismaClient, fx: DealFixture, loan: Recovery
 
 /** A fresh loan and a recovery of it (NCA: s131 on a court matter, or s127 on a surrender) taken to `to`. */
 export async function ladderRecovery(
-  db: PrismaClient, fx: DealFixture, nca: boolean, to: RecoveryStatus, o: PathOptions = {}, s127 = false,
+  db: PrismaClient, fx: DealFixture, nca: boolean, to: RecoveryStatus, o: PathOptions = {}, s127 = false, contractType: ContractType = "INSTALMENT_SALE",
 ): Promise<{ loan: RecoveryLoan; id: string; surrenderId?: string }> {
-  const loan = await newLoan(db, fx, nca ? "NCA" : "NON_NCA")
+  const loan = await newLoan(db, fx, nca ? "NCA" : "NON_NCA", contractType)
   const surrenderId = s127 ? await newSurrender(db, fx, loan) : undefined
   const route = !nca ? "NON_NCA_VOLUNTARY" : s127 ? "NCA_S127_SURRENDER" : "NCA_S131_ATTACHMENT"
   const extra = !nca ? {} : s127 ? { surrenderRequestId: surrenderId } : { legalMatterId: await courtMatter(db, fx, loan) }
@@ -75,6 +78,8 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
   if (done.includes(to)) {
     // Shortfall, surplus (settlement below the net proceeds) or nothing owed (settlement = the price) follow the proceeds; a withdrawal is from any earlier status.
     if (to !== "WITHDRAWN") await advance(db, fx, loan, recoveryId, loan.regime === "NCA" ? "FINAL_NOTICE_ISSUED" : "PROCEEDS_APPLIED", o)
+    // a surplus is held only once the receipt has settled the loan (applyManualReceipt completes it); here the loan is settled directly
+    if (to === "SURPLUS_HELD") await testSetup(db, [`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, loan.loanId])
     await set({ status: to, ...(to === "WITHDRAWN" ? { withdrawnReason: "Debtor paid the arrears in full", closedAt: new Date() } : to === "CLOSED" ? { closedAt: new Date() } : {}) })
     return
   }
@@ -92,7 +97,7 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
     } else if (next === "SOLD") {
       for (const c of o.costs ?? []) await db.recoveryCost.create({ data: costData(fx, recoveryId, c) })
       const sale = await db.remarketingSale.create({ data: await saleData(db, fx, loan, recoveryId, o.priceCents ? { priceInclVatCents: o.priceCents, belowValuation: false } : {}) })
-      await db.remarketingSale.update({ where: { id: sale.id }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: await saleInvoice(db, fx) } })
+      await db.remarketingSale.update({ where: { id: sale.id }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: await saleInvoice(db, fx, sale.priceInclVatCents) } })
       await set({ status: next })
     } else if (next === "PROCEEDS_APPLIED") {
       const costs = await db.recoveryCost.findMany({ where: { recoveryId } })
@@ -105,7 +110,7 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
       const settlement = o.settlementCents ?? 150_000_000
       const owed = settlement + charged
       const receipt = Math.min(net, settlement)
-      const payment = receipt > 0 ? await db.payment.create({ data: { tenantId: fx.tenantId, loanId: loan.loanId, amount: receipt, capturedBy: fx.officer, reference: `SYNTH-${randomUUID().slice(0, 8)}` } }) : null
+      const payment = receipt > 0 ? await db.payment.create({ data: { tenantId: fx.tenantId, loanId: loan.loanId, amount: receipt, capturedBy: fx.officer, reference: `SYNTH-${randomUUID().slice(0, 8)}`, idempotencyKey: proceedsKey(recoveryId) } }) : null
       const from = today()
       await set({
         status: next, settlementDueCents: settlement, grossProceedsCents: gross, deductedCostsCents: deducted, chargedCostsCents: charged, netProceedsCents: net,

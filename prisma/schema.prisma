@@ -104,6 +104,18 @@ model User {
   supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
   debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
+  legalMattersCreated          LegalMatter[]                         @relation("LegalMatterCreatedBy")
+  legalMatterStepsRecorded     LegalMatterStep[]                     @relation("LegalMatterStepRecordedBy")
+  recoveriesCreated            Recovery[]                            @relation("RecoveryCreatedBy")
+  recoveryCostsRecorded        RecoveryCost[]                        @relation("RecoveryCostRecordedBy")
+  recoveryCostsApproved        RecoveryCost[]                        @relation("RecoveryCostApprovedBy")
+  remarketingSalesCreated      RemarketingSale[]                     @relation("RemarketingSaleCreatedBy")
+  remarketingSalesApproved     RemarketingSale[]                     @relation("RemarketingSaleApprovedBy")
+  recoveryVatEventsRecorded    RecoveryVatEvent[]                    @relation("RecoveryVatEventRecordedBy")
+  recoveryRefundsCreated       RecoveryRefund[]                      @relation("RecoveryRefundCreatedBy")
+  recoveryRefundsApproved      RecoveryRefund[]                      @relation("RecoveryRefundApprovedBy")
+  recoveryRefundsBankVerified  RecoveryRefund[]                      @relation("RecoveryRefundBankVerifiedBy")
+  recoveryRefundsReleased      RecoveryRefund[]                      @relation("RecoveryRefundReleasedBy")
 
   @@unique([tenantId, id])
   @@index([operatorId])
@@ -6083,6 +6095,7 @@ model LegalMatter {
   updatedAt           DateTime          @updatedAt
   steps               LegalMatterStep[]
   recoveries          Recovery[]
+  createdBy           User              @relation("LegalMatterCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@index([tenantId, loanId])
@@ -6109,6 +6122,7 @@ model LegalMatterStep {
   recordedById       String
   createdAt          DateTime            @default(now())
   costs              RecoveryCost[]
+  recordedBy         User                @relation("LegalMatterStepRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@index([tenantId, matterId])
@@ -6185,6 +6199,7 @@ model Recovery {
   sales                 RemarketingSale[]
   vatEvents             RecoveryVatEvent[]
   refund                RecoveryRefund?
+  createdBy             User               @relation("RecoveryCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, surrenderRequestId])
@@ -6234,6 +6249,8 @@ model RecoveryCost {
   recordedById       String
   approvedById       String
   createdAt          DateTime              @default(now())
+  recordedBy         User                  @relation("RecoveryCostRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy         User                  @relation("RecoveryCostApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@index([tenantId, recoveryId])
@@ -6290,6 +6307,8 @@ model RemarketingSale {
   proceedsPaymentId     String?
   proceedsPayment       Payment?              @relation("RemarketingSaleProceeds", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt             DateTime              @default(now())
+  createdBy             User                  @relation("RemarketingSaleCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy            User?                 @relation("RemarketingSaleApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, taxInvoiceId])
@@ -6321,6 +6340,7 @@ model RecoveryVatEvent {
   basis                  String
   recordedById           String
   createdAt              DateTime             @default(now())
+  recordedBy             User                 @relation("RecoveryVatEventRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, recoveryId, kind])
@@ -6353,6 +6373,10 @@ model RecoveryRefund {
   releasedById               String?
   releasedAt                 DateTime?
   createdAt                  DateTime             @default(now())
+  createdBy                  User                 @relation("RecoveryRefundCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy                 User?                @relation("RecoveryRefundApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  bankVerifiedBy             User                 @relation("RecoveryRefundBankVerifiedBy", fields: [tenantId, bankVerifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  releasedBy                 User?                @relation("RecoveryRefundReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, recoveryId])
