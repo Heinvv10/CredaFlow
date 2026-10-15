@@ -28,6 +28,8 @@ export interface RecoveryLoan {
   /** The borrower's ID number (client) or registration number (entity). */
   borrowerKey: string
   entityId: string | null
+  /** A deferred loan (newLoan `deferred`): books the loan in a transaction of the caller's, triggers on. */
+  book?: (tx: Pick<PrismaClient, "$executeRawUnsafe">) => Promise<unknown>
 }
 
 export const today = () => sastCalendarDate(new Date())
@@ -56,7 +58,7 @@ export async function newAsset(db: PrismaClient, fx: DealFixture, extra: { regis
  * related client). `contractType` defaults to an instalment sale.
  */
 export async function newLoan(
-  db: PrismaClient, fx: DealFixture, regime: Regime, contractType: ContractType = "INSTALMENT_SALE", options: { assetId?: string } = {},
+  db: PrismaClient, fx: DealFixture, regime: Regime, contractType: ContractType = "INSTALMENT_SALE", options: { assetId?: string; deferred?: boolean } = {},
 ): Promise<RecoveryLoan> {
   const token = randomUUID().replaceAll("-", "").slice(0, 12)
   const assetId = options.assetId ?? await newAsset(db, fx)
@@ -86,14 +88,16 @@ export async function newLoan(
     [`INSERT INTO "LoanApplication" ("id", "tenantId", "reference", "clientId", "entityId", "productId", "appliedAmount", "appliedTermDays",
         "ncaRegime", "ncaClassificationRule", "ncaClassifiedAt", "ncaClassifiedById", "updatedAt")
       VALUES ($1, $2, $3, $4, $5, $6, 150000000, 1825, $7::"NcaRegime", 'FINANCIALS_UNPROVEN', CURRENT_TIMESTAMP, $8, CURRENT_TIMESTAMP)`,
-      applicationId, fx.tenantId, `RCV-${token}`, clientId, entityId, fx.product, regime, fx.officer],
-    [`INSERT INTO "Loan" ("id", "tenantId", "reference", "applicationId", "clientId", "entityId", "productId", "principal", "totalInterest", "initiationFee",
+      applicationId, fx.tenantId, `RCV-${token}`, clientId, entityId, fx.product, regime, fx.officer]
+  )
+  const loanInsert: [string, ...unknown[]] = [`INSERT INTO "Loan" ("id", "tenantId", "reference", "applicationId", "clientId", "entityId", "productId", "principal", "totalInterest", "initiationFee",
         "totalRepayable", "outstandingPrincipal", "startDate", "maturityDate", "interestRatePm", "interestModel", "ncaRegime", "contractType", "assetId", "cpaApplies", "cpaRule", "updatedAt")
       VALUES ($1, $2, $3, $4, $5, $6, $7, 150000000, 1, 0, 150000001, 150000000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '5 years', 1.0,
         'DAILY_ACCRUAL', $8::"NcaRegime", $9::"ContractType", $10, $11::boolean, $12, CURRENT_TIMESTAMP)`,
       loanId, fx.tenantId, `RCVL-${token}`, applicationId, clientId, entityId, fx.product, regime, contractType, assetId,
-      lease ? true : null, lease ? "CPA_JURISTIC_UNDER_THRESHOLD" : null],
-  )
+      lease ? true : null, lease ? "CPA_JURISTIC_UNDER_THRESHOLD" : null]
+  if (options.deferred) return { loanId, assetId, regime, contractType, borrowerKey, entityId, book: (tx) => tx.$executeRawUnsafe(...loanInsert) }
+  await testSetup(db, loanInsert)
   return { loanId, assetId, regime, contractType, borrowerKey, entityId }
 }
 

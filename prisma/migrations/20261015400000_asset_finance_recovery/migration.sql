@@ -756,6 +756,7 @@ DECLARE
   receipt_total INTEGER;
   sale_price INTEGER;
   sale_day DATE;
+  live_status TEXT;
   today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
   IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
@@ -783,20 +784,28 @@ BEGIN
     IF NEW."recoveredOn" > today THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery is not dated in the future';
     END IF;
-    IF loan_row.status NOT IN ('ACTIVE', 'DEFAULTED', 'PENDING_WRITE_OFF') THEN
+    -- Locks, in this order, on the rows the checks below read, so a concurrent booking, completion or credit cannot slip
+    -- between the check and the commit (READ COMMITTED): the loan (FOR SHARE: its status cannot change under us), the
+    -- asset (FOR UPDATE: it conflicts with the key-share lock a Loan insert takes through its foreign key, and with the
+    -- Loan guard's share lock) and the surrender (FOR UPDATE: a credit of it waits, then sees this recovery).
+    SELECT l."status"::TEXT INTO live_status FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" FOR SHARE;
+    IF live_status NOT IN ('ACTIVE', 'DEFAULTED', 'PENDING_WRITE_OFF') THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery is opened on an active, defaulted or pending write-off loan';
     END IF;
+    -- the asset's lessor status before the recovery: none, or the stock a lease returned (a re-leased asset is recovered too)
+    SELECT a."lessorStatus" INTO NEW."previousLessorStatus" FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId" FOR UPDATE;
     -- the loan that holds the asset now: an asset a lease returned and a new lease took is the new lease's
     IF EXISTS (SELECT 1 FROM "Loan" o WHERE o."tenantId" = NEW."tenantId" AND o."assetId" = NEW."assetId" AND o."id" <> NEW."loanId"
         AND o."status" NOT IN ('COMPLETED', 'CANCELLED', 'WRITTEN_OFF')) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery is opened by the loan that holds the asset now';
     END IF;
-    IF NEW."route" = 'NCA_S127_SURRENDER' AND NEW."surrenderRequestId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "SurrenderRequest" s
-        WHERE s."id" = NEW."surrenderRequestId" AND s."tenantId" = NEW."tenantId" AND s."status" IN ('REQUESTED', 'VALUED', 'VALUATION_NOTICE_ISSUED')) THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s127 recovery follows a surrender that has not yet been credited or finally noticed';
+    IF NEW."route" = 'NCA_S127_SURRENDER' AND NEW."surrenderRequestId" IS NOT NULL THEN
+      PERFORM 1 FROM "SurrenderRequest" s
+        WHERE s."id" = NEW."surrenderRequestId" AND s."tenantId" = NEW."tenantId" AND s."status" IN ('REQUESTED', 'VALUED', 'VALUATION_NOTICE_ISSUED') FOR UPDATE;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s127 recovery follows a surrender that has not yet been credited or finally noticed';
+      END IF;
     END IF;
-    -- the asset's lessor status before the recovery: none, or the stock a lease returned (a re-leased asset is recovered too)
-    SELECT a."lessorStatus" INTO NEW."previousLessorStatus" FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId";
     IF NEW."surrenderRequestId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "SurrenderRequest" s
         WHERE s."id" = NEW."surrenderRequestId" AND s."tenantId" = NEW."tenantId" AND s."loanId" = NEW."loanId" AND s."assetId" = NEW."assetId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s127 recovery names the surrender of its own loan and asset';
@@ -936,6 +945,10 @@ BEGIN
     END IF;
   -- UNTESTED: s127(8) read as 10 SA business days after the final notice.
   ELSIF step = 'PROCEEDS_APPLIED>FINAL_NOTICE_ISSUED' THEN
+    -- the notice states what is owed: not before the costs the ledger could not carry are known
+    IF NEW."unrecoverableCostsCents" IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The costs the loan''s ledger could not carry are recorded before the final notice';
+    END IF;
     IF NEW."finalNoticeIssuedOn" IS DISTINCT FROM today THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The final notice is dated from the proceeds to today';
     END IF;
@@ -1483,6 +1496,29 @@ END;
 $function$;
 CREATE TRIGGER "SurrenderRequest_recovery_proceeds" BEFORE UPDATE OF "status", "proceedsPaymentId" ON "SurrenderRequest"
   FOR EACH ROW EXECUTE FUNCTION public."guardSurrenderRecoveryProceeds"();
+
+-- ---------------------------------------------------------------------------
+-- A loan is not booked on a recovered or remarketed asset (the deal guard's rule, at the loan). The asset row is
+-- locked FOR SHARE whatever its state, so this and a recovery opening on it (guardRecovery locks the asset FOR UPDATE)
+-- serialise: either the recovery waits and then sees this loan, or this waits and sees RECOVERED.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardLoanAssetNotRecovered"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+DECLARE
+  lessor_status TEXT;
+BEGIN
+  IF NEW."assetId" IS NULL OR (TG_OP = 'UPDATE' AND NEW."assetId" IS NOT DISTINCT FROM OLD."assetId" AND NEW."tenantId" IS NOT DISTINCT FROM OLD."tenantId") THEN
+    RETURN NEW;
+  END IF;
+  SELECT a."lessorStatus"::TEXT INTO lessor_status FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId" FOR SHARE;
+  IF lessor_status IN ('RECOVERED', 'SOLD_IN_REMARKETING') THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovered asset cannot be financed again';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "Loan_asset_not_recovered" BEFORE INSERT OR UPDATE OF "tenantId", "assetId" ON "Loan"
+  FOR EACH ROW EXECUTE FUNCTION public."guardLoanAssetNotRecovered"();
 
 -- ---------------------------------------------------------------------------
 -- Row-level security: the policy of 20261015130000_tenant_rls_new_scoped_models.

@@ -17,6 +17,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, it, vi } from "vitest"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { dbDate } from "./dates"
+import { testSetup } from "./lease-servicing.integration-fixture"
 import { advance, ladderRecovery } from "./recovery-path.integration-fixture"
 import { cleanupRecoveryFixture, createRecoveryFixture, newLoan, newRecovery, recoveryFixtureTenantId, today, type RecoveryFixture, type RecoveryLoan } from "./recovery.integration-fixture"
 import { clauseOff, raiseOff, rules, triggersOff, type Tx } from "./recovery-rules.integration-fixture"
@@ -53,7 +54,10 @@ suite("slice 4a the costs the loan's ledger could not carry", () => {
     R.owedNil = await ladderRecovery(database(), fx, false, "PROCEEDS_APPLIED", { costs: charged, settlementCents: 120_000_000, unrecoverableCents: null })
     R.owingSet = await ladderRecovery(database(), fx, false, "PROCEEDS_APPLIED", { costs: charged, unrecoverableCents: 500_000 })
     R.ncaProc = await ladderRecovery(database(), fx, true, "PROCEEDS_APPLIED", { unrecoverableCents: null })
-    R.fni = await ladderRecovery(database(), fx, true, "FINAL_NOTICE_ISSUED", { unrecoverableCents: null })
+    // a final notice issued with the figure unset can no longer happen through the guard: the state is built with triggers off
+    const unset = await ladderRecovery(database(), fx, true, "PROCEEDS_APPLIED", { unrecoverableCents: null })
+    await testSetup(database(), [`UPDATE "Recovery" SET "status" = 'FINAL_NOTICE_ISSUED', "finalNoticeIssuedOn" = CURRENT_DATE, "chargesFrozenUntil" = CURRENT_DATE + 14 WHERE "id" = $1`, unset.id])
+    R.fni = unset
     R.sold = await ladderRecovery(database(), fx, false, "SOLD", { costs: charged })
     R.listed = await ladderRecovery(database(), fx, false, "LISTED")
     R.shortfallOpen = await ladderRecovery(database(), fx, false, "SHORTFALL_OPEN", { costs: charged, unrecoverableCents: 500_000 })

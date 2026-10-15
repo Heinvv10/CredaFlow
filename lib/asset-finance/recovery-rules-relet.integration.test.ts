@@ -71,7 +71,7 @@ suite("slice 4a a re-leased asset is recovered, and an s127 recovery follows a l
       })
       const sync = clauseOff("syncRecoveryAssetStatus", `("lessorStatus" IS NULL OR "lessorStatus" = 'RETURNED_TO_STOCK')`, `"lessorStatus" IS NULL`)
       expect(await attempt(database(), (tx) => open(tx, second), sync)).toMatch(/already recovered or sold/)
-      const remembered = clauseOff(G, `SELECT a."lessorStatus" INTO NEW."previousLessorStatus" FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId";`, `NEW."previousLessorStatus" := NULL;`)
+      const remembered = clauseOff(G, `SELECT a."lessorStatus" INTO NEW."previousLessorStatus" FROM "FinancedAsset" a WHERE a."id" = NEW."assetId" AND a."tenantId" = NEW."tenantId" FOR UPDATE;`, `NEW."previousLessorStatus" := NULL;`)
       expect(await attempt(database(), (tx) => open(tx, second), remembered)).toMatch(/already recovered or sold/) // it would not match the asset's status
     })
 
