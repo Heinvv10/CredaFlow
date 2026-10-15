@@ -6,7 +6,7 @@ import { isLiving, LIVING_CATEGORIES, MONTH_DAYS, type Category } from "@/lib/st
 import type { Insights } from "@/lib/statement-analysis/insights"
 import { formatCents } from "@/lib/statement-analysis/money"
 
-type Payload = Insights & { unreadStatements: number }
+type Payload = Insights & { unreadStatements: number; modelLabelsEnabled?: boolean }
 
 const LABEL: Record<Category, string> = {
   HOUSING: "Housing", TRANSPORT: "Transport", FOOD: "Food", EDUCATION: "Education", INSURANCE: "Insurance", CLOTHING: "Clothing",
@@ -72,8 +72,10 @@ function Living({ data }: { data: Payload }) {
 /** Rows the local model categorised (no rule did): totals, and the rows for the officer to check. */
 function ModelAssigned({ data, used }: { data: Payload; used: Payload["statements"] }) {
   const m = data.modelAssigned
-  const unlabelled = used.filter((s) => !s.modelLabelled).length
-  if (m.rowCount === 0 && unlabelled === 0) return null
+  const enabled = data.modelLabelsEnabled !== false
+  const unlabelled = enabled ? used.filter((s) => !s.modelLabelled).length : 0
+  const noModel = !enabled && (data.uncategorisedShare ?? 0) > 0
+  if (m.rowCount === 0 && unlabelled === 0 && !noModel) return null
   return (
     <div data-testid="statement-model-assigned" className="mt-4 rounded-md border border-[var(--cf-border-subtle)] p-3 text-xs text-[var(--cf-text-secondary)]">
       {m.rowCount > 0 && (
@@ -84,10 +86,18 @@ function ModelAssigned({ data, used }: { data: Payload; used: Payload["statement
             were categorised by the local model, not a rule. Check them.
           </summary>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full" aria-label="Model-assigned rows">
+              <thead>
+                <tr className="text-left text-[var(--cf-text-muted)]">
+                  <th scope="col" className="py-1 pr-3 font-medium">Date</th>
+                  <th scope="col" className="py-1 pr-3 font-medium">Description</th>
+                  <th scope="col" className="py-1 pr-3 text-right font-medium">Out</th>
+                  <th scope="col" className="py-1 font-medium">Category</th>
+                </tr>
+              </thead>
               <tbody>
                 {m.rows.map((r, i) => (
-                  <tr key={i} className="border-t border-[var(--cf-border-subtle)]">
+                  <tr key={`${r.documentId}-${r.date}-${i}`} className="border-t border-[var(--cf-border-subtle)]">
                     <td className="py-1 pr-3 whitespace-nowrap">{r.date}</td>
                     <td className="py-1 pr-3 break-all">{r.description}</td>
                     <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(-r.amountCents)}</td>
@@ -106,6 +116,7 @@ function ModelAssigned({ data, used }: { data: Payload; used: Payload["statement
           rows no rule categorises stay uncategorised and are not counted as living spend.
         </p>
       )}
+      {noModel && <p>No local model is configured: rows no rule categorises stay uncategorised and are not counted as living spend.</p>}
     </div>
   )
 }

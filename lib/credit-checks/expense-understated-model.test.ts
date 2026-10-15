@@ -41,4 +41,11 @@ describe("expenseUnderstated with model labels", () => {
     expect(withModel.key).not.toBe(rulesOnly.key)
     expect(rulesOnly.summary).not.toContain("model-assigned")
   })
+
+  it("keys on living model rows only: a label that adds no living spend keeps a cleared finding cleared", () => {
+    const s = statement([...rows(), tx("2026-08-11", "DebiCheck: SYNTH KITE CARDS", -50_000)].sort((a, b) => a.date.localeCompare(b.date)))
+    const flag = (modelLabels: unknown) => expenseUnderstated(facts({ declaredExpensesCents: 0, statements: [{ ...s, modelLabels }] }))[0]
+    expect(flag({ ...labels, "SYNTH KITE CARDS": "CREDIT_INSTALMENT" }).key).toBe(flag(labels).key)
+    expect(flag({ ...labels, "SYNTH KITE CARDS": "FOOD" }).key).not.toBe(flag(labels).key)
+  })
 })

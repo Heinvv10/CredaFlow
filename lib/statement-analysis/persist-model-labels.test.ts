@@ -25,7 +25,7 @@ const update = vi.mocked(prisma.statementAnalysis.updateMany)
 const tx = (description: string, amountCents: number, nonPosting?: boolean) =>
   ({ date: "2026-07-02", description, amountCents, balanceCents: null, page: 1, ...(nonPosting && { nonPosting }) })
 const stored = (over: Record<string, unknown> = {}) => ({
-  id: "row-1", tenantId: TENANT, status: "READ", accountHolderName: "THABO TESTER",
+  id: "row-1", tenantId: TENANT, clientDocumentId: "doc-1", status: "READ", accountHolderName: "THABO TESTER",
   transactions: [
     tx("Card Purchase: SYNTH ZOLA TRADING 4411", -10_000),
     tx("Card Purchase: SYNTH ZOLA TRADING 9921", -20_000),
@@ -34,6 +34,7 @@ const stored = (over: Record<string, unknown> = {}) => ({
     tx("EDO Collection Attempt SYNTH KITE", -7_000, true),
     tx("Payment To: THABO TESTER", -3_000),
     tx("Payment To: J SOAP", -4_000),
+    tx("Payment To: SIPHO SYNTHETIC", -2_000),
   ],
   modelCategories: null, modelCategoriesVersion: null,
   ...over,
@@ -47,7 +48,7 @@ beforeEach(() => {
   vi.stubEnv("VLM_API_URL", "http://vlm.test")
   vi.stubEnv("VLM_MODEL", "synthetic-model")
   vi.stubGlobal("fetch", fetchMock)
-  vi.mocked(prisma.clientDocument.findFirst).mockResolvedValue({ id: "doc-1", storagePath: "s/p.pdf", mimeType: "application/pdf", contentSha256: SHA } as never)
+  vi.mocked(prisma.clientDocument.findFirst).mockResolvedValue({ id: "doc-1", storagePath: "s/p.pdf", mimeType: "application/pdf", contentSha256: SHA, client: { firstName: "Sipho", lastName: "Synthetic" } } as never)
   vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored() as never)
   vi.mocked(readFile).mockResolvedValue(BYTES)
   update.mockResolvedValue({ count: 1 })
@@ -70,13 +71,22 @@ describe("readStatementInBackground: model labels", () => {
     await vi.waitFor(() => expect(onLabelled).toHaveBeenCalledTimes(1))
 
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content
-    // Masked keys, each once: no amount, no reference digits, no credit, no own transfer, no non-posting row.
+    // Masked keys, each once: no amount, no reference digits, no credit, no non-posting row, and no own
+    // transfer by the holder's name (THABO TESTER) or the client's (Sipho Synthetic).
     expect(sent).toBe(labelPrompt(["SYNTH ZOLA TRADING", "J SOAP"]))
     expect(update).toHaveBeenCalledWith({
       where: { id: "row-1", tenantId: TENANT },
       data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p1", modelCategoriesAt: expect.any(Date) },
     })
     expect(order).toEqual(["stored", "onRead", "onLabelled"])
+  })
+
+  it("looks the client's name up on the tenant's own document", async () => {
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {}}'))
+    const onLabelled = vi.fn().mockResolvedValue(undefined)
+    readStatementInBackground(TENANT, "doc-1", { onLabelled })
+    await vi.waitFor(() => expect(onLabelled).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(prisma.clientDocument.findFirst)).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "doc-1", tenantId: TENANT }, select: { client: { select: { firstName: true, lastName: true } } } }))
   })
 
   it("model down: stores nothing, still runs the read's callbacks on the rules alone, not onLabelled", async () => {

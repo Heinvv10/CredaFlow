@@ -13,13 +13,17 @@ import { VlmUnavailableError } from "./vlm-reader"
  */
 export async function labelRead(tenantId: string, analysis: StatementAnalysis): Promise<boolean> {
   if (!needsModelLabels(analysis)) return false
-  // The holder's name, as the rules see it on read: a transfer to their own
-  // name is categorised by the rules and never sent.
-  const ctx = { clientName: analysis.accountHolderName }
-  const keys = (analysis.transactions as unknown as StatementTransaction[])
-    .filter((t) => t.amountCents < 0 && !t.nonPosting && categorise(t, ctx).category === "UNCATEGORISED")
-    .map((t) => labelKey(t.description))
   try {
+    // The client's name and the statement's holder name: a transfer to either
+    // is an own transfer by the rules (as on read) and never sent to the model.
+    const doc = await prisma.clientDocument.findFirst({
+      where: { id: analysis.clientDocumentId, tenantId },
+      select: { client: { select: { firstName: true, lastName: true } } },
+    })
+    const names = [analysis.accountHolderName, doc?.client ? `${doc.client.firstName} ${doc.client.lastName}` : null]
+    const keys = (analysis.transactions as unknown as StatementTransaction[])
+      .filter((t) => t.amountCents < 0 && !t.nonPosting && names.every((clientName) => categorise(t, { clientName }).category === "UNCATEGORISED"))
+      .map((t) => labelKey(t.description))
     const labelled = await labelKeys(keys)
     const stored = await prisma.statementAnalysis.updateMany({
       where: { id: analysis.id, tenantId },

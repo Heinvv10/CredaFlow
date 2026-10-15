@@ -18,13 +18,15 @@
  * no demo bake is running before starting it.
  */
 import { readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { loadCorpus } from "@/lib/statement-analysis/accuracy/run"
 import { analyseStatement } from "@/lib/statement-analysis/analyse"
 import { categorise } from "@/lib/statement-analysis/categorise"
 import { labelKey, labelKeys } from "@/lib/statement-analysis/model-labels"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
 import { isDevKey } from "./statement-merchant-keys"
+
+class ScriptError extends Error {}
 
 /** 08:00–17:00 SAST (UTC+2, no daylight saving), Monday to Friday. */
 export function inBusinessHours(now: Date): boolean {
@@ -54,22 +56,23 @@ async function corpusKeys(dir: string): Promise<string[]> {
 
 async function main() {
   const [mode, a, b] = process.argv.slice(2)
-  if (inBusinessHours(new Date())) throw new Error("the shared model: run outside 08:00–17:00 SAST on weekdays")
+  if (inBusinessHours(new Date())) throw new ScriptError("the shared model: run outside 08:00–17:00 SAST on weekdays")
   const out = mode === "keys" ? b : a
-  if (!out || (mode !== "keys" && mode !== "corpus")) throw new Error("usage: statement-categoriser-model-labels.ts keys <keys.tsv> <out.tsv> [--all] | corpus <out.tsv>")
+  if (!out || (mode !== "keys" && mode !== "corpus")) throw new ScriptError("usage: statement-categoriser-model-labels.ts keys <keys.tsv> <out.tsv> [--all] | corpus <out.tsv>")
   // Corpus-derived labels never enter the repository.
-  if (realpathSync(dirname(resolve(out))).startsWith(realpathSync(process.cwd()))) throw new Error("write the labels outside the repository")
+  const inside = relative(realpathSync(process.cwd()), realpathSync(dirname(resolve(out))))
+  if (!inside.startsWith("..") && !isAbsolute(inside)) throw new ScriptError("write the labels outside the repository")
   let keys: string[]
   if (mode === "keys") {
     const all = readFileSync(a, "utf8").trim().split("\n").map((l) => l.split("\t")[0]).filter(Boolean)
     if (process.argv.includes("--all")) {
-      if (!all.every(isDevKey)) throw new Error("--all is for the dev set only")
+      if (!all.every(isDevKey)) throw new ScriptError("--all is for the dev set only")
       keys = all
     } else {
       keys = all.filter((k) => debitKey(k) === "UNCATEGORISED")
     }
   } else {
-    if (!process.env.STATEMENT_CORPUS_DIR) throw new Error("set STATEMENT_CORPUS_DIR")
+    if (!process.env.STATEMENT_CORPUS_DIR) throw new ScriptError("set STATEMENT_CORPUS_DIR")
     keys = await corpusKeys(process.env.STATEMENT_CORPUS_DIR)
   }
   const { labels, version } = await labelKeys(keys)
@@ -82,8 +85,8 @@ async function main() {
 
 if (require.main === module) {
   main().catch((err) => {
-    // Name and message only for our own errors; never a reply's text.
-    console.error(`failed: ${err instanceof VlmUnavailableError || (err instanceof Error && err.message.startsWith("usage")) ? err.message : err instanceof Error ? `${err.name}: ${err.message.slice(0, 80)}` : "unknown"}`)
+    // The message of our own refusals only; any other error is named, never quoted (it can echo corpus text).
+    console.error(`failed: ${err instanceof ScriptError || err instanceof VlmUnavailableError ? err.message : err instanceof Error ? err.name : "unknown"}`)
     process.exit(1)
   })
 }

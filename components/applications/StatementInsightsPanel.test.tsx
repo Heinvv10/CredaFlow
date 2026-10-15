@@ -31,6 +31,12 @@ describe("StatementInsightsPanel: model labels", () => {
     expect(html).not.toContain("has not labelled")
   })
 
+  it("says when no model is configured, instead of waiting for labels", async () => {
+    const html = await render({ ...payload(null), modelLabelsEnabled: false })
+    expect(html).toContain("No local model is configured")
+    expect(html).not.toContain("has not labelled")
+  })
+
   it("says when the model has not labelled a statement", async () => {
     const html = await render(payload(null))
     expect(html).toContain("has not labelled")

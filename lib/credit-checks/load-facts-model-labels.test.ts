@@ -27,7 +27,7 @@ vi.mock("@/lib/statement-analysis/persist", () => ({
 }))
 vi.mock("./recompute", () => ({ recomputeClientApplications: (...a: unknown[]) => recomputeClient(...a) }))
 
-import { loadApplicationFacts } from "./load-facts"
+import { loadApplicationFacts, statementSnapshot } from "./load-facts"
 
 const analysis = (over: Record<string, unknown> = {}) => ({
   id: "sa-1", status: "READ", method: "TEXT", bank: "CAPITEC", contentSha256: "sha-1", accountHolderName: "T TESTER", accountNumberLast4: "0001",
@@ -68,5 +68,17 @@ describe("loadApplicationFacts: model labels", () => {
     vi.stubEnv("VLM_MODEL", "")
     await loadApplicationFacts("t1", "app-1")
     expect(queueRead).not.toHaveBeenCalled()
+  })
+})
+
+describe("statementSnapshot: model labels", () => {
+  const db = (modelCategoriesAt: Date | null) => ({
+    clientDocument: { findMany: async () => [{ id: "doc-1", statementAnalyses: [{ id: "sa-1", modelCategoriesAt }] }] },
+  }) as unknown as Parameters<typeof statementSnapshot>[0]
+  const where = { tenantId: "t1", clientId: "client-1", since: new Date(0) }
+
+  it("keys a labelled read by when it was labelled, so labels stored after a recompute make the approval stale", async () => {
+    expect(await statementSnapshot(db(null), where)).toEqual(["doc-1:sa-1"])
+    expect(await statementSnapshot(db(new Date("2026-10-15T18:00:00Z")), where)).toEqual(["doc-1:sa-1:2026-10-15T18:00:00.000Z"])
   })
 })

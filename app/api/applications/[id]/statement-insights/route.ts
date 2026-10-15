@@ -3,6 +3,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logDocumentContentAccess } from "@/lib/document-auth"
 import { applicationStatementInsights } from "@/lib/credit-checks/statement-insights"
+import { getVlmConfig } from "@/lib/vlm-extract"
 
 /**
  * GET /api/applications/[id]/statement-insights — financial-health figures from
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const result = await applicationStatementInsights(tenant.id, id)
     if (!result) return NextResponse.json({ error: "Application not found" }, { status: 404 })
     await logDocumentContentAccess({ documentIds: result.read.map((s) => s.documentId), staffUserId: guard.user.id, action: "statement_insights", req })
-    return NextResponse.json({ ...result.insights, unreadStatements: result.unread })
+    // Whether rows no rule categorises can be labelled by the model at all.
+    return NextResponse.json({ ...result.insights, unreadStatements: result.unread, modelLabelsEnabled: getVlmConfig() !== null })
   })
 }

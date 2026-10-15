@@ -84,7 +84,7 @@ export interface Insights {
     livingMonthlyCents: number
     rowCount: number
     rows: ModelAssignedRow[]
-    /** Identifies every model-assigned row and its category; null when there are none. */
+    /** Identifies every model-assigned living row and its category; null when there are none. */
     digest: string | null
   }
 }
@@ -176,7 +176,7 @@ export function computeInsights(
       modelAssigned.debitCents -= t.amountCents
       modelAssigned.rowCount++
       if (isLiving(category)) modelLiving -= t.amountCents
-      modelPrints.push(JSON.stringify([s.documentId, t.date, t.description, t.amountCents, category]))
+      if (isLiving(category)) modelPrints.push(JSON.stringify([s.documentId, t.date, t.description, t.amountCents, category]))
       if (modelAssigned.rows.length < MODEL_ROWS_LISTED) {
         modelAssigned.rows.push({ documentId: s.documentId, date: t.date, description: t.description, amountCents: t.amountCents, category })
       }

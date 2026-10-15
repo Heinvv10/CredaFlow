@@ -105,7 +105,7 @@ export function payslipStateKey(d: { id: string; extractionStatus: string; extra
 /**
  * Every statement in the window with its newest read: the recompute records
  * it and the approval compares it under the lock, through this one query, so
- * the two can only differ when the evidence did. Consent-pending, unread and
+ * the two can only differ when the evidence did (model labels included). Consent-pending, unread and
  * file-less statements are keyed the same way on both sides.
  */
 export async function statementSnapshot(
@@ -114,9 +114,13 @@ export async function statementSnapshot(
 ): Promise<string[]> {
   const docs = await db.clientDocument.findMany({
     where: { tenantId: where.tenantId, clientId: where.clientId, docType: "BANK_STATEMENT", deletedAt: null, createdAt: { gte: where.since } },
-    select: { id: true, statementAnalyses: { where: { parserVersion: PARSER_VERSION }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true } } },
+    select: { id: true, statementAnalyses: { where: { parserVersion: PARSER_VERSION }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true, modelCategoriesAt: true } } },
   })
-  return docs.map((d) => `${d.id}:${d.statementAnalyses[0]?.id ?? ""}`).sort()
+  // Model labels stored on a read change its evidence: a read labelled since is a different key.
+  return docs.map((d) => {
+    const a = d.statementAnalyses[0]
+    return `${d.id}:${a?.id ?? ""}${a?.modelCategoriesAt ? `:${a.modelCategoriesAt.toISOString()}` : ""}`
+  }).sort()
 }
 
 /**

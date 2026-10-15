@@ -13,7 +13,7 @@ import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
-import { loadApplicationFacts } from "@/lib/credit-checks/load-facts"
+import { loadApplicationFacts, statementSnapshot } from "@/lib/credit-checks/load-facts"
 import { applicationStatementInsights } from "@/lib/credit-checks/statement-insights"
 import { syntheticStatement } from "./fixtures/dataset"
 import { buildCapitecStatement } from "./fixtures/synthetic"
@@ -92,6 +92,14 @@ suite("model labels against Postgres", () => {
     expect(JSON.parse(init.body).messages[0].content).toContain('["SYNTH ZOLA TRADING"]')
     const b = await prisma.statementAnalysis.findMany({ where: { tenantId: tenants[1] } })
     expect(b.every((r) => r.modelCategories === null)).toBe(true)
+  })
+
+  it("puts the labels' time in the approval's statement snapshot", async () => {
+    const [a] = await prisma.statementAnalysis.findMany({ where: { tenantId: tenants[0] } })
+    const snap = (t: number) => statementSnapshot(prisma, { tenantId: tenants[t], clientId: id("client", t), since: new Date(0) })
+    expect(await snap(0)).toEqual([`${id("doc", 0)}:${a.id}:${a.modelCategoriesAt!.toISOString()}`])
+    const [b] = await prisma.statementAnalysis.findMany({ where: { tenantId: tenants[1] } })
+    expect(await snap(1)).toEqual([`${id("doc", 1)}:${b.id}`])
   })
 
   it("feeds the checks' facts and the insights, marked model-assigned", async () => {
