@@ -1378,6 +1378,24 @@ CREATE TRIGGER "Payment_recovery_proceeds_kept" BEFORE UPDATE OF "reversed" ON "
   FOR EACH ROW EXECUTE FUNCTION public."guardRecoveryProceedsPayment"();
 
 -- ---------------------------------------------------------------------------
+-- The documents a recovery stands on are not deleted: the evidence of a legal matter step and the bank
+-- verification of a surplus refund (the same rule as a deal signer's scan, guardSigningEvidenceDocument).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardRecoveryEvidenceDocument"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF OLD."deletedAt" IS NULL AND NEW."deletedAt" IS NOT NULL AND (
+      EXISTS (SELECT 1 FROM "LegalMatterStep" s WHERE s."evidenceDocumentId" = OLD."id" AND s."tenantId" = OLD."tenantId")
+      OR EXISTS (SELECT 1 FROM "RecoveryRefund" r WHERE r."bankVerificationDocumentId" = OLD."id" AND r."tenantId" = OLD."tenantId")) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A document that evidences a legal matter step or a refund''s bank verification cannot be deleted';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "EntityDocument_recovery_evidence" BEFORE UPDATE OF "deletedAt" ON "EntityDocument"
+  FOR EACH ROW EXECUTE FUNCTION public."guardRecoveryEvidenceDocument"();
+
+-- ---------------------------------------------------------------------------
 -- Row-level security: the policy of 20261015130000_tenant_rls_new_scoped_models.
 -- ---------------------------------------------------------------------------
 ALTER TABLE "LegalMatter" ENABLE ROW LEVEL SECURITY;
