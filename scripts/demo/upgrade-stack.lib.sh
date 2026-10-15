@@ -33,7 +33,7 @@ check_downgrade() {
 
 # require_active SLUG WHAT — die unless SLUG is an ACTIVE tenant of $db ($active).
 require_active() {
-  printf '%s\n' "$active" | grep -qxF -- "$1" \
+  printf '%s\n' "$active" | grep -xF -- "$1" >/dev/null \
     || die "$2 names slug '$1' but $db has no ACTIVE tenant with that slug; fix the config or the tenant before upgrading"
 }
 

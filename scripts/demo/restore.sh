@@ -68,8 +68,10 @@ for c in "$LIVE_APP" "$LIVE_PORTAL" "$LIVE_DB"; do
   got="$(label "$c" com.docker.compose.project.working_dir)"
   [ "$got" = "$live_dir" ] || die "refusing: $c was started from '$got', not LIVE_DIR $live_dir"
 done
-# grep without -q on purpose: under pipefail, -q exits at the first match and
-# the producer can take SIGPIPE (141), a false "not a demo stack" / a skipped clear.
+# grep without -q on purpose: a grep that reads its input to EOF never leaves the
+# producer writing into a closed pipe. With -q it exits at the first match and,
+# under pipefail, the producer's SIGPIPE (141) fails the pipeline: a false
+# "not a demo stack", or a skipped TOTP clear.
 for c in "$LIVE_APP" "$LIVE_PORTAL"; do
   docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | grep -x 'DEMO_MODE=true' >/dev/null \
     || die "refusing: $c does not run with DEMO_MODE=true, so it is not a demo stack"

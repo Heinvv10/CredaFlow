@@ -100,7 +100,7 @@ db="$(docker exec "$LIVE_DB" printenv POSTGRES_DB)" || die "cannot read POSTGRES
 db_user="$(docker exec "$LIVE_DB" printenv POSTGRES_USER)" || die "cannot read POSTGRES_USER in $LIVE_DB"
 [ "$db" != postgres ] || die "refusing: POSTGRES_DB is the maintenance db"
 [[ "$db" =~ ^[a-z_][a-z0-9_]{0,40}$ ]] || die "refusing: unexpected POSTGRES_DB name '$db'"
-db_bind="$(docker port "$LIVE_DB" 5432 | grep -m1 '^127\.0\.0\.1:')" \
+db_bind="$(docker port "$LIVE_DB" 5432 | grep '^127\.0\.0\.1:' | sed -n 1p)" \
   || die "refusing: $LIVE_DB port 5432 is not published on 127.0.0.1"
 env_file="$live_dir/.env" prod_env_file="$live_dir/.env.production"
 [ "$(env_get "$env_file" POSTGRES_DB)" = "$db" ] && [ "$(env_get "$env_file" POSTGRES_USER)" = "$db_user" ] \
