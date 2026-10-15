@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withPortalEntity } from "@/lib/asset-finance/portal-route"
 import { serveEntityDocument } from "@/lib/asset-finance/entity-document-io"
+import type { Prisma } from "@prisma/client"
 import { dealDocumentFileName } from "@/lib/asset-finance/documents/render"
-import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
+import { leaseLesseeSignerWhere, portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
 
 /**
  * A portal client's OWN deal document to read before signing
@@ -17,21 +18,24 @@ import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
 export async function GET(req: NextRequest, { params }: { params: Promise<{ signerId: string }> }) {
   const { signerId } = await params
   return withPortalEntity(req, null, async ({ tenantId, client }) => {
-    const signer = await prisma.dealSigner.findFirst({
+    const lookup = (authority: Prisma.DealSignerWhereInput) => prisma.dealSigner.findFirst({
       where: {
         id: signerId, tenantId, clientId: client.clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] } },
-        AND: [portalSignerAuthorityWhere(tenantId, client.clientId)],
+        AND: [authority],
       },
       select: {
         id: true, document: true, documentSha256: true, documentStoragePath: true,
         client: { select: { firstName: true, lastName: true } },
-        deal: { select: { application: { select: { reference: true } } } },
+        deal: { select: { application: { select: { reference: true } }, contractType: true } },
       },
     })
+    // A sole proprietor's own lease agreement is theirs to read (portal-access.ts portalSignerWhere).
+    const signer = await lookup(portalSignerAuthorityWhere(tenantId, client.clientId))
+      ?? await lookup(leaseLesseeSignerWhere(tenantId, client.clientId))
     if (!signer?.documentSha256 || !signer.documentStoragePath) return NextResponse.json({ error: "Not found" }, { status: 404 })
     return serveEntityDocument(req, {
       id: signer.id,
-      fileName: dealDocumentFileName(signer.deal.application.reference, signer.document, `${signer.client.firstName} ${signer.client.lastName}`),
+      fileName: dealDocumentFileName(signer.deal.application.reference, signer.document, `${signer.client.firstName} ${signer.client.lastName}`, signer.deal.contractType),
       mimeType: "application/pdf",
       storagePath: signer.documentStoragePath,
       contentSha256: signer.documentSha256,

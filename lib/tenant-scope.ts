@@ -109,6 +109,9 @@ export const TENANT_SCOPED_MODELS = [
   "CollectionBatch",
   "CollectionInstruction",
   "CollectionResult",
+  // Operating and full-maintenance leases (slice 3). Non-null tenantId,
+  // passed explicitly on every query (the invoice cron has no frame).
+  "LeaseRental",
 ] as const
 
 export type TenantScopedModel = (typeof TENANT_SCOPED_MODELS)[number]

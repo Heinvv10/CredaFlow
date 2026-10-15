@@ -68,6 +68,108 @@ function checklist(): PortalKycChecklist {
   }
 }
 
+describe("PortalDocumentsClient: Superseded only marks an older replaced copy", () => {
+  const stale = document({ id: "id-stale", docType: "ID_COPY", createdAt: "2026-07-20T06:00:00.000Z" })
+  const verifiedOld = document({
+    id: "id-verified",
+    docType: "ID_COPY",
+    verified: true,
+    createdAt: "2026-07-21T06:00:00.000Z",
+  })
+
+  function render(newest: DocumentRecord, checklistId: string, status: "pending_review" | "verified") {
+    const withNewest = checklist()
+    withNewest.coreDocuments.ID_COPY = { documentId: checklistId, status }
+    return renderToStaticMarkup(
+      <PortalDocumentsClient
+        clientId="client-1"
+        popiaConsentGiven
+        initialDocs={[newest, verifiedOld, stale]}
+        initialKycChecklist={withNewest}
+      />,
+    )
+  }
+
+  it("shows the newest unverified ID as pending review, not Superseded", () => {
+    const newest = document({ id: "id-newest", docType: "ID_COPY", createdAt: "2026-07-22T06:00:00.000Z" })
+    const html = render(newest, "id-newest", "pending_review")
+
+    expect(html).toContain('data-document-id="id-newest" data-document-status="Pending review"')
+    expect(html).toContain('data-document-id="id-verified" data-document-status="Verified"')
+    expect(html).toContain('data-document-id="id-stale" data-document-status="Superseded"')
+  })
+
+  it("does not label a newest unverified ID Superseded even when the checklist still names the verified copy", () => {
+    const newest = document({ id: "id-newest", docType: "ID_COPY", createdAt: "2026-07-22T06:00:00.000Z" })
+    const html = render(newest, "id-verified", "verified")
+
+    expect(html).toContain('data-document-id="id-newest" data-document-status="Pending review"')
+    expect(html).toContain('data-document-id="id-stale" data-document-status="Superseded"')
+  })
+
+  function renderPair(docType: string, newerOverrides: Partial<DocumentRecord> = {}) {
+    const newer = document({
+      id: "newer-1", docType, createdAt: "2026-07-22T06:00:00.000Z", ...newerOverrides,
+    })
+    const verified = document({
+      id: "verified-1", docType, verified: true, createdAt: "2026-07-21T06:00:00.000Z",
+    })
+    return renderToStaticMarkup(
+      <PortalDocumentsClient
+        clientId="client-1"
+        popiaConsentGiven
+        initialDocs={[newer, verified]}
+        initialKycChecklist={checklist()}
+      />,
+    )
+  }
+
+  it.each(["ID_COPY", "PAYSLIP", "BANK_STATEMENT", "PROOF_OF_ADDRESS"])(
+    "shows the newest unverified %s as pending review, never Superseded",
+    (docType) => {
+      expect(renderPair(docType)).toContain(
+        'data-document-id="newer-1" data-document-status="Pending review"',
+      )
+    },
+  )
+
+  it.each(["ID_COPY", "PAYSLIP", "BANK_STATEMENT", "PROOF_OF_ADDRESS"])(
+    "shows the newest %s as action needed when a named reviewer refused it",
+    (docType) => {
+      expect(renderPair(docType, { verificationRejectedById: "officer-1" })).toContain(
+        'data-document-id="newer-1" data-document-status="Action needed"',
+      )
+    },
+  )
+
+  it("keeps the previous label for an unverified OTHER document", () => {
+    expect(renderPair("OTHER")).toContain(
+      'data-document-id="newer-1" data-document-status="Superseded"',
+    )
+  })
+
+  it("shows a newest ID with only a validation mismatch as pending review, not action needed", () => {
+    const newest = document({
+      id: "id-newest", docType: "ID_COPY", createdAt: "2026-07-22T06:00:00.000Z", validationMismatch: true,
+    })
+    const html = render(newest, "id-verified", "verified")
+
+    expect(html).toContain('data-document-id="id-newest" data-document-status="Pending review"')
+  })
+
+  it("shows a newest ID a reviewer refused as needing action", () => {
+    const newest = document({
+      id: "id-newest",
+      docType: "ID_COPY",
+      createdAt: "2026-07-22T06:00:00.000Z",
+      verificationRejectedById: "officer-1",
+    })
+    const html = render(newest, "id-verified", "verified")
+
+    expect(html).toContain('data-document-id="id-newest" data-document-status="Action needed"')
+  })
+})
+
 describe("PortalDocumentsClient KYC status consistency", () => {
   it("keeps rejected core and terminal selfie instructions consistent", () => {
     const html = renderToStaticMarkup(

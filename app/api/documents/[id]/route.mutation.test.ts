@@ -346,6 +346,77 @@ describe("document evidence mutations", () => {
     }))
   })
 
+  describe("a client deleting their pending replacement ID", () => {
+    const pendingReplacement = {
+      ...document,
+      id: "doc-1",
+      docType: "ID_COPY",
+      verified: false,
+      verifiedAt: null,
+      verifiedById: null,
+    }
+    const coreAfterDelete = [
+      { id: "id-doc-1", docType: "ID_COPY", verified: true, verificationNote: null, contentSha256: "c".repeat(64), createdAt: new Date("2026-07-01T00:00:00.000Z") },
+      { docType: "PROOF_OF_ADDRESS", verified: true, verificationNote: null },
+      { docType: "PAYSLIP", verified: true, verificationNote: null },
+      { docType: "BANK_STATEMENT", verified: true, verificationNote: null },
+    ]
+
+    beforeEach(() => {
+      getDocumentCallerMock.mockResolvedValue({
+        type: "client",
+        clientId: "client-1",
+        email: "client@example.test",
+      })
+      clientDocumentFindFirstMock.mockReset()
+      clientDocumentFindFirstMock
+        .mockResolvedValueOnce(pendingReplacement)
+        .mockResolvedValueOnce(pendingReplacement)
+        .mockResolvedValue(passingSelfieDocument)
+      clientDocumentFindManyMock.mockResolvedValue(coreAfterDelete)
+    })
+
+    it("does not promote a PENDING client back to VERIFIED", async () => {
+      clientFindUniqueMock.mockResolvedValue({
+        ...biometricSubject,
+        kycStatus: "PENDING",
+        kycVerifiedAt: null,
+        kycVerifiedById: null,
+        kycVerificationMethod: null,
+      })
+
+      const response = await DELETE(
+        new Request("https://staging.acme-lending.example/api/documents/doc-1", { method: "DELETE" }),
+        ctx,
+      )
+
+      expect(response.status).toBe(200)
+      expect(clientUpdateMock).not.toHaveBeenCalled()
+      expect(auditCreateMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("still lowers the stored status when the delete leaves the evidence incomplete", async () => {
+      clientFindUniqueMock.mockResolvedValue({
+        ...biometricSubject,
+        kycStatus: "VERIFIED",
+        kycVerifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+        kycVerifiedById: "officer-previous",
+        kycVerificationMethod: "PHYSICAL",
+      })
+      clientDocumentFindManyMock.mockResolvedValue(coreAfterDelete.slice(0, 3))
+
+      const response = await DELETE(
+        new Request("https://staging.acme-lending.example/api/documents/doc-1", { method: "DELETE" }),
+        ctx,
+      )
+
+      expect(response.status).toBe(200)
+      expect(clientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ kycStatus: "PENDING" }),
+      }))
+    })
+  })
+
   it("fails closed when the strict deletion audit cannot be written", async () => {
     auditCreateMock.mockRejectedValueOnce(new Error("audit unavailable"))
 

@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
+import { findStandingInPersonAttestation } from "@/lib/kyc/in-person-standing.server"
 import { AuditAction } from "@/lib/audit"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import {
@@ -19,6 +21,7 @@ import {
   IN_PERSON_KYC_VERIFICATION_VERSION,
   ID_PORTRAIT_REFUSAL_CONDITIONS,
   idDocumentPortraitRefused,
+  inPersonAttestationIdempotencyKey,
   isInPersonKycVerificationMethod,
   selfieBlocksInPersonVerification,
   type InPersonKycVerificationEvidence,
@@ -28,6 +31,7 @@ import {
   normalizeManualKycExceptionText,
 } from "@/lib/kyc/manual-exception-policy"
 import { selectUsableIdDocument } from "@/lib/kyc/usable-id-document"
+import { outstandingCoreDocuments } from "@/lib/kyc/id-replacement"
 import { getLockedKycOverridePolicy, overrideEligibility, type KycOverrideRefusalCode } from "@/lib/kyc/override-policy"
 
 function policyRefusal(code: KycOverrideRefusalCode) {
@@ -165,15 +169,13 @@ export async function POST(
           tx.clientDocument.findFirst({
             where: { tenantId: tenant.id, clientId, docType: "SELFIE" },
             orderBy: latestSelfieOrder(),
-            select: { id: true },
+            select: { id: true, biometricResult: true },
           }),
         ])
 
-        const verifiedCore = new Set(
-          coreDocuments.filter((d) => d.verified).map((d) => d.docType),
-        )
-        const missingDocs = CORE_KYC_DOCUMENT_TYPES.filter(
-          (docType) => !verifiedCore.has(docType),
+        const missingDocs = outstandingCoreDocuments(
+          CORE_KYC_DOCUMENT_TYPES,
+          coreDocuments,
         )
         if (missingDocs.length > 0) {
           return { kind: "core_documents_missing" as const, missingDocs }
@@ -187,7 +189,7 @@ export async function POST(
         // evidence.
         // Judged against the attestation this writes: completed now, after
         // every attempt on file, by staff who can see them.
-        const approvedAt = new Date()
+        const approvedAt = await databaseNow(tx)
         const idDocumentCopies = coreDocuments.filter((d) => d.docType === "ID_COPY")
         if (blockingCandidates.some((selfie) =>
           selfieBlocksInPersonVerification(selfie, idDocumentCopies, approvedAt))) {
@@ -222,26 +224,24 @@ export async function POST(
           approvedByEmail: guard.user.email,
           approvedWithTotp: guard.user.totpVerified === true,
         }
-        // Keyed to the exact circumstances attested to, so the same admin
-        // cannot stack duplicate attestations over one identity + ID pair.
-        // The newest selfie attempt is one of those circumstances: an
-        // attestation from before a later attempt no longer counts once that
-        // attempt is released (selfieBlocksInPersonVerification), so staff
-        // must be able to attest afresh after it.
-        const idempotencyKey = [
-          "kyc-in-person",
-          clientId,
-          idDocument.id,
-          idDocument.contentSha256,
-          subjectFingerprint,
-          latestAttempt?.id ?? "no-selfie",
-        ].join(":")
+        // One key builder for this route and the dual-approval grant.
+        const idempotencyKey = inPersonAttestationIdempotencyKey({
+          clientId, idDocument, subjectFingerprint, latestAttempt,
+        })
         const existing = await tx.complianceRecord.findUnique({
           where: { idempotencyKey },
           select: { id: true },
         })
         if (existing) {
           return { kind: "verification_exists" as const, recordId: existing.id }
+        }
+        // The key moves when a late answer is stamped on the latest attempt, so
+        // it alone would accept a second identical attestation while one stands.
+        if (await findStandingInPersonAttestation(tx, {
+          tenantId: tenant.id, clientId, subject: client, idDocument, portraitRefusals,
+          blockingCandidates, idDocumentCopies,
+        })) {
+          return { kind: "verification_exists" as const, recordId: null }
         }
 
         const record = await tx.complianceRecord.create({

@@ -694,6 +694,25 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     })
   })
 
+  it("records when a new client declared their expenses, an explicit R0 included, and not when they did not", async () => {
+    const newClient = { ...snapshotReadyClient, id: "client_new", portalPassword: null }
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+    findFirstLoanApplicationMock.mockResolvedValue(null)
+    createClientMock.mockResolvedValue(newClient)
+    createLoanApplicationMock.mockResolvedValue({ id: "app_new", reference: "APP-NEW" })
+    const declaredAt = async (financials: Record<string, unknown>) => {
+      createClientMock.mockClear()
+      findUniqueClientMock.mockReset()
+      findUniqueClientMock.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(newClient)
+      const res = await POST(buildReq({ ...withIdentity, ...financials }))
+      expect(res.status, JSON.stringify(financials)).toBe(200)
+      return createClientMock.mock.calls[0][0].data.monthlyExpensesDeclaredAt
+    }
+    expect(await declaredAt({ monthlyIncome: 0, monthlyExpenses: 0 })).toBeInstanceOf(Date)
+    expect(await declaredAt({ monthlyIncome: 15_000, monthlyExpenses: 5_000 })).toBeInstanceOf(Date)
+    expect(await declaredAt({})).toBeNull()
+  })
+
   it("no existing match, consent AFFIRMED: sets popiaConsentGiven=true + popiaConsentAt and writes a POPIA_APPLICATION ConsentRecord", async () => {
     const newClient = { ...snapshotReadyClient, id: "client_new", portalPassword: null }
     findUniqueClientMock

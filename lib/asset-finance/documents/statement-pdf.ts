@@ -20,6 +20,7 @@ import { generateStatementPdf, type StatementEntity } from "@/lib/pdf/statement"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { getLenderLogo } from "@/lib/config/lender-logo"
+import { renderLeaseStatementPdf } from "./lease/statement-pdf"
 
 export type EntityStatementResult =
   | { kind: "pdf"; bytes: Buffer; filename: string }
@@ -66,6 +67,10 @@ export async function renderEntityStatementPdf(
     },
   })
   if (!loan?.entity) return { kind: "not_found" }
+  // A lease's statement lists rentals, not capital and interest (./lease/statement-pdf.ts).
+  if (loan.contractType === "OPERATING_LEASE" || loan.contractType === "FULL_MAINTENANCE_LEASE") {
+    return renderLeaseStatementPdf(tenantId, loanId, statementDate)
+  }
 
   const lender = await lenderIdentityOrRefusal(tenantId)
   if (lender.refusal) return { kind: "refused", response: lender.refusal }

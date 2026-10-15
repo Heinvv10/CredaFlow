@@ -540,6 +540,16 @@ export function bureauMonthlyObligations(value: unknown): number {
   return isRecord(value) ? cents(value.totalMonthly) : 0
 }
 
+/**
+ * Whether the stored check states the consumer's bureau debt. A check with
+ * no numeric `totalMonthly` (the report carried no accounts and no total, or a
+ * row from before the bureau framework) would read as zero debt above, so the
+ * bureau gate refuses it without an audited override (lib/decision/bureau-gate.ts).
+ */
+export function bureauObligationsKnown(value: unknown): boolean {
+  return isRecord(value) && typeof value.totalMonthly === "number" && Number.isFinite(value.totalMonthly)
+}
+
 export function createBureauDecisionEvidence(args: {
   check: BureauDecisionCheckInput | null
   minimumScore: number

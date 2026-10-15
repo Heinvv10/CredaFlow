@@ -127,6 +127,8 @@ describe("tenant-scope — ALS primitives", () => {
       "CollectionBatch",
       "CollectionInstruction",
       "CollectionResult",
+      // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
+      "LeaseRental",
     ])
   })
 
