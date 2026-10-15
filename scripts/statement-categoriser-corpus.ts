@@ -2,12 +2,14 @@
  * The categoriser over the off-repo statement corpus (goal 2026-10-14 §6).
  * Prints counts only.
  *
- *   STATEMENT_CORPUS_DIR=/secure/path/to/corpus npx tsx scripts/statement-categoriser-corpus.ts coverage
+ *   STATEMENT_CORPUS_DIR=/secure/path/to/corpus npx tsx scripts/statement-categoriser-corpus.ts coverage [--model-labels <model.tsv>]
  *   STATEMENT_CORPUS_DIR=… MERCHANT_OUT_DIR=… VLM_API_URL=… VLM_MODEL=… \
  *     npx tsx scripts/statement-categoriser-corpus.ts longtail
  *
  * coverage: the share of debit value (and rows) the categoriser puts in a
- *   category other than UNCATEGORISED, and the value per category.
+ *   category other than UNCATEGORISED, and the value per category; with
+ *   --model-labels (statement-categoriser-model-labels.ts corpus), after the
+ *   model's labels as in production.
  * longtail: the debits of LONGTAIL_STATEMENTS statements whose key is not in
  *   the merchant list (mostly person-to-person payments) are labelled blind by
  *   the local model at VLM_API_URL — the only model corpus text may reach — and
@@ -23,7 +25,7 @@ import { categorise, LIVING_CATEGORIES, type Category } from "@/lib/statement-an
 import { OTHER_CATEGORIES } from "@/lib/statement-analysis/categories"
 import type { StatementRead } from "@/lib/statement-analysis/types"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
-import { gateClass } from "./statement-categoriser-accuracy"
+import { gateClass, readModelLabels } from "./statement-categoriser-accuracy"
 import { maskKey } from "./statement-merchant-keys"
 
 const LONGTAIL_STATEMENTS = 10
@@ -44,12 +46,12 @@ async function textReads(dir: string): Promise<Array<{ id: string; read: Stateme
 
 const debits = (read: StatementRead) => read.transactions.filter((t) => t.amountCents < 0 && !t.nonPosting)
 
-function coverage(reads: Array<{ read: StatementRead }>) {
+function coverage(reads: Array<{ read: StatementRead }>, modelLabels: Record<string, string> | null) {
   const value = new Map<Category, number>()
   const rows = new Map<Category, number>()
   for (const { read } of reads) {
     for (const t of debits(read)) {
-      const c = categorise(t, { clientName: read.accountHolderName }).category
+      const c = categorise(t, { clientName: read.accountHolderName, modelLabels }).category
       value.set(c, (value.get(c) ?? 0) - t.amountCents)
       rows.set(c, (rows.get(c) ?? 0) + 1)
     }
@@ -120,7 +122,8 @@ async function main() {
   const mode = process.argv[2]
   if (!dir || (mode !== "coverage" && mode !== "longtail")) throw new Error("usage: STATEMENT_CORPUS_DIR=… statement-categoriser-corpus.ts coverage|longtail")
   const reads = await textReads(dir)
-  if (mode === "coverage") return coverage(reads)
+  const modelAt = process.argv.indexOf("--model-labels")
+  if (mode === "coverage") return coverage(reads, modelAt > 0 ? readModelLabels(process.argv[modelAt + 1]) : null)
   if (!process.env.MERCHANT_OUT_DIR || !process.env.VLM_API_URL || !process.env.VLM_MODEL) throw new Error("longtail needs MERCHANT_OUT_DIR, VLM_API_URL, VLM_MODEL")
   await longtail(reads, process.env.MERCHANT_OUT_DIR)
 }

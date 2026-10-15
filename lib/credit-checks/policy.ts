@@ -156,7 +156,12 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * below-minimum justification) and the staff edit (total changed, or that
  * justification given). CRM lead convert records none: it refuses R0 when
  * income is above 0, and at R0 income its prefilled "0" is not explicit.
- * What is left before turning this on: pass the gate.
+ * What is left before turning this on: pass the gate. Re-measured
+ * 2026-10-15 with local-model labels for rule-UNCATEGORISED keys
+ * (statement-analysis/model-labels.ts, prompt labels-p2, tuned on the dev
+ * split only): held-out 90.3%, 67.1%, 67.1% over three runs; rules alone
+ * 90.2%. The model is not deterministic at temperature 0 and mislabels a
+ * high-volume key, so model labelling ships off (MODEL_LABELS) and this stays off.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 

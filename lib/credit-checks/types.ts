@@ -16,6 +16,8 @@ export interface StatementFacts {
   read: StatementRead | null
   balanceCheck: "PASS" | "FAIL" | "NOT_APPLICABLE" | null
   authenticity: AuthenticityFacts | null
+  /** StatementAnalysis.modelCategories: the model's labels for rows no rule categorised. */
+  modelLabels?: unknown
 }
 
 export interface PayslipFacts {

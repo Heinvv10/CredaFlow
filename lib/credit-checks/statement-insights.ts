@@ -23,7 +23,7 @@ export async function applicationStatementInsights(tenantId: string, application
   const { facts } = loaded
   const read = facts.statements.filter((s) => s.state === "READ" && s.read)
   const insights = computeInsights(
-    read.map((s) => ({ documentId: s.documentId, bank: s.bank, balanceCheck: s.balanceCheck, read: s.read! })),
+    read.map((s) => ({ documentId: s.documentId, bank: s.bank, balanceCheck: s.balanceCheck, read: s.read!, modelLabels: s.modelLabels })),
     { clientName: facts.clientName, declaredExpensesCents: facts.declaredExpensesCents ?? null },
   )
   return { facts, insights, read, unread: facts.statements.length - read.length }
