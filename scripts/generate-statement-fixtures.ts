@@ -1,7 +1,8 @@
 /**
- * Writes the synthetic statement fixtures: a genuine Capitec-like and FNB-like
- * statement, and the four doctored variants of each (lib/statement-analysis/
- * fixtures/doctor.ts). Every value is invented.
+ * Writes the synthetic statement fixtures: a genuine statement laid out like
+ * each text-read bank's (Capitec, FNB, Nedbank, both ABSA layouts, Standard
+ * Bank, Discovery), and the four doctored variants of each
+ * (lib/statement-analysis/fixtures/doctor.ts). Every value is invented.
  *
  *   npx tsx scripts/generate-statement-fixtures.ts [--start YYYY-MM-01] [--out DIR]
  *
@@ -11,9 +12,10 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { syntheticStatement } from "@/lib/statement-analysis/fixtures/dataset"
+import { syntheticStatement, type SynthBank } from "@/lib/statement-analysis/fixtures/dataset"
 import { incrementalAmountEdit, resaveWithProducer } from "@/lib/statement-analysis/fixtures/doctor"
-import { buildCapitecStatement, buildFnbStatement, type BuildOptions } from "@/lib/statement-analysis/fixtures/synthetic"
+import { type BuildOptions } from "@/lib/statement-analysis/fixtures/synthetic"
+import { buildStatement, TAMPER_TARGET } from "@/lib/statement-analysis/fixtures/synthetic-banks"
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(name)
@@ -24,18 +26,18 @@ const out = arg("--out", join(__dirname, "..", "lib", "statement-analysis", "fix
 
 async function main() {
   mkdirSync(out, { recursive: true })
-  for (const bank of ["CAPITEC", "FNB"] as const) {
+  const banks: SynthBank[] = ["CAPITEC", "FNB", "NEDBANK", "ABSA", "ABSA_ESTATEMENT", "STANDARD_BANK", "DISCOVERY"]
+  for (const bank of banks) {
     const scenario = { bank, start, undisclosedLoan: true, gambling: true, paydayLender: true, returnedDebit: true }
-    const build = (opts: BuildOptions = {}) =>
-      bank === "CAPITEC" ? buildCapitecStatement(syntheticStatement(scenario), opts) : buildFnbStatement(syntheticStatement(scenario), opts)
-    const name = bank.toLowerCase()
+    const build = (opts: BuildOptions = {}) => buildStatement(bank, syntheticStatement(scenario), opts)
+    const name = bank.toLowerCase().replace(/_/g, "-")
     const genuine = await build()
-    const [from, to] = bank === "CAPITEC" ? ["-845.50", "-945.50"] : ["845.50", "945.50"]
+    const { row, printed: [from, to] } = TAMPER_TARGET[bank]
     const files: Record<string, Uint8Array> = {
       [`${name}-genuine.pdf`]: genuine,
       [`${name}-incremental-edit.pdf`]: await incrementalAmountEdit(genuine, from, to),
       [`${name}-resaved-word.pdf`]: await resaveWithProducer(genuine, "Microsoft® Word for Microsoft 365"),
-      [`${name}-balance-not-fixed.pdf`]: await build({ misprint: { index: 0, amountCents: -94_550 } }),
+      [`${name}-balance-not-fixed.pdf`]: await build({ misprint: { index: row, amountCents: syntheticStatement(scenario).transactions[row].amountCents - 10_000 } }),
       [`${name}-modified-after-creation.pdf`]: await build({ modifiedAt: new Date("2026-10-03T10:00:00Z") }),
     }
     for (const [file, bytes] of Object.entries(files)) {

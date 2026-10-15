@@ -43,6 +43,8 @@ vi.mock("@/lib/tenant", () => ({
     callback: (tenant: { id: string }) => Promise<unknown>,
   ) => callback({ id: "tenant-1" }),
 }))
+const DATABASE_NOW = new Date("2026-10-14T10:00:00.123Z")
+vi.mock("@/lib/db-clock", () => ({ databaseNow: async () => DATABASE_NOW }))
 vi.mock("@/lib/affordability/evidence-locks", () => ({
   lockAffordabilityClientEvidence: vi.fn().mockResolvedValue(undefined),
 }))
@@ -141,6 +143,30 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
     })
   })
 
+  it("refuses while a replacement ID copy awaits review, writing nothing", async () => {
+    documentFindManyMock.mockResolvedValue([
+      ...verifiedCore.map((document) => ({
+        ...document, id: `doc-${document.docType}`, createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      })),
+      {
+        id: "id-replacement", docType: "ID_COPY", verified: false, verificationNote: null,
+        createdAt: new Date("2026-07-02T00:00:00.000Z"),
+        verificationRejectedAt: null, verificationRejectedById: null,
+      },
+    ])
+
+    const response = await POST(request({
+      reason: "Senior reviewer accepted the physical identity evidence.",
+      supportingEvidence:
+        "ID copy and physical comparison were reviewed against the customer.",
+    }), params)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).missingDocs).toEqual(["ID_COPY"])
+    expect(complianceCreateMock).not.toHaveBeenCalled()
+    expect(clientUpdateMock).not.toHaveBeenCalled()
+  })
+
   it("requires ADMIN authority and atomically records an exact failed-attempt exception", async () => {
     const response = await POST(request({
       reason: "Senior reviewer accepted the physical identity evidence.",
@@ -156,7 +182,10 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
         type: "KYC_EXCEPTION",
         referenceId: "client-1",
         status: "COMPLETED",
+        // The database clock, not the host's.
+        completedAt: DATABASE_NOW,
         data: expect.objectContaining({
+          approvedAt: DATABASE_NOW.toISOString(),
           documentId: "selfie-1",
           documentSha256: "a".repeat(64),
           biometricFailureReason: "face_not_detected",

@@ -138,7 +138,7 @@ export async function loadApplicationFacts(
     where: { id: applicationId, tenantId },
     select: {
       id: true, status: true, clientId: true, submittedAt: true, createdAt: true,
-      client: { select: { firstName: true, lastName: true, idNumber: true, monthlyIncome: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
+      client: { select: { firstName: true, lastName: true, idNumber: true, monthlyIncome: true, monthlyExpenses: true, popiaConsentGiven: true, debtObligations: { select: { creditProvider: true, monthlyInstalment: true } } } },
     },
   })
   // Consumer credit checks read a natural person's statements, payslips and
@@ -233,6 +233,8 @@ export async function loadApplicationFacts(
       applicationDate,
       clientName: `${app.client.firstName} ${app.client.lastName}`,
       monthlyIncomeCents: income,
+      // 0 is the column's default: nothing captured, not a declared R0 (as for income).
+      declaredExpensesCents: app.client.monthlyExpenses > 0 ? app.client.monthlyExpenses : null,
       statements,
       deletedStatementIds: deleted.map((d) => d.id),
       mismatchedPayslipIds: slipFacts.filter((s) => !s.matchesClient).map((s) => s.documentId),

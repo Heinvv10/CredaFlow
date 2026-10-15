@@ -227,9 +227,29 @@ export function PortalDocumentsClient({
           return { label: t("actionNeeded"), tone: "danger" as const }
         }
       }
-      return doc.verified
-        ? { label: t("verified"), tone: "success" as const }
-        : { label: t("superseded"), tone: "neutral" as const }
+      if (doc.verified) return { label: t("verified"), tone: "success" as const }
+      // Only the core types staff review for KYC have a pending-review state.
+      // Other types (OTHER, generated documents) keep their previous label.
+      if (!(REQUIRED_DOC_TYPES as readonly string[]).includes(doc.docType)) {
+        return { label: t("superseded"), tone: "neutral" as const }
+      }
+      // Superseded means an older copy that a newer one replaced. The newest
+      // copy of a type is never superseded, even while an older one is
+      // verified: it shows its own state.
+      const replacedByNewer = docs.some((other) =>
+        other.id !== doc.id &&
+        other.docType === doc.docType &&
+        !other.deletedAt &&
+        (Date.parse(other.createdAt) > Date.parse(doc.createdAt) ||
+          (Date.parse(other.createdAt) === Date.parse(doc.createdAt) && other.id > doc.id)),
+      )
+      if (replacedByNewer) return { label: t("superseded"), tone: "neutral" as const }
+      // Only a named reviewer's refusal is shown as needing action. A validation
+      // mismatch alone shows Pending review here, although the checklist item
+      // (portal-checklist.ts) counts it as action_required.
+      return doc.verificationRejectedById
+        ? { label: t("actionNeeded"), tone: "danger" as const }
+        : { label: t("pendingReview"), tone: "info" as const }
     }
     if (doc.id !== kycChecklist.latestSelfieId) {
       return { label: t("superseded"), tone: "neutral" as const }
