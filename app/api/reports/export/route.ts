@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
+import { withStrAuditVisibility } from "@/lib/fic/audit-visibility"
 import { prisma } from "@/lib/prisma"
 import { CASH_RECEIPTS, displayPaymentMethod } from "@/lib/payments/waiver"
 import { getTenantFromRequest } from "@/lib/tenant"
@@ -791,7 +792,8 @@ export async function GET(req: NextRequest) {
     const includeDocumentAccess = !entity || entity === "ClientDocument"
     const [logs, documentAccess, users] = await Promise.all([
       prisma.auditLog.findMany({
-        where,
+        // Tipping off: STR rows only for the FIC compliance role (lib/fic/audit-visibility.ts).
+        where: withStrAuditVisibility(where, upgraded.user.role),
         orderBy: { createdAt: "desc" },
         take: HARD_CAP + 1,
         include: { user: { select: { name: true, email: true } } },

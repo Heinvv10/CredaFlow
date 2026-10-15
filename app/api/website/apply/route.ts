@@ -16,6 +16,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { sendEmail } from "@/lib/email/service"
 import { notifyPriorLeadDuplicatesBestEffort } from "@/lib/crm/lead-duplicate-notify"
 import { deferAfterResponse } from "@/lib/http/after-response"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { applicationSubmittedEmail, identityConflictNoticeEmail } from "@/lib/email/templates/portal"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { htmlToPlainText } from "@/lib/email/html-to-text"
@@ -1473,6 +1474,11 @@ export async function POST(req: NextRequest) {
       { id: lead.id, firstName, lastName, phone },
       tenant.id,
     ))
+    // PEP / sanctions screening of the applicant; never blocks or fails the submission.
+    if (applicationId) {
+      const submittedApplicationId = applicationId
+      deferAfterResponse(() => screenOnSubmit({ tenantId: tenant.id, applicationId: submittedApplicationId, actor: null }))
+    }
 
     return NextResponse.json({ success: true, reference: responseReference, applicationId, portalAccountStatus })
     })

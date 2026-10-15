@@ -31,7 +31,9 @@ import { resolveClientTab } from "@/lib/client-tabs"
 import { getAuthoritativeStaffSelfie } from "@/lib/kyc/staff-selfie"
 import { isManualKycExceptionableAttempt } from "@/lib/kyc/manual-exception-policy"
 import { auth } from "@/lib/auth"
-import { hasMinRole } from "@/lib/auth-guards"
+import { canDo, hasMinRole } from "@/lib/auth-guards"
+import { ScreeningPanel } from "@/components/clients/ScreeningPanel"
+import { RaiseStrButton } from "@/components/clients/RaiseStrButton"
 import {
   readCompositeKycState,
   type CompositeKycReader,
@@ -97,6 +99,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   ])
   if (!client) notFound()
   const session = await auth()
+  const staffRole = session?.user?.role && session.user.role !== "CLIENT" ? session.user.role : null
   const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests] = await Promise.all([
     readCompositeKycState(
       prisma as unknown as CompositeKycReader,
@@ -566,6 +569,8 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                     </p>
                   </div>
                 </div>
+                {staffRole && hasMinRole(staffRole, "CREDIT_OFFICER") && <ScreeningPanel endpoint={`/api/clients/${client.id}/screening`} />}
+                {staffRole && canDo(staffRole, "raise_suspicious_report") && <RaiseStrButton clientId={client.id} />}
               </div>
             </div>
           </TabsContent>
