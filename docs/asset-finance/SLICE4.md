@@ -120,9 +120,13 @@ go on a new deal (extend `guardAssetDealUnreleasedAsset` and `deal-create.ts`).
 - Fields: `recoveryId`, `type`, `netCents`, `vatCents`, `grossCents`
   (CHECK = net + vat, all ≥ 0, gross > 0), `supplierId?`, `supplierInvoiceRef`,
   `incurredOn`, `treatment DEDUCT_FROM_PROCEEDS | CHARGE_TO_ACCOUNT`,
-  `legalStepId?` (→ LegalMatterStep), `note?`, `recordedById`, `approvedById`,
+  `legalStepId?` (→ LegalMatterStep), `note?`, `recordedById`,
+  `status PENDING | APPROVED | REJECTED`, `approvedById?`, `approvedAt?`,
   `createdAt`.
-- DB: UPDATE/DELETE/TRUNCATE refused; insert refused once the recovery is
+- Two people: inserted PENDING by the recorder; one UPDATE by a different
+  user decides it (APPROVED or REJECTED). Only APPROVED costs count; proceeds
+  are refused while any cost is PENDING.
+- DB: a decided cost is immutable; DELETE/TRUNCATE refused; insert refused once the recovery is
   PROCEEDS_APPLIED or later. NCA recovery: `DEDUCT_FROM_PROCEEDS` only for
   types in `TenantConfig.recoveryNcaDeductibleCostTypes`; `CHARGE_TO_ACCOUNT`
   only for `LEGAL_TAXED`, and `LEGAL_TAXED` needs `legalStepId` naming a
@@ -149,8 +153,9 @@ go on a new deal (extend `guardAssetDealUnreleasedAsset` and `deal-create.ts`).
 - `guardRemarketingSale`:
   - Recovery must be LISTED for insert and completion.
   - `valuationId`: this asset, source not INTERNAL, valued within
-    `leasePurchaseValuationMaxAgeDays` of the sale date (reuse the
-    `purchaseValuationOk` rule; don't fork the age constant).
+    `leasePurchaseValuationMaxAgeDays` of the sale date (the same age
+    setting as `purchaseValuationOk`; any non-INTERNAL source, AUCTIONEER
+    included).
   - `belowValuation` must equal `price < highest current independent
     valuation` (the trigger recomputes it); if true,
     `belowValuationReason` length ≥ 10.
