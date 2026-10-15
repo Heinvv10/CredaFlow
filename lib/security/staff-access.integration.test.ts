@@ -55,7 +55,12 @@ suite("staff access policy (real database)", () => {
   })
 
   it("an unconfigured tenant gives the session gate nothing to enforce", async () => {
-    expect(await revalidatePrincipal(userId, 0)).toEqual({ role: "CREDIT_OFFICER", tenantId, accessPolicy: null })
+    // W1's shared revalidation (lib/auth-principal.ts) also returns the
+    // operator binding (none) and the enrolment hold (unenrolled user, no
+    // TenantConfig row: the 2FA policy defaults on).
+    expect(await revalidatePrincipal(userId, 0)).toEqual({
+      role: "CREDIT_OFFICER", tenantId, accessPolicy: null, operatorId: null, totpEnrolmentRequired: true,
+    })
   })
 
   it("writes the policy with its audit row, and the session read returns it in the same query", async () => {

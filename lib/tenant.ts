@@ -5,6 +5,7 @@ import { headers } from "next/headers"
 import type { NextRequest } from "next/server"
 import type { TenantStatus } from "@prisma/client"
 import { getCurrentTenantId, runWithTenant } from "./tenant-scope"
+import { normaliseHost } from "./config/deployment-urls"
 
 export type TenantContext = {
   id: string
@@ -39,8 +40,9 @@ export type TenantConfigData = {
 export async function getTenantFromRequest(
   req: NextRequest | Request
 ): Promise<TenantContext | null> {
-  const hostname = req.headers.get("host") ?? ""
-  const baseHostname = hostname.split(":")[0]
+  // Normalised as Tenant.domain is stored (lib/config/tenant-domain.ts): a
+  // Host is case-insensitive and may carry a trailing dot.
+  const baseHostname = normaliseHost(req.headers.get("host") ?? "")
 
   // 1. Check if hostname matches a known custom domain
   const isLocalhost =
