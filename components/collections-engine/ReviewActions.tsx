@@ -31,6 +31,7 @@ export function ReviewActions({ kind, id, actions, unbookedPayment = false }: {
   const [confirmedNotSent, setConfirmedNotSent] = useState(false)
   const [paymentId, setPaymentId] = useState("")
   const [noMoneyReceived, setNoMoneyReceived] = useState(false)
+  const [amountOverrideReason, setAmountOverrideReason] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,7 +42,8 @@ export function ReviewActions({ kind, id, actions, unbookedPayment = false }: {
       const response = await fetch("/api/collections-engine/review", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, id, action, reason, confirmedNotSent, paymentId: paymentId.trim() || undefined, noMoneyReceived }),
+        body: JSON.stringify({ kind, id, action, reason, confirmedNotSent, paymentId: paymentId.trim() || undefined, noMoneyReceived,
+          amountOverrideReason: amountOverrideReason.trim() || undefined }),
       })
       if (!response.ok) {
         const json = await response.json().catch(() => ({})) as { error?: string }
@@ -84,6 +86,9 @@ export function ReviewActions({ kind, id, actions, unbookedPayment = false }: {
         <div className="space-y-1 text-xs text-[var(--cf-text)]">
           <input value={paymentId} onChange={(e) => setPaymentId(e.target.value)} placeholder="Receipt ID captured for this money"
             className="w-full rounded border border-[var(--cf-border-subtle)] bg-transparent p-2 text-sm" disabled={noMoneyReceived} />
+          <input value={amountOverrideReason} onChange={(e) => setAmountOverrideReason(e.target.value)} disabled={noMoneyReceived}
+            placeholder="Only if the receipt is for the debit amount, not the settled amount: why"
+            className="w-full rounded border border-[var(--cf-border-subtle)] bg-transparent p-2 text-sm" />
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={noMoneyReceived} onChange={(e) => setNoMoneyReceived(e.target.checked)} />
             No money was received

@@ -32,6 +32,8 @@ export interface SubmitSummary {
   failedBatches: string[]
   /** Instructions that failed while being vetted; the rest of the run went on. */
   errors: string[]
+  /** Left PENDING because the mandate has an unconfirmed SUSPENDED report. */
+  held: number
 }
 
 export const audit = (ctx: EngineContext, action: string, entity: string, entityId: string, newValue: Record<string, unknown>, tx: EngineTx) =>
@@ -85,7 +87,7 @@ async function dueInstructions(ctx: EngineContext, summary: SubmitSummary) {
   const pending = await prisma.collectionInstruction.findMany({
     where: { tenantId: ctx.tenantId, status: "PENDING", actionDate: { lte: dateOnly(window.to) }, mandate: { provider: ctx.provider.id } },
     include: {
-      mandate: { select: { providerMandateRef: true, status: true } },
+      mandate: { select: { providerMandateRef: true, status: true, providerSuspendReportedAt: true } },
       loan: { select: { status: true } },
       repaymentSchedule: { select: { totalDue: true, totalPaid: true, status: true } },
     },
@@ -106,7 +108,7 @@ type Pending = {
   id: string
   amountCents: number
   actionDate: Date
-  mandate: { providerMandateRef: string | null; status: string }
+  mandate: { providerMandateRef: string | null; status: string; providerSuspendReportedAt?: Date | null }
   loan: { status: string }
   repaymentSchedule: { totalDue: number; totalPaid: number; status: string }
 }
@@ -134,6 +136,11 @@ async function vet(ctx: EngineContext, i: Pending, earliest: string, summary: Su
     await cancelInstruction(ctx, i.id, `Mandate is ${i.mandate.status}`)
     return false
   }
+  // The provider reported the mandate SUSPENDED once: hold (not cancel) until the next refresh confirms or clears it.
+  if (i.mandate.providerSuspendReportedAt) {
+    summary.held++
+    return false
+  }
   if (outstanding < i.amountCents) {
     await prisma.collectionInstruction.updateMany({ where: { id: i.id, tenantId: ctx.tenantId, status: "PENDING" }, data: { amountCents: outstanding } })
     i.amountCents = outstanding
@@ -142,7 +149,7 @@ async function vet(ctx: EngineContext, i: Pending, earliest: string, summary: Su
 }
 
 export async function submitDueInstructions(ctx: EngineContext): Promise<SubmitSummary> {
-  const summary: SubmitSummary = { stale: 0, settled: 0, notCollectible: 0, batches: 0, submitted: 0, uploaded: 0, rejected: 0, failedBatches: [], errors: [] }
+  const summary: SubmitSummary = { stale: 0, settled: 0, notCollectible: 0, batches: 0, submitted: 0, uploaded: 0, rejected: 0, failedBatches: [], errors: [], held: 0 }
   const due = await dueInstructions(ctx, summary)
   const byDate = new Map<string, typeof due>()
   for (const i of due) byDate.set(dayOf(i.actionDate), [...(byDate.get(dayOf(i.actionDate)) ?? []), i])

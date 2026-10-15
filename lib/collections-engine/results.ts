@@ -81,22 +81,22 @@ function reviewReasonFor(o: CollectionOutcome, afterPayment: boolean): string | 
 }
 
 /** Record an outcome that could not be applied, without touching its instruction. False if it was already recorded. */
-async function recordUnapplied(ctx: EngineContext, instructionId: string, o: CollectionOutcome): Promise<boolean> {
+async function recordUnapplied(ctx: EngineContext, instructionId: string, o: CollectionOutcome, reason = NOT_APPLIED, keySuffix = ""): Promise<boolean> {
   try {
     await prisma.$transaction(async (tx) => {
       const row = await tx.collectionResult.create({
         data: {
-          tenantId: ctx.tenantId, provider: ctx.provider.id, instructionId, resultKey: resultKey(o),
+          tenantId: ctx.tenantId, provider: ctx.provider.id, instructionId, resultKey: `${resultKey(o)}${keySuffix}`,
           outcome: o.status as "PAID" | "UNPAID" | "DISPUTED", reasonCode: (o.reason ?? null) as CollectionReasonCode | null,
           rawCode: o.rawCode, rawPayload: (o.raw ?? o) as Prisma.InputJsonValue,
           settledAmountCents: o.status === "PAID" ? o.settledAmountCents : null, resolvedAt: o.resolvedAt,
-          simulated: o.simulated === true, reviewReason: NOT_APPLIED, processedAt: ctx.now, createdAt: ctx.now,
+          simulated: o.simulated === true, reviewReason: reason, processedAt: ctx.now, createdAt: ctx.now,
         },
       })
       await logAuditStrict({
         tenantId: ctx.tenantId, userEmail: ENGINE_ACTOR.userEmail,
         action: AuditAction.COLLECTION_RESULT_NEEDS_REVIEW, entity: "CollectionResult", entityId: row.id,
-        newValue: { instructionId, outcome: o.status, reason: NOT_APPLIED },
+        newValue: { instructionId, outcome: o.status, reason },
       }, tx)
     })
     return true
@@ -181,6 +181,14 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
     })
   } catch (error) {
     if (isUniqueViolationOn(error, "resultKey")) {
+      // Without a provider result id, a second real debit of a released and
+      // resent instruction has the same key as the first: never swallow it.
+      if (o.status === "PAID" && !o.providerResultId && instruction.releasedAt
+        && await recordUnapplied(ctx, instruction.id, o, DOUBLE_DEBIT, ":after-release")) {
+        summary.recorded++
+        summary.needsReview++
+        return
+      }
       summary.duplicates++
       return
     }

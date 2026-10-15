@@ -93,6 +93,8 @@ suite("collections engine: third breaker pass (real Postgres)", () => {
     await insertInstruction(fx, mandateId, { row: 1, actionDate: "2026-10-26", amountCents: 100_000 })
     flaky.mandateStatus = status
     await run(fx, "SUBMIT")
+    // SUSPENDED is applied on the second consecutive report (collections-engine-breaker4).
+    if (status === "SUSPENDED") await run(fx, "SUBMIT")
     expect(await prisma.debitMandate.findFirstOrThrow({ where: { id: mandateId, tenantId: fx.tenantId } }))
       .toMatchObject({ status, reviewReason: expect.stringMatching(new RegExp(`reported ${status}`)) })
     const queued = (await instructionsOf(fx)).find((i) => i.installmentNo === 1)!

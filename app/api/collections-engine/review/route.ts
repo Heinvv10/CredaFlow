@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
           kind, id: body.id, action: body.action, confirmedNotSent: body.confirmedNotSent === true,
           paymentId: typeof body.paymentId === "string" && body.paymentId ? body.paymentId : undefined,
           noMoneyReceived: body.noMoneyReceived === true,
+          amountOverrideReason: typeof body.amountOverrideReason === "string" ? body.amountOverrideReason.slice(0, 500) : undefined,
         } as ReviewAction, reason)
       return NextResponse.json({ ok: true })
     } catch (error) {

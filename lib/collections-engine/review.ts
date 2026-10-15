@@ -21,12 +21,12 @@ import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { MandateError } from "./mandates"
-import { loadEngineContext, providerFor } from "./context"
+import { dayOf, loadEngineContext, providerFor } from "./context"
 
 export type ReviewAction =
   | { kind: "INSTRUCTION"; id: string; action: "MARK_SUBMITTED" | "RELEASE" | "ACKNOWLEDGE"; confirmedNotSent?: boolean }
   /** An unbooked PAID result needs paymentId (the receipt captured by hand) or noMoneyReceived. */
-  | { kind: "RESULT"; id: string; action: "ACKNOWLEDGE"; paymentId?: string; noMoneyReceived?: boolean }
+  | { kind: "RESULT"; id: string; action: "ACKNOWLEDGE"; paymentId?: string; noMoneyReceived?: boolean; amountOverrideReason?: string }
   | { kind: "MANDATE"; id: string; action: "RETRY" | "ACKNOWLEDGE" }
 
 export async function resolveReviewItem(
@@ -62,11 +62,12 @@ export async function resolveReviewItem(
     } else if (item.kind === "INSTRUCTION") {
       const data: Prisma.CollectionInstructionUncheckedUpdateManyInput = item.action === "MARK_SUBMITTED"
         ? { status: "SUBMITTED", submittedAt: now, statusReason: `Confirmed submitted: ${reason}` }
-        : { status: "PENDING", batchId: null, statusReason: `Released: ${reason}` }
+        : { status: "PENDING", batchId: null, statusReason: `Released: ${reason}`, releasedAt: now }
       changed = (await tx.collectionInstruction.updateMany({ where: { id: item.id, tenantId, status: "NEEDS_REVIEW" }, data })).count
     } else if (item.kind === "RESULT") {
       const result = await tx.collectionResult.findFirst({
-        where: { id: item.id, tenantId }, select: { outcome: true, paymentId: true, instruction: { select: { loanId: true } } },
+        where: { id: item.id, tenantId },
+        select: { outcome: true, paymentId: true, settledAmountCents: true, instruction: { select: { loanId: true, amountCents: true, actionDate: true } } },
       })
       const unbooked = result?.outcome === "PAID" && !result.paymentId
       if (unbooked && !!item.paymentId === (item.noMoneyReceived === true)) {
@@ -75,9 +76,20 @@ export async function resolveReviewItem(
       if (unbooked && item.paymentId) {
         const receipt = await tx.payment.findFirst({
           where: { id: item.paymentId, tenantId, loanId: result!.instruction.loanId, reversed: false, collectionResults: { none: {} } },
-          select: { id: true },
+          select: { id: true, amount: true, receivedAt: true, excessPayments: { select: { amount: true } } },
         })
         if (!receipt) throw new MandateError("INVALID_STATE", "That receipt is not a live receipt on this loan, or it is already linked to a collection")
+        // The receipt must be this money: the settled amount, or the debit amount with a stated reason, received on or after the debit.
+        const total = receipt.amount + receipt.excessPayments.reduce((sum, p) => sum + p.amount, 0)
+        const override = item.amountOverrideReason?.trim()
+        if (total !== result!.settledAmountCents && !(total === result!.instruction.amountCents && override)) {
+          throw new MandateError("INVALID_STATE", total === result!.instruction.amountCents
+            ? "The receipt is for the debit amount, not the settled amount: give the reason to link it"
+            : "The receipt's amount matches neither the settled amount nor the debit amount")
+        }
+        if (dayOf(receipt.receivedAt) < dayOf(result!.instruction.actionDate)) {
+          throw new MandateError("INVALID_STATE", "The receipt is dated before the debit's action date")
+        }
       }
       changed = (await tx.collectionResult.updateMany({
         where: { id: item.id, tenantId, reviewReason: { not: null }, reviewResolvedAt: null },
@@ -103,7 +115,9 @@ export async function resolveReviewItem(
       newValue: {
         action: item.action, reason,
         ...(item.kind === "INSTRUCTION" && item.action === "RELEASE" ? { confirmedNotSent: item.confirmedNotSent === true } : {}),
-        ...(item.kind === "RESULT" ? { paymentId: item.paymentId ?? null, noMoneyReceived: item.noMoneyReceived === true } : {}),
+        ...(item.kind === "RESULT" ? {
+          paymentId: item.paymentId ?? null, noMoneyReceived: item.noMoneyReceived === true, amountOverrideReason: item.amountOverrideReason?.trim() || null,
+        } : {}),
       },
     }, tx)
   })

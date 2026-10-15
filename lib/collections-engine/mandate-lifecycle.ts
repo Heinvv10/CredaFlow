@@ -227,6 +227,25 @@ async function reconcileStuckSubmission(ctx: EngineContext, mandateId: string, a
   return true
 }
 
+/**
+ * A SUSPENDED report for an ACTIVE mandate is applied only when two
+ * consecutive refreshes say so: the first records it and raises a review item;
+ * any other answer in between resets it. True while the change must wait.
+ */
+async function suspendedNeedsSecondReport(ctx: EngineContext, mandateId: string, to: DebitMandateStatus, firstReportAt: Date | null): Promise<boolean> {
+  if (to !== "SUSPENDED") {
+    if (firstReportAt) {
+      await prisma.debitMandate.updateMany({ where: { id: mandateId, tenantId: ctx.tenantId }, data: { providerSuspendReportedAt: null } })
+    }
+    return false
+  }
+  if (firstReportAt) return false
+  await prisma.debitMandate.updateMany({ where: { id: mandateId, tenantId: ctx.tenantId, providerSuspendReportedAt: null }, data: { providerSuspendReportedAt: ctx.now } })
+  await flagMandateForReview(ctx, mandateId,
+    `${ctx.provider.id} reported SUSPENDED once: it is applied if the next refresh reports it again; check with the provider and the client`)
+  return true
+}
+
 export interface RefreshSummary {
   checked: number
   changed: number
@@ -239,7 +258,7 @@ export async function refreshMandates(ctx: EngineContext): Promise<RefreshSummar
   const registrationTimeout = new Date(ctx.now.getTime() - LOAD_REPORT_TIMEOUT_HOURS * 3_600_000)
   const mandates = await prisma.debitMandate.findMany({
     where: { tenantId: ctx.tenantId, provider: ctx.provider.id, status: { in: ["CREATED", "SUBMITTING", "PENDING_REGISTRATION", "PENDING_AUTH", "ACTIVE"] } },
-    select: { id: true, status: true, providerMandateRef: true, submitAttempts: true, reviewReason: true, statusChangedAt: true },
+    select: { id: true, status: true, providerMandateRef: true, submitAttempts: true, reviewReason: true, statusChangedAt: true, providerSuspendReportedAt: true },
     orderBy: { createdAt: "asc" },
   })
   const summary: RefreshSummary = { checked: mandates.length, changed: 0, errors: [] }
@@ -289,6 +308,7 @@ export async function refreshMandates(ctx: EngineContext): Promise<RefreshSummar
       // Registered just now or earlier: read the debtor's answer in the same run.
       if (!current.ref || (current.status !== "PENDING_AUTH" && current.status !== "ACTIVE")) continue
       const to = fromProviderStatus(await ctx.provider.getMandateStatus(current.ref, ctx.creds))
+      if (current.status === "ACTIVE" && (await suspendedNeedsSecondReport(ctx, m.id, to, m.providerSuspendReportedAt))) continue
       if (to === current.status || !canTransition(current.status, to)) continue
       const ended = to === "CANCELLED" || to === "SUSPENDED" || to === "EXPIRED" || to === "REJECTED"
       const moved = await transitionMandate({

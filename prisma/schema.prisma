@@ -4945,6 +4945,8 @@ model DebitMandate {
   /// First claim for a provider call: from then on the provider may hold this
   /// mandate even without a reference here, so a cancellation must find it there.
   providerContactedAt DateTime?
+  /// The provider reported this ACTIVE mandate SUSPENDED once; applied only if the next refresh says so again.
+  providerSuspendReportedAt DateTime?
   createdById         String
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -5006,6 +5008,8 @@ model CollectionInstruction {
   submittedAt         DateTime?
   /// A REJECTED instruction stays in the review queue until staff acknowledge it.
   reviewResolvedAt    DateTime?
+  /// Released for sending again after its fate was unknown: a later repeat PAID may be a second, real debit.
+  releasedAt          DateTime?
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
 

@@ -74,7 +74,7 @@ suite("collections engine recovery (real Postgres)", () => {
     expect((await prisma.collectionBatch.findFirstOrThrow({ where: { id: batch.id, tenantId: fx.tenantId } })).status).toBe("NEEDS_REVIEW")
 
     await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "RELEASE", confirmedNotSent: true }, "Provider confirms it never received the batch"))
-    expect((await instructionsOf(fx))[0].status).toBe("PENDING")
+    expect((await instructionsOf(fx))[0]).toMatchObject({ status: "PENDING", releasedAt: expect.any(Date) })
     expect(await prisma.auditLog.count({ where: { tenantId: fx.tenantId, action: "COLLECTION_REVIEW_RESOLVED", entityId: i.id, userId: fx.userId } })).toBe(1)
     await run(fx, "SUBMIT")
     expect((await instructionsOf(fx))[0].status).toBe("SUBMITTED")
@@ -88,6 +88,7 @@ suite("collections engine recovery (real Postgres)", () => {
     flaky.findInstruction = () => ({ state: "NOT_FOUND" })
     at("2026-10-20T09:00:00Z")
     expect(await run(fx, "SUBMIT")).toMatchObject({ reconcile: { released: 1 } })
+    expect((await instructionsOf(fx))[0].releasedAt).not.toBeNull()
     expect((await instructionsOf(fx))[0].status).toBe("SUBMITTED")
     expect(flaky.calls.collect).toHaveLength(2)
 
@@ -160,6 +161,6 @@ suite("collections engine recovery (real Postgres)", () => {
     expect((await instructionsOf(fx))[0].status).toBe("NEEDS_REVIEW")
     flaky.findInstruction = () => ({ state: "NOT_FOUND" })
     await inTenant(fx, () => resolveReviewItem(fx.tenantId, staff(), { kind: "INSTRUCTION", id: i.id, action: "RELEASE" }, "Provider confirms not received"))
-    expect((await instructionsOf(fx))[0].status).toBe("PENDING")
+    expect((await instructionsOf(fx))[0]).toMatchObject({ status: "PENDING", releasedAt: expect.any(Date) })
   })
 })

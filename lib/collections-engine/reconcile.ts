@@ -87,7 +87,7 @@ export async function reconcileStuckInstructions(ctx: EngineContext, summary: Re
       if (found?.state === "ACCEPTED" || found?.state === "REJECTED" || found?.state === "NOT_FOUND") {
         const data = found.state === "ACCEPTED" ? { status: "SUBMITTED" as const, submittedAt: ctx.now }
           : found.state === "REJECTED" ? { status: "REJECTED" as const, statusReason: redact(found.error ?? "Rejected by the provider") }
-            : { status: "PENDING" as const, batchId: null, statusReason: "Provider never received it: released" }
+            : { status: "PENDING" as const, batchId: null, statusReason: "Provider never received it: released", releasedAt: ctx.now }
         await prisma.$transaction(async (tx) => {
           const done = await tx.collectionInstruction.updateMany({ where, data })
           if (done.count > 0) {
