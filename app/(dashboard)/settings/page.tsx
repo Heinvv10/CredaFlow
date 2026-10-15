@@ -62,6 +62,14 @@ export default async function SettingsPage() {
             </div>
             <span className="text-[#4F46E5] text-xl">→</span>
           </a>
+          <Link href="/settings/support-access"
+            className="flex items-center justify-between p-5 rounded-xl shadow-sm border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] hover:border-[var(--cf-brand)] transition-colors group col-span-1">
+            <div>
+              <p className="font-semibold text-[var(--cf-text)] group-hover:text-[var(--cf-brand)]">Support access</p>
+              <p className="text-xs text-[var(--cf-text-muted)] mt-0.5">Grant your platform operator read-only, time-limited access</p>
+            </div>
+            <span className="text-[var(--cf-brand)] text-xl">→</span>
+          </Link>
           <a href="/settings/automation"
             className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">
             <div>

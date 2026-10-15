@@ -39,6 +39,16 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
         const config = tables.tenantConfigs.find((c) => c.tenantId === t.id) ?? null
         return { ...t, config }
       },
+      // The host-rule lookups (lib/config/tenant-domain.ts): slug, domain or domain prefix, optionally excluding an id.
+      findFirst: async ({ where }: { where: { slug?: string; domain?: string | { startsWith: string }; NOT?: { id: string } } }) =>
+        tables.tenants.find((r) =>
+          (where.NOT ? r.id !== where.NOT.id : true) &&
+          (where.slug !== undefined ? r.slug === where.slug : true) &&
+          (typeof where.domain === "string" ? r.domain === where.domain : true) &&
+          (where.domain && typeof where.domain === "object" ? typeof r.domain === "string" && r.domain.startsWith(where.domain.startsWith) : true),
+        ) ?? null,
+      findMany: async ({ where }: { where: { domain: { startsWith: string } } }) =>
+        tables.tenants.filter((r) => typeof r.domain === "string" && r.domain.startsWith(where.domain.startsWith)),
       create: async ({ data }: { data: Row }) => {
         const { config, ...rest } = data
         const row = { id: nextId(), ...rest }

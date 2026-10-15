@@ -252,6 +252,7 @@ Domain-specific rules live next to the code:
 - `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
 - `lib/bureau/.claude.md` — bureau enquiry providers, fallback, freshness
 - `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
+- `lib/operator/.claude.md` — operator console; borrower rows only through a grant
 - `lib/i18n/.claude.md` — borrower languages; legal text and money stay English
 - `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
 - `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold

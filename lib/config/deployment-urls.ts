@@ -90,3 +90,26 @@ export function staffAppHost(env: Readonly<Record<string, string | undefined>> =
   const host = env.STAFF_APP_HOST?.trim()
   return host ? normaliseHost(host) : null
 }
+
+/**
+ * The operator console host (`OPERATOR_APP_HOST`), or null when not
+ * configured. Operator staff sign in and work only on this host, and nothing
+ * else is served on it (lib/proxy/operator-host.ts). Unset: no operator
+ * sign-in anywhere.
+ */
+export function operatorAppHost(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
+  const host = env.OPERATOR_APP_HOST?.trim()
+  return host ? normaliseHost(host) : null
+}
+
+/**
+ * The operator console origin: the deployment's own scheme and port
+ * (`NEXTAUTH_URL`) on `OPERATOR_APP_HOST`. Throws when either is unset.
+ */
+export function requireOperatorBaseUrl(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const host = operatorAppHost(env)
+  if (!host) throw new DeploymentConfigError("OPERATOR_APP_HOST is not set.")
+  const url = new URL(requireAppBaseUrl(env))
+  url.hostname = host
+  return url.origin
+}

@@ -77,8 +77,32 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   access for up to 7 days (`TenantSupportGrant`, `lib/operator/`), and every
   grant and use is audited. Read-only means GET/HEAD: `proxy.ts` refuses any
   other method from an operator session, server actions included. New
-  tenants default to the root operator. Operator sign-in and the grant UI
-  come with the operator console (W1).
+  tenants default to the root operator.
+- **Operator console.** Operator staff sign in and work only on their own
+  host, `OPERATOR_APP_HOST` (`/operator`, `/api/operator`;
+  `lib/proxy/operator-host.ts`), as clients do on the portal host: the
+  session cookie is host-only, the console host serves nothing else, and no
+  other host serves the console or accepts an operator session. TOTP is
+  mandatory (no lender policy applies): a user without it reaches only the
+  enrolment page, and the console accepts only a sign-in that verified a code
+  (`lib/operator/console-auth.ts`). `OPERATOR_ADMIN` provisions lenders
+  (`scripts/lender`'s validation and create path, plus an invite to the first
+  SUPER_ADMIN), suspends and reactivates them (suspension stops the lender's
+  staff signing in and ends their sessions), sends a lender admin a reset
+  link, and manages operator users; `OPERATOR_SUPPORT` views lenders and uses
+  grants. Invite and reset links go to the account's own email through the
+  deployment's SMTP account; the console never sees a password or token.
+  Lender pages show aggregate counts only; "open lender" reads a short,
+  masked borrower summary through `resolveOperatorTenantAccess` (an active
+  grant, audited per use). The lender grants and revokes under Settings →
+  Support access, which also shows the support-access audit trail.
+  `lib/operator/console-census.test.ts` lists every console page and route and
+  runs each against sentinel borrower rows. Writes on the console host must be
+  same-origin, and `/api/operator` writes JSON (CSRF). A support grant does not
+  open a suspended lender. A lender's custom domain (`Tenant.domain`, which
+  outranks the slug in host resolution) is normalised and may not be a host the
+  deployment serves or another lender's subdomain host
+  (`lib/config/tenant-domain.ts`).
 - **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
   and `(tenantId, email)`; one person may be a client of two lenders.
 - **Provider credentials** are per tenant, sealed in `TenantConfig`

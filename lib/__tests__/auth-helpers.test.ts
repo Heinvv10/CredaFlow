@@ -14,6 +14,7 @@ vi.mock("next/server", () => ({ NextResponse: { json: vi.fn() } }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: mockFindUnique, updateMany: mockUpdateMany },
+    tenantConfig: { findUnique: async () => ({ requireStaffTotp: false }) },
   },
 }))
 
@@ -34,7 +35,7 @@ describe("revalidatePrincipal", () => {
       tokenVersion: 1,
     })
     const result = await revalidatePrincipal("user-1", 1)
-    expect(result).toEqual({ role: "LOAN_ADMIN", tenantId: "tenant-1", accessPolicy: null })
+    expect(result).toEqual({ role: "LOAN_ADMIN", tenantId: "tenant-1", operatorId: null, totpEnrolmentRequired: false, accessPolicy: null })
   })
 
   it("returns null when user is not found", async () => {
@@ -80,7 +81,7 @@ describe("revalidatePrincipal", () => {
       tokenVersion: 1,
     })
     const result = await revalidatePrincipal("user-1", 1)
-    expect(result).toEqual({ role: "BRANCH_MANAGER", tenantId: "tenant-2", accessPolicy: null })
+    expect(result).toEqual({ role: "BRANCH_MANAGER", tenantId: "tenant-2", operatorId: null, totpEnrolmentRequired: false, accessPolicy: null })
   })
 
   it("returns the tenant's staff access columns read in the same query", async () => {
@@ -88,7 +89,9 @@ describe("revalidatePrincipal", () => {
     mockFindUnique.mockResolvedValue({
       active: true, role: "ADMIN", tenantId: "tenant-1", tokenVersion: 1, tenant: { config },
     })
-    expect(await revalidatePrincipal("user-1", 1)).toEqual({ role: "ADMIN", tenantId: "tenant-1", accessPolicy: config })
+    expect(await revalidatePrincipal("user-1", 1)).toEqual({
+      role: "ADMIN", tenantId: "tenant-1", operatorId: null, totpEnrolmentRequired: false, accessPolicy: config,
+    })
     expect(mockFindUnique).toHaveBeenCalledTimes(1)
   })
 

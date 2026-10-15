@@ -8,6 +8,7 @@ import { cleanAddressLine } from "@/lib/bureau-submission/clean"
 import { SUPPLIER_NUMBER } from "@/lib/bureau-submission/generate"
 import { dayToDbDate, isDay } from "@/lib/bureau-submission/period"
 import type { Session } from "next-auth"
+import { normaliseTenantDomain, tenantDomainRefusal } from "@/lib/config/tenant-domain"
 import { LENDER_IDENTITY_FIELDS } from "@/lib/config/identity"
 import { DEFAULT_TENANT_COLOURS, TENANT_COLOUR_VARS, tenantColourErrors, type TenantColourField, type TenantColours } from "@/lib/theme/tenant-colours"
 import { applyTenantLanguages } from "@/lib/i18n/language-settings"
@@ -121,7 +122,15 @@ export async function PATCH(
 
   const tenantUpdate: Record<string, unknown> = {}
   if (name !== undefined) tenantUpdate.name = name
-  if (domain !== undefined) tenantUpdate.domain = domain
+  if (domain !== undefined) {
+    // Normalised, and never a host the deployment or another lender serves
+    // (lib/config/tenant-domain.ts).
+    const parsed = normaliseTenantDomain(domain)
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 422 })
+    const refusal = parsed.domain ? await tenantDomainRefusal(parsed.domain, tenantId) : null
+    if (refusal) return NextResponse.json({ error: refusal }, { status: 422 })
+    tenantUpdate.domain = parsed.domain
+  }
   if (status !== undefined) tenantUpdate.status = status
 
   const configUpdate: Record<string, unknown> = {}
