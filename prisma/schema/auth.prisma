@@ -1,0 +1,202 @@
+model User {
+  id                       String    @id @default(cuid())
+  email                    String    @unique
+  name                     String?
+  password                 String
+  role                     UserRole  @default(CREDIT_OFFICER)
+  isCommsAgent             Boolean   @default(false)
+  active                   Boolean   @default(true)
+  tenantId                 String?
+  tenant                   Tenant?   @relation(fields: [tenantId], references: [id])
+  // Operator staff (OPERATOR_ADMIN / OPERATOR_SUPPORT) are bound to an
+  // operator, never to a tenant: a CHECK constraint keeps the two exclusive
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId               String?
+  operator                 Operator? @relation(fields: [operatorId], references: [id])
+  branchId                 String?
+  branch                   Branch?   @relation(fields: [branchId], references: [id])
+  totpSecret               String?
+  totpEnabled              Boolean   @default(false)
+  lastTotpCounter          Int?
+  phone                    String?
+  lastLoginAt              DateTime?
+  resetToken               String?   @unique
+  resetTokenExp            DateTime?
+  qualificationCategory    String?
+  // Bumped whenever an existing session must be invalidated (deactivate,
+  // role change, password reset). Compared on every JWT decode — see
+  // lib/auth.ts jwt callback.
+  tokenVersion             Int       @default(0)
+  // FAIS Cat I representative tag (Phase 9). Maintained by compliance via
+  // Settings → Users; the FSP keeps the authoritative Rep Register
+  // separately. Gates insurance / credit-advisory templates in the compose
+  // box (see spec §FAIS boundary).
+  faisRepresentative       Boolean   @default(false)
+  faisRepresentativeNumber String?
+  faisRepresentativeFrom   DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  accounts                     Account[]
+  adviceRecordsRecorded        InsuranceAdviceRecord[]               @relation("AdviceRecordedBy")
+  advisorCommissions           AdvisorCommission[]
+  advisorPolicies              InsurancePolicy[]                     @relation("AdvisorPolicies")
+  advisorQuotes                InsuranceQuote[]                      @relation("AdvisorQuotes")
+  agentTasks                   AgentTask[]
+  apiKeysCreated               ApiKey[]                              @relation("ApiKeysCreatedBy")
+  apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
+  approvedLoans                LoanApplication[]                     @relation("ApprovedBy")
+  assessedClaims               InsuranceClaim[]                      @relation("ClaimAssessor")
+  assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
+  assetDealsCancelled          AssetFinanceDeal[]                    @relation("AssetDealCancelledBy")
+  assignedConversations        Conversation[]
+  assignedLoans                LoanApplication[]                     @relation("AssignedTo")
+  auditLogs                    AuditLog[]
+  branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
+  bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
+  clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
+  coiDeclarations              CoiDeclaration[]
+  collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
+  contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
+  // Phase 9 audit-pointer relations. Restrict on each (declared on the
+  // child-side relation) — User hard-delete is already non-normal (we
+  // deactivate via active=false); blocking it on outstanding audit
+  // references is the auditor-safe default for POPIA s.17 operator-identity
+  // records and FAIS GCC s.3(2) record-of-advice retention.
+  contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
+  countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
+  debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
+  fitAndProper                 FitAndProper?
+  kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
+  kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
+  loginLogs                    LoginLog[]
+  manualProgress               ManualProgress[]
+  mentionedIn                  MessageMention[]
+  messagesAuthored             Message[]                             @relation("MessagesCreatedBy")
+  messagesDeleted              Message[]                             @relation("MessagesDeletedBy")
+  messagesDisclosureDelivered  Message[]                             @relation("MessagesDisclosureDeliveredBy")
+  messagesEdited               Message[]                             @relation("MessagesEditedBy")
+  ncaOverridesDecided          NcaRegimeOverride[]                   @relation("NcaOverridesDecided")
+  ncaOverridesRequested        NcaRegimeOverride[]                   @relation("NcaOverridesRequested")
+  notifications                Notification[]
+  pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
+  payoutChecklistConfirmed     PayoutChecklistItem[]                 @relation("PayoutChecklistConfirmedBy")
+  payoutsApproved              Payout[]                              @relation("PayoutsApprovedBy")
+  payoutsCancelled             Payout[]                              @relation("PayoutsCancelledBy")
+  payoutsCreated               Payout[]                              @relation("PayoutsCreatedBy")
+  payoutsReleased              Payout[]                              @relation("PayoutsReleasedBy")
+  referenceRatesDecided        ReferenceRate[]                       @relation("ReferenceRatesDecided")
+  referenceRatesRequested      ReferenceRate[]                       @relation("ReferenceRatesRequested")
+  selfieCaptureTokensIssued    SelfieCaptureToken[]                  @relation("SelfieCaptureTokensIssuedBy")
+  sessions                     Session[]
+  supplierAccountsDecided      SupplierBankAccount[]                 @relation("SupplierAccountDecidedBy")
+  supplierAccountsRequested    SupplierBankAccount[]                 @relation("SupplierAccountRequestedBy")
+  supportGrantsGiven           TenantSupportGrant[]                  @relation("SupportGrantGrantedBy")
+  supportGrantsHeld            TenantSupportGrant[]                  @relation("SupportGrantOperatorUser")
+  supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
+  webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
+  webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
+
+  @@unique([tenantId, id])
+  @@index([operatorId])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  LOAN_ADMIN
+  CREDIT_OFFICER
+  COLLECTIONS_OFFICER
+  COLLECTIONS_AGENT
+  INSURANCE_OFFICER
+  BRANCH_MANAGER
+  READONLY
+  // Operator staff: bound to an Operator, never a tenant. Outside
+  // ROLE_HIERARCHY on purpose, so no tenant role gate admits them.
+  OPERATOR_ADMIN
+  OPERATOR_SUPPORT
+}
+
+model LoginLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ip        String?
+  userAgent String?
+  success   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Sign-in attempts that did NOT match a known user (or where logging to
+// LoginLog isn't possible because LoginLog.userId is non-nullable). Used
+// for credential-stuffing detection and POPIA breach audits.
+model FailedLoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String?
+  userAgent String?
+  reason    String // unknown_email | wrong_password | totp_invalid | rate_limited
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([ip])
+  @@index([createdAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String    @id @default(cuid())
+  sessionToken String    @unique
+  userId       String
+  expires      DateTime
+  // Stamped by lib/auth.ts on every successful TOTP check. Backs the
+  // "fresh-2FA within N minutes" gate on voice-token mint (Phase 9 §Twilio
+  // voice integration). Null on sessions that have never re-asserted TOTP.
+  lastTotpAt   DateTime?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ManualProgress {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  lessonSlug  String
+  completedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonSlug])
+  @@index([tenantId, userId])
+}

@@ -1,0 +1,158 @@
+// ─── Compliance Module ────────────────────────────────────────────────────────
+
+model ComplianceRecord {
+  id             String           @id @default(cuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  type           ComplianceType
+  referenceId    String?
+  // Durable reservation key for non-repeatable compliance actions such as
+  // Section 129 dispatch. Cleared only when a known-not-sent attempt is
+  // released or an issued notice ages beyond its cooldown window.
+  idempotencyKey String?          @unique
+  status         ComplianceStatus @default(PENDING)
+  dueDate        DateTime?
+  completedAt    DateTime?
+  data           Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([tenantId, id])
+  @@index([tenantId, type, referenceId, status, completedAt])
+}
+
+model ConsentRecord {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  clientId  String
+  type      String
+  granted   Boolean  @default(false)
+  grantedAt DateTime @default(now())
+  ipAddress String?
+  method    String?
+  createdAt DateTime @default(now())
+}
+
+model Complaint {
+  id             String            @id @default(cuid())
+  tenantId       String
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  clientId       String
+  reference      String            @unique
+  category       ComplaintCategory
+  description    String
+  status         ComplaintStatus   @default(OPEN)
+  assignedToId   String?
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+  resolution     String?
+  outcome        ComplaintOutcome?
+  createdById    String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  client         Client            @relation(fields: [clientId], references: [id])
+}
+
+enum ComplaintCategory {
+  FEES_AND_CHARGES
+  COLLECTIONS_CONDUCT
+  CREDIT_AGREEMENT
+  INSURANCE
+  DATA_PRIVACY
+  SERVICE_QUALITY
+  OTHER
+}
+
+enum ComplaintStatus {
+  OPEN
+  UNDER_INVESTIGATION
+  RESOLVED
+  ESCALATED
+  ESCALATED_OMBUD
+  CLOSED
+}
+
+enum ComplaintOutcome {
+  UPHELD
+  PARTIALLY_UPHELD
+  NOT_UPHELD
+  WITHDRAWN
+}
+
+model DataSubjectRequest {
+  id          String     @id @default(cuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  clientId    String
+  reference   String     @unique
+  type        DsarType
+  description String?
+  status      DsarStatus @default(RECEIVED)
+  dueDate     DateTime
+  completedAt DateTime?
+  response    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  client      Client     @relation(fields: [clientId], references: [id])
+}
+
+enum DsarType {
+  ACCESS
+  CORRECTION
+  DELETION
+  OBJECTION
+  PORTABILITY
+}
+
+enum DsarStatus {
+  RECEIVED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  REFUSED
+}
+
+enum ComplianceType {
+  AGREEMENT_ARTIFACT
+  DEBIT_MANDATE_ARTIFACT
+  DISBURSEMENT_EXCEPTION
+  FORM_20_PRE_AGREEMENT
+  SECTION_129_NOTICE
+  NCR_QUARTERLY_RETURN
+  FSCA_QUARTERLY_RETURN
+  POPIA_CONSENT
+  FAIS_DISCLOSURE
+  AFFORDABILITY_ASSESSMENT
+  CREDIT_BUREAU_CHECK
+  KYC_EXCEPTION
+  COMPLAINT
+}
+
+enum ComplianceStatus {
+  PENDING
+  COMPLETED
+  OVERDUE
+  SUBMITTED
+  ACKNOWLEDGED
+}
+
+model BreachLog {
+  id                String    @id @default(cuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  incidentDate      DateTime
+  discoveredDate    DateTime
+  description       String
+  affectedClients   Int       @default(0)
+  dataCategories    String
+  containmentAction String?
+  reportedToIC      Boolean   @default(false)
+  reportedAt        DateTime?
+  status            String    @default("OPEN")
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([tenantId])
+}

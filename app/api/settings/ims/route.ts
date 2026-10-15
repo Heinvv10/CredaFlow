@@ -22,7 +22,7 @@ import { callerIp } from "@/lib/rate-limit"
 // components/settings/ImsModuleToggle.tsx says the same thing to the operator;
 // the two must not drift.
 
-// Schema default (prisma/schema.prisma model TenantConfig). Used to hydrate the
+// Schema default (prisma/schema/tenancy.prisma model TenantConfig). Used to hydrate the
 // screen and to record the "old" audit value when no config row exists yet.
 const DEFAULT_FEATURE_IMS = false
 

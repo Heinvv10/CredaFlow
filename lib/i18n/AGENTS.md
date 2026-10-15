@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: i18n
+<!-- summary: borrower languages; legal text and money stay English -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

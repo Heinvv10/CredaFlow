@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
 // The TenantConfig colour defaults are CredaFlow's neutral palette in three
 // places that must agree: the schema, the migration that set them after the
@@ -15,7 +16,7 @@ const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), "utf8")
 const COLUMNS = { primaryColor: "--cf-tenant-primary", secondaryColor: "--cf-tenant-secondary", darkColor: "--cf-tenant-dark" } as const
 
 function schemaDefaults(): Record<string, string> {
-  const model = /model TenantConfig \{([\s\S]*?)\n\}/.exec(read("prisma", "schema.prisma"))![1]
+  const model = /model TenantConfig \{([\s\S]*?)\n\}/.exec(readPrismaSchema())![1]
   return Object.fromEntries(Object.keys(COLUMNS).map((c) => [c, new RegExp(`\\b${c}\\s+String\\s+@default\\("(#[0-9A-Fa-f]{6})"\\)`).exec(model)![1]]))
 }
 

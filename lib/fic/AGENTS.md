@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: fic
+<!-- summary: FIC registers (CTR, STR, RMCP); tipping off; unverified threshold -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

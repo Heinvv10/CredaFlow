@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: lib/ (session and audience rules)
+<!-- summary: session and audience rules; a portal credential change ends client sessions -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

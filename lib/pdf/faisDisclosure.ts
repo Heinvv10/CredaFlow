@@ -9,7 +9,7 @@ import {
 } from "./helpers"
 import { requireLenderIdentityFields, type LenderIdentity } from "@/lib/config/identity-schema"
 
-// Fix I2: plain-language labels for InsurancePolicyType enum values (match prisma/schema.prisma exactly)
+// Fix I2: plain-language labels for InsurancePolicyType enum values (match prisma/schema/insurance.prisma exactly)
 const PRODUCT_TYPE_LABELS: Record<string, string> = {
   FUNERAL_COVER:       "Funeral Cover",
   CREDIT_LIFE:         "Credit Life Insurance",

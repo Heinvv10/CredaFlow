@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # lib/lender-api — the public lender API and outbound webhooks
+<!-- summary: the `/api/v1` lender API and outbound webhooks -->
 
 - Every `app/api/v1/*` handler goes through `withApiKey(req, scope, …)`
   (`lib/lender-api/handler.ts`). It is the authentication: `proxy.ts` lets

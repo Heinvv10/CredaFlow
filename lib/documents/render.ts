@@ -176,7 +176,7 @@ export async function generateDocument(opts: {
     },
   })
 
-  // No tenantId column on DocumentAccessLog (see prisma/schema.prisma).
+  // No tenantId column on DocumentAccessLog (see prisma/schema/clients-kyc.prisma).
   // accessorId falls back to "system" when no staff member drove this
   // generation (e.g. a cron-triggered SYSTEM document) — the column is
   // NOT NULL and there is no acting user id to record.

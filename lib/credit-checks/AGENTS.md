@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: credit-checks
+<!-- summary: decision-assist REFER flags; flags never vanish uncleared -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

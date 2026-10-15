@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
 import { Prisma, type UserRole } from "@prisma/client"
+import { SERVER_PERMISSIONS } from "@/lib/registry/generated/permissions"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
@@ -361,31 +362,10 @@ export function staffUserWriteConflict(err: unknown): NextResponse | null {
   return conflict ? NextResponse.json({ error: "This user is being changed elsewhere. Try again." }, { status: 409 }) : null
 }
 
-// Permissions map: action → minimum required role
-export const PERMISSIONS = {
-  disburse_loan: "LOAN_ADMIN" as UserRole,
-  approve_loan: "LOAN_ADMIN" as UserRole,
-  decline_loan: "LOAN_ADMIN" as UserRole,
-  delete_client: "ADMIN" as UserRole,
-  manage_users: "BRANCH_MANAGER" as UserRole,
-  view_reports: "READONLY" as UserRole,
-  manage_settings: "ADMIN" as UserRole,
-  view_audit_log: "LOAN_ADMIN" as UserRole,
-  manage_branches: "ADMIN" as UserRole,
-  // Mirrors lib/permissions.ts (the client-safe copy already had this key —
-  // this file was missing it, so canDo(role, "record_payment") server-side
-  // was previously unusable despite the docstring in permissions.ts claiming
-  // to mirror this map).
-  record_payment: "CREDIT_OFFICER" as UserRole,
-  // Asset finance (docs/asset-finance/DESIGN.md). Keep identical to lib/permissions.ts.
-  // manage: capture entities, deals, assets, suppliers and documents.
-  // decide: credit decisions, NCA regime overrides, supplier bank approvals, payouts.
-  manage_asset_finance: "CREDIT_OFFICER" as UserRole,
-  decide_asset_finance: "LOAN_ADMIN" as UserRole,
-  // FIC Act tooling (lib/fic). Keep identical to lib/permissions.ts.
-  manage_fic_compliance: "ADMIN" as UserRole,
-  raise_suspicious_report: "COLLECTIONS_OFFICER" as UserRole,
-} as const
+// Permissions map: action → minimum required role. One file per domain under
+// lib/registry/permissions/ (merged by scripts/gen-registries.ts;
+// docs/ARCHITECTURE.md, "Registries").
+export const PERMISSIONS: { readonly [K in keyof typeof SERVER_PERMISSIONS]: UserRole } = SERVER_PERMISSIONS
 
 export type PermissionKey = keyof typeof PERMISSIONS
 

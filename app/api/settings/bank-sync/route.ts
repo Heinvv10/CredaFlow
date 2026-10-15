@@ -11,7 +11,7 @@ import { callerIp } from "@/lib/rate-limit"
 // ADMIN + a TOTP-verified session, like the other tenant config writes that
 // change how money enters the books (see app/api/settings/identity/route.ts).
 
-// Schema default (prisma/schema.prisma model TenantConfig).
+// Schema default (prisma/schema/tenancy.prisma model TenantConfig).
 const DEFAULT_BANK_SYNC_ENABLED = false
 
 const SELECT = { bankSyncEnabled: true } as const

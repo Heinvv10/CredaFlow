@@ -33,7 +33,7 @@ export type ContactRecencyTx = {
  * Merge-not-replace: the JSON holds one timestamp per channel, so writing
  * WHATSAPP must preserve any EMAIL/SMS key already there.
  *
- * ⚠️ This read-modify-write takes NO row lock, so `prisma/schema.prisma`'s
+ * ⚠️ This read-modify-write takes NO row lock, so `prisma/schema/messaging.prisma`'s
  * "inbound matcher takes SELECT…FOR UPDATE on this row" is not true of this
  * path. Harmless only because WHATSAPP is the single key any inbound writes:
  * two concurrent inbounds for one contact clobber each other with near-equal
