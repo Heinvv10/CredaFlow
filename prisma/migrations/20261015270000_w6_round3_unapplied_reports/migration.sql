@@ -2,7 +2,10 @@
 --  (1) every provider report not applied (stale, dropped, refused) is kept in
 --      PayoutUnappliedReport and stays on the outstanding-payouts queue until
 --      a person acknowledges it, once, with a note (lib/payouts/
---      unapplied-reports.ts). Never changed otherwise, never deleted.
+--      unapplied-reports.ts) — not the disburser, the attempt's creator or
+--      approver, or whoever resolved its conflict. Acknowledging clears the
+--      entry only; a conflict still blocks until it is resolved. Never
+--      changed otherwise, never deleted.
 --  (2) a reopen never lowers the stored conflict state
 --      (guardDisbursementPayout = the 20261015260000 version plus that rule),
 --      and the conflict fields stay consistent
@@ -42,6 +45,8 @@ CREATE OR REPLACE FUNCTION public."guardPayoutUnappliedReport"()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
+DECLARE
+  made "DisbursementPayout"%ROWTYPE;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
@@ -69,6 +74,11 @@ BEGIN
   IF NEW."acknowledgedAt" IS NULL OR NEW."acknowledgedById" IS NULL OR length(trim(coalesce(NEW."acknowledgementNote", ''))) < 5 THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'Payout guard: a report not applied is acknowledged by a named person, with a note';
+  END IF;
+  SELECT * INTO made FROM "DisbursementPayout" WHERE "id" = NEW."payoutId";
+  IF NEW."acknowledgedById" IN (made."disbursedById", made."createdById", coalesce(made."approvedById", ''), coalesce(made."conflictResolvedById", '')) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'Payout guard: a report not applied is acknowledged by someone who neither made, approved or resolved this payout';
   END IF;
   RETURN NEW;
 END;

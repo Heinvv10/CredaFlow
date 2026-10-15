@@ -6,8 +6,12 @@
  * (lib/payouts/conflicts.ts). Each is a PayoutUnappliedReport row, written
  * with its audit row, and stays on the outstanding-payouts queue — however
  * old — until a LOAN_ADMIN acknowledges it, once, with a note (audited; the
- * database guards both). Exact duplicates are not kept: they repeat an event
- * already handled.
+ * database guards both). Not the disburser, the attempt's creator or
+ * approver, or whoever resolved its conflict (maker-checker, DB too).
+ * Acknowledging clears the list entry only: a conflict on the attempt still
+ * blocks retry, reversal and send until it is resolved (lib/payouts/
+ * conflicts.ts). Exact duplicates are not kept: they repeat an event already
+ * handled.
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
@@ -64,9 +68,21 @@ export async function acknowledgeUnappliedReport(db: Pick<typeof prisma, "payout
   note: string
   actor: Actor & { id: string }
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const entry = await db.payoutUnappliedReport.findFirst({ where: { id: args.id, tenantId: args.tenantId } })
+  const entry = await db.payoutUnappliedReport.findFirst({
+    where: { id: args.id, tenantId: args.tenantId },
+    include: { payout: { select: { disbursedById: true, createdById: true, approvedById: true, conflictResolvedById: true } } },
+  })
   if (!entry) return { ok: false, status: 404, error: "Report not found" }
   if (entry.acknowledgedAt) return { ok: false, status: 409, error: "This report is already acknowledged" }
+  const p = entry.payout
+  if ([p.disbursedById, p.createdById, p.approvedById, p.conflictResolvedById].includes(args.actor.id)) {
+    await logAuditStrict({
+      tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
+      action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "PayoutUnappliedReport", entityId: entry.id,
+      newValue: { action: "acknowledge_report", reason: "maker_checker", payoutId: entry.payoutId },
+    }, db)
+    return { ok: false, status: 403, error: "Another LOAN_ADMIN must acknowledge this: you disbursed the loan, requested or approved this attempt, or resolved its conflict" }
+  }
   try {
     return await db.$transaction(async (tx) => {
       const moved = await tx.payoutUnappliedReport.updateMany({
