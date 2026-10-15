@@ -8,6 +8,8 @@ import { projectChargeAwareReceipt } from "@/lib/loan/charge-aware-receipt"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { closingValueDate } from "@/lib/loan/receipt-charges"
 import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
+import { issueLeaseInvoicesOnReceipt } from "@/lib/asset-finance/lease-invoices"
+import { sastCalendarDate } from "@/lib/date/sast"
 import {
   isSameReceiptRequest,
   OVERPAYMENT_REASON,
@@ -378,6 +380,16 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
           userEmail: input.capturedByEmail ?? null,
         })
       : null
+
+    // A lease rental this receipt reached before its due date is invoiced now
+    // (time of supply: lib/asset-finance/lease-invoices.ts). Nothing for any
+    // other contract type.
+    if (!fullyUnapplied) {
+      await issueLeaseInvoicesOnReceipt(tx, {
+        tenantId: input.tenantId, loanId: input.loanId, contractType: loan.contractType,
+        today: sastCalendarDate(new Date()), createdById: input.capturedById,
+      })
+    }
 
     // Deferred PASQ/ledger guards can fail at COMMIT after PostgreSQL has
     // already returned the created receipt row. Force them inside the callback

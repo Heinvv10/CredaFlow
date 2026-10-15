@@ -128,6 +128,8 @@ describe("tenant-scope — ALS primitives", () => {
       "WebhookEndpoint",
       "WebhookEvent",
       "WebhookDelivery",
+      // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
+      "LeaseRental",
     ])
   })
 

@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { CreditCard, Download } from "lucide-react"
+import type { ContractType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { formatDate, SAST_TIME_ZONE } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
@@ -15,6 +16,8 @@ import { RepaymentScheduleTable } from "@/components/loans/RepaymentScheduleTabl
 import { PaymentForm } from "@/components/loans/PaymentForm"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { LoanNotes } from "@/components/loans/LoanNotes"
+import { LeaseStaffPanel } from "@/components/asset-finance/lease/LeaseStaffPanel"
+import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 
 /**
  * The staff loan page for an entity-borrower (asset-finance) loan (goal
@@ -28,11 +31,14 @@ export interface StaffAssetLoan extends SettlementLoanLike {
   id: string
   reference: string
   status: string
+  contractType: ContractType
   outstandingPrincipal: number
   arrearsAmount: number
   daysInArrears: number
   balloonAmount: number | null
   entity: { id: string; legalName: string; registrationNumber: string } | null
+  /** A sole-proprietor lessee: a lease can be held by a client (a loan to a client is not asset finance). */
+  client: { id: string; firstName: string; lastName: string } | null
   asset: { id: string; make: string; model: string; year: number; serialNumber: string; registrationNumber: string | null } | null
   assetFinanceDeal: { id: string } | null
   /** appliedAmount is the amount financed */
@@ -60,9 +66,12 @@ const row = (label: string, value: React.ReactNode) => (
   </div>
 )
 
-export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate, canManageCharges }: {
+export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canAuthoriseBackdate, canManageCharges }: {
   loan: StaffAssetLoan
   tenantId: string
+  userId: string
+  canManageLease: boolean
+  canDecideLease: boolean
   canAuthoriseBackdate: boolean
   canManageCharges: boolean
 }) {
@@ -74,7 +83,9 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
   const nextPayment = loan.repaymentSchedule.find((s) => s.totalDue > 0 && (s.status === "PENDING" || s.status === "PARTIAL"))
   const skipRows = loan.repaymentSchedule.filter((s) => s.totalDue === 0).length
   const balloon = loan.balloonAmount ?? 0
-  const name = loan.entity?.legalName ?? loan.reference
+  const lease = isLeaseContract(loan.contractType)
+  const lessee = loan.client ? `${loan.client.firstName} ${loan.client.lastName}`.trim() : null
+  const name = loan.entity?.legalName ?? lessee ?? loan.reference
   const financed = loan.application?.appliedAmount ?? null
 
   return (
@@ -85,7 +96,8 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
           <a href={`/api/loans/${loan.id}/statement`} className="inline-flex items-center gap-1 rounded-md border border-[var(--cf-border-strong)] px-3 py-1.5 text-[var(--cf-text)] hover:bg-[var(--cf-surface-strong)]">
             <Download className="h-4 w-4" /> Statement
           </a>
-          {invoice && (
+          {/* A lease bills a tax invoice per rental: they are linked from the rentals table. */}
+          {invoice && !lease && (
             <a href={`/api/asset-finance/tax-invoices/${invoice.id}`} className="inline-flex items-center gap-1 rounded-md border border-[var(--cf-border-strong)] px-3 py-1.5 text-[var(--cf-text)] hover:bg-[var(--cf-surface-strong)]">
               <Download className="h-4 w-4" /> Tax invoice {invoice.invoiceNumber}
             </a>
@@ -95,14 +107,25 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="space-y-6 lg:col-span-7">
-          <DataPanel title="Asset finance loan" description={`Reference ${loan.reference} · ${loan.product.name}`} variant="raised" density="loose"
+          <DataPanel title={lease ? "Lease" : "Asset finance loan"} description={`Reference ${loan.reference} · ${loan.product.name}`} variant="raised" density="loose"
             actions={<StatusPill tone={loan.daysInArrears > 0 ? "warning" : "neutral"}>{statusLabel(loan.status)}</StatusPill>}>
             {/* While default charges are live the balance is the settlement figure (staffLoanFigures). */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-              <MetricCard label={charges ? "Amount to settle today" : "Balance remaining"} value={metric(formatMoney(balance))}
-                detail={charges ? "Settles the agreement today, default charges included" : "Principal + scheduled interest still to pay"} />
-              <MetricCard label="Outstanding principal" value={metric(formatMoney(loan.outstandingPrincipal))}
-                detail="Includes capitalised interest" />
+              {lease ? (
+                <>
+                  {/* Not an early termination: ending a lease early is by quotation (the lease panel). */}
+                  <MetricCard label="Rentals outstanding" value={metric(formatMoney(balance))}
+                    detail={charges ? "Every rental still to pay incl. VAT, default charges included" : "Every rental still to pay incl. VAT: not an early-termination figure"} />
+                  <MetricCard label="All rentals over the term" value={metric(formatMoney(loan.principal))} detail="Incl. VAT and maintenance" />
+                </>
+              ) : (
+                <>
+                  <MetricCard label={charges ? "Amount to settle today" : "Balance remaining"} value={metric(formatMoney(balance))}
+                    detail={charges ? "Settles the agreement today, default charges included" : "Principal + scheduled interest still to pay"} />
+                  <MetricCard label="Outstanding principal" value={metric(formatMoney(loan.outstandingPrincipal))}
+                    detail="Includes capitalised interest" />
+                </>
+              )}
               <MetricCard label="Arrears" value={metric(formatMoney(arrears))} tone={loan.daysInArrears > 0 ? "warning" : "neutral"} />
               <MetricCard label="Next payment" value={metric(nextPayment ? formatMoney(nextPayment.totalDue - nextPayment.totalPaid) : "None scheduled")}
                 detail={nextPayment ? `Due ${formatDate(nextPayment.dueDate)}` : undefined} />
@@ -115,13 +138,16 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
           <DataPanel title="Repayment schedule" variant="default" density="loose">
             <div className="mb-4 space-y-1 text-sm text-[var(--cf-text-muted)]">
               {balloon > 0 && <p>The final instalment includes the balloon of {formatMoney(balloon)}.</p>}
-              {financed !== null && loan.principal > financed && (
+              {lease && (
+                <p>Each row is a rental incl. VAT and maintenance, or an end-of-term or early-termination charge. The split is in the rentals table below.</p>
+              )}
+              {!lease && financed !== null && loan.principal > financed && (
                 <p>
                   The principal ({formatMoney(loan.principal)}) is more than the {formatMoney(financed)} financed: interest that lower or
                   skipped instalments do not cover is capitalised (added to the balance and repaid as principal).
                 </p>
               )}
-              {skipRows > 0 && (
+              {!lease && skipRows > 0 && (
                 <p>
                   {skipRows} period{skipRows === 1 ? " has" : "s have"} no payment (R0.00). Interest those periods accrue is capitalised: it is added
                   to the balance and repaid as principal by later instalments.
@@ -137,12 +163,16 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
         </div>
 
         <div className="space-y-6 lg:col-span-5">
-          <DataPanel title="Borrower" description="Business entity" variant="default" density="loose">
+          <DataPanel title={lease ? "Lessee" : "Borrower"} description={loan.entity ? "Business entity" : "Sole proprietor"} variant="default" density="loose">
             <div className="space-y-3 text-sm">
-              {row("Legal name", loan.entity
-                ? <Link href={`/asset-finance/entities/${loan.entity.id}`} className="hover:text-[var(--cf-brand)]">{loan.entity.legalName}</Link>
-                : "-")}
-              {row("Registration number", loan.entity?.registrationNumber ?? "-")}
+              {loan.entity ? (
+                <>
+                  {row("Legal name", <Link href={`/asset-finance/entities/${loan.entity.id}`} className="hover:text-[var(--cf-brand)]">{loan.entity.legalName}</Link>)}
+                  {row("Registration number", loan.entity.registrationNumber)}
+                </>
+              ) : (
+                row("Name", loan.client && lessee ? <Link href={`/clients/${loan.client.id}`} className="hover:text-[var(--cf-brand)]">{lessee}</Link> : "-")
+              )}
               {loan.assetFinanceDeal && row("Deal", <Link href={`/asset-finance/deals/${loan.assetFinanceDeal.id}`} className="hover:text-[var(--cf-brand)]">View deal</Link>)}
             </div>
           </DataPanel>
@@ -169,7 +199,7 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
                 actions={<CreditCard className="h-5 w-5 text-[var(--cf-brand)]" />} className="mb-5" />
               <PaymentForm loanId={loan.id} settlementAmount={settlementAmount} contractualBalance={maturityBalance}
                 loanStartDay={loan.startDate.toLocaleDateString("en-CA", { timeZone: SAST_TIME_ZONE })}
-                canAuthoriseBackdate={canAuthoriseBackdate} />
+                canAuthoriseBackdate={canAuthoriseBackdate} amountLabel={lease ? "Rentals outstanding" : undefined} />
             </DataPanel>
           )}
 
@@ -194,6 +224,8 @@ export async function StaffAssetLoanView({ loan, tenantId, canAuthoriseBackdate,
           </DataPanel>
         </div>
       </div>
+
+      {lease && <LeaseStaffPanel tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} />}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">
         <LoanNotes loanId={loan.id} />

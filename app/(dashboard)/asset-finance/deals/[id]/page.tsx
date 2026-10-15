@@ -119,7 +119,10 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           )}
         </DataPanel>
 
-        {signing && <SigningPanel dealId={id} panel={signing} canManage={canManage} userId={user.id} />}
+        {signing && (
+          <SigningPanel dealId={id} panel={signing} canManage={canManage} userId={user.id}
+            advanceStart={deal.terms.lease?.rentalTiming === "ADVANCE" ? deal.terms.firstDueDate : undefined} />
+        )}
 
         {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} />}
 

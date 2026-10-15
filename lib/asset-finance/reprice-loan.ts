@@ -50,6 +50,9 @@
  *
  * NCA asset-finance contracts are re-checked against the current prescribed
  * rate cap before any schedule or ledger write.
+ *
+ * LEASES (operating, full-maintenance) re-solve the same way on their capital
+ * view and write back rentals, VAT and totals (./lease-reprice.ts).
  */
 import { Prisma, type ReferenceRateBasis } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
@@ -60,13 +63,16 @@ import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import { contractRatePath, referenceRateOn } from "./rates-store"
 import { noticeKeptThroughIndex, repriceTail } from "./reprice"
 import { queueRepriceNotice } from "./reprice-notice"
-import { toScheduleRecord } from "./schedule-records"
 import { storedScheduleForReprice, type StoredScheduleError } from "./stored-schedule"
 import { maxAssetFinanceAnnualRate } from "./nca-caps"
+import { isLeaseContract } from "./lease-input"
+import { leaseCapitalRows, writeLeaseRepricedRows } from "./lease-reprice"
+import { writeRepricedRows } from "./reprice-writes"
 
 export type RepriceTx = Pick<
   typeof prisma,
   "$queryRaw" | "$executeRawUnsafe" | "loan" | "repaymentSchedule" | "contractRate" | "referenceRate" | "auditLog" | "entityRelationship" | "user" | "notification"
+  | "leaseRental" | "assetFinanceDeal"
 >
 
 export interface RepriceRequest {
@@ -181,11 +187,13 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
       creditLifePremiumDue: true, totalDue: true, totalPaid: true, status: true, assetFinanceOpeningBalanceCents: true,
     },
   })
-  const balloonCents = loan.balloonAmount ?? 0
+  const lease = isLeaseContract(loan.contractType) ? await leaseCapitalRows(tx, tenantId, loanId, stored) : null
+  if (lease && "error" in lease) return notEligible(lease.error)
+  const balloonCents = lease ? lease.residualCents : loan.balloonAmount ?? 0
   const startDate = sastCalendarDate(loan.startDate)
   const history = await contractRatePath(tx, tenantId, loanId) // all before effectiveDate: none later, none on it
   const schedule = storedScheduleForReprice({
-    stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents ?? null, ratePath: history, startDate,
+    stored: lease ? lease.rows : stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents ?? null, ratePath: history, startDate,
     contractualWeights: loan.assetFinanceWeights,
   })
   if ("error" in schedule) return notEligible(schedule.error)
@@ -201,6 +209,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     repriceDate: paid >= 0 ? schedule.rows[paid].dueDate : startDate,
     ratePath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }],
     balloonCents,
+    firstDueOnAccrualStart: lease !== null && lease.advance && paid === -1,
   })
 
   // The first write: on a lost race the unique index refuses it before
@@ -220,24 +229,10 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     throw error
   }
 
-  const change = { principal: 0, interest: 0, total: 0 }
-  for (const row of solved.rows) {
-    const before = stored[row.index]
-    const after = toScheduleRecord(row)
-    const updated = await tx.repaymentSchedule.updateMany({
-      where: { id: before.id, tenantId, loanId, status: "PENDING", totalPaid: 0 },
-      data: {
-        principalDue: after.principalDue,
-        interestDue: after.interestDue,
-        totalDue: after.totalDue,
-        assetFinanceOpeningBalanceCents: row.openingBalanceCents,
-      },
-    })
-    if (updated.count !== 1) throw new Error(`reprice: schedule row ${before.installmentNo} of loan ${loanId} changed underneath the repricing`)
-    change.principal += after.principalDue - before.principalDue
-    change.interest += after.interestDue - before.interestDue
-    change.total += after.totalDue - before.totalDue
-  }
+  const leaseChange = lease ? await writeLeaseRepricedRows(tx, tenantId, loanId, lease, stored, solved.rows) : null
+  const change = leaseChange === null
+    ? await writeRepricedRows(tx, tenantId, loanId, stored, solved.rows)
+    : { principal: leaseChange, interest: 0, total: leaseChange }
   const loanUpdated = await tx.loan.updateMany({
     where: { id: loanId, tenantId, status: "ACTIVE" },
     data: {

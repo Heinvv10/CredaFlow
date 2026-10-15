@@ -3,7 +3,7 @@
 // the payout, and the booked loan and tax invoice. JSON-safe.
 import type { AssetDealStatus, EntityDocumentType, PayoutChecklistItemKind, PayoutStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { CHECKLIST_EVIDENCE_TYPES, CHECKLIST_KINDS, CHECKLIST_LABELS, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
+import { CHECKLIST_EVIDENCE_TYPES, CHECKLIST_KINDS, checklistLabel, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
 
 export interface ChecklistItemView {
   item: PayoutChecklistItemKind
@@ -84,7 +84,7 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
     if (!row) return []
     return [{
       item,
-      label: CHECKLIST_LABELS[item],
+      label: checklistLabel(item, deal.contractType),
       required: required.has(item),
       evidenceTypes: CHECKLIST_EVIDENCE_TYPES[item],
       confirmedAt: row.confirmedAt?.toISOString() ?? null,

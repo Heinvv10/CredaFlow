@@ -181,6 +181,13 @@ export async function register() {
       timezone: SAST,
     })
 
+    // Asset-finance leases: the tax invoice of every rental that fell due
+    // (lib/asset-finance/lease-invoice-batch.ts). After the repricing run, so a
+    // rental repriced today is invoiced at its new amount. Idempotent.
+    cron.schedule("15 2 * * *", () => callCron("/api/cron/asset-finance-lease-invoices"), {
+      timezone: SAST,
+    })
+
     // Outbound lender webhooks (lib/lender-api/webhooks/dispatch.ts): fans out
     // new outbox events and POSTs due deliveries with retry backoff. Every
     // minute; idle for tenants without an active endpoint.
@@ -201,6 +208,6 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 16 jobs active")
+    console.log("[cron] scheduler registered — 17 jobs active")
   }
 }

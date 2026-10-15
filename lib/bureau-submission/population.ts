@@ -14,11 +14,16 @@ type Db = Pick<typeof prisma, "loan" | "bureauSubmissionRecord">
 export const REPORTED_PRODUCT_TYPES = ["MICRO", "PERSONAL"] as const
 
 /**
- * The consumer file reports natural persons: a loan to a business entity
- * (asset finance, Loan.entityId) is never a candidate, whatever its product
- * or regime. One rule, in every population query of this module.
+ * The consumer file reports natural persons' credit: a loan to a business
+ * entity (asset finance, Loan.entityId) is never a candidate, whatever its
+ * product or regime, and nor is an operating or full-maintenance lease, a
+ * sole proprietor's included (a lease is not a credit agreement; slice 3
+ * default, // UNTESTED: legal). One rule, in every population query of this module.
  */
-export const CONSUMER_BORROWER_WHERE = { entityId: null } as const satisfies Prisma.LoanWhereInput
+export const CONSUMER_BORROWER_WHERE = {
+  entityId: null,
+  contractType: { notIn: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] },
+} as const satisfies Prisma.LoanWhereInput
 
 export interface LedgerHistory {
   /** the bureau has been sent at least one line for this loan */
