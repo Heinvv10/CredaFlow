@@ -103,6 +103,10 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // Lender-granted operator support access (lib/operator/). Non-null
+  // tenantId; the operator's access check runs before any tenant frame and
+  // passes it explicitly.
+  "TenantSupportGrant",
   // PEP / sanctions screening and FIC registers (lib/screening, lib/fic).
   // Non-null tenantId; every query passes it explicitly because the screening
   // cron and the submit-time run execute outside a request frame.
@@ -118,6 +122,15 @@ export const TENANT_SCOPED_MODELS = [
   "WebhookEndpoint",
   "WebhookEvent",
   "WebhookDelivery",
+  // Signing OTP challenges (lib/signing-otp). Non-null tenantId, passed
+  // explicitly on every query (sign routes run inside withTenantContext too).
+  "SigningOtpChallenge",
+  // Collections engine (lib/collections-engine). Non-null tenantId, passed
+  // explicitly on every query: the crons run outside a request frame.
+  "DebitMandate",
+  "CollectionBatch",
+  "CollectionInstruction",
+  "CollectionResult",
   // Operating and full-maintenance leases (slice 3). Non-null tenantId,
   // passed explicitly on every query (the invoice cron has no frame).
   "LeaseRental",

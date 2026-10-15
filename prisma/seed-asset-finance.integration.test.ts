@@ -174,7 +174,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       ["test.director.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_DIRECTOR_PASSWORD, [company.id]],
       ["test.surety.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_SURETY_PASSWORD, []],
     ] as const) {
-      const client = await fresh().client.findUniqueOrThrow({ where: { email } })
+      const client = await fresh().client.findFirstOrThrow({ where: { email } })
       expect(await bcrypt.compare(password, client.portalPassword ?? "")).toBe(true)
       expect(client.kycStatus).toBe("PENDING")
       const authority = await fresh().entityRelationship.findMany({

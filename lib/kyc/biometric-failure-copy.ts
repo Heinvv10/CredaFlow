@@ -174,16 +174,27 @@ export function biometricFailureCopy(reason: string | null | undefined): Biometr
 }
 
 /**
- * What the CLIENT is told on the portal when their latest selfie failed. Only
- * a refusal with a different remedy gets its own wording; everything else
- * keeps the generic retake instruction.
+ * Which remedy the CLIENT is told on the portal when their latest selfie
+ * failed. Only a refusal with a different remedy gets its own wording;
+ * everything else keeps the generic retake instruction. The portal renders the
+ * kind in the reader's language (portalDocuments.selfieFail_<kind>).
  */
+export type PortalSelfieFailureKind = "id_photo" | "not_live" | "retake"
+
+export function portalSelfieFailureKind(reason: string | null | undefined): PortalSelfieFailureKind {
+  if (reason === "id_document_portrait_invalid") return "id_photo"
+  if (reason === "selfie_not_real_photograph") return "not_live"
+  return "retake"
+}
+
+/** The English wording; the portal's catalogue (lib/i18n) reads it from here. */
+export const PORTAL_SELFIE_FAILURE_MESSAGES: Record<PortalSelfieFailureKind, string> = {
+  id_photo: "We couldn't verify the photo on your ID — please upload a new, clear photo of your ID, then retake your selfie.",
+  not_live: "Your selfie could not be confirmed as a real, live photo of you. Please retake it with your camera, facing it directly.",
+  retake: "The latest selfie could not be verified. Please retake it.",
+}
+
+/** The English wording of portalSelfieFailureKind. */
 export function portalSelfieFailureMessage(reason: string | null | undefined): string {
-  if (reason === "id_document_portrait_invalid") {
-    return "We couldn't verify the photo on your ID — please upload a new, clear photo of your ID, then retake your selfie."
-  }
-  if (reason === "selfie_not_real_photograph") {
-    return "Your selfie could not be confirmed as a real, live photo of you. Please retake it with your camera, facing it directly."
-  }
-  return "The latest selfie could not be verified. Please retake it."
+  return PORTAL_SELFIE_FAILURE_MESSAGES[portalSelfieFailureKind(reason)]
 }

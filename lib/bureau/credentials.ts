@@ -7,8 +7,9 @@
  * one key). Unlike those columns there is no legacy plaintext to tolerate, so
  * a value without the sealed marker is refused rather than passed through.
  *
- * Experian (EXPERIAN_* env) and TransUnion (TenantConfig.transunionKey) keep
- * their existing credential sources; moving them here is platform work.
+ * Experian (TenantConfig.experianKey) and TransUnion (TenantConfig.transunionKey)
+ * keep their own sealed columns, read through lib/integrations/tenant-credentials.ts
+ * (with the EXPERIAN_* env only for the ENV_CREDENTIALS_TENANT_SLUG tenant).
  */
 import { isSealed, openSecret, sealSecret } from "@/lib/crypto/secret-box"
 import type { BureauCredentials } from "./types"

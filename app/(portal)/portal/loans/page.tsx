@@ -7,16 +7,23 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { formatDate, formatZAR } from "@/lib/utils"
-import { formatStatusLabel, getStatusTone } from "@/lib/status-style"
+import { formatZAR } from "@/lib/utils"
+import { getStatusTone } from "@/lib/status-style"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { cashReceivedCents } from "@/lib/payments/waiver"
+import { getLocale } from "@/lib/i18n/server"
+import { createTranslator } from "@/lib/i18n/translate"
+import { formatDay } from "@/lib/i18n/format"
+import { statusLabel } from "@/lib/i18n/portal-labels"
 
 export default async function PortalLoansPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
   const tenantId = await getPortalTenantId()
+  const locale = await getLocale()
+  const t = createTranslator(locale, "portalLoans")
+  const l = createTranslator(locale, "portalLabels")
 
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },
@@ -28,9 +35,9 @@ export default async function PortalLoansPage() {
       <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
         <EmptyState
           icon={Wallet}
-          title="No client record found"
-          description="This portal login is not linked to a client account yet."
-          action={{ label: "Back to Overview", href: "/portal" }}
+          title={t("noClientRecord")}
+          description={t("notLinked")}
+          action={{ label: t("backToOverview"), href: "/portal" }}
         />
       </div>
     )
@@ -48,19 +55,19 @@ export default async function PortalLoansPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 md:px-6 md:py-8">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">Client Portal</p>
-        <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">My Loans</h1>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">{createTranslator(locale, "portalShell")("clientPortal")}</p>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">{t("myLoans")}</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--cf-text-muted)]">
-          Review active and historical loan accounts, balances and repayment schedules.
+          {t("myLoansDesc")}
         </p>
       </div>
 
       {loans.length === 0 ? (
         <EmptyState
           icon={Wallet}
-          title="No loans on this account yet"
-          description="Approved and disbursed loans will appear here with repayment schedules and statements."
-          action={{ label: "Start Application", href: "/portal/apply" }}
+          title={t("noLoansTitle")}
+          description={t("noLoansDesc")}
+          action={{ label: t("startApplication"), href: "/portal/apply" }}
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -68,19 +75,19 @@ export default async function PortalLoansPage() {
             <DataPanel
               key={loan.id}
               title={loan.reference}
-              description={`${loan.product.name} / Started ${formatDate(loan.startDate)}`}
-              actions={<Badge variant={getStatusTone(loan.status)}>{formatStatusLabel(loan.status)}</Badge>}
+              description={t("loanCardDesc", { product: loan.product.name, date: formatDay(loan.startDate, locale) })}
+              actions={<Badge variant={getStatusTone(loan.status)}>{statusLabel(l, loan.status)}</Badge>}
             >
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <Metric label="Outstanding" value={formatZAR(loan.outstandingPrincipal)} />
-                <Metric label="Total Paid" value={formatZAR(cashReceivedCents(loan.payments))} />
-                <Metric label="Total Repayable" value={formatZAR(loan.totalRepayable)} />
-                <Metric label="Next Payment" value={loan.nextPaymentDate ? formatDate(loan.nextPaymentDate) : "N/A"} />
+                <Metric label={t("outstanding")} value={formatZAR(loan.outstandingPrincipal)} />
+                <Metric label={t("totalPaid")} value={formatZAR(cashReceivedCents(loan.payments))} />
+                <Metric label={t("totalRepayable")} value={formatZAR(loan.totalRepayable)} />
+                <Metric label={t("nextPayment")} value={loan.nextPaymentDate ? formatDay(loan.nextPaymentDate, locale) : t("notApplicable")} />
               </div>
               <div className="mt-5 flex justify-end">
                 <Button asChild size="sm">
                   <Link href={`/portal/loans/${loan.id}`}>
-                    View Schedule
+                    {t("viewSchedule")}
                     <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </Button>

@@ -8,13 +8,14 @@ import {
   applyLivePricing,
   buildProductApplyHref,
   calculatePublicLoanQuote,
-  formatTerm,
-  getPublicLoanProduct,
   publicLoanProducts,
   type PublicLoanProduct,
   type PublicLoanProductCode,
 } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
+import { useT } from "@/lib/i18n/client"
+import { localizeProduct, termText, termUnitText } from "@/lib/i18n/products"
+import { richText } from "@/lib/i18n/rich"
 
 type ProductLoanCalculatorProps = {
   variant?: "compact" | "full"
@@ -56,10 +57,6 @@ function appendEnquiryReference(href: string, enquiryReference: string) {
   return `${path}?${params.toString()}`
 }
 
-function formatMetric(label: string, value: number, productCode: PublicLoanProductCode) {
-  if (label === "Term") return formatTerm(getPublicLoanProduct(productCode), value)
-  return formatZAR(value)
-}
 
 export function ProductLoanCalculator({ variant = "full", defaultProduct = "short-term" }: ProductLoanCalculatorProps) {
   // Overlay the LIVE fee structure the admin configured at /settings/products/loan
@@ -68,13 +65,15 @@ export function ProductLoanCalculator({ variant = "full", defaultProduct = "shor
   // a live row for are offered; the static catalogue is just the copy and
   // defaults for those.
   const { pricing: livePricing, loading } = useLivePricing()
+  const t = useT("websiteCalculators")
+  const tp = useT("websiteProducts")
   const products = useMemo<PublicLoanProduct[]>(
-    () => applyLivePricing(livePricing).filter((p) => livePricing[p.code]),
-    [livePricing],
+    () => applyLivePricing(livePricing).filter((p) => livePricing[p.code]).map((p) => localizeProduct(p, tp)),
+    [livePricing, tp],
   )
 
-  if (loading) return <p className="text-sm text-white/58">Loading products…</p>
-  if (products.length === 0) return <p className="text-sm text-white/58">No loan products are available yet.</p>
+  if (loading) return <p className="text-sm text-white/58">{t("loadingProducts")}</p>
+  if (products.length === 0) return <p className="text-sm text-white/58">{t("noProducts")}</p>
   return <LoanCalculator variant={variant} defaultProduct={defaultProduct} products={products} />
 }
 
@@ -87,6 +86,8 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
     publicLoanProducts.map((product) => [product.code, product.defaultTerm]),
   ) as Record<PublicLoanProductCode, number>)
   const [enquiryReference, setEnquiryReference] = useState("")
+  const t = useT("websiteCalculators")
+  const tp = useT("websiteProducts")
   // Read the URL/localStorage enquiry reference AFTER mount to avoid a
   // server/client hydration mismatch.
   useEffect(() => {
@@ -213,14 +214,14 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
           <div>
             {product.fixedTerm ? (
               <div>
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/46">Term</span>
-                <p className="mt-1 text-xl font-semibold text-white sm:text-2xl">{formatTerm(product, quote.term)}</p>
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/46">{tp("term")}</span>
+                <p className="mt-1 text-xl font-semibold text-white sm:text-2xl">{termText(tp, product, quote.term)}</p>
               </div>
             ) : (
               <>
                 <div className="mb-3 flex items-end justify-between gap-3">
                   <div>
-                    <label htmlFor={`${variant}-product-term`} className="text-xs font-semibold uppercase tracking-[0.18em] text-white/46">Term</label>
+                    <label htmlFor={`${variant}-product-term`} className="text-xs font-semibold uppercase tracking-[0.18em] text-white/46">{tp("term")}</label>
                     <input
                       id={`${variant}-product-term`}
                       type="number"
@@ -235,7 +236,7 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
                     />
                   </div>
                   <p className="text-right text-xs leading-5 text-white/44">
-                    {product.minTerm}-{product.maxTerm} {product.termUnit}
+                    {product.minTerm}-{product.maxTerm} {termUnitText(tp, product)}
                   </p>
                 </div>
                 <input
@@ -246,15 +247,15 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
                   value={quote.term}
                   onChange={(event) => setTerm(Number(event.target.value))}
                   className="w-full accent-amber-600"
-                  aria-label={`Loan term in ${product.termUnit}`}
+                  aria-label={t("termAria", { unit: termUnitText(tp, product) })}
                 />
                 <p className="mt-1 text-sm font-semibold text-[#a5b4fc]">
-                  {formatTerm(product, quote.term)}
+                  {termText(tp, product, quote.term)}
                   {/* Day-unit slider products (invoice discounting) read awkwardly
                       at the longer end — surface a client-friendly month hint from
                       2 months up. Sub-2-month terms stay in plain days. */}
                   {product.termUnit === "days" && quote.term >= 60 && (
-                    <span className="ml-2 font-medium text-white/40">≈ {Math.round(quote.term / 30)} months</span>
+                    <span className="ml-2 font-medium text-white/40">{t("monthsHint", { n: Math.round(quote.term / 30) })}</span>
                   )}
                 </p>
               </>
@@ -263,12 +264,12 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
 
           {!isCompact && (
             <details className="border border-white/10 bg-white/[0.035] p-4 text-sm text-white/62">
-              <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.18em] text-white/58">Advanced assumptions</summary>
+              <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.18em] text-white/58">{t("advanced")}</summary>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <span>{product.modelLabel}</span>
-                <span>{(product.interestRatePm * 100).toFixed(2)}% p/m estimate</span>
-                <span>Initiation estimate: {product.initiationFeeModel === "NCA_REG42" ? "per NCA Reg 42" : `${(product.initiationFeePct * 100).toFixed(0)}%`}</span>
-                <span>Service fee: {formatZAR(product.monthlyServiceFee)}</span>
+                <span>{t("ratePm", { rate: (product.interestRatePm * 100).toFixed(2) })}</span>
+                <span>{product.initiationFeeModel === "NCA_REG42" ? t("initiationReg42") : t("initiationPct", { pct: (product.initiationFeePct * 100).toFixed(0) })}</span>
+                <span>{t("serviceFee", { amount: formatZAR(product.monthlyServiceFee) })}</span>
               </div>
             </details>
           )}
@@ -280,9 +281,10 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
 
           <div className="mt-5 grid gap-3">
             {[
-              [product.primaryMetricLabel, formatMetric(product.primaryMetricLabel, quote.primaryMetric, product.code)],
-              [product.secondaryMetricLabel, formatMetric(product.secondaryMetricLabel, quote.secondaryMetric, product.code)],
-              [product.tertiaryMetricLabel, formatMetric(product.tertiaryMetricLabel, quote.tertiaryMetric, product.code)],
+              // The third metric is the term for every product; the other two are money.
+              [product.primaryMetricLabel, formatZAR(quote.primaryMetric)],
+              [product.secondaryMetricLabel, formatZAR(quote.secondaryMetric)],
+              [product.tertiaryMetricLabel, termText(tp, product, quote.tertiaryMetric)],
             ].map(([label, value]) => (
               <div key={label} className="flex items-center justify-between border border-white/10 bg-black/16 px-3 py-3">
                 <span className="text-xs uppercase tracking-[0.14em] text-white/42">{label}</span>
@@ -297,26 +299,26 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
               Disclose the higher first payment here too. */}
           {isCompact && product.code === "personal" && (
             <p className="mt-3 text-xs leading-5 text-white/50">
-              Your first payment is{" "}
-              <span className="font-semibold text-white/72">{formatZAR(quote.schedule[0]?.totalDue ?? 0)}</span>{" "}
-              — it includes the once-off initiation fee; later months are about{" "}
-              {formatZAR(quote.primaryMetric)}.
+              {richText(
+                t("firstPaymentNote", { first: formatZAR(quote.schedule[0]?.totalDue ?? 0), later: formatZAR(quote.primaryMetric) }),
+                { b: (chunk) => <span className="font-semibold text-white/72">{chunk}</span> },
+              )}
             </p>
           )}
 
           {!isCompact && (
             <div className="mt-4 grid gap-2 text-sm text-white/62">
-              <Row label="Principal" value={formatZAR(quote.amount)} />
-              <Row label="Interest estimate" value={formatZAR(quote.totalInterest)} />
-              <Row label="Initiation estimate" value={formatZAR(quote.initiationFee)} />
-              <Row label="Service fees" value={formatZAR(quote.serviceFees)} />
+              <Row label={t("principal")} value={formatZAR(quote.amount)} />
+              <Row label={t("interestEstimate")} value={formatZAR(quote.totalInterest)} />
+              <Row label={t("initiationEstimate")} value={formatZAR(quote.initiationFee)} />
+              <Row label={t("serviceFees")} value={formatZAR(quote.serviceFees)} />
               {product.code === "personal" && (
                 <Row
-                  label="First payment (incl. initiation)"
+                  label={t("firstPayment")}
                   value={formatZAR(quote.schedule[0]?.totalDue ?? 0)}
                 />
               )}
-              <Row label="Total repayable" value={formatZAR(quote.totalRepayable)} strong />
+              <Row label={t("totalRepayable")} value={formatZAR(quote.totalRepayable)} strong />
             </div>
           )}
 

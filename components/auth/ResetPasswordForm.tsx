@@ -8,7 +8,15 @@ import { Input } from "@/components/ui/input"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { CheckCircle, XCircle, Eye, EyeOff } from "lucide-react"
 
-function ResetForm({ brandName }: { brandName: string }) {
+type ResetFormProps = {
+  brandName: string
+  /** Where "go to login" leads; the operator console has its own sign-in page. */
+  loginHref?: string
+  /** Where to ask for a new link; null where there is no self-service reset (operator users). */
+  requestNewHref?: string | null
+}
+
+function ResetForm({ brandName, loginHref = "/login", requestNewHref = "/forgot-password" }: ResetFormProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const token = searchParams.get("token") ?? ""
@@ -46,7 +54,7 @@ function ResetForm({ brandName }: { brandName: string }) {
       const d = await res.json() as { ok?: boolean; error?: string }
       if (d.ok) {
         setState("success")
-        setTimeout(() => router.push("/login"), 3000)
+        setTimeout(() => router.push(loginHref), 3000)
       } else {
         setError(d.error ?? "Something went wrong")
       }
@@ -85,9 +93,11 @@ function ResetForm({ brandName }: { brandName: string }) {
               </div>
               <h2 className="text-lg font-bold text-gray-900 mb-2">Link expired or invalid</h2>
               <p className="text-sm text-gray-500 mb-6">This reset link has expired or has already been used. Please request a new one.</p>
-              <Link href="/forgot-password" className="inline-block px-5 py-2 bg-[var(--cf-brand)] text-[var(--cf-on-brand)] rounded-lg text-sm font-semibold hover:bg-[var(--cf-brand-alt)]">
-                Request New Link
-              </Link>
+              {requestNewHref ? (
+                <Link href={requestNewHref} className="inline-block px-5 py-2 bg-[var(--cf-brand)] text-[var(--cf-on-brand)] rounded-lg text-sm font-semibold hover:bg-[var(--cf-brand-alt)]">
+                  Request New Link
+                </Link>
+              ) : null}
             </div>
           )}
 
@@ -166,7 +176,7 @@ function ResetForm({ brandName }: { brandName: string }) {
               </div>
               <h2 className="text-lg font-bold text-gray-900 mb-2">Password updated!</h2>
               <p className="text-sm text-gray-500 mb-4">Your password has been changed. Redirecting you to login…</p>
-              <Link href="/login" className="text-sm text-[var(--cf-brand-alt)] font-semibold hover:underline">Go to login now →</Link>
+              <Link href={loginHref} className="text-sm text-[var(--cf-brand-alt)] font-semibold hover:underline">Go to login now →</Link>
             </div>
           )}
         </div>
@@ -176,6 +186,6 @@ function ResetForm({ brandName }: { brandName: string }) {
 }
 
 /** `brandName` is `getLenderBrandName` of the resolved tenant. */
-export default function ResetPasswordForm({ brandName }: { brandName: string }) {
-  return <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-400 text-sm">Loading…</div>}><ResetForm brandName={brandName} /></Suspense>
+export default function ResetPasswordForm(props: ResetFormProps) {
+  return <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-400 text-sm">Loading…</div>}><ResetForm {...props} /></Suspense>
 }

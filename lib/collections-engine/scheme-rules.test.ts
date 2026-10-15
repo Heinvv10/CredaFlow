@@ -1,0 +1,169 @@
+import { describe, expect, it } from "vitest"
+import {
+  CONSECUTIVE_NPF_LIMIT,
+  MAX_PRESENTMENTS_PER_CYCLE,
+  capPerActionDate,
+  onePerInstructionOutcome,
+  submitBackoffMs,
+  consecutiveNpf,
+  nextPresentmentNo,
+  suspensionReason,
+  validateMandateTerms,
+  type ResultFact,
+} from "./scheme-rules"
+
+const npf = (day: string): ResultFact => ({ outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: new Date(`${day}T08:00:00Z`) })
+const paid = (day: string): ResultFact => ({ outcome: "PAID", reasonCode: null, resolvedAt: new Date(`${day}T08:00:00Z`) })
+
+describe("scheme constants", () => {
+  it("caps presentments at two per instalment per cycle and suspends after two consecutive NPFs", () => {
+    expect(MAX_PRESENTMENTS_PER_CYCLE).toBe(2)
+    expect(CONSECUTIVE_NPF_LIMIT).toBe(2)
+  })
+})
+
+describe("consecutiveNpf", () => {
+  it("counts the unbroken run of insufficient-funds unpaids, newest first, whatever the input order", () => {
+    expect(consecutiveNpf([npf("2026-10-26"), paid("2026-09-25"), npf("2026-11-25")])).toBe(2)
+  })
+
+  it("is reset by a paid collection", () => {
+    expect(consecutiveNpf([npf("2026-09-25"), npf("2026-10-26"), paid("2026-11-25")])).toBe(0)
+  })
+
+  it("does not count an unpaid for another reason as an NPF, and that unpaid breaks the run", () => {
+    const closed: ResultFact = { outcome: "UNPAID", reasonCode: "UNKNOWN", resolvedAt: new Date("2026-11-25T08:00:00Z") }
+    expect(consecutiveNpf([npf("2026-10-26"), closed])).toBe(0)
+  })
+})
+
+describe("suspensionReason", () => {
+  it("suspends after two consecutive NPFs and not after one", () => {
+    expect(suspensionReason([npf("2026-10-26")])).toBeNull()
+    expect(suspensionReason([npf("2026-10-26"), npf("2026-11-25")])).toMatch(/2 consecutive/)
+  })
+
+  it("suspends at once on a hard-stop reason or a dispute", () => {
+    expect(suspensionReason([{ outcome: "UNPAID", reasonCode: "ACCOUNT_CLOSED", resolvedAt: new Date() }])).toMatch(/ACCOUNT_CLOSED/)
+    expect(suspensionReason([{ outcome: "DISPUTED", reasonCode: "PAYMENT_STOPPED", resolvedAt: new Date() }])).toMatch(/disputed/i)
+  })
+
+  it("does not suspend when the latest collection was paid", () => {
+    expect(suspensionReason([npf("2026-09-25"), paid("2026-10-26")])).toBeNull()
+  })
+})
+
+describe("nextPresentmentNo", () => {
+  it("is 1 for an instalment never presented", () => {
+    expect(nextPresentmentNo([])).toBe(1)
+  })
+
+  it("is 2 after a first presentment came back NPF", () => {
+    expect(nextPresentmentNo([{ presentmentNo: 1, status: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS" }])).toBe(2)
+  })
+
+  it("refuses a third presentment", () => {
+    expect(nextPresentmentNo([
+      { presentmentNo: 1, status: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS" },
+      { presentmentNo: 2, status: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS" },
+    ])).toBeNull()
+  })
+
+  it("never re-presents while one is in flight, after a payment, a dispute or a provider rejection", () => {
+    for (const status of ["PENDING", "SUBMITTING", "SUBMITTED", "PAID", "DISPUTED", "REJECTED"] as const) {
+      expect(nextPresentmentNo([{ presentmentNo: 1, status, reasonCode: null }])).toBeNull()
+    }
+  })
+
+  it("never re-presents after a hard-stop unpaid", () => {
+    expect(nextPresentmentNo([{ presentmentNo: 1, status: "UNPAID", reasonCode: "ACCOUNT_CLOSED" }])).toBeNull()
+  })
+
+  it("ignores a cancelled instruction: it never reached the bank", () => {
+    expect(nextPresentmentNo([{ presentmentNo: 1, status: "CANCELLED", reasonCode: null }])).toBe(1)
+  })
+})
+
+describe("validateMandateTerms", () => {
+  const ok = { amountCents: 100_000, maxAmountCents: 150_000, debitDay: 25, trackingDays: 3 }
+  it("accepts terms inside the scheme limits", () => {
+    expect(validateMandateTerms(ok)).toBeNull()
+  })
+
+  it.each([
+    [{ trackingDays: 0 }, /tracking/i],
+    [{ trackingDays: 11 }, /tracking/i],
+    [{ debitDay: 0 }, /debit day/i],
+    [{ debitDay: 32 }, /debit day/i],
+    [{ amountCents: 0 }, /amount/i],
+    [{ maxAmountCents: 99_999 }, /maximum/i],
+    [{ maxAmountCents: 150_001 }, /1\.5/],
+    [{ amountCents: 100_000.5 }, /amount/i],
+  ])("refuses %o", (patch, message) => {
+    expect(validateMandateTerms({ ...ok, ...patch })).toMatch(message)
+  })
+})
+
+describe("round-1 rules", () => {
+  it("suspends on a dispute even when a later collection was paid", () => {
+    const dispute: ResultFact = { outcome: "DISPUTED", reasonCode: "PAYMENT_STOPPED", resolvedAt: new Date("2026-10-01T00:00:00Z") }
+    expect(suspensionReason([dispute, paid("2026-11-25")])).toMatch(/disputed/i)
+  })
+
+  it("does not present an instalment again while its fate is unknown or it awaits a load report", () => {
+    for (const status of ["UPLOADED", "NEEDS_REVIEW"] as const) {
+      expect(nextPresentmentNo([{ presentmentNo: 1, status, reasonCode: null }])).toBeNull()
+    }
+  })
+
+  it("caps one mandate's debits on one date at its maximum", () => {
+    expect(capPerActionDate(150_000, 0, 100_000)).toBe(100_000)
+    expect(capPerActionDate(150_000, 100_000, 100_000)).toBe(50_000)
+    expect(capPerActionDate(150_000, 150_000, 100_000)).toBe(0)
+    expect(capPerActionDate(150_000, 160_000, 100_000)).toBe(0)
+  })
+
+  it("doubles the retry delay per failed submission", () => {
+    expect([1, 2, 3].map(submitBackoffMs)).toEqual([3_600_000, 7_200_000, 14_400_000])
+  })
+})
+
+describe("onePerInstructionOutcome", () => {
+  const on = (d: string) => new Date(`${d}T00:00:00Z`)
+  it("keeps one fact per instruction and outcome (the earliest), so a repeated report is not a second NPF", () => {
+    const facts = onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "PAID", reasonCode: null, resolvedAt: on("2026-10-28") },
+      { instructionId: "b", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-11-25") },
+    ])
+    expect(facts.map((f) => [f.outcome, f.resolvedAt.toISOString().slice(0, 10)])).toEqual([
+      ["UNPAID", "2026-10-26"], ["PAID", "2026-10-28"], ["UNPAID", "2026-11-25"],
+    ])
+  })
+
+  it("makes two NPF reports for one debit a streak of one", () => {
+    expect(consecutiveNpf(onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
+    ]))).toBe(1)
+  })
+
+  it("keeps the most severe reason an instruction was reported with: a hard stop wins over an NPF", () => {
+    const [fact] = onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "ACCOUNT_CLOSED", resolvedAt: on("2026-10-27") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "UNKNOWN", resolvedAt: on("2026-10-28") },
+    ])
+    expect(fact).toEqual({ outcome: "UNPAID", reasonCode: "ACCOUNT_CLOSED", resolvedAt: on("2026-10-26") })
+    expect(suspensionReason([fact])).toMatch(/ACCOUNT_CLOSED/)
+  })
+
+  it("prefers an NPF reason over an unknown one, so the streak still counts it", () => {
+    const [fact] = onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "UNKNOWN", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
+    ])
+    expect(fact.reasonCode).toBe("INSUFFICIENT_FUNDS")
+  })
+})

@@ -26,7 +26,10 @@ import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
+import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
+import { loadPayoutView } from "@/lib/payouts/view"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -100,9 +103,11 @@ export default async function LoanDetailPage(
   const canManageCharges = session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false
   const initials = getInitials(loan.client.firstName, loan.client.lastName)
   const avatarColor = getAvatarColor(loan.client.firstName + loan.client.lastName)
-  const nextPayment = loan.repaymentSchedule.find(s => s.status === "PENDING" || s.status === "PARTIAL")
+  // A CANCELLED loan (reversed disbursement) has no next payment.
+  const nextPayment = loan.status === "CANCELLED" ? undefined : loan.repaymentSchedule.find(s => s.status === "PENDING" || s.status === "PARTIAL")
   const dunningEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
   const section129Availability = await getSection129IssuanceAvailability(tenantId, loan.id)
+  const payout = await loadPayoutView(tenantId, loan.id, loan.status)
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -188,6 +193,8 @@ export default async function LoanDetailPage(
               </div>
             </div>
           </DataPanel>
+
+          {payout && <PayoutStatusPanel view={payout} canAct={canManageCharges} />}
 
           <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={loan.status === "ACTIVE"} />
         </div>
@@ -301,6 +308,8 @@ export default async function LoanDetailPage(
               />
             </DataPanel>
           )}
+
+          <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
 
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (

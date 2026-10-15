@@ -210,7 +210,7 @@ describe("buildRequestPayload", () => {
 
 describe("getCreditReport (dry-run under NODE_ENV=test)", () => {
   it("returns an in-band SigmaScore for valid input", async () => {
-    const r = await getCreditReport(base())
+    const r = await getCreditReport(base(), "t1")
     expect(r.ok).toBe(true)
     expect(r.score).toBeGreaterThanOrEqual(SIGMA_SCORE_MIN)
     expect(r.score).toBeLessThanOrEqual(SIGMA_SCORE_MAX)
@@ -222,7 +222,7 @@ describe("getCreditReport (dry-run under NODE_ENV=test)", () => {
   })
 
   it("short-circuits invalid input without hitting the network", async () => {
-    const r = await getCreditReport(base({ clientConsent: "N" }))
+    const r = await getCreditReport(base({ clientConsent: "N" }), "t1")
     expect(r).toMatchObject({ ok: false, errorCode: "NS_208", errorClass: "CONSENT" })
   })
 })

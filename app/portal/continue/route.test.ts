@@ -19,7 +19,23 @@ vi.mock("@/lib/rate-limit", () => ({
   callerIp: () => "127.0.0.1",
 }))
 
+const portal = vi.hoisted(() => ({ enabled: true }))
+vi.mock("@/lib/portal/portal-policy", () => ({ isPortalEnabled: async () => portal.enabled }))
+
 import { GET } from "./route"
+
+describe("GET /portal/continue — lender portal switched off", () => {
+  it("sends everyone to the portal sign-in page (which explains) without looking the account up", async () => {
+    vi.clearAllMocks()
+    checkRateLimitMock.mockReturnValue({ allowed: true, retryAfterSeconds: 0 })
+    getTenantFromRequestMock.mockResolvedValue({ id: "t1" })
+    portal.enabled = false
+    const res = await GET(new NextRequest("https://portal.acme-lending.example/portal/continue?email=a@b.com&reference=REF1"))
+    portal.enabled = true
+    expect(res.headers.get("location")).toBe("/portal/login")
+    expect(findFirstClientMock).not.toHaveBeenCalled()
+  })
+})
 
 const LOGIN = "/portal/login?callbackUrl=%2Fportal%2Fapplications"
 

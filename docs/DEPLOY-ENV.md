@@ -32,14 +32,19 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 
 **Per integration** (all optional until the feature is used)
 
+Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_KEY` (`lib/integrations/tenant-credentials.ts`). The Stitch, SmileIdentity and Experian credential variables below are a fallback for a dedicated deployment: they serve only the tenant `ENV_CREDENTIALS_TENANT_SLUG` names, and no one while it is unset; a shared platform leaves it unset and sets each lender's credentials on its TenantConfig instead.
+
 | Feature | Variables |
 |---|---|
 | Payments (Stitch) | `STITCH_CLIENT_ID`, `STITCH_CLIENT_SECRET`, `STITCH_WEBHOOK_SECRET`, `STITCH_BENEFICIARY_NAME`, `STITCH_BANK_ID`, `STITCH_BANK_NAME`, `STITCH_ACCOUNT_NUMBER`, `STITCH_ACCOUNT_TYPE`, `STITCH_BRANCH_CODE` |
 | Debit mandates | `DEBIT_MANDATE_CREDITOR_BANK_NAME`, `_ACCOUNT_NUMBER`, `_BRANCH_CODE` (real, printed on every mandate; placeholders are refused), `DEBIT_MANDATE_CREDITOR_TENANT_ID` (must equal the tenant id; provision sets it) |
 | KYC (SmileIdentity) | `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY`, `SMILE_IDENTITY_ENV` (`production` or `test`), `SMILE_DRY_RUN` |
 | Face match | `FACE_MODEL_DIR`, `FACE_SIMILARITY_THRESHOLD`, `FACE_MODEL_LOAD_TIMEOUT_MS`, `FACE_COMPARISON_TIMEOUT_MS` (models are in the image) |
-| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD`, `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings. Enquiry order, freshness window and other bureaus' credentials (sealed with `WABA_ENC_KEY`) are `TenantConfig` columns (`lib/bureau/`) |
+| Bureaus | `EXPERIAN_USERNAME`, `EXPERIAN_PASSWORD` (fallback for `TenantConfig.experianKey`, owner tenant only), `EXPERIAN_BASE_URL`, `EXPERIAN_ENV`, `EXPERIAN_ORIGINATING_APP`, `EXPERIAN_TIMEOUT_MS`; TransUnion, BulkSMS and Netcash keys are `TenantConfig` columns set in Settings. Enquiry order, freshness window and other bureaus' credentials (sealed with `WABA_ENC_KEY`) are `TenantConfig` columns (`lib/bureau/`) |
+| Accounting / payouts | Xero: `XERO_CLIENT_ID`, `XERO_REDIRECT_URI` (`https://<staff host>/api/integrations/xero/callback`), optional `XERO_CLIENT_SECRET`, `XERO_SCOPES`; tokens sealed with `WABA_ENC_KEY`. Payout channel and flag are `TenantConfig` columns set in Settings > Integrations (`lib/payouts/`); `SIMULATED_PAYOUT_WEBHOOK_SECRET` signs the simulated provider's webhooks |
 | Bureau submission | `BUREAU_SUBMISSION_MODE`; `BUREAU_SUBMISSION_TEST_OUTBOX` (absolute directory for TEST files, refused on `NODE_ENV=production`) |
+| Env credential owner | `ENV_CREDENTIALS_TENANT_SLUG` (slug of the one tenant the Stitch/SmileIdentity/Experian variables belong to; `provision-lender.sh` sets it to the stack's lender; unset = no env fallback, logged once and shown to operators on `/api/health`; never reuse the owner's slug for another tenant, see `docs/DEPLOY.md`) |
+| Row-level security | `TENANT_RLS` (`on` turns on the tenant query hook, `lib/tenant-rls.ts`; leave it off while the app connects as a superuser, see the activation checklist in `docs/ARCHITECTURE.md`) |
 | Dry-run switches | `EXPERIAN_DRY_RUN`, `TRANSUNION_DRY_RUN`, `NETCASH_DRY_RUN`, `NETCASH_COLLECTIONS_DRY_RUN`, `BULKSMS_DRY_RUN` (SMS is off by policy), `WA_DRY_RUN`, `SIMULATED_INTEGRATIONS`. On `NODE_ENV=production` a dry-run for a financial or credit provider throws unless declared a sandbox (`lib/integrations/simulation-guard.ts`) |
 | Email | primary: Settings > Email, stored sealed with `WABA_ENC_KEY`. Fallback: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`. Delivery guard: `EMAIL_DELIVERY_MODE` (default restricted to an allowlist; `unrestricted` on production only), `EMAIL_RECIPIENT_ALLOWLIST`, `EMAIL_INTERNAL_DOMAINS`, `EMAIL_INBOUND_ALLOWED_HOSTS` |
 | WhatsApp Cloud | `WHATSAPP_CLOUD_APP_SECRET`, `WHATSAPP_CLOUD_VERIFY_TOKEN` (generated), `WHATSAPP_GRAPH_VERSION`, `NEXT_PUBLIC_META_APP_ID`, `NEXT_PUBLIC_META_ES_CONFIG_ID` |
@@ -49,6 +54,7 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | Bot protection | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (build), `TURNSTILE_SECRET_KEY` |
 | Document OCR | `VLM_API_URL`, `VLM_MODEL` |
 | Links | `NEXT_PUBLIC_PORTAL_LOGIN_URL` or `NEXT_PUBLIC_PORTAL_URL` (build; portal links are omitted or refused without), `NEXT_PUBLIC_PORTAL_ORIGIN`, `PORTAL_PUBLIC_ORIGIN`, `NEXT_PUBLIC_WEBSITE_URL`, `NEXT_PUBLIC_APP_URL`, `STAFF_APP_HOST`, `TENANT_HOST_MAP` |
+| Operator console | `OPERATOR_APP_HOST` (the one host that serves `/operator` and takes operator sign-ins; it serves nothing else, and links to it reuse `NEXTAUTH_URL`'s scheme and port; unset = no operator sign-in anywhere). Invites and reset links the console sends use `SMTP_*`; unset, nothing is sent and the console says so. Every console write must be same-origin: the app compares the browser's `Origin` with the request's `Host`, so the reverse proxy must pass the original Host unchanged (nginx `proxy_set_header Host $host;`, not `$proxy_host`, and no explicit `:443`), or every console write is refused 403 |
 | Insurance | `CREDIT_LIFE_AUTO_BUNDLE_ENABLED`, `CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS`, `FSP_QUICKQUOTE_*`, `DOCUMENT_SIGNUM_ENABLED` |
 | Analytics | `NEXT_PUBLIC_MATOMO_URL`, `_MATOMO_SITE_ID`, `_MATOMO_BLOCKED_HOSTS`, `NEXT_PUBLIC_GTM_ID`, `NEXT_PUBLIC_POSTHOG_KEY`, `_POSTHOG_HOST` (all build-time) |
 | Demo only, leave unset | `DEMO_MODE` and friends, `TURNSTILE_DEV_BYPASS` |

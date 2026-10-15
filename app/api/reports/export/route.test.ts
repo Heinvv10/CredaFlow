@@ -16,6 +16,7 @@ const getNcrReturnDataMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
 const policyFindManyMock = vi.fn()
 const complaintFindManyMock = vi.fn()
+const scheduleFindManyMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: (role: string) => requireApiRoleMock(role),
@@ -44,6 +45,9 @@ vi.mock("@/lib/prisma", () => ({
     complaint: {
       findMany: (args: unknown) => complaintFindManyMock(args),
     },
+    branch: { findMany: async () => [] },
+    repaymentSchedule: { findMany: (args: unknown) => scheduleFindManyMock(args) },
+    payment: { findMany: async () => [] },
     auditLog: {
       findMany: (args: unknown) => auditFindManyMock(args),
     },
@@ -676,5 +680,21 @@ describe("GET reports export — NCA regime", () => {
     const header = (sheet?.getRow(1).values ?? []) as unknown[]
     expect(sheet?.getRow(2).getCell(header.indexOf("Regime")).value).toBe("NON_NCA")
     expect(sheet?.getRow(2).getCell(header.indexOf("Client")).value).toBe("TEST Plant Hire (Pty) Ltd")
+  })
+})
+
+describe("GET reports export — branch reconciliation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    loanFindManyMock.mockResolvedValue([])
+    scheduleFindManyMock.mockResolvedValue([])
+  })
+
+  it("leaves a reversed loan's CANCELLED instalments out of expected collections, and keeps written-off ones", async () => {
+    await GET(request("type=reconciliation"))
+    expect(scheduleFindManyMock).toHaveBeenCalledTimes(1)
+    expect(scheduleFindManyMock.mock.calls[0][0].where.status).toEqual({ not: "CANCELLED" })
   })
 })

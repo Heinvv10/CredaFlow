@@ -48,6 +48,7 @@ import {
 } from "@/lib/kyc/override-policy"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { expireAndListPendingKycOverrideRequests } from "@/lib/kyc/override-requests"
+import { verificationRestorable } from "@/lib/kyc/verification-restorable"
 
 async function getClient(id: string, tenantId: string) {
   return prisma.client.findUnique({
@@ -452,6 +453,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 kycStatus={client.kycStatus}
                 manualExceptionActive={compositeKyc.manualExceptionActive}
                 substituteKind={compositeKyc.substituteKind}
+                verificationRestorable={verificationRestorable(client.kycStatus, compositeKyc)}
                 selfieAlternatives={selfieAlternatives}
                 signedAgreementReturn={signedAgreementReturn}
               />

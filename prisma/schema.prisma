@@ -17,6 +17,11 @@ model User {
   active                       Boolean                               @default(true)
   tenantId                     String?
   tenant                       Tenant?                               @relation(fields: [tenantId], references: [id])
+  // Operator staff (OPERATOR_ADMIN / OPERATOR_SUPPORT) are bound to an
+  // operator, never to a tenant: a CHECK constraint keeps the two exclusive
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId                   String?
+  operator                     Operator?                             @relation(fields: [operatorId], references: [id])
   branchId                     String?
   branch                       Branch?                               @relation(fields: [branchId], references: [id])
   totpSecret                   String?
@@ -94,12 +99,58 @@ model User {
   apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
   webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
   webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
+  supportGrantsHeld            TenantSupportGrant[]                  @relation("SupportGrantOperatorUser")
+  supportGrantsGiven           TenantSupportGrant[]                  @relation("SupportGrantGrantedBy")
+  supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
+  debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
+  collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
 
   @@unique([tenantId, id])
+  @@index([operatorId])
+}
+
+// The platform operator above the lenders (tenants). CredaFlow is the root
+// operator; a reseller is another. Operator staff manage lenders but see no
+// borrower data unless a lender grants it (TenantSupportGrant, lib/operator/).
+model Operator {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  tenants   Tenant[]
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Time-boxed support access a lender's ADMIN/SUPER_ADMIN grants to one
+// operator user. Read-only (lib/operator/tenant-access.ts). The database caps
+// the window at 7 days from creation; every grant, revoke and use is audited.
+model TenantSupportGrant {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  operatorUserId String
+  operatorUser   User      @relation("SupportGrantOperatorUser", fields: [operatorUserId], references: [id])
+  grantedById    String
+  // Granter and revoker are bound to the tenant by compound key: a grant can
+  // only come from that lender's own staff.
+  grantedBy      User      @relation("SupportGrantGrantedBy", fields: [tenantId, grantedById], references: [tenantId, id])
+  reason         String
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedById    String?
+  revokedBy      User?     @relation("SupportGrantRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id])
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId, operatorUserId, expiresAt])
 }
 
 model Tenant {
   id                         String                      @id @default(cuid())
+  // Defaults to the root operator; nullable only so existing rows could be backfilled
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId                 String?                     @default("cf_root_operator")
+  operator                   Operator?                   @relation(fields: [operatorId], references: [id])
   slug                       String                      @unique
   name                       String
   domain                     String?                     @unique
@@ -199,6 +250,7 @@ model Tenant {
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  supportGrants              TenantSupportGrant[]
   screeningChecks            ScreeningCheck[]
   cashThresholdReports       CashThresholdReport[]
   suspiciousReportCases      SuspiciousReportCase[]
@@ -210,12 +262,25 @@ model Tenant {
   webhookEndpoints           WebhookEndpoint[]
   webhookEvents              WebhookEvent[]
   webhookDeliveries          WebhookDelivery[]
+  signingOtpChallenges       SigningOtpChallenge[]
+  debitMandates              DebitMandate[]
+  collectionBatches          CollectionBatch[]
+  collectionInstructions     CollectionInstruction[]
+  collectionResults          CollectionResult[]
+  // W6 accounting export + payout channels (block at the end of this file)
+  accountingAccountMappings  AccountingAccountMapping[]
+  accountingExportBatches    AccountingExportBatch[]
+  xeroConnection             XeroConnection?
+  disbursementPayouts        DisbursementPayout[]
+  accountingSettings         AccountingSettings?
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
   // captured in writing. See spec §Launch-blockers LB3, LB7.
   insuranceCrossSellS69OpinionReceived Boolean @default(false)
   softOptInClosedLoanTailEnabled       Boolean @default(false)
+
+  @@index([operatorId])
 }
 
 enum TenantStatus {
@@ -284,10 +349,24 @@ model TenantConfig {
   ncrStatus                 String? // Registered | Suspended | Cancelled | Deregistered
   headOfficeCity            String?
 
-  netcashKey       String?
-  bulkSmsKey       String?
-  transunionKey    String?
-  smileIdentityKey String?
+  // Provider credentials. Every *Key / *Secret column below holds a value
+  // sealed by lib/crypto/secret-box.ts (enc:v1:…); lib/integrations/
+  // tenant-credentials.ts is the only reader and writer. Pairs are stored as
+  // "id:secret" (bulkSms user:password, transunion clientId:clientSecret,
+  // smileIdentity partnerId:apiKey, experian username:password, stitch
+  // clientId:clientSecret).
+  netcashKey            String?
+  bulkSmsKey            String?
+  transunionKey         String?
+  smileIdentityKey      String?
+  experianKey           String?
+  stitchKey             String?
+  stitchWebhookSecret   String?
+  // The lender's own collection account Stitch pays into. Not secret.
+  stitchBeneficiaryName String?
+  stitchBankId          String?
+  stitchAccountNumber   String?
+  stitchBranchCode      String?
 
   informationOfficerUserId String?
 
@@ -335,6 +414,20 @@ model TenantConfig {
   // Maker-checker for screening decisions, STR decisions and RMCP approvals
   // (the database triggers read it). Changed only by a SUPER_ADMIN with TOTP.
   requireSecondReviewer  Boolean  @default(true)
+  // Borrower signing OTP (lib/signing-otp). Portal signing of the agreement,
+  // debit mandate and other documents needs a verified one-time code when
+  // requireSigningOtp is on; branch signing (staff present) is exempt while
+  // signingOtpBranchExempt is on.
+  requireSigningOtp      Boolean  @default(true)
+  signingOtpBranchExempt Boolean  @default(true)
+  // Portal self-registration (app/api/portal/register). Off refuses new
+  // activations; clients who already activated are unaffected.
+  allowNewRegistrations  Boolean  @default(true)
+  // Staff access restrictions (lib/security/staff-access-policy.ts). Hours:
+  // null = any time, else per-weekday SAST windows. Allowlist: empty = any
+  // address, else CIDR blocks the staff caller's IP must fall in.
+  staffAccessHours       Json?
+  staffIpAllowlist       String[] @default([])
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -343,7 +436,23 @@ model TenantConfig {
   netcashDebitOrderKey     String? // Netcash per-service keys (collections
   netcashRiskReportsKey    String? // + AVS); distinct from netcashKey (payouts)
 
+  // W6 payout channels (lib/payouts). Off = the disburse route behaves exactly
+  // as before: it records the payout and calls no provider.
+  payoutsEngineEnabled Boolean @default(false)
+  payoutProvider       String? // lib/payouts/registry.ts provider id
+
   ndiBufferPct Int @default(110)
+
+  // Languages the borrower-facing surfaces (website, portal, comms) may use
+  // (lib/i18n). English only by default: the other catalogues are machine
+  // drafts until a native speaker has reviewed them for this lender. Always
+  // contains "en" (the admin API refuses a list without it).
+  enabledLanguages String[] @default(["en"])
+  // Per language, the acknowledgement that a native speaker reviewed its
+  // catalogue: { "<locale>": { reviewer, acknowledgedAt, acknowledgedById,
+  // acknowledgedByEmail } } (lib/i18n/language-reviews.ts). Enabling af/zu/xh
+  // requires one, and a language without one is not served.
+  languageReviews  Json     @default("{}")
 
   referralCommissionBps Int @default(0) // agent commission rate, basis points (200 = 2.00%); 0 = off
 
@@ -379,6 +488,10 @@ enum UserRole {
   INSURANCE_OFFICER
   BRANCH_MANAGER
   READONLY
+  // Operator staff: bound to an Operator, never a tenant. Outside
+  // ROLE_HIERARCHY on purpose, so no tenant role gate admits them.
+  OPERATOR_ADMIN
+  OPERATOR_SUPPORT
 }
 
 model LoginLog {
@@ -456,14 +569,14 @@ model Client {
   tenantId                           String
   tenant                             Tenant                   @relation(fields: [tenantId], references: [id])
   reference                          String                   @unique @default(cuid())
-  idNumber                           String                   @unique
+  idNumber                           String
   branchId                           String?
   branch                             Branch?                  @relation(fields: [branchId], references: [id])
   firstName                          String
   lastName                           String
   dateOfBirth                        DateTime?
   gender                             Gender?
-  email                              String                   @unique
+  email                              String
   phone                              String
   whatsapp                           String?
   addressLine1                       String?
@@ -518,6 +631,10 @@ model Client {
   riskFlaggedById                    String?
   creditScore                        Int?
   portalPassword                     String?
+  // Borrower-facing language (lib/i18n/locales.ts: en | af | zu | xh). Null =
+  // never chosen: the portal follows the browser, comms go out in English.
+  // Written only by the portal language switcher (app/actions/locale.ts).
+  preferredLanguage                  String?
   createdAt                          DateTime                 @default(now())
   updatedAt                          DateTime                 @updatedAt
   applications                       LoanApplication[]
@@ -551,8 +668,13 @@ model Client {
   screeningChecks                    ScreeningCheck[]
   screeningBlocks                    ScreeningBlock[]
   suspiciousReportCases              SuspiciousReportCase[]
+  signingOtpChallenges               SigningOtpChallenge[]
+  debitMandates                      DebitMandate[]
 
   @@unique([tenantId, id])
+  // Borrowers are per lender: the same person may be a client of two lenders.
+  @@unique([tenantId, idNumber])
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@index([tenantId, referralCodeId])
 }
@@ -1789,6 +1911,9 @@ model Loan {
   contractRates               ContractRate[]
   taxInvoices                 TaxInvoice[]
   surrenderRequests           SurrenderRequest[]
+  disbursementPayouts         DisbursementPayout[]
+  disbursementReversals       DisbursementReversal[]
+  payoutRecoveryCases         PayoutRecoveryCase[]
   leaseRentals                LeaseRental[]
   maintenanceFund             MaintenanceFund?
   meterReadings               AssetMeterReading[]
@@ -1796,6 +1921,8 @@ model Loan {
   leaseExpiryNotice           LeaseExpiryNotice?
   leaseTerminationQuotes      LeaseTerminationQuote[]
   suspiciousReportCases       SuspiciousReportCase[]
+  debitMandates               DebitMandate[]
+  collectionInstructions      CollectionInstruction[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1972,9 +2099,9 @@ model AvsCheck {
 }
 
 model RepaymentSchedule {
-  id                              String                 @id @default(cuid())
+  id                              String                  @id @default(cuid())
   tenantId                        String
-  tenant                          Tenant                 @relation(fields: [tenantId], references: [id])
+  tenant                          Tenant                  @relation(fields: [tenantId], references: [id])
   loanId                          String
   installmentNo                   Int
   dueDate                         DateTime
@@ -1983,16 +2110,17 @@ model RepaymentSchedule {
   // Opening capital at the last asset-finance solve. Preserved when a paid
   // row is reopened, so a later reprice can reconstruct its historical accrual.
   assetFinanceOpeningBalanceCents Int?
-  creditLifePremiumDue            Int                    @default(0)
+  creditLifePremiumDue            Int                     @default(0)
   feesDue                         Int
   totalDue                        Int
-  totalPaid                       Int                    @default(0)
-  status                          ScheduleStatus         @default(PENDING)
+  totalPaid                       Int                     @default(0)
+  status                          ScheduleStatus          @default(PENDING)
   paidAt                          DateTime?
-  loan                            Loan                   @relation(fields: [loanId], references: [id])
+  loan                            Loan                    @relation(fields: [loanId], references: [id])
   leaseRental                     LeaseRental?
-  leaseEndOfTermCharge            LeaseEndOfTerm?        @relation("LeaseEndOfTermCharge")
-  leaseTerminationCharge          LeaseTerminationQuote? @relation("LeaseTerminationCharge")
+  leaseEndOfTermCharge            LeaseEndOfTerm?         @relation("LeaseEndOfTermCharge")
+  leaseTerminationCharge          LeaseTerminationQuote?  @relation("LeaseTerminationCharge")
+  collectionInstructions          CollectionInstruction[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -2004,6 +2132,7 @@ enum ScheduleStatus {
   PAID
   OVERDUE
   WRITTEN_OFF
+  CANCELLED
 }
 
 model Payment {
@@ -2053,6 +2182,7 @@ model Payment {
   surrenderProceeds        SurrenderRequest[]      @relation("SurrenderProceedsPayment")
   cashThresholdReport      CashThresholdReport?
   suspiciousReportCases    SuspiciousReportCase[]
+  collectionResults        CollectionResult[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])
@@ -3101,6 +3231,48 @@ model NotificationLog {
   createdAt DateTime @default(now())
 
   @@index([tenantId, messageId])
+}
+
+enum SigningOtpPurpose {
+  AGREEMENT
+  DEBIT_MANDATE
+  DOCUMENT
+  // An asset-finance deal document (DealSigner row): agreement, suretyship,
+  // resolution. subjectId is the DealSigner id.
+  DEAL_DOCUMENT
+}
+
+// One borrower signing OTP (lib/signing-otp). Bound to the client, the thing
+// being signed (subjectId: the application for AGREEMENT / DEBIT_MANDATE, the
+// ClientDocument for DOCUMENT) and the SHA-256 of the exact bytes shown. The
+// code is stored only as a keyed hash. Consumed once, inside the signing
+// transaction; from then on the row is the OTP evidence of that signature and
+// the database refuses to change or delete it.
+model SigningOtpChallenge {
+  id                String            @id @default(cuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  clientId          String
+  client            Client            @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  purpose           SigningOtpPurpose
+  subjectId         String
+  documentSha256    String
+  codeHash          String
+  channel           Channel
+  maskedDestination String
+  deliveryStatus    String // PENDING (before the send) | ACCEPTED | SIMULATED | FAILED
+  sentAt            DateTime?
+  expiresAt         DateTime
+  attempts          Int               @default(0)
+  maxAttempts       Int
+  verifiedAt        DateTime?
+  consumedAt        DateTime?
+  signingMethod     String? // portal | branch, set at consumption
+  requestedByUserId String? // the staff witness for a branch request
+  requestedIp       String?
+  createdAt         DateTime          @default(now())
+
+  @@index([tenantId, clientId, purpose, subjectId, createdAt])
 }
 
 model ClientOtp {
@@ -5152,6 +5324,406 @@ model Payout {
   @@unique([tenantId, dealId])
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// W6 — accounting export (lib/accounting) and payout channels (lib/payouts).
+// Hand-written guards: prisma/migrations/20261015090000_accounting_payouts
+// (closed batches immutable, balance at close, ledger append-only, payout
+// state machine and immutable payout terms).
+// ════════════════════════════════════════════════════════════════════════════
+
+// Per-tenant chart-of-accounts mapping: a journal role (lib/accounting/
+// accounts.ts) to the lender's own account code. A role without a row uses the
+// default code.
+model AccountingAccountMapping {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  role         String
+  accountCode  String
+  accountName  String?
+  taxCode      String?
+  // FEE_INCOME / DEFAULT_FEE_INCOME only: the amounts include VAT, split out
+  // to OUTPUT_VAT when AccountingSettings.vatRegistered.
+  vatInclusive Boolean  @default(false)
+  updatedById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, role])
+}
+
+enum AccountingBatchStatus {
+  OPEN
+  CLOSED
+}
+
+// One month's journals. Generated and closed in one transaction; a CLOSED
+// batch, its entries and its lines never change again (DB-enforced).
+model AccountingExportBatch {
+  id               String                      @id @default(cuid())
+  tenantId         String
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id])
+  periodKey        String // "2026-09", a SAST calendar month
+  periodStart      DateTime
+  periodEnd        DateTime // exclusive
+  status           AccountingBatchStatus       @default(OPEN)
+  entryCount       Int                         @default(0)
+  lineCount        Int                         @default(0)
+  totalDebitCents  BigInt                      @default(0)
+  totalCreditCents BigInt                      @default(0)
+  linesSha256      String?
+  createdById      String
+  createdAt        DateTime                    @default(now())
+  closedAt         DateTime?
+  entries          AccountingLedgerEntry[]
+  lines            AccountingJournalLine[]
+  xeroPush         AccountingXeroPush?
+  openingPositions AccountingOpeningPosition[]
+
+  @@unique([tenantId, periodKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, periodStart])
+}
+
+// The export ledger: one row per money event exported. `eventKey` is unique
+// per tenant, so an event is exported once; `baseKey` names the source row the
+// event belongs to (a later change to that source posts an adjustment).
+model AccountingLedgerEntry {
+  id          String                  @id @default(cuid())
+  tenantId    String
+  batchId     String
+  batch       AccountingExportBatch   @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  eventKey    String
+  baseKey     String
+  eventType   String
+  eventDate   DateTime
+  postingDate String // yyyy-mm-dd (SAST), inside the batch's period
+  loanId      String?
+  reference   String
+  description String
+  lines       AccountingJournalLine[]
+
+  @@unique([tenantId, eventKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, baseKey])
+  @@index([batchId])
+}
+
+model AccountingJournalLine {
+  id          String                @id @default(cuid())
+  tenantId    String
+  batchId     String
+  batch       AccountingExportBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entryId     String
+  entry       AccountingLedgerEntry @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  lineNo      Int
+  role        String
+  accountCode String
+  taxCode     String?
+  // The role the ledger compares this line under when it differs from `role`
+  // (an OUTPUT_VAT line split from FEE_INCOME carries FEE_INCOME here).
+  sourceRole  String?
+  debitCents  Int                   @default(0)
+  creditCents Int                   @default(0)
+
+  @@unique([batchId, lineNo])
+  @@index([entryId])
+}
+
+enum XeroConnectionStatus {
+  PENDING_AUTH
+  SELECT_ORGANISATION
+  CONNECTED
+  DISCONNECTED
+  // A token refresh was refused: an admin must connect again.
+  NEEDS_RECONNECT
+}
+
+// One Xero organisation per tenant (lib/accounting/xero). Tokens and the PKCE
+// verifier are secret-box sealed; nothing here is ever returned to a browser.
+model XeroConnection {
+  id                   String               @id @default(cuid())
+  tenantId             String               @unique
+  tenant               Tenant               @relation(fields: [tenantId], references: [id])
+  status               XeroConnectionStatus
+  authState            String?              @unique
+  authVerifierSealed   String?
+  authStartedAt        DateTime?
+  authStartedById      String?
+  accessTokenSealed    String?
+  refreshTokenSealed   String?
+  accessTokenExpiresAt DateTime?
+  organisations        Json?
+  xeroTenantId         String?
+  xeroTenantName       String?
+  xeroConnectionId     String?
+  connectedById        String?
+  connectedAt          DateTime?
+  disconnectedAt       DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+}
+
+enum AccountingPushStatus {
+  SENDING
+  PUSHED
+  FAILED
+  NEEDS_REVIEW
+}
+
+// A batch pushed to Xero, at most once: the row is the claim taken before the
+// request leaves (unique batchId). An unknown outcome waits for a person.
+model AccountingXeroPush {
+  id                  String                @id @default(cuid())
+  tenantId            String
+  batchId             String                @unique
+  batch               AccountingExportBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status              AccountingPushStatus
+  xeroTenantId        String
+  xeroManualJournalId String?
+  error               String?
+  pushedById          String
+  resolvedById        String?
+  resolutionNote      String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@unique([tenantId, batchId])
+}
+
+enum DisbursementPayoutStatus {
+  PENDING
+  SUBMITTING
+  SUBMITTED
+  PROCESSING
+  PAID
+  FAILED
+  RETURNED
+  NEEDS_REVIEW
+  // A retry attempt waiting for a second LOAN_ADMIN's approval.
+  AWAITING_APPROVAL
+  // A retry attempt rejected before it was ever sent.
+  CANCELLED
+}
+
+// The provider payout of a consumer disbursement (TenantConfig.
+// payoutsEngineEnabled). Created in the disburse transaction, so one per
+// application; claimed PENDING -> SUBMITTING before the provider is called; an
+// unknown outcome becomes NEEDS_REVIEW and is never retried automatically.
+model DisbursementPayout {
+  id                      String                   @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  applicationId           String
+  loanId                  String
+  loan                    Loan                     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // 1 = the payout the disbursement created; a retry of a FAILED/RETURNED
+  // attempt is the next number, keyed disburse:<applicationId>:<attempt>.
+  attempt                 Int                      @default(1)
+  retryOfId               String?
+  // Who disbursed the loan (attempt 1's creator), copied to every attempt so
+  // the maker-checker rules can name them.
+  disbursedById           String
+  requestedById           String?
+  approvedById            String?
+  approvedAt              DateTime?
+  paidAt                  DateTime?
+  returnedAt              DateTime?
+  // A return confirmed by staff at a bank value date (a second person).
+  returnedById            String?
+  returnNote              String?
+  // A provider reported PAID/RETURNED (or PAID_THEN_RETURNED: paid, then
+  // returned) for an attempt already over (FAILED/CANCELLED): recorded, never
+  // applied, and it blocks a retry or a reversal of the loan until a second
+  // person resolves it.
+  providerConflictState   String?
+  providerConflictAt      DateTime?
+  providerConflictDetail  String?
+  // The provider's id and time of the event behind the conflict (time capped
+  // at receipt): a replay never reopens a resolution (lib/payouts/conflicts.ts).
+  providerConflictEventId String?
+  providerConflictEventAt DateTime?
+  conflictResolvedById    String?
+  conflictResolvedAt      DateTime?
+  conflictResolutionNote  String?
+  provider                String
+  idempotencyKey          String
+  amountCents             Int
+  reference               String
+  accountHolder           String
+  bankName                String
+  branchCode              String
+  accountNumber           String
+  accountType             String
+  status                  DisbursementPayoutStatus @default(PENDING)
+  simulated               Boolean                  @default(false)
+  providerReference       String?
+  failureReason           String?
+  submittedAt             DateTime?
+  resolvedAt              DateTime?
+  resolvedById            String?
+  resolutionNote          String?
+  createdById             String
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  recoveryCase            PayoutRecoveryCase?
+  providerEvents          PayoutProviderEvent[]
+  unappliedReports        PayoutUnappliedReport[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([applicationId, attempt])
+  @@index([tenantId, status])
+  @@index([loanId])
+}
+
+enum DisbursementReversalStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+}
+
+// Reversing a disbursement whose money never reached the borrower: requested
+// by one LOAN_ADMIN, decided by another (neither is the disburser), approved
+// only while every payout attempt is FAILED/RETURNED/CANCELLED and no receipt
+// is live. Approval cancels the loan (lib/payouts/reversal.ts).
+model DisbursementReversal {
+  id                      String                     @id @default(cuid())
+  tenantId                String
+  loanId                  String
+  loan                    Loan                       @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status                  DisbursementReversalStatus @default(REQUESTED)
+  reason                  String
+  requestedById           String
+  requestedAt             DateTime                   @default(now())
+  decidedById             String?
+  decidedAt               DateTime?
+  decisionNote            String?
+  // No mandate register on this build: a staff task to cancel the debit
+  // order by hand, open until someone acknowledges it (set once).
+  debitOrderCancelAckAt   DateTime?
+  debitOrderCancelAckById String?
+
+  @@index([tenantId, loanId])
+}
+
+// Each provider event about an attempt already over, kept once per attempt
+// (unique eventId), append-only: an exact redelivery is audited as a
+// duplicate and changes nothing (lib/payouts/conflicts.ts).
+model PayoutProviderEvent {
+  id         String             @id @default(cuid())
+  tenantId   String
+  payoutId   String
+  payout     DisbursementPayout @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  eventId    String
+  state      String
+  eventAt    DateTime?
+  source     String
+  receivedAt DateTime           @default(now())
+
+  @@unique([payoutId, eventId])
+  @@index([tenantId])
+}
+
+// A provider report the system did not apply (stale, dropped, refused by the
+// database): listed on the outstanding-payouts queue until a person
+// acknowledges it, once, with a note (lib/payouts/unapplied-reports.ts).
+model PayoutUnappliedReport {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  payoutId            String
+  payout              DisbursementPayout @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  reported            String
+  outcome             String // stale | dropped | rejected
+  reason              String?
+  eventId             String?
+  source              String
+  createdAt           DateTime           @default(now())
+  acknowledgedAt      DateTime?
+  acknowledgedById    String?
+  acknowledgementNote String?
+
+  @@index([tenantId, acknowledgedAt, createdAt])
+}
+
+enum PayoutRecoveryStatus {
+  OPEN
+  ESCALATED
+  RECOVERED
+  UNRECOVERABLE
+}
+
+// A provider paid out on a loan whose disbursement had already been reversed
+// (lib/payouts/recovery.ts). The loan stays CANCELLED; the money sits in
+// payout clearing until it comes back. One case per payout attempt; the
+// database guard fixes the opening facts and the order OPEN -> ESCALATED ->
+// RECOVERED or UNRECOVERABLE (either also straight from OPEN), each step by
+// someone other than the people who made or approved the payout. RECOVERED
+// is the full amount only; UNRECOVERABLE writes the money off to bad debts.
+model PayoutRecoveryCase {
+  id                   String               @id @default(cuid())
+  tenantId             String
+  loanId               String
+  loan                 Loan                 @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  payoutId             String               @unique
+  payout               DisbursementPayout   @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents          Int
+  // The value date the money left the lender's bank.
+  paidAt               DateTime
+  status               PayoutRecoveryStatus @default(OPEN)
+  openedById           String
+  openNote             String
+  escalatedAt          DateTime?
+  escalatedById        String?
+  escalationNote       String?
+  // The value date the funds came back.
+  recoveredAt          DateTime?
+  recoveredById        String?
+  recoveryNote         String?
+  recoveryReference    String?
+  // The amount staff entered as recovered: always the case's amount.
+  recoveredAmountCents Int?
+  unrecoverableAt      DateTime?
+  unrecoverableById    String?
+  unrecoverableNote    String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, loanId])
+}
+
+// Per-tenant accounting export settings (lib/accounting).
+model AccountingSettings {
+  tenantId             String    @id
+  tenant               Tenant    @relation(fields: [tenantId], references: [id])
+  // The lender reviewed the chart-of-accounts mapping; cleared by any mapping change.
+  mappingConfirmedAt   DateTime?
+  mappingConfirmedById String?
+  // First month the export covers ("yyyy-mm"); history before it posts as one opening entry.
+  goLiveMonth          String?
+  vatRegistered        Boolean   @default(false)
+  vatRateBps           Int       @default(1500)
+  updatedById          String?
+  updatedAt            DateTime  @updatedAt
+}
+
+// Per-source positions carried into the go-live month's opening entry, so
+// later months post only what changes after go-live.
+model AccountingOpeningPosition {
+  id        String                @id @default(cuid())
+  tenantId  String
+  batchId   String
+  batch     AccountingExportBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  baseKey   String
+  loanId    String?
+  reference String
+  role      String
+  cents     Int
+
+  @@index([tenantId, baseKey])
+  @@index([batchId])
+}
+
 enum RentalTiming {
   ADVANCE
   ARREARS
@@ -5616,4 +6188,249 @@ model CronHeartbeat {
   lastSucceededAt DateTime?
   lastStatus      Int?
   lastError       String?
+}
+
+// ── Collections engine (W2) ─────────────────────────────────────────────────
+// DebiCheck / debit-order mandates and collections, provider-agnostic
+// (lib/collections-engine; adapters in lib/integrations/collections). Dark
+// unless TenantConfig.collectionsEngineEnabled. The hard scheme rules are also
+// enforced by migration 20261014150000_collections_engine: the presentment cap
+// per instalment (CHECK + unique, across mandates), one live mandate per loan,
+// the mandate status transitions, instructions only against an ACTIVE mandate,
+// and idempotent result ingestion (unique resultKey). Kept as one block:
+// append, don't interleave.
+
+enum DebitMandateStatus {
+  CREATED
+  /// Claimed by one writer for the provider call (staff create vs cron).
+  SUBMITTING
+  /// Uploaded to a file-based rail; awaiting its registration / load report.
+  PENDING_REGISTRATION
+  PENDING_AUTH
+  ACTIVE
+  REJECTED
+  EXPIRED
+  SUSPENDED
+  CANCELLED
+}
+
+enum DebitMandateAuthType {
+  TT1
+  TT1_DELAYED
+  TT2
+}
+
+enum DebitMandateFrequency {
+  ONCE_OFF
+  MONTHLY
+}
+
+/// DebiCheck amount-adjustment category agreed with the debtor.
+enum DebitMandateAdjustment {
+  NEVER
+  QUARTERLY
+  BIANNUALLY
+  ANNUALLY
+  REPO_RATE
+}
+
+enum CollectionBatchStatus {
+  SUBMITTING
+  /// Uploaded to a file-based rail; awaiting its load report.
+  UPLOADED
+  SUBMITTED
+  FAILED
+  /// The provider's answer is unknown; see its instructions.
+  NEEDS_REVIEW
+}
+
+enum CollectionInstructionStatus {
+  PENDING
+  SUBMITTING
+  /// In a batch the provider received; awaiting its load report.
+  UPLOADED
+  SUBMITTED
+  /// May or may not have reached the bank: a person decides (never re-sent automatically).
+  NEEDS_REVIEW
+  REJECTED
+  CANCELLED
+  PAID
+  UNPAID
+  DISPUTED
+}
+
+enum CollectionResultOutcome {
+  PAID
+  UNPAID
+  DISPUTED
+}
+
+/// Mirrors NormalizedReason in lib/integrations/collections/types.ts.
+enum CollectionReasonCode {
+  INSUFFICIENT_FUNDS
+  ACCOUNT_CLOSED
+  PAYMENT_STOPPED
+  MANDATE_SUSPENDED
+  MANDATE_CANCELLED
+  ACCOUNT_FROZEN
+  NO_DEBIT_FACILITY
+  NOT_FICA
+  UNKNOWN
+}
+
+/// One DebiCheck / debit-order mandate for a loan. The bank account is a
+/// snapshot: the mandate binds the account the debtor authorised, not whatever
+/// the client record says later.
+model DebitMandate {
+  id                        String                 @id @default(cuid())
+  tenantId                  String
+  loanId                    String
+  clientId                  String
+  provider                  String
+  providerMandateRef        String?
+  authType                  DebitMandateAuthType
+  status                    DebitMandateStatus     @default(CREATED)
+  statusReason              String?
+  statusChangedAt           DateTime               @default(now())
+  amountCents               Int
+  maxAmountCents            Int
+  debitDay                  Int
+  frequency                 DebitMandateFrequency
+  adjustment                DebitMandateAdjustment @default(NEVER)
+  trackingDays              Int
+  firstCollectionDate       DateTime               @db.Date
+  accountHolder             String
+  bankName                  String
+  branchCode                String
+  accountNumber             String
+  accountType               String
+  /// Created against the simulated provider: no bank ever saw it.
+  simulated                 Boolean                @default(false)
+  /// Failed provider submissions; retried with backoff until the limit, then reviewReason.
+  submitAttempts            Int                    @default(0)
+  nextAttemptAt             DateTime?
+  /// Set when the engine stops retrying and a person must act.
+  reviewReason              String?
+  /// When the provider confirmed the mandate cancelled (suspension, closure, staff).
+  providerCancelledAt       DateTime?
+  /// First claim for a provider call: from then on the provider may hold this
+  /// mandate even without a reference here, so a cancellation must find it there.
+  providerContactedAt       DateTime?
+  /// The provider reported this ACTIVE mandate SUSPENDED once; applied only if the next refresh says so again.
+  providerSuspendReportedAt DateTime?
+  createdById               String
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  loan         Loan                    @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  client       Client                  @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdBy    User                    @relation("DebitMandatesCreated", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  instructions CollectionInstruction[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, providerMandateRef])
+  @@index([tenantId, loanId])
+  @@index([tenantId, status])
+}
+
+/// One submission to the provider: every instruction sharing an action date.
+model CollectionBatch {
+  id               String                @id @default(cuid())
+  tenantId         String
+  provider         String
+  providerBatchRef String?
+  actionDate       DateTime              @db.Date
+  status           CollectionBatchStatus @default(SUBMITTING)
+  instructionCount Int
+  totalCents       Int
+  acceptedCount    Int                   @default(0)
+  rejectedCount    Int                   @default(0)
+  error            String?
+  simulated        Boolean               @default(false)
+  submittedAt      DateTime?
+  createdAt        DateTime              @default(now())
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  instructions CollectionInstruction[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, providerBatchRef])
+  @@index([tenantId, createdAt])
+}
+
+/// One presentment of one instalment. presentmentNo counts the presentments of
+/// that instalment across every mandate (scheme cap 2; a fresh mandate does not reset it).
+model CollectionInstruction {
+  id                  String                      @id @default(cuid())
+  tenantId            String
+  mandateId           String
+  loanId              String
+  repaymentScheduleId String
+  installmentNo       Int
+  presentmentNo       Int
+  amountCents         Int
+  actionDate          DateTime                    @db.Date
+  trackingDays        Int
+  instructionRef      String
+  status              CollectionInstructionStatus @default(PENDING)
+  statusReason        String?
+  batchId             String?
+  submittedAt         DateTime?
+  /// A REJECTED instruction stays in the review queue until staff acknowledge it.
+  reviewResolvedAt    DateTime?
+  /// Released for sending again after its fate was unknown: a later repeat PAID may be a second, real debit.
+  releasedAt          DateTime?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  mandate           DebitMandate       @relation(fields: [tenantId, mandateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loan              Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  repaymentSchedule RepaymentSchedule  @relation(fields: [tenantId, repaymentScheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  batch             CollectionBatch?   @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  results           CollectionResult[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, instructionRef])
+  @@index([tenantId, status, actionDate])
+  @@index([tenantId, loanId])
+  @@index([mandateId])
+}
+
+/// A provider outcome for one instruction. resultKey is unique per provider,
+/// so ingesting the same outcome twice is a no-op.
+model CollectionResult {
+  id                   String                  @id @default(cuid())
+  tenantId             String
+  provider             String
+  instructionId        String
+  resultKey            String
+  outcome              CollectionResultOutcome
+  reasonCode           CollectionReasonCode?
+  rawCode              String?
+  rawPayload           Json
+  settledAmountCents   Int?
+  resolvedAt           DateTime
+  simulated            Boolean                 @default(false)
+  paymentId            String?
+  /// When the engine finished acting on it (allocated, or recorded why not).
+  processedAt          DateTime?
+  /// Why a person must look at it (not booked, mismatch, reported after payment).
+  reviewReason         String?
+  /// UNPAID/DISPUTED reported for an instruction already PAID: never moves it, never counts as an NPF.
+  reportedAfterPayment Boolean                 @default(false)
+  reviewResolvedAt     DateTime?
+  reviewResolvedById   String?
+  reviewNote           String?
+  createdAt            DateTime                @default(now())
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id])
+  instruction      CollectionInstruction @relation(fields: [tenantId, instructionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  payment          Payment?              @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reviewResolvedBy User?                 @relation("CollectionResultsResolved", fields: [tenantId, reviewResolvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, resultKey])
+  @@index([tenantId, instructionId])
 }

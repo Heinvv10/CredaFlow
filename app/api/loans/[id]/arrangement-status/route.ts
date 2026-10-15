@@ -45,22 +45,9 @@ export async function GET(
       payments.map(p => ({ id: p.id, amount: p.amount, receivedAt: p.receivedAt }))
     )
 
-    // Auto-update arrangement status from ACTIVE based on analysis
-    if (arrangement.status === "ACTIVE") {
-      const newStatus =
-        analysis.overallStatus === "COMPLETED" && analysis.complianceRate >= 90 ? "KEPT"
-        : analysis.overallStatus === "COMPLETED" ? "COMPLETED"
-        : analysis.overallStatus === "BROKEN" ? "BROKEN"
-        : null
-
-      if (newStatus) {
-        await prisma.paymentArrangement.updateMany({
-          where: { loanId: id, tenantId: tenant.id },
-          data: { status: newStatus },
-        }).catch((e: unknown) => console.error(`[arrangement-status] Update failed for ${id}:`, e))
-      }
-    }
-
+    // A read writes nothing. The stored status rolls up from ACTIVE in the
+    // nightly arrangement-check cron (app/api/cron/arrangement-check), which
+    // audits the change; until then the response shows the derived status.
     return NextResponse.json({ arrangement: { ...arrangement, status: resolveDisplayStatus(arrangement.status, analysis) }, analysis })
   })
 }

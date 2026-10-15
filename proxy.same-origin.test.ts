@@ -55,6 +55,28 @@ describe("cross-origin writes are refused before any other gate", () => {
     )
   })
 
+  // Operator support sessions are read-only (lib/proxy/operator-read-only.ts),
+  // but the cross-origin gate runs first: a cross-site write never reaches it.
+  const OPERATOR = { user: { id: "op1", role: "OPERATOR_SUPPORT", tenantId: null, totpEnrolmentRequired: false } }
+
+  it("refuses an operator's cross-site POST at the cross-origin gate, before the read-only gate", async () => {
+    const res = await send("/api/clients/c1/messages", { "sec-fetch-site": "cross-site" }, { session: OPERATOR })
+    await expectRefused(res)
+    expect(await res.json()).toEqual({ error: "Cross-origin request refused" })
+  })
+
+  // W1: operator sessions live on OPERATOR_APP_HOST only; on a lender host a
+  // same-origin request passes the cross-origin gate and is refused by the
+  // operator off-host rule (lib/proxy/operator-host.ts), read or write.
+  it("passes an operator's same-origin request on to the off-host rule, which refuses it", async () => {
+    const write = await send("/api/clients/c1/messages", { "sec-fetch-site": "same-origin" }, { session: OPERATOR })
+    await expectRefused(write)
+    expect(await write.json()).toEqual({ error: "Forbidden" })
+    const read = await send("/api/clients/c1", { "sec-fetch-site": "same-origin" }, { method: "GET", session: OPERATOR })
+    expect(read.status).toBe(403)
+    expect(await read.json()).toEqual({ error: "Forbidden" })
+  })
+
   it.each(["cross-site", "same-site", "bogus", ""])("refuses Sec-Fetch-Site %j", async (site) => {
     await expectRefused(await send("/api/applications/app-1/disburse", { "sec-fetch-site": site }))
   })

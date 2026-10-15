@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
         case "smileidentity": {
           const idNumber = body.idNumber ?? "0000000000000"
           const result = await verifyId({
+            tenantId: tenant.id,
             idNumber,
             firstName: "Test",
             lastName: "User",

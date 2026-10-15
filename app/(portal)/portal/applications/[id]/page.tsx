@@ -1,13 +1,13 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { formatZAR, formatDate, formatTermDays } from "@/lib/utils"
+import { formatZAR } from "@/lib/utils"
 import { redirect, notFound } from "next/navigation"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import Link from "next/link"
 import { AlertCircle, CheckCircle, Clock } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
 import type { AppStatus } from "@prisma/client"
-import { portalDecisionLabel } from "@/lib/applications/decision-kind"
+import { decisionKind } from "@/lib/applications/decision-kind"
 import { ExecutedAgreementCard } from "@/components/portal/ExecutedAgreementCard"
 import { PasqAcknowledgementCard } from "@/components/portal/PasqAcknowledgementCard"
 import {
@@ -15,6 +15,9 @@ import {
   portalPasqAcknowledged,
   portalPasqOnScreen,
 } from "@/lib/portal/application-next-step"
+import { getLocale } from "@/lib/i18n/server"
+import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
+import { formatDay } from "@/lib/i18n/format"
 
 async function getApplicationDetail(id: string, email: string) {
   const tenantId = await getPortalTenantId()
@@ -37,18 +40,20 @@ async function getApplicationDetail(id: string, email: string) {
   return { application, loan }
 }
 
-const STATUS_CONFIG: Record<AppStatus, { label: string; bg: string; color: string }> = {
-  DRAFT:        { label: "Draft",        bg: "#F3F4F6", color: "#6B7280" },
-  SUBMITTED:    { label: "Submitted",    bg: "#DBEAFE", color: "#1E40AF" },
-  UNDER_REVIEW: { label: "Under Review", bg: "#FEF9C3", color: "#92400E" },
-  APPROVED:     { label: "Approved",     bg: "#DCFCE7", color: "#166534" },
-  DECLINED:     { label: "Declined",     bg: "#FEE2E2", color: "#991B1B" },
-  DISBURSED:    { label: "Disbursed",    bg: "#EDE9FE", color: "#5B21B6" },
-  CANCELLED:    { label: "Cancelled",    bg: "#F3F4F6", color: "#6B7280" },
+type AppsT = Translator<"portalApplications">
+
+const STATUS_CONFIG: Record<AppStatus, { label: MessageKey<"portalApplications">; bg: string; color: string }> = {
+  DRAFT:        { label: "appStatus_DRAFT",        bg: "#F3F4F6", color: "#6B7280" },
+  SUBMITTED:    { label: "appStatus_SUBMITTED",    bg: "#DBEAFE", color: "#1E40AF" },
+  UNDER_REVIEW: { label: "appStatus_UNDER_REVIEW", bg: "#FEF9C3", color: "#92400E" },
+  APPROVED:     { label: "appStatus_APPROVED",     bg: "#DCFCE7", color: "#166534" },
+  DECLINED:     { label: "appStatus_DECLINED",     bg: "#FEE2E2", color: "#991B1B" },
+  DISBURSED:    { label: "appStatus_DISBURSED",    bg: "#EDE9FE", color: "#5B21B6" },
+  CANCELLED:    { label: "appStatus_CANCELLED",    bg: "#F3F4F6", color: "#6B7280" },
 }
 
 interface TimelineEvent {
-  label: string
+  label: MessageKey<"portalApplications">
   date: Date
   done: boolean
 }
@@ -57,65 +62,72 @@ type AppDetail = NonNullable<Awaited<ReturnType<typeof getApplicationDetail>>>["
 
 function buildTimeline(app: AppDetail): TimelineEvent[] {
   const events: TimelineEvent[] = [
-    { label: "Application submitted", date: app.submittedAt ?? app.createdAt, done: true },
+    { label: "tlSubmitted", date: app.submittedAt ?? app.createdAt, done: true },
   ]
 
   if (app.incomeVerifiedAt) {
-    events.push({ label: "Income verified / Under review", date: app.incomeVerifiedAt, done: true })
+    events.push({ label: "tlIncomeVerified", date: app.incomeVerifiedAt, done: true })
   } else if (["UNDER_REVIEW", "APPROVED", "DECLINED", "DISBURSED"].includes(app.status)) {
-    events.push({ label: "Under review", date: app.updatedAt, done: true })
+    events.push({ label: "tlUnderReview", date: app.updatedAt, done: true })
   }
 
   if (app.pasqGeneratedAt) {
-    events.push({ label: "PASQ generated", date: app.pasqGeneratedAt, done: true })
+    events.push({ label: "tlPasqGenerated", date: app.pasqGeneratedAt, done: true })
   }
 
   if (app.pasqAcknowledgedAt && app.pasqAcknowledgedSha256 === app.pasqDocumentSha256) {
-    events.push({ label: "PASQ acknowledged", date: app.pasqAcknowledgedAt, done: true })
+    events.push({ label: "tlPasqAcknowledged", date: app.pasqAcknowledgedAt, done: true })
   }
 
-  const decisionLabel = portalDecisionLabel(app)
-  if (app.approvedAt && decisionLabel) {
+  const kind = decisionKind(app)
+  if (app.approvedAt && kind) {
     events.push({
-      label: decisionLabel,
+      label: kind === "declined" ? "tlDeclined" : "tlApproved",
       date: app.approvedAt,
       done: true,
     })
   }
 
   if (app.agreementGeneratedAt) {
-    events.push({ label: "Credit agreement generated", date: app.agreementGeneratedAt, done: true })
+    events.push({ label: "tlAgreementGenerated", date: app.agreementGeneratedAt, done: true })
   }
 
   if (app.agreementSignedAt) {
-    events.push({ label: "Credit agreement signed", date: app.agreementSignedAt, done: true })
+    events.push({ label: "tlAgreementSigned", date: app.agreementSignedAt, done: true })
   }
 
   if (app.debitMandatePreparedAt) {
-    events.push({ label: "Debit mandate prepared", date: app.debitMandatePreparedAt, done: true })
+    events.push({ label: "tlMandatePrepared", date: app.debitMandatePreparedAt, done: true })
   }
 
   if (app.debitMandateSignedAt) {
-    events.push({ label: "Debit mandate signed", date: app.debitMandateSignedAt, done: true })
+    events.push({ label: "tlMandateSigned", date: app.debitMandateSignedAt, done: true })
   }
 
   if (app.disbursedAt) {
-    events.push({ label: "Loan disbursed", date: app.disbursedAt, done: true })
+    events.push({ label: "tlDisbursed", date: app.disbursedAt, done: true })
   }
 
   return events.sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
-function StatusBadge({ status }: { status: AppStatus }) {
+function StatusBadge({ status, t }: { status: AppStatus; t: AppsT }) {
   const cfg = STATUS_CONFIG[status]
   return (
     <span
       style={{ background: cfg.bg, color: cfg.color }}
       className="inline-block px-2.5 py-0.5 rounded text-[11px] font-semibold"
     >
-      {cfg.label}
+      {t(cfg.label)}
     </span>
   )
+}
+
+/** formatTermDays (lib/utils), translated: 30 days = 1 month. */
+function termLabel(t: AppsT, days: number): string {
+  const months = Math.round(days / 30)
+  if (months < 1) return days === 1 ? t("termOneDay") : t("termDays", { n: days })
+  return months === 1 ? t("termOneMonth") : t("termMonths", { n: months })
 }
 
 export default async function ApplicationDetailPage({
@@ -145,48 +157,50 @@ export default async function ApplicationDetailPage({
 
   const timeline = buildTimeline(app)
   const nextStep = portalApplicationNextStep(app)
+  const locale = await getLocale()
+  const t = createTranslator(locale, "portalApplications")
 
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8">
       {/* Back */}
-      <BackLink href="/portal/applications" label="Back to Applications" className="mb-5" />
+      <BackLink href="/portal/applications" label={t("backToApplications")} className="mb-5" />
 
       {/* Hero card */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Reference</p>
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">{t("reference")}</p>
             <p className="text-xl font-bold text-gray-900">{app.reference}</p>
             <p className="text-sm text-gray-500 mt-0.5">{app.product.name}</p>
           </div>
-          <StatusBadge status={app.status} />
+          <StatusBadge status={app.status} t={t} />
         </div>
 
         {/* Key details grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-gray-100">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Applied Amount</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">{t("appliedAmount")}</p>
             <p className="font-bold text-gray-900">{formatZAR(app.appliedAmount)}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Term</p>
-            <p className="font-bold text-gray-900">{formatTermDays(app.appliedTermDays)}</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">{t("term")}</p>
+            <p className="font-bold text-gray-900">{termLabel(t, app.appliedTermDays)}</p>
           </div>
           {app.approvedAmount && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Approved Amount</p>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">{t("approvedAmount")}</p>
               <p className="font-bold" style={{ color: "#166534" }}>{formatZAR(app.approvedAmount)}</p>
             </div>
           )}
           {app.purpose && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Purpose</p>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">{t("purpose")}</p>
               <p className="font-bold text-gray-900 text-sm truncate">{app.purpose}</p>
             </div>
           )}
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Submitted</p>
-            <p className="text-sm text-gray-700">{formatDate(app.submittedAt ?? app.createdAt)}</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">{t("submitted")}</p>
+            <p className="text-sm text-gray-700">{formatDay(app.submittedAt ?? app.createdAt, locale)}</p>
           </div>
         </div>
       </div>
@@ -202,9 +216,9 @@ export default async function ApplicationDetailPage({
         <div className="mb-5 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
           <Clock className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-blue-800 text-sm">What happens next</p>
+            <p className="font-semibold text-blue-800 text-sm">{t("whatHappensNext")}</p>
             <p className="text-xs text-blue-700 mt-0.5">
-              Your application is under review. We&apos;ll contact you within 2 business days. No action is required from you right now — keep an eye on your email and WhatsApp.
+              {t("reviewWait")}
             </p>
           </div>
         </div>
@@ -224,8 +238,8 @@ export default async function ApplicationDetailPage({
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
             <div>
-              <p className="font-semibold text-amber-800 text-sm">Action Required</p>
-              <p className="text-xs text-amber-700">Your loan has been approved. Please sign your credit agreement to proceed.</p>
+              <p className="font-semibold text-amber-800 text-sm">{t("actionRequired")}</p>
+              <p className="text-xs text-amber-700">{t("approvedSignPrompt")}</p>
             </div>
           </div>
           <Link
@@ -233,7 +247,7 @@ export default async function ApplicationDetailPage({
             className="px-4 py-2 rounded-lg text-white font-bold text-sm whitespace-nowrap"
             style={{ backgroundColor: "#4F46E5" }}
           >
-            Sign Agreement
+            {t("signAgreement")}
           </Link>
         </div>
       )}
@@ -243,9 +257,9 @@ export default async function ApplicationDetailPage({
           <div className="flex items-center gap-3">
             <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
             <div>
-              <p className="text-sm font-semibold text-amber-800">Action Required</p>
+              <p className="text-sm font-semibold text-amber-800">{t("actionRequired")}</p>
               <p className="text-xs text-amber-700">
-                Confirm your repayment bank details and sign the debit mandate before disbursement.
+                {t("mandatePrompt")}
               </p>
             </div>
           </div>
@@ -254,16 +268,16 @@ export default async function ApplicationDetailPage({
             className="whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold text-white"
             style={{ backgroundColor: "#4F46E5" }}
           >
-            Set Up Repayment
+            {t("setUpRepayment")}
           </Link>
         </div>
       )}
 
-      <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} />
+      <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} locale={locale} />
 
-      {/* Declined reason */}
+      {/* Declined reason: the NCA decision record, kept in English in every locale */}
       {app.status === "DECLINED" && app.decisionReason && (
-        <div className="mb-5 bg-red-50 border border-red-200 rounded-xl p-4">
+        <div lang="en" className="mb-5 bg-red-50 border border-red-200 rounded-xl p-4">
           <p className="text-sm font-semibold text-red-800 mb-1">Reason for Decision</p>
           <p className="text-sm text-red-700">{app.decisionReason}</p>
         </div>
@@ -275,8 +289,8 @@ export default async function ApplicationDetailPage({
           <div className="flex items-center gap-3">
             <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
             <div>
-              <p className="font-semibold text-green-800 text-sm">Loan Active</p>
-              <p className="text-xs text-green-700">Reference: {loan.reference}</p>
+              <p className="font-semibold text-green-800 text-sm">{t("loanActive")}</p>
+              <p className="text-xs text-green-700">{t("loanReference", { reference: loan.reference })}</p>
             </div>
           </div>
           <Link
@@ -284,14 +298,14 @@ export default async function ApplicationDetailPage({
             className="px-4 py-2 rounded-lg text-white font-bold text-sm whitespace-nowrap"
             style={{ backgroundColor: "#166534" }}
           >
-            View Loan
+            {t("viewLoan")}
           </Link>
         </div>
       )}
 
       {/* Timeline */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-        <h2 className="font-bold text-gray-900 text-sm mb-4">Application Timeline</h2>
+        <h2 className="font-bold text-gray-900 text-sm mb-4">{t("timeline")}</h2>
         <div className="space-y-0">
           {timeline.map((event, i) => (
             <div key={i} className="flex items-start gap-3">
@@ -311,8 +325,8 @@ export default async function ApplicationDetailPage({
                 )}
               </div>
               <div className="pb-4 min-w-0">
-                <p className="text-sm font-medium text-gray-800">{event.label}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{formatDate(event.date)}</p>
+                <p className="text-sm font-medium text-gray-800">{t(event.label)}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{formatDay(event.date, locale)}</p>
               </div>
             </div>
           ))}

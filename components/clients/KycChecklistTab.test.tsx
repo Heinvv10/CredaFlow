@@ -1,7 +1,9 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { KycChecklistTab } from "@/components/clients/KycChecklistTab"
+import { VERIFICATION_RESTORABLE_COPY } from "@/lib/kyc/verification-restorable"
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock("@/lib/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
@@ -206,5 +208,36 @@ describe("KycChecklistTab identity-revocation acknowledgement", () => {
     await clickButtonContaining(renderer, "Apply")
 
     expect(allText(renderer)).not.toContain("Apply and revoke")
+  })
+})
+
+describe("KycChecklistTab restorable-verification hint", () => {
+  beforeEach(() => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [{ ...ID_DOC, verified: true }])))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  })
+
+  async function mount(kycStatus: string, verificationRestorable: boolean) {
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(
+        <KycChecklistTab clientId="client-1" kycStatus={kycStatus} verificationRestorable={verificationRestorable} />,
+      )
+    })
+    return allText(renderer)
+  }
+
+  it("tells staff a re-verification would restore VERIFIED", async () => {
+    expect(await mount("PENDING", true)).toContain(VERIFICATION_RESTORABLE_COPY)
+  })
+
+  it("says nothing when the evidence would not verify, or the client is not PENDING", async () => {
+    expect(await mount("PENDING", false)).not.toContain(VERIFICATION_RESTORABLE_COPY)
+    expect(await mount("VERIFIED", true)).not.toContain(VERIFICATION_RESTORABLE_COPY)
   })
 })

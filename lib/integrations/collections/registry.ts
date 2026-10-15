@@ -4,6 +4,7 @@ import {
   type CollectionProvider,
 } from "./types"
 import { netcashCollections } from "./netcash"
+import { simulatedCollections } from "./simulated"
 
 const providers = new Map<string, CollectionProvider>()
 
@@ -13,6 +14,9 @@ export function registerProvider(p: CollectionProvider): void {
 }
 
 registerProvider(netcashCollections)
+// Refuses every call on a deployed build unless SIMULATED_INTEGRATIONS names
+// "simulated-collections" (lib/integrations/simulation-guard.ts).
+registerProvider(simulatedCollections)
 
 function resolve(key: string | null): CollectionProvider {
   if (!key) {

@@ -98,6 +98,42 @@ describe("bootstrapTenant", () => {
     expect(f.tables.tenants).toHaveLength(1)
   })
 
+  it("puts the tenant under the given operator and names the console user on the audit rows", async () => {
+    const f = createFakeDb()
+    await bootstrapTenant(f.db, config(), {
+      dryRun: false, operator: "operator-console:admin@op.invalid", seedTemplates: vi.fn(async () => {}),
+      operatorId: "op-7", actor: { userId: "u-op", email: "admin@op.invalid" },
+    })
+    expect(f.tables.tenants[0]).toMatchObject({ operatorId: "op-7" })
+    expect(f.tables.auditLogs.map((a) => [a.userId, a.userEmail])).toEqual([["u-op", "admin@op.invalid"], ["u-op", "admin@op.invalid"]])
+  })
+
+  it("leaves the operator to the database default and the CLI as the actor when none is given", async () => {
+    const f = createFakeDb()
+    await run(f, config())
+    expect(f.tables.tenants[0].operatorId).toBeUndefined()
+    expect(f.tables.auditLogs.every((a) => a.userEmail === "lender:bootstrap-tenant" && a.userId === null)).toBe(true)
+  })
+
+  // PR #91 round 2: the CLI applies the same host rules as the console.
+  it("refuses a domain this deployment already serves (lib/config/tenant-domain.ts)", async () => {
+    vi.stubEnv("OPERATOR_APP_HOST", "console.platform.example")
+    try {
+      const f = createFakeDb()
+      expect(await refusal(run(f, config({ domain: "console.platform.example" })))).toBe("DOMAIN_RESERVED")
+      expect(f.tables.tenants).toHaveLength(0)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("refuses another lender's subdomain host as a domain, and a slug whose subdomain host is another lender's domain", async () => {
+    const f = createFakeDb({ tenants: [{ id: "t9", slug: "acme", name: "Acme", status: "ACTIVE", domain: "staging-lender.lenders.example" }] })
+    expect(await refusal(run(f, config({ domain: "acme.lenders.example" })))).toBe("DOMAIN_RESERVED")
+    expect(await refusal(run(f, config()))).toBe("SLUG_HOST_TAKEN")
+    expect(f.tables.tenants).toHaveLength(1)
+  })
+
   it("rolls the tenant back when an audit row cannot be written", async () => {
     const f = createFakeDb()
     f.tx.auditLog.create = (async () => {

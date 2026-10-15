@@ -245,6 +245,13 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 vi.mock("@/lib/pdf/faisDisclosure", () => ({ generateFaisDisclosurePdf }))
+// W6 payouts: the in-transaction payout row is real (written through the tx
+// mock); the post-commit send is observed, not run.
+const sendDisbursementPayout = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/payouts/disbursement", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/payouts/disbursement")>()),
+  sendDisbursementPayout,
+}))
 const getLenderIdentityMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/config/identity", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/config/identity")>()),
@@ -587,6 +594,8 @@ function buildTxMock(opts: {
     ndiBufferPct: number
     bureauMinScore: number
     bureauBlockAdverse: boolean
+    payoutsEngineEnabled?: boolean
+    payoutProvider?: string | null
   } | null
   referralCode?: { id: string; agentId: string; agent: { status: string; commissionBps: number | null } } | null
   // R-09 TOCTOU guard: the application-status updateMany's count. Default 1
@@ -608,6 +617,7 @@ function buildTxMock(opts: {
     principal: 500000,
   })
   const scheduleCreateMany = vi.fn().mockResolvedValue({ count: 1 })
+  const payoutCreate = vi.fn().mockResolvedValue({ id: "payout-1" })
   const auditLogCreate = vi.fn().mockImplementation(
     (args: { data?: { action?: string } }) => {
       if (
@@ -721,6 +731,7 @@ function buildTxMock(opts: {
         referralCode: { findFirst: vi.fn().mockResolvedValue(opts.referralCode ?? null) },
         referralEvent: { findFirst: vi.fn().mockResolvedValue(null), create: referralEventCreate },
         auditLog: { create: auditLogCreate },
+        disbursementPayout: { create: payoutCreate },
         $queryRaw: queryRaw,
         $executeRawUnsafe: executeRawUnsafe,
       }
@@ -738,6 +749,7 @@ function buildTxMock(opts: {
     executeRawUnsafe,
     complianceRecordFindFirst,
     insuranceProductFindFirst,
+    payoutCreate,
   }
 }
 
@@ -3695,6 +3707,132 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
       },
       select: expect.objectContaining({ subjectFingerprint: true }),
     }))
+  })
+})
+
+describe("POST /api/applications/[id]/disburse — payout channel behind payoutsEngineEnabled", () => {
+  const approved = () => findUniqueApplication.mockResolvedValue({
+    id: "app-1",
+    tenantId: "tenant-1",
+    status: "APPROVED",
+    agreementSignedAt: new Date("2026-05-01"),
+    appliedAmount: 500000,
+    appliedTermDays: 30,
+    clientId: "client-1",
+    productId: "prod-1",
+    client: { bankName: "FNB", bankAccountNumber: "12345", bankBranchCode: "250655", accountType: "SAVINGS" },
+    product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+  })
+  const engine = (on: boolean, provider: string | null = "simulated") => ({
+    collectionsEngineEnabled: false,
+    ndiBufferPct: 110,
+    bureauMinScore: 450,
+    bureauBlockAdverse: false,
+    payoutsEngineEnabled: on,
+    payoutProvider: provider,
+  })
+
+  it("flag off: the response bytes are exactly the pre-payout response, and no payout exists or is sent", async () => {
+    approved()
+    const { payoutCreate, auditLogCreate } = buildTxMock({ affordabilityTenantConfig: engine(false) })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe(JSON.stringify({ success: true, loanId: "loan-1", loanRef: "LN-TESTREF" }))
+    expect(payoutCreate).not.toHaveBeenCalled()
+    expect(sendDisbursementPayout).not.toHaveBeenCalled()
+    const actions = auditLogCreate.mock.calls.map(([a]) => (a as { data: { action: string } }).data.action)
+    expect(actions).not.toContain("PAYOUT_CREATED")
+  })
+
+  const PASSING_AVS = {
+    id: "avs-1", clientId: "client-1", applicationId: "app-1", subjectFingerprint: "a".repeat(64), passed: true,
+    provider: "netcash", raw: { accountActive: true },
+  }
+
+  it("flag on: creates the payout in the disburse transaction to the verified account, then sends it after commit", async () => {
+    approved()
+    const { payoutCreate, auditLogCreate } = buildTxMock({ affordabilityTenantConfig: engine(true) })
+    avsCheckFindFirst.mockResolvedValue(PASSING_AVS)
+    sendDisbursementPayout.mockResolvedValue({ id: "payout-1", status: "SUBMITTED" })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ success: true, loanId: "loan-1", loanRef: "LN-TESTREF", payout: { id: "payout-1", status: "SUBMITTED" } })
+    expect(payoutCreate).toHaveBeenCalledTimes(1)
+    expect(payoutCreate.mock.calls[0][0].data).toMatchObject({
+      tenantId: "tenant-1",
+      applicationId: "app-1",
+      loanId: "loan-1",
+      provider: "simulated",
+      idempotencyKey: "disburse:app-1",
+      reference: "LN-TESTREF",
+      accountHolder: "A B",
+      bankName: "FNB",
+      branchCode: "250655",
+      accountNumber: "12345",
+      accountType: "SAVINGS",
+    })
+    expect(payoutCreate.mock.calls[0][0].data.amountCents).toBeGreaterThan(0)
+    const actions = auditLogCreate.mock.calls.map(([a]) => (a as { data: { action: string } }).data.action)
+    expect(actions).toContain("PAYOUT_CREATED")
+    expect(sendDisbursementPayout).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: "tenant-1", payoutId: "payout-1", actor: { id: "user-1", email: "officer@acme-lending.example" },
+    })
+  })
+
+  it("flag on requires a passing AVS for the payout account even with the collections engine off", async () => {
+    approved()
+    const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true) })
+    avsCheckFindFirst.mockResolvedValue(null)
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "payout_avs", error: expect.stringContaining("No AVS check on record") })
+    expect(payoutCreate).not.toHaveBeenCalled()
+    expect(sendDisbursementPayout).not.toHaveBeenCalled()
+    expect(avsCheckFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1", clientId: "client-1", applicationId: "app-1" },
+    }))
+  })
+
+  it("flag on refuses a failed AVS for the payout account", async () => {
+    approved()
+    const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true) })
+    avsCheckFindFirst.mockResolvedValue({ ...PASSING_AVS, passed: false })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "payout_avs" })
+    expect(payoutCreate).not.toHaveBeenCalled()
+  })
+
+  it("flag on with no usable channel: refuses before anything commits", async () => {
+    approved()
+    const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true, "capitec-pay") })
+    avsCheckFindFirst.mockResolvedValue(PASSING_AVS)
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "payout_channel" })
+    expect(payoutCreate).not.toHaveBeenCalled()
+    expect(sendDisbursementPayout).not.toHaveBeenCalled()
+  })
+
+  it("a concurrent disburse that lost the application claim never reaches the payout", async () => {
+    approved()
+    const { payoutCreate } = buildTxMock({ affordabilityTenantConfig: engine(true), applicationUpdateManyCount: 0 })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(409)
+    expect(payoutCreate).not.toHaveBeenCalled()
+    expect(sendDisbursementPayout).not.toHaveBeenCalled()
   })
 })
 

@@ -86,7 +86,9 @@ describe("POST /api/portal/payment/initiate", () => {
 
     const expectedRedirect = "https://portal.example.com/api/portal/payment/callback"
     // The URL handed to Stitch must point at the /api callback handler.
+    // On the lender's own Stitch account: the portal host's tenant.
     expect(createStitchPayment).toHaveBeenCalledWith(
+      "t1",
       expect.objectContaining({ redirectUrl: expectedRedirect }),
     )
     // …and the persisted request must carry the same corrected URL.

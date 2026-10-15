@@ -6,6 +6,7 @@ import { faqLd } from "@/lib/seo/jsonld"
 import { getWebsiteIdentity } from "@/lib/website/identity"
 import { getTenantPublicProductsServer } from "@/lib/public-loan-products-server"
 import { homeFaqs } from "./(website)/site/home-faqs"
+import { getLocale } from "@/lib/i18n/server"
 
 // Rendered per request: the page prints the request tenant's own identity,
 // which a build-time prerender has no tenant to read.
@@ -32,9 +33,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function Home() {
   const identity = await getWebsiteIdentity()
   const products = identity ? await getTenantPublicProductsServer() : []
+  const locale = await getLocale()
   return (
-    <WebsiteShell jsonLdId="home-organization" jsonLd={identity ? [faqLd(homeFaqs(identity, products))] : []} regulatoryBand>
-      {identity && <HomePage identity={identity} products={products} />}
+    <WebsiteShell jsonLdId="home-organization" jsonLd={identity ? [faqLd(homeFaqs(identity, products, locale))] : []} regulatoryBand>
+      {identity && <HomePage identity={identity} products={products} locale={locale} />}
     </WebsiteShell>
   )
 }

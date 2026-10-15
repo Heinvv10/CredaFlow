@@ -13,6 +13,7 @@ const portalClientDocumentSelect = {
   fileUrl: true,
   fileName: true,
   storagePath: true,
+  contentSha256: true,
   mimeType: true,
   fileSize: true,
   verified: true,

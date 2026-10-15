@@ -121,6 +121,8 @@ describe("tenant-scope — ALS primitives", () => {
       "Payout",
       // Dual-approval KYC override requests — non-null tenantId.
       "KycOverrideRequest",
+      // Lender-granted operator support access (lib/operator/) — non-null tenantId.
+      "TenantSupportGrant",
       // PEP / sanctions screening and FIC registers — non-null tenantId.
       "ScreeningCheck",
       "CashThresholdReport",
@@ -134,6 +136,14 @@ describe("tenant-scope — ALS primitives", () => {
       "WebhookEndpoint",
       "WebhookEvent",
       "WebhookDelivery",
+      // Signing OTP challenges — non-null tenantId.
+      "SigningOtpChallenge",
+      // Collections engine (lib/collections-engine). Non-null tenantId, passed
+      // explicitly on every query: the crons run outside a request frame.
+      "DebitMandate",
+      "CollectionBatch",
+      "CollectionInstruction",
+      "CollectionResult",
       // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
       "LeaseRental",
     ])

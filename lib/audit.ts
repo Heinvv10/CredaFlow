@@ -166,6 +166,9 @@ export const AuditAction = {
   KYC_APPROVED: "KYC_APPROVED",
   KYC_REJECTED: "KYC_REJECTED",
   KYC_STATUS_CHANGED: "KYC_STATUS_CHANGED",
+  // Staff re-derived the stored status from evidence already on file ("Re-verify
+  // ID", lib/kyc/kyc-rederive.server.ts). No document was verified or attested.
+  KYC_STATUS_REDERIVED: "KYC_STATUS_REDERIVED",
   // One-time consumer selfie capture links. Distinct sent/failed actions for
   // the same reason PASQ_LINK_* are distinct: "we sent a credential to a
   // consumer" and "we minted one and cancelled it undelivered" are different
@@ -437,6 +440,9 @@ export const AuditAction = {
   // Tenant administration (app/api/admin/tenants).
   TENANT_CREATED: "TENANT_CREATED",
   TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED",
+  // Borrower-facing languages switched on or off (lib/i18n). Turning one on
+  // puts its catalogue in front of borrowers, so who did it is kept.
+  TENANT_LANGUAGES_UPDATED: "TENANT_LANGUAGES_UPDATED",
   // Lender identity (lib/config/identity-write.ts) — legal name, NCR/FSP/
   // company-reg numbers, registered office and contact details.
   LENDER_IDENTITY_UPDATED: "LENDER_IDENTITY_UPDATED",
@@ -447,6 +453,31 @@ export const AuditAction = {
   // one (scripts/lender/bootstrap-admin.ts). Never carry a credential.
   SUPER_ADMIN_BOOTSTRAPPED: "SUPER_ADMIN_BOOTSTRAPPED",
   SUPER_ADMIN_BREAK_GLASS_RESET: "SUPER_ADMIN_BREAK_GLASS_RESET",
+  // Operator support access (lib/operator/): a lender's grant and revocation,
+  // and every use or refused use of it by an operator user. Written under the
+  // lender's tenantId so the lender's own audit log shows them.
+  SUPPORT_ACCESS_GRANTED: "SUPPORT_ACCESS_GRANTED",
+  SUPPORT_ACCESS_GRANT_REFUSED: "SUPPORT_ACCESS_GRANT_REFUSED",
+  SUPPORT_ACCESS_REVOKED: "SUPPORT_ACCESS_REVOKED",
+  SUPPORT_ACCESS_USED: "SUPPORT_ACCESS_USED",
+  SUPPORT_ACCESS_REFUSED: "SUPPORT_ACCESS_REFUSED",
+  // Operator console (lib/operator/console/). Lender actions are written under
+  // the lender's tenantId; operator-user actions have no tenant. Never a
+  // password, token or reset link.
+  TENANT_SUSPENDED: "TENANT_SUSPENDED",
+  TENANT_REACTIVATED: "TENANT_REACTIVATED",
+  LENDER_ADMIN_INVITED: "LENDER_ADMIN_INVITED",
+  LENDER_ADMIN_RESET_LINK_SENT: "LENDER_ADMIN_RESET_LINK_SENT",
+  OPERATOR_USER_INVITED: "OPERATOR_USER_INVITED",
+  OPERATOR_USER_DEACTIVATED: "OPERATOR_USER_DEACTIVATED",
+  OPERATOR_USER_RESET_LINK_SENT: "OPERATOR_USER_RESET_LINK_SENT",
+  OPERATOR_USER_REACTIVATED: "OPERATOR_USER_REACTIVATED",
+  OPERATOR_USER_TOTP_RESET: "OPERATOR_USER_TOTP_RESET",
+  // A lender-admin reset the console refused (rate limit, a fresh self-service link).
+  LENDER_ADMIN_RESET_REFUSED: "LENDER_ADMIN_RESET_REFUSED",
+  // Provider credentials (lib/integrations/tenant-credentials.ts): which
+  // fields changed, never the values.
+  PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",
 
   // Complaints and POPIA data subject requests (app/api/complaints,
   // app/api/dsar). Identifiers, statuses and dates only: the description,
@@ -613,4 +644,80 @@ export const AuditAction = {
   WEBHOOK_ENDPOINT_RESUMED: "WEBHOOK_ENDPOINT_RESUMED",
   // A draft application created through POST /api/v1/applications; newValue names the key.
   APPLICATION_CREATED_VIA_API: "APPLICATION_CREATED_VIA_API",
+  // Staff working hours and IP allowlist (lib/security/staff-access-*.ts).
+  // REFUSED: a sign-in or a live session stopped by the policy, with reason.
+  // BYPASSED: a SUPER_ADMIN the policy would have stopped, let through.
+  STAFF_ACCESS_POLICY_UPDATED: "STAFF_ACCESS_POLICY_UPDATED",
+  STAFF_ACCESS_REFUSED: "STAFF_ACCESS_REFUSED",
+  STAFF_ACCESS_BYPASSED: "STAFF_ACCESS_BYPASSED",
+  // Signing OTP and portal registration policy (lib/signing-otp,
+  // lib/portal/portal-policy.ts). Never the code itself.
+  PORTAL_POLICY_UPDATED: "PORTAL_POLICY_UPDATED",
+  SIGNING_OTP_REQUESTED: "SIGNING_OTP_REQUESTED",
+  SIGNING_OTP_VERIFIED: "SIGNING_OTP_VERIFIED",
+  SIGNING_OTP_REJECTED: "SIGNING_OTP_REJECTED",
+  // Collections engine (lib/collections-engine): mandate lifecycle, planned
+  // instructions, batch submissions and every provider result, including the
+  // ones that could not be booked and need a person.
+  COLLECTION_MANDATE_CREATED: "COLLECTION_MANDATE_CREATED",
+  COLLECTION_MANDATE_STATUS_CHANGED: "COLLECTION_MANDATE_STATUS_CHANGED",
+  COLLECTION_MANDATE_SUBMISSION_FAILED: "COLLECTION_MANDATE_SUBMISSION_FAILED",
+  COLLECTION_MANDATE_PROVIDER_CANCELLED: "COLLECTION_MANDATE_PROVIDER_CANCELLED",
+  COLLECTION_MANDATE_PROVIDER_REF_RECORDED: "COLLECTION_MANDATE_PROVIDER_REF_RECORDED",
+  COLLECTION_MANDATE_NEEDS_REVIEW: "COLLECTION_MANDATE_NEEDS_REVIEW",
+  COLLECTION_INSTRUCTION_NEEDS_REVIEW: "COLLECTION_INSTRUCTION_NEEDS_REVIEW",
+  COLLECTION_INSTRUCTION_RECONCILED: "COLLECTION_INSTRUCTION_RECONCILED",
+  COLLECTION_BATCH_LOADED: "COLLECTION_BATCH_LOADED",
+  COLLECTION_REVIEW_RESOLVED: "COLLECTION_REVIEW_RESOLVED",
+  COLLECTION_PROVIDER_CHANGE_REFUSED: "COLLECTION_PROVIDER_CHANGE_REFUSED",
+  COLLECTION_INSTRUCTION_PLANNED: "COLLECTION_INSTRUCTION_PLANNED",
+  COLLECTION_INSTRUCTION_CANCELLED: "COLLECTION_INSTRUCTION_CANCELLED",
+  COLLECTION_BATCH_SUBMITTED: "COLLECTION_BATCH_SUBMITTED",
+  COLLECTION_BATCH_FAILED: "COLLECTION_BATCH_FAILED",
+  COLLECTION_RESULT_RECORDED: "COLLECTION_RESULT_RECORDED",
+  COLLECTION_RESULT_NEEDS_REVIEW: "COLLECTION_RESULT_NEEDS_REVIEW",
+
+  // W6 accounting export (lib/accounting). Totals and keys only.
+  ACCOUNTING_PERIOD_CLOSED: "ACCOUNTING_PERIOD_CLOSED",
+  ACCOUNTING_MAPPING_UPDATED: "ACCOUNTING_MAPPING_UPDATED",
+  ACCOUNTING_EXPORT_DOWNLOADED: "ACCOUNTING_EXPORT_DOWNLOADED",
+  ACCOUNTING_XERO_PUSH_CLAIMED: "ACCOUNTING_XERO_PUSH_CLAIMED",
+  ACCOUNTING_XERO_PUSH_RESULT: "ACCOUNTING_XERO_PUSH_RESULT",
+  ACCOUNTING_XERO_PUSH_RESOLVED: "ACCOUNTING_XERO_PUSH_RESOLVED",
+  // Xero connection (lib/accounting/xero). Never a token.
+  XERO_CONNECT_STARTED: "XERO_CONNECT_STARTED",
+  XERO_CONNECTED: "XERO_CONNECTED",
+  XERO_CONNECT_FAILED: "XERO_CONNECT_FAILED",
+  XERO_ORGANISATION_SELECTED: "XERO_ORGANISATION_SELECTED",
+  XERO_DISCONNECTED: "XERO_DISCONNECTED",
+  // W6 payout channels (lib/payouts). Every status change of a payout.
+  PAYOUT_SETTINGS_UPDATED: "PAYOUT_SETTINGS_UPDATED",
+  PAYOUT_CREATED: "PAYOUT_CREATED",
+  PAYOUT_STATUS_CHANGED: "PAYOUT_STATUS_CHANGED",
+  // A staff payout action refused by a rule (maker-checker, engine off).
+  PAYOUT_ACTION_REFUSED: "PAYOUT_ACTION_REFUSED",
+  // A provider reported money moving on an attempt already over, and its resolution.
+  PAYOUT_PROVIDER_CONFLICT: "PAYOUT_PROVIDER_CONFLICT",
+  PAYOUT_PROVIDER_CONFLICT_RESOLVED: "PAYOUT_PROVIDER_CONFLICT_RESOLVED",
+  // A SUBMITTED/PROCESSING report on an attempt already over: says nothing about money.
+  PAYOUT_PROVIDER_REPORT_IGNORED: "PAYOUT_PROVIDER_REPORT_IGNORED",
+  // A report the database refused to record: nothing stored; shown on the queue.
+  PAYOUT_PROVIDER_REPORT_REJECTED: "PAYOUT_PROVIDER_REPORT_REJECTED",
+  PAYOUT_PROVIDER_REPORT_ACKNOWLEDGED: "PAYOUT_PROVIDER_REPORT_ACKNOWLEDGED",
+  // Retries of a failed/returned payout and reversals of a disbursement whose
+  // money never arrived (lib/payouts/retry.ts, lib/payouts/reversal.ts).
+  PAYOUT_RETRY_REQUESTED: "PAYOUT_RETRY_REQUESTED",
+  PAYOUT_RETRY_DECIDED: "PAYOUT_RETRY_DECIDED",
+  DISBURSEMENT_REVERSAL_REQUESTED: "DISBURSEMENT_REVERSAL_REQUESTED",
+  DISBURSEMENT_REVERSAL_DECIDED: "DISBURSEMENT_REVERSAL_DECIDED",
+  // The staff task an approved reversal leaves: cancel the debit order by hand.
+  DEBIT_ORDER_CANCEL_ACKNOWLEDGED: "DEBIT_ORDER_CANCEL_ACKNOWLEDGED",
+  // Money paid out on a loan already reversed (lib/payouts/recovery.ts).
+  PAYOUT_RECOVERY_OPENED: "PAYOUT_RECOVERY_OPENED",
+  PAYOUT_RECOVERY_ESCALATED: "PAYOUT_RECOVERY_ESCALATED",
+  PAYOUT_RECOVERY_RECORDED: "PAYOUT_RECOVERY_RECORDED",
+  PAYOUT_RECOVERY_UNRECOVERABLE: "PAYOUT_RECOVERY_UNRECOVERABLE",
+  ACCOUNTING_SETTINGS_UPDATED: "ACCOUNTING_SETTINGS_UPDATED",
+  ACCOUNTING_MAPPING_CONFIRMED: "ACCOUNTING_MAPPING_CONFIRMED",
+  ACCOUNTING_CLOSE_REFUSED: "ACCOUNTING_CLOSE_REFUSED",
 } as const

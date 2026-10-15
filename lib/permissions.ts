@@ -13,6 +13,10 @@ export type UserRole =
   | "INSURANCE_OFFICER"
   | "BRANCH_MANAGER"
   | "READONLY"
+  // Operator staff (lib/operator/). Deliberately absent from ROLE_HIERARCHY:
+  // hasMinRole denies them every tenant permission.
+  | "OPERATOR_ADMIN"
+  | "OPERATOR_SUPPORT"
 
 export const ROLE_HIERARCHY: UserRole[] = [
   "READONLY",

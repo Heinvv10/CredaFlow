@@ -11,7 +11,8 @@ vi.mock("next/navigation", () => ({
 }))
 
 import CalculatorsPage, { generateMetadata } from "./page"
-import { CALCULATORS_FAQS } from "./faqs"
+import { calculatorsFaqs } from "./faqs"
+import { createTranslator } from "@/lib/i18n/translate"
 
 describe("calculators page", () => {
   it("prints the tenant's legal name and NCR number in the disclosure, nobody else", async () => {
@@ -29,6 +30,6 @@ describe("calculators page", () => {
   })
 
   it("FAQs are free of other lenders", () => {
-    expectNoOtherLender(JSON.stringify(CALCULATORS_FAQS))
+    expectNoOtherLender(JSON.stringify(calculatorsFaqs(createTranslator("en", "websiteCalculators"))))
   })
 })
