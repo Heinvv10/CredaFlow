@@ -17,6 +17,7 @@
 import { PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { attempt } from "./lease-servicing.integration-fixture"
+import { DIGIT_BLOCK_STARTS } from "./recovery-digit-blocks"
 import { candidateKeys, canonicalIdentifier, identifierKeys } from "./recovery-screening"
 import { clauseOff } from "./recovery-rules.integration-fixture"
 
@@ -125,6 +126,16 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
     expect(await candidates("2098/12345/05 (Pty)")).toEqual(["20980123455", "20981234505"])
     expect(await candidates("2098/12345/05 (Pty)", clauseOff("recoveryIdentifierCandidates", `, public."recoveryIdentifierPlainKey"(value)`))).toEqual(["20980123455"])
     expect(await candidates("8001 015009 08 7")).toEqual(["8001015009087"])
+  })
+
+  it("reads every digit block of the TypeScript list as ASCII in SQL too (one list; the unit test holds the list to the runtime's Unicode)", async () => {
+    const unread: string[] = []
+    for (const start of DIGIT_BLOCK_STARTS) {
+      const written = [...Array(10).keys()].map((d) => String.fromCodePoint(start + d)).join("")
+      const sql = await sqlKey(written)
+      if (sql !== "0123456789") unread.push(`U+${start.toString(16).toUpperCase()}: sql ${sql}`)
+    }
+    expect(unread).toEqual([])
   })
 
   it("makes the attacker's variants of an ID number and of a registration number one key each", async () => {

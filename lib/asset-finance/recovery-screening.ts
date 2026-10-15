@@ -21,6 +21,8 @@
 //   buyer's tokens in order, as whole tokens.
 // UNTESTED: the list of screened parties needs the lender's compliance sign-off.
 
+import { asciiDigit } from "./recovery-digit-blocks"
+
 export type ScreeningKind = "BORROWER" | "RELATED_PARTY" | "STAFF" | "COI_DECLARATION"
 
 export interface ScreeningBuyer {
@@ -50,12 +52,9 @@ export interface ScreeningResult {
 
 /** NFKC with every Unicode decimal digit as its ASCII digit. */
 function fold(value: string): string {
-  return value.normalize("NFKC").replace(/\p{Nd}/gu, (digit) => {
-    let start = digit.codePointAt(0) as number
-    const at = start
-    while (start > 0 && at - (start - 1) < 10 && /\p{Nd}/u.test(String.fromCodePoint(start - 1))) start--
-    return String((at - start) % 10)
-  })
+  let out = ""
+  for (const char of value.normalize("NFKC")) out += asciiDigit(char.codePointAt(0) as number) ?? char
+  return out
 }
 
 /** Letters and digits only, upper case (the digits ASCII). */
@@ -131,17 +130,20 @@ export function identifierKeys(value: string): string[] {
 
 /** Latin look-alikes of the Cyrillic and Greek letters people use to spell a name past a comparison. */
 const CONFUSABLES: Record<string, string> = Object.fromEntries([
+  ["ı", "i"], // dotless i, which has no decomposition
+
   ..."аАеЕоОрРсСуУхХіІјЈѕЅһНВКМТ".split("").map((c, i) => [c, "aAeEoOpPcCyYxXiIjJsShHBKMT"[i]]),
   ..."αΑβΒεΕζΖηΗιΙκΚμΜνΝοΟρΡτΤυΥχΧωΩ".split("").map((c, i) => [c, "aAbBeEzZhHiIkKmMnNoOpPtTuUxXwW"[i]]),
 ])
-const foldConfusables = (value: string) => value.replace(/[\u0370-\u03ff\u0400-\u052f]/g, (c) => CONFUSABLES[c] ?? c)
+const foldConfusables = (value: string) => value.replace(/[\u0131\u0370-\u03ff\u0400-\u052f]/g, (c) => CONFUSABLES[c] ?? c)
 
 const TITLES = new Set(["mr", "mrs", "ms", "miss", "dr", "prof", "adv"])
 const COMPANY_WORDS = new Set(["pty", "proprietary", "ltd", "limited", "cc", "inc", "incorporated", "trading"])
 const PARTICLES = new Set(["van", "der", "den", "de", "du", "von", "le", "la", "ten", "ter", "te", "vander", "vanden", "vande"])
 
 function words(value: string): string[] {
-  return foldConfusables(fold(value)).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
+  // marks come off first, so a precomposed look-alike with a diacritic (ό, ё) is its bare letter when it is folded
+  return foldConfusables(fold(value).normalize("NFKD").replace(/\p{M}/gu, "")).toLowerCase()
     .replace(/['’`´]/g, "").replace(/\bt\/a\b/g, " ").split(/[^\p{L}\p{N}]+/u).filter((word) => word !== "")
 }
 
