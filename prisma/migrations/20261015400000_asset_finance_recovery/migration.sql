@@ -131,6 +131,7 @@ CREATE TABLE "Recovery" (
     "netProceedsCents" INTEGER,
     "shortfallCents" INTEGER,
     "surplusCents" INTEGER,
+    "unrecoverableCostsCents" INTEGER,
     "proceedsPaymentId" TEXT,
     "finalNoticeIssuedOn" DATE,
     "chargesFrozenFrom" DATE,
@@ -731,6 +732,11 @@ ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_net_proceeds" CHECK ("netProceed
 ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_shortfall_surplus" CHECK ("shortfallCents" IS NULL OR (
   "shortfallCents" = GREATEST(0, "settlementDueCents" + "chargedCostsCents" - "netProceedsCents")
   AND "surplusCents" = GREATEST(0, "netProceedsCents" - "settlementDueCents" - "chargedCostsCents")));
+-- The part of the charged costs the loan's ledger could not carry (the NCA in-duplum headroom, or a loan the proceeds already
+-- settled): set once, after the proceeds, and never more than the costs charged or the shortfall that includes them.
+ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_unrecoverable_costs" CHECK ("unrecoverableCostsCents" IS NULL OR (
+  "chargedCostsCents" IS NOT NULL AND "shortfallCents" IS NOT NULL
+  AND "unrecoverableCostsCents" >= 0 AND "unrecoverableCostsCents" <= "chargedCostsCents" AND "unrecoverableCostsCents" <= "shortfallCents"));
 ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_freeze_window" CHECK (("chargesFrozenUntil" IS NULL OR "chargesFrozenFrom" IS NOT NULL) AND ("chargesFrozenFrom" IS NULL OR "chargesFrozenUntil" IS NULL OR "chargesFrozenFrom" <= "chargesFrozenUntil"));
 ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_closed_columns" CHECK (("status" IN ('CLOSED', 'WITHDRAWN')) = ("closedAt" IS NOT NULL) AND ("status" = 'WITHDRAWN') = ("withdrawnReason" IS NOT NULL));
 ALTER TABLE "Recovery" ADD CONSTRAINT "Recovery_text" CHECK (length(btrim("location")) >= 2 AND length(btrim("condition")) >= 3 AND length(btrim("createdById")) > 0);
@@ -821,6 +827,10 @@ BEGIN
   step := OLD."status"::TEXT || '>' || NEW."status"::TEXT;
   IF OLD."status" = NEW."status" THEN
     allowed := ARRAY['location', 'condition', 'meterReadingId'];
+    -- once the proceeds are applied, the costs the ledger could not carry are recorded: NULL to a value, in this status only
+    IF OLD."status" = 'PROCEEDS_APPLIED' AND OLD."unrecoverableCostsCents" IS NULL THEN
+      allowed := allowed || ARRAY['unrecoverableCostsCents'];
+    END IF;
   ELSIF step = 'RECOVERED>VALUED' THEN
     allowed := ARRAY['valuationId'];
   ELSIF step = 'VALUED>VALUATION_NOTICE_ISSUED' THEN
@@ -828,7 +838,7 @@ BEGIN
   ELSIF step IN ('VALUATION_NOTICE_ISSUED>LISTED', 'VALUED>LISTED', 'LISTED>SOLD', 'FINAL_NOTICE_ISSUED>SHORTFALL_OPEN', 'FINAL_NOTICE_ISSUED>SURPLUS_HELD', 'PROCEEDS_APPLIED>SHORTFALL_OPEN', 'PROCEEDS_APPLIED>SURPLUS_HELD') THEN
     allowed := ARRAY[]::TEXT[];
   ELSIF step = 'SOLD>PROCEEDS_APPLIED' THEN
-    allowed := ARRAY['settlementDueCents', 'grossProceedsCents', 'deductedCostsCents', 'chargedCostsCents', 'netProceedsCents', 'shortfallCents', 'surplusCents', 'proceedsPaymentId', 'chargesFrozenFrom', 'chargesFrozenUntil'];
+    allowed := ARRAY['settlementDueCents', 'grossProceedsCents', 'deductedCostsCents', 'chargedCostsCents', 'netProceedsCents', 'shortfallCents', 'surplusCents', 'proceedsPaymentId', 'chargesFrozenFrom', 'chargesFrozenUntil', 'unrecoverableCostsCents'];
   ELSIF step = 'PROCEEDS_APPLIED>FINAL_NOTICE_ISSUED' THEN
     allowed := ARRAY['finalNoticeIssuedOn', 'finalNoticePath', 'finalNoticeSha256', 'chargesFrozenUntil'];
   ELSIF step IN ('FINAL_NOTICE_ISSUED>CLOSED', 'PROCEEDS_APPLIED>CLOSED', 'SHORTFALL_OPEN>CLOSED', 'SURPLUS_HELD>CLOSED') THEN
@@ -940,7 +950,11 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s131 final notice is stored with its digest';
     END IF;
   ELSIF step IN ('FINAL_NOTICE_ISSUED>SHORTFALL_OPEN', 'PROCEEDS_APPLIED>SHORTFALL_OPEN') THEN
-    IF NEW."shortfallCents" <= 0 OR NEW."chargesFrozenUntil" IS NULL THEN
+    IF NEW."unrecoverableCostsCents" IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The costs the loan''s ledger could not carry are recorded before a shortfall is opened';
+    END IF;
+    -- what is still owed: the shortfall less the charged costs that could not go on the ledger
+    IF NEW."shortfallCents" - NEW."unrecoverableCostsCents" <= 0 OR NEW."chargesFrozenUntil" IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A shortfall is open for a positive shortfall with its freeze end set';
     END IF;
   ELSIF step IN ('FINAL_NOTICE_ISSUED>SURPLUS_HELD', 'PROCEEDS_APPLIED>SURPLUS_HELD') THEN
@@ -952,7 +966,10 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A surplus is held only once the loan is settled';
     END IF;
   ELSIF step IN ('FINAL_NOTICE_ISSUED>CLOSED', 'PROCEEDS_APPLIED>CLOSED') THEN
-    IF NEW."shortfallCents" <> 0 OR NEW."surplusCents" <> 0 THEN
+    IF NEW."unrecoverableCostsCents" IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The costs the loan''s ledger could not carry are recorded before the recovery closes';
+    END IF;
+    IF NEW."shortfallCents" - NEW."unrecoverableCostsCents" <> 0 OR NEW."surplusCents" <> 0 THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery closes straight from its proceeds only with no shortfall and no surplus';
     END IF;
   ELSIF step = 'SHORTFALL_OPEN>CLOSED' THEN

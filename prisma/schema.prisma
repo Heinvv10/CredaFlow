@@ -6155,55 +6155,57 @@ enum RecoveryStatus {
 // Transitions, write-once figures and the route rules are DB-guarded
 // (guardRecovery); one open recovery per loan (partial unique index).
 model Recovery {
-  id                    String             @id @default(cuid())
-  tenantId              String
-  tenant                Tenant             @relation(fields: [tenantId], references: [id])
-  loanId                String
-  loan                  Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  assetId               String
-  asset                 FinancedAsset      @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  route                 RecoveryRoute
-  status                RecoveryStatus     @default(RECOVERED)
+  id                      String             @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant             @relation(fields: [tenantId], references: [id])
+  loanId                  String
+  loan                    Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assetId                 String
+  asset                   FinancedAsset      @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  route                   RecoveryRoute
+  status                  RecoveryStatus     @default(RECOVERED)
   // The asset's lessor status when the recovery opened (none, or RETURNED_TO_STOCK of an earlier lease), set by the trigger; withdrawing restores it.
-  previousLessorStatus  AssetLessorStatus?
-  surrenderRequestId    String?            @unique
-  surrenderRequest      SurrenderRequest?  @relation(fields: [tenantId, surrenderRequestId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  legalMatterId         String?
-  legalMatter           LegalMatter?       @relation(fields: [tenantId, legalMatterId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  recoveredOn           DateTime           @db.Date
-  location              String
-  condition             String
-  meterReadingId        String?
-  meterReading          AssetMeterReading? @relation(fields: [tenantId, meterReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  valuationId           String?
-  valuation             AssetValuation?    @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  previousLessorStatus    AssetLessorStatus?
+  surrenderRequestId      String?            @unique
+  surrenderRequest        SurrenderRequest?  @relation(fields: [tenantId, surrenderRequestId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  legalMatterId           String?
+  legalMatter             LegalMatter?       @relation(fields: [tenantId, legalMatterId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recoveredOn             DateTime           @db.Date
+  location                String
+  condition               String
+  meterReadingId          String?
+  meterReading            AssetMeterReading? @relation(fields: [tenantId, meterReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  valuationId             String?
+  valuation               AssetValuation?    @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   // s131 only: s127 keeps its notices on the SurrenderRequest.
-  valuationNoticePath   String?
-  valuationNoticeSha256 String?
-  finalNoticePath       String?
-  finalNoticeSha256     String?
-  settlementDueCents    Int?
-  grossProceedsCents    Int?
-  deductedCostsCents    Int?
-  chargedCostsCents     Int?
-  netProceedsCents      Int?
-  shortfallCents        Int?
-  surplusCents          Int?
-  proceedsPaymentId     String?            @unique
-  proceedsPayment       Payment?           @relation("RecoveryProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  finalNoticeIssuedOn   DateTime?          @db.Date
-  chargesFrozenFrom     DateTime?          @db.Date
-  chargesFrozenUntil    DateTime?          @db.Date
-  withdrawnReason       String?
-  closedAt              DateTime?
-  createdById           String
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  costs                 RecoveryCost[]
-  sales                 RemarketingSale[]
-  vatEvents             RecoveryVatEvent[]
-  refund                RecoveryRefund?
-  createdBy             User               @relation("RecoveryCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  valuationNoticePath     String?
+  valuationNoticeSha256   String?
+  finalNoticePath         String?
+  finalNoticeSha256       String?
+  settlementDueCents      Int?
+  grossProceedsCents      Int?
+  deductedCostsCents      Int?
+  chargedCostsCents       Int?
+  netProceedsCents        Int?
+  shortfallCents          Int?
+  surplusCents            Int?
+  // The part of chargedCostsCents the loan's ledger could not carry (in-duplum headroom, or a loan the proceeds settled): set once, after the proceeds.
+  unrecoverableCostsCents Int?
+  proceedsPaymentId       String?            @unique
+  proceedsPayment         Payment?           @relation("RecoveryProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  finalNoticeIssuedOn     DateTime?          @db.Date
+  chargesFrozenFrom       DateTime?          @db.Date
+  chargesFrozenUntil      DateTime?          @db.Date
+  withdrawnReason         String?
+  closedAt                DateTime?
+  createdById             String
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  costs                   RecoveryCost[]
+  sales                   RemarketingSale[]
+  vatEvents               RecoveryVatEvent[]
+  refund                  RecoveryRefund?
+  createdBy               User               @relation("RecoveryCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, surrenderRequestId])

@@ -31,6 +31,8 @@ export interface PathOptions {
   costs?: { type: RecoveryCostType; treatment: RecoveryCostTreatment; grossCents: number; legalStepId?: string }[]
   /** A surrender row of an s127 recovery. */
   surrenderId?: string
+  /** The charged costs the ledger could not carry, written with the proceeds: 0 unless said; null leaves it unset. */
+  unrecoverableCents?: number | null
 }
 
 /** A cost as it is recorded: PENDING, undecided (the second person decides it later). */
@@ -125,6 +127,7 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
       await set({
         status: next, settlementDueCents: settlement, grossProceedsCents: gross, deductedCostsCents: deducted, chargedCostsCents: charged, netProceedsCents: net,
         shortfallCents: Math.max(0, owed - net), surplusCents: Math.max(0, net - owed), proceedsPaymentId: payment?.id ?? null,
+        unrecoverableCostsCents: o.unrecoverableCents === undefined ? 0 : o.unrecoverableCents,
         chargesFrozenFrom: dbDate(from), ...(loan.regime === "NON_NCA" ? { chargesFrozenUntil: dbDate(addDays(from, 10)) } : {}),
       })
     } else if (next === "FINAL_NOTICE_ISSUED") {
