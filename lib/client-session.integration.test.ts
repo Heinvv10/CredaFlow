@@ -57,6 +57,15 @@ suite("revalidateClientPrincipal against Postgres", () => {
     expect(await revalidateClientPrincipal(clientId, tenantId, stamp)).toBeNull()
   })
 
+  it("ends the session when the lender switches its portal off, and not before", async () => {
+    const { tenantId, clientId } = await tenantWithClient("$2a$12$hash-one")
+    const stamp = clientCredentialStamp(clientId, tenantId, "$2a$12$hash-one")
+    await db.tenantConfig.create({ data: { tenantId } })
+    expect(await revalidateClientPrincipal(clientId, tenantId, stamp)).toBe("valid")
+    await db.tenantConfig.update({ where: { tenantId }, data: { featurePortal: false } })
+    expect(await revalidateClientPrincipal(clientId, tenantId, stamp)).toBeNull()
+  })
+
   it("refuses a token that names another tenant's id for the client", async () => {
     const a = await tenantWithClient("$2a$12$hash-one")
     const b = await tenantWithClient("$2a$12$hash-one")

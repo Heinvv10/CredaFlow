@@ -36,7 +36,8 @@ function stampsMatch(a: string, b: string): boolean {
  * Revalidate a client token against the DB.
  * Returns null    → force sign-out: the Client row is gone (or belongs to
  *                   another tenant), portal access is switched off
- *                   (portalPassword cleared), or the credential has changed
+ *                   (portalPassword cleared, or the lender's featurePortal
+ *                   off), or the credential has changed
  *                   since this session was issued. A token without a stamp
  *                   predates the stamp and cannot prove its credential, so it
  *                   is refused too.
@@ -53,7 +54,7 @@ export async function revalidateClientPrincipal(
 ): Promise<"valid" | null | "error"> {
   if (typeof stamp !== "string" || stamp === "") return null
 
-  let fresh: { portalPassword: string | null } | null
+  let fresh: { portalPassword: string | null; tenant?: { config: { featurePortal: boolean } | null } | null } | null
   try {
     // The await keeps the AsyncLocalStorage frame alive until Prisma's lazy
     // query runs (see authorize()); the lookup is pinned to the token's tenant
@@ -61,7 +62,7 @@ export async function revalidateClientPrincipal(
     fresh = await withoutTenantScope(async () => {
       return await prisma.client.findFirst({
         where: { id: clientId, tenantId },
-        select: { portalPassword: true },
+        select: { portalPassword: true, tenant: { select: { config: { select: { featurePortal: true } } } } },
       })
     })
   } catch (err) {
@@ -70,5 +71,8 @@ export async function revalidateClientPrincipal(
   }
 
   if (!fresh || !fresh.portalPassword) return null
+  // The lender switched its portal off (TenantConfig.featurePortal): every
+  // client session ends. No config row means the default, on.
+  if (fresh.tenant?.config?.featurePortal === false) return null
   return stampsMatch(clientCredentialStamp(clientId, tenantId, fresh.portalPassword), stamp) ? "valid" : null
 }

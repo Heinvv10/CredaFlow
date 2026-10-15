@@ -73,7 +73,13 @@ export class SimClient {
   constructor(readonly baseUrl: string = simBaseUrl()) {}
 
   async request<T = unknown>(method: string, path: string, body?: Body, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
-    const headers: Record<string, string> = { accept: "application/json", ...opts.headers }
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      ...(method === "GET" || method === "HEAD" || method === "OPTIONS"
+        ? {}
+        : { origin: new URL(this.baseUrl).origin, "sec-fetch-site": "same-origin" }),
+      ...opts.headers,
+    }
     let payload: FormData | URLSearchParams | string | Uint8Array<ArrayBuffer> | undefined
     if (body instanceof FormData || body instanceof URLSearchParams || body instanceof Uint8Array || typeof body === "string") {
       payload = body

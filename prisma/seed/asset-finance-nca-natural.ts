@@ -15,6 +15,7 @@ import { issueAssetNcaQuote } from "@/lib/asset-finance/nca-quote-store"
 import { runDealBureauCheck } from "@/lib/asset-finance/deal-bureau"
 import { decideDeal } from "@/lib/asset-finance/deal-decision"
 import { issueAssetNcaAgreement, signAssetNcaAgreement, countersignAssetNcaAgreement } from "@/lib/asset-finance/nca-agreement-store"
+import { seedSigningCode } from "./signing-code"
 import { confirmChecklist, payOutAndBook } from "./asset-finance-execution"
 import { dealActor, type SeedStaff } from "./asset-finance-deal"
 
@@ -119,9 +120,11 @@ async function executeNaturalDeal(tenantId: string, staff: SeedStaff, dealId: st
   }
   execution = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true } })
   if (execution.status === "APPROVED" && !execution.application.agreementSignedAt && execution.application.agreementDocumentSha256) {
+    const agreementSigner = await prisma.dealSigner.findFirstOrThrow({ where: { tenantId, dealId, clientId, document: "AGREEMENT" }, select: { id: true } })
     const signed = await signAssetNcaAgreement({
       tenantId, clientId, clientEmail: staff.officer.email, dealId,
       signature: "TEST Sole Proprietor", documentSha256: execution.application.agreementDocumentSha256,
+      signingOtpChallengeId: await seedSigningCode(tenantId, clientId, agreementSigner.id, execution.application.agreementDocumentSha256),
     })
     if (signed.kind !== "done") throw new Error(`Seed: sole-proprietor signature refused (${JSON.stringify(signed)})`)
   }

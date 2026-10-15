@@ -103,6 +103,24 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // PEP / sanctions screening and FIC registers (lib/screening, lib/fic).
+  // Non-null tenantId; every query passes it explicitly because the screening
+  // cron and the submit-time run execute outside a request frame.
+  "ScreeningCheck",
+  "CashThresholdReport",
+  "SuspiciousReportCase",
+  "SuspiciousReportAccess",
+  "RmcpDocument",
+  // Lender API (lib/lender-api). Non-null tenantId. The key lookup by prefix
+  // and the webhook cron's cross-tenant scans run in withoutTenantScope;
+  // ApiRequestLog (nullable tenantId: a call with an unknown key) is not listed.
+  "ApiKey",
+  "WebhookEndpoint",
+  "WebhookEvent",
+  "WebhookDelivery",
+  // Signing OTP challenges (lib/signing-otp). Non-null tenantId, passed
+  // explicitly on every query (sign routes run inside withTenantContext too).
+  "SigningOtpChallenge",
   // Operating and full-maintenance leases (slice 3). Non-null tenantId,
   // passed explicitly on every query (the invoice cron has no frame).
   "LeaseRental",

@@ -15,11 +15,25 @@ import { isIP } from "node:net"
 type Bucket = number[]
 
 const store = new Map<string, Bucket>()
+// Every store, so the test reset clears limiters made with createRateLimiter too.
+const allStores = new Set<Map<string, Bucket>>([store])
 
 // Cap the number of distinct keys we track so a flood of unique keys (e.g.
 // random IPs) can't blow up memory. The cheapest eviction policy that still
 // works for a rate limiter is "drop oldest insertion" — Map preserves order.
 const MAX_KEYS = 10_000
+
+/**
+ * A limiter with its own store and cap. Use one where keys of different kinds
+ * must not evict each other: a flood of unique keys of one kind (failed
+ * attempts from random addresses) would otherwise push out the buckets of
+ * another (a real API key already at its limit), lifting that limit.
+ */
+export function createRateLimiter(maxKeys: number): (key: string, opts: RateLimitOptions) => RateLimitResult {
+  const own = new Map<string, Bucket>()
+  allStores.add(own)
+  return (key, opts) => checkIn(own, maxKeys, key, opts)
+}
 
 export interface RateLimitResult {
   allowed: boolean
@@ -35,13 +49,17 @@ export interface RateLimitOptions {
 }
 
 export function checkRateLimit(key: string, opts: RateLimitOptions): RateLimitResult {
+  return checkIn(store, MAX_KEYS, key, opts)
+}
+
+function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts: RateLimitOptions): RateLimitResult {
   const now = Date.now()
   const cutoff = now - opts.windowMs
 
   let bucket = store.get(key)
   if (!bucket) {
     bucket = []
-    if (store.size >= MAX_KEYS) {
+    if (store.size >= maxKeys) {
       // Drop the oldest tracked key to bound memory.
       const oldest = store.keys().next().value
       if (oldest !== undefined) store.delete(oldest)
@@ -73,7 +91,7 @@ export function checkRateLimit(key: string, opts: RateLimitOptions): RateLimitRe
 
 /** Clear all rate-limit state. Test helper; do not call from request paths. */
 export function _resetRateLimitStore(): void {
-  store.clear()
+  for (const s of allStores) s.clear()
 }
 
 /**
@@ -92,16 +110,24 @@ export function _resetRateLimitStore(): void {
  * callers together, which is conservative but not exploitable.
  */
 export function callerIp(req: Request): string {
+  return callerIpFromHeaders(req.headers)
+}
+
+/**
+ * callerIp for code that holds the request headers rather than the Request
+ * (a NextAuth callback reading `headers()` from next/headers). Same algorithm.
+ */
+export function callerIpFromHeaders(headers: Headers): string {
   const trustedProxies = parseInt(process.env.TRUSTED_PROXY ?? "0", 10)
 
-  const forwarded = trustedForwardedIp(req, trustedProxies)
+  const forwarded = trustedForwardedIp(headers, trustedProxies)
   if (forwarded) return forwarded
 
   return "unknown"
 }
 
-function trustedForwardedIp(req: Request, trustedProxies: number): string | null {
-  const xff = req.headers.get("x-forwarded-for")
+function trustedForwardedIp(headers: Headers, trustedProxies: number): string | null {
+  const xff = headers.get("x-forwarded-for")
   if (!xff || trustedProxies <= 0) return null
   const ips = xff.split(",").map((s) => s.trim()).filter(Boolean)
   const idx = ips.length - trustedProxies
@@ -116,5 +142,5 @@ function trustedForwardedIp(req: Request, trustedProxies: number): string | null
  */
 export function recordedCallerIp(req: Request): string | null {
   const trustedProxies = parseInt(process.env.TRUSTED_PROXY ?? "0", 10)
-  return trustedForwardedIp(req, trustedProxies)
+  return trustedForwardedIp(req.headers, trustedProxies)
 }

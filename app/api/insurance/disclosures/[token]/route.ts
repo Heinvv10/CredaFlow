@@ -1,12 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { readFile } from "node:fs/promises"
-import path from "node:path"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { hashDraftToken, verifyDraftToken } from "@/lib/insurance/disclosure-token"
-
-const UPLOADS_ROOT = path.join(process.cwd(), "uploads", "disclosures")
+import { readFile, storagePathAt } from "@/lib/storage"
 
 export async function GET(
   req: NextRequest,
@@ -39,19 +36,22 @@ export async function GET(
     //                          derive a base name: the token itself has a dot.
     //
     // The URL is identical in both cases; only the storage name differs.
+    // Read through lib/storage: the PDFs are encrypted at rest like every other
+    // upload. Only a missing file moves on to the next scheme; a file that fails
+    // its integrity check is an error (fail closed), never skipped past.
     const candidates = [
-      path.join(UPLOADS_ROOT, tenant.id, `${hashDraftToken(token)}.pdf`),
-      path.join(UPLOADS_ROOT, tenant.id, `${token}.pdf`),
+      `disclosures/${tenant.id}/${hashDraftToken(token)}.pdf`,
+      `disclosures/${tenant.id}/${token}.pdf`,
     ]
-    for (const filePath of candidates) {
+    for (const relative of candidates) {
       try {
-        const buf = await readFile(filePath)
-        return new NextResponse(buf, {
+        const buf = await readFile(storagePathAt(relative))
+        return new NextResponse(new Uint8Array(buf), {
           status: 200,
           headers: { "content-type": "application/pdf" },
         })
-      } catch {
-        // Try the next naming scheme.
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       }
     }
     return NextResponse.json({ error: "not found" }, { status: 404 })
