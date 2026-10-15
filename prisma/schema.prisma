@@ -862,6 +862,7 @@ enum CreditCheck {
   UNDISCLOSED_DEBT
   RISK_BEHAVIOUR
   MANUAL_REVIEW
+  EXPENSE_UNDERSTATED
 }
 
 enum CheckFlagStatus {

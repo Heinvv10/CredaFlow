@@ -165,39 +165,43 @@ function referenceReader(clientId: string, data: ReadinessKycRows): CompositeKyc
       findMany: async (args: {
         where: {
           docType: { in: string[] } | string
-          biometricResult?: { path: string[]; equals: unknown }
           deletedAt?: null
           OR?: Array<{
             extractionStatus?: { in: string[] }
             verificationRejectedAt?: { not: null }
             verificationRejectedById?: { not: null }
+            biometricResult?: { path: string[]; equals: unknown }
           }>
         }
       }) => {
-        const { docType, biometricResult } = args.where
+        const { docType } = args.where
         if (typeof docType === "string") {
           const mine = data.selfies.filter((row) => row.clientId === clientId)
-          if (!biometricResult && args.where.deletedAt === undefined) {
+          const clauses = args.where.OR ?? []
+          if (clauses.some((clause) => clause.biometricResult !== undefined)) {
+            // The ID-portrait refusal read: any OR'd path equal to its value.
+            return mine.filter((row) => {
+              const result = row.biometricResult as Record<string, unknown> | null
+              return clauses.some((clause) =>
+                clause.biometricResult !== undefined
+                && result?.[clause.biometricResult.path[0]] === clause.biometricResult.equals)
+            })
+          }
+          if (args.where.deletedAt === undefined) {
             // The prior-failed-attempt read: deleted or not, any OR'd clause.
-            return mine.filter((row) => (args.where.OR ?? []).some((clause) =>
+            return mine.filter((row) => clauses.some((clause) =>
               (clause.extractionStatus !== undefined
                 && clause.extractionStatus.in.includes(row.extractionStatus ?? ""))
               || (clause.verificationRejectedAt !== undefined && (row.verificationRejectedAt ?? null) !== null)
               || (clause.verificationRejectedById !== undefined && (row.verificationRejectedById ?? null) !== null)))
           }
-          if (!biometricResult) {
-            // The blocking-candidate read.
-            return mine.filter(
-              (row) =>
-                row.deletedAt === null
-                && (row.extractionStatus === "processing"
-                  || (row.verified && row.biometricVerifiedAt !== null)),
-            )
-          }
-          return mine.filter((row) => {
-            const result = row.biometricResult as Record<string, unknown> | null
-            return result?.[biometricResult.path[0]] === biometricResult.equals
-          })
+          // The blocking-candidate read.
+          return mine.filter(
+            (row) =>
+              row.deletedAt === null
+              && (row.extractionStatus === "processing"
+                || (row.verified && row.biometricVerifiedAt !== null)),
+          )
         }
         return data.coreDocuments.filter(
           (row) => row.clientId === clientId && docType.in.includes(row.docType),
