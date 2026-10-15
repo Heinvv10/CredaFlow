@@ -1,5 +1,6 @@
+import { timingSafeEqual } from "node:crypto"
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { encryptionState, probeCron, probeDatabase, probeStorage, recentOutboxFailures } from "@/lib/ops/health-checks"
 
 const noStoreHeaders = { "Cache-Control": "no-store" }
 
@@ -16,17 +17,43 @@ function deployMetadata() {
   }
 }
 
-export async function GET() {
-  try {
-    await prisma.$queryRaw`SELECT 1`
-    return NextResponse.json(
-      { status: "ok", ...deployMetadata() },
-      { headers: noStoreHeaders },
-    )
-  } catch {
-    return NextResponse.json(
-      { status: "error", ...deployMetadata() },
-      { status: 503, headers: noStoreHeaders },
-    )
+/** The checks, warnings and per-job detail are for the operator only: x-cron-secret. */
+function isOperator(req: Request | undefined): boolean {
+  const secret = process.env.CRON_SECRET
+  const given = req?.headers.get("x-cron-secret")
+  if (!secret || !given) return false
+  const a = Buffer.from(secret), b = Buffer.from(given)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/**
+ * `status` is "ok" (200) when the database answers and storage round-trips a
+ * file, else "error" (503); deploy.sh waits for "ok". Anyone sees `status` and
+ * the deploy marker deploy.sh compares (mode, commit, build time: as before
+ * this route grew its checks). Which check failed, `warnings` (stale cron
+ * jobs, storage encryption off) and per-job detail are only answered to a
+ * caller with the x-cron-secret header. Probe errors are logged, never returned.
+ */
+export async function GET(req?: Request) {
+  const [database, storage] = await Promise.all([probeDatabase(), probeStorage()])
+  const ok = database.state === "ok" && storage === "ok"
+  const publicBody = { status: ok ? "ok" : "error", ...deployMetadata() }
+  if (!isOperator(req)) return NextResponse.json(publicBody, { status: ok ? 200 : 503, headers: noStoreHeaders })
+
+  const cron = database.state === "ok" ? await probeCron() : { state: "error" as const, jobs: [] }
+  const encryption = encryptionState()
+  const lostEvents = database.state === "ok" ? await recentOutboxFailures() : null
+  const warnings = [
+    ...(cron.state === "stale" ? ["cron_stale"] : []),
+    ...(cron.state === "error" ? ["cron_unknown"] : []),
+    ...(encryption === "off" ? ["storage_encryption_off"] : []),
+    ...(lostEvents !== null && lostEvents > 0 ? ["webhook_outbox_failures"] : []),
+  ]
+  const body = {
+    ...publicBody,
+    checks: { database: database.state, storage, storageEncryption: encryption, cron: cron.state },
+    warnings,
+    detail: { databaseLatencyMs: database.latencyMs, cronJobs: cron.jobs, webhookOutboxFailures24h: lostEvents },
   }
+  return NextResponse.json(body, { status: ok ? 200 : 503, headers: noStoreHeaders })
 }
