@@ -24,7 +24,9 @@ case "$*" in
   "inspect credaflow-demo-"*) exit 0 ;;
   *"com.docker.compose.project.working_dir"*) echo "$STUB_LIVE_DIR" ;;
   *"com.docker.compose.project"*) echo credaflow-demo ;;
-  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE"; [ -z "$STUB_CLEAR_TOTP" ] || echo "DEMO_CLEAR_STAFF_TOTP=true" ;;
+  *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE"; [ -z "$STUB_CLEAR_TOTP" ] || echo "DEMO_CLEAR_STAFF_TOTP=true"
+    # More env after the match, once a reader that stops early has gone: it then meets a closed pipe.
+    [ -z "$STUB_ENV_TAIL" ] || { sleep 0.3; echo "PATH=/usr/bin"; echo "NODE_ENV=production"; } ;;
   "inspect -f {{.Config.Image}} "*) echo "$STUB_IMAGE" ;;
   *"range .Mounts"*) echo uploads-vol ;;
   *"HostPort"*) echo 3300 ;;
@@ -130,6 +132,12 @@ describe('restore.sh demo staff TOTP', () => {
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
     expect(idx('UPDATE "TenantConfig"')).toBeLessThan(idx('RENAME TO "demo"'))
     expect(policy[1]).toContain('DB=demo ')
+  })
+
+  it('reads the container env whole: env printed after the match is no SIGPIPE refusal or skipped clear', () => {
+    const r = run({ STUB_CLEAR_TOTP: '1', STUB_ENV_TAIL: '1' })
+    expect(r.status).toBe(0)
+    expect(clearCalls(r.calls)).toHaveLength(2)
   })
 
   it('spares SUPER_ADMIN', () => {
