@@ -3,11 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "gen:registries": "tsx scripts/gen-registries.ts",
+    "postinstall": "test ! -f scripts/gen-registries.ts || tsx scripts/gen-registries.ts",
+    "predev": "npm run --silent gen:registries",
     "dev": "next dev",
+    "prebuild": "npm run --silent gen:registries",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "pretest": "npm run --silent gen:registries",
     "test": "vitest run",
+    "typecheck": "npm run --silent gen:registries && tsc --noEmit",
     "ci:quick": "bash scripts/ci-local.sh quick",
     "ci:quality": "bash scripts/ci-local.sh quality",
     "ci:integration": "bash scripts/ci-local.sh integration",
@@ -25,7 +31,7 @@
     "lender:bootstrap-tenant": "tsx scripts/lender/bootstrap-tenant-cli.ts",
     "lender:bootstrap-admin": "tsx scripts/lender/bootstrap-admin-cli.ts",
     "uploads:encrypt": "tsx scripts/encrypt-uploads-cli.ts",
-    "demo:typecheck": "tsc --noEmit -p scripts/demo/tsconfig.json"
+    "demo:typecheck": "npm run --silent gen:registries && tsc --noEmit -p scripts/demo/tsconfig.json"
   },
   "prisma": {
     "seed": "npm run --silent seed:staging"

@@ -243,27 +243,15 @@ app/
 
 ## Path-Scoped Rules
 
-Domain-specific rules live next to the code:
+Domain-specific rules live next to the code, in a `.claude.md` beside the
+module (`find lib app prisma -name .claude.md` lists them). Before editing
+inside a module, read its `.claude.md`. `npm run gen:registries` writes the
+index with each file's one-line summary to `docs/module-rules.md` (generated,
+not committed, so a PR adding a module never edits this file).
 
-- `lib/pdf/.claude.md` — NCA document hygiene
-- `lib/collections/.claude.md` — escalation, arrangements, Section 129
-- `lib/messaging/.claude.md` — the send pipeline; SMS is OFF by policy
-- `lib/integrations/.claude.md` — third-party API contracts
-- `lib/bank-sync/.claude.md` — the one money-import path (statement CSV)
-- `lib/bureau/.claude.md` — bureau enquiry providers, fallback, freshness
-- `lib/bureau-submission/.claude.md` — bureau files; statuses are sent once
-- `lib/operator/.claude.md` — operator console; borrower rows only through a grant
-- `lib/i18n/.claude.md` — borrower languages; legal text and money stay English
-- `lib/screening/.claude.md` — PEP/sanctions screening; a sanctions match is never cleared
-- `lib/fic/.claude.md` — FIC registers (CTR, STR, RMCP); tipping off; unverified threshold
-- `lib/lender-api/.claude.md` — the `/api/v1` lender API and outbound webhooks
-- `lib/signing-otp/.claude.md` — the signing one-time code; never SMS, never stored
-- `lib/security/.claude.md` — staff access policy; the IP allowlist needs a closed app port
-- `lib/collections-engine/.claude.md` — DebiCheck engine; scheme rules in one place
-- `lib/kyc/.claude.md` — failed-selfie override policy and database enforcement
-
-When you discover a rule that only applies inside one of these modules, add it
-there — don't pile it into root.
+When you discover a rule that only applies inside one module, add it to that
+module's `.claude.md` — don't pile it into root. A new `.claude.md` needs a
+`<!-- summary: … -->` line under its title, or the generator fails.
 
 ## Works in Claude Code AND Codex
 
