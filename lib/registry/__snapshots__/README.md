@@ -1,10 +1,11 @@
 # Registry parity snapshots
 
 The exact runtime values of each registry on `origin/main` at `e343dc4f`,
-taken before the lists were split into per-domain entry files
-(`lib/registry/registries.test.ts` compares the generated registries with them,
-order included).
+taken before the lists were split into per-domain entry files.
+`lib/registry/registries.test.ts` requires every entry here to still exist,
+with the same value and in the same relative order.
 
-A merged PR that adds an entry adds it here too, in the same position the
-generator produces. Never change a value to make the test pass without tracing
-the entry to the PR that added it.
+These files are frozen. An entry added since does not belong here (adding it
+would make every feature PR edit the same file again). A PR that deliberately
+retires or changes one of these entries removes or changes it here, and says
+why in its description.
