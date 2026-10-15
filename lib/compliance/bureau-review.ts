@@ -1,10 +1,16 @@
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockAffordabilityApplicationEvidence } from "@/lib/affordability/evidence-locks"
 import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
-import { getCreditReport } from "@/lib/integrations/experian"
-import { buildExperianEnquiryInput } from "@/lib/integrations/experian-input"
+import { openBureauCredentials, type BureauCredentialMap } from "@/lib/bureau/credentials"
+import { runBureauEnquiry } from "@/lib/bureau/enquiry"
+import { bureauCheckRow, scoreDropAlert } from "@/lib/bureau/persist"
+import { bureauProviderOrder } from "@/lib/bureau/registry"
+import { redactIdNumbers } from "@/lib/bureau/normalise"
+import { isApprovalBureau } from "@/lib/compliance/bureau"
+import type { BureauPurpose } from "@/lib/bureau/types"
 
 export type BureauReviewRequest = {
   tenantId: string
@@ -18,6 +24,12 @@ export type BureauReviewResult = "stored" | "skipped" | "stale" | "failed"
 type BureauReviewTransaction = Parameters<
   Parameters<typeof prisma.$transaction>[0]
 >[0]
+
+/** Origination enquiries are affordability assessments (NCA s.81). */
+const REVIEW_PURPOSE: BureauPurpose = "AFFORDABILITY_ASSESSMENT"
+
+/** A tenant with no config row keeps the schema default: Experian only. */
+const DEFAULT_ORDER = { bureauProviderOrder: ["experian"] }
 
 async function currentReview(
   db: Pick<BureauReviewTransaction, "loanApplication">,
@@ -49,15 +61,26 @@ async function storeComplianceRecordIfCurrent(
 }
 
 /**
- * Run a bureau enquiry for one exact review cycle. The generation is checked
- * before provider I/O and again while holding the same application lock used
- * by approval. A late response can be retained nowhere as current evidence.
+ * Run a bureau enquiry for one exact review cycle, across the tenant's bureaus
+ * (TenantConfig.bureauProviderOrder; fallback rule in lib/bureau/enquiry.ts).
+ * The generation is checked before every provider call and again while holding
+ * the same application lock used by approval. A late response can be retained
+ * nowhere as current evidence. Every attempt of a current run is stored as its
+ * own CreditBureauCheck row.
  */
 export async function runBureauReviewCheck(
   opts: BureauReviewRequest,
 ): Promise<BureauReviewResult> {
+  let primary = "experian"
   try {
     if (!(await currentReview(prisma, opts))) return "stale"
+
+    const config = await prisma.tenantConfig.findUnique({
+      where: { tenantId: opts.tenantId },
+      select: { bureauProviderOrder: true, bureauCredentials: true },
+    })
+    const order = bureauProviderOrder(config ?? DEFAULT_ORDER)
+    primary = order[0]
 
     // POPIA gate: granular consent is authoritative when it exists. The
     // umbrella flag remains the legacy fallback.
@@ -65,7 +88,7 @@ export async function runBureauReviewCheck(
       where: { id: opts.clientId },
       select: {
         popiaConsentGiven: true,
-        consent: { select: { creditBureauEnquiry: true, withdrawnAt: true } },
+        consent: { select: { id: true, creditBureauEnquiry: true, withdrawnAt: true } },
       },
     })
     const granular = consent?.consent ?? null
@@ -85,7 +108,7 @@ export async function runBureauReviewCheck(
         completedAt: new Date(),
         data: {
           clientId: opts.clientId,
-          provider: "experian",
+          provider: primary,
           reviewGeneration: opts.reviewGeneration,
           skipped: true,
           reason,
@@ -93,6 +116,9 @@ export async function runBureauReviewCheck(
       })
       return stored ? "skipped" : "stale"
     }
+    const consentReference = granular
+      ? `ClientConsent:${granular.id}`
+      : `Client.popiaConsentGiven:${opts.clientId}`
 
     const client = await prisma.client.findUnique({
       where: { id: opts.clientId },
@@ -105,30 +131,45 @@ export async function runBureauReviewCheck(
       },
     })
     if (!client) return "failed"
-    if (!(await currentReview(prisma, opts))) return "stale"
 
-    const result = await getCreditReport(
-      buildExperianEnquiryInput({
-        idNumber: client.idNumber,
-        firstName: client.firstName,
-        lastName: client.lastName,
-        gender: client.gender === "MALE" ? "M" : client.gender === "FEMALE" ? "F" : null,
-        dateOfBirth: client.dateOfBirth,
-        consentGranted: true,
-        applicationId: opts.applicationId,
-      }),
-    )
+    let credentials: BureauCredentialMap | null = null
+    const run = await runBureauEnquiry({
+      request: {
+        tenantId: opts.tenantId,
+        consumer: {
+          idNumber: client.idNumber,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          gender: client.gender === "MALE" ? "M" : client.gender === "FEMALE" ? "F" : null,
+          dateOfBirth: client.dateOfBirth,
+        },
+        purpose: REVIEW_PURPOSE,
+        consent: { reference: consentReference },
+        reference: opts.applicationId,
+      },
+      order,
+      credentialsFor: (providerId) => {
+        credentials ??= openBureauCredentials(config?.bureauCredentials ?? null)
+        return credentials[providerId] ?? null
+      },
+      // An origination enquiry is for an approval: a bureau whose report could
+      // not support one is recorded as skipped, never called and billed.
+      eligible: isApprovalBureau,
+      beforeAttempt: () => currentReview(prisma, opts),
+    })
+    if (run.stale) return "stale"
+
     const subjectFingerprint = bureauSubjectFingerprint({
       id: opts.clientId,
       ...client,
     })
-    const hasAdverse = (result.adverseInfo?.length ?? 0) > 0
+    const report = run.report?.report ?? null
 
-    // Provider-scoped score comparison: Sigma scores are not comparable to
-    // historical TransUnion scales.
-    const SCORE_DROP_THRESHOLD = 50
-    let scoreDropAlert: { previous: number; current: number; drop: number } | undefined
-    if (result.score != null) {
+    // Provider-scoped score comparison: scores from different bureaus (and
+    // the Sigma band vs historical TransUnion scales) are not comparable.
+    let alert: ReturnType<typeof scoreDropAlert>
+    const score = report?.score?.value ?? null
+    if (report && score != null) {
       // A simulated earlier row is not a real score; filtered here, not in SQL,
       // because a JSON-path NOT drops rows whose key is absent.
       const priorChecks = await prisma.creditBureauCheck.findMany({
@@ -136,7 +177,7 @@ export async function runBureauReviewCheck(
           tenantId: opts.tenantId,
           clientId: opts.clientId,
           applicationId: { not: opts.applicationId },
-          provider: "experian",
+          provider: report.provider,
           ok: true,
           score: { not: null },
         },
@@ -145,74 +186,61 @@ export async function runBureauReviewCheck(
         select: { score: true, obligations: true },
       })
       const previous = priorChecks.find((check) => !isSimulatedBureauCheck(check.obligations))
-      if (previous?.score != null) {
-        const drop = previous.score - result.score
-        if (drop >= SCORE_DROP_THRESHOLD) {
-          scoreDropAlert = { previous: previous.score, current: result.score, drop }
-        }
-      }
+      alert = scoreDropAlert(previous?.score, score)
     }
 
-    const accounts = result.accounts?.length ? result.accounts : undefined
-    const obligations = result.totalMonthlyObligations != null || scoreDropAlert || accounts || result.simulated
-      ? {
-          ...(result.simulated ? { simulated: true } : {}),
-          ...(result.totalMonthlyObligations != null
-            ? { totalMonthly: result.totalMonthlyObligations }
-            : {}),
-          ...(scoreDropAlert ? { scoreDropAlert } : {}),
-          // The account list for the credit checks (lib/credit-checks/load-facts.ts).
-          ...(accounts ? { accounts: accounts as unknown as Prisma.InputJsonValue } : {}),
-        }
-      : undefined
-    const bureauCheckData = {
+    const base = {
       tenantId: opts.tenantId,
       clientId: opts.clientId,
       applicationId: opts.applicationId,
       reviewGeneration: opts.reviewGeneration,
       subjectFingerprint,
-      provider: "experian",
-      score: result.score ?? null,
-      riskGrade: result.riskGrade ?? null,
-      adverseInfo: result.adverseInfo ?? [],
-      hasAdverse,
-      deceased: result.deceased ?? false,
-      underDebtReview: result.underDebtReview ?? false,
-      hasJudgement: result.hasJudgement ?? false,
-      hasNotice: result.hasNotice ?? false,
-      unscoreable: result.unscoreable ?? false,
-      declineReasons: result.declineReasons ?? [],
-      ok: result.ok,
-      errorMessage: result.error ?? null,
-      obligations,
-    } satisfies Prisma.CreditBureauCheckUncheckedCreateInput
+    }
+    const rows = run.attempts.map((attempt) => bureauCheckRow(base, attempt, attempt.status === "OK" ? alert : undefined))
+    // The outcome is the last bureau actually asked; skipped ones only explain the run.
+    const last = run.attempts.findLast((a) => a.status !== "SKIPPED_NOT_APPROVABLE") ?? run.attempts[run.attempts.length - 1]
+    const failure = last.status === "OK" ? null : last
+    const attempts = run.attempts.map((a) => ({ attempt: a.attempt, provider: a.provider, status: a.status }))
 
     const stored = await prisma.$transaction(async (tx) => {
       await lockAffordabilityApplicationEvidence(tx, opts)
       if (!(await currentReview(tx, opts))) return false
-      await Promise.all([
-        tx.creditBureauCheck.create({ data: bureauCheckData }),
-        tx.complianceRecord.create({
+      for (const data of rows) await tx.creditBureauCheck.create({ data })
+      await tx.complianceRecord.create({
+        data: {
+          tenantId: opts.tenantId,
+          type: "CREDIT_BUREAU_CHECK",
+          status: report ? "COMPLETED" : "PENDING",
+          referenceId: opts.applicationId,
           data: {
-            tenantId: opts.tenantId,
-            type: "CREDIT_BUREAU_CHECK",
-            status: result.ok ? "COMPLETED" : "PENDING",
-            referenceId: opts.applicationId,
-            data: {
-              clientId: opts.clientId,
-              provider: "experian",
-              reviewGeneration: opts.reviewGeneration,
-              score: result.score ?? null,
-              riskGrade: result.riskGrade ?? null,
-              adverseInfo: result.adverseInfo ?? [],
-              deceased: result.deceased ?? false,
-              error: result.error ?? null,
-              errorClass: result.errorClass ?? null,
-            },
-            completedAt: result.ok ? new Date() : null,
+            clientId: opts.clientId,
+            provider: last.provider,
+            reviewGeneration: opts.reviewGeneration,
+            score,
+            riskGrade: report?.score?.riskGrade ?? null,
+            adverseInfo: report?.defaults ?? [],
+            deceased: report?.deceased ?? false,
+            error: failure?.error ?? null,
+            errorClass: failure?.errorClass ?? null,
+            rawSha256: report?.rawSha256 ?? null,
+            attempts,
           },
-        }),
-      ])
+          completedAt: report ? new Date() : null,
+        },
+      })
+      await logAuditStrict({
+        tenantId: opts.tenantId,
+        action: AuditAction.BUREAU_ENQUIRY_RUN,
+        entity: "LoanApplication",
+        entityId: opts.applicationId,
+        newValue: {
+          reviewGeneration: opts.reviewGeneration,
+          purpose: REVIEW_PURPOSE,
+          provider: report?.provider ?? null,
+          simulated: report?.simulated ?? false,
+          attempts,
+        },
+      }, tx)
       return true
     })
     return stored ? "stored" : "stale"
@@ -224,9 +252,9 @@ export async function runBureauReviewCheck(
       referenceId: opts.applicationId,
       data: {
         clientId: opts.clientId,
-        provider: "experian",
+        provider: primary,
         reviewGeneration: opts.reviewGeneration,
-        error: error instanceof Error ? error.message : "bureau check failed",
+        error: redactIdNumbers(error instanceof Error ? error.message : "bureau check failed"),
       },
       completedAt: null,
     }).catch((recordError) => {
