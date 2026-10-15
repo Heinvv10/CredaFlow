@@ -41,7 +41,7 @@ describe("countIncrementalUpdates", () => {
      * catalog (objects 6–9) showing SHADOW; then optionally an Info dictionary and
      * a /Type /XRef stream, as Word's hybrid files carry; /ID optional.
      */
-    function original({ info = true, id = true, xrefStreams = 0 } = {}): { pdf: string; trailer: string } {
+    function original({ info = true, id = true, xrefStreams = 0, padding = 0 } = {}): { pdf: string; trailer: string } {
       const page = (parent: number, contents: number) =>
         `<< /Type /Page /Parent ${parent} 0 R /MediaBox [0 0 300 100] /Resources << /Font << /F1 5 0 R >> >> /Contents ${contents} 0 R >>`
       const objects = [
@@ -52,7 +52,7 @@ describe("countIncrementalUpdates", () => {
         ...(info ? ["<< /Producer (T TESTER) >>"] : []),
         ...Array.from({ length: xrefStreams }, () => "<< /Type /XRef /Size 1 /W [1 1 1] /Index [0 0] /Length 0 >>\nstream\n\nendstream"),
       ]
-      let pdf = "%PDF-1.7\n"
+      let pdf = `%PDF-1.7\n${padding ? `%${"x".repeat(padding)}\n` : ""}`
       const offsets = objects.map((o, n) => {
         const at = pdf.length
         pdf += `${n + 1} 0 obj\n${o}\nendobj\n`
@@ -146,6 +146,28 @@ describe("countIncrementalUpdates", () => {
     it("counts an object hidden in the trailer for a rebuilt xref to find", () => {
       expect(count(save(pdf, `${trailer}\n6 0 obj\n /Prev ${lastStartxref(pdf)}`))).toBe(1)
       expect(count(wordSave(pdf, trailer, "/Extra<</Producer(x)>>"))).toBe(1)
+    })
+
+    it("stays linear in the file size on 50,000 %%EOF sections with no trailer to find", () => {
+      const pdf = `%PDF-1.7\n${"% a section of filler\n%%EOF".repeat(50_000)}`
+      const t = performance.now()
+      expect(countIncrementalUpdates(Buffer.from(pdf, "latin1"))).toBe(49_999)
+      expect(performance.now() - t).toBeLessThan(500)
+    })
+
+    it("reads the original once however many saves alternate their /XRefStm", () => {
+      const big = original({ xrefStreams: 1, padding: 4_000_000 })
+      const [stream, content] = [big.pdf.indexOf("\n11 0 obj") + 1, big.pdf.indexOf("\n4 0 obj") + 1]
+      let [pdf, prev] = [big.pdf, lastStartxref(big.pdf)]
+      // Every other save names a content stream (counted); each one after it names the xref stream again.
+      for (let i = 0; i < 2_000; i++) {
+        const next = pdf.length + 2
+        pdf = save(pdf, `${big.trailer} /Prev ${prev}/XRefStm ${i % 2 ? stream : content}`)
+        prev = next
+      }
+      const t = performance.now()
+      expect(count(pdf)).toBe(1_000)
+      expect(performance.now() - t).toBeLessThan(500)
     })
 
     it("still counts one that omits its %%EOF", () => {

@@ -147,11 +147,25 @@ function trailerEntries(body: string): Map<string, string> | null {
 }
 
 /** Whether `offset` starts the original save's only /Type /XRef stream object. */
-function isOriginalsXrefStream(bytes: Buffer, offset: number, originalEnd: number): boolean {
-  const types = [...bytes.subarray(0, originalEnd).toString("latin1").matchAll(XREF_STREAM_TYPE)]
-  if (types.length !== 1 || offset >= originalEnd) return false
-  const head = bytes.subarray(offset, Math.min(originalEnd, offset + 1024)).toString("latin1")
-  const at = types[0].index - offset
+/** The original save's end and, found on first use (one read however many saves ask), its only /Type /XRef. */
+interface OriginalSave {
+  end: number
+  xrefType?: number | null
+}
+
+function onlyXrefType(bytes: Buffer, original: OriginalSave): number | null {
+  if (original.xrefType === undefined) {
+    const types = [...bytes.subarray(0, original.end).toString("latin1").matchAll(XREF_STREAM_TYPE)]
+    original.xrefType = types.length === 1 ? types[0].index : null
+  }
+  return original.xrefType
+}
+
+function isOriginalsXrefStream(bytes: Buffer, offset: number, original: OriginalSave): boolean {
+  const type = onlyXrefType(bytes, original)
+  if (type === null || offset >= original.end) return false
+  const head = bytes.subarray(offset, Math.min(original.end, offset + 1024)).toString("latin1")
+  const at = type - offset
   return new RegExp(`^\\d+${PDF_SPACE}+\\d+${PDF_SPACE}+obj${PDF_SPACE}*<<`).test(head) && at > 0 && at < head.length &&
     !/stream|endobj/.test(head.slice(0, at))
 }
@@ -164,19 +178,22 @@ function isOriginalsXrefStream(bytes: Buffer, offset: number, originalEnd: numbe
  * xref, and /XRefStm (if any) the previous one or the original's xref stream.
  * Nothing a reader resolves through it differs from the save before it.
  */
-function isNoOpSave(bytes: Buffer, prevStart: number, start: number, end: number, originalEnd: number): boolean {
+function isNoOpSave(bytes: Buffer, prevStart: number, start: number, end: number, original: OriginalSave): boolean {
   if (end - start > NO_OP_SAVE_MAX_BYTES) return false
   const save = TRAILER_ONLY_SAVE.exec(bytes.subarray(start, end).toString("latin1"))
-  const t = bytes.lastIndexOf("trailer", start - 1)
-  if (!save || t < prevStart || start - t > NO_OP_SAVE_MAX_BYTES) return false
-  const previous = PREVIOUS_TRAILER.exec(bytes.subarray(t, start).toString("latin1"))
+  if (!save) return false
+  // Searched only within the previous save's last 2 KB: a scan back to byte 0 per section is quadratic.
+  const from = Math.max(prevStart, start - NO_OP_SAVE_MAX_BYTES)
+  const t = bytes.subarray(from, start).lastIndexOf("trailer")
+  if (t < 0) return false
+  const previous = PREVIOUS_TRAILER.exec(bytes.subarray(from + t, start).toString("latin1"))
   const entries = trailerEntries(save[2])
   const before = previous && trailerEntries(previous[1])
   if (!previous || !entries || !before || [...entries.keys()].some((k) => !NO_OP_KEYS.has(k))) return false
   if (REPEATED_KEYS.some((k) => entries.get(k) !== before.get(k))) return false
   if (Number(entries.get("Prev")) !== Number(previous[2]) || Number(save[3]) !== start + save[1].length) return false
   const xrefStm = entries.get("XRefStm")
-  return xrefStm === undefined || xrefStm === before.get("XRefStm") || isOriginalsXrefStream(bytes, Number(xrefStm), originalEnd)
+  return xrefStm === undefined || xrefStm === before.get("XRefStm") || isOriginalsXrefStream(bytes, Number(xrefStm), original)
 }
 
 /**
@@ -198,10 +215,10 @@ export function countIncrementalUpdates(bytes: Buffer): number {
   const linearized = /^%PDF-\d\.\d[^\n\r]*[\r\n]+(?:%[^\r\n]*[\r\n]+)*\s*\d+\s+0\s+obj\s*<<\s*\/Linearized\b/.test(head)
   const eofEnds: number[] = []
   for (let i = bytes.indexOf("%%EOF"); i >= 0; i = bytes.indexOf("%%EOF", i + 5)) eofEnds.push(i + 5)
-  const originalEnd = eofEnds[linearized ? 1 : 0] ?? bytes.length
+  const original: OriginalSave = { end: eofEnds[linearized ? 1 : 0] ?? bytes.length }
   let noOp = 0
   for (let k = 1; k < eofEnds.length; k++) {
-    if (isNoOpSave(bytes, k >= 2 ? eofEnds[k - 2] : 0, eofEnds[k - 1], eofEnds[k], originalEnd)) noOp++
+    if (isNoOpSave(bytes, k >= 2 ? eofEnds[k - 2] : 0, eofEnds[k - 1], eofEnds[k], original)) noOp++
   }
   const saves = Math.max(eofEnds.length, count("startxref"))
   return Math.max(0, saves - 1 - (linearized ? 1 : 0) - noOp)
