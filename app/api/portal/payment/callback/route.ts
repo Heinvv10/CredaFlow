@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 
+/**
+ * Where Stitch sends the payer's browser after payment. Display only: it
+ * writes nothing. The query string is the browser's, so anyone can call this
+ * with any id and status; a status written from here would let a caller mark
+ * another client's request COMPLETED, and the signed webhook would then see
+ * the request already settled and book no Payment for money Stitch did move.
+ * Settlement happens only in the signed webhook (../webhook/route.ts).
+ */
 export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const stitchId = url.searchParams.get("id")
-  const status = url.searchParams.get("status")
+  const status = new URL(req.url).searchParams.get("status")
 
-  if (stitchId) {
-    const newStatus =
-      status === "complete" ? "COMPLETED" : status === "failed" ? "FAILED" : "UNKNOWN"
-
-    await prisma.stitchPaymentRequest
-      .update({ where: { stitchId }, data: { status: newStatus } })
-      .catch(() => {})
-  }
-
+  // The success page says the payment is submitted and will be allocated once
+  // confirmed — true whether or not the webhook has arrived yet.
   const redirectPath =
     status === "complete" ? "/portal/payment/success" : "/portal/payment/failure"
 
