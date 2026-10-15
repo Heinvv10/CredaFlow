@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { labelKey, labelKeys, labelPrompt, LABEL_BATCH, MODEL_CATEGORIES, MODEL_LABEL_PROMPT_VERSION, modelLabelFor, parseLabels } from "./model-labels"
+import { LABEL_BACKOFF_MS, labelKey, labelKeys, labelPrompt, LABEL_BATCH, MODEL_CATEGORIES, MODEL_LABEL_PROMPT_VERSION, modelLabelFor, needsModelLabels, parseLabels, resetModelLabelBackoff } from "./model-labels"
 import { VlmUnavailableError } from "./vlm-reader"
 
 const answer = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 })
@@ -67,6 +67,7 @@ describe("labelKeys", () => {
     vi.stubEnv("VLM_MODEL", "synthetic-model")
     vi.stubGlobal("fetch", fetchMock)
     fetchMock.mockReset()
+    resetModelLabelBackoff()
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -104,6 +105,20 @@ describe("labelKeys", () => {
   ])("throws VlmUnavailableError when the model is %s", async (_, arrange) => {
     arrange()
     await expect(labelKeys(["SYNTH GROCER"])).rejects.toBeInstanceOf(VlmUnavailableError)
+  })
+
+  it("backs off after the model could not be asked: no request, and no read needs labels, until the backoff ends", async () => {
+    const unlabelled = { status: "READ", modelCategoriesVersion: null }
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000)
+    fetchMock.mockRejectedValueOnce(new DOMException("timeout", "TimeoutError"))
+    await expect(labelKeys(["SYNTH GROCER"])).rejects.toBeInstanceOf(VlmUnavailableError)
+    expect(needsModelLabels(unlabelled)).toBe(false)
+    await expect(labelKeys(["SYNTH GROCER"])).rejects.toBeInstanceOf(VlmUnavailableError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    now.mockReturnValue(1_000_000 + LABEL_BACKOFF_MS)
+    expect(needsModelLabels(unlabelled)).toBe(true)
+    fetchMock.mockResolvedValueOnce(answer('{"labels": {"1": "FOOD"}}'))
+    expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
   })
 
   it("throws when any batch fails, so a partial set is never stored", async () => {

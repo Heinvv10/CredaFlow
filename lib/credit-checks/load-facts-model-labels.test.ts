@@ -27,6 +27,7 @@ vi.mock("@/lib/statement-analysis/persist", () => ({
 }))
 vi.mock("./recompute", () => ({ recomputeClientApplications: (...a: unknown[]) => recomputeClient(...a) }))
 
+import { resetModelLabelBackoff } from "@/lib/statement-analysis/model-labels"
 import { loadApplicationFacts, statementSnapshot } from "./load-facts"
 
 const analysis = (over: Record<string, unknown> = {}) => ({
@@ -40,6 +41,7 @@ beforeEach(() => {
   vi.stubEnv("VLM_API_URL", "http://vlm.test")
   vi.stubEnv("VLM_MODEL", "synthetic-model")
   ensure.mockResolvedValue({ state: "read", analysis: analysis() })
+  resetModelLabelBackoff()
 })
 afterEach(() => vi.unstubAllEnvs())
 

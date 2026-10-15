@@ -237,7 +237,11 @@ export function readStatementInBackground(tenantId: string, documentId: string, 
   // A staff retry gets headroom past the cap, since a stored failed read is
   // not re-queued on load; the headroom is bounded too, so retries cannot
   // become a way round it.
-  const queued = [...waiting.values()].filter((w) => w.tenantId === tenantId).length
+  // Labelling a read that exists (onLabelled alone) has its own allowance, so
+  // staff views of read statements never crowd out a read.
+  const labelOnly = (w: { onReads: unknown[]; onLabelled: unknown[]; retry?: string | null }) => w.onReads.length === 0 && w.retry === undefined && w.onLabelled.length > 0
+  const asking = { onReads: opts.onRead ? [opts.onRead] : [], onLabelled: opts.onLabelled ? [opts.onLabelled] : [], retry: opts.retryFailed ? null : undefined }
+  const queued = [...waiting.values()].filter((w) => w.tenantId === tenantId && labelOnly(w) === labelOnly(asking)).length
   const cap = opts.retryFailed ? 2 * MAX_WAITING_PER_TENANT : MAX_WAITING_PER_TENANT
   if (!alreadyWaiting && queued >= cap) {
     console.warn("[statement-analysis] read not queued: tenant queue full", { documentId })

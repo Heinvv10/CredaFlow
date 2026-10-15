@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
-import { labelPrompt } from "./model-labels"
-import { ensureStatementAnalysis, readStatementInBackground } from "./persist"
+import { labelPrompt, resetModelLabelBackoff } from "./model-labels"
+import { ensureStatementAnalysis, MAX_WAITING_PER_TENANT, readStatementInBackground } from "./persist"
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -52,6 +52,7 @@ beforeEach(() => {
   vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored() as never)
   vi.mocked(readFile).mockResolvedValue(BYTES)
   update.mockResolvedValue({ count: 1 })
+  resetModelLabelBackoff()
 })
 
 afterEach(() => {
@@ -123,6 +124,20 @@ describe("readStatementInBackground: model labels", () => {
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onLabelled })
     await vi.waitFor(() => expect(onLabelled).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe("label-only requests and the tenant's queue", () => {
+  it("never crowd out a read: labelling read statements has its own allowance", async () => {
+    // A hung model holds the queue; staff views queue more label-only jobs than the cap.
+    fetchMock.mockImplementation(() => new Promise(() => undefined))
+    for (let i = 0; i <= MAX_WAITING_PER_TENANT; i++) readStatementInBackground(TENANT, `read-${i}`, { onLabelled: async () => undefined })
+    vi.mocked(console.warn).mockClear()
+    readStatementInBackground(TENANT, "fresh-upload", { onRead: async () => undefined })
+    expect(console.warn).not.toHaveBeenCalledWith("[statement-analysis] read not queued: tenant queue full", { documentId: "fresh-upload" })
+    // ...and label-only jobs are capped too.
+    readStatementInBackground(TENANT, "one-more-view", { onLabelled: async () => undefined })
+    expect(console.warn).toHaveBeenCalledWith("[statement-analysis] read not queued: tenant queue full", { documentId: "one-more-view" })
   })
 })
 

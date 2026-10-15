@@ -34,7 +34,24 @@ export const MODEL_CATEGORIES: readonly Category[] = [
 
 /** Keys per request: short enough that one bad answer costs little. */
 export const LABEL_BATCH = 40
-const REQUEST_TIMEOUT_MS = 60_000
+const REQUEST_TIMEOUT_MS = 30_000
+/**
+ * After the model could not be asked, nothing is asked (or queued) for this
+ * long: labelling shares the one-at-a-time read queue, so a hung model may
+ * hold it for one request timeout, not one per unlabelled statement.
+ */
+export const LABEL_BACKOFF_MS = 5 * 60_000
+let unavailableUntil = 0
+
+function unavailable(message: string): VlmUnavailableError {
+  unavailableUntil = Date.now() + LABEL_BACKOFF_MS
+  return new VlmUnavailableError(message)
+}
+
+/** Tests only: forget a backoff. */
+export function resetModelLabelBackoff(): void {
+  unavailableUntil = 0
+}
 
 /** The label key of a description: what the model sees and what its label is stored under. */
 export function labelKey(description: string): string {
@@ -52,7 +69,7 @@ export function modelLabelsVersion(model: string): string {
  */
 export function needsModelLabels(a: { status: string; modelCategoriesVersion: string | null }): boolean {
   const config = getVlmConfig()
-  return !!config && a.status === "READ" && a.modelCategoriesVersion !== modelLabelsVersion(config.model)
+  return !!config && Date.now() >= unavailableUntil && a.status === "READ" && a.modelCategoriesVersion !== modelLabelsVersion(config.model)
 }
 
 /** The stored labels: label key → category. */
@@ -118,6 +135,7 @@ export function parseLabels(content: string, keys: string[]): ModelLabels {
 export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; version: string }> {
   const config = getVlmConfig()
   if (!config) throw new VlmUnavailableError("VLM is not configured")
+  if (Date.now() < unavailableUntil) throw new VlmUnavailableError("VLM unavailable recently: backing off")
   const labels: ModelLabels = {}
   const distinct = [...new Set(keys.filter((k) => k))]
   for (let i = 0; i < distinct.length; i += LABEL_BATCH) {
@@ -136,14 +154,14 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
         }),
       })
     } catch (err) {
-      throw new VlmUnavailableError(`VLM request failed: ${err instanceof Error ? err.name : "unknown"}`)
+      throw unavailable(`VLM request failed: ${err instanceof Error ? err.name : "unknown"}`)
     }
-    if (!res.ok) throw new VlmUnavailableError(`VLM responded ${res.status}`)
+    if (!res.ok) throw unavailable(`VLM responded ${res.status}`)
     let body: string
     try {
       body = await res.text()
     } catch (err) {
-      throw new VlmUnavailableError(`VLM response failed: ${err instanceof Error ? err.name : "unknown"}`)
+      throw unavailable(`VLM response failed: ${err instanceof Error ? err.name : "unknown"}`)
     }
     let content = ""
     try {
