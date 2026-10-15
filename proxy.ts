@@ -8,6 +8,7 @@ import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
+import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
 import { crossOriginWriteRefusal } from "@/lib/proxy/same-origin"
 import {
   buildTenantHeaders,
@@ -257,7 +258,11 @@ function route(req: NextAuthRequest): Response {
   }
 
   // Forward tenant slug to Server Components via request header
-  const requestHeaders = buildTenantHeaders(req, tenantSlug)
+  const requestHeaders = stampRequest(buildTenantHeaders(req, tenantSlug), req.method)
+
+  // Operator support access is read-only: no write, server action included.
+  const operatorRefusal = operatorWriteRefusal(req.auth?.user?.role, req.method, path)
+  if (operatorRefusal) return operatorRefusal
 
   // A staff session the lender's 2FA policy holds at enrolment (lib/auth.ts)
   // reaches only the enrolment page, public paths included.

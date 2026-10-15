@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto"
-import { prisma } from "@/lib/prisma"
+import { loadTenantCredential, splitCredentialPair } from "@/lib/integrations/tenant-credentials"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 
 interface SmsOptions {
@@ -38,14 +38,8 @@ export function bulkSmsHttpFailureOutcome(
 
 async function getCredentials(tenantId: string): Promise<{ username: string; password: string } | null> {
   try {
-    const config = await prisma.tenantConfig.findUnique({
-      where: { tenantId },
-      select: { bulkSmsKey: true },
-    })
-    if (!config?.bulkSmsKey) return null
-    const [username, password] = config.bulkSmsKey.split(":")
-    if (!username || !password) return null
-    return { username, password }
+    const pair = splitCredentialPair(await loadTenantCredential(tenantId, "bulkSmsKey"))
+    return pair ? { username: pair.id, password: pair.secret } : null
   } catch {
     return null
   }

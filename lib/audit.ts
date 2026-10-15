@@ -450,6 +450,17 @@ export const AuditAction = {
   // one (scripts/lender/bootstrap-admin.ts). Never carry a credential.
   SUPER_ADMIN_BOOTSTRAPPED: "SUPER_ADMIN_BOOTSTRAPPED",
   SUPER_ADMIN_BREAK_GLASS_RESET: "SUPER_ADMIN_BREAK_GLASS_RESET",
+  // Operator support access (lib/operator/): a lender's grant and revocation,
+  // and every use or refused use of it by an operator user. Written under the
+  // lender's tenantId so the lender's own audit log shows them.
+  SUPPORT_ACCESS_GRANTED: "SUPPORT_ACCESS_GRANTED",
+  SUPPORT_ACCESS_GRANT_REFUSED: "SUPPORT_ACCESS_GRANT_REFUSED",
+  SUPPORT_ACCESS_REVOKED: "SUPPORT_ACCESS_REVOKED",
+  SUPPORT_ACCESS_USED: "SUPPORT_ACCESS_USED",
+  SUPPORT_ACCESS_REFUSED: "SUPPORT_ACCESS_REFUSED",
+  // Provider credentials (lib/integrations/tenant-credentials.ts): which
+  // fields changed, never the values.
+  PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",
 
   // Complaints and POPIA data subject requests (app/api/complaints,
   // app/api/dsar). Identifiers, statuses and dates only: the description,

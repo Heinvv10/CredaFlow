@@ -27,6 +27,7 @@ import {
   type ExperianErrorClass,
 } from "./experian-spec"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { loadCredentialPair } from "@/lib/integrations/tenant-credentials"
 import { bureauAccounts, bureauObligationRows, type BureauAccount, type BureauObligationRow } from "@/lib/integrations/bureau-accounts"
 
 // Re-export the spec surface so `@/lib/integrations/experian` is the one entry point.
@@ -67,10 +68,19 @@ export interface ExperianResult {
   error?: string
 }
 
-function getExperianConfig() {
-  const username = process.env.EXPERIAN_USERNAME
-  const password = process.env.EXPERIAN_PASSWORD
-  if (!username || !password) return null
+/**
+ * The lender's own Experian account: TenantConfig.experianKey, sealed
+ * "username:password". EXPERIAN_USERNAME / EXPERIAN_PASSWORD apply only on a
+ * tenant ENV_CREDENTIALS_TENANT_SLUG names (lib/integrations/tenant-credentials.ts). The
+ * endpoint settings stay deployment-wide.
+ */
+async function getExperianConfig(tenantId: string) {
+  const creds = await loadCredentialPair(tenantId, "experianKey", {
+    id: process.env.EXPERIAN_USERNAME,
+    secret: process.env.EXPERIAN_PASSWORD,
+  })
+  if (!creds) return null
+  const { id: username, secret: password } = creds
   const envLabel = (process.env.EXPERIAN_ENV ?? "UAT").toUpperCase()
   const defaultBase =
     envLabel === "PRODUCTION"
@@ -207,7 +217,8 @@ export function parseEnquiryResult(data: unknown): ExperianResult {
   }
 }
 
-export async function getCreditReport(input: ExperianEnquiryInput): Promise<ExperianResult> {
+/** `tenantId` names whose Experian account makes the enquiry. */
+export async function getCreditReport(input: ExperianEnquiryInput, tenantId: string): Promise<ExperianResult> {
   const validation = validateEnquiryInput(input)
   if (!validation.ok) {
     return {
@@ -249,11 +260,11 @@ export async function getCreditReport(input: ExperianEnquiryInput): Promise<Expe
     }
   }
 
-  const cfg = getExperianConfig()
+  const cfg = await getExperianConfig(tenantId)
   if (!cfg) {
     return {
       ok: false,
-      error: "Experian not configured (set EXPERIAN_USERNAME / EXPERIAN_PASSWORD)",
+      error: "Experian not configured for this lender (Settings → Integrations)",
       errorCode: "NOT_CONFIGURED",
       errorClass: "CONFIG",
       retryable: false,

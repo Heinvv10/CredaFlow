@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     // /portal/payment/callback, which has no page/route and 404s (PORT-01).
     try {
       const redirectUrl = `${requireAppBaseUrl()}/api/portal/payment/callback`
-      const stitch = await createStitchPayment({
+      const stitch = await createStitchPayment(tenantId, {
         amountRands: amountCents / 100,
         payerReference: loan.reference.slice(0, 12),
         beneficiaryReference: loan.reference,

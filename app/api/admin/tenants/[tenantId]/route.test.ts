@@ -15,12 +15,17 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }))
 vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, update }, $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({
   logAuditStrict,
-  AuditAction: { BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED" },
+  AuditAction: {
+    BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED",
+    PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",
+  },
 }))
 vi.mock("next/cache", () => ({ revalidateTag }))
 vi.mock("@/lib/bureau-submission/generate", () => ({ SUPPLIER_NUMBER: /^[A-Z0-9]{1,10}$/ }))
 
+import { randomBytes } from "node:crypto"
 import { PATCH } from "./route"
+import { openCredential } from "@/lib/integrations/tenant-credentials"
 
 // Covers only the bureau-submission fields this route gained. They decide
 // whether real people's loans are reported to a credit bureau, so they are
@@ -122,6 +127,35 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     expect((await patch(body)).status).toBe(400)
     expect(update).not.toHaveBeenCalled()
     expect(transaction).not.toHaveBeenCalled()
+  })
+
+  it("seals provider credentials, audits only their names, and never returns them", async () => {
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      update.mockResolvedValue({ id: "t1", config: { netcashKey: "enc:v1:stored", bulkSmsKey: null, bureauCredentials: "enc:v1:bag:x:y", primaryColor: "#123456" } })
+      const response = await patch({ netcashKey: "synthetic-service-key", transunionKey: null })
+      expect(response.status).toBe(200)
+      expect(openCredential(configWritten().netcashKey)).toBe("synthetic-service-key")
+      expect(configWritten().transunionKey).toBeNull()
+      expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+        action: "PROVIDER_CREDENTIALS_UPDATED", newValue: { updatedKeys: ["netcashKey", "transunionKey"], cleared: ["transunionKey"] },
+      }), expect.objectContaining({ isTx: true }))
+      expect(JSON.stringify(logAuditStrict.mock.calls)).not.toContain("synthetic-service-key")
+      expect((await response.json()).config).toEqual({ netcashKey: "********", bulkSmsKey: "", bureauCredentialsConfigured: true, primaryColor: "#123456" })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("refuses a client-supplied sealed credential (400) and writes nothing", async () => {
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      const response = await patch({ bulkSmsKey: "enc:v1:forged:sealed:value" })
+      expect(response.status).toBe(400)
+      expect(update).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("is refused without the super-admin session and the admin secret", async () => {

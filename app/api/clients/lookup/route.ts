@@ -3,7 +3,6 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { withoutTenantScope } from "@/lib/tenant-scope"
 import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
 import { checkRateLimit } from "@/lib/rate-limit"
 
@@ -65,28 +64,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ exists: true, sameTenant: true, client: existing })
     }
 
-    // idNumber is GLOBALLY unique, so absence from this tenant does not mean
-    // the insert will succeed. Report the collision without identifying anyone:
-    // the operator learns the ID is unusable here, and learns nothing about
-    // another tenant's client. One tenant exists today, so this branch is
-    // currently unreachable — it is written now so it cannot be got wrong later
-    // under time pressure.
-    //
-    // withoutTenantScope is REQUIRED, not defensive. Client is a
-    // tenant-scoped model and findUnique is one of the intercepted operations,
-    // so this read would otherwise be rewritten to the caller's own tenant and
-    // return null every time — a branch that looks like it checks for a
-    // cross-tenant collision while being incapable of finding one. The bypass
-    // selects nothing but existence, so widening the scope cannot widen what
-    // the caller learns.
-    const elsewhere = await withoutTenantScope(() =>
-      prisma.client.findUnique({ where: { idNumber }, select: { id: true } })
-    )
-
-    if (elsewhere) {
-      return NextResponse.json({ exists: true, sameTenant: false, client: null })
-    }
-
+    // Client.idNumber is unique per tenant (borrowers are per lender), so
+    // absence from this tenant means the insert can succeed. Another lender's
+    // clients are deliberately not consulted: whether a person borrows
+    // elsewhere is that lender's data.
     return NextResponse.json({ exists: false, sameTenant: false, client: null })
   })
 }

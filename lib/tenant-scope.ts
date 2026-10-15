@@ -103,6 +103,10 @@ export const TENANT_SCOPED_MODELS = [
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",
+  // Lender-granted operator support access (lib/operator/). Non-null
+  // tenantId; the operator's access check runs before any tenant frame and
+  // passes it explicitly.
+  "TenantSupportGrant",
   // PEP / sanctions screening and FIC registers (lib/screening, lib/fic).
   // Non-null tenantId; every query passes it explicitly because the screening
   // cron and the submit-time run execute outside a request frame.

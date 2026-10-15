@@ -154,6 +154,36 @@ describe("POST /api/clients — duplicate handling", () => {
     expect((await res.json()).existingClient).toBeNull()
   })
 
+  it("still answers 409 naming the holder when Postgres withholds the key (row-level security)", async () => {
+    // Under RLS Postgres omits the colliding key, so Prisma's P2002 names no
+    // field ("Unique constraint failed on the (not available)").
+    transactionMock.mockRejectedValue(uniqueViolation([]))
+    clientFindFirstMock.mockImplementation(async (a: { where: Record<string, unknown> }) =>
+      "email" in a.where ? { id: "c2", reference: "CLI-00043", firstName: "Sipho", lastName: "Qatest" } : null,
+    )
+
+    const res = await POST(request())
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: "A client with this email address already exists",
+      field: "email",
+      existingClient: { id: "c2", reference: "CLI-00043", firstName: "Sipho", lastName: "Qatest" },
+    })
+    expect(clientFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", idNumber: VALID_ID } }))
+  })
+
+  it("does not call an unnamed duplicate a client clash when no holder is found: it is a fault", async () => {
+    // No named key and neither the ID number nor the email is on this
+    // tenant's book: whatever collided, it is not something the operator can act on.
+    transactionMock.mockRejectedValue(uniqueViolation([]))
+    clientFindFirstMock.mockResolvedValue(null)
+
+    const res = await POST(request())
+
+    expect(res.status).toBe(500)
+  })
+
   it("does not write a CLIENT_CREATED audit row for a refused insert", async () => {
     transactionMock.mockRejectedValue(uniqueViolation(["idNumber"]))
 

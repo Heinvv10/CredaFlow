@@ -17,6 +17,11 @@ model User {
   active                       Boolean                               @default(true)
   tenantId                     String?
   tenant                       Tenant?                               @relation(fields: [tenantId], references: [id])
+  // Operator staff (OPERATOR_ADMIN / OPERATOR_SUPPORT) are bound to an
+  // operator, never to a tenant: a CHECK constraint keeps the two exclusive
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId                   String?
+  operator                     Operator?                             @relation(fields: [operatorId], references: [id])
   branchId                     String?
   branch                       Branch?                               @relation(fields: [branchId], references: [id])
   totpSecret                   String?
@@ -94,14 +99,58 @@ model User {
   apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
   webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
   webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
+  supportGrantsHeld            TenantSupportGrant[]                  @relation("SupportGrantOperatorUser")
+  supportGrantsGiven           TenantSupportGrant[]                  @relation("SupportGrantGrantedBy")
+  supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
   debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
 
   @@unique([tenantId, id])
+  @@index([operatorId])
+}
+
+// The platform operator above the lenders (tenants). CredaFlow is the root
+// operator; a reseller is another. Operator staff manage lenders but see no
+// borrower data unless a lender grants it (TenantSupportGrant, lib/operator/).
+model Operator {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  tenants   Tenant[]
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Time-boxed support access a lender's ADMIN/SUPER_ADMIN grants to one
+// operator user. Read-only (lib/operator/tenant-access.ts). The database caps
+// the window at 7 days from creation; every grant, revoke and use is audited.
+model TenantSupportGrant {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  operatorUserId String
+  operatorUser   User      @relation("SupportGrantOperatorUser", fields: [operatorUserId], references: [id])
+  grantedById    String
+  // Granter and revoker are bound to the tenant by compound key: a grant can
+  // only come from that lender's own staff.
+  grantedBy      User      @relation("SupportGrantGrantedBy", fields: [tenantId, grantedById], references: [tenantId, id])
+  reason         String
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedById    String?
+  revokedBy      User?     @relation("SupportGrantRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id])
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId, operatorUserId, expiresAt])
 }
 
 model Tenant {
   id                         String                      @id @default(cuid())
+  // Defaults to the root operator; nullable only so existing rows could be backfilled
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId                 String?                     @default("cf_root_operator")
+  operator                   Operator?                   @relation(fields: [operatorId], references: [id])
   slug                       String                      @unique
   name                       String
   domain                     String?                     @unique
@@ -201,6 +250,7 @@ model Tenant {
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  supportGrants              TenantSupportGrant[]
   screeningChecks            ScreeningCheck[]
   cashThresholdReports       CashThresholdReport[]
   suspiciousReportCases      SuspiciousReportCase[]
@@ -223,6 +273,8 @@ model Tenant {
   // captured in writing. See spec §Launch-blockers LB3, LB7.
   insuranceCrossSellS69OpinionReceived Boolean @default(false)
   softOptInClosedLoanTailEnabled       Boolean @default(false)
+
+  @@index([operatorId])
 }
 
 enum TenantStatus {
@@ -291,10 +343,24 @@ model TenantConfig {
   ncrStatus                 String? // Registered | Suspended | Cancelled | Deregistered
   headOfficeCity            String?
 
-  netcashKey       String?
-  bulkSmsKey       String?
-  transunionKey    String?
-  smileIdentityKey String?
+  // Provider credentials. Every *Key / *Secret column below holds a value
+  // sealed by lib/crypto/secret-box.ts (enc:v1:…); lib/integrations/
+  // tenant-credentials.ts is the only reader and writer. Pairs are stored as
+  // "id:secret" (bulkSms user:password, transunion clientId:clientSecret,
+  // smileIdentity partnerId:apiKey, experian username:password, stitch
+  // clientId:clientSecret).
+  netcashKey            String?
+  bulkSmsKey            String?
+  transunionKey         String?
+  smileIdentityKey      String?
+  experianKey           String?
+  stitchKey             String?
+  stitchWebhookSecret   String?
+  // The lender's own collection account Stitch pays into. Not secret.
+  stitchBeneficiaryName String?
+  stitchBankId          String?
+  stitchAccountNumber   String?
+  stitchBranchCode      String?
 
   informationOfficerUserId String?
 
@@ -400,6 +466,10 @@ enum UserRole {
   INSURANCE_OFFICER
   BRANCH_MANAGER
   READONLY
+  // Operator staff: bound to an Operator, never a tenant. Outside
+  // ROLE_HIERARCHY on purpose, so no tenant role gate admits them.
+  OPERATOR_ADMIN
+  OPERATOR_SUPPORT
 }
 
 model LoginLog {
@@ -477,14 +547,14 @@ model Client {
   tenantId                           String
   tenant                             Tenant                   @relation(fields: [tenantId], references: [id])
   reference                          String                   @unique @default(cuid())
-  idNumber                           String                   @unique
+  idNumber                           String
   branchId                           String?
   branch                             Branch?                  @relation(fields: [branchId], references: [id])
   firstName                          String
   lastName                           String
   dateOfBirth                        DateTime?
   gender                             Gender?
-  email                              String                   @unique
+  email                              String
   phone                              String
   whatsapp                           String?
   addressLine1                       String?
@@ -576,6 +646,9 @@ model Client {
   debitMandates                      DebitMandate[]
 
   @@unique([tenantId, id])
+  // Borrowers are per lender: the same person may be a client of two lenders.
+  @@unique([tenantId, idNumber])
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@index([tenantId, referralCodeId])
 }

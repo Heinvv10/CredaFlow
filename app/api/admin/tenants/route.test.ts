@@ -2,9 +2,9 @@ import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const { authMock, findUnique, findMany, create, transaction, logAuditStrict } = vi.hoisted(() => ({
-  findMany: vi.fn(),
   authMock: vi.fn(),
   findUnique: vi.fn(),
+  findMany: vi.fn(),
   create: vi.fn(),
   transaction: vi.fn(),
   logAuditStrict: vi.fn(),
@@ -69,6 +69,34 @@ describe("POST /api/admin/tenants", () => {
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await post(BASE)).status).toBe(403)
     expect(transaction).not.toHaveBeenCalled()
+  })
+})
+
+// Provider credentials never leave in a response, sealed or not (S3).
+describe("GET and POST /api/admin/tenants mask provider credentials", () => {
+  const SECRET_CONFIG = { netcashKey: "enc:v1:a:b:c", stitchWebhookSecret: "legacy-plaintext", experianKey: null, bureauCredentials: "enc:v1:d:e:f", primaryColor: "#123456" }
+  const MASKED_CONFIG = { netcashKey: "********", stitchWebhookSecret: "********", experianKey: "", bureauCredentialsConfigured: true, primaryColor: "#123456" }
+
+  beforeEach(() => {
+    process.env.ADMIN_SECRET = "s3cret"
+    authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
+    findUnique.mockReset().mockResolvedValue(null)
+    logAuditStrict.mockReset().mockResolvedValue(undefined)
+  })
+
+  it("lists tenants with every credential masked", async () => {
+    findMany.mockResolvedValue([{ id: "t1", slug: "a", config: SECRET_CONFIG }, { id: "t2", slug: "b", config: null }])
+    const res = await GET(new NextRequest("http://localhost/api/admin/tenants", { headers: { "x-admin-secret": "s3cret" } }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([{ id: "t1", slug: "a", config: MASKED_CONFIG }, { id: "t2", slug: "b", config: null }])
+  })
+
+  it("returns the created tenant with its config masked", async () => {
+    create.mockReset().mockResolvedValue({ id: "t3", slug: "beta", config: SECRET_CONFIG })
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ tenant: { create } }))
+    const res = await post(BASE)
+    expect(res.status).toBe(201)
+    expect((await res.json()).config).toEqual(MASKED_CONFIG)
   })
 })
 

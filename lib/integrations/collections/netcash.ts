@@ -20,6 +20,7 @@ import {
   type SubmitResult,
 } from "./types"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { openCredential } from "@/lib/integrations/tenant-credentials"
 import { netcashAvsQuery } from "./netcash-avs-wire"
 
 function isDryRun(): boolean {
@@ -49,13 +50,15 @@ async function verifyAccount(req: AvsRequest, creds: ProviderCredentials): Promi
     assertSimulationAllowed("netcash-collections", true)
     return DRY_RUN_PASS
   }
-  if (!creds.netcashRiskReportsKey) {
+  // Stored sealed (lib/integrations/tenant-credentials.ts); opened only here, at use.
+  const riskReportsKey = openCredential(creds.netcashRiskReportsKey)
+  if (!riskReportsKey) {
     throw new CollectionProviderError(
       "NOT_CONFIGURED",
       "Netcash Risk-Reports service key missing (Settings → Integrations → Collections)"
     )
   }
-  return netcashAvsQuery(req, creds.netcashRiskReportsKey)
+  return netcashAvsQuery(req, riskReportsKey)
 }
 
 const notImplemented = (what: string): never => {
