@@ -3,6 +3,11 @@ import {
   type CompositeKycResult,
   type CoreKycDocumentType,
 } from "@/lib/kyc/document-state"
+import { pendingIdReplacement } from "@/lib/kyc/id-replacement"
+
+// A document with no createdAt (hand-built fixtures only) ties on time and is
+// ordered by id.
+const EPOCH = new Date(0)
 
 export type PortalKycItemStatus =
   | "missing"
@@ -21,6 +26,11 @@ export interface PortalChecklistDocument {
   verificationNote: string | null
   /** Set only when a named reviewer refused it; null for a system re-flag. */
   verificationRejectedById?: string | null
+  verificationRejectedAt?: Date | null
+  /** Always present from the database read; selects the newest ID copy. */
+  createdAt?: Date
+  /** Always present from the database read; without it a copy is never identical. */
+  contentSha256?: string | null
   validationMismatch?: boolean
   biometricMatchScore?: number | null
   extractionStatus?: string
@@ -55,7 +65,18 @@ function coreDocumentItem(
   const matching = documents.filter((document) => document.docType === docType)
   const verified = matching.find((document) => document.verified)
   if (verified) {
-    return { documentId: verified.id, status: "verified" }
+    // A verified ID copy is outweighed by a newer one awaiting review: point
+    // at the newer copy, which is what is being reviewed. Chosen by the same
+    // function the composite KYC derivation and the database rule mirror.
+    const awaiting = docType === "ID_COPY"
+      ? pendingIdReplacement(matching.map((document) => ({
+          ...document,
+          createdAt: document.createdAt ?? EPOCH,
+        })))
+      : null
+    return awaiting
+      ? { documentId: awaiting.id, status: "pending_review" }
+      : { documentId: verified.id, status: "verified" }
   }
 
   const current = matching[0]

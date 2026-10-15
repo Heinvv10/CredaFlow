@@ -9,10 +9,14 @@ import { describe, expect, it } from "vitest"
 // set, and named in the output so it is never silently dropped.
 
 const SCRIPT = join(process.cwd(), "scripts", "run-integration-tests.sh")
-const env: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? "", NODE_ENV: "test", DATABASE_URL: "postgresql://u:p@127.0.0.1:55432/it" }
-const run = (arg: string) => spawnSync("bash", [SCRIPT, arg], { env, encoding: "utf8" })
+const env: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? "", NODE_ENV: "test", REQUIRE_IT_CONTAINER: "0", DATABASE_URL: "postgresql://u:p@127.0.0.1:55432/it" }
+// Each run walks the repo with find and forks one grep per integration suite (~190): about
+// 0.6 s idle, measured up to 5.1 s with a parallel suite running, past vitest's 5 s default.
+// The spawn's own timeout sits below the test's, so a real hang reports as a spawn timeout.
+const SPAWN_TIMEOUT_MS = 50_000
+const run = (arg: string) => spawnSync("bash", [SCRIPT, arg], { env, encoding: "utf8", timeout: SPAWN_TIMEOUT_MS })
 
-describe("run-integration-tests.sh opt-in suites", () => {
+describe("run-integration-tests.sh opt-in suites", { timeout: 60_000 }, () => {
   it("lists the docker-build suite as opt-in", () => {
     const r = run("--print-opt-in")
     expect(r.status).toBe(0)
@@ -38,7 +42,7 @@ describe("run-integration-tests.sh opt-in suites", () => {
   })
 
   it("an opt-in file is no longer part of the baseline logic: the ratchet files are untouched", () => {
-    const base = spawnSync("bash", [SCRIPT, "--print-baseline"], { env, encoding: "utf8" })
+    const base = spawnSync("bash", [SCRIPT, "--print-baseline"], { env, encoding: "utf8", timeout: SPAWN_TIMEOUT_MS })
     expect(base.status).toBe(0)
     expect(base.stdout).not.toContain("build-context")
   })

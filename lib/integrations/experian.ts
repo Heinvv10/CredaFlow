@@ -28,7 +28,7 @@ import {
 } from "./experian-spec"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
 import { loadCredentialPair } from "@/lib/integrations/tenant-credentials"
-import { bureauAccounts, type BureauAccount } from "@/lib/integrations/bureau-accounts"
+import { bureauAccounts, bureauObligationRows, type BureauAccount, type BureauObligationRow } from "@/lib/integrations/bureau-accounts"
 
 // Re-export the spec surface so `@/lib/integrations/experian` is the one entry point.
 export {
@@ -59,6 +59,8 @@ export interface ExperianResult {
   totalMonthlyObligations?: number // cents
   /** Every account on the report, for the credit checks; not part of any total. */
   accounts?: BureauAccount[]
+  /** Every account, nameless and unreadable amounts included, for the debt total (lib/bureau). */
+  obligationRows?: BureauObligationRow[]
   raw?: unknown
   errorCode?: string
   errorClass?: ExperianErrorClass
@@ -188,12 +190,13 @@ export function parseEnquiryResult(data: unknown): ExperianResult {
     .filter((a) => firstString(a.status_code_desc)?.toUpperCase() === "OPEN/CURRENT")
     .reduce((sum, a) => sum + (typeof a.instalment_amount === "number" ? a.instalment_amount : 0), 0)
   const totalMonthlyObligations = accounts.length > 0 ? obligationRands * 100 : undefined
-  const accountList = bureauAccounts(accounts, (a) => ({
+  const pickAccount = (a: Record<string, unknown>) => ({
     subscriber: a.subscriber_name,
     accountType: a.account_type_code_desc,
     instalmentRands: a.instalment_amount,
     status: a.status_code_desc,
-  }))
+  })
+  const accountList = bureauAccounts(accounts, pickAccount)
 
   return {
     ok: true,
@@ -209,6 +212,7 @@ export function parseEnquiryResult(data: unknown): ExperianResult {
     hasNotice,
     totalMonthlyObligations,
     accounts: accountList,
+    obligationRows: bureauObligationRows(accounts, pickAccount),
     raw: data,
   }
 }
@@ -236,7 +240,24 @@ export async function getCreditReport(input: ExperianEnquiryInput, tenantId: str
     // MOCK: representative in-band SigmaScore. Real shape comes from the layout doc.
     // `simulated` marks it as synthetic for every downstream reader — without it
     // this is indistinguishable from a real bureau result.
-    return { ok: true, simulated: true, score: 645, unscoreable: false, riskGrade: "AVERAGE RISK", adverseInfo: [], underDebtReview: false, hasJudgement: false, hasNotice: false, deceased: false }
+    return {
+      ok: true,
+      simulated: true,
+      score: 645,
+      unscoreable: false,
+      riskGrade: "AVERAGE RISK",
+      adverseInfo: [],
+      underDebtReview: false,
+      hasJudgement: false,
+      hasNotice: false,
+      deceased: false,
+      // The synthetic demo consumer is explicitly debt-free. Omitting this
+      // would make the obligations unknown, which the approval gate correctly
+      // refuses rather than silently treating as zero.
+      totalMonthlyObligations: 0,
+      accounts: [],
+      obligationRows: [],
+    }
   }
 
   const cfg = await getExperianConfig(tenantId)

@@ -9,16 +9,18 @@ import { DemoCodeNotice, demoCodeFrom } from "@/components/demo/DemoCodeNotice"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { trackRegisterActivated, trackRegisterCodeSent, trackRegisterStart } from "@/lib/analytics/events"
 import { safePortalPath } from "@/lib/portal-urls"
+import { OtpChannelPicker, type OtpChannelChoice } from "@/components/auth/OtpChannelPicker"
 
 type Step = "request" | "verify"
 
 const DEFAULT_NOTICE =
   "If those details match an application, we've emailed a 6-digit activation code. Enter it below to finish."
 
-function PortalRegisterInner() {
+function PortalRegisterInner({ whatsappAvailable }: { whatsappAvailable: boolean }) {
   const router = useRouter()
   const params = useSearchParams()
   const [step, setStep] = useState<Step>("request")
+  const [channel, setChannel] = useState<OtpChannelChoice>("EMAIL")
   const [email, setEmail] = useState(params.get("email") || "")
   const [idNumber, setIdNumber] = useState("")
   const [otp, setOtp] = useState("")
@@ -54,7 +56,7 @@ function PortalRegisterInner() {
       const res = await fetch("/api/portal/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, idNumber, turnstileToken }),
+        body: JSON.stringify({ email, idNumber, turnstileToken, channel }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -162,6 +164,7 @@ function PortalRegisterInner() {
                 required
               />
             </label>
+            {whatsappAvailable && <OtpChannelPicker value={channel} onChange={setChannel} />}
             <TurnstileWidget
               key="step-request"
               onToken={setTurnstileToken}
@@ -269,10 +272,11 @@ function PortalRegisterInner() {
   )
 }
 
-export default function PortalRegisterForm() {
+/** `whatsappAvailable`: the lender runs WhatsApp Cloud, so the code may go there. */
+export default function PortalRegisterForm({ whatsappAvailable = false }: { whatsappAvailable?: boolean }) {
   return (
     <Suspense fallback={null}>
-      <PortalRegisterInner />
+      <PortalRegisterInner whatsappAvailable={whatsappAvailable} />
     </Suspense>
   )
 }

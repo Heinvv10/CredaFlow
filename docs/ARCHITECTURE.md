@@ -60,7 +60,8 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
   must pass `where: { tenantId }` by hand.
 - **Row-level security.** Underneath the extension, Postgres RLS
-  (`prisma/migrations/20261014130000_tenant_rls`) filters the scoped tables and
+  (`prisma/migrations/20261014130000_tenant_rls`, extended to later scoped
+  models by `20261015130000_tenant_rls_new_scoped_models`) filters the scoped tables and
   the borrower core's children by `app.tenant_id`, which `lib/tenant-rls.ts`
   sets transaction-locally for every query and transaction run inside a frame
   when `TENANT_RLS=on` (`withoutTenantScope` sets `app.rls_bypass` instead).

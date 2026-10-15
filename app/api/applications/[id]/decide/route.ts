@@ -5,9 +5,9 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
-import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
+import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { Prisma } from "@prisma/client"
@@ -42,13 +42,15 @@ import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
-import { payslipStateKey, statementSnapshot } from "@/lib/credit-checks/load-facts"
+import { declaredExpenses, payslipStateKey, statementSnapshot } from "@/lib/credit-checks/load-facts"
 import {
   calculateCreditLifePremiumPeriods,
   createPasqBillingEvidence,
   type PasqBillingEvidence,
 } from "@/lib/compliance/pasq"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
+import { auditRefusal } from "@/lib/audit-refusals"
 
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
@@ -812,29 +814,25 @@ export async function POST(
         // Bureau gate — check latest bureau result against tenant thresholds.
         // NCA s.81 requires the credit assessment to be current; staleness
         // window lives in `lib/compliance/bureau.ts` so /decide and /disburse
-        // can never drift apart.
-        const [bureauCheck, tenantConfig] = await Promise.all([
-          application.bureauReviewGeneration
-            ? prisma.creditBureauCheck.findFirst({
-                where: {
-                  tenantId: tenant.id,
-                  applicationId: id,
-                  clientId: application.clientId,
-                  reviewGeneration: application.bureauReviewGeneration,
-                  ok: true,
-                  createdAt: { gte: bureauStalenessCutoff() },
-                  // Only Sigma (Experian) checks drive approval post-cutover — a legacy
-                  // TransUnion row is a different score scale and lacks the hard-stop flags.
-                  provider: "experian",
-                },
-                orderBy: { createdAt: "desc" },
-              })
-            : Promise.resolve(null),
-          prisma.tenantConfig.findFirst({
-            where: { tenantId: tenant.id },
-            select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true },
-          }),
-        ])
+        // can never drift apart. The tenant's window is read first: it bounds the query.
+        const tenantConfig = await prisma.tenantConfig.findFirst({
+          where: { tenantId: tenant.id },
+          select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true, bureauMaxAgeDays: true },
+        })
+        // Only approval bureaus (Sigma band, hard-stop flags) drive approval — a
+        // legacy TransUnion row is a different score scale and lacks the flags.
+        const bureauCheck = application.bureauReviewGeneration
+          ? await prisma.creditBureauCheck.findFirst({
+              where: approvalBureauCheckWhere({
+                tenantId: tenant.id,
+                applicationId: id,
+                clientId: application.clientId,
+                reviewGeneration: application.bureauReviewGeneration,
+                maxAgeDays: bureauMaxAgeDays(tenantConfig),
+              }),
+              orderBy: { createdAt: "desc" },
+            })
+          : null
 
         // Deceased is a NON-OVERRIDABLE hard stop — an audited override reason
         // cannot approve a consumer the bureau reports as deceased (owner
@@ -853,7 +851,7 @@ export async function POST(
 
         // A simulated check is fabricated evidence wherever this deployment
         // forbids Experian simulation; an override reason cannot approve on it.
-        const simulatedStop = simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations))
+        const simulatedStop = simulatedBureauBlock(bureauCheck)
         if (simulatedStop.blocked) {
           return NextResponse.json(
             {
@@ -897,6 +895,7 @@ export async function POST(
               hasJudgement: bureauCheck.hasJudgement,
               hasNotice: bureauCheck.hasNotice,
               obligations: bureauCheck.obligations,
+              provider: bureauCheck.provider,
             },
             { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
           )
@@ -1087,6 +1086,56 @@ export async function POST(
           },
         })
 
+        // PEP / sanctions screening (lib/screening): re-screens when stale, then
+        // a match refers to a senior reviewer and a sanctions match blocks with
+        // no override. The transaction re-reads it under the client's screening
+        // lock; the trigger LoanApplication_a1_guard_screening is the backstop.
+        const screening = await borrowerScreeningGate({
+          tenantId: tenant.id,
+          borrower: { clientId: application.clientId, entityId: null },
+          applicationId: id,
+          actor: { id: guard.user.id, email: guard.user.email },
+        })
+        // A screening refusal found only inside the approve transaction (the
+        // re-read under the lock, or the trigger): the same audited 422.
+        const screeningChangedRefusal = async (refusalReason: string) => {
+          await auditRefusal({
+            action: AuditAction.SCREENING_APPROVAL_REFUSED,
+            entity: "LoanApplication",
+            entityId: id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: refusalReason,
+            status: 422,
+          })
+          return NextResponse.json(
+            { error: "Approval blocked: the client's screening changed while approving. Review it and try again.", requiresOverride: false },
+            { status: 422 },
+          )
+        }
+        if (!screening.allowed) {
+          await auditRefusal({
+            action: AuditAction.SCREENING_APPROVAL_REFUSED,
+            entity: "LoanApplication",
+            entityId: id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: screening.selfDecided ? "screening_self_decided" : `screening_${screening.state.state.toLowerCase()}`,
+            status: 422,
+          })
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${screening.message}`,
+              screening: screening.state,
+              requiresOverride: false,
+              ...(screening.providerError ? { screeningProviderError: screening.providerError } : {}),
+            },
+            { status: 422 },
+          )
+        }
+
         // Credit checks (lib/credit-checks) refer, they do not decide: every
         // flag still OPEN after a fresh recompute blocks approval until a
         // LOAN_ADMIN clears it with a reason. The transaction re-counts under
@@ -1149,6 +1198,9 @@ export async function POST(
             if (openFlags > 0) {
               return { ok: false as const, reason: "checks_open" as const }
             }
+            if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, guard.user.id))) {
+              return { ok: false as const, reason: "screening_changed" as const }
+            }
             // Evidence that arrived after the recompute read it has not been
             // checked: new or deleted statements and payslips, new statement
             // reads, or any payslip whose extraction changed since (started,
@@ -1179,8 +1231,20 @@ export async function POST(
             const statementsNow = await statementSnapshot(tx, { tenantId: tenant.id, clientId, since: checks?.evidenceSince ?? new Date(0) })
             const seenStatements = [...(checks?.statementSnapshot ?? [])].sort()
             const statementsChanged = statementsNow.join("|") !== seenStatements.join("|")
-            if (newEvidence > 0 || payslipsChanged || statementsChanged) {
+            // No recompute ran (nothing returned, or the application had left
+            // review): nothing was checked, whatever the evidence counts say.
+            if (!checks?.recomputed || newEvidence > 0 || payslipsChanged || statementsChanged) {
               return { ok: false as const, reason: "checks_stale" as const }
+            }
+            // The declared expenses the checks compared the statements with:
+            // an edit since then (an explicit R0 included) has not been checked.
+            // The Client row is held FOR SHARE by verifyLockedApprovalCandidate.
+            const expensesNow = await tx.client.findFirst({
+              where: { id: clientId, tenantId: tenant.id },
+              select: { monthlyExpenses: true, monthlyExpensesDeclaredAt: true },
+            })
+            if (!expensesNow || declaredExpenses(expensesNow) !== (checks.declaredExpensesCents ?? null)) {
+              return { ok: false as const, reason: "checks_stale_expenses" as const }
             }
             const approved = await tx.loanApplication.updateMany({
               where: {
@@ -1348,6 +1412,8 @@ export async function POST(
               { status: 409 }
             )
           }
+          // The screening trigger: a run that landed after the re-read above.
+          if (isScreeningRefusal(error)) return await screeningChangedRefusal("screening_trigger")
           // The open-check-flags trigger: a flag raised after the count above.
           if (String(error).includes("open credit-check flags")) {
             return NextResponse.json(
@@ -1370,6 +1436,13 @@ export async function POST(
           if (approvalWrite.reason === "checks_stale") {
             return NextResponse.json(
               { error: "Statements or payslips changed while approving (one arrived, was deleted, or finished extracting). Refresh Credit checks and review them first." },
+              { status: 409 },
+            )
+          }
+          if (approvalWrite.reason === "screening_changed") return await screeningChangedRefusal("screening_changed")
+          if (approvalWrite.reason === "checks_stale_expenses") {
+            return NextResponse.json(
+              { error: "The client's declared expenses changed while approving. Refresh Credit checks and review them first." },
               { status: 409 },
             )
           }

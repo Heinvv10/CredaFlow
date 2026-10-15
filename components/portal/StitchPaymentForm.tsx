@@ -14,7 +14,11 @@ export interface LoanOption {
   paymentDefault: number
   /** default charges included in the amounts above */
   chargeLines: Array<{ label: string; amount: number }>
+  /** An operating or full-maintenance lease: the figure is the rentals outstanding, not a settlement. */
+  lease?: boolean
 }
+
+const settlementWord = (loan: Pick<LoanOption, "lease"> | undefined) => (loan?.lease ? "rentals outstanding" : "settlement")
 
 interface Props {
   loans: LoanOption[]
@@ -70,7 +74,7 @@ export function StitchPaymentForm({ loans }: Props) {
           && typeof json.maxAmountCents === "number"
         ) {
           setError(
-            `The amount exceeds today’s settlement amount of ${formatZAR(json.maxAmountCents)}.`,
+            `The amount exceeds today’s ${settlementWord(selectedLoan)} amount of ${formatZAR(json.maxAmountCents)}.`,
           )
           return
         }
@@ -118,7 +122,7 @@ export function StitchPaymentForm({ loans }: Props) {
           >
             {loans.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.reference} — {formatZAR(l.settlementAmount)} settlement
+                {l.reference} — {formatZAR(l.settlementAmount)} {settlementWord(l)}
               </option>
             ))}
           </select>
@@ -128,7 +132,7 @@ export function StitchPaymentForm({ loans }: Props) {
       {selectedLoan && (
         <div className="mb-4 text-sm text-gray-600 flex flex-wrap gap-4">
           <span>
-            Current settlement:{" "}
+            {selectedLoan.lease ? "Rentals outstanding" : "Current settlement"}:{" "}
             <strong className="text-gray-900">
               {formatZAR(selectedLoan.settlementAmount)}
             </strong>

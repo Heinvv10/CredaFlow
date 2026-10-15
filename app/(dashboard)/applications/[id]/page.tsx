@@ -23,6 +23,7 @@ import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCh
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
+import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
 import { canCancelApplication, showDebtEvidenceBlocker } from "@/lib/applications/decision-kind"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
@@ -72,6 +73,7 @@ import {
 } from "@/lib/affordability/snapshot"
 import { hasClientBorrower } from "@/lib/borrower"
 import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
+import { signingOtpView } from "@/lib/signing-otp/view"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -272,6 +274,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       }
     : null
   const cannedRepliesSafe = cannedReplies.map((c) => ({ id: c.id, title: c.title, body: c.body }))
+  // A witnessed branch signing needs the borrower's one-time code only when
+  // the lender removed the branch exemption (lib/signing-otp/policy.ts).
+  const branchSigningOtp = await signingOtpView(tenantId, application.client, "branch")
   const kycStage = kycGateStage(application.status)
   const kycBlockers = kycStage ? deriveKycBlockers(kycGate, kycStage) : []
   // The agreement route enforces the strict ("disbursement") grade whatever
@@ -837,6 +842,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           />
         )}
 
+        {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
+
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (
           <DataPanel title="Credit Bureau Check">
@@ -921,6 +928,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             }))}
             clientEmail={application.client.email}
             reference={application.reference}
+            branchSigningOtp={branchSigningOtp}
           />
         )}
         {/* The upload dialog links staff HERE to record a returned signed

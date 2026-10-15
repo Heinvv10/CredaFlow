@@ -57,6 +57,8 @@ async function getLoansForClient(email: string): Promise<LoanOption[]> {
       outstandingPrincipal: l.outstandingPrincipal,
       nextInstallment,
       settlementAmount,
+      // A lease's figure is the rentals outstanding, not a settlement (lib/asset-finance/lease-ledger.ts).
+      lease: l.contractType === "OPERATING_LEASE" || l.contractType === "FULL_MAINTENANCE_LEASE",
       chargeLines: charges.lines,
       paymentDefault: l.interestModel === "DAILY_ACCRUAL"
         ? settlementAmount
@@ -169,7 +171,7 @@ export default async function PaymentPage() {
                   <div key={l.id} className="flex justify-between items-center gap-3">
                     <span className="font-mono font-bold text-sm" style={{ color: "#4F46E5" }}>{l.reference}</span>
                     {loans.length > 1 && (
-                      <span className="text-[11px] text-gray-400">{formatZAR(l.settlementAmount)} settlement</span>
+                      <span className="text-[11px] text-gray-400">{formatZAR(l.settlementAmount)} {l.lease ? "rentals outstanding" : "settlement"}</span>
                     )}
                   </div>
                 ))}

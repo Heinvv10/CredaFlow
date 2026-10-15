@@ -50,7 +50,7 @@ export function GET(req: NextRequest): NextResponse {
   const location = `${loginPath}?callbackUrl=${encodeURIComponent(callbackUrl)}`
   const res = new NextResponse(null, { status: 307, headers: { Location: location } })
 
-  // Derive the configured cookie name (e.g. `__Secure-authjs.session-token` on
+  // Derive the configured cookie name (e.g. `__Host-authjs.session-token` on
   // https) so we delete exactly what was set. Auth.js chunks oversized tokens
   // into `.0`, `.1`; clear those too — deleting a non-existent cookie is a no-op.
   const base = authBaseConfig.cookies?.sessionToken?.name ?? "authjs.session-token"

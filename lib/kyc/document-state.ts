@@ -8,6 +8,7 @@ import {
   type BiometricSubjectClient,
 } from "@/lib/kyc/biometric-evidence"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+import { pendingIdReplacement } from "@/lib/kyc/id-replacement"
 import {
   currentManualKycException,
   type ManualKycExceptionEvidence,
@@ -54,6 +55,8 @@ export interface DocumentKycInput {
 export interface CoreDocumentClassificationRow extends DocumentKycInput {
   id: string
   createdAt: Date
+  /** Read by pendingIdReplacement; absent, an ID copy is never an identical re-upload. */
+  contentSha256?: string | null
 }
 
 export interface CoreKycDocumentRow extends CoreDocumentClassificationRow {
@@ -195,12 +198,14 @@ export interface CompositeKycReader {
       }) => Promise<Array<{ biometricResult: unknown }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof PRIOR_FAILED_ATTEMPT_CONDITIONS
-        select: { extractionStatus: true; biometricResult: true; verificationRejectedAt: true; verificationRejectedById: true }
+        select: { extractionStatus: true; biometricResult: true; verificationRejectedAt: true; verificationRejectedById: true; createdAt: true; deletedAt: true }
       }) => Promise<Array<{
         extractionStatus: string | null
         biometricResult: unknown
         verificationRejectedAt: Date | null
         verificationRejectedById: string | null
+        createdAt: Date
+        deletedAt: Date | null
       }>>) &
       ((args: {
         where: { tenantId: string; clientId: string } & typeof BLOCKING_SELFIE_CONDITIONS
@@ -278,6 +283,13 @@ export function deriveCompositeKycState(args: {
       .filter((document) => document.verified)
       .map((document) => document.docType),
   )
+  // A newer ID copy awaiting review outweighs the older verified one: the
+  // identity on file is in question until staff decide. Both layers apply this
+  // rule: subject_has_pending_id_replacement in subject_has_composite_kyc
+  // (migrations 20261014130000, 20261015130000) mirrors pendingIdReplacement,
+  // so the app and the database reach the same verdict.
+  const idReplacement = pendingIdReplacement(args.documents)
+  if (idReplacement) verifiedTypes.delete("ID_COPY")
   const missingCoreDocuments = CORE_KYC_DOCUMENT_TYPES.filter(
     (docType) => !verifiedTypes.has(docType),
   )
@@ -287,7 +299,7 @@ export function deriveCompositeKycState(args: {
     // to be told to upload again — and the client KYC checklist already reads
     // latest-first (app/api/clients/[id]/documents/route.ts), so anything else
     // makes two staff screens disagree about the same document.
-    const current = args.documents
+    const current = (docType === "ID_COPY" ? idReplacement : null) ?? args.documents
       .filter((document) => document.docType === docType)
       .reduce<CoreDocumentClassificationRow | null>((latest, document) => {
         if (latest === null) return document
@@ -555,7 +567,7 @@ export async function readCompositeKycState(
         clientId: args.clientId,
         ...PRIOR_FAILED_ATTEMPT_CONDITIONS,
       },
-      select: { extractionStatus: true, biometricResult: true, verificationRejectedAt: true, verificationRejectedById: true },
+      select: { extractionStatus: true, biometricResult: true, verificationRejectedAt: true, verificationRejectedById: true, createdAt: true, deletedAt: true },
     }),
   ])
   // Deterministic, and identical to the SQL predicate's row choice: verified
@@ -617,6 +629,7 @@ export async function readCompositeKycState(
           blockingBiometricAttempt: blocksAttestationOnFile,
           biometricAssessment,
           portraitRefusals,
+          selfieAttempts: failedAttempts,
         },
       )
   const result = deriveCompositeKycState({

@@ -13,6 +13,7 @@ const portalClientDocumentSelect = {
   fileUrl: true,
   fileName: true,
   storagePath: true,
+  contentSha256: true,
   mimeType: true,
   fileSize: true,
   verified: true,
@@ -33,6 +34,7 @@ const portalClientDocumentSelect = {
   verifiedById: true,
   verificationNote: true,
   verificationRejectedById: true,
+  verificationRejectedAt: true,
   createdAt: true,
 } satisfies Prisma.ClientDocumentSelect
 

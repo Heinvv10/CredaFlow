@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   },
   row: null as null | Record<string, unknown>,
   policy: false,
+  allowlist: null as null | string[],
+  ip: "203.0.113.10",
 }))
 vi.mock("next-auth", () => ({
   default: (config: typeof h.config) => {
@@ -22,13 +24,14 @@ vi.mock("next-auth/providers/credentials", () => ({ default: (options: unknown) 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: async () => h.row, updateMany: async () => ({ count: 1 }), update: async () => ({}) },
-    tenantConfig: { findUnique: async () => ({ requireStaffTotp: h.policy }) },
+    tenantConfig: { findUnique: async () => ({ requireStaffTotp: h.policy, staffAccessHours: null, staffIpAllowlist: h.allowlist }) },
     loginLog: { create: async () => ({}) },
     failedLoginAttempt: { create: async () => ({}) },
   },
 }))
 vi.mock("bcryptjs", () => ({ default: { compare: async () => true, hash: async () => "hash", hashSync: () => "hash" } }))
-vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: () => ({ allowed: true }), callerIp: () => "127.0.0.1" }))
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: () => ({ allowed: true }), callerIp: () => h.ip, callerIpFromHeaders: () => h.ip }))
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }))
 
 import "@/lib/auth"
 import { generateTotpCode, generateTotpSecret } from "@/lib/totp"
@@ -67,6 +70,8 @@ function revalidate(audience: Audience, row: Record<string, unknown>, claims: Re
 beforeEach(() => {
   vi.stubEnv("OPERATOR_APP_HOST", CONSOLE)
   h.policy = false
+  h.allowlist = null
+  h.ip = "203.0.113.10"
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -158,5 +163,35 @@ describe("a token is checked as the audience it was minted for, never re-routed"
       new Request(`https://${CONSOLE}/x`, { headers: { host: CONSOLE } }),
     ).catch((e: { code?: string }) => e.code)
     expect(onConsole).toBe("wrong_audience")
+  })
+})
+
+// #82's lender access policy (working hours, IP allowlist) applies to lender
+// staff on both paths: at sign-in (checkStaffSignIn, after both factors) and
+// on every request (staffSessionAllowed, on the policy columns the
+// revalidation query returns). Operator staff have no lender access policy.
+describe("lender access policy — both paths for lender staff, never for operators", () => {
+  const ALLOWLIST = ["198.51.100.0/24"]
+  const withPolicy = (row: Record<string, unknown>) => ({ ...row, tenant: { status: "ACTIVE", config: { staffAccessHours: null, staffIpAllowlist: ALLOWLIST } } })
+
+  it("refuses lender staff off the allowlist at sign-in and on the next request", async () => {
+    h.allowlist = ALLOWLIST
+    h.ip = "203.0.113.10"
+    expect(await signIn("staff", withPolicy(STAFF_ROW))).toMatch(/^threw:/)
+    expect(await revalidate("staff", withPolicy(STAFF_ROW))).toBeNull()
+  })
+
+  it("lets lender staff on the allowlist in on both paths", async () => {
+    h.allowlist = ALLOWLIST
+    h.ip = "198.51.100.7"
+    expect(await signIn("staff", withPolicy(STAFF_ROW))).toMatchObject({ id: "u1" })
+    expect(await revalidate("staff", withPolicy(STAFF_ROW))).not.toBeNull()
+  })
+
+  it("does not apply any lender's policy to operator staff", async () => {
+    h.allowlist = ALLOWLIST
+    h.ip = "203.0.113.10"
+    expect(await signIn("operator", OPERATOR_ROW)).toMatchObject({ id: "op1" })
+    expect(await revalidate("operator", { ...OPERATOR_ROW, tenant: { status: "ACTIVE", config: { staffAccessHours: null, staffIpAllowlist: ALLOWLIST } } })).not.toBeNull()
   })
 })

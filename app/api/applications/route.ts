@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateReference } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
+import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { withTenantContext } from "@/lib/tenant"
 import { requireApiRole } from "@/lib/auth-guards"
 import { prepareApplicationFields, type PrepareApplicationInput } from "@/lib/applications/prepare-application"
@@ -141,6 +142,7 @@ export async function POST(req: NextRequest) {
           loanId: application.id,
           clientId: application.clientId ?? undefined,
         }).catch(() => {})
+        void screenOnSubmit({ tenantId: tenant.id, applicationId: application.id, actor: { id: guard.user.id, email: guard.user.email } })
       }
 
       return NextResponse.json(application)

@@ -69,11 +69,26 @@ const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
     sandboxEnvVar: null,
     sandboxSafeValues: [],
   },
+  /** The fixture bureau (lib/bureau/providers/simulated.ts). Every report it
+   *  returns is fabricated, so it exists only where this guard permits it. */
+  "simulated-bureau": {
+    sandboxEnvVar: null,
+    sandboxSafeValues: [],
+  },
   netcash: {
     sandboxEnvVar: null,
     sandboxSafeValues: [],
   },
   "netcash-collections": {
+    sandboxEnvVar: null,
+    sandboxSafeValues: [],
+  },
+  /**
+   * PEP / sanctions screening (lib/screening/simulated-provider.ts). A
+   * simulated "clear" would wave a sanctioned person through, so it is refused
+   * on a deployed build unless listed in SIMULATED_INTEGRATIONS.
+   */
+  screening: {
     sandboxEnvVar: null,
     sandboxSafeValues: [],
   },

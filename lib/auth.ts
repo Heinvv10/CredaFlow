@@ -13,6 +13,9 @@ import { normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { authorizeOperator } from "@/lib/operator/sign-in"
 import { audienceOf, enrolmentRequired, principalRefusal, revalidatePrincipal } from "./auth-principal"
+import { checkStaffSignIn, staffSessionAllowed } from "@/lib/security/staff-access-enforcement"
+import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/staff-access-messages"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
 
 export { claimTotpCounter }
 
@@ -30,6 +33,18 @@ class RateLimitedError extends CredentialsSignin {
 
 class WrongAudienceError extends CredentialsSignin {
   code = "wrong_audience"
+}
+
+/** The lender's staff working hours or IP allowlist refused this sign-in. */
+class StaffAccessRefusedError extends CredentialsSignin {
+  constructor(reason: StaffAccessRefusal) {
+    super()
+    this.code = staffAccessSignInCode(reason)
+  }
+}
+
+class PortalDisabledError extends CredentialsSignin {
+  code = "portal_disabled"
 }
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
@@ -202,6 +217,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // reach only the enrolment page (proxy.ts, lib/auth-guards.ts).
           const totpEnrolmentRequired = totp.kind === "not_enrolled" ? await enrolmentRequired(user, "staff") : false
 
+          // Working hours and IP allowlist, checked once both factors passed.
+          const access = await checkStaffSignIn({
+            tenantId: loginTenantId, userId: user.id, email: user.email, role: user.role, ip, userAgent,
+          })
+          if (!access.allowed) throw new StaffAccessRefusedError(access.reason)
+
           // Update last login + log the sign-in
           const now = new Date()
           await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: now } })
@@ -263,6 +284,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!clientPasswordMatch) {
           await recordFailure("wrong_password")
           return null
+        }
+        if (!(await isPortalEnabled(client.tenantId))) {
+          await recordFailure("portal_disabled")
+          throw new PortalDisabledError()
         }
 
         return {
@@ -326,6 +351,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return typeof bound === "string" ? token : null
         }
         if (freshPrincipal === null) return null       // refused, deactivated or version bump — force sign-out
+        if (audience === "staff") {
+          // Working hours and IP allowlist (#82), on the policy columns the
+          // same query read. Operator staff have no lender access policy.
+          const allowed = await staffSessionAllowed({
+            tenantId: freshPrincipal.tenantId as string, userId: tokenId, role: freshPrincipal.role,
+            email: typeof token.email === "string" ? token.email : null,
+          }, freshPrincipal.accessPolicy)
+          if (!allowed) return null                    // outside hours / off the allowlist: ends it like a revocation
+        }
         token.role = freshPrincipal.role as AppRole    // picks up role changes mid-session
         token.tenantId = freshPrincipal.tenantId
         token.totpEnrolmentRequired = freshPrincipal.totpEnrolmentRequired

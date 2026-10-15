@@ -36,7 +36,7 @@ case "${1:-}" in
       "$IMAGE" \
       node_modules/.bin/tsx scripts/demo/sim/smtp-sink.ts >/dev/null
     for _ in $(seq 1 30); do
-      docker logs "$NAME" 2>&1 | grep -q listening && { echo "smtp-sink: up" >&2; exit 0; }
+      docker logs "$NAME" 2>&1 | grep listening >/dev/null && { echo "smtp-sink: up" >&2; exit 0; }
       sleep 1
     done
     echo "smtp-sink: did not start" >&2

@@ -25,8 +25,12 @@
  *   interest = Σ int_i = Σ payments (balloon included) − F
  *   VAT      excl = round_half_up(cash × 10000 / 11500); vat = cash − excl
  * Every figure is integer cents; every deal and figure is synthetic.
+ *
+ * The lease deals (slice 3) are in ./acceptance-lease-deals.ts, re-exported here.
  */
 import type { StructureInput } from "../types"
+
+export { LEASE_DEALS, type AcceptanceLeaseDeal, type AcceptanceLeaseRow } from "./acceptance-lease-deals"
 
 export interface AcceptanceRow {
   index: number // 0-based

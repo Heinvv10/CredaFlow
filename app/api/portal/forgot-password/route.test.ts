@@ -12,11 +12,19 @@ const withTenantContextMock = vi.fn()
 const verifyTurnstileMock = vi.fn()
 const findLenderIdentityMock = vi.fn()
 
+// TenantConfig / CommsSettings rows for the portal switches and the WhatsApp
+// leg; null = no row = every default (portal on, no WhatsApp Cloud).
+const lenderRows = vi.hoisted(() => ({
+  tenantConfig: null as null | Record<string, unknown>,
+  commsSettings: null as null | Record<string, unknown>,
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: (a: unknown) => clientFindFirstMock(a) },
     clientOtp: { create: (a: unknown) => clientOtpCreateMock(a) },
     messageTemplate: { findFirst: (a: unknown) => messageTemplateFindFirstMock(a) },
+    tenantConfig: { findUnique: async () => lenderRows.tenantConfig },
+    commsSettings: { findUnique: async () => lenderRows.commsSettings },
   },
 }))
 vi.mock("@/lib/config/identity", () => ({
@@ -38,6 +46,11 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/turnstile", () => ({
   verifyTurnstile: (...args: unknown[]) => verifyTurnstileMock(...args),
+}))
+const sendPortalOtpByWhatsApp = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/portal/portal-otp-whatsapp", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/portal/portal-otp-whatsapp")>()),
+  sendPortalOtpByWhatsApp,
 }))
 
 import { POST } from "./route"
@@ -87,6 +100,62 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.MESSAGING_NEW_SEND_PORTAL_FORGOT
+  lenderRows.tenantConfig = null
+  lenderRows.commsSettings = null
+})
+
+describe("POST /api/portal/forgot-password — portal switch and WhatsApp channel", () => {
+  const waCloud = { whatsappEnabled: true, waProvider: "WA_CLOUD", wabaPhoneNumberId: "pn-1", wabaAccessToken: "token" }
+
+  it("404s while the lender's portal is off, before any lookup or code", async () => {
+    lenderRows.tenantConfig = { featurePortal: false }
+    const res = await POST(buildReq({ email: "user@example.com" }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual(expect.objectContaining({ portal: "disabled" }))
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+    expect(clientOtpCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("sends the reset code on WhatsApp when asked and available, and not by email", async () => {
+    lenderRows.commsSettings = waCloud
+    sendPortalOtpByWhatsApp.mockResolvedValue(undefined)
+    clientFindFirstMock.mockResolvedValue({
+      id: "cl_a", email: "user@example.com", firstName: "Alice", lastName: "X", tenantId: "tenant_acme", whatsapp: "0820000001",
+    })
+    const res = await POST(buildReq({ email: "user@example.com", channel: "WHATSAPP" }))
+    expect(res.status).toBe(200)
+    expect(sendPortalOtpByWhatsApp).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "tenant_acme", purpose: "password_reset", otpRecordId: "otp_a",
+    }))
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it("answers before the WhatsApp send settles, so timing cannot reveal the account", async () => {
+    lenderRows.commsSettings = waCloud
+    sendPortalOtpByWhatsApp.mockReturnValue(new Promise(() => undefined))
+    clientFindFirstMock.mockResolvedValue({
+      id: "cl_a", email: "user@example.com", firstName: "Alice", lastName: "X", tenantId: "tenant_acme", whatsapp: "0820000001",
+    })
+    const res = await POST(buildReq({ email: "user@example.com", channel: "WHATSAPP" }))
+    expect(res.status).toBe(200)
+  })
+
+  it("answers before the legacy reset email settles", async () => {
+    delete process.env.MESSAGING_NEW_SEND_PORTAL_FORGOT
+    sendEmailMock.mockReturnValue(new Promise(() => undefined))
+    const res = await POST(buildReq({ email: "user@example.com" }))
+    expect(res.status).toBe(200)
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses email when the client has no WhatsApp number", async () => {
+    lenderRows.commsSettings = waCloud
+    const res = await POST(buildReq({ email: "user@example.com", channel: "WHATSAPP" }))
+    expect(res.status).toBe(200)
+    expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("POST /api/portal/forgot-password", () => {

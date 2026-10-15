@@ -19,6 +19,7 @@ import { parseRandToCents } from "./money"
 import { holderFromTitleLine, isoFromDayMonthYear, last4, lineMatch, MONTHS, validIso } from "./layout"
 import type { PdfWord } from "./pdf-tools"
 import type { StatementRead, StatementTransaction } from "./types"
+import { nearestColumn, wordLines } from "./word-table"
 
 const AMOUNT_WORD = /^\d{1,3}(?:,\d{3})*\.\d{2}(Cr|Dr)?$/
 const DAY = /^\d{2}$/
@@ -31,39 +32,18 @@ const MON = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/
  */
 const NON_POSTING = /\bAttempt\b/i
 const PERIOD = /Statement Period[ \t]*:[ \t]*(\d{1,2} [A-Za-z]+ \d{4})[ \t]+to[ \t]+(\d{1,2} [A-Za-z]+ \d{4})/
-/** How far (pt) a figure's right edge may sit from its column's. */
-const COLUMN_SLACK_PT = 30
 
 type Column = "amount" | "balance" | "charges"
 type Columns = Record<Column, number>
-
-/** Words grouped into printed lines, top to bottom, each left to right. */
-function lines(words: PdfWord[]): PdfWord[][] {
-  const sorted = [...words].sort((a, b) => a.yMin - b.yMin || a.xMin - b.xMin)
-  const out: PdfWord[][] = []
-  for (const w of sorted) {
-    const last = out[out.length - 1]
-    if (last && Math.abs(last[0].yMin - w.yMin) <= 2) last.push(w)
-    else out.push([w])
-  }
-  return out.map((l) => l.sort((a, b) => a.xMin - b.xMin))
-}
 
 function columnsOf(line: PdfWord[], below: PdfWord[] | undefined, above: PdfWord[] | undefined): Columns | null {
   const at = (ws: PdfWord[] | undefined, t: string) => ws?.find((w) => w.text === t)
   const amount = at(line, "Amount")
   const balance = at(line, "Balance")
-  if (!at(line, "Date") || !amount || !balance) return null
+  // The header starts with "Date": a reference that happens to say "Date Amount Balance" must not move the columns.
+  if (line[0]?.text !== "Date" || !amount || !balance) return null
   const charges = at(below, "Charges") ?? at(above, "Accrued") ?? at(line, "Bank")
   return { amount: amount.xMax, balance: balance.xMax, charges: charges?.xMax ?? balance.xMax + 50 }
-}
-
-function nearest(x: number, cols: Columns): Column | null {
-  let best: Column | null = null
-  for (const c of ["amount", "balance", "charges"] as Column[]) {
-    if (Math.abs(x - cols[c]) <= COLUMN_SLACK_PT && (!best || Math.abs(x - cols[c]) < Math.abs(x - cols[best]))) best = c
-  }
-  return best
 }
 
 /** Signed cents in FNB's convention: Cr is positive, anything else negative. */
@@ -93,7 +73,7 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
   for (let i = 2; i < line.length; i++) {
     const w = line[i]
     const next = line[i + 1]
-    const col = AMOUNT_WORD.test(w.text) ? nearest(w.xMax, cols) : null
+    const col = AMOUNT_WORD.test(w.text) ? nearestColumn(w.xMax, cols) : null
     if (!col) {
       description.push(w.text)
       continue
@@ -103,7 +83,9 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     if (figures[col]) return null
     figures[col] = `${w.text}${suffix}`
   }
-  if (!figures.amount) return null
+  // FNB prints a balance on every row (corpus: no row without one): one without is
+  // a misread or an edit, and a blank balance lets a +X/−X pair of edits cancel out.
+  if (!figures.amount || !figures.balance) return null
   const amountCents = fnbCents(figures.amount)
   const date = rowDate(line[0].text, line[1].text, periodStart)
   if (amountCents === null || !date) return null
@@ -112,7 +94,7 @@ function readRow(line: PdfWord[], cols: Columns, periodStart: string | null, pag
     date,
     description: text,
     amountCents,
-    balanceCents: figures.balance ? fnbCents(figures.balance) : null,
+    balanceCents: fnbCents(figures.balance),
     page,
   }
 }
@@ -121,7 +103,7 @@ function readRows(words: PdfWord[][], periodStart: string | null): StatementTran
   const rows: StatementTransaction[] = []
   let cols: Columns | null = null
   words.forEach((pageWords, p) => {
-    const ls = lines(pageWords)
+    const ls = wordLines(pageWords)
     ls.forEach((line, i) => {
       cols = columnsOf(line, ls[i + 1], ls[i - 1]) ?? cols
       if (!cols) return

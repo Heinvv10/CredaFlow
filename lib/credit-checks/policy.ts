@@ -24,6 +24,15 @@ export const STATEMENT_UPLOAD_LOOKBACK_DAYS = 90
 /** A statement ending more than this before the application is stale (goal §5). */
 export const STALE_STATEMENT_DAYS = 45
 
+/**
+ * The next statement of an account starts on the day the previous one ended
+ * (FNB, Nedbank: 36 corpus pairs, 2026-10-15) or the day after (ABSA
+ * eStatement: 2 pairs); each of the 38 opened at the previous closing to the
+ * cent. A longer gap or an overlap is not a boundary the two share, so no
+ * agreement is noted on the flag (statement-chain.ts).
+ */
+export const STATEMENT_CHAIN_MAX_GAP_DAYS = 1
+
 // ── DOCUMENT_AUTHENTICITY ──────────────────────────────────────────────────
 
 /**
@@ -31,11 +40,24 @@ export const STALE_STATEMENT_DAYS = 45
  * the statement corpus (2026-10-13): every Capitec original was "OpenPDF 2.0.2"
  * with no creator, every FNB original "Compart MFFPDF I/O Filter …" by
  * "Compart Docponent API …". Matched as prefixes so a version bump of the same
- * library does not flag. A bank not listed here is not producer-checked.
+ * library does not flag; "" means the bank writes none. A bank not listed here
+ * is not producer-checked.
+ *
+ * Added 2026-10-14 from the same corpus: Nedbank (no producer, OpenText
+ * Exstream), ABSA's two systems (BIRT on iText; TargetStream), Standard Bank
+ * (PDFlib+PDI by Designer). Discovery writes no metadata on its app statements
+ * (8 of 9 files) and StreamServe on the other. A file stripped of its metadata
+ * would pass for Discovery, so manual-review.ts sends every PDF without a
+ * producer or creator to a person (AUTHENTICITY_UNCHECKED). Standard Bank and
+ * Discovery are limited evidence (6–9 files each).
  */
 export const EXPECTED_PRODUCERS: Partial<Record<string, { producer: string[]; creator: string[] }>> = {
   CAPITEC: { producer: ["OpenPDF"], creator: [""] },
   FNB: { producer: ["Compart MFFPDF"], creator: ["Compart Docponent"] },
+  NEDBANK: { producer: [""], creator: ["OpenText Exstream"] },
+  ABSA: { producer: ["iText 2.1.7 by 1T3XT", "TargetStream StreamEDS"], creator: ["BIRT Report Engine", "TargetStream Technologies"] },
+  STANDARD_BANK: { producer: ["PDFlib+PDI"], creator: ["Designer"] },
+  DISCOVERY: { producer: ["", "StreamServe Communication Server"], creator: ["", "Discovery Bank"] },
 }
 
 /**
@@ -106,6 +128,37 @@ export const GAMBLING_INCOME_SHARE = 0.05
 
 /** Short-term (payday) lenders: any transaction with one is a flag. */
 export const PAYDAY_LENDERS = ["WONGA", "LIME24", "LENDPLUS", "PRIMELOANS", "CREDIWISE", "BOODLE", "FASTA", "SPOT MONEY", "CASH CONVERTERS", "ATLAS FINANCE"] as const
+
+// ── EXPENSE_UNDERSTATED ────────────────────────────────────────────────────
+
+/**
+ * Living spend on the statements must exceed the client's declared monthly
+ * expenses by more than this AND by more than EXPENSE_GAP_MIN_SHARE of what
+ * was declared (goal 2026-10-14 §2a.4): the rand floor keeps small
+ * declarations from flagging on noise, the share keeps large ones from
+ * flagging on a rounding of the budget.
+ */
+export const EXPENSE_GAP_MIN_CENTS = 150_000
+export const EXPENSE_GAP_MIN_SHARE = 0.25
+/** Under four weeks of statements there is no month to average: no flag, and the panel says why. */
+export const EXPENSE_MIN_COVERAGE_DAYS = 28
+/**
+ * Off: the categoriser missed the accuracy gate the flag depends on (goal §6.4:
+ * ≥ 95% agreement with blind labels on held-out corpus merchants; measured
+ * 90.0–90.5% over three runs, 2026-10-14). The check, its tests and the panel
+ * figures ship, and so do its switch-on prerequisites: a successor supersedes
+ * the older OPEN finding (recompute.ts), the decide route refuses an approval
+ * whose declared expenses changed since the checks ran, and an explicit R0
+ * declaration flags while expenses never captured do not
+ * (load-facts.ts declaredExpenses: a stored 0 counts only with
+ * Client.monthlyExpensesDeclaredAt). R0 is recorded from the website apply
+ * form (new client, expenses sent), the staff wizard (a figure typed or a
+ * below-minimum justification) and the staff edit (total changed, or that
+ * justification given). CRM lead convert records none: it refuses R0 when
+ * income is above 0, and at R0 income its prefilled "0" is not explicit.
+ * What is left before turning this on: pass the gate.
+ */
+export const EXPENSE_UNDERSTATED_ENABLED = false
 
 /** Matches `name` as whole words inside an upper-cased description. */
 export function mentions(description: string, name: string): boolean {

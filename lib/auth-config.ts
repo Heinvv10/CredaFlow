@@ -53,7 +53,7 @@ export function roleRefusedOnThisHost(role: unknown): boolean {
 
 // Prefer AUTH_URL (NextAuth v5) and fall back to NEXTAUTH_URL (v4 alias).
 // Phase 2 split sets per-container AUTH_URL — relying on NEXTAUTH_URL only
-// would produce non-`__Secure-` cookies on the portal container if a deploy
+// would produce unprefixed cookies on the portal container if a deploy
 // ever set AUTH_URL but not NEXTAUTH_URL.
 const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL
 const useSecureCookies = authUrl?.startsWith("https://")
@@ -61,8 +61,10 @@ const useSecureCookies = authUrl?.startsWith("https://")
 export const authBaseConfig = {
   trustHost: true,
   cookies: {
+    // __Host-: the browser refuses it unless Secure, Path=/ and no Domain, so a
+    // sibling lender's subdomain can neither set nor shadow the session.
     sessionToken: {
-      name: useSecureCookies ? "__Secure-authjs.session-token" : "authjs.session-token",
+      name: useSecureCookies ? "__Host-authjs.session-token" : "authjs.session-token",
       options: { httpOnly: true, sameSite: "lax", path: "/", secure: !!useSecureCookies },
     },
     csrfToken: {

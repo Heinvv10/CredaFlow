@@ -79,6 +79,9 @@ export const AuditAction = {
   // and an officer clearing one with a reason.
   CREDIT_CHECKS_RECOMPUTED: "CREDIT_CHECKS_RECOMPUTED",
   CREDIT_CHECK_FLAG_CLEARED: "CREDIT_CHECK_FLAG_CLEARED",
+  // A credit officer downloaded an application's read statements as a workbook
+  // (app/api/applications/[id]/statement-export); each statement is also in DocumentAccessLog.
+  STATEMENT_EXPORTED: "STATEMENT_EXPORTED",
   STATEMENT_READ_RETRIED: "STATEMENT_READ_RETRIED",
   PRODUCT_PRICING_UPDATED: "PRODUCT_PRICING_UPDATED",
 
@@ -163,6 +166,9 @@ export const AuditAction = {
   KYC_APPROVED: "KYC_APPROVED",
   KYC_REJECTED: "KYC_REJECTED",
   KYC_STATUS_CHANGED: "KYC_STATUS_CHANGED",
+  // Staff re-derived the stored status from evidence already on file ("Re-verify
+  // ID", lib/kyc/kyc-rederive.server.ts). No document was verified or attested.
+  KYC_STATUS_REDERIVED: "KYC_STATUS_REDERIVED",
   // One-time consumer selfie capture links. Distinct sent/failed actions for
   // the same reason PASQ_LINK_* are distinct: "we sent a credential to a
   // consumer" and "we minted one and cancelled it undelivered" are different
@@ -175,6 +181,10 @@ export const AuditAction = {
   AGREEMENT_SIGNING_LINK_SENT: "AGREEMENT_SIGNING_LINK_SENT",
   AGREEMENT_SIGNING_LINK_SEND_FAILED: "AGREEMENT_SIGNING_LINK_SEND_FAILED",
   BIOMETRIC_VERIFICATION_BLOCKED: "BIOMETRIC_VERIFICATION_BLOCKED",
+  // A selfie attempt stuck in `processing` was failed by the sweeper while a
+  // newer selfie governs the client, so the client's KYC was not re-projected
+  // (lib/kyc/selfie-sweeper.server.ts).
+  BIOMETRIC_ATTEMPT_SWEPT: "BIOMETRIC_ATTEMPT_SWEPT",
   KYC_VERIFICATION_BLOCKED: "KYC_VERIFICATION_BLOCKED",
   DOCUMENT_ACCESS_REFUSED: "DOCUMENT_ACCESS_REFUSED",
   KYC_EXCEPTION_GRANTED: "KYC_EXCEPTION_GRANTED",
@@ -214,6 +224,12 @@ export const AuditAction = {
   APPLICATION_SUBMISSION_BLOCKED:  "APPLICATION_SUBMISSION_BLOCKED",
   APPLICATION_REVIEW_STARTED: "APPLICATION_REVIEW_STARTED",
   APPLICATION_BUREAU_REVIEW_RETRIED: "APPLICATION_BUREAU_REVIEW_RETRIED",
+  // One bureau enquiry run (lib/compliance/bureau-review.ts): the bureaus
+  // asked, in order, and how each attempt ended. No consumer data.
+  BUREAU_ENQUIRY_RUN: "BUREAU_ENQUIRY_RUN",
+  // Bureau enquiry settings (app/api/settings/bureau): order, freshness
+  // window, and WHICH bureaus' credentials changed — never their values.
+  BUREAU_ENQUIRY_CONFIG_UPDATED: "BUREAU_ENQUIRY_CONFIG_UPDATED",
   APPLICATION_RETURNED_TO_DRAFT: "APPLICATION_RETURNED_TO_DRAFT",
   APPLICATION_RETURNED_TO_REVIEW: "APPLICATION_RETURNED_TO_REVIEW",
   CREDIT_LIFE_ELECTION_RECORDED: "CREDIT_LIFE_ELECTION_RECORDED",
@@ -414,6 +430,7 @@ export const AuditAction = {
   // only: an audit row never carries a line of the file.
   BUREAU_SUBMISSION_GENERATED: "BUREAU_SUBMISSION_GENERATED",
   BUREAU_SUBMISSION_DOWNLOADED: "BUREAU_SUBMISSION_DOWNLOADED",
+  BUREAU_SUBMISSION_PUSHED: "BUREAU_SUBMISSION_PUSHED",
   BUREAU_ADVERSE_LISTING_CONFIRMED: "BUREAU_ADVERSE_LISTING_CONFIRMED",
   BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED",
   // Breach log (the POPIA security-compromise register). The row keeps no
@@ -556,6 +573,31 @@ export const AuditAction = {
   // payout, application and asset with it. Refusals are audited too.
   ASSET_DEAL_CANCELLED: "ASSET_DEAL_CANCELLED",
   ASSET_DEAL_CANCEL_REFUSED: "ASSET_DEAL_CANCEL_REFUSED",
+  // Operating and full-maintenance leases (slice 3): per-rental tax invoices
+  // (lib/asset-finance/lease-invoices.ts), and a refusal the receipt path left.
+  LEASE_RENTAL_INVOICED: "LEASE_RENTAL_INVOICED",
+  LEASE_INVOICE_REFUSED: "LEASE_INVOICE_REFUSED",
+  // Lease servicing (lib/asset-finance/maintenance-*.ts, meter-readings.ts,
+  // lease-end-*.ts, lease-termination-store.ts, lease-daily.ts): the maintenance
+  // fund and its claims, meter readings, the end of term and early termination.
+  MAINTENANCE_CLAIM_SUBMITTED: "MAINTENANCE_CLAIM_SUBMITTED",
+  MAINTENANCE_CLAIM_APPROVED: "MAINTENANCE_CLAIM_APPROVED",
+  MAINTENANCE_CLAIM_REJECTED: "MAINTENANCE_CLAIM_REJECTED",
+  MAINTENANCE_CLAIM_PAID: "MAINTENANCE_CLAIM_PAID",
+  MAINTENANCE_FUND_SETTLED: "MAINTENANCE_FUND_SETTLED",
+  METER_READING_RECORDED: "METER_READING_RECORDED",
+  LEASE_EXPIRY_NOTICE_QUEUED: "LEASE_EXPIRY_NOTICE_QUEUED",
+  LEASE_END_OF_TERM_ELECTED: "LEASE_END_OF_TERM_ELECTED",
+  LEASE_INSPECTION_RECORDED: "LEASE_INSPECTION_RECORDED",
+  LEASE_RETURNED: "LEASE_RETURNED",
+  LEASE_EXTENDED: "LEASE_EXTENDED",
+  LEASE_EXTENSION_ENDED: "LEASE_EXTENSION_ENDED",
+  LEASE_PURCHASED: "LEASE_PURCHASED",
+  LEASE_NATIS_CONFIRMED: "LEASE_NATIS_CONFIRMED",
+  LEASE_EARLY_TERMINATION_QUOTED: "LEASE_EARLY_TERMINATION_QUOTED",
+  LEASE_EARLY_TERMINATION_ACCEPTED: "LEASE_EARLY_TERMINATION_ACCEPTED",
+  LEASE_CLOSED: "LEASE_CLOSED",
+  LEASE_ACTION_REFUSED: "LEASE_ACTION_REFUSED",
   // A surety or signatory deactivation refused while the entity has an
   // approved deal (its signer set is fixed).
   ENTITY_RELATIONSHIP_CHANGE_REFUSED: "ENTITY_RELATIONSHIP_CHANGE_REFUSED",
@@ -569,4 +611,46 @@ export const AuditAction = {
   // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
   TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
   TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
+  // PEP / sanctions screening (lib/screening). Types and results only: never
+  // the matched list entries, which would put "possible PEP" in the audit view.
+  SCREENING_RUN: "SCREENING_RUN",
+  SCREENING_RUN_FAILED: "SCREENING_RUN_FAILED",
+  SCREENING_MATCH_REVIEWED: "SCREENING_MATCH_REVIEWED",
+  SCREENING_CONFIG_UPDATED: "SCREENING_CONFIG_UPDATED",
+  SCREENING_BLOCK_LIFTED: "SCREENING_BLOCK_LIFTED",
+  // An approval the screening gate refused (consumer decide route).
+  SCREENING_APPROVAL_REFUSED: "SCREENING_APPROVAL_REFUSED",
+  // FIC Act registers (lib/fic). STR rows carry the case id and status only:
+  // the audit view is wider than the STR register, and naming the client
+  // there would spread knowledge of the report (tipping-off risk).
+  CTR_RECORDED: "CTR_RECORDED",
+  FIC_EXPORTED: "FIC_EXPORTED",
+  STR_CASE_RAISED: "STR_CASE_RAISED",
+  STR_CASE_UPDATED: "STR_CASE_UPDATED",
+  RMCP_UPLOADED: "RMCP_UPLOADED",
+  RMCP_APPROVED: "RMCP_APPROVED",
+  RMCP_DOWNLOADED: "RMCP_DOWNLOADED",
+  // Lender API (lib/lender-api, app/api/settings/api-keys, app/api/settings/webhooks).
+  // Key and endpoint rows by id and prefix only, never a key or a signing secret.
+  API_KEY_CREATED: "API_KEY_CREATED",
+  API_KEY_REVOKED: "API_KEY_REVOKED",
+  WEBHOOK_ENDPOINT_CREATED: "WEBHOOK_ENDPOINT_CREATED",
+  WEBHOOK_ENDPOINT_DISABLED: "WEBHOOK_ENDPOINT_DISABLED",
+  // The circuit breaker paused an endpoint (no user: the system did it), and an admin resumed it.
+  WEBHOOK_ENDPOINT_PAUSED: "WEBHOOK_ENDPOINT_PAUSED",
+  WEBHOOK_ENDPOINT_RESUMED: "WEBHOOK_ENDPOINT_RESUMED",
+  // A draft application created through POST /api/v1/applications; newValue names the key.
+  APPLICATION_CREATED_VIA_API: "APPLICATION_CREATED_VIA_API",
+  // Staff working hours and IP allowlist (lib/security/staff-access-*.ts).
+  // REFUSED: a sign-in or a live session stopped by the policy, with reason.
+  // BYPASSED: a SUPER_ADMIN the policy would have stopped, let through.
+  STAFF_ACCESS_POLICY_UPDATED: "STAFF_ACCESS_POLICY_UPDATED",
+  STAFF_ACCESS_REFUSED: "STAFF_ACCESS_REFUSED",
+  STAFF_ACCESS_BYPASSED: "STAFF_ACCESS_BYPASSED",
+  // Signing OTP and portal registration policy (lib/signing-otp,
+  // lib/portal/portal-policy.ts). Never the code itself.
+  PORTAL_POLICY_UPDATED: "PORTAL_POLICY_UPDATED",
+  SIGNING_OTP_REQUESTED: "SIGNING_OTP_REQUESTED",
+  SIGNING_OTP_VERIFIED: "SIGNING_OTP_VERIFIED",
+  SIGNING_OTP_REJECTED: "SIGNING_OTP_REJECTED",
 } as const

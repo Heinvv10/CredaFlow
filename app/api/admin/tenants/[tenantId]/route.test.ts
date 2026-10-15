@@ -132,7 +132,7 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
   it("seals provider credentials, audits only their names, and never returns them", async () => {
     vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
     try {
-      update.mockResolvedValue({ id: "t1", config: { netcashKey: "enc:v1:stored", bulkSmsKey: null, primaryColor: "#123456" } })
+      update.mockResolvedValue({ id: "t1", config: { netcashKey: "enc:v1:stored", bulkSmsKey: null, bureauCredentials: "enc:v1:bag:x:y", primaryColor: "#123456" } })
       const response = await patch({ netcashKey: "synthetic-service-key", transunionKey: null })
       expect(response.status).toBe(200)
       expect(openCredential(configWritten().netcashKey)).toBe("synthetic-service-key")
@@ -141,7 +141,7 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
         action: "PROVIDER_CREDENTIALS_UPDATED", newValue: { updatedKeys: ["netcashKey", "transunionKey"], cleared: ["transunionKey"] },
       }), expect.objectContaining({ isTx: true }))
       expect(JSON.stringify(logAuditStrict.mock.calls)).not.toContain("synthetic-service-key")
-      expect((await response.json()).config).toEqual({ netcashKey: "********", bulkSmsKey: "", primaryColor: "#123456" })
+      expect((await response.json()).config).toEqual({ netcashKey: "********", bulkSmsKey: "", bureauCredentialsConfigured: true, primaryColor: "#123456" })
     } finally {
       vi.unstubAllEnvs()
     }

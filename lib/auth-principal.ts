@@ -9,6 +9,10 @@
  *    operator staff: an operator role, an operator, no tenant).
  *  - enrolmentRequired: a user with no TOTP is held at enrolment — always for
  *    operator staff, per the lender's policy for lender staff.
+ *  - Lender staff only: the lender's working hours and IP allowlist (#82,
+ *    lib/security/staff-access-enforcement.ts) — checked at sign-in after both
+ *    factors, and per request on the policy columns this query returns
+ *    (accessPolicy). Operator staff have no lender access policy.
  *  - On each request the session's TOTP claims must still fit the row: a
  *    session that verified a code is refused once the user has no TOTP, and
  *    a held session once the user has enrolled (sign in again with a code).
@@ -22,6 +26,7 @@
 import { prisma } from "@/lib/prisma"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
+import type { StaffAccessPolicyColumns } from "@/lib/security/staff-access-policy"
 
 export type Audience = "staff" | "operator"
 
@@ -32,7 +37,7 @@ export type PrincipalRow = {
   operatorId?: string | null
   totpEnabled?: boolean
   totpSecret?: string | null
-  tenant?: { status: string } | null
+  tenant?: { status: string; config?: StaffAccessPolicyColumns | null } | null
 }
 
 export type PrincipalRefusal =
@@ -70,7 +75,9 @@ export async function enrolmentRequired(row: PrincipalRow, audience: Audience): 
 
 const PRINCIPAL_SELECT = {
   active: true, role: true, tenantId: true, operatorId: true, tokenVersion: true,
-  totpEnabled: true, totpSecret: true, tenant: { select: { status: true } },
+  totpEnabled: true, totpSecret: true,
+  // The staff access policy columns ride on the same query (#82).
+  tenant: { select: { status: true, config: { select: { staffAccessHours: true, staffIpAllowlist: true } } } },
 } as const
 
 export type SessionClaims = { audience: Audience; totpVerified: boolean; totpEnrolmentRequired: boolean }
@@ -80,6 +87,8 @@ export type FreshPrincipal = {
   tenantId: string | null
   operatorId: string | null
   totpEnrolmentRequired: boolean
+  /** The lender's staff access columns (hours, IP allowlist); null for operator staff. */
+  accessPolicy: StaffAccessPolicyColumns | null
 }
 
 /**
@@ -110,5 +119,6 @@ export async function revalidatePrincipal(
     // As sign-in would decide it now: a lender that turned 2FA on holds its
     // unenrolled staff from their next request.
     totpEnrolmentRequired: held,
+    accessPolicy: claims.audience === "staff" ? row.tenant?.config ?? null : null,
   }
 }

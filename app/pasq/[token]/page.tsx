@@ -6,6 +6,8 @@ import {
 import { getLenderIdentity } from "@/lib/config/identity"
 import { getResolvedTenantId } from "@/lib/tenant"
 import { PasqLinkAcknowledge } from "./PasqLinkAcknowledge"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
+import { PortalUnavailable } from "@/components/portal/PortalUnavailable"
 
 type PageProps = { params: Promise<{ token: string }> }
 
@@ -47,6 +49,9 @@ export default async function PasqLinkPage({ params }: PageProps) {
       </main>
     )
   }
+
+  // The lender switched its portal off: its borrower-facing links close too.
+  if (!(await isPortalEnabled(resolved.link.tenantId))) return <PortalUnavailable />
 
   const documentUrl = `/api/pasq-link/${token}/document`
 

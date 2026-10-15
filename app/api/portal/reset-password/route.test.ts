@@ -8,6 +8,8 @@ const clientUpdateMock = vi.fn()
 const checkRateLimitMock = vi.fn()
 const withTenantContextMock = vi.fn()
 const bcryptHashMock = vi.fn()
+// The lender's TenantConfig row; null = no row = portal on.
+const portalConfig = vi.hoisted(() => ({ row: null as null | Record<string, unknown> }))
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -19,6 +21,7 @@ vi.mock("@/lib/prisma", () => ({
       findFirst: (a: unknown) => clientFindFirstMock(a),
       update: (a: unknown) => clientUpdateMock(a),
     },
+    tenantConfig: { findUnique: async () => portalConfig.row },
   },
 }))
 vi.mock("bcryptjs", () => ({ default: { hash: (...a: unknown[]) => bcryptHashMock(...a) } }))
@@ -57,6 +60,18 @@ beforeEach(() => {
   clientOtpUpdateMock.mockResolvedValue({ id: "otp_a" })
   clientFindFirstMock.mockResolvedValue({ id: "cl_a", email: "user@example.com", tenantId: "tenant_acme" })
   clientUpdateMock.mockResolvedValue({ id: "cl_a" })
+  portalConfig.row = null
+})
+
+describe("POST /api/portal/reset-password — lender portal switched off", () => {
+  it("404s with the portal-unavailable answer and never checks a code or changes a password", async () => {
+    portalConfig.row = { featurePortal: false }
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual(expect.objectContaining({ portal: "disabled" }))
+    expect(clientOtpFindFirstMock).not.toHaveBeenCalled()
+    expect(clientUpdateMock).not.toHaveBeenCalled()
+  })
 })
 
 describe("POST /api/portal/reset-password", () => {

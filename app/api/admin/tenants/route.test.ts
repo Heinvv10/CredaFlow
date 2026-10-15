@@ -75,8 +75,8 @@ describe("POST /api/admin/tenants", () => {
 
 // Provider credentials never leave in a response, sealed or not (S3).
 describe("GET and POST /api/admin/tenants mask provider credentials", () => {
-  const SECRET_CONFIG = { netcashKey: "enc:v1:a:b:c", stitchWebhookSecret: "legacy-plaintext", experianKey: null, primaryColor: "#123456" }
-  const MASKED_CONFIG = { netcashKey: "********", stitchWebhookSecret: "********", experianKey: "", primaryColor: "#123456" }
+  const SECRET_CONFIG = { netcashKey: "enc:v1:a:b:c", stitchWebhookSecret: "legacy-plaintext", experianKey: null, bureauCredentials: "enc:v1:d:e:f", primaryColor: "#123456" }
+  const MASKED_CONFIG = { netcashKey: "********", stitchWebhookSecret: "********", experianKey: "", bureauCredentialsConfigured: true, primaryColor: "#123456" }
 
   beforeEach(() => {
     process.env.ADMIN_SECRET = "s3cret"
@@ -98,5 +98,25 @@ describe("GET and POST /api/admin/tenants mask provider credentials", () => {
     const res = await post(BASE)
     expect(res.status).toBe(201)
     expect((await res.json()).config).toEqual(MASKED_CONFIG)
+  })
+})
+
+describe("GET /api/admin/tenants", () => {
+  it("never returns a tenant's sealed bureau credentials, only whether they exist", async () => {
+    process.env.ADMIN_SECRET = "s3cret"
+    authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
+    findMany.mockReset().mockResolvedValue([
+      { id: "t1", slug: "a", config: { tenantId: "t1", bureauCredentials: "enc:v1:aaa:bbb:ccc", bureauMaxAgeDays: 60 } },
+      { id: "t2", slug: "b", config: { tenantId: "t2", bureauCredentials: null, bureauMaxAgeDays: 60 } },
+      { id: "t3", slug: "c", config: null },
+    ])
+    const response = await GET(new NextRequest("http://localhost/api/admin/tenants", { headers: { "x-admin-secret": "s3cret" } }))
+    const body = await response.json()
+    expect(JSON.stringify(body)).not.toContain("enc:v1:")
+    expect(body.map((t: { config: unknown }) => t.config)).toEqual([
+      { tenantId: "t1", bureauMaxAgeDays: 60, bureauCredentialsConfigured: true },
+      { tenantId: "t2", bureauMaxAgeDays: 60, bureauCredentialsConfigured: false },
+      null,
+    ])
   })
 })

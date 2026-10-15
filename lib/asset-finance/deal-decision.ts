@@ -20,6 +20,7 @@
  *   REFER    application UNDER_REVIEW, deal REFERRED (decidable again).
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
 import type { RegimeTx } from "./classification"
 import { hasPendingNonNcaOverride, lockDeal, type DealActor } from "./deal-submit"
 
@@ -58,6 +59,7 @@ export type DecideDealResult =
   | { kind: "assessment_required" }
   | { kind: "unaffordable" }
   | { kind: "credit_life_required" }
+  | { kind: "screening_blocked" }
   | { kind: "decided"; status: "APPROVED" | "DECLINED" | "REFERRED" }
 
 const DECIDABLE_DEAL = ["SUBMITTED", "REFERRED"]
@@ -75,7 +77,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       applicationId: true,
       financials: { select: { dscr: true, gearing: true } },
       affordabilityAssessment: { select: { affordable: true } },
-      application: { select: { status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true, creditLifeElection: true } },
+      application: { select: { clientId: true, entityId: true, status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true, creditLifeElection: true } },
     },
   })
   if (!deal) return { kind: "not_found" }
@@ -92,6 +94,13 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       if (!app.creditLifeElection) return { kind: "credit_life_required" }
     }
     if (!deal.financials) return { kind: "memo_required" }
+    // PEP / sanctions screening of the borrower (the entity and its related
+    // parties, or the natural person), re-read under their screening locks.
+    // The route ran the gate first; the trigger LoanApplication_a1_guard_screening
+    // is the backstop.
+    if (!(await lockedBorrowerScreeningAllows(tx, tenantId, { clientId: app.clientId, entityId: app.entityId }, actor.userId))) {
+      return { kind: "screening_blocked" }
+    }
   }
 
   const now = new Date()

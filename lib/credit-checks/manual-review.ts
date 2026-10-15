@@ -5,7 +5,9 @@
  * Every concern about a statement is its own flag: one code must not shadow
  * another, or clearing the first would leave the second never raised.
  */
+import { producerExpected } from "./document-authenticity"
 import { EXPECTED_PRODUCERS } from "./policy"
+import { nextStatement, previousStatement } from "./statement-chain"
 import { statementKey, type ApplicationFacts, type FlagCandidate, type StatementFacts } from "./types"
 
 const PENDING_SUMMARY = {
@@ -27,7 +29,7 @@ function unreadableSummary(s: StatementFacts): string {
     : "No reader could read the statement. Review it by hand."
 }
 
-function review(s: StatementFacts): FlagCandidate[] {
+function review(s: StatementFacts, f: ApplicationFacts): FlagCandidate[] {
   const base = { check: "MANUAL_REVIEW" as const, key: statementKey(s) }
   const evidence = { documentId: s.documentId }
   if (s.state === "PENDING") {
@@ -57,17 +59,54 @@ function review(s: StatementFacts): FlagCandidate[] {
       evidence: { ...evidence, holderRead: !!s.read?.accountHolderName, periodRead: !!(s.read?.periodStart && s.read.periodEnd) },
     })
   }
+  // The bank prints no opening balance, so the first row is checked by nothing:
+  // a salary edited there reconciles. A person compares it with the original.
+  // An adjacent statement that agrees is named for them, never taken as proof:
+  // the client uploaded it too (statement-chain.ts).
+  const rowEvidence = (t: { date: string; amountCents: number } | undefined) => (t ? { date: t.date, amountCents: t.amountCents } : null)
+  if (s.authenticity?.signals.includes("OPENING_DERIVED")) {
+    const prev = previousStatement(s, f)
+    out.push({
+      ...base,
+      code: "FIRST_ROW_UNVERIFIED",
+      summary: "This bank prints no opening balance, so the statement's first transaction cannot be checked by arithmetic. Compare it with the bank's original or the previous statement.",
+      evidence: { ...evidence, firstRow: rowEvidence(s.read?.transactions[0]), ...(prev ? { chainedWith: prev } : {}) },
+    })
+  }
+  if (s.authenticity?.signals.includes("ROWS_WITHOUT_BALANCE")) {
+    out.push({
+      ...base,
+      code: "ROWS_UNCHECKED",
+      summary: "Some transactions on this statement print no running balance, so they are only checked together with the rows around them. Compare them with the bank's original.",
+      evidence: { ...evidence, rows: (s.read?.transactions ?? []).flatMap((t, i) => (t.balanceCents === null && !t.nonPosting ? [i] : [])).slice(0, 20) },
+    })
+  }
+  if (s.authenticity?.signals.includes("CLOSING_DERIVED")) {
+    const next = nextStatement(s, f)
+    out.push({
+      ...base,
+      code: "LAST_ROW_UNVERIFIED",
+      summary: "This bank prints no closing balance, so the statement's last transaction cannot be checked by arithmetic. Compare it with the bank's original or the next statement.",
+      evidence: { ...evidence, lastRow: rowEvidence(s.read?.transactions[s.read.transactions.length - 1]), ...(next ? { chainedWith: next } : {}) },
+    })
+  }
   // A photo, a scan, an unrecognised layout or an unprofiled bank's PDF has
   // had no file-level authenticity check at all: an edited image balances too.
+  // Nor has a PDF that names no producer or creator: some banks (Discovery's
+  // app) write none, so its producer check passes, but so does any file
+  // stripped of its metadata.
   const signals = s.authenticity?.signals ?? []
-  if (signals.some((x) => UNCHECKABLE.includes(x)) || !s.bank || !EXPECTED_PRODUCERS[s.bank]) {
+  // Only where the bank's profile accepts no metadata: elsewhere PRODUCER_UNEXPECTED already says it.
+  const noMetadata = !!s.authenticity && !s.authenticity.producer && !s.authenticity.creator
+    && !!s.bank && !!EXPECTED_PRODUCERS[s.bank] && producerExpected(s.bank, null, null)
+  if (signals.some((x) => UNCHECKABLE.includes(x)) || !s.bank || !EXPECTED_PRODUCERS[s.bank] || noMetadata) {
     out.push({
       ...base,
       code: "AUTHENTICITY_UNCHECKED",
       summary: signals.includes("METADATA_AMBIGUOUS")
         ? "The PDF's metadata contradicts itself (a field appears twice), so its authenticity could not be checked. Treat it as possibly altered and compare it with the bank's original."
-        : "This statement is a photo, a scan, an unrecognised layout or from a bank without a known PDF profile, so its authenticity could not be checked automatically. Compare it with the bank's original.",
-      evidence: { ...evidence, signals, bank: s.bank },
+        : "This statement is a photo, a scan, an unrecognised layout, a PDF without producer metadata or from a bank without a known PDF profile, so its authenticity could not be checked automatically. Compare it with the bank's original.",
+      evidence: { ...evidence, signals, bank: s.bank, ...(noMetadata ? { noMetadata } : {}) },
     })
   }
   return out
@@ -80,7 +119,7 @@ function each(ids: string[], code: string, summary: string, field = "documentId"
 export function manualReview(f: ApplicationFacts): FlagCandidate[] {
   const out: FlagCandidate[] = f.statements.length === 0
     ? [{ check: "MANUAL_REVIEW", code: "NO_STATEMENT", key: f.applicationId, summary: "No recent bank statement is on file for this application.", evidence: {} }]
-    : f.statements.flatMap(review)
+    : f.statements.flatMap((s) => review(s, f))
   if (f.statements.length > 0 && !f.payslip && f.unreadPayslipIds.length === 0) {
     out.push({
       check: "MANUAL_REVIEW",

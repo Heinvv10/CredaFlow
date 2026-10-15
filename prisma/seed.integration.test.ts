@@ -155,8 +155,9 @@ suite("base demo seed on a fresh migrated database", () => {
       prisma.client.count({ where: { kycStatus: "PENDING" } }),
       prisma.clientDocument.count(),
       prisma.complianceRecord.count(),
-      // Consumer borrowers only: the natural-person asset-finance deal is
-      // deliberately taken through its NCA lifecycle by the seed.
+      // Consumer borrowers only: the natural-person asset-finance deal (NCA
+      // lifecycle) and the sole proprietor's lease are deliberately taken through
+      // their lifecycle by the seed.
       prisma.loanApplication.count({ where: { status: { in: ["APPROVED", "DISBURSED"] }, clientId: { not: null } } }),
       prisma.insurancePolicy.count(),
       prisma.client.count({ where: { NOT: { email: { endsWith: ".invalid" } } } }),
@@ -174,16 +175,17 @@ suite("base demo seed on a fresh migrated database", () => {
       insurancePolicyCount,
       nonInvalidEmailCount,
     }).toEqual({
-      // 5 consumer clients + 4 asset-finance people; four consumer applications
-      // plus three asset-finance applications, and one plus three loans.
-      clientCount: 9,
-      applicationCount: 7,
-      loanCount: 4,
+      // 5 consumer clients + 4 asset-finance people + the sole-proprietor lessee;
+      // four consumer applications plus three asset-finance deals and three
+      // leases, and one plus three deals' and three leases' loans.
+      clientCount: 10,
+      applicationCount: 10,
+      loanCount: 7,
       verifiedCount: 0,
-      pendingCount: 9,
+      pendingCount: 10,
       clientDocumentCount: 2,
       complianceRecordCount: 4,
-      protectedLifecycleCount: 1,
+      protectedLifecycleCount: 2,
       insurancePolicyCount: 1,
       nonInvalidEmailCount: 0,
     })
@@ -274,7 +276,7 @@ suite("demo seed passwords", () => {
     const { portal: hashes } = await passwords()
     expect(hashes).toHaveLength(5)
     for (const hash of hashes) expect(await bcrypt.compare(portal, hash)).toBe(true)
-  })
+  }, 120_000) // nine sequential cost-12 bcrypt compares; past 5 s on a loaded host
 
   it("keeps every password on a rerun and prints none", async () => {
     const before = await passwords()
@@ -412,8 +414,8 @@ suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
       "admin@fairscore.example", "credit.officer@fairscore.example", "loan.admin.one@fairscore.example", "loan.admin.two@fairscore.example",
     ])
     const clients = await prisma().client.findMany({ select: { email: true } })
-    // 5 consumer clients + 4 asset-finance people (prisma/seed/asset-finance-data.ts).
-    expect(clients).toHaveLength(9)
+    // 5 consumer clients + 4 asset-finance people (prisma/seed/asset-finance-data.ts) + the sole-proprietor lessee.
+    expect(clients).toHaveLength(10)
     for (const c of clients) expect(c.email).toMatch(/^[a-z.]+@fairscore\.invalid$/)
   })
 
@@ -423,8 +425,11 @@ suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
       WHERE table_schema = 'public' AND data_type IN ('text', 'character varying')`
     const hits: string[] = []
     for (const { table_name, column_name } of tables) {
+      // A word that starts with "acme" ("Acme Lending", "@acme-lending.example"),
+      // not any substring: a random cuid, TOTP secret or bcrypt hash can contain
+      // "acme" mid-string (this flaked on a MessageTemplate cuid, 2026-10-15).
       const [{ n }] = await prisma().$queryRawUnsafe<Array<{ n: bigint }>>(
-        `SELECT count(*) AS n FROM "${table_name}" WHERE "${column_name}" ILIKE '%acme%'`,
+        `SELECT count(*) AS n FROM "${table_name}" WHERE "${column_name}" ~* '\\macme'`,
       )
       if (n > BigInt(0)) hits.push(`${table_name}.${column_name}`)
     }

@@ -8,7 +8,7 @@ import { logAudit, AuditAction } from "@/lib/audit"
 import { auditRefusal, refusalReasonFrom } from "@/lib/audit-refusals"
 import { requireApiRole } from "@/lib/auth-guards"
 import { DisbursementBankDetailsError, resolveDisbursementBankDetails } from "@/lib/disbursement-bank-details"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { generateFaisDisclosurePdf } from "@/lib/pdf/faisDisclosure"
 import { readFile, saveFile } from "@/lib/storage"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -54,6 +54,7 @@ import {
   DisbursementPreconditionError,
 } from "@/lib/disbursement/preconditions"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { readBorrowerScreening } from "@/lib/screening/gate"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -130,15 +131,7 @@ type VerifiedDebitMandate = {
 type BureauEvidenceCheck = BureauDecisionCheckInput
 type BureauEvidenceReader = {
   findFirst: (args: {
-    where: {
-      tenantId: string
-      applicationId: string
-      clientId: string
-      reviewGeneration: string
-      ok: true
-      createdAt: { gte: Date }
-      provider: "experian"
-    }
+    where: ReturnType<typeof approvalBureauCheckWhere>
     orderBy: { createdAt: "desc" }
     select: typeof bureauEvidenceSelect
   }) => Promise<BureauEvidenceCheck | null>
@@ -151,19 +144,12 @@ function findCurrentBureauEvidence(
     applicationId: string
     clientId: string
     reviewGeneration: string | null
+    maxAgeDays: number
   },
 ): Promise<BureauEvidenceCheck | null> {
   if (!args.reviewGeneration) return Promise.resolve(null)
   return reader.findFirst({
-    where: {
-      tenantId: args.tenantId,
-      applicationId: args.applicationId,
-      clientId: args.clientId,
-      reviewGeneration: args.reviewGeneration,
-      ok: true,
-      createdAt: { gte: bureauStalenessCutoff() },
-      provider: "experian",
-    },
+    where: approvalBureauCheckWhere({ ...args, reviewGeneration: args.reviewGeneration }),
     orderBy: { createdAt: "desc" },
     select: bureauEvidenceSelect,
   })
@@ -318,6 +304,18 @@ export async function POST(
         )
       }
 
+      // A sanctions hit, or a match a periodic re-screen raised after approval,
+      // stops the payout. No provider call here; the trigger
+      // LoanApplication_a1_guard_screening refuses the DISBURSED write as well.
+      const screening = await readBorrowerScreening(tenant.id, { clientId: application.clientId, entityId: null })
+      if (!screening.allowed) {
+        return NextResponse.json({
+          error: `Cannot disburse: ${screening.message}`,
+          disbursementPrecondition: "screening",
+          screening: screening.state,
+        }, { status: 422 })
+      }
+
       // Require signed agreement before disbursement
       if (!application.agreementSignedAt) {
         return NextResponse.json({
@@ -391,16 +389,6 @@ export async function POST(
       // only touches reckless-lending fields. Pre-existing APPROVED rows
       // that pre-date the bureau-required gate require a fresh bureau pull
       // (re-trigger /review) or a back-filled override.
-      const currentBureauCheck = await findCurrentBureauEvidence(
-        prisma.creditBureauCheck as unknown as BureauEvidenceReader,
-        {
-          tenantId: tenant.id,
-          applicationId: id,
-          clientId: application.clientId,
-          reviewGeneration: application.bureauReviewGeneration,
-        },
-      )
-
       const tenantConfig = await prisma.tenantConfig.findUnique({
         where: { tenantId: tenant.id },
         select: {
@@ -408,8 +396,20 @@ export async function POST(
           ndiBufferPct: true,
           bureauMinScore: true,
           bureauBlockAdverse: true,
+          bureauMaxAgeDays: true,
         },
       })
+
+      const currentBureauCheck = await findCurrentBureauEvidence(
+        prisma.creditBureauCheck as unknown as BureauEvidenceReader,
+        {
+          tenantId: tenant.id,
+          applicationId: id,
+          clientId: application.clientId,
+          reviewGeneration: application.bureauReviewGeneration,
+          maxAgeDays: bureauMaxAgeDays(tenantConfig),
+        },
+      )
 
       const initialApprovalEvidence = verifyCurrentDisbursementEvidence({
         application,
@@ -936,9 +936,18 @@ export async function POST(
           ORDER BY "id"
           FOR SHARE
         `)
+        const txTenantConfig = await tx.tenantConfig.findUnique({
+          where: { tenantId: tenant.id },
+          select: {
+            collectionsEngineEnabled: true,
+            ndiBufferPct: true,
+            bureauMinScore: true,
+            bureauBlockAdverse: true,
+            bureauMaxAgeDays: true,
+          },
+        })
         const [
           txBureauCheck,
-          txTenantConfig,
           txCompositeKyc,
           txSignedAgreementDocument,
           txAgreementArtifact,
@@ -950,17 +959,9 @@ export async function POST(
               applicationId: id,
               clientId: txApplication.clientId,
               reviewGeneration: txApplication.bureauReviewGeneration,
+              maxAgeDays: bureauMaxAgeDays(txTenantConfig),
             },
           ),
-          tx.tenantConfig.findUnique({
-            where: { tenantId: tenant.id },
-            select: {
-              collectionsEngineEnabled: true,
-              ndiBufferPct: true,
-              bureauMinScore: true,
-              bureauBlockAdverse: true,
-            },
-          }),
           readCompositeKycState(
             tx as unknown as CompositeKycReader,
             {
