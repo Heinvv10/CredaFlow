@@ -100,6 +100,12 @@ describe("createDeal", () => {
     expect(await run(fake.asTx)).toMatchObject({ kind: "refused", status: 409 })
   })
 
+  it.each(["RECOVERED", "SOLD_IN_REMARKETING"])("refuses an asset whose lessor status is %s (409)", async (lessorStatus) => {
+    const asset = await fake.tx.financedAsset.findFirst()
+    fake.tx.financedAsset.findFirst.mockResolvedValue({ ...asset, lessorStatus })
+    expect(await run(fake.asTx)).toMatchObject({ kind: "refused", status: 409, error: expect.stringMatching(/recovery|remarketing/) })
+  })
+
   it.each([
     ["an inactive supplier", (f: ReturnType<typeof fakeTx>) => f.tx.supplier.findFirst.mockResolvedValue({ active: false }), /inactive/],
     ["an unknown entity", (f: ReturnType<typeof fakeTx>) => f.tx.businessEntity.findFirst.mockResolvedValue(null as never), /entity/],
