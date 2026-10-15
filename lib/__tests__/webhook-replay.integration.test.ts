@@ -5,6 +5,7 @@ import { prisma } from "../prisma"
 import { withoutTenantScope } from "../tenant-scope"
 import { createApprovedPasqV3Application, bookLoan } from "../compliance/pasq-v3-application.integration-fixture"
 import { POST } from "../../app/api/portal/payment/webhook/route"
+import { GET as callback } from "../../app/api/portal/payment/callback/route"
 
 // Opt-in: needs a fully migrated database. See "Integration tests" in CLAUDE.md.
 //   RUN_WEBHOOK_REPLAY_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/__tests__/webhook-replay.integration.test.ts
@@ -21,6 +22,7 @@ let clientId = ""
 let loanId = ""
 let stitchPaymentId = ""
 let stitchExternalId = ""
+let callbackPaymentId = ""
 
 function makeRequest(body: string, signature: string): Request {
   return new Request("http://localhost/api/portal/payment/webhook", {
@@ -95,6 +97,9 @@ d("Stitch webhook — replay protection (integration)", () => {
       if (stitchPaymentId) {
         await prisma.stitchPaymentRequest.delete({ where: { id: stitchPaymentId } })
       }
+      if (callbackPaymentId) {
+        await prisma.stitchPaymentRequest.delete({ where: { id: callbackPaymentId } })
+      }
       if (decoyTenantId) await prisma.tenant.delete({ where: { id: decoyTenantId } })
     })
   })
@@ -159,5 +164,34 @@ d("Stitch webhook — replay protection (integration)", () => {
       prisma.payment.count({ where: { loanId } })
     )
     expect(paymentsCount).toBe(1)
+  })
+
+  // Stitch redirects the payer's browser to the callback, usually before its
+  // webhook lands. The callback used to mark the request COMPLETED from the
+  // query string, so the webhook took it for a replay and booked no receipt.
+  it("a browser callback ahead of the webhook does not swallow the receipt", async () => {
+    const callbackStitchId = `stitch-cb-${STAMP}`
+    await withoutTenantScope(async () => {
+      const spr = await prisma.stitchPaymentRequest.create({
+        data: {
+          stitchId: callbackStitchId, loanId, clientId, amount: 150,
+          externalReference: `ref-cb-${STAMP}`, redirectUrl: "https://example.com/redirect",
+          stitchUrl: "https://stitch.money/pay/test-cb", status: "PENDING",
+        },
+      })
+      callbackPaymentId = spr.id
+    })
+
+    const cb = await callback(new Request(`http://localhost/api/portal/payment/callback?id=${callbackStitchId}&status=complete`))
+    expect(cb.status).toBe(307)
+
+    const body = JSON.stringify({ type: "payment.completed", data: { id: callbackStitchId } })
+    const res = await POST(makeRequest(body, sign(body)))
+    expect(await res.json()).toEqual({ ok: true })
+
+    const receipts = await withoutTenantScope(async () =>
+      prisma.payment.count({ where: { loanId, notes: { contains: callbackStitchId } } })
+    )
+    expect(receipts).toBe(1)
   })
 })

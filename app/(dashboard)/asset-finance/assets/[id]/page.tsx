@@ -57,6 +57,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             <Detail label="VAT" value={money(asset.vatCents)} />
             <Detail label="Residual" value={money(asset.residualCents)} />
             <Detail label="eNaTIS titleholder" value={asset.natisTitleholder} />
+            <Detail label="eNaTIS owner" value={asset.natisOwner} />
             <Detail label="Tracker" value={asset.trackerProvider && `${asset.trackerProvider}${asset.trackerId ? ` · ${asset.trackerId}` : ""}`} />
             <Detail label="Insurance" value={asset.insurer && `${asset.insurer}${asset.policyNumber ? ` · ${asset.policyNumber}` : ""}`} />
             <Detail label="Lender noted on policy" value={asset.lenderNotedConfirmed ? "Confirmed" : "Not confirmed"} />
@@ -69,6 +70,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         {canManage && (
           <AssetReadinessForm assetId={asset.id} initial={{
             natisTitleholder: asset.natisTitleholder,
+            natisOwner: asset.natisOwner,
             trackerProvider: asset.trackerProvider,
             trackerId: asset.trackerId,
             insurer: asset.insurer,

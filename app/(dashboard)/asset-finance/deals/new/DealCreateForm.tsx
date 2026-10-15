@@ -7,12 +7,17 @@ import { Button } from "@/components/ui/button"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { FormError, SelectField, sendJson } from "@/components/asset-finance/register-form-controls"
 import { ScheduleTable } from "@/components/asset-finance/ScheduleTable"
+import { LeaseSchedulePreview } from "@/components/asset-finance/lease/LeaseSchedulePreview"
 import { dealStructureBody, type DealFormValues } from "@/lib/asset-finance/deal-form-body"
+import { LEASE_INITIAL, leaseDealBody, type LeaseFormValues } from "@/lib/asset-finance/lease-form-body"
+import { isLeaseContract, type LeaseContractType } from "@/lib/asset-finance/lease-input"
+import type { LeaseScheduleView } from "@/lib/asset-finance/lease-view"
 import { ratePercent } from "@/lib/asset-finance/deal-labels"
 import { dealFieldLabel, describeFieldErrors, describeSolverError } from "@/lib/asset-finance/labels"
 import { formatIsoDate } from "@/lib/asset-finance/format"
 import type { StructureResult } from "@/lib/asset-finance/types"
 import { DealStructureFields } from "./DealStructureFields"
+import { LeaseStructureFields } from "./LeaseStructureFields"
 
 type Option = { id: string; label: string }
 export interface DealFormOptions {
@@ -22,7 +27,13 @@ export interface DealFormOptions {
   suppliers: Option[]
   products: Option[]
 }
-type Preview = StructureResult & { startDate: string; termDays: number; rate: { annualRate: string } }
+type Preview = StructureResult & { startDate: string; termDays: number; rate: { annualRate: string }; lease?: LeaseScheduleView }
+const AGREEMENT_LABELS = {
+  INSTALMENT_SALE: "Instalment sale",
+  FINANCE_LEASE: "Finance lease",
+  OPERATING_LEASE: "Operating lease",
+  FULL_MAINTENANCE_LEASE: "Full-maintenance lease",
+}
 
 const INITIAL: DealFormValues = {
   assetId: "", contractType: "INSTALMENT_SALE", depositRands: "", tradeInRands: "", feesRands: "", balloonRands: "", firstDueDate: "",
@@ -35,6 +46,8 @@ const choices = (options: Option[], placeholder: string) =>
 export function DealCreateForm({ options }: { options: DealFormOptions }) {
   const router = useRouter()
   const [values, setValues] = useState<DealFormValues>(INITIAL)
+  const [leaseType, setLeaseType] = useState<LeaseContractType | null>(null)
+  const [lease, setLeaseValues] = useState<LeaseFormValues>(LEASE_INITIAL)
   const [parties, setParties] = useState({ borrowerType: "ENTITY" as "ENTITY" | "CLIENT", entityId: "", clientId: "", supplierId: "", productId: "" })
   const [preview, setPreview] = useState<Preview | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -44,9 +57,11 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
   const [saving, setSaving] = useState(false)
 
   const set = (key: keyof DealFormValues) => (value: string) => setValues((prev) => ({ ...prev, [key]: value }))
-  const structure = useMemo(() => dealStructureBody(values), [values])
+  const setLease = (key: keyof LeaseFormValues) => (value: string) => setLeaseValues((prev) => ({ ...prev, [key]: value }))
+  const structure = useMemo(() => (leaseType ? leaseDealBody(values, lease, leaseType) : dealStructureBody(values)), [values, lease, leaseType])
   const ready = values.assetId !== "" && values.firstDueDate !== "" && Object.keys(structure.errors).length === 0
-  const requestBody = ready ? JSON.stringify({ ...structure.body, nca: parties.borrowerType === "CLIENT" }) : null
+  // A lease is never an NCA credit agreement, whoever the lessee is.
+  const requestBody = ready ? JSON.stringify({ ...structure.body, nca: leaseType === null && parties.borrowerType === "CLIENT" }) : null
 
   // Live preview: re-solve 400 ms after the structure stops changing.
   useEffect(() => {
@@ -112,19 +127,23 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
         <div className="space-y-4">
           <FormError message={error} />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <SelectField id="borrowerType" label="Borrower type" required value={parties.borrowerType}
+            <SelectField id="borrowerType" label={leaseType ? "Lessee type" : "Borrower type"} required value={parties.borrowerType}
               onChange={(borrowerType) => setParties((p) => ({ ...p, borrowerType: borrowerType as "ENTITY" | "CLIENT", entityId: "", clientId: "" }))}
               options={{ ENTITY: "Entity", CLIENT: "Sole proprietor" }} error={fields.borrower} />
             {parties.borrowerType === "ENTITY" ? (
-              <SelectField id="entityId" label="Borrower (entity)" required value={parties.entityId}
+              <SelectField id="entityId" label={leaseType ? "Lessee (entity)" : "Borrower (entity)"} required value={parties.entityId}
                 onChange={(entityId) => setParties((p) => ({ ...p, entityId }))} options={choices(options.entities, "Choose an entity")} error={fields.entityId} />
             ) : (
-              <SelectField id="clientId" label="Borrower (sole proprietor)" required value={parties.clientId}
+              <SelectField id="clientId" label={leaseType ? "Lessee (sole proprietor)" : "Borrower (sole proprietor)"} required value={parties.clientId}
                 onChange={(clientId) => setParties((p) => ({ ...p, clientId }))} options={choices(options.clients, "Choose a client")} error={fields.clientId} />
             )}
-            <SelectField id="contractType" label="Agreement type" required value={values.contractType}
-              onChange={(contractType) => set("contractType")(contractType as DealFormValues["contractType"])}
-              options={{ INSTALMENT_SALE: "Instalment sale", FINANCE_LEASE: "Finance lease" }} error={fields.contractType} />
+            <SelectField id="contractType" label="Agreement type" required value={leaseType ?? values.contractType}
+              onChange={(contractType) => {
+                if (isLeaseContract(contractType)) return setLeaseType(contractType)
+                setLeaseType(null)
+                set("contractType")(contractType)
+              }}
+              options={AGREEMENT_LABELS} error={fields.contractType} />
             <SelectField id="assetId" label="Asset" required value={values.assetId}
               onChange={set("assetId")} options={choices(options.assets, "Choose an asset")} error={fields.assetId} />
             <SelectField id="supplierId" label="Supplier" required value={parties.supplierId}
@@ -140,7 +159,11 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
         </div>
       </DataPanel>
       <DataPanel title="Structure" description="The schedule below re-solves as you type" density="loose">
-        <DealStructureFields values={values} set={set} errors={allErrors} />
+        {leaseType ? (
+          <LeaseStructureFields values={values} lease={lease} maintenance={leaseType === "FULL_MAINTENANCE_LEASE"} set={set} setLease={setLease} errors={allErrors} />
+        ) : (
+          <DealStructureFields values={values} set={set} errors={allErrors} />
+        )}
       </DataPanel>
       <DataPanel
         title="Schedule preview"
@@ -150,7 +173,11 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
         {!preview && !previewError && (
           <p className="text-sm text-[var(--cf-text-muted)]">Choose an asset, a rate and the first due date to see the schedule.</p>
         )}
-        {ready && preview && <ScheduleTable {...preview} />}
+        {ready && preview && leaseType === null && !preview.lease && <ScheduleTable {...preview} />}
+        {ready && preview?.lease && leaseType !== null && (
+          <LeaseSchedulePreview lease={preview.lease} capitalCents={preview.financedAmountCents}
+            residualCents={Number(structure.body.balloonCents ?? 0)} maintenance={leaseType === "FULL_MAINTENANCE_LEASE"} />
+        )}
       </DataPanel>
       <div className="flex gap-2">
         <Button size="sm" onClick={save} disabled={saving}>

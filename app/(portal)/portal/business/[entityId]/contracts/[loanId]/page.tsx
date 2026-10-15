@@ -12,6 +12,9 @@ import { statusLabel } from "@/lib/asset-finance/labels"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
+import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
+import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { loadPortalLease } from "@/lib/asset-finance/portal-lease"
 
 type Params = { params: Promise<{ entityId: string; loanId: string }> }
 
@@ -39,6 +42,12 @@ export default async function PortalContractPage({ params }: Params) {
   const { tenantId, clientId } = await requirePortalEntityPage(entityId)
   const view = await loadPortalContract(tenantId, entityId, loanId, clientId)
   if (!view) notFound()
+  if (isLeaseContract(view.loan.contractType)) {
+    // A lease is rentals, not instalments: its own view, behind the lease gate (lib/asset-finance/lease-portal-route.ts).
+    const lease = await loadPortalLease(tenantId, clientId, loanId)
+    if (!lease) notFound()
+    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} />
+  }
   const asset = view.asset
   // portalOutstanding: the settlement figure while default charges are live
   // for the loan, otherwise the outstanding principal (capitalised interest included).

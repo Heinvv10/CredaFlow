@@ -113,22 +113,4 @@ export async function readPdf(bytes: Buffer): Promise<PdfContent> {
   })
 }
 
-/**
- * Revisions appended after the original save. Each save ends with %%EOF and a
- * startxref, and a linearized file legitimately carries two of each from its
- * first save. Both are counted and the larger taken: a reader still follows an
- * appended revision that omits its %%EOF. Linearized
- * means its FIRST object is the linearization dictionary — not merely that the
- * word appears early, which a comment could fake to hide one appended save.
- */
-export function countIncrementalUpdates(bytes: Buffer): number {
-  const count = (marker: string) => {
-    let n = 0
-    for (let i = bytes.indexOf(marker); i >= 0; i = bytes.indexOf(marker, i + marker.length)) n++
-    return n
-  }
-  const saves = Math.max(count("%%EOF"), count("startxref"))
-  const head = bytes.subarray(0, 2048).toString("latin1")
-  const linearized = /^%PDF-\d\.\d[^\n\r]*[\r\n]+(?:%[^\r\n]*[\r\n]+)*\s*\d+\s+0\s+obj\s*<<\s*\/Linearized\b/.test(head)
-  return Math.max(0, saves - 1 - (linearized ? 1 : 0))
-}
+export { countIncrementalUpdates } from "./pdf-revisions"

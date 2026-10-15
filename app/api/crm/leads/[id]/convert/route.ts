@@ -513,6 +513,8 @@ export async function POST(
               employmentStatus: data.employmentStatus || null,
               employerName: data.employerName || null,
               monthlyIncome: incomeCents,
+              // No monthlyExpensesDeclaredAt: with income above 0 an R0 is refused (MLE 422 above) and any
+              // figure above 0 already counts as declared; at R0 income the form's prefilled "0" is not explicit.
               monthlyExpenses: expensesCents,
               referredFromId: leadId,
               expenseBreakdown: {

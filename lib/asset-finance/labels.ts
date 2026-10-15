@@ -1,6 +1,6 @@
 import type { AssetDealStatus, BusinessEntityType, EntityDocumentType, EntityRole, NcaRegime, PaymentMethod } from "@prisma/client"
 import { BALANCE_WAIVED_LABEL } from "@/lib/payments/waiver"
-import type { NcaRuleId } from "./nca-classifier"
+import { LEASE_RULE_ID, type NcaRuleId } from "./nca-classifier"
 import {
   NCA_JURISTIC_THRESHOLD_CENTS,
   NCA_LARGE_AGREEMENT_THRESHOLD_CENTS,
@@ -77,6 +77,7 @@ function isRuleId(value: string): value is NcaRuleId {
 
 /** A stored rule id as plain English; an unknown value is returned as is. */
 export function ncaRuleLabel(rule: string): string {
+  if (rule === LEASE_RULE_ID) return "Operating or full-maintenance lease: not a credit agreement"
   return isRuleId(rule) ? NCA_RULE_LABELS[rule] : rule
 }
 

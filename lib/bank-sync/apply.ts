@@ -16,6 +16,8 @@ import { ChargesError } from "@/lib/loan/charges-error"
 import { recordHeldReceipt } from "@/lib/payments/held-receipt"
 import { closingValueDate } from "@/lib/loan/receipt-charges"
 import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
+import { issueLeaseInvoicesOnReceipt } from "@/lib/asset-finance/lease-invoices"
+import { sastCalendarDate } from "@/lib/date/sast"
 import {
   rejectImpossibleValueDate,
   rejectUnauthorisedBackdating,
@@ -300,6 +302,13 @@ export async function applyBankTransaction(args: {
         source: "bank_sync",
         userId: args.userId ?? null,
         userEmail: args.userEmail,
+      })
+    }
+    // A lease rental this deposit reached before its due date is invoiced now.
+    if (!fullyUnapplied) {
+      await issueLeaseInvoicesOnReceipt(tx, {
+        tenantId: loan.tenantId, loanId: loan.id, contractType: loan.contractType,
+        today: sastCalendarDate(new Date()), createdById: args.userId ?? null,
       })
     }
     await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")

@@ -50,8 +50,8 @@ describe("GET /api/applications/[id]/checks", () => {
     expect(logAccessMock).not.toHaveBeenCalled()
   })
 
-  it("refuses a cross-site request before it writes anything", async () => {
-    const req = new NextRequest("https://acme.example/api/applications/app-1/checks", { headers: { "sec-fetch-site": "cross-site" } })
+  it.each(["cross-site", "same-site"])("refuses a %s request before it writes anything", async (site) => {
+    const req = new NextRequest("https://acme.example/api/applications/app-1/checks", { headers: { "sec-fetch-site": site } })
     expect((await GET(req, ctx)).status).toBe(403)
     expect(requireApiRoleMock).not.toHaveBeenCalled()
     expect(recomputeMock).not.toHaveBeenCalled()
