@@ -16,7 +16,7 @@ import { getPayoutProvider } from "./registry"
 import { canTransition, isSettled, statusAfterSend, type PayoutStatus } from "./state"
 import type { InitiateResult, PayoutProvider } from "./types"
 
-export type PayoutDb = Pick<typeof prisma, "disbursementPayout" | "auditLog" | "$transaction">
+export type PayoutDb = Pick<typeof prisma, "disbursementPayout" | "auditLog" | "tenantConfig" | "$transaction">
 
 export interface Actor {
   id: string | null
@@ -47,7 +47,12 @@ export async function transitionPayout(db: PayoutDb, args: {
     const now = new Date()
     const moved = await tx.disbursementPayout.updateMany({
       where: { id: args.payoutId, tenantId: args.tenantId, status: args.from },
-      data: { status: args.to, ...(isSettled(args.to) ? { resolvedAt: now } : {}), ...args.data },
+      data: {
+        status: args.to,
+        ...(isSettled(args.to) ? { resolvedAt: now } : {}),
+        ...(args.to === "PAID" ? { paidAt: now } : args.to === "RETURNED" ? { returnedAt: now } : {}),
+        ...args.data,
+      },
     })
     if (moved.count !== 1) return false
     await logAuditStrict({
@@ -72,6 +77,13 @@ export async function dispatchPayout(db: PayoutDb, args: { tenantId: string; pay
   const payout = await db.disbursementPayout.findFirst({ where: { id: args.payoutId, tenantId: args.tenantId } })
   if (!payout) return { kind: "not_claimed", status: null }
   if (payout.status !== "PENDING") return { kind: "not_claimed", status: payout.status }
+
+  // Sending is part of the payout engine: with the tenant's flag off nothing
+  // is sent, and the payout stays PENDING (never sent).
+  const config = await db.tenantConfig.findUnique({ where: { tenantId: args.tenantId }, select: { payoutsEngineEnabled: true } })
+  if (config?.payoutsEngineEnabled !== true) {
+    return { kind: "not_sendable", reason: "Payouts are turned off for this lender (Settings → Integrations → Payouts); nothing was sent" }
+  }
 
   // Resolve the channel BEFORE claiming: a misconfigured channel leaves the
   // payout PENDING (never sent) for a person to send once it is fixed.

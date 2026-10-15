@@ -12,6 +12,7 @@ function stubProvider(answer: () => Promise<InitiateResult>) {
   const provider: PayoutProvider = {
     id: "stub", displayName: "Stub",
     capabilities: { implemented: true, statusQuery: false, webhooks: false },
+    simulation: () => null,
     initiatePayout,
     getPayoutStatus: async () => ({ kind: "unsupported" }),
   }
@@ -87,6 +88,28 @@ describe("dispatchPayout — claim before send", () => {
     const out = await dispatchPayout(db, { tenantId: "t-1", payoutId: "po-1", actor })
     expect(out.kind).toBe("not_sendable")
     expect(rows[0].status).toBe("PENDING")
+  })
+
+  it("sends nothing while the tenant's payout engine is off, leaving the payout PENDING", async () => {
+    const { db, rows } = fakePayoutDb([payoutRow({ provider: "stub" })], false)
+    const send = stubProvider(async () => ({ kind: "accepted", state: "PAID", providerReference: "x" }))
+    const out = await dispatchPayout(db, { tenantId: "t-1", payoutId: "po-1", actor })
+    expect(out).toMatchObject({ kind: "not_sendable", reason: expect.stringContaining("turned off") })
+    expect(send).not.toHaveBeenCalled()
+    expect(rows[0].status).toBe("PENDING")
+  })
+
+  it("refuses a simulating channel where the simulation guard forbids it", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "")
+    try {
+      const { db, rows } = fakePayoutDb([payoutRow({ provider: "simulated" })])
+      const out = await dispatchPayout(db, { tenantId: "t-1", payoutId: "po-1", actor })
+      expect(out).toMatchObject({ kind: "not_sendable", reason: expect.stringContaining("only simulate") })
+      expect(rows[0].status).toBe("PENDING")
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("does not touch another tenant's payout", async () => {

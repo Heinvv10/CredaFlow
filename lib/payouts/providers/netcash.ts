@@ -19,6 +19,8 @@ export const netcashPayouts: PayoutProvider = {
   id: "netcash",
   displayName: "Netcash EFT",
   capabilities: { implemented: true, statusQuery: false, webhooks: false },
+  // The same switch as disburseFunds' dry-run.
+  simulation: () => (process.env.NODE_ENV === "test" || process.env.NETCASH_DRY_RUN === "true" ? "netcash" : null),
 
   async initiatePayout(request) {
     const result = await disburseFunds({

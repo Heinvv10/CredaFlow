@@ -191,6 +191,7 @@ model Tenant {
   accountingExportBatches    AccountingExportBatch[]
   xeroConnection             XeroConnection?
   disbursementPayouts        DisbursementPayout[]
+  accountingSettings         AccountingSettings?
 
   // Phase 9 launch-blocker gates. Default false — flipped only after the
   // tenant has the required legal opinion / Information Officer sign-off
@@ -1515,7 +1516,8 @@ model Loan {
   contractRates               ContractRate[]
   taxInvoices                 TaxInvoice[]
   surrenderRequests           SurrenderRequest[]
-  disbursementPayout          DisbursementPayout?
+  disbursementPayouts         DisbursementPayout[]
+  disbursementReversals       DisbursementReversal[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -4854,6 +4856,9 @@ model AccountingAccountMapping {
   accountCode String
   accountName String?
   taxCode     String?
+  // FEE_INCOME / DEFAULT_FEE_INCOME only: the amounts include VAT, split out
+  // to OUTPUT_VAT when AccountingSettings.vatRegistered.
+  vatInclusive Boolean @default(false)
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -4887,6 +4892,7 @@ model AccountingExportBatch {
   entries          AccountingLedgerEntry[]
   lines            AccountingJournalLine[]
   xeroPush         AccountingXeroPush?
+  openingPositions AccountingOpeningPosition[]
 
   @@unique([tenantId, periodKey])
   @@unique([tenantId, id])
@@ -4928,6 +4934,9 @@ model AccountingJournalLine {
   role        String
   accountCode String
   taxCode     String?
+  // The role the ledger compares this line under when it differs from `role`
+  // (an OUTPUT_VAT line split from FEE_INCOME carries FEE_INCOME here).
+  sourceRole  String?
   debitCents  Int                   @default(0)
   creditCents Int                   @default(0)
 
@@ -4940,6 +4949,8 @@ enum XeroConnectionStatus {
   SELECT_ORGANISATION
   CONNECTED
   DISCONNECTED
+  // A token refresh was refused: an admin must connect again.
+  NEEDS_RECONNECT
 }
 
 // One Xero organisation per tenant (lib/accounting/xero). Tokens and the PKCE
@@ -5003,6 +5014,10 @@ enum DisbursementPayoutStatus {
   FAILED
   RETURNED
   NEEDS_REVIEW
+  // A retry attempt waiting for a second LOAN_ADMIN's approval.
+  AWAITING_APPROVAL
+  // A retry attempt rejected before it was ever sent.
+  CANCELLED
 }
 
 // The provider payout of a consumer disbursement (TenantConfig.
@@ -5013,9 +5028,21 @@ model DisbursementPayout {
   id                String                   @id @default(cuid())
   tenantId          String
   tenant            Tenant                   @relation(fields: [tenantId], references: [id])
-  applicationId     String                   @unique
-  loanId            String                   @unique
+  applicationId     String
+  loanId            String
   loan              Loan                     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // 1 = the payout the disbursement created; a retry of a FAILED/RETURNED
+  // attempt is the next number, keyed disburse:<applicationId>:<attempt>.
+  attempt           Int                      @default(1)
+  retryOfId         String?
+  // Who disbursed the loan (attempt 1's creator), copied to every attempt so
+  // the maker-checker rules can name them.
+  disbursedById     String
+  requestedById     String?
+  approvedById      String?
+  approvedAt        DateTime?
+  paidAt            DateTime?
+  returnedAt        DateTime?
   provider          String
   idempotencyKey    String
   amountCents       Int
@@ -5038,6 +5065,65 @@ model DisbursementPayout {
   updatedAt         DateTime                 @updatedAt
 
   @@unique([tenantId, idempotencyKey])
-  @@unique([tenantId, loanId])
+  @@unique([applicationId, attempt])
   @@index([tenantId, status])
+  @@index([loanId])
+}
+
+enum DisbursementReversalStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+}
+
+// Reversing a disbursement whose money never reached the borrower: requested
+// by one LOAN_ADMIN, decided by another (neither is the disburser), approved
+// only while every payout attempt is FAILED/RETURNED/CANCELLED and no receipt
+// is live. Approval cancels the loan (lib/payouts/reversal.ts).
+model DisbursementReversal {
+  id            String                     @id @default(cuid())
+  tenantId      String
+  loanId        String
+  loan          Loan                       @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status        DisbursementReversalStatus @default(REQUESTED)
+  reason        String
+  requestedById String
+  requestedAt   DateTime                   @default(now())
+  decidedById   String?
+  decidedAt     DateTime?
+  decisionNote  String?
+
+  @@index([tenantId, loanId])
+}
+
+// Per-tenant accounting export settings (lib/accounting).
+model AccountingSettings {
+  tenantId             String    @id
+  tenant               Tenant    @relation(fields: [tenantId], references: [id])
+  // The lender reviewed the chart-of-accounts mapping; cleared by any mapping change.
+  mappingConfirmedAt   DateTime?
+  mappingConfirmedById String?
+  // First month the export covers ("yyyy-mm"); history before it posts as one opening entry.
+  goLiveMonth          String?
+  vatRegistered        Boolean   @default(false)
+  vatRateBps           Int       @default(1500)
+  updatedById          String?
+  updatedAt            DateTime  @updatedAt
+}
+
+// Per-source positions carried into the go-live month's opening entry, so
+// later months post only what changes after go-live.
+model AccountingOpeningPosition {
+  id        String                @id @default(cuid())
+  tenantId  String
+  batchId   String
+  batch     AccountingExportBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  baseKey   String
+  loanId    String?
+  reference String
+  role      String
+  cents     Int
+
+  @@index([tenantId, baseKey])
+  @@index([batchId])
 }

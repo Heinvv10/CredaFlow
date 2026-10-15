@@ -15,12 +15,15 @@ export function payoutRow(overrides: Partial<DisbursementPayout> = {}): Disburse
     accountHolder: "Test Person", bankName: "FNB", branchCode: "250655", accountNumber: "62000001234", accountType: "SAVINGS",
     status: "PENDING", simulated: false, providerReference: null, failureReason: null,
     submittedAt: null, resolvedAt: null, resolvedById: null, resolutionNote: null,
-    createdById: "u-1", createdAt: new Date("2026-10-01T08:00:00Z"), updatedAt: new Date("2026-10-01T08:00:00Z"),
+    attempt: 1, retryOfId: null, disbursedById: "u-disburser", requestedById: null, approvedById: null, approvedAt: null,
+    paidAt: null, returnedAt: null,
+    createdById: "u-disburser", createdAt: new Date("2026-10-01T08:00:00Z"), updatedAt: new Date("2026-10-01T08:00:00Z"),
     ...overrides,
   }
 }
 
-export function fakePayoutDb(rows: DisbursementPayout[]) {
+/** `engineOn` is TenantConfig.payoutsEngineEnabled for the tenant. */
+export function fakePayoutDb(rows: DisbursementPayout[], engineOn = true) {
   const audits: Array<{ action: string; entityId: string | null; oldValue: unknown; newValue: unknown }> = []
   const matches = (row: DisbursementPayout, where: Record<string, unknown>) =>
     Object.entries(where).every(([k, v]) => (row as unknown as Record<string, unknown>)[k] === v)
@@ -48,9 +51,11 @@ export function fakePayoutDb(rows: DisbursementPayout[]) {
       return data
     },
   }
+  const tenantConfig = { findUnique: async () => ({ payoutsEngineEnabled: engineOn }) }
   const db = {
     disbursementPayout: table,
     auditLog,
+    tenantConfig,
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({ disbursementPayout: table, auditLog }),
   }
   return { db: db as unknown as PayoutDb, rows, audits }

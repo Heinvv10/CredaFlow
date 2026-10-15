@@ -100,7 +100,7 @@ export default async function LoanDetailPage(
   const nextPayment = loan.repaymentSchedule.find(s => s.status === "PENDING" || s.status === "PARTIAL")
   const dunningEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
   const section129Availability = await getSection129IssuanceAvailability(tenantId, loan.id)
-  const payout = await loadPayoutView(tenantId, loan.id)
+  const payout = await loadPayoutView(tenantId, loan.id, loan.status)
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -187,7 +187,7 @@ export default async function LoanDetailPage(
             </div>
           </DataPanel>
 
-          {payout && <PayoutStatusPanel payout={payout} canAct={canManageCharges} />}
+          {payout && <PayoutStatusPanel view={payout} canAct={canManageCharges} />}
 
           <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={loan.status === "ACTIVE"} />
         </div>

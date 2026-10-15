@@ -6,10 +6,14 @@
  *                          │              │              │
  *                          ├─> PAID / FAILED (definite)  ├─> FAILED / RETURNED
  *                          └─> NEEDS_REVIEW (unknown) ───┴─> NEEDS_REVIEW ──person──> PAID / FAILED
+ *
+ * A retry of a FAILED/RETURNED attempt is a new attempt created
+ * AWAITING_APPROVAL; a second person approves it (-> PENDING) or rejects it
+ * (-> CANCELLED, never sent).
  */
 import type { ProviderPayoutState } from "./types"
 
-export const PAYOUT_STATUSES = ["PENDING", "SUBMITTING", "SUBMITTED", "PROCESSING", "PAID", "FAILED", "RETURNED", "NEEDS_REVIEW"] as const
+export const PAYOUT_STATUSES = ["PENDING", "SUBMITTING", "SUBMITTED", "PROCESSING", "PAID", "FAILED", "RETURNED", "NEEDS_REVIEW", "AWAITING_APPROVAL", "CANCELLED"] as const
 export type PayoutStatus = (typeof PAYOUT_STATUSES)[number]
 
 const ALLOWED: Record<PayoutStatus, readonly PayoutStatus[]> = {
@@ -19,8 +23,10 @@ const ALLOWED: Record<PayoutStatus, readonly PayoutStatus[]> = {
   PROCESSING: ["PAID", "FAILED", "RETURNED", "NEEDS_REVIEW"],
   PAID: ["RETURNED"],
   NEEDS_REVIEW: ["PAID", "FAILED"],
+  AWAITING_APPROVAL: ["PENDING", "CANCELLED"],
   FAILED: [],
   RETURNED: [],
+  CANCELLED: [],
 }
 
 export function canTransition(from: PayoutStatus, to: PayoutStatus): boolean {
@@ -28,7 +34,12 @@ export function canTransition(from: PayoutStatus, to: PayoutStatus): boolean {
 }
 
 export function isSettled(status: PayoutStatus): boolean {
-  return status === "PAID" || status === "FAILED" || status === "RETURNED"
+  return status === "PAID" || status === "FAILED" || status === "RETURNED" || status === "CANCELLED"
+}
+
+/** An attempt that is over: money did not go, or came back. A retry or a reversal may follow it. */
+export function isOver(status: PayoutStatus): boolean {
+  return status === "FAILED" || status === "RETURNED" || status === "CANCELLED"
 }
 
 /**
@@ -38,7 +49,7 @@ export function isSettled(status: PayoutStatus): boolean {
  * does not settle it.
  */
 export function nextFromProvider(current: PayoutStatus, reported: ProviderPayoutState): PayoutStatus | null {
-  if (current === "NEEDS_REVIEW" || current === reported) return null
+  if (current === "NEEDS_REVIEW" || current === "AWAITING_APPROVAL" || current === reported) return null
   return canTransition(current, reported) ? reported : null
 }
 
@@ -58,4 +69,6 @@ export const PAYOUT_STATUS_LABELS: Record<PayoutStatus, string> = {
   FAILED: "Failed — not paid",
   RETURNED: "Returned by the bank",
   NEEDS_REVIEW: "Needs review — outcome unknown",
+  AWAITING_APPROVAL: "Retry awaiting approval",
+  CANCELLED: "Retry rejected — not sent",
 }

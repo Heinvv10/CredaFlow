@@ -5,6 +5,7 @@
  */
 import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
 import type { PayoutNotification, ProviderPayoutState } from "./types"
@@ -135,6 +136,16 @@ export async function resolvePayout(db: PayoutDb, args: {
 
   if (!CONFIRMABLE.includes(status)) {
     return { ok: false, status: 409, error: "Only a payout under review or awaiting confirmation can be confirmed by staff" }
+  }
+  // Maker-checker (the database repeats it): the person who disbursed, or who
+  // requested this attempt, does not also declare where the money went.
+  if (args.actor.id === payout.disbursedById || args.actor.id === payout.createdById) {
+    await logAuditStrict({
+      tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
+      action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "DisbursementPayout", entityId: payout.id,
+      newValue: { action: req.action, reason: "maker_checker" },
+    }, db)
+    return { ok: false, status: 403, error: "Another LOAN_ADMIN must confirm this payout: you disbursed the loan or requested this attempt" }
   }
   const to: PayoutStatus = req.action === "confirm_paid" ? "PAID" : "FAILED"
   const changed = await transitionPayout(db, {

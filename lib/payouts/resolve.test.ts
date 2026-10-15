@@ -7,11 +7,12 @@ import { canTransition, nextFromProvider, PAYOUT_STATUSES, statusAfterSend } fro
 const actor = { id: "u-1", email: "staff@test.invalid" }
 
 describe("payout state machine", () => {
-  it("has no way back to PENDING and nothing out of FAILED or RETURNED", () => {
-    for (const from of PAYOUT_STATUSES) expect(canTransition(from, "PENDING")).toBe(false)
+  it("reaches PENDING only by approving a retry, and nothing leaves FAILED, RETURNED or CANCELLED", () => {
+    for (const from of PAYOUT_STATUSES) expect(canTransition(from, "PENDING")).toBe(from === "AWAITING_APPROVAL")
     for (const to of PAYOUT_STATUSES) {
       expect(canTransition("FAILED", to)).toBe(false)
       expect(canTransition("RETURNED", to)).toBe(false)
+      expect(canTransition("CANCELLED", to)).toBe(false)
     }
   })
 
@@ -38,6 +39,16 @@ describe("resolvePayout — staff actions", () => {
     expect(out).toEqual({ ok: true, status: "PAID", changed: true })
     expect(rows[0]).toMatchObject({ status: "PAID", resolvedById: "u-1", resolutionNote: "Seen on Netcash report 14 Oct", providerReference: "NC-1" })
     expect(rows[0].resolvedAt).toBeInstanceOf(Date)
+  })
+
+  it("refuses the disburser or the attempt's requester as the confirmer (maker-checker), and audits it", async () => {
+    for (const who of ["u-disburser", "u-requester"]) {
+      const { db, rows, audits } = fakePayoutDb([payoutRow({ status: "NEEDS_REVIEW", createdById: "u-requester" })])
+      const out = await resolvePayout(db, { tenantId: "t-1", payoutId: "po-1", actor: { id: who, email: "x@test.invalid" }, request: { action: "confirm_paid", note: "Seen on the report" } })
+      expect(out).toMatchObject({ ok: false, status: 403 })
+      expect(rows[0].status).toBe("NEEDS_REVIEW")
+      expect(audits.map((a) => a.action)).toEqual(["PAYOUT_ACTION_REFUSED"])
+    }
   })
 
   it("refuses to confirm a payout that is settled or never sent", async () => {
@@ -76,15 +87,25 @@ describe("webhook ingestion (simulated provider)", () => {
   afterEach(() => vi.unstubAllEnvs())
 
   const body = JSON.stringify({ providerReference: "sim-disburse:app-1-1234", idempotencyKey: "disburse:app-1", state: "PAID" })
+  const now = new Date("2026-10-15T08:00:00Z")
+  const ts = Math.floor(now.getTime() / 1000)
+  const signed = (t: number, secret = "test-secret") =>
+    new Headers({ "x-simulated-timestamp": String(t), "x-simulated-signature": signSimulatedWebhook(body, secret, t) })
 
   it("refuses an unsigned or wrongly signed notification", () => {
-    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: new Headers() })).toBeNull()
-    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: new Headers({ "x-simulated-signature": signSimulatedWebhook(body, "other") }) })).toBeNull()
+    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: new Headers(), now })).toBeNull()
+    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: signed(ts, "other"), now })).toBeNull()
+  })
+
+  it("refuses a correctly signed notification older (or newer) than five minutes: no replay", () => {
+    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: signed(ts - 299), now })).not.toBeNull()
+    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: signed(ts - 301), now })).toBeNull()
+    expect(simulatedPayouts.parseWebhook!({ rawBody: body, headers: signed(ts + 301), now })).toBeNull()
   })
 
   it("applies a signed notification once; a repeat changes nothing", async () => {
     const { db, rows, audits } = fakePayoutDb([payoutRow({ status: "SUBMITTED", providerReference: "sim-disburse:app-1-1234" })])
-    const notification = simulatedPayouts.parseWebhook!({ rawBody: body, headers: new Headers({ "x-simulated-signature": signSimulatedWebhook(body, "test-secret") }) })!
+    const notification = simulatedPayouts.parseWebhook!({ rawBody: body, headers: signed(ts), now })!
     expect(await ingestNotification(db, { tenantId: "t-1", providerId: "simulated", notification })).toEqual({ matched: true, status: "PAID", changed: true })
     expect(await ingestNotification(db, { tenantId: "t-1", providerId: "simulated", notification })).toEqual({ matched: true, status: "PAID", changed: false })
     expect(rows[0].status).toBe("PAID")

@@ -47,15 +47,20 @@ export async function assertPayoutAvs(
     client: Omit<AvsSubjectClient, "bankName" | "bankAccountNumber" | "bankBranchCode" | "accountType">
     /** The account the payout goes to: the locked, verified banking details. */
     account: { bankName: string | null; bankAccountNumber: string | null; bankBranchCode: string | null; accountType: string | null }
+    /** A retry needs an AVS run after the attempt that failed: one from before it does not count. */
+    notBefore?: Date | null
   },
 ): Promise<{ avsCheckId: string; simulated: boolean }> {
   const latest = await db.avsCheck.findFirst({
     where: { tenantId: args.tenantId, clientId: args.client.id, applicationId: args.applicationId },
     orderBy: { createdAt: "desc" },
-    select: { id: true, clientId: true, applicationId: true, subjectFingerprint: true, passed: true, provider: true, raw: true },
+    select: { id: true, clientId: true, applicationId: true, subjectFingerprint: true, passed: true, provider: true, raw: true, createdAt: true },
   })
   const gate = evaluateAvsGate(latest, { ...args.client, ...args.account }, args.applicationId)
   if (!gate.ok || !latest) throw new PayoutAvsError(gate.reason ?? "No AVS check on record for this account")
+  if (args.notBefore && latest.createdAt.getTime() <= args.notBefore.getTime()) {
+    throw new PayoutAvsError("The AVS check on record predates the failed payout; run AVS on the account again")
+  }
   const simulated = isSimulatedAvs(latest)
   if (simulated && !simulationPermitted(latest.provider)) {
     throw new PayoutAvsError("The AVS pass on record is simulated; a provider payout needs a real AVS check of the payout account")

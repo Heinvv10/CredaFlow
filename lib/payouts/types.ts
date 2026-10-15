@@ -6,6 +6,7 @@
  * send, an unknown outcome is never retried) lives in lib/payouts/dispatch.ts
  * and the database, never in an adapter.
  */
+import type { GuardedIntegration } from "@/lib/integrations/simulation-guard"
 
 export interface PayoutBeneficiary {
   accountHolder: string
@@ -65,6 +66,13 @@ export interface PayoutProviderCapabilities {
 
 export interface PayoutProvider {
   id: string
+  /**
+   * The simulation-guard key when this adapter would answer with a simulated
+   * result in the current environment (always, or under a dry-run flag); null
+   * when it would call the real provider. lib/payouts/registry.ts refuses a
+   * simulating provider wherever the guard forbids that simulation.
+   */
+  simulation(): GuardedIntegration | null
   displayName: string
   capabilities: PayoutProviderCapabilities
   initiatePayout(request: PayoutRequest): Promise<InitiateResult>
@@ -73,10 +81,10 @@ export interface PayoutProvider {
    * Verifies and parses a webhook body. Returns null when the request is not
    * authentic: an unverifiable notification must never move a payout.
    */
-  parseWebhook?(args: { rawBody: string; headers: Headers }): PayoutNotification | null
+  parseWebhook?(args: { rawBody: string; headers: Headers; now?: Date }): PayoutNotification | null
 }
 
-export type PayoutProviderErrorCode = "NOT_CONFIGURED" | "UNKNOWN_PROVIDER" | "NOT_IMPLEMENTED" | "INCOMPLETE_BENEFICIARY"
+export type PayoutProviderErrorCode = "NOT_CONFIGURED" | "UNKNOWN_PROVIDER" | "NOT_IMPLEMENTED" | "INCOMPLETE_BENEFICIARY" | "SIMULATION_FORBIDDEN"
 
 export class PayoutProviderError extends Error {
   constructor(readonly code: PayoutProviderErrorCode, message: string) {

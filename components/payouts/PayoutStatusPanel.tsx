@@ -9,32 +9,22 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
+import type { PayoutView } from "@/lib/payouts/view"
 import { formatZAR } from "@/lib/utils"
-
-export interface PayoutView {
-  id: string
-  status: PayoutStatus
-  provider: string
-  amountCents: number
-  bankName: string
-  accountTail: string
-  simulated: boolean
-  providerReference: string | null
-  failureReason: string | null
-  submittedAt: string | null
-  resolvedAt: string | null
-  resolutionNote: string | null
-}
+import { PayoutRemedies } from "./PayoutRemedies"
+import { postAction } from "./post-action"
 
 const TONE: Record<PayoutStatus, "neutral" | "success" | "warning" | "danger" | "info"> = {
   PENDING: "warning", SUBMITTING: "info", SUBMITTED: "info", PROCESSING: "info",
   PAID: "success", FAILED: "danger", RETURNED: "danger", NEEDS_REVIEW: "danger",
+  AWAITING_APPROVAL: "warning", CANCELLED: "neutral",
 }
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" }) : "—")
 
-export function PayoutStatusPanel({ payout, canAct }: { payout: PayoutView; canAct: boolean }) {
+export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: boolean }) {
   const router = useRouter()
+  const payout = view.attempts[0]
   const [note, setNote] = useState("")
   const [reference, setReference] = useState("")
   const [busy, setBusy] = useState(false)
@@ -43,28 +33,22 @@ export function PayoutStatusPanel({ payout, canAct }: { payout: PayoutView; canA
 
   async function act(body: Record<string, unknown>) {
     setBusy(true)
-    setMessage(null)
-    try {
-      const res = await fetch(`/api/payouts/${payout.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
-      const json = (await res.json().catch(() => ({}))) as { error?: string; status?: string }
-      setMessage(res.ok ? `Payout is now: ${PAYOUT_STATUS_LABELS[json.status as PayoutStatus] ?? json.status}` : json.error ?? `Failed (${res.status})`)
-      if (res.ok) router.refresh()
-    } catch {
-      setMessage("Network error: nothing was changed by this page. Refresh to see the payout's state.")
-    } finally {
-      setBusy(false)
-    }
+    const out = await postAction(`/api/payouts/${payout.id}`, body)
+    setMessage(out.message)
+    if (out.ok) router.refresh()
+    setBusy(false)
   }
 
   return (
     <DataPanel
       title="Payout"
-      description={`Provider: ${payout.provider}`}
+      description={`Attempt ${payout.attempt} · provider: ${payout.provider}`}
       actions={<StatusPill tone={TONE[payout.status]}>{PAYOUT_STATUS_LABELS[payout.status]}</StatusPill>}
     >
-      {payout.simulated && (
-        <InfoStrip variant="warning" className="mb-4">Simulated — no money moved. Not a valid payout record.</InfoStrip>
+      {view.loanStatus === "CANCELLED" && view.reversal?.status === "APPROVED" && (
+        <InfoStrip variant="warning" className="mb-4">Disbursement reversed: the money never reached the borrower and the loan is cancelled.</InfoStrip>
       )}
+      {payout.simulated && <InfoStrip variant="warning" className="mb-4">Simulated — no money moved. Not a valid payout record.</InfoStrip>}
       {payout.status === "NEEDS_REVIEW" && (
         <InfoStrip variant="warning" className="mb-4">
           The provider&apos;s answer is unknown. It will not be sent again. Check the provider&apos;s report, then confirm it paid or failed.
@@ -79,6 +63,11 @@ export function PayoutStatusPanel({ payout, canAct }: { payout: PayoutView; canA
         {payout.resolvedAt && (<><dt className="text-[var(--cf-text-muted)]">Settled</dt><dd className="text-right text-[var(--cf-text)]">{fmt(payout.resolvedAt)}</dd></>)}
         {payout.resolutionNote && (<><dt className="text-[var(--cf-text-muted)]">Staff note</dt><dd className="text-right text-[var(--cf-text)]">{payout.resolutionNote}</dd></>)}
       </dl>
+      {view.attempts.length > 1 && (
+        <p className="mt-3 text-xs text-[var(--cf-text-muted)]">
+          Earlier attempts: {view.attempts.slice(1).map((a) => `#${a.attempt} ${PAYOUT_STATUS_LABELS[a.status].toLowerCase()} (••••${a.accountTail})`).join("; ")}
+        </p>
+      )}
       {canAct && (
         <div className="mt-4 space-y-3 border-t border-[var(--cf-border-subtle)] pt-4">
           <div className="flex flex-wrap gap-2">
@@ -89,6 +78,7 @@ export function PayoutStatusPanel({ payout, canAct }: { payout: PayoutView; canA
           </div>
           {confirmable && (
             <div className="space-y-2">
+              <p className="text-xs text-[var(--cf-text-muted)]">Confirmed by a LOAN_ADMIN other than the one who disbursed.</p>
               <Textarea placeholder="What you checked (required to confirm)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
               <Input placeholder="Provider or bank reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} />
               <div className="flex flex-wrap gap-2">
@@ -98,6 +88,7 @@ export function PayoutStatusPanel({ payout, canAct }: { payout: PayoutView; canA
             </div>
           )}
           {message && <p className="text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}
+          <PayoutRemedies view={view} />
         </div>
       )}
     </DataPanel>

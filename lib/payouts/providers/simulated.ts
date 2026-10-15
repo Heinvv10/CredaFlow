@@ -11,8 +11,11 @@
  *   anything else -> accepted, later PAID
  *
  * Webhooks are HMAC-SHA256 signed with SIMULATED_PAYOUT_WEBHOOK_SECRET in the
- * `x-simulated-signature` header (hex), over the raw body
- * `{ providerReference, idempotencyKey, state, reason? }`.
+ * `x-simulated-signature` header (hex), over `<timestamp>.<raw body>`, where
+ * `x-simulated-timestamp` is unix seconds and the body is
+ * `{ providerReference, idempotencyKey, state, reason? }`. A notification
+ * signed more than five minutes from now is refused, so a captured one cannot
+ * be replayed later.
  */
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { assertSimulationAllowed, isSimulationPermitted } from "@/lib/integrations/simulation-guard"
@@ -27,14 +30,17 @@ function finalState(reference: string): { state: ProviderPayoutState; reason?: s
   return { state: "PAID" }
 }
 
-export function signSimulatedWebhook(rawBody: string, secret: string): string {
-  return createHmac("sha256", secret).update(rawBody).digest("hex")
+export const WEBHOOK_TOLERANCE_SECONDS = 300
+
+export function signSimulatedWebhook(rawBody: string, secret: string, timestamp: number): string {
+  return createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex")
 }
 
 export const simulatedPayouts: PayoutProvider = {
   id: "simulated",
   displayName: "Simulated (no money moves)",
   capabilities: { implemented: true, statusQuery: true, webhooks: true },
+  simulation: () => "simulated-payout",
 
   async initiatePayout(request) {
     assertSimulationAllowed("simulated-payout", true)
@@ -51,11 +57,14 @@ export const simulatedPayouts: PayoutProvider = {
     return { kind: "state", ...finalState(providerReference) }
   },
 
-  parseWebhook({ rawBody, headers }): PayoutNotification | null {
+  parseWebhook({ rawBody, headers, now }): PayoutNotification | null {
     const secret = process.env.SIMULATED_PAYOUT_WEBHOOK_SECRET
     if (!secret || !isSimulationPermitted("simulated-payout")) return null
+    const timestamp = Number(headers.get("x-simulated-timestamp"))
+    const nowSeconds = Math.floor((now ?? new Date()).getTime() / 1000)
+    if (!Number.isSafeInteger(timestamp) || Math.abs(nowSeconds - timestamp) > WEBHOOK_TOLERANCE_SECONDS) return null
     const given = headers.get("x-simulated-signature") ?? ""
-    const expected = signSimulatedWebhook(rawBody, secret)
+    const expected = signSimulatedWebhook(rawBody, secret, timestamp)
     if (given.length !== expected.length || !timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return null
     let body: unknown
     try {

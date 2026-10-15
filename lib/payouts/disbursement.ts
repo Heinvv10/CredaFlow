@@ -36,8 +36,9 @@ export interface DisbursementPayoutInput {
   avs: { avsCheckId: string; simulated: boolean }
 }
 
-export function payoutIdempotencyKey(applicationId: string): string {
-  return `disburse:${applicationId}`
+/** Attempt 1 is `disburse:<applicationId>`; a retry is `disburse:<applicationId>:<attempt>` (DB CHECK-bound). */
+export function payoutIdempotencyKey(applicationId: string, attempt = 1): string {
+  return attempt === 1 ? `disburse:${applicationId}` : `disburse:${applicationId}:${attempt}`
 }
 
 /**
@@ -64,6 +65,7 @@ export async function createDisbursementPayout(
       reference: input.reference,
       accountHolder, bankName, branchCode, accountNumber, accountType,
       createdById: input.user.id,
+      disbursedById: input.user.id,
     },
     select: { id: true },
   })

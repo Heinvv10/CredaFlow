@@ -5,7 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import { readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
-import { registeredPayoutProviders } from "@/lib/payouts/registry"
+import { payoutProviderRefusal, registeredPayoutProviders } from "@/lib/payouts/registry"
 
 // The payout channel (lib/payouts): payoutsEngineEnabled and payoutProvider.
 // ADMIN; writes need TOTP when required and are audited. Turning the engine on
@@ -17,7 +17,11 @@ function view(row: { payoutsEngineEnabled: boolean; payoutProvider: string | nul
   return {
     payoutsEngineEnabled: row?.payoutsEngineEnabled ?? false,
     payoutProvider: row?.payoutProvider ?? null,
-    providers: registeredPayoutProviders().map((p) => ({ id: p.id, displayName: p.displayName, implemented: p.capabilities.implemented, statusQuery: p.capabilities.statusQuery })),
+    providers: registeredPayoutProviders().map((p) => ({
+      id: p.id, displayName: p.displayName, implemented: p.capabilities.implemented, statusQuery: p.capabilities.statusQuery,
+      // Null = usable here; otherwise why not (not built, or a simulation this deployment forbids).
+      unavailableReason: payoutProviderRefusal(p),
+    })),
   }
 }
 
@@ -40,6 +44,10 @@ export async function PATCH(req: NextRequest) {
     const providerId = body.payoutProvider === null || body.payoutProvider === "" ? null : body.payoutProvider
     const provider = typeof providerId === "string" ? registeredPayoutProviders().find((p) => p.id === providerId) : null
     if (providerId !== null && !provider) return NextResponse.json({ error: "Unknown payout provider" }, { status: 400 })
+    // A channel that would only simulate here is never selectable where the
+    // simulation guard forbids it, on or off.
+    const unusable = provider?.capabilities.implemented ? payoutProviderRefusal(provider) : null
+    if (unusable) return NextResponse.json({ error: unusable }, { status: 422 })
     if (body.payoutsEngineEnabled && !provider?.capabilities.implemented) {
       return NextResponse.json({ error: "Choose an implemented payout provider before turning payouts on" }, { status: 422 })
     }

@@ -20,6 +20,8 @@ const suite = process.env.RUN_PAYOUTS_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 let tenant: ChargesTenant
 const actor = () => ({ id: tenant.userId, email: "payout-it@test.invalid" })
+// A second LOAN_ADMIN: the checker for anything the disburser may not settle.
+const checker = () => ({ id: `${tenant.userId}-chk`, email: "payout-checker@test.invalid" })
 
 async function loanForPayout() {
   const ids = await createChargesLoan(db, tenant)
@@ -52,8 +54,10 @@ const send = vi.fn(async () => {
 suite.sequential("payouts (real Postgres)", () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
+    await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { payoutsEngineEnabled: true } })
+    await db.user.create({ data: { id: checker().id, tenantId: tenant.tenantId, email: `${checker().id}@test.invalid`, password: "x", role: "LOAN_ADMIN" } })
     registerPayoutProvider({
-      id: "it-stub", displayName: "IT stub", capabilities: { implemented: true, statusQuery: false, webhooks: false },
+      id: "it-stub", displayName: "IT stub", capabilities: { implemented: true, statusQuery: false, webhooks: false }, simulation: () => null,
       initiatePayout: send, getPayoutStatus: async () => ({ kind: "unsupported" }),
     })
   })
@@ -68,6 +72,21 @@ suite.sequential("payouts (real Postgres)", () => {
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1)
     expect(await db.disbursementPayout.count({ where: { applicationId: loan.applicationId } })).toBe(1)
     expect(await db.auditLog.count({ where: { action: "PAYOUT_CREATED", tenantId: tenant.tenantId, newValue: { path: ["applicationId"], equals: loan.applicationId } } })).toBe(1)
+  })
+
+  it("sends nothing while the tenant's payout engine is off", async () => {
+    const loan = await loanForPayout()
+    const { id } = await claim(loan)
+    send.mockClear()
+    await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { payoutsEngineEnabled: false } })
+    try {
+      const out = await dispatchPayout(prisma, { tenantId: tenant.tenantId, payoutId: id, actor: actor() })
+      expect(out.kind).toBe("not_sendable")
+      expect(send).not.toHaveBeenCalled()
+      expect((await db.disbursementPayout.findUniqueOrThrow({ where: { id } })).status).toBe("PENDING")
+    } finally {
+      await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { payoutsEngineEnabled: true } })
+    }
   })
 
   it("concurrent dispatches of one payout call the provider once", async () => {
@@ -93,9 +112,11 @@ suite.sequential("payouts (real Postgres)", () => {
     await refused(db.disbursementPayout.delete({ where: { id } }), /never deleted/)
     await db.disbursementPayout.update({ where: { id }, data: { status: "SUBMITTING", submittedAt: new Date() } })
     await db.disbursementPayout.update({ where: { id }, data: { status: "NEEDS_REVIEW" } })
-    await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PAID" } }), /resolved by a named person/)
+    await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PAID", paidAt: new Date() } }), /resolved by a named person/)
     await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PENDING" } }), /NEEDS_REVIEW -> PENDING is not allowed/)
-    const out = await resolvePayout(prisma, { tenantId: tenant.tenantId, payoutId: id, actor: actor(), request: { action: "confirm_paid", note: "Seen on the bank statement" } })
+    // Maker-checker in the database: the disburser cannot settle it by hand.
+    await refused(db.disbursementPayout.update({ where: { id }, data: { status: "PAID", paidAt: new Date(), resolvedById: tenant.userId, resolutionNote: "self" } }), /disburser or the requester cannot settle/)
+    const out = await resolvePayout(prisma, { tenantId: tenant.tenantId, payoutId: id, actor: checker(), request: { action: "confirm_paid", note: "Seen on the bank statement" } })
     expect(out).toEqual({ ok: true, status: "PAID", changed: true })
     await refused(db.disbursementPayout.update({ where: { id }, data: { failureReason: "x" } }), /settled payout is immutable/)
   })
@@ -106,7 +127,7 @@ suite.sequential("payouts (real Postgres)", () => {
     const base = {
       tenantId: tenant.tenantId, loanId: loan.loanId, applicationId: loan.applicationId, provider: "it-stub",
       idempotencyKey: `disburse:${loan.applicationId}`, amountCents: 100, reference: "R",
-      accountHolder: "A", bankName: "B", branchCode: "1", accountNumber: "2", accountType: "S", createdById: tenant.userId,
+      accountHolder: "A", bankName: "B", branchCode: "1", accountNumber: "2", accountType: "S", createdById: tenant.userId, disbursedById: tenant.userId,
     }
     await refused(db.disbursementPayout.create({ data: { ...base, status: "SUBMITTED" } }), /created PENDING and unsent/)
     await refused(db.disbursementPayout.create({ data: { ...base, applicationId: other.applicationId, idempotencyKey: `disburse:${other.applicationId}` } }), /loan booked from its own application/)

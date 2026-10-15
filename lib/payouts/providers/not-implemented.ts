@@ -21,6 +21,7 @@ function skeleton(id: string, displayName: string, needs: string): PayoutProvide
     id,
     displayName,
     capabilities: { implemented: false, statusQuery: false, webhooks: false },
+    simulation: () => null,
     initiatePayout: async () => refuse(),
     getPayoutStatus: async () => refuse(),
   }
