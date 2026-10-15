@@ -55,6 +55,23 @@ describe("cross-origin writes are refused before any other gate", () => {
     )
   })
 
+  // Operator support sessions are read-only (lib/proxy/operator-read-only.ts),
+  // but the cross-origin gate runs first: a cross-site write never reaches it.
+  const OPERATOR = { user: { id: "op1", role: "OPERATOR_SUPPORT", tenantId: null, totpEnrolmentRequired: false } }
+
+  it("refuses an operator's cross-site POST at the cross-origin gate, before the read-only gate", async () => {
+    const res = await send("/api/clients/c1/messages", { "sec-fetch-site": "cross-site" }, { session: OPERATOR })
+    await expectRefused(res)
+    expect(await res.json()).toEqual({ error: "Cross-origin request refused" })
+  })
+
+  it("refuses an operator's same-origin POST at the read-only gate, and passes its GET", async () => {
+    const write = await send("/api/clients/c1/messages", { "sec-fetch-site": "same-origin" }, { session: OPERATOR })
+    await expectRefused(write)
+    expect(await write.json()).toEqual({ error: "Support access is read-only" })
+    expectPassed(await send("/api/clients/c1", { "sec-fetch-site": "same-origin" }, { method: "GET", session: OPERATOR }))
+  })
+
   it.each(["cross-site", "same-site", "bogus", ""])("refuses Sec-Fetch-Site %j", async (site) => {
     await expectRefused(await send("/api/applications/app-1/disburse", { "sec-fetch-site": site }))
   })
