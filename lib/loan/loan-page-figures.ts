@@ -32,20 +32,24 @@ export async function staffLoanFigures(
   })
   const notDerived = (latestNotice?.data as { chargesNotDerived?: unknown } | undefined)?.chargesNotDerived
   const servicing = loan.status === "ACTIVE" || loan.status === "DEFAULTED"
-  const maturityBalance = loan.totalRepayable - loan.totalPaid + figures.chargesOutstanding
+  // A CANCELLED loan (a disbursement reversed because the money never reached
+  // the borrower, lib/payouts/reversal.ts) owes nothing, whatever its
+  // schedule rows still say.
+  const cancelled = loan.status === "CANCELLED"
+  const maturityBalance = cancelled ? 0 : loan.totalRepayable - loan.totalPaid + figures.chargesOutstanding
   return {
     charges: figures.charges,
     /** what the client must pay today to settle (s125 pricing) */
-    settlementAmount: figures.totalToSettle,
+    settlementAmount: cancelled ? 0 : figures.totalToSettle,
     /**
      * The balance shown on the page: while charges are live, what settles the
      * loan today (the figure the portal and the NCA documents state); otherwise
      * the contractual balance at maturity, as before.
      */
-    balance: figures.live ? figures.totalToSettle : maturityBalance,
+    balance: cancelled ? 0 : figures.live ? figures.totalToSettle : maturityBalance,
     /** contractual balance at maturity, plus charges owed */
     maturityBalance,
-    arrears: figures.arrearsIncludingCharges,
+    arrears: cancelled ? 0 : figures.arrearsIncludingCharges,
     cashPaid: figures.paymentsReceived,
     waivable: servicing && figures.totalToSettle >= 1 && figures.totalToSettle <= MAX_WAIVABLE_BALANCE_CENTS,
     /** why the latest Section 129 notice's admin charge was not posted, if it was not */

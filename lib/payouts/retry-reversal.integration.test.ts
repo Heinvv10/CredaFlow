@@ -139,7 +139,7 @@ suite.sequential("payout retry and disbursement reversal (real Postgres)", () =>
     await db.payment.update({ where: { id: pay.id }, data: { reversed: true, reversedAt: new Date(), reversalReason: "test" } })
 
     expect(await decideDisbursementReversal(prisma, { tenantId: tenant.tenantId, reversalId, approve: true, note: "Bank confirms the money never arrived", actor: checker() })).toMatchObject({ ok: true, status: "APPROVED" })
-    expect(await db.loan.findUniqueOrThrow({ where: { id: loan.loanId } })).toMatchObject({ status: "CANCELLED", outstandingPrincipal: 0, arrearsAmount: 0, daysInArrears: 0 })
+    expect(await db.loan.findUniqueOrThrow({ where: { id: loan.loanId } })).toMatchObject({ status: "CANCELLED", outstandingPrincipal: 0, arrearsAmount: 0, daysInArrears: 0, totalInterest: 0, totalRepayable: 0 })
     expect(await db.auditLog.count({ where: { entityId: loan.loanId, action: "LOAN_CANCELLED" } })).toBe(1)
     await refused(db.disbursementReversal.update({ where: { id: reversalId }, data: { decisionNote: "edit" } }), /decided once/)
   })

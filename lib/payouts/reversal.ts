@@ -96,6 +96,9 @@ export async function decideDisbursementReversal(db: ReversalDb, args: {
         data: {
           status: "CANCELLED", closedAt: now, outstandingPrincipal: 0, arrearsAmount: 0, daysInArrears: 0,
           nextPaymentDate: null, collectionsStage: "NONE", chargesOutstanding: 0,
+          // No interest or fees on money never advanced. The signed totals stay
+          // in contractualTotal* (set at booking).
+          totalInterest: 0, totalRepayable: 0,
         },
       })
       if (cancelled.count !== 1) throw new Error("The loan changed while its disbursement was being reversed")
