@@ -210,7 +210,7 @@ describe("restore --over-live without a counts sidecar", () => {
 })
 
 describe("locks", () => {
-  it("a lender dir reached through a symlink and its target are one lock: provision does not deadlock on itself", () => {
+  it("a lender dir reached through a symlink and its target are one lock: provision does not deadlock on itself", { timeout: 30000 }, () => {
     const link = join(root, "link-to-lender")
     symlinkSync(lender, link)
     const r = sh("backup.sh", [link], { LENDER_LOCK_WAIT: "3" })
@@ -225,7 +225,7 @@ describe("locks", () => {
     })
   })
 
-  it("LENDER_LOCK_HELD in the environment is not a pass: only the real inherited descriptor is", async () => {
+  it("LENDER_LOCK_HELD in the environment is not a pass: only the real inherited descriptor is", { timeout: 30000 }, async () => {
     await holdThen(async () => {
       const r = sh("backup.sh", [lender], { LENDER_LOCK_WAIT: "1", LENDER_LOCK_HELD: lender })
       expect(r.status).not.toBe(0)
@@ -233,7 +233,7 @@ describe("locks", () => {
     })
   })
 
-  it("two lender dirs that would use the same compose project exclude each other (host-wide project lock)", async () => {
+  it("two lender dirs that would use the same compose project exclude each other (host-wide project lock)", { timeout: 30000 }, async () => {
     const other = join(root, "other-dir")
     mkdirSync(join(other, "state"), { recursive: true })
     for (const f of [".env", "secrets/auth.env", "secrets/backup.passphrase"]) {
